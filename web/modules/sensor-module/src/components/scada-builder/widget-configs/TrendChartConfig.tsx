@@ -1,5 +1,11 @@
 import React from 'react';
-import { Button, Select } from '@aquaculture/shared-ui';
+import { Button, Select, useTimeRangeLabels } from '@aquaculture/shared-ui';
+import {
+  DEFAULT_TREND_WIDGET_PRESET,
+  TREND_WIDGET_PRESETS,
+  parseTrendWidgetPreset,
+  trendWidgetRangeOf,
+} from '../widget-renderers/trendChartUtils';
 import { TagBrowser } from '../TagBrowser';
 
 interface WidgetConfigProps {
@@ -12,6 +18,7 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
   const tags: string[] = (config.tags as string[]) || [];
   const showGrid = (config.showGrid as boolean) ?? true;
   const showLegend = (config.showLegend as boolean) ?? true;
+  const rangeLabels = useTimeRangeLabels();
 
   const addTag = () => {
     onChange({ tags: [...tags, ''] });
@@ -59,19 +66,20 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {/* Default time range */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Default Time Range
+          {rangeLabels.defaultLabel}
         </label>
         <Select
           fullWidth
-          options={[
-            { value: '1h', label: '1 Hour' },
-            { value: '6h', label: '6 Hours' },
-            { value: '24h', label: '24 Hours' },
-            { value: '7d', label: '7 Days' },
-            { value: '30d', label: '30 Days' },
-          ]}
-          value={(config.defaultRange as string) || '24h'}
-          onChange={(e) => onChange({ defaultRange: e.target.value })}
+          options={TREND_WIDGET_PRESETS.map((preset) => ({
+            value: preset,
+            label: rangeLabels.preset(preset),
+          }))}
+          value={trendWidgetRangeOf(config)}
+          onChange={(e) =>
+            onChange({
+              defaultRange: parseTrendWidgetPreset(e.target.value) ?? DEFAULT_TREND_WIDGET_PRESET,
+            })
+          }
         />
       </div>
 

@@ -560,7 +560,10 @@ class TheHookAndTheDaemonBackOff(unittest.TestCase):
         self.assertEqual(derive_request_state(request_id="REQ-UNCONTAINED", base_dir=self.tools), "REQUEUED")
         governance = [json.loads(line) for line in (self.tools / "governance.jsonl").read_text().splitlines() if line.strip()]
         self.assertIn("planner_dispatch_provider_control_unavailable", [row["kind"] for row in governance])
-        self.assertEqual(hook.ADMISSION_BACKOFF_STATUSES, frozenset(hook.ADMISSION_HALT_STATUSES.values()))
+        # ARIA-HIGH-364 — the back-off set is the halts plus the pre-claim
+        # provider cooldown, nothing else.
+        self.assertEqual(hook.ADMISSION_BACKOFF_STATUSES,
+                         frozenset({*hook.ADMISSION_HALT_STATUSES.values(), hook.PROVIDER_COOLDOWN_STATUS}))
 
     def test_the_daemon_sleeps_the_poll_interval_and_counts_no_dispatch(self) -> None:
         from aria_kernel.autonomous_planner_dispatcher import run_planner_dispatch_daemon

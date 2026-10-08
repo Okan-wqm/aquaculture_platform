@@ -25,6 +25,7 @@ from unittest.mock import patch
 
 from aria_kernel import agent_invocations as ai
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 SIGNER = "SHA256:learned-context-test"
 
@@ -74,6 +75,7 @@ def _mint(tools: Path, *, evidence_refs: list[str], repo_root: Path | None = Non
         convergence_id="conv-know",
         base_dir=tools,
         context_repo_root=repo_root,
+        admission=admit_request("operator_cli.request", "primary_plan", base_dir=tools),
     )
 
 
@@ -251,6 +253,7 @@ class RejectedHistoryAtMintTest(unittest.TestCase):
                     allowed_scope=["src/**"], evidence_refs=["src/feed.py:1"],
                     convergence_id=cycle, cycle_id=cycle, target_sha=target_sha,
                     context_repo_root=repo, base_dir=tools,
+                    admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=tools),
                 )
 
             original = mint("history-first")
@@ -341,6 +344,7 @@ class _NativeHistoryFixture:
             evidence_refs=["src/feed.py:1"] if refs is None else refs,
             convergence_id=cycle, cycle_id=cycle, target_sha=self.target_sha,
             context_repo_root=self.repo, base_dir=tools or self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=tools or self.tools),
         )
 
     def reject(self, request: dict, *, tools: Path | None = None) -> tuple[dict, dict]:

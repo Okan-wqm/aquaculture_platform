@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,13 +35,23 @@ from .diagnostics import emit_ledger_corruption_diagnostic
 from .evidence_probe import GitProbeSession
 from .evidence_trust import classify_evidence_ref
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    append_tools_governance_once,
+    ensure_tools_binding,
+    parse_utc_stamp,
+)
 
 
 # Plan 033 Faz 033a — CRITICAL is the top severity for security findings; added
 # at the front (rank 4) so every existing rank and every recorded row is preserved.
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL")
 STATUSES = ("OPEN", "IN_PROGRESS", "RESOLVED", "SUPPRESSED", "WITHDRAWN")
+# Wall #7 — the statuses that ARE backlog: work opened and not finished. The
+# backlog counter (cycle_guard), the closable census (closure_blocker) and the
+# closure flow (backlog_flow) read this one set.
+BACKLOG_STATUSES: frozenset[str] = frozenset({"OPEN", "IN_PROGRESS"})
 # E21-c (ORPHAN-693) — İ2 decision, measured 2026-08-16: SUSPECTED /
 # UNCERTAIN / UNKNOWN had ZERO producers (every emitter passes OBSERVED or
 # nothing; no CLI flag exposes certainty), so three of five members were a
@@ -321,6 +332,79 @@ def _normalize_evidences(
     return normalized
 
 
+def _is_kernel_finding_doc(raw: bytes, finding_id: str) -> bool:
+    """True when ``raw`` is the document ``emit_finding`` writes for ``finding_id``."""
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(doc, dict)
+        and doc.get("$schema") == "aria/finding/v1"
+        and doc.get("finding_id") == finding_id
+    )
+
+
+def _retire_unledgered_finding_file(tools_root: Path, path: Path, finding_id: str) -> None:
+    """ARIA-MEDIUM-330 — remove a foreign file from the id this mint owns.
+
+    Called under the allocation lock with the id ``_allocate_finding_id``
+    just read off the ledger, so the ledger proves no finding was ever
+    emitted under it: whatever sits at ``path`` is not a finding. The
+    runner store carries two such files, F-101 and F-102, written by the
+    pre-ORPHAN-702 seeder beside the ledger; a SIGKILL between
+    ``_claim_finding_file`` and the event append leaves a third shape, an
+    empty claim. Either one would refuse every later mint at that id, so
+    the allocator could never move past it. Each is recorded (sha256 +
+    size, once per content) and removed; aria/state history keeps its bytes.
+
+    A file shaped like a kernel-written finding is NOT removed: an
+    unledgered one means the ledger lost rows, re-minting over it would
+    destroy the only copy of that record, and ``_claim_finding_file``
+    refuses the mint by name instead.
+    """
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return
+    if _is_kernel_finding_doc(raw, finding_id):
+        return
+    append_tools_governance_once(
+        tools_root,
+        "finding_file_unledgered_retired",
+        {
+            "finding_id": finding_id,
+            "path": path.relative_to(path.parent.parent).as_posix(),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw),
+        },
+        claim_keys=("finding_id", "sha256"),
+    )
+    path.unlink(missing_ok=True)
+
+
+def _claim_finding_file(path: Path, finding_id: str) -> None:
+    """ARIA-MEDIUM-330 — create the finding's file exclusively, or refuse the mint.
+
+    Runs BEFORE the ``finding_emitted`` event is appended. The ledger is the
+    authority for which findings exist; checking for the file only after
+    the append left an event naming a finding whose file belonged to
+    someone else. ``O_EXCL`` makes the check and the claim one step, so a
+    file that survived ``_retire_unledgered_finding_file`` (an unledgered
+    kernel-shaped record) or one a writer outside the allocation lock
+    created in between is refused with the ledger and that file exactly
+    as they were.
+    """
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644))
+    except FileExistsError as exc:
+        raise GovernanceError(
+            f"finding_file_collision:{finding_id}: {path.name} exists but the "
+            f"event ledger never emitted {finding_id}; the mint is refused "
+            f"before its event is appended"
+        ) from exc
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
@@ -484,23 +568,29 @@ def emit_finding(
             "closes_in_commit": None,
             "schema_version": SCHEMA_VERSION,
         }
-        event = append_declared_jsonl(
-            _events_path(repo_path),
-            {
-                "schema_version": 1,
-                "event": "finding_emitted",
-                "event_id": f"finding:{finding_id}:emitted",
-                "finding_id": finding_id,
-                "target_sha": target_sha,
-                "record": record,
-            },
-            expected_surface="repo_finding_events",
-        )
+        output_path = _findings_dir(repo_path) / f"{finding_id}.json"
+        _retire_unledgered_finding_file(tools_root, output_path, finding_id)
+        _claim_finding_file(output_path, finding_id)
+        try:
+            event = append_declared_jsonl(
+                _events_path(repo_path),
+                {
+                    "schema_version": 1,
+                    "event": "finding_emitted",
+                    "event_id": f"finding:{finding_id}:emitted",
+                    "finding_id": finding_id,
+                    "target_sha": target_sha,
+                    "record": record,
+                },
+                expected_surface="repo_finding_events",
+            )
+        except BaseException:
+            # The append refused or died: the claim must not outlive it, or
+            # this id would hold an empty file no event names.
+            output_path.unlink(missing_ok=True)
+            raise
         record["source_event_id"] = event.get("event_id")
         record["source_ledger_hash"] = event.get("ledger_hash")
-        output_path = _findings_dir(repo_path) / f"{finding_id}.json"
-        if output_path.exists():
-            raise GovernanceError(f"finding {finding_id} already exists at {output_path}")
         _atomic_write_json(output_path, record)
         _refresh_index(repo_path)
 
@@ -576,6 +666,41 @@ def fold_findings(repo_root: str | Path) -> dict[str, dict[str, Any]] | None:
     if not _events_path(repo_path).exists():
         return None
     return _replay_findings(repo_path)
+
+
+def backlog_flow(repo_root: str | Path, *, since: datetime) -> dict[str, list[str]] | None:
+    """Wall #7 — the findings that entered and left the backlog at or after ``since``.
+
+    From the event ledger, the only record of WHEN a status moved: a mint at
+    ``record.created_at``; a status change or verified fix at ``recorded_at``
+    when it crosses BACKLOG_STATUSES. None without a ledger (as fold_findings),
+    so a missing history never reads as "nothing was closed".
+    """
+    path = _events_path(Path(repo_root).resolve())
+    if not path.exists():
+        return None
+    status: dict[str, str] = {}
+    flow: dict[str, list[str]] = {"opened": [], "closed": []}
+    for event in load_declared_jsonl(path, expected_surface="repo_finding_events"):
+        kind = str(event.get("event") or "")
+        if kind not in FINDING_EVENT_TYPES:
+            raise GovernanceError(f"finding event type unknown: {kind!r} (allowed: {FINDING_EVENT_TYPES})")
+        finding_id = str(event.get("finding_id") or "")
+        if kind == "finding_emitted":
+            record = event.get("record") if isinstance(event.get("record"), dict) else {}
+            after, stamp = str(record.get("status") or "OPEN"), record.get("created_at")
+        elif kind == "finding_fix_verified":
+            after, stamp = "RESOLVED", event.get("recorded_at")
+        elif kind == "finding_status_changed":
+            after, stamp = str(event.get("to_status") or ""), event.get("recorded_at")
+        else:  # finding_reproduced moves certainty, never status
+            continue
+        before, status[finding_id] = status.get(finding_id), after
+        moment = parse_utc_stamp(stamp)
+        if moment is None or moment < since or (before in BACKLOG_STATUSES) == (after in BACKLOG_STATUSES):
+            continue
+        flow["opened" if after in BACKLOG_STATUSES else "closed"].append(finding_id)
+    return flow
 
 
 def show_finding(repo_root: str | Path, finding_id: str) -> dict[str, Any]:
@@ -826,6 +951,8 @@ def record_finding_status_change(
     reason: str,
     actor: str,
     base_dir: str | Path | None = None,
+    closes_in_commit: str | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """E21-c (ORPHAN-693) — operator status transitions become event rows.
 
@@ -833,10 +960,28 @@ def record_finding_status_change(
     reach IN_PROGRESS / SUPPRESSED / WITHDRAWN through replay — a state
     machine whose states were unreachable. Transitions validate against
     STATUS_TRANSITIONS at append time; the fold trusts the ledger.
+
+    ARIA-HIGH-363 — a RESOLVED transition may carry ``closes_in_commit``
+    (the commit that fixed it) and ``evidence`` (why the closer believes
+    it), which the fold surfaces as ``closes_in_commit`` and
+    ``resolution_evidence``. The merge reconciler
+    (``finding_closure``) is their producer: it closes a finding whose
+    detector no longer reproduces it at the merge commit, through this same
+    transition path rather than a second closing event. On any other
+    target status the two fields are refused — they assert a fix.
     """
     repo_path = Path(repo_root).resolve()
     if to_status not in STATUSES:
         raise GovernanceError(f"invalid status: {to_status}")
+    if (closes_in_commit is not None or evidence is not None) and to_status != "RESOLVED":
+        raise GovernanceError(
+            f"finding_status_change_resolution_fields: closes_in_commit/evidence assert a fix "
+            f"and ride only a RESOLVED transition, not {to_status}"
+        )
+    if closes_in_commit is not None and (not isinstance(closes_in_commit, str) or not closes_in_commit.strip()):
+        raise GovernanceError("finding_status_change_closes_in_commit_invalid")
+    if evidence is not None and not isinstance(evidence, dict):
+        raise GovernanceError("finding_status_change_evidence_must_be_object")
     if not isinstance(reason, str) or not reason.strip():
         raise GovernanceError("finding_status_change_reason_required")
     if not isinstance(actor, str) or not actor.strip():
@@ -863,6 +1008,10 @@ def record_finding_status_change(
         "actor": actor,
         "recorded_at": _utc_now(),
     }
+    if closes_in_commit is not None:
+        event_row["closes_in_commit"] = closes_in_commit
+    if evidence is not None:
+        event_row["evidence"] = evidence
     return _append_finding_event(
         repo_path, event_row,
         governance_kind="finding_status_changed",
@@ -871,6 +1020,7 @@ def record_finding_status_change(
             "from_status": current,
             "to_status": to_status,
             "actor": actor,
+            **({"closes_in_commit": closes_in_commit} if closes_in_commit is not None else {}),
         },
         base_dir=base_dir,
     )
@@ -941,6 +1091,11 @@ def _replay_findings(repo_root: Path) -> dict[str, dict[str, Any]]:
             doc = dict(record)
             doc["source_event_id"] = event.get("event_id")
             doc["source_ledger_hash"] = source_ledger_hash
+            # ARIA-HIGH-363 (review B1) — the commit the finding was minted
+            # against, from the mint event every finding already has. The
+            # merge closure reads it to close only findings that predate the
+            # merge, never a regression minted after it.
+            doc["minted_at_sha"] = event.get("target_sha")
             findings[finding_id] = doc
             continue
         # Every non-mint event references a finding the ledger has already
@@ -976,4 +1131,9 @@ def _replay_findings(repo_root: Path) -> dict[str, dict[str, Any]]:
             doc["status"] = event.get("to_status")
             doc["status_reason"] = event.get("reason")
             doc["status_actor"] = event.get("actor")
+            # ARIA-HIGH-363 — present only on a RESOLVED transition (append-time rule).
+            if event.get("closes_in_commit") is not None:
+                doc["closes_in_commit"] = event.get("closes_in_commit")
+            if event.get("evidence") is not None:
+                doc["resolution_evidence"] = event.get("evidence")
     return findings

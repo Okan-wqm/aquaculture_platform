@@ -47,6 +47,7 @@ __all__ = [
     "DEFAULT_PLANNER_ROLES",
     "DEFAULT_LEASE_SECONDS",
     "PROVIDER_CONTROL_UNAVAILABLE_STATUS",
+    "PROVIDER_COOLDOWN_STATUS",
     "PROVIDER_UNDECIDED_STATUS",
     "dispatch_one_pending_planner_request",
 ]
@@ -67,9 +68,19 @@ ADMISSION_HALT_STATUSES: dict[str, str] = {
     NATIVE_RUNTIME_PROVIDER_UNDECIDED: PROVIDER_UNDECIDED_STATUS,
     NATIVE_RUNTIME_CONTROL_UNAVAILABLE: PROVIDER_CONTROL_UNAVAILABLE_STATUS,
 }
-# What the daemon backs off on: exactly the halt statuses, derived, so a
-# third halted release cannot reach the daemon as a plain "dispatched".
-ADMISSION_BACKOFF_STATUSES: frozenset[str] = frozenset(ADMISSION_HALT_STATUSES.values())
+# ARIA-HIGH-364 — every provider the selected request's seat may run on is
+# under an active cooldown (`provider_cooldown.active_provider_cooldowns`,
+# read through `provider_outage`). Decided BEFORE the claim: during an outage
+# the daemon used to claim, have the child refuse `no_eligible_provider`,
+# release and log on every poll. Nothing is claimed; the request stays
+# PENDING and the daemon backs off one poll, as the worker scheduler does.
+PROVIDER_COOLDOWN_STATUS = "provider_cooldown"
+# What the daemon backs off on: the halt statuses, derived, so a third
+# halted release cannot reach the daemon as a plain "dispatched", and the
+# pre-claim cooldown.
+ADMISSION_BACKOFF_STATUSES: frozenset[str] = frozenset(
+    {*ADMISSION_HALT_STATUSES.values(), PROVIDER_COOLDOWN_STATUS},
+)
 
 
 DEFAULT_PLANNER_ROLES: tuple[str, ...] = ("primary_plan", "challenger_plan")
@@ -350,7 +361,7 @@ def dispatch_one_pending_planner_request(
 
     Returns aggregate dict with ``status`` ∈
     ``{no_pending, anchor_undecided, claim_failed, executor_failed, dispatched,
-    provider_undecided}``, plus ``request_id``, ``claim_id``,
+    provider_undecided, provider_cooldown}``, plus ``request_id``, ``claim_id``,
     ``exit_code``, ``governance_event_count``, ``stderr_redacted``.
     ``anchor_undecided`` is the selection that could claim nothing because
     git did not answer for the candidates' anchors
@@ -359,7 +370,9 @@ def dispatch_one_pending_planner_request(
     ``provider_undecided`` (ARIA-HIGH-108): the child released the claim
     because the fleet's first provider in contention never answered its
     status probe; nothing ran, the request is back in the queue, and the
-    daemon backs off before asking again.
+    daemon backs off before asking again. ``provider_cooldown``
+    (ARIA-HIGH-364): every provider of the seat is cooled, so nothing was
+    claimed and the daemon backs off.
 
     Does NOT raise on operational failures (claim rejections,
     subprocess non-zero exit, subprocess timeout); only programmer
@@ -442,6 +455,32 @@ def dispatch_one_pending_planner_request(
             "exit_code": None,
             "governance_event_count": 1,
             "stderr_redacted": "",
+        }
+
+    # ARIA-HIGH-364 — no claim while every provider of this seat is cooled.
+    # An unreadable cooldown ledger is not an outage: the child's native
+    # admission reads the same rows and refuses the malformed one by name.
+    from datetime import datetime, timezone
+
+    from .provider_outage import cooled_providers, provider_outage
+
+    try:
+        moment = datetime.now(timezone.utc)
+        outage = provider_outage(
+            str(request.get("role") or ""), cooled_providers(root, now=moment),
+            now=moment, target_agent=target_agent,
+        )
+    except GovernanceError:
+        outage = None
+    if outage is not None:
+        return {
+            "status": PROVIDER_COOLDOWN_STATUS,
+            "request_id": request_id,
+            "claim_id": None,
+            "exit_code": None,
+            "governance_event_count": 0,
+            "stderr_redacted": "",
+            "provider_cooldown": outage.to_row(),
         }
 
     # Step 2 — claim the request via the kernel primitive (in-process,

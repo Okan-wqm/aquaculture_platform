@@ -28,6 +28,7 @@ from unittest import mock
 from aria_kernel.bridge_exceptions import BridgeContractViolation
 from aria_kernel.cross_review_bridge import issue_implementation_envelope
 from aria_kernel.finding_grounding import FindingAdmission
+from aria_kernel.finding_seed import FindingSeed
 from aria_kernel.impact_graph import plan_downstream_impact
 from aria_kernel.implementation_safety import implementation_allowed_scope
 from aria_kernel.ledger import load_declared_jsonl
@@ -52,6 +53,7 @@ from aria_kernel.plan_origin import (
 )
 from aria_kernel.plan_synthesizer import PlanEvidenceGround, convert_candidate_to_plan_content
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.operator_acts import operator_set_profile
 from tests.test_implementation_lifecycle_continuity import (
@@ -99,8 +101,11 @@ def _seed(root: Path, source_type: str, finding_id: str, surfaces: list[str]) ->
                      "request": "Remediate at the root.", "priority": "P0"}
     else:
         candidate = {"source_type": source_type, "candidate_id": finding_id}
+    # ARIA-HIGH-369 — an F plan is built from the finding's seed (its refs at the anchor).
+    seed = FindingSeed(finding_id, None, evidence_refs=tuple(surfaces), affected_surfaces=tuple(surfaces))
     conversion = convert_candidate_to_plan_content(
-        candidate, admission=admission, ground=PlanEvidenceGround.of(root))
+        candidate, admission=admission, ground=PlanEvidenceGround.of(root),
+        seed=seed if source_type == "f_finding" else None)
     assert conversion.envelope is not None, conversion
     return conversion.envelope.content
 
@@ -110,7 +115,9 @@ def _body(seed: dict, surfaces: list[str], **extra: object) -> dict:
                 key_changes=[{"id": "kc-1", "description": "fix the drift", "paths": surfaces}], **extra)
 
 
-class RevisionScopeBoundTests(unittest.TestCase):
+class _ScopeBoundFixture(unittest.TestCase):
+    """The four-project workspace and the plan moves the bound is tested through."""
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-scope-bound-")
         self.addCleanup(self.tmp.cleanup)
@@ -165,6 +172,8 @@ class RevisionScopeBoundTests(unittest.TestCase):
     def _scope(self, plan_id: str) -> dict:
         return fold_plan_state(plan_id=plan_id, base_dir=self.tools)["plan_started"]["admission_scope"]
 
+
+class RevisionScopeBoundTests(_ScopeBoundFixture):
     def test_a_revision_adding_a_surface_inside_the_closure_passes(self) -> None:
         plan_id = self._start(_seed(self.root, "f_finding", "F-007", [SHARED]))
         self._critiqued(plan_id)
@@ -272,6 +281,7 @@ class ImplementationScopeNeverExceedsTheBoundTests(unittest.TestCase):
             plan_id="plan-impl", cross_review_revision_id="cr-1", cross_review_summary_text="{}",
             proposal_id="proposal-261", change_id="chg-261", branch="aria-impl-0123456789abcdef",
             base_sha="0" * 40, base_dir=self.tools, cycle_id="cyc-261",
+            admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
         )
 
     def test_the_scope_function_refuses_a_path_outside_the_bound(self) -> None:

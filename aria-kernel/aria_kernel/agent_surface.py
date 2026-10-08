@@ -201,7 +201,12 @@ DERIVED_REQUEST_STATES: tuple[str, ...] = (
     "CANCELLED",
     "ACCEPTED_PENDING_BRIDGE",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
-    "EXTERNAL_OUTAGE",
+    # EXTERNAL_OUTAGE — RETIRED (ARIA-HIGH-366, 2026-10-07): it was derived
+    # from an `api_backoff_exhausted` claim event that no producer ever
+    # wrote, and its reaper requeued on a 30-minute wall clock and escalated
+    # after four — a timer that would have killed work in any outage longer
+    # than two hours. A provider outage is now the `provider_outage_ledger` fact; the
+    # request stays PENDING/REQUEUED under a harness-class release.
     # ORPHAN-MEDIUM-492 — the request's target_sha no longer describes the
     # repo it would be executed against. Distinct from STALE, which is a
     # lease-expiry and is retryable: a lease can be re-claimed, but a plan
@@ -225,7 +230,10 @@ TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
 # is one of these: the second night's measurement showed a challenger_plan
 # round and consumed autonomy queue items permanently blocked by their own
 # dead envelopes. ACCEPTED/REJECTED stay out — they are verdicts about the
-# WORK and their consumers handle them through result folds, never re-mints.
+# WORK and their consumers handle them through result folds. The one
+# exception is a planning-round step, whose refused answer gets a successor
+# carrying the refusal (`step_request.successor_eligible_states`,
+# ARIA-HIGH-355); a planning step also treats STALE as live, the reaper's.
 REMINT_ELIGIBLE_DEAD_STATES: FrozenSet[str] = frozenset({
     "HUMAN_REQUIRED",
     "ANCHOR_STALE",

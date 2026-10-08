@@ -82,6 +82,7 @@ from aria_kernel.git_containment import (
     derive_git_containment,
     publish_quarantine,
 )
+from aria_kernel.dependency_tree import TOOL_CACHE_DIRNAMES
 from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET, serve_hook_broker
 from aria_kernel.signing_agent import hold_signing_agent
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
@@ -992,12 +993,23 @@ class DependencyTreeTests(_Checkout):
         self.assertEqual(hidden.stdout.strip(), "HIDDEN")
 
     def test_the_nearest_ancestor_tree_is_bound_and_nothing_further_up(self) -> None:
-        (self.worktree / "node_modules").mkdir()
+        """At its own path (ARIA-HIGH-123) and in place inside the workspace
+        (ARIA-HIGH-361); a tree further up is never consulted."""
         (self.root / "node_modules").mkdir()
+
+        def caches(mountpoint: Path) -> list[str]:
+            return [flag for name in TOOL_CACHE_DIRNAMES for flag in ("--tmpfs", str(mountpoint / name))]
+
         self.assertEqual(impl._dependency_tree_binds(self.worktree),
-                         ["--ro-bind", str(self.repo / "node_modules"), str(self.repo / "node_modules")])
-        self.assertEqual(impl._dependency_tree_binds(self.root / "elsewhere"),
-                         ["--ro-bind", str(self.root / "node_modules"), str(self.root / "node_modules")])
+                         ["--ro-bind", str(self.repo / "node_modules"), str(self.repo / "node_modules"),
+                          "--ro-bind", str(self.repo / "node_modules"), str(self.worktree / "node_modules"),
+                          *caches(self.worktree / "node_modules")])
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        self.assertEqual(impl._dependency_tree_binds(elsewhere),
+                         ["--ro-bind", str(self.root / "node_modules"), str(self.root / "node_modules"),
+                          "--ro-bind", str(self.root / "node_modules"), str(elsewhere / "node_modules"),
+                          *caches(elsewhere / "node_modules")])
 
 
 class TemporaryDirectoryTests(unittest.TestCase):

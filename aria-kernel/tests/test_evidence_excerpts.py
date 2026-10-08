@@ -32,6 +32,7 @@ from aria_kernel.evidence_excerpts import (
     excerpts_for_refs,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import native_invocation_bytes
 
 TARGET = "src/feed.service.ts"
@@ -293,6 +294,7 @@ def _mint(tools: Path, *, evidence_refs: list[str], repo_root: Path | None) -> d
         convergence_id="conv-excerpt",
         base_dir=tools,
         context_repo_root=repo_root,
+        admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=tools),
     )
 
 
@@ -463,6 +465,7 @@ class PlannerSelectedSourceTests(unittest.TestCase):
                     must_satisfy=[{"id": "source", "description": "Use the selected revision"}],
                     allowed_scope=["src/**"], evidence_refs=["src/ack.ts:1", "src/new.ts:1"],
                     context_repo_root=repo, target_sha=head, base_dir=tools,
+                    admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=tools),
                 )
                 available, unavailable = request["evidence_excerpts"]
                 self.assertEqual(available["content"], original)

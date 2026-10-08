@@ -20,7 +20,7 @@
 
 import React, { useCallback } from 'react';
 import type { ChartLine, HistoricalDataPoint } from '../../types/scada-runtime.types';
-import type { TrendTimeRange } from '../../hooks/useTrendData';
+import { resolveTrendTimeRange, type TrendTimeRange } from '../../hooks/useTrendData';
 import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
@@ -57,22 +57,6 @@ function toFilenameDate(d: Date): string {
 /** Sanitise a string for use in a filename. */
 function sanitiseFilename(s: string): string {
   return s.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
-}
-
-/** Resolve TrendTimeRange to absolute {from, to} for the filename. */
-function resolveRangeDates(range: TrendTimeRange): { from: Date; to: Date } {
-  if (typeof range === 'object' && 'from' in range) return range;
-  const MS: Record<string, number> = {
-    last1h:  3_600_000,
-    last8h:  28_800_000,
-    last1d:  86_400_000,
-    last3d:  259_200_000,
-    last1w:  604_800_000,
-    last1m:  2_592_000_000,
-  };
-  const to = new Date();
-  const fromMs = MS[range as string] ?? 3_600_000;
-  return { from: new Date(to.getTime() - fromMs), to };
 }
 
 /** Trigger a browser download for a Blob. */
@@ -253,7 +237,7 @@ export const ChartExport: React.FC<ChartExportProps> = ({
 }) => {
   const buildFilename = useCallback(
     (ext: string) => {
-      const { from, to } = resolveRangeDates(currentRange);
+      const { from, to } = resolveTrendTimeRange(currentRange);
       const titlePart = sanitiseFilename(chartTitle ?? 'chart');
       const fromPart = toFilenameDate(from);
       const toPart = toFilenameDate(to);

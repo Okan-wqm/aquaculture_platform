@@ -22,6 +22,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.judge_fanout import dispatch_judges_for_sample, pending_judge_counts
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 from tests._helpers.rule_contracts import DEFAULT_RULE_CONTRACT, register_contracted_tool
 
@@ -62,6 +63,7 @@ class AnchorSweepTests(unittest.TestCase):
             cycle_id="cyc-1",
             target_sha="a" * 40,
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
 
     def tearDown(self) -> None:

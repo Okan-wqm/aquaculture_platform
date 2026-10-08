@@ -66,6 +66,11 @@ class PlanRoundContract:
     # the admission bound's entries, or the unbound plan's own paths.
     reach: tuple[str, ...]
     key_change_ids: frozenset[str]
+    # ADR-0021 D9 (ARIA-HIGH-357) — where a planning-round agent may also
+    # cite evidence and no body may write: the roots of the projects the
+    # admitted surfaces import, and (ARIA-HIGH-381) the files the plan cites
+    # but does not write. Empty for a plan whose record predates it.
+    evidence_scope: tuple[str, ...] = ()
 
 
 def _dedupe(values: list[str]) -> list[str]:
@@ -97,10 +102,13 @@ def plan_round_contract(state: Mapping[str, Any]) -> PlanRoundContract:
     body = _started_body(state, plan_id)
     own_paths = _dedupe(body_paths(body))
     bound = admission_scope_for_plan(state)
+    evidence_scope: list[str] = []
     if bound is None:
         reach = own_paths
         allowed_scope = own_paths
     else:
+        evidence_scope = [*bound.get("evidence_surfaces", []),
+                          *(f"{root}/**" for root in bound.get("dependency_roots") or [])]
         # A started body inside its own bound is what `start_plan` recorded;
         # a body outside it is refused here exactly as a revision would be.
         require_within_admission_scope(bound, own_paths)
@@ -128,6 +136,7 @@ def plan_round_contract(state: Mapping[str, Any]) -> PlanRoundContract:
         evidence_refs=evidence_refs,
         reach=tuple(reach),
         key_change_ids=frozenset(filter(None, (key_change_id(change) for change in changes))),
+        evidence_scope=tuple(evidence_scope),
     )
 
 

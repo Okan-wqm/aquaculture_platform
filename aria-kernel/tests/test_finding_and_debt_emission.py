@@ -1,12 +1,14 @@
 """Tests for the Plan 016 Faz A2/A3 operator-facing finding + debt emitters."""
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from aria_kernel.debt import emit_debt, list_debts, show_debt
 from aria_kernel.finding import (
@@ -204,6 +206,85 @@ class FindingEmissionTests(unittest.TestCase):
         replayed = show_finding(self.repo, record["finding_id"])
         self.assertEqual(replayed["claim_summary"], "committed evidence backs this finding")
 
+
+    def _mint_one(self) -> dict[str, object]:
+        return emit_finding(
+            repo_root=self.repo,
+            base_dir=self.tools,
+            claim_type="wrong_code",
+            claim_summary="committed evidence backs this finding",
+            severity="MEDIUM",
+            evidences=_good_evidence(1),
+            facts=["a committed source line is cited"],
+            scope_files=["x.ts"],
+        )
+
+    def _retired_rows(self) -> list[dict[str, object]]:
+        governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
+        rows = [json.loads(line) for line in governance if line.strip()]
+        return [row for row in rows if row.get("kind") == "finding_file_unledgered_retired"]
+
+    def test_stray_at_next_id_is_retired_and_the_mint_claims_its_id(self) -> None:
+        # ARIA-MEDIUM-330 — the runner store holds F-101.json/F-102.json in
+        # the pre-ORPHAN-702 seeder shape with no finding_emitted event. Pre-fix
+        # the mint at that id appended its event and only then refused on the
+        # file, so the ledger named a finding whose file was someone else's,
+        # and every later mint re-allocated the same id and refused again.
+        self._mint_one()
+        stray = self.repo / "aria-findings" / "F-002.json"
+        stray_bytes = (json.dumps({"id": "F-002", "source": "seed_drift_findings"}) + "\n").encode()
+        stray.write_bytes(stray_bytes)
+
+        record = self._mint_one()
+
+        self.assertEqual(record["finding_id"], "F-002")
+        on_disk = json.loads(stray.read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["source_event_id"], "finding:F-002:emitted")
+        self.assertEqual([r["finding_id"] for r in list_findings(self.repo)], ["F-001", "F-002"])
+        retired = self._retired_rows()
+        self.assertEqual(len(retired), 1)
+        self.assertEqual(retired[0]["details"]["finding_id"], "F-002")
+        self.assertEqual(retired[0]["details"]["sha256"], hashlib.sha256(stray_bytes).hexdigest())
+        self.assertEqual(retired[0]["details"]["bytes"], len(stray_bytes))
+
+    def test_empty_claim_left_by_a_killed_mint_is_retired(self) -> None:
+        # A SIGKILL between the O_EXCL claim and the event append leaves an
+        # empty F-NNN.json no event names; the next mint must not wedge on it.
+        self._mint_one()
+        (self.repo / "aria-findings" / "F-002.json").write_bytes(b"")
+
+        self.assertEqual(self._mint_one()["finding_id"], "F-002")
+        self.assertEqual(len(self._retired_rows()), 1)
+
+    def test_unledgered_kernel_record_refuses_the_mint_before_its_event(self) -> None:
+        # A kernel-shaped record with no event means the ledger lost rows;
+        # re-minting over it would destroy the only copy. The mint is refused
+        # BEFORE its event is appended and the file is left as it was.
+        self._mint_one()
+        events = self.repo / "aria-findings" / "finding-events.jsonl"
+        before = events.read_bytes()
+        orphan = self.repo / "aria-findings" / "F-002.json"
+        orphan_text = json.dumps({"$schema": "aria/finding/v1", "finding_id": "F-002"}) + "\n"
+        orphan.write_text(orphan_text, encoding="utf-8")
+
+        with self.assertRaises(GovernanceError) as refused:
+            self._mint_one()
+
+        self.assertEqual(events.read_bytes(), before)
+        self.assertIn("finding_file_collision:F-002", str(refused.exception))
+        self.assertEqual([r["finding_id"] for r in list_findings(self.repo)], ["F-001"])
+        self.assertEqual(orphan.read_text(encoding="utf-8"), orphan_text)
+        self.assertEqual(self._retired_rows(), [])
+
+    def test_failed_event_append_releases_the_claim(self) -> None:
+        self._mint_one()
+        with mock.patch(
+            "aria_kernel.finding.append_declared_jsonl", side_effect=OSError("disk full")
+        ):
+            with self.assertRaises(OSError):
+                self._mint_one()
+        self.assertFalse((self.repo / "aria-findings" / "F-002.json").exists())
+        self.assertEqual(self._mint_one()["finding_id"], "F-002")
 
 class DebtEmissionTests(unittest.TestCase):
     def setUp(self) -> None:

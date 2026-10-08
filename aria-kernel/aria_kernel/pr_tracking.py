@@ -188,6 +188,7 @@ def dispatch_change_intelligence(
     matter.
     """
     from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+    from .request_admission import admit_request
 
     root = ensure_tools_dir(base_dir)
     # One ledger pass for the whole merge backlog: the merge list only grows,
@@ -213,6 +214,15 @@ def dispatch_change_intelligence(
         if len(minted) >= max_requests:
             skipped.append({"pr_number": pr_number, "reason": "mint_budget_exhausted"})
             continue
+        # ARIA-HIGH-364 — impact analysis of a merge starts new work:
+        # discretionary. A refused merge stays unasked and is walked again
+        # next cycle; the refusal holds for this cycle, so the walk stops.
+        admission = admit_request(
+            "pr_tracking.change_intelligence", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+        )
+        if not admission.admitted:
+            skipped.append({"pr_number": pr_number, "reason": admission.refusal})
+            break
         already_asked.add(subject)
         changed_files = _string_list(event.get("changed_files"))
         prompt = (
@@ -245,6 +255,7 @@ def dispatch_change_intelligence(
             cycle_id=cycle_id,
             target_sha=str(head_sha) if head_sha else target_sha,
             base_dir=root,
+            admission=admission,
         )
         minted.append({"pr_number": pr_number, "request_id": request.get("request_id")})
     return {"schema_version": 1, "minted": minted, "skipped": skipped}

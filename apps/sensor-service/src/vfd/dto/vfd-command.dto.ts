@@ -1,11 +1,13 @@
 import { InputType, Field, Float, ObjectType, Int } from '@nestjs/graphql';
 import {
-  IsOptional,
+  IsArray,
+  IsBoolean,
   IsEnum,
   IsNumber,
-  IsBoolean,
-  Min,
+  IsOptional,
+  IsUUID,
   Max,
+  Min,
 } from 'class-validator';
 
 import { VfdCommandType } from '../entities/vfd.enums';
@@ -134,6 +136,8 @@ export class VfdCommandStatusDto {
 @InputType('BatchVfdCommandInput')
 export class BatchVfdCommandDto {
   @Field(() => [String])
+  @IsArray()
+  @IsUUID('all', { each: true })
   deviceIds!: string[];
 
   @Field(() => String)

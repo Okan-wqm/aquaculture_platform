@@ -70,7 +70,7 @@ def _reconcile_in_process(tools: Path, available: bool, barrier, results) -> Non
             return super().pr_merge_state(pr_number)
 
     try:
-        results.put(("ok", reconcile_recorded_implementations(base_dir=tools, reader=Reader())))
+        results.put(("ok", reconcile_recorded_implementations(base_dir=tools, workspace_root=Path(tools).parent, reader=Reader())))
     except BaseException:
         results.put(("error", traceback.format_exc()))
         raise
@@ -315,10 +315,10 @@ class ImplementationChainTests(unittest.TestCase):
             validation_results=[], signer_key_fp=key.fingerprint,
             completed_at="2026-09-10T00:30:00Z", base_dir=tools,
         )
-        result = reconcile_recorded_implementations(base_dir=tools, reader=MergedPRReader())
+        result = reconcile_recorded_implementations(base_dir=tools, workspace_root=Path(tools).parent, reader=MergedPRReader())
         self.assertEqual(result["promotions"][0]["status"], "promoted", result)
         before = convention.read_bytes()
-        retry = reconcile_recorded_implementations(base_dir=tools, reader=MergedPRReader())
+        retry = reconcile_recorded_implementations(base_dir=tools, workspace_root=Path(tools).parent, reader=MergedPRReader())
         self.assertEqual(retry["promotions"][0]["status"], "already_verified")
         self.assertEqual(convention.read_bytes(), before)
         events = load_declared_jsonl(tools / "plans/events.jsonl", expected_surface="plan_convergence_events")
@@ -352,14 +352,14 @@ class ImplementationChainTests(unittest.TestCase):
                     "mergeCommit": {"oid": "f" * 40},
                 }
 
-        result = reconcile_recorded_implementations(base_dir=self.tools, reader=_Reader())
+        result = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=_Reader())
         self.assertEqual([m["plan_id"] for m in result["merged"]], ["plan-e2"])
         self.assertEqual(
             fold_plan_state(plan_id="plan-e2", base_dir=self.tools)["state"],
             "IMPLEMENTATION_MERGED",
         )
         # Idempotent: a second pass finds a terminal plan and does nothing.
-        again = reconcile_recorded_implementations(base_dir=self.tools, reader=_Reader())
+        again = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=_Reader())
         self.assertEqual(again["merged"], [])
 
     def test_reconciler_retries_failed_promotion_after_merge(self) -> None:
@@ -405,12 +405,12 @@ class ImplementationChainTests(unittest.TestCase):
 
         reader = _Reader()
         with patch.object(knowledge_graph, "_append_row_locked", side_effect=fail_promotion_append) as append:
-            first = reconcile_recorded_implementations(base_dir=self.tools, reader=reader)
+            first = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=reader)
         append.assert_called_once()
         self.assertEqual([row["plan_id"] for row in first["merged"]], ["plan-e2"])
         self.assertEqual(convention_path.read_bytes(), hypothesis_bytes)
 
-        retry = reconcile_recorded_implementations(base_dir=self.tools, reader=reader)
+        retry = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=reader)
         events = load_declared_jsonl(
             self.tools / "plans/events.jsonl", expected_surface="plan_convergence_events",
         )
@@ -486,7 +486,7 @@ class ImplementationChainTests(unittest.TestCase):
         path = self._seed_promotion()
         before = path.read_bytes()
         with patch.object(kg, "_append_row_locked", side_effect=OSError("promotion disk unavailable")) as append:
-            attempts = [reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader()) for _ in range(2)]
+            attempts = [reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader()) for _ in range(2)]
         self.assertEqual(append.call_count, 2, "terminal merge must retain pending promotion")
         self.assertEqual(path.read_bytes(), before)
         self.assertEqual([r["promotions"][0]["status"] for r in attempts], ["retryable_error", "retryable_error"])
@@ -516,7 +516,7 @@ class ImplementationChainTests(unittest.TestCase):
             raise OSError("append completed before caller observed failure")
 
         with patch.object(kg, "_append_row_locked", side_effect=append_then_fail):
-            first = reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader())
+            first = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader())
         retry = self._process_reconciliations(count=1, available=False)[0]
         self._assert_one_merge_and_promotion()
         self.assertEqual(first["promotions"][0]["status"], "retryable_error")
@@ -528,10 +528,10 @@ class ImplementationChainTests(unittest.TestCase):
         original = path.read_bytes()
         # A missing hypothesis is not evidence of completed learning.
         path.unlink()
-        first = reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader())
+        first = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader())
         self.assertFalse(path.exists())
         path.write_bytes(original)
-        retry = reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader())
+        retry = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader())
         self._assert_one_merge_and_promotion()
         self.assertEqual(first["promotions"][0]["status"], "no_hypothesis")
         self.assertEqual(retry["promotions"][0]["status"], "promoted")
@@ -543,7 +543,7 @@ class ImplementationChainTests(unittest.TestCase):
         row["ledger_hash"] = "sha256:broken"
         path.write_text(json.dumps(row) + "\n")
         before = path.read_bytes()
-        result = reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader())
+        result = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader())
         self.assertEqual(fold_plan_state(plan_id="plan-e2", base_dir=self.tools)["state"], "IMPLEMENTATION_MERGED")
         self.assertEqual(path.read_bytes(), before)
         self.assertEqual(result["promotions"][0]["status"], "integrity_error")
@@ -557,7 +557,7 @@ class ImplementationChainTests(unittest.TestCase):
         row["schema_version"] = 2
         kg._append_row(path, row)
         before = path.read_bytes()
-        result = reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader())
+        result = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader())
         self.assertEqual(result["promotions"][0]["status"], "schema_error")
         self.assertEqual(path.read_bytes(), before)
         self.assertEqual(fold_plan_state(plan_id="plan-e2", base_dir=self.tools)["state"], "IMPLEMENTATION_MERGED")
@@ -574,12 +574,12 @@ class ImplementationChainTests(unittest.TestCase):
             return read(target, *args, **kwargs)
 
         with patch.object(ledger, "read_jsonl", side_effect=fail_convention_read):
-            result = reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader())
+            result = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader())
         self.assertEqual(fold_plan_state(plan_id="plan-e2", base_dir=self.tools)["state"], "IMPLEMENTATION_MERGED")
         self.assertEqual(path.read_bytes(), before)
         self.assertEqual(result["promotions"][0]["status"], "retryable_error")
         self.assertEqual(result["promotions"][0]["error_type"], "OSError")
-        reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader())
+        reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader())
         self._assert_one_merge_and_promotion()
 
     def test_cached_merge_does_not_authorize_promotion_from_damaged_plan_ledger(self) -> None:
@@ -589,7 +589,7 @@ class ImplementationChainTests(unittest.TestCase):
         from aria_kernel.tool_registry import GovernanceError
         path = self._seed_promotion()
         with patch.object(kg, "_append_row_locked", side_effect=OSError("not yet promoted")):
-            reconcile_recorded_implementations(base_dir=self.tools, reader=MergedPRReader())
+            reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=MergedPRReader())
         self.assertEqual(fold_plan_state(plan_id="plan-e2", base_dir=self.tools)["state"], "IMPLEMENTATION_MERGED")
         events = self.tools / "plans/events.jsonl"
         raw = events.read_bytes()
@@ -604,7 +604,7 @@ class ImplementationChainTests(unittest.TestCase):
                 return (False, "offline")
 
         with self.assertRaises((LedgerIntegrityError, GovernanceError)):
-            reconcile_recorded_implementations(base_dir=self.tools, reader=UnavailableReader())
+            reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=UnavailableReader())
         self.assertEqual(events.read_bytes(), damaged)
         self.assertEqual(path.read_bytes(), before)
 
@@ -618,7 +618,7 @@ class ImplementationChainTests(unittest.TestCase):
             def pr_merge_state(self, pr_number: int):
                 return {"state": "OPEN", "mergedAt": None, "mergeCommit": None}
 
-        result = reconcile_recorded_implementations(base_dir=self.tools, reader=_Reader())
+        result = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=_Reader())
         self.assertEqual(result["merged"], [])
         self.assertEqual(
             fold_plan_state(plan_id="plan-e2", base_dir=self.tools)["state"],
@@ -675,12 +675,14 @@ class OrphanReapWindowTests(unittest.TestCase):
             ORPHAN_DECISION_SPARE_RECENT,
             decide_orphan_reap,
         )
+        # ARIA-HIGH-365 — a store that saw no outage: available age = wall age.
+        from aria_kernel.provider_clock import ProviderClock
         self.assertEqual(
-            decide_orphan_reap({"last_event_at": self._hours_ago(1)}).decision,
+            decide_orphan_reap({"last_event_at": self._hours_ago(1)}, clock=ProviderClock(()), awaits_provider=False).decision,
             ORPHAN_DECISION_SPARE_RECENT,
         )
         self.assertEqual(
-            decide_orphan_reap({"last_event_at": self._hours_ago(30)}).decision,
+            decide_orphan_reap({"last_event_at": self._hours_ago(30)}, clock=ProviderClock(()), awaits_provider=False).decision,
             ORPHAN_DECISION_REAP,
         )
 
@@ -700,16 +702,18 @@ class OrphanReapWindowTests(unittest.TestCase):
             ORPHAN_DECISION_SPARE_RECENT,
             decide_orphan_reap,
         )
+        # ARIA-HIGH-365 — a store that saw no outage: available age = wall age.
+        from aria_kernel.provider_clock import ProviderClock
         stale = decide_orphan_reap({
             "last_event_at": "not-a-date",
             "first_event_at": self._hours_ago(30),
-        })
+        }, clock=ProviderClock(()), awaits_provider=False)
         self.assertEqual(stale.decision, ORPHAN_DECISION_REAP)
         self.assertEqual(stale.age_source, "first_event_at")
         recent = decide_orphan_reap({
             "last_event_at": "not-a-date",
             "first_event_at": self._hours_ago(2),
-        })
+        }, clock=ProviderClock(()), awaits_provider=False)
         self.assertEqual(recent.decision, ORPHAN_DECISION_SPARE_RECENT)
         self.assertEqual(recent.age_source, "first_event_at")
 
@@ -724,13 +728,15 @@ class OrphanReapWindowTests(unittest.TestCase):
             ORPHAN_DECISION_ESCALATE_UNDATEABLE,
             decide_orphan_reap,
         )
+        from aria_kernel.provider_clock import ProviderClock
+
         for orphan in (
             {"last_event_at": None, "first_event_at": None},
             {"last_event_at": "not-a-date", "first_event_at": "also-not-a-date"},
             {},
         ):
             with self.subTest(orphan=orphan):
-                decision = decide_orphan_reap(orphan)
+                decision = decide_orphan_reap(orphan, clock=ProviderClock(()), awaits_provider=False)
                 self.assertEqual(
                     decision.decision, ORPHAN_DECISION_ESCALATE_UNDATEABLE,
                 )

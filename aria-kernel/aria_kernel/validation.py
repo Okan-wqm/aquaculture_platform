@@ -1013,6 +1013,16 @@ def _allowed_npm_script(script: str) -> bool:
     return script in allowed_exact or script.startswith("gates:") or script.startswith("invariants:")
 
 
+def worktree_is_dirty(root: Path) -> bool:
+    """The clean-tree test ``run_validation_commands`` refuses on, for callers that must ask first.
+
+    ARIA-HIGH-362 (review M6) — the converged-plan delivery asks before it
+    counts an attempt: a tree an earlier step dirtied is the lane's state, not
+    the plan's, and staging would refuse on it for every plan alike.
+    """
+    return _dirty_worktree(root)
+
+
 def _dirty_worktree(root: Path) -> bool:
     if not (root / ".git").exists():
         return False

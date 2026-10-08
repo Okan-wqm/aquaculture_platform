@@ -71,9 +71,16 @@ class TestV8CrossReviewEnvelopeContent(unittest.TestCase):
         to JSON text before passing to issue_cross_review_envelope
         (the function expects str, not dict)."""
         src = inspect.getsource(convergence_drainer.run_convergence_drainer)
-        # The serialization line must appear in the round-1 mint path
+        # ARIA-HIGH-375 — the plan-text derivation moved with the
+        # independence verdict that also reads it
+        # (`round_independence.plan_texts_from_state`); the drainer's
+        # `_plan_texts_from_state` delegates to it. The serialization must
+        # still be json.dumps of the challenger's plan_content dict.
+        from aria_kernel import round_independence
+
+        self.assertIn("plan_texts_from_state(", src)
         self.assertIn(
-            "_json.dumps(", src,
+            "json.dumps(content", inspect.getsource(round_independence.plan_texts_from_state),
             "drainer MUST serialize plan_content_dict via json.dumps "
             "for the challenger_plan_text argument",
         )

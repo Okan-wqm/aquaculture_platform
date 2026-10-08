@@ -68,6 +68,7 @@ from aria_kernel.self_improvement import (
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.workspace import canonical_identity
+from aria_kernel.request_admission import admit_request
 
 from tests._helpers.declared_fixtures import append_declared_fixture
 
@@ -243,6 +244,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
             target_agent=scb.SELF_CHANGE_TARGET_AGENT, role=scb.SELF_CHANGE_ROLE, suggested_prompt=json.dumps(prompt, sort_keys=True),
             must_satisfy=scb.self_change_must_satisfy(), allowed_scope=scb.self_change_allowed_scope(), evidence_refs=[queue_item_id],
             pressure_event_id=f"mission:{mission_id}", base_dir=self.tools,
+            admission=admit_request("operator_cli.request", scb.SELF_CHANGE_ROLE, base_dir=self.tools),
         )
 
     @staticmethod

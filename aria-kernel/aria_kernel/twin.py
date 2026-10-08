@@ -8,7 +8,9 @@ edges (deep twin is Wave 10, conditional on a consumer proving need).
 
     1. project dependency — reused from ``impact_graph`` (the SSoT for the
        project graph; a second scanner is how two graphs disagree)
-    2. test↔source — TESTED_BY edges from path convention + import scan
+    2. test↔source — TESTED_BY edges from path convention + import scan, and
+       each project's test targets and spec files (``twin_test_surface``,
+       ARIA-MEDIUM-382)
     3. churn — per-file commit counts over a bounded history window
     4. co-change — file pairs that ship together (CO_CHANGES_WITH)
 
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import ast as _ast
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -44,7 +47,11 @@ from .snapshot import (
 )
 
 TWIN_MAP_RELPATH = "twin/map.json"
-TWIN_SCHEMA_VERSION = 1
+# 2 adds each project's ``test_targets`` and ``spec_files`` (ARIA-MEDIUM-382);
+# a version-1 map is rebuilt whole by the next refresh, never patched.
+TWIN_SCHEMA_VERSION = 2
+# The context slice names at most this many spec files per project (and the count).
+CONTEXT_SPEC_FILES_SHOWN = 10
 
 # Churn/co-change window. Bounded so the map's cost is bounded; the window is
 # a signal-quality constant, not a completeness claim (the map records it).
@@ -108,6 +115,7 @@ def build_twin_map(
         }
         for name, meta in graph["projects"].items()
     }
+    projects = _with_test_surface(root, projects)
     tested_by = _tested_by_edges(root, _iter_test_files(root))
     twin = {
         "schema_version": TWIN_SCHEMA_VERSION,
@@ -167,12 +175,14 @@ def refresh_twin_map(
     tools = ensure_tools_dir(base_dir)
     prior = read_twin_map(base_dir=tools)
     head = _head_sha(root)
-    if prior is None or not _commit_known(root, str(prior.get("indexed_sha") or "")):
+    stale_schema = prior is not None and prior.get("schema_version") != TWIN_SCHEMA_VERSION
+    if prior is None or stale_schema or not _commit_known(root, str(prior.get("indexed_sha") or "")):
         twin = build_twin_map(
             workspace_root=root, base_dir=tools, nx_graph_file=nx_graph_file, history_limit=history_limit,
             discovery=discovery,
         )
-        twin["refresh"] = {"mode": "full", "reason": "no_prior_map" if prior is None else "unknown_anchor"}
+        reason = "no_prior_map" if prior is None else "schema_changed" if stale_schema else "unknown_anchor"
+        twin["refresh"] = {"mode": "full", "reason": reason}
         _write_map(tools, twin)
         return twin
     anchor = str(prior["indexed_sha"])
@@ -211,6 +221,11 @@ def refresh_twin_map(
     else:
         projects = prior["projects"]
         graph_source = prior["graph_source"]
+    # ARIA-MEDIUM-382 — a spec added or a package.json script changed alters a
+    # project's test surface without touching the graph, so it is recomputed on
+    # every refresh by the function the full build uses: one pruned walk that
+    # never enters a dependency tree (about 0.1 s on this repository).
+    projects = _with_test_surface(root, projects)
 
     tested_by = dict(prior.get("tested_by") or {})
     changed_tests = [p for p in changed if _is_test_file(p)]
@@ -660,31 +675,54 @@ def twin_context_for_files(twin: dict[str, Any], files: list[str]) -> dict[str, 
         "indexed_sha": twin.get("indexed_sha"),
         "files": entries,
         "impacted_projects": sorted(
-            {
-                p: {
-                    "layer": projects.get(p, {}).get("layer"),
-                    "depends_on": projects.get(p, {}).get("depends_on", []),
-                    "dependents": projects.get(p, {}).get("dependents", []),
-                }
-                for p in impacted_projects
-            }.items()
+            {p: _impacted_project_view(projects.get(p, {})) for p in impacted_projects}.items()
         ),
     }
+
+
+def _impacted_project_view(meta: dict[str, Any]) -> dict[str, Any]:
+    """One project of the blast radius; a v2 map adds what tests it (ARIA-MEDIUM-382)."""
+    view = {
+        "layer": meta.get("layer"),
+        "depends_on": meta.get("depends_on", []),
+        "dependents": meta.get("dependents", []),
+    }
+    if "test_targets" in meta:
+        specs = list(meta.get("spec_files") or [])
+        view.update(test_targets=list(meta["test_targets"]), spec_file_count=len(specs),
+                    spec_files=specs[:CONTEXT_SPEC_FILES_SHOWN],
+                    test_surface_modelled=bool(meta.get("test_surface_modelled", True)))
+    return view
+
+
+def _with_test_surface(root: Path, projects: dict[str, Any]) -> dict[str, Any]:
+    """``projects`` with each entry's test targets and spec files (``twin_test_surface``)."""
+    from .twin_test_surface import project_test_surface, spec_inventory
+
+    surface = project_test_surface(root, projects, spec_inventory(root))
+    return {name: {**meta, **surface[name]} for name, meta in projects.items()}
 
 
 # --- layer builders -------------------------------------------------------
 
 
+_TEST_WALK_PRUNED = frozenset({"node_modules", "dist", "build", "coverage", ".git"})
+
+
 def _iter_test_files(root: Path) -> list[Path]:
+    """The TS specs and the kernel's pytest modules the TESTED_BY layer reads.
+
+    Review MEDIUM-2 (PR #1859) — four ``rglob`` passes walked every
+    ``node_modules`` tree and filtered afterwards (about 4.5 s per refresh on
+    the runner's real dependency tree). One ``os.walk`` that prunes the same
+    directory names before entering them yields the same set.
+    """
     tests: list[Path] = []
-    for pattern in ("*.spec.ts", "*.spec.tsx", "*.test.ts", "*.test.tsx"):
-        tests.extend(root.rglob(pattern))
+    for directory, dirs, files in os.walk(root):
+        dirs[:] = [name for name in dirs if name not in _TEST_WALK_PRUNED]
+        tests.extend(Path(directory) / name for name in files if name.endswith(_TEST_SUFFIXES))
     tests.extend((root / "aria-kernel" / "tests").glob("test_*.py"))
-    return sorted(
-        p
-        for p in tests
-        if not any(part in ("node_modules", "dist", "build", "coverage", ".git") for part in p.parts)
-    )
+    return sorted(tests)
 
 
 def _is_test_file(rel: str) -> bool:

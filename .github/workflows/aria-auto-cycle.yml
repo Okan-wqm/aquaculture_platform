@@ -544,6 +544,15 @@ jobs:
         if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
         uses: ./.github/actions/ensure-sandbox-backend
 
+      # ARIA-HIGH-383 — self-revert and branch-update validate in the same
+      # room as the executor's apply gate (`validation_sandbox_for`), and
+      # that room binds every toolchain the tree declares: the root
+      # Cargo.toml declares cargo + rustc. Without them the room is
+      # refused by name (`validation_toolchain_unresolvable:cargo`).
+      - name: Provision the Rust toolchain the tree declares
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        uses: ./.github/actions/setup-rust-workspace
+
       # The adapter manifests declare `npx ts-node …` runners, and the tool
       # runner refuses to execute them when the workspace has no repo-local
       # ts-node — correctly: silently resolving a global one would run

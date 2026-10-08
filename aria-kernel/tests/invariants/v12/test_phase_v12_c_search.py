@@ -23,6 +23,7 @@ from tests.invariants.v12 import _helpers  # noqa: F401 — sys.path
 from aria_kernel import hooks, search
 from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class DerivedIndex(unittest.TestCase):
@@ -56,6 +57,7 @@ class DerivedIndex(unittest.TestCase):
             suggested_prompt="challenge the tenant isolation plan for farm-service",
             must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-9",
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
         hooks.record_journal({"tool_name": "Bash", "tool_input": {"command": "pytest apps/farm-service"}},
                              base_dir=self.tools, request_id=req["request_id"], session_id="s", tool_use_id="t")

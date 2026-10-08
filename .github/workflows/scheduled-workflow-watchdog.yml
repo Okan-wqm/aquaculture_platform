@@ -32,6 +32,22 @@ jobs:
             const incidents = [];
 
             for (const watched of manifest.workflows) {
+              // A lane that cannot run is reported as exactly that. Its last
+              // run stays listed forever after the workflow is disabled —
+              // by the operator (`disabled_manually`) or by GitHub after 60
+              // days without repository activity (`disabled_inactivity`) — so
+              // judging that run filed aria-merge-runner, disabled on
+              // 2026-09-28, as "failure 154.9h", and a lane disabled right
+              // after a green run as nothing at all until it aged out as a
+              // stale "success". The workflow's own state is the measured
+              // fact; it is the incident's conclusion, and no run judgement
+              // can override it (tests/invariants/
+              // scheduled-workflow-watchdog-disabled-lane.spec.ts).
+              const definition = await github.rest.actions.getWorkflow({
+                owner,
+                repo,
+                workflow_id: watched.workflow,
+              });
               const response = await github.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
@@ -101,6 +117,16 @@ jobs:
               const ageHours = run
                 ? (now - new Date(run.created_at).getTime()) / (60 * 60 * 1000)
                 : null;
+              if (definition.data.state !== 'active') {
+                incidents.push({
+                  workflow: watched.workflow,
+                  conclusion: definition.data.state,
+                  ageHours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
+                  maxAgeHours: watched.maxAgeHours,
+                  runUrl: run?.html_url ?? null,
+                });
+                continue;
+              }
               // Some lanes can complete green while doing nothing. The backup
               // lane resolves its DR activation and, when the capability is
               // not activated, honestly skips the ceremony — and the run

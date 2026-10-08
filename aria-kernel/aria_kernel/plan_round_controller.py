@@ -7,6 +7,7 @@ from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
 from .plan_contract import render_plan_contract
+from .request_admission import admit_request
 from .plan_convergence import (
     content_hash,
     _planning_source_context,
@@ -17,15 +18,10 @@ from .plan_convergence import (
     submit_challenger_plan,
 )
 from .plan_round_scope import plan_round_contract
+from .step_request import MAX_STEP_REQUEST_REMINTS, step_request_disposition
 from .planner_lessons import planner_lesson_obligations
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
-
-# Y3 (ORPHAN-703) — successor budget for planner envelopes that died of
-# queue mechanics, mirroring DEFAULT_MAX_REQUEUES (2) and MAX_PANEL_REOPENS
-# (2): two lineage steps, then an honest exhausted disclosure instead of a
-# silent wedge OR a silent infinite retry.
-MAX_PLANNER_REQUEST_REMINTS = 2
 
 DEFAULT_PLANNER_AGENTS = {
     "primary_plan": "aria-primary-planner",
@@ -80,6 +76,7 @@ def advance_plan_rounds(
                     round_number=round_number,
                     reason_codes=["max_rounds_reached", "unresolved_material_risk"],
                     base_dir=root,
+                    forced_by="kernel:plan_round_controller",
                 )
                 actions.append({"kind": "human_required", "result": forced})
                 return _result(plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), "human_required", actions)
@@ -112,38 +109,27 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         if row.get("round_number") == request_round
     ]
     # Y3 (ORPHAN-703) — the idempotency check must not count a DEAD request
-    # as a live one. The shipped filter matched any row, so a round whose
-    # envelope died of queue mechanics (measured: HUMAN_REQUIRED after three
-    # lease expiries) was wedged forever — the plan could never converge and
-    # nothing ever re-minted. A live-or-outcome match still short-circuits;
-    # an all-dead match mints a successor with remint_of lineage, budgeted
-    # like the X4 panel reopen.
+    # as a live one: a round whose envelope died of queue mechanics was
+    # wedged forever. ARIA-HIGH-355 — the rule is `step_request`'s, the one
+    # the convergence drainer applies to the same steps: a live request or a
+    # consumed outcome short-circuits; a dead or refused newest request gets
+    # a successor with remint_of lineage, within the shared budget.
+    disposition = step_request_disposition(existing, role=role, base_dir=root)
     remint_of: str | None = None
-    if existing:
-        from .agent_invocations import derive_request_state
-        from .agent_surface import REMINT_ELIGIBLE_DEAD_STATES
-
-        latest = existing[-1]
-        states = {
-            str(row.get("request_id")): derive_request_state(
-                request_id=str(row.get("request_id")), base_dir=root,
-            )
-            for row in existing
-        }
-        if any(state not in REMINT_ELIGIBLE_DEAD_STATES for state in states.values()):
-            return {"kind": "planner_request_exists", "role": role, "request_id": latest.get("request_id")}
-        remints_so_far = sum(1 for row in existing if row.get("remint_of"))
-        if remints_so_far >= MAX_PLANNER_REQUEST_REMINTS:
-            append_tools_governance(
-                root, "planner_request_remint_exhausted",
-                {
-                    "plan_id": plan_id, "role": role, "round_number": request_round,
-                    "dead_request_states": states,
-                    "remint_budget": MAX_PLANNER_REQUEST_REMINTS,
-                },
-            )
-            return {"kind": "planner_request_remint_exhausted", "role": role, "request_id": latest.get("request_id")}
-        remint_of = str(latest.get("request_id"))
+    if disposition.kind in {"live", "outcome"}:
+        return {"kind": "planner_request_exists", "role": role, "request_id": disposition.request_id}
+    if disposition.kind == "exhausted":
+        append_tools_governance(
+            root, "planner_request_remint_exhausted",
+            {
+                "plan_id": plan_id, "role": role, "round_number": request_round,
+                "dead_request_states": dict(disposition.states),
+                "remint_budget": MAX_STEP_REQUEST_REMINTS,
+            },
+        )
+        return {"kind": "planner_request_remint_exhausted", "role": role, "request_id": disposition.request_id}
+    if disposition.kind == "remint":
+        remint_of = disposition.request_id
     from .convergence_drainer import _resolve_workspace_head_sha
     source_refs, revision_hash, context_paths = _planning_source_context(state, [revision_id])
     target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
@@ -165,7 +151,7 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
             },
             *contract.must_satisfy,
             # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
-            *planner_lesson_obligations(base_dir=root, plan_id=plan_id),
+            *planner_lesson_obligations(base_dir=root, plan_id=plan_id, envelope_role=role),
         ],
         allowed_scope=list(contract.allowed_scope),
         evidence_refs=source_refs,
@@ -176,6 +162,8 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         remint_of=remint_of,
         base_dir=root,
         plan_contract=render_plan_contract(root),
+        # ARIA-HIGH-364 — a round of a started plan: critical path.
+        admission=admit_request("plan_round_controller.plan_step", role, base_dir=root),
     )
     kind = "planner_request_reminted" if remint_of else "planner_request_created"
     return {"kind": kind, "role": role, "request_id": request.get("request_id"), "remint_of": remint_of}
@@ -240,6 +228,8 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
             target_sha=target_sha,
             base_dir=root,
             plan_contract=render_plan_contract(root),
+            # ARIA-HIGH-364 — a round of a started plan: critical path.
+            admission=admit_request("plan_round_controller.plan_step", "cross_review", base_dir=root),
         )
         actions.append({
             "kind": "cross_review_request_created",

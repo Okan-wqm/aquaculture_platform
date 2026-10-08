@@ -1,18 +1,20 @@
 """E25-a (ORPHAN-710) — the rhythm gate: finish before discovering more.
 
 Operator directive: ARIA must not mint itself more work than it finishes —
-unfinished work continues BEFORE new discovery. The gate is a cycle
-precondition over the SAME open-backlog counter the emptiness guard reads,
-attached to the two work-minting phases; an unmet precondition is a
-recorded skip naming ``backlog_below_cap`` (X3's sıfır-vs-yok discipline),
+unfinished work continues BEFORE new discovery. Wall #7 changed the gate's
+shape, not its home: it is still a cycle precondition on the two
+work-minting phases, now over the closable backlog census, and pressure
+throttles them to a rate instead of pausing them
+(tests/test_closable_backlog_cap.py pins the new behaviour). A held phase is
+a recorded skip naming its precondition (X3's sıfır-vs-yok discipline),
 never a silent absence.
 
 Deliberate-breakage pins:
-- the closed precondition set admits the gate + its writes-composite;
+- the closed precondition set admits the opener gate + its writes-composite;
 - watchdog_sweep and experiment_author are gated; experiment_night
   (running EXISTING work) and discovery (comprehension) are NOT;
 - under the cap behavior is bit-identical to pre-E25; at the cap the
-  gated phases refuse;
+  gated phases are admitted once and then held for the interval;
 - the counter counts IN_PROGRESS as backlog;
 - the policy block is mergeable configuration.
 """
@@ -21,14 +23,15 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aria_kernel.cycle import (
-    BACKLOG_BELOW_CAP,
     CYCLE_PHASES,
     CYCLE_PRECONDITIONS,
+    WATCHDOG_OPENER_ADMITTED,
     WRITES_PERMITTED,
-    WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
+    WRITES_PERMITTED_AND_EXPERIMENT_OPENER_ADMITTED,
     build_phase_context,
 )
 from aria_kernel.cycle_guard import _open_finding_count
@@ -54,19 +57,19 @@ def _write_index(repo_root: Path, statuses: list[str]) -> None:
 
 class ClosedSetPins(unittest.TestCase):
     def test_gate_and_composite_are_admitted_members(self) -> None:
-        self.assertIn(BACKLOG_BELOW_CAP, CYCLE_PRECONDITIONS)
-        self.assertIn(WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP, CYCLE_PRECONDITIONS)
-        self.assertEqual(BACKLOG_BELOW_CAP.name, "backlog_below_cap")
+        self.assertIn(WATCHDOG_OPENER_ADMITTED, CYCLE_PRECONDITIONS)
+        self.assertIn(WRITES_PERMITTED_AND_EXPERIMENT_OPENER_ADMITTED, CYCLE_PRECONDITIONS)
+        self.assertEqual(WATCHDOG_OPENER_ADMITTED.name, "finding_opener_admitted:watchdog_sweep")
         self.assertEqual(
-            WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP.name,
-            "writes_permitted+backlog_below_cap",
+            WRITES_PERMITTED_AND_EXPERIMENT_OPENER_ADMITTED.name,
+            "writes_permitted+finding_opener_admitted:experiment_author",
         )
 
     def test_the_two_minting_phases_are_gated_and_two_neighbors_are_not(self) -> None:
-        self.assertIs(_phase("watchdog_sweep").precondition, BACKLOG_BELOW_CAP)
+        self.assertIs(_phase("watchdog_sweep").precondition, WATCHDOG_OPENER_ADMITTED)
         self.assertIs(
             _phase("experiment_author").precondition,
-            WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
+            WRITES_PERMITTED_AND_EXPERIMENT_OPENER_ADMITTED,
         )
         # Running EXISTING bench work is resume-work, not new-work.
         self.assertIs(_phase("experiment_night").precondition, WRITES_PERMITTED)
@@ -81,42 +84,47 @@ class GateBehaviorTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-e25-")
         self.repo = Path(self._tmp.name)
         self.tools = ensure_tools_dir(self.repo / "aria-tools")
+        self.start = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _context(self):
-        return build_phase_context(
-            cycle_id="cyc-e25-test",
-            workspace_root=self.repo,
-            base_dir=self.tools,
+    def _context(self, *, shadow_only: bool = False, hours: float = 0.0):
+        # The production order: this cycle's census phase runs before any gate
+        # reads it. This store has an index and no event ledger, so every
+        # backlog row is undecided and counts toward the cap.
+        context = build_phase_context(
+            cycle_id="cyc-e25-test", workspace_root=self.repo, base_dir=self.tools,
+            shadow_only=shadow_only, cycle_started_at=self.start + timedelta(hours=hours),
         )
+        census = next(phase for phase in CYCLE_PHASES if phase.name == "finding_backlog")
+        context.results["finding_backlog"] = census.runner(context)
+        return context
 
     def test_under_the_cap_the_gate_is_open(self) -> None:
         _write_index(self.repo, ["OPEN"] * 3)
-        self.assertTrue(BACKLOG_BELOW_CAP.satisfied_by(self._context()))
+        self.assertTrue(WATCHDOG_OPENER_ADMITTED.satisfied_by(self._context()))
+        self.assertTrue(WATCHDOG_OPENER_ADMITTED.satisfied_by(self._context(hours=1)))
 
-    def test_at_the_cap_the_gate_refuses(self) -> None:
+    def test_at_the_cap_the_gate_admits_once_per_interval(self) -> None:
         cap = int(RHYTHM_DEFAULTS["backlog_cap"])
         _write_index(self.repo, ["OPEN"] * cap)
-        self.assertFalse(BACKLOG_BELOW_CAP.satisfied_by(self._context()))
+        self.assertTrue(WATCHDOG_OPENER_ADMITTED.satisfied_by(self._context()))
+        self.assertFalse(WATCHDOG_OPENER_ADMITTED.satisfied_by(self._context(hours=1)))
 
     def test_in_progress_counts_as_backlog(self) -> None:
         _write_index(self.repo, ["OPEN", "IN_PROGRESS", "RESOLVED", "DISMISSED"])
         self.assertEqual(_open_finding_count(self.repo), 2)
 
     def test_missing_index_means_empty_backlog(self) -> None:
-        self.assertTrue(BACKLOG_BELOW_CAP.satisfied_by(self._context()))
+        self.assertTrue(WATCHDOG_OPENER_ADMITTED.satisfied_by(self._context()))
+        self.assertTrue(WATCHDOG_OPENER_ADMITTED.satisfied_by(self._context(hours=1)))
 
     def test_composite_demands_both(self) -> None:
         _write_index(self.repo, ["OPEN"])
-        context = self._context()
-        self.assertTrue(WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP.satisfied_by(context))
-        shadow = build_phase_context(
-            cycle_id="cyc-e25-test", workspace_root=self.repo,
-            base_dir=self.tools, shadow_only=True,
-        )
-        self.assertFalse(WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP.satisfied_by(shadow))
+        gate = WRITES_PERMITTED_AND_EXPERIMENT_OPENER_ADMITTED
+        self.assertTrue(gate.satisfied_by(self._context()))
+        self.assertFalse(gate.satisfied_by(self._context(shadow_only=True)))
 
 
 class RhythmPolicyTests(unittest.TestCase):

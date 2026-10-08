@@ -39,6 +39,7 @@ from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.autonomy_orchestrator import run_autonomy_orchestrator
 from aria_kernel.convergence_drainer import ConvergenceRunner, run_convergence_drainer
 from aria_kernel.convergent_planning_bridge import start_convergent_plan_drafted_by_primary
+from aria_kernel.evidence_validator import coverage_manifest_pointer
 from aria_kernel.ledger import load_segments
 from aria_kernel.must_satisfy import key_change_obligation
 from aria_kernel.plan_coverage import environment_unable_payload
@@ -51,6 +52,7 @@ from aria_kernel.plan_convergence import (
 )
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
+from aria_kernel.request_admission import admit_request
 from tests.test_autonomy_orchestrator import (
     _fake_auto_merge_runner,
     _fake_bridge_drainer,
@@ -197,7 +199,14 @@ class _TwoCandidateCycle(unittest.TestCase):
                          [change["id"] for change in self.f_plan["key_changes"]])
         self.assertEqual([item["paths"] for item in key_changes],
                          [change["paths"] for change in self.f_plan["key_changes"]])
-        self.assertEqual(row["evidence_refs"], self.f_plan["evidence_refs"])
+        # ARIA-HIGH-354 review — the plan's refs, then the pointer of every
+        # round the plan has measured, so a planner can cite the synthetic
+        # coverage risks it is handed.
+        measured = fold_plan_state(plan_id=PLAN_ID, base_dir=self.tools).get("coverage_by_round") or {}
+        pointers = [coverage_manifest_pointer(str(measured[number]["closure_manifest_path"]))
+                    for number in sorted(measured) if number < int(row.get("round_number") or 0)
+                    or row.get("role") == "completeness_critique"]
+        self.assertEqual(row["evidence_refs"], [*self.f_plan["evidence_refs"], *pointers])
 
 
 class CrossReviewOfTheAdoptedPlan(_TwoCandidateCycle):
@@ -267,6 +276,7 @@ class MintRefusesAForeignRoundEnvelope(_TwoCandidateCycle):
             suggested_prompt="Write a competing plan.", must_satisfy=must_satisfy,
             allowed_scope=allowed_scope, evidence_refs=list(self.f_plan["evidence_refs"]),
             convergence_id=PLAN_ID, round_number=1, base_dir=self.tools, cycle_id="cyc-mint",
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
 
     def _plan_obligation(self) -> dict[str, Any]:

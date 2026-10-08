@@ -11,6 +11,9 @@
 import {
   createTenantQueryKey,
   formatPointRef,
+  loopSystemOf,
+  TANK_SYSTEMS_QUERY,
+  type TankSystemsResult,
   PARAMETER_SOURCES_AT_POINT_QUERY,
   pointInput,
   useAuth,
@@ -29,12 +32,10 @@ import { graphqlFetch } from '../../config/api';
 import {
   WC_SYSTEM_TANKS_QUERY,
   WC_SYSTEMS_QUERY,
-  WC_TANK_SYSTEM_QUERY,
   type WcSystem,
   type WcSystemsResult,
   type WcSystemTanksResult,
   type WcTank,
-  type WcTankSystemResult,
 } from '../../graphql/waterChemistry.queries';
 
 export const WC_REFRESH_MS = 30_000;
@@ -73,9 +74,9 @@ export function useTankSystem(tankId: string | null): UseQueryResult<string | nu
     ['waterChemistry', 'tankSystem', tankId],
     async (): Promise<string | null> => {
       if (tankId === null) return null;
-      const result = await graphqlFetch<WcTankSystemResult>(WC_TANK_SYSTEM_QUERY, { id: tankId });
-      const systemIds = result.equipment === null ? null : result.equipment.systemIds;
-      return systemIds === null || systemIds.length === 0 ? null : (systemIds[0] ?? null);
+      return loopSystemOf(
+        await graphqlFetch<TankSystemsResult>(TANK_SYSTEMS_QUERY, { id: tankId }),
+      );
     },
     { enabled: tankId !== null, staleTime: 60_000 },
   );

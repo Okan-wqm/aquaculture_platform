@@ -31,7 +31,7 @@ vi.mock('../useWaterChemistryMonitoring', () => ({
   usePointSources: (point: unknown) => hooks.sources(point),
 }));
 vi.mock('../../../hooks/useChannelReadings', () => ({
-  useChannelSeries: () => ({ series: null, loading: false, fetching: false, error: null }),
+  useChannelSeriesBySensor: () => new Map(),
 }));
 vi.mock('../../../components/charts/MultiParameterTrendCard', () => ({
   MultiParameterTrendCard: () => <div data-testid="trend-card" />,
@@ -48,7 +48,7 @@ vi.mock('@platform/shared-ui/water-chemistry/components', () => ({
 
 import WaterChemistryMonitoringPage from '../WaterChemistryMonitoringPage';
 
-import { dosingSet, phSource, SYSTEM_ID, TANK_ID, toxicitySet } from './wcFixtures';
+import { answer, dosingSet, phSource, SYSTEM_ID, TANK_ID, toxicitySet } from './wcFixtures';
 
 function renderPage(route = '/sensor/water-chemistry'): void {
   render(
@@ -74,7 +74,7 @@ describe('WaterChemistryMonitoringPage', () => {
     });
     hooks.tanks.mockReturnValue({ data: [{ id: TANK_ID, name: 'Tank 3', code: 'T3' }] });
     hooks.tankSystem.mockReturnValue({ data: SYSTEM_ID });
-    hooks.inputSets.mockReturnValue([{ data: dosingSet() }, { data: toxicitySet() }]);
+    hooks.inputSets.mockReturnValue([answer(dosingSet()), answer(toxicitySet())]);
     hooks.sources.mockReturnValue({ data: [phSource()], error: null });
   });
 
@@ -105,12 +105,25 @@ describe('WaterChemistryMonitoringPage', () => {
       { point: { kind: 'tank', id: TANK_ID }, set: 'TOXICITY' },
     ]);
     // The tank reads TOXICITY at the tank and the loop's carbonate state; the
-    // system point has no TAN or H₂S of its own, so it is listed, not drawn.
+    // system point has no TAN or H₂S of its own, so it is listed with why.
     expect(screen.getAllByTestId('deffeyes-chart')[0]).toHaveTextContent('Tank 3');
     const legend = screen.getByRole('list', { name: 'Measurement points' });
     expect(within(legend).getByText(/RAS A \(system\)/).parentElement).toHaveTextContent(
-      'Not drawn: no value for TAN (mg/L as N), H₂S (µg/L)',
+      'the toxic zones need TAN and H₂S, which are read at tanks',
     );
+  });
+
+  it('shows an outage as not read, never as a missing value, and draws nothing from it', () => {
+    hooks.inputSets.mockReturnValue([
+      answer(undefined, new Error('Backend unavailable (HTTP 503)')),
+      answer(toxicitySet()),
+    ]);
+    renderPage();
+    const legend = screen.getByRole('list', { name: 'Measurement points' });
+    expect(within(legend).getByText('Tank 3').parentElement).toHaveTextContent(
+      'Not read: the farm service did not answer (Backend unavailable (HTTP 503))',
+    );
+    expect(screen.queryByTestId('deffeyes-chart')).toBeNull();
   });
 
   it("shows the selected point's live sources as tiles", () => {

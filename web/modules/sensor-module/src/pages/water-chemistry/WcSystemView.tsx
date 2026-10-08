@@ -1,24 +1,21 @@
 /**
  * One system (loop) of the monitoring view: every measurement point of the
- * loop — the system itself and each of its tanks — overlaid on one Deffeyes
- * diagram, then the selected point's panel.
+ * loop — the system and each of its tanks — overlaid on one Deffeyes diagram,
+ * then the selected point's panel.
  *
- * Inputs per point are the backend's (waterChemistryInputs): the system
- * resolves DOSING (pH, alkalinity, temperature, salinity, calcium, volume);
- * a tank resolves TOXICITY (pH, temperature, salinity, TAN, H₂S) and reads
- * the loop's carbonate state — alkalinity, calcium, volume — from the
- * system's DOSING set, shown as the system's. A point is drawn only when
- * every input it needs has a measured value; the legend says what is missing
- * otherwise. Nothing is defaulted.
+ * Each point runs the shared composition (composePointInputs, the one the
+ * farm calculator runs): the system its DOSING set; a tank its TOXICITY set
+ * with the loop's alkalinity, calcium and volume. A point is drawn only when
+ * every measured value is usable; the legend says why not otherwise —
+ * including "not read" when the farm service did not answer, which is an
+ * outage, not a missing value. Nothing is defaulted.
  */
 import {
-  applyResolved,
   buildDeffeyesData,
   Button,
   colors,
-  DEFAULT_WATER_CHEMISTRY_INPUTS,
+  formatAge,
   useI18n,
-  type InputSetResult,
   type PointRef,
 } from '@aquaculture/shared-ui';
 import {
@@ -29,13 +26,14 @@ import { type ReactElement, useMemo, useState } from 'react';
 
 import type { WcSystem } from '../../graphql/waterChemistry.queries';
 
+import { pointStateOf, type PointState } from './pointState';
 import type { ChartType } from './types';
 import {
   usePointInputSets,
   useSystemTanks,
   type PointSetRequest,
 } from './useWaterChemistryMonitoring';
-import { WcPointPanel } from './WcPointPanel';
+import { notDrawnReason, WcPointPanel } from './WcPointPanel';
 
 // A stable palette by point order, so a point keeps its colour as others come and go.
 const OVERLAY_COLORS = [
@@ -52,7 +50,7 @@ const OVERLAY_COLORS = [
 interface PointEntry {
   point: PointRef;
   label: string;
-  sets: readonly InputSetResult[];
+  state: PointState;
 }
 
 export function WcSystemView({
@@ -83,38 +81,43 @@ export function WcSystemView({
     [system.id, tankList],
   );
   const answers = usePointInputSets(requests);
-  const dosing = answers[0] === undefined ? undefined : answers[0].data;
+  const loopAnswer = answers[0];
 
-  // Recomputed per render (every 30 s refresh at most): applying a set is cheap
-  // and the overlays follow the answers as they arrive.
-  const loop = dosing === undefined ? [] : [dosing];
   const points: PointEntry[] = [
     {
       point: { kind: 'system', id: system.id },
       label: t('wqSource.ui.systemPoint', { name: system.name }),
-      sets: loop,
+      state: pointStateOf(loopAnswer, null),
     },
-    ...tankList.map((tank, index): PointEntry => {
-      const own = answers[index + 1];
-      const ownSet = own === undefined || own.data === undefined ? [] : [own.data];
-      return { point: { kind: 'tank', id: tank.id }, label: tank.name, sets: [...ownSet, ...loop] };
-    }),
+    ...tankList.map(
+      (tank, index): PointEntry => ({
+        point: { kind: 'tank', id: tank.id },
+        label: tank.name,
+        state: pointStateOf(answers[index + 1], loopAnswer === undefined ? null : loopAnswer),
+      }),
+    ),
   ];
   const drawn = points.map((entry, index) => ({
     entry,
-    applied: applyResolved(DEFAULT_WATER_CHEMISTRY_INPUTS, entry.sets, {
-      overrides: {},
-      uncovered: 'missing',
-    }),
     color: OVERLAY_COLORS[index % OVERLAY_COLORS.length] ?? colors.info[500],
   }));
-  const overlays = drawn.flatMap(({ entry, applied, color }): DeffeyesOverlay[] =>
-    applied.inputs === null
-      ? []
-      : [{ data: buildDeffeyesData(applied.inputs, []), label: entry.label, color }],
+  const overlays = drawn.flatMap(({ entry, color }): DeffeyesOverlay[] =>
+    entry.state.status === 'ready' && entry.state.record.inputs !== null
+      ? [{ data: buildDeffeyesData(entry.state.record.inputs, []), label: entry.label, color }]
+      : [],
   );
   const [firstOverlay] = overlays;
   const selectedEntry = points.find((entry) => entry.point.id === selected) ?? points[0];
+
+  const legendNote = (state: PointState): string | null => {
+    if (state.status === 'loading') return t('wqSource.ui.loadingPoint');
+    if (state.status === 'error') return t('wqSource.ui.outage', { error: state.message });
+    if (state.refreshFailed) {
+      const age = Math.max(0, Math.floor((now - Date.parse(state.sets.own.asOf)) / 1000));
+      return t('wqSource.ui.refreshFailed', { age: formatAge(t, age) });
+    }
+    return state.record.inputs === null ? notDrawnReason(t, state) : null;
+  };
 
   return (
     <div className="space-y-3">
@@ -122,34 +125,35 @@ export function WcSystemView({
         className="flex flex-wrap gap-x-4 gap-y-1.5 rounded-lg border border-gray-200 bg-white p-3 text-xs dark:border-gray-700 dark:bg-gray-900"
         aria-label={t('wqSource.ui.measurementPoints')}
       >
-        {drawn.map(({ entry, applied, color }) => (
-          <li key={entry.point.id}>
-            <Button
-              variant="ghost"
-              size="xs"
-              type="button"
-              aria-pressed={
-                selectedEntry !== undefined && selectedEntry.point.id === entry.point.id
-              }
-              className="flex items-center gap-1.5 text-gray-700 hover:underline dark:text-gray-300"
-              onClick={() => setSelected(entry.point.id)}
-            >
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: color }}
-              />
-              <span>{entry.label}</span>
-              {applied.inputs === null && (
-                <span className="text-gray-400 dark:text-gray-500">
-                  —{' '}
-                  {t('wqSource.notDrawn', {
-                    fields: applied.missing.map((field) => t(`wqSource.field.${field}`)).join(', '),
-                  })}
-                </span>
-              )}
-            </Button>
-          </li>
-        ))}
+        {drawn.map(({ entry, color }) => {
+          const note = legendNote(entry.state);
+          const stale =
+            entry.state.status === 'error' ||
+            (entry.state.status === 'ready' && entry.state.refreshFailed);
+          return (
+            <li key={entry.point.id} className={stale ? 'opacity-60' : ''}>
+              <Button
+                variant="ghost"
+                size="xs"
+                type="button"
+                aria-pressed={
+                  selectedEntry !== undefined && selectedEntry.point.id === entry.point.id
+                }
+                className="flex items-center gap-1.5 text-gray-700 hover:underline dark:text-gray-300"
+                onClick={() => setSelected(entry.point.id)}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: color }}
+                />
+                <span>{entry.label}</span>
+                {note !== null && (
+                  <span className="text-gray-400 dark:text-gray-500">— {note}</span>
+                )}
+              </Button>
+            </li>
+          );
+        })}
       </ul>
 
       {firstOverlay === undefined ? (
@@ -165,7 +169,7 @@ export function WcSystemView({
           key={selectedEntry.point.id}
           point={selectedEntry.point}
           label={selectedEntry.label}
-          sets={selectedEntry.sets}
+          state={selectedEntry.state}
           chartType={chartType}
           onChartTypeChange={onChartTypeChange}
           now={now}

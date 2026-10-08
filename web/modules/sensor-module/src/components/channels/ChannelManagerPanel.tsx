@@ -7,13 +7,12 @@
 
 import React, { useState, useCallback } from 'react';
 import {
-  useAuth,
+  useCanMutateSensor,
   useConfirm,
   DataTable,
   type DataTableColumn,
   Spinner,
   Button,
-  type UserRole,
 } from '@aquaculture/shared-ui';
 import { ChannelQuantitySelect } from './ChannelQuantitySelect';
 import { Plus, Edit, Trash2, AlertCircle, Sparkles } from 'lucide-react';
@@ -36,9 +35,6 @@ interface ChannelManagerPanelProps {
   /** A channel to point out (opened from a water-chemistry source problem). */
   focusChannelKey?: string | null;
 }
-
-/** Who may declare what a channel measures (the sensor-service resolver's @Roles). */
-const QUANTITY_WRITERS: UserRole[] = ['TENANT_ADMIN', 'MODULE_MANAGER', 'SUPER_ADMIN'];
 
 // ============================================================================
 // Helpers
@@ -161,8 +157,10 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({
   focusChannelKey = null,
 }) => {
   const confirm = useConfirm();
-  const { hasAnyRole } = useAuth();
-  const canDeclareQuantity = hasAnyRole(QUANTITY_WRITERS);
+  // The shared sensor mirror of the resolver's @Roles (parity-tested).
+  const canDeclare = useCanMutateSensor('declareChannelQuantity');
+  const canClear = useCanMutateSensor('clearChannelQuantity');
+  const canDeclareQuantity = canDeclare && canClear;
   const {
     channels,
     setChannelQuantity,

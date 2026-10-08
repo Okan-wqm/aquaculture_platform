@@ -114,5 +114,41 @@ export function phSource(
       calibrationDueAt: null,
     },
     problems,
+    // The newest sample in the parameter's unit (the backend converts it).
+    latestValue: 7.12,
+    unit: 'pH',
+  };
+}
+
+/** A query answer as usePointInputSets gives it. */
+export function answer(data: InputSetResult | undefined, error: Error | null = null) {
+  return { data, error, isRefetchError: false };
+}
+
+/** A second source on the same sensor (temperature), to show one series request per sensor. */
+export function temperatureSource(): ParameterSourceAtPoint {
+  const ph = phSource();
+  return {
+    ...ph,
+    source: {
+      ...ph.source,
+      id: 'source-temp',
+      parameterConfigId: 'p-temp',
+      channelKey: 'temperature',
+      parameterConfig: {
+        ...ph.source.parameterConfig,
+        id: 'p-temp',
+        code: 'temperature',
+        name: 'Temperature',
+        unit: '°C',
+        precision: 1,
+      },
+    },
+    channel:
+      ph.channel === null
+        ? null
+        : { ...ph.channel, channelKey: 'temperature', unit: '°F', latestValue: 55.4 },
+    latestValue: 13,
+    unit: '°C',
   };
 }

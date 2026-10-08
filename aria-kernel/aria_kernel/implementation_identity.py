@@ -20,7 +20,8 @@ commits in — the identity's whole lifecycle, as one context manager:
 
 * ``hold_implementation_identity`` mints the cycle key INSIDE the workspace
   the agent will commit in (``gh_token_factory.mint_signing_key``, which
-  wires that checkout's git config so a plain ``git commit`` signs), reads
+  wires that checkout's git config so a plain ``git commit`` signs AND is
+  authored and committed by ``IMPLEMENTER_COMMIT_IDENTITY``), reads
   the mint's receipt and refuses by name when the identity cannot be held
   there, registers the PUBLIC half in the knowledge-graph signer registry
   (``kg_signers``) before the agent starts, yields the fingerprint, and
@@ -62,6 +63,14 @@ the cause (``ImplementationIdentityRefusal.reason``):
   knowledge signer in the same tree, a crashed run's leftover) owns this
   cycle's identity in this workspace, and an implementer that borrowed it
   would lose it to that holder's ``finally``;
+* ``commit_identity_unresolved:<author|committer>:<why>`` (ARIA-HIGH-387) —
+  after the mint, the worktree's own config does not resolve to
+  ``IMPLEMENTER_COMMIT_IDENTITY`` as author AND committer with every
+  ambient identity source removed (``git var GIT_AUTHOR_IDENT`` /
+  ``GIT_COMMITTER_IDENT`` under ``commit_identity_environment``). The mint
+  writes the identity, so this is the regression guard for that write: an
+  implementer that cannot produce a commit object is never spawned, and the
+  failure surfaces before the plan is applied, not at its last step;
 * ``mint_failed:<ErrorClass>`` / ``register_failed:<ErrorClass>`` — the
   factory or the registry refused (no ``ssh-keygen`` on PATH, a malformed
   cycle id, a refused ledger write); an unregistrable key is revoked on
@@ -95,6 +104,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
+from .gh_token_factory import GitCommitIdentity
 from .git_containment import GitContainment, GitContainmentRefusal, SandboxSigning, derive_git_containment
 from .release_reason import IMPLEMENTATION_SIGNING_UNAVAILABLE
 from .signing_agent import SigningAgentUnavailable, hold_signing_agent, lifetime_until
@@ -108,6 +118,41 @@ IMPLEMENTATION_SIGNING_UNAVAILABLE_RELEASE_REASON: str = IMPLEMENTATION_SIGNING_
 # Recorded when the agent's envelope carried a ``signer_key_fp`` that is not
 # the executor's: the value is replaced, and the replacement is on the ledger.
 IMPLEMENTATION_SIGNER_FP_OVERRIDDEN_EVENT: str = "implementation_signer_fp_overridden"
+
+# ARIA-HIGH-387 — who an implementation commit is by. The kernel names it,
+# the same way every other kernel committer names its own
+# (``state_store.COMMITTER_NAME``, ``self_revert.REVERT_COMMITTER_NAME``):
+# the agent may not choose an identity (``command_policy`` refuses
+# ``git config``, ``--author`` and ``-S``), and the runner's ambient one is
+# not a fact the kernel owns — the self-hosted runner has none, and the
+# sandbox's HOME is an empty tmpfs. The mint writes it into the worktree's
+# own config, in the signing transaction, so a plain ``git commit`` inside
+# the sandbox resolves author and committer from the tree it commits in.
+IMPLEMENTER_COMMITTER_NAME: str = "aria-implementer"
+IMPLEMENTER_COMMITTER_EMAIL: str = "aria-implementer@users.noreply.github.com"
+IMPLEMENTER_COMMIT_IDENTITY: GitCommitIdentity = GitCommitIdentity(
+    name=IMPLEMENTER_COMMITTER_NAME, email=IMPLEMENTER_COMMITTER_EMAIL,
+)
+# The ident variables ``git var`` resolves, by the role git gives them.
+_IDENT_VARIABLES: tuple[tuple[str, str], ...] = (
+    ("author", "GIT_AUTHOR_IDENT"), ("committer", "GIT_COMMITTER_IDENT"),
+)
+# Every ambient source git could take an identity from instead of the
+# tree's config: the ident variables themselves and the `EMAIL` fallback.
+# The implementer's spawn carries none of them (``agent_env`` admits no
+# ``GIT_*`` and no ``EMAIL``), so the check runs without them too.
+_AMBIENT_IDENTITY_ENV_NAMES: frozenset[str] = frozenset({
+    "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
+    "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE", "EMAIL",
+})
+# Variables that move git off the repository its cwd implies, or inject
+# config through the environment; none may decide what the tree resolves.
+_AMBIENT_GIT_LOCATION_AND_CONFIG_NAMES: frozenset[str] = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CEILING_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX",
+    "GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS",
+})
+_IDENT_TIMEOUT_SECONDS = 10
 
 # The failure modes ``mint_signing_key`` documents (the knowledge signer's
 # list, for the same key): a malformed cycle id (ValueError), ssh-keygen
@@ -149,6 +194,57 @@ class ImplementationIdentity:
     fingerprint: str
     scope: str
     containment: GitContainment
+
+
+def commit_identity_environment(base: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment a commit-identity check runs with: the caller's (or
+    this process's) environment with every ambient identity source removed
+    and the global and system config layers pointed at nothing, so the only
+    place git can find an identity is the checkout's own config — which is
+    what the sandbox's git sees as well (its HOME is an empty tmpfs and its
+    environment carries no ``GIT_*`` identity)."""
+    source = dict(os.environ if base is None else base)
+    env = {
+        name: value for name, value in source.items()
+        if name not in _AMBIENT_IDENTITY_ENV_NAMES
+        and name not in _AMBIENT_GIT_LOCATION_AND_CONFIG_NAMES
+        and not name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+    }
+    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
+    return env
+
+
+def commit_identity_refusal(
+    workspace_root: str | Path, *, expected: GitCommitIdentity = IMPLEMENTER_COMMIT_IDENTITY,
+) -> str | None:
+    """``None`` when the checkout's own config resolves ``expected`` as both
+    author and committer, else why not (``commit_identity_unresolved:
+    <author|committer>:<why>``).
+
+    ``git var GIT_AUTHOR_IDENT`` / ``GIT_COMMITTER_IDENT`` is the reading
+    ``git commit`` itself makes before it writes the commit object; rc=128
+    there is the "Author identity unknown" that refused the first
+    autonomously converged plan at its commit step (ARIA-HIGH-387). The
+    resolved ident is compared to ``expected`` by name and email, so an
+    identity git merely guessed from the host name — on a host that has a
+    resolvable domain — is refused as well: the commit must carry the
+    kernel's identity, not whatever the runner happened to be called.
+    """
+    env = commit_identity_environment()
+    expected_prefix = f"{expected.name} <{expected.email}> "
+    for role, variable in _IDENT_VARIABLES:
+        try:
+            done = subprocess.run(
+                ["git", "-C", str(workspace_root), "var", variable],
+                env=env, capture_output=True, text=True, check=False, timeout=_IDENT_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return f"commit_identity_unresolved:{role}:{type(exc).__name__}"
+        if done.returncode != 0:
+            return f"commit_identity_unresolved:{role}:rc={done.returncode}"
+        if not done.stdout.startswith(expected_prefix):
+            return f"commit_identity_unresolved:{role}:not_the_kernel_identity"
+    return None
 
 
 def _registration_failure_classes() -> tuple[type[BaseException], ...]:
@@ -199,7 +295,9 @@ def hold_implementation_identity(
     if checkout.config_scope != CONFIG_SCOPE_WORKTREE:
         raise ImplementationIdentityRefusal(f"shared_checkout_scope:{checkout.config_scope}")
     try:
-        key = mint_signing_key(cycle_id=cycle_id, workspace_root=workspace)
+        key = mint_signing_key(
+            cycle_id=cycle_id, workspace_root=workspace, commit_identity=IMPLEMENTER_COMMIT_IDENTITY,
+        )
     except _MINT_FAILURE_CLASSES as exc:
         raise ImplementationIdentityRefusal(f"mint_failed:{type(exc).__name__}") from exc
 
@@ -211,6 +309,13 @@ def hold_implementation_identity(
         refusal = str(wiring.reason)
     elif wiring.scope != CONFIG_SCOPE_WORKTREE:
         refusal = f"shared_checkout_scope:{wiring.scope}"
+    else:
+        # ARIA-HIGH-387 — the mint wrote the identity; prove the tree now
+        # resolves it with nothing ambient helping, before any agent, any
+        # registry row, any turn. This is the guard on that write, and the
+        # step that turns "exit 128 after the plan was applied" into a
+        # named refusal before it starts.
+        refusal = commit_identity_refusal(workspace)
     if refusal is not None:
         if wiring is not None:
             # This mint created the files (and possibly the config): unwind
@@ -333,8 +438,13 @@ def stamp_implementation_signer(
 __all__ = [
     "IMPLEMENTATION_SIGNER_FP_OVERRIDDEN_EVENT",
     "IMPLEMENTATION_SIGNING_UNAVAILABLE_RELEASE_REASON",
+    "IMPLEMENTER_COMMITTER_EMAIL",
+    "IMPLEMENTER_COMMITTER_NAME",
+    "IMPLEMENTER_COMMIT_IDENTITY",
     "ImplementationIdentity",
     "ImplementationIdentityRefusal",
+    "commit_identity_environment",
+    "commit_identity_refusal",
     "hold_implementation_identity",
     "implementation_record",
     "stamp_implementation_signer",

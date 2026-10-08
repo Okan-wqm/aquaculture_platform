@@ -139,9 +139,20 @@ def stat_evidence_path(absolute: Path) -> PathStat:
     it, so no ref reaches an ``OSError`` the law did not name. What
     ``Path.exists`` treats as absence stays absence; any other ``OSError``
     (ENAMETOOLONG, EACCES, EIO) is ``unresolvable``.
+
+    A path the OS cannot even be handed is ``unresolvable`` too: ``os.stat``
+    raises ``ValueError`` for an embedded NUL and ``UnicodeEncodeError`` (a
+    ``ValueError``) for a lone surrogate, both of which survive JSON decoding
+    of an MCP runtime signal's ``code_refs`` (``\\u0000``, ``\\ud800``).
+    ``Path.exists`` swallowed them; the stat must name them (re-review of
+    PR #1863: ``ValueError: embedded null byte`` wedged the drain again).
     """
     try:
         mode = absolute.stat().st_mode
+    except ValueError:
+        return PathStat(
+            PATH_KIND_UNRESOLVABLE, "embedded_nul" if "\x00" in str(absolute) else "unencodable",
+        )
     except OSError as exc:
         if exc.errno in _ABSENT_ERRNOS:
             return PathStat(PATH_KIND_ABSENT)

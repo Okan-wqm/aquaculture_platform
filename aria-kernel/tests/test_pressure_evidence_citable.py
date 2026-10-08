@@ -49,6 +49,7 @@ from aria_kernel.evidence_validator import (
 )
 from aria_kernel.funnel_health import FUNNEL_STAGES
 from aria_kernel.pressure import SOURCE_WEIGHTS, run_pressure
+from aria_kernel.pressure_evidence import split_citable_refs
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.git_fixtures import commit_files, make_local_git_repo
 
@@ -497,6 +498,73 @@ class TheLawNamesAStatThatCannotAnswer(unittest.TestCase):
             errors: list[dict[str, Any]] = []
             validate_evidence_path({"id": "t", "declared_scope": ["**"]}, Path(tmp), self.LONG, None, errors, [])
         self.assertIn("evidence_path_unresolvable", [e["code"] for e in errors])
+
+
+# Re-review of PR #1863 — NUL raised ValueError out of the single stat and
+# wedged the drain again; a lone surrogate (JSON "\\ud800") raises
+# UnicodeEncodeError, a ValueError, at the same call. Every character the OS
+# cannot be handed, judged at every layer.
+UNNAMEABLE_CHARS: tuple[str, ...] = (
+    *(chr(code) for code in range(0x00, 0x20)), "\x7f", *(chr(code) for code in range(0x80, 0xA0)), "\ud800", "\udfff",
+)
+
+
+class AnUnnameablePathIsRefusedEverywhereByName(unittest.TestCase):
+    def test_the_shape_law_refuses_every_control_character_and_surrogate(self) -> None:
+        for char in UNNAMEABLE_CHARS:
+            ref = f"README{char}.md"
+            with self.subTest(char=hex(ord(char))):
+                code = agent_ref_shape_refusal(ref)
+                # Whitespace controls never parse as `path[:line]`; every
+                # other one is a path the OS refuses.
+                self.assertIn(code, {"agent_evidence_path_unresolvable", "agent_evidence_ref_malformed"})
+                self.assertIsNotNone(code)
+
+    def test_the_submit_law_classifier_and_tool_check_refuse_without_raising(self) -> None:
+        from aria_kernel.evidence_trust import classify_evidence_ref
+        from aria_kernel.evidence_validator import validate_evidence_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("x\n", encoding="utf-8")
+            for char in UNNAMEABLE_CHARS:
+                ref = f"README{char}.md"
+                with self.subTest(char=hex(ord(char))):
+                    errors: list[dict[str, Any]] = []
+                    _check_agent_ref(ref, root=root, errors=errors, checked=[])
+                    self.assertTrue(errors, "the submit law admitted an unnameable path")
+                    self.assertNotEqual(classify_evidence_ref(ref, workspace_root=root).trust_grade, "repo_verified")
+                    tool_errors: list[dict[str, Any]] = []
+                    validate_evidence_path({"id": "t", "declared_scope": ["**"]}, root, ref, None, tool_errors, [])
+                    self.assertTrue(tool_errors)
+
+    def test_the_stat_names_nul_and_surrogates(self) -> None:
+        from aria_kernel.evidence_trust import PATH_KIND_UNRESOLVABLE, PathStat, stat_evidence_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(stat_evidence_path(Path(tmp) / "a\x00b"), PathStat(PATH_KIND_UNRESOLVABLE, "embedded_nul"))
+            self.assertEqual(stat_evidence_path(Path(tmp) / "a\ud800b").error, "unencodable")
+
+    def test_a_pressure_routes_them_to_provenance(self) -> None:
+        refs = [f"README{char}.md" for char in UNNAMEABLE_CHARS]
+        evidence, provenance = split_citable_refs(["README.md", *refs])
+        self.assertEqual(evidence, ["README.md"])
+        self.assertEqual(provenance, refs)
+
+
+class ANulRefNeverStopsTheDrain(_DrainFixture):
+    def test_the_reviewers_reproduction_mints_the_rest(self) -> None:
+        for bad in ("README\x00.md", "README\ud800.md"):
+            with self.subTest(ref=repr(bad)):
+                self.captured.clear()
+                items = self.store({"pressure_id": "pressure:runtime-signal:unknown", "reason": "r",
+                                    "evidence": [bad, "README.md"]})
+                workspace = self.root / "repo"
+                if not workspace.exists():
+                    workspace = self.workspace(committed=True, extra={"README.md": "x\n"})
+                self.drain(items, workspace)
+                [request] = self.captured
+                self.assertEqual(request["evidence_refs"], ["README.md"])
 
 
 class ReflectionPlansOnlyCitablePressures(unittest.TestCase):

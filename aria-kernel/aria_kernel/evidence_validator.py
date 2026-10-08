@@ -602,6 +602,17 @@ def _check_agent_ref(
 MAX_PATH_COMPONENT_BYTES = 255
 
 
+def _nameable_path(path: str) -> bool:
+    """False when ``path`` holds a C0/C1 control character or cannot be encoded as UTF-8."""
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in path):
+        return False
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def agent_ref_shape_refusal(ref: Any) -> str | None:
     """The rejection code the agent evidence law gives ``ref`` before it opens a checkout; ``None`` when the shape passes.
 
@@ -609,8 +620,8 @@ def agent_ref_shape_refusal(ref: Any) -> str | None:
     repository: a ledger pointer passes; a ref outside the ``path[:line]``
     grammar is ``agent_evidence_ref_malformed``; a path that is absolute or
     leaves the root is ``agent_evidence_path_escapes_workspace``; a path with a
-    component longer than ``MAX_PATH_COMPONENT_BYTES`` is
-    ``agent_evidence_path_unresolvable``; ARIA's own output is
+    control character, a lone surrogate, or a component longer than
+    ``MAX_PATH_COMPONENT_BYTES`` is ``agent_evidence_path_unresolvable``; ARIA's own output is
     ``agent_evidence_self_output``. Every ref this refuses, the
     submit law refuses with the same code, so a kernel producer or mint that
     asks this function can never hand an agent a ref its answer will be
@@ -634,6 +645,11 @@ def agent_ref_shape_refusal(ref: Any) -> str | None:
         canonical = resolve_repo_relpath(parsed[0])
     except GovernanceError:
         return "agent_evidence_path_escapes_workspace"
+    if not _nameable_path(canonical):
+        # A control character (NUL above all) or a lone surrogate names no
+        # file: the OS refuses the path outright, and the submit law's stat
+        # refuses it under the same code.
+        return "agent_evidence_path_unresolvable"
     if any(len(part.encode("utf-8")) > MAX_PATH_COMPONENT_BYTES for part in canonical.split("/")):
         # No checkout can hold such a name; the submit law's stat refuses it
         # under the same code (ENAMETOOLONG).

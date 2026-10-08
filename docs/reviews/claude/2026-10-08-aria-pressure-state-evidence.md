@@ -98,6 +98,11 @@ fix reuses both rather than adding a second rule.
     than absence becomes `agent_evidence_path_unresolvable` / `evidence_path_unresolvable`
     (grade `invalid`).
   - The shape law refuses a component longer than 255 bytes under the same code.
+  - A path the OS cannot be handed at all is also `unresolvable`: an embedded NUL
+    (`embedded_nul`) or a lone surrogate (`unencodable`). `os.stat` raises `ValueError` for
+    these, and both survive JSON decoding of an MCP signal's `code_refs`. The stat catches
+    `ValueError` at that call only, and the shape law refuses every C0/C1 control character
+    and every unencodable path.
   - `project_refs_for_agent` contains an `OSError` to its own item (kept pending, bounded). The
     catch is the I/O class only, so a programming error still raises.
 - Reflection plans only pressures an agent can be handed evidence for (tier 2).

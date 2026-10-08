@@ -158,9 +158,10 @@ def settle_pre_spawn_refusal(*, request_id: str, release_reason: str, base_dir: 
                    base_dir=base_dir)
 
 
-def _wait_of(request: dict[str, Any] | None, *, root: Path) -> tuple[str, bool]:
-    """(cause, still waiting on the lane) for the plan's newest implementation request."""
-    from .agent_invocations import _claims_path, derive_request_state
+def _wait_of(request: dict[str, Any] | None, state: str | None, *, root: Path) -> tuple[str, bool]:
+    """(cause, still waiting on the lane) for the plan's newest implementation
+    request, whose derived ``state`` the caller read once."""
+    from .agent_invocations import _claims_path
     from .implementation_dispatch import implementation_dispatch_refusal
     from .ledger import load_jsonl
     from .outage_causality import WAITING_STATES
@@ -169,7 +170,6 @@ def _wait_of(request: dict[str, Any] | None, *, root: Path) -> tuple[str, bool]:
     if request is None:
         return "no_request", True
     request_id = str(request.get("request_id") or "")
-    state = derive_request_state(request_id=request_id, base_dir=root)
     undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
     if state in WAITING_STATES and undispatchable is not None:
         return undispatchable, True
@@ -209,10 +209,12 @@ def settle_orphaned_plan(*, plan_id: str, base_dir: Path) -> dict[str, Any]:
     # ARIA-HIGH-389 — the reaper ages a plan by its ledger events, which a
     # delivery in progress does not write: a request under a live lease is
     # in flight, its PR possibly opening, and is left to its executor.
-    if request_id and derive_request_state(request_id=request_id, base_dir=root) in LIVE_CLAIM_STATES:
+    # One derivation per reap: it decides both the lease check and the wait.
+    state = derive_request_state(request_id=request_id, base_dir=root) if request_id else None
+    if state in LIVE_CLAIM_STATES:
         return {"status": IN_FLIGHT, "plan_id": plan_id, "request_id": request_id,
                 "rejection_class": ORPHAN_REAPED, "cause": CLAIMED_IN_FLIGHT}
-    cause, waiting = _wait_of(request, root=root)
+    cause, waiting = _wait_of(request, state, root=root)
     # Only the orphan states the reaper scanned: a plan RECORDED in between
     # (its outcome landed, its PR is the merge lane's) is refused.
     return _settle(settlement_for_orphan(request_id=request_id or "", wait_cause=cause, waiting=waiting),

@@ -6,9 +6,15 @@ import React from 'react';
 
 interface ResultsPanelProps {
   outputs: CalculatedOutputs | null;
+  /**
+   * Why no dose is computed here (a tank, a dosing set not READY, a view that
+   * doses nowhere) — shown in place of the recipes. Omitted, the recipes of
+   * the selected reagents are shown.
+   */
+  dosingUnavailable?: string;
 }
 
-const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
+const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs, dosingUnavailable }) => {
   if (!outputs) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
@@ -198,7 +204,14 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
         <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3 border-b pb-1">
           Dosing Recipes {outputs.dosingRecipes.length > 0 && `(${outputs.dosingRecipes.length})`}
         </h4>
-        {outputs.dosingRecipes.length === 0 ? (
+        {dosingUnavailable !== undefined ? (
+          <p
+            className="text-xs text-gray-500 dark:text-gray-400 text-center py-4"
+            data-testid="dosing-unavailable"
+          >
+            {dosingUnavailable}
+          </p>
+        ) : outputs.dosingRecipes.length === 0 ? (
           <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-4">
             No recipes available. Select reagents and set target.
           </p>

@@ -167,7 +167,7 @@ export class System {
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  totalVolumeM3?: number;              // Toplam su hacmi (m³)
+  totalVolumeM3?: number | null;       // Toplam su hacmi (m³); null: unknown (DecimalTransformer)
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })

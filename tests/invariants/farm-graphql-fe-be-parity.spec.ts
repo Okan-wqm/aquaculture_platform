@@ -50,6 +50,10 @@ const CROSS_SUBGRAPH_FIELDS: Record<string, string> = {
   // farm-module's useSensors hook lists sensors to link a temperature sensor
   // to a tank/pond/cage at equipment create/edit time.
   sensors: 'sensor-service',
+  // apps/sensor-service/src/registration/resolvers/channel.resolver.ts
+  // The water-chemistry bind dialog lists a sensor's channels with what each
+  // measures (FARM-HIGH-384; a farm-side bindableChannels is FARM-MEDIUM-385).
+  dataChannelsBySensor: 'sensor-service',
 };
 
 interface FrontendRootField {

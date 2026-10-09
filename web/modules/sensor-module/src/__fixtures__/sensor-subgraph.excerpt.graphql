@@ -323,6 +323,7 @@ type Query {
     startTime: DateTime!
     endTime: DateTime!
     interval: AggregationInterval
+    channelKeys: [String!]
   ): ChannelSeriesResponse!
   seriesDisplayTimeZone(sensorIds: [ID!]!): SeriesDisplayTimeZone!
   channelDataBounds(sensorIds: [ID!]!): [ChannelDataBounds!]!

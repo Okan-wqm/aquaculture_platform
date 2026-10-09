@@ -34,6 +34,7 @@ import {
 import { SeriesTimeZoneService } from './series-time-zone.service';
 import {
   validateAggregationInterval,
+  validateChannelKeys,
   validateDateRange,
   validateSensorId,
   validateTenantId,
@@ -168,6 +169,10 @@ export class ChannelReadingQueryService {
    * tier policy's plan: the store follows the range and the data's age, and
    * the width returned is never finer than the store keeps. The response says
    * which store and width it used, and where the range holds no data.
+   *
+   * `channelKeys` narrows the answer to those channels of the sensor (a
+   * water-chemistry tile charts the one channel it is bound to); absent, every
+   * channel is returned. A key the sensor has no channel for is simply absent.
    */
   async getSeries(
     sensorId: string,
@@ -175,6 +180,7 @@ export class ChannelReadingQueryService {
     startTime: Date,
     endTime: Date,
     interval?: string,
+    channelKeys?: readonly string[],
   ): Promise<ChannelSeriesResponse> {
     const validSensorId = validateSensorId(sensorId);
     const validTenantId = validateTenantId(tenantId);
@@ -184,6 +190,7 @@ export class ChannelReadingQueryService {
       MAX_SERIES_RANGE_MS,
     );
     const requestedInterval = validateAggregationInterval(interval);
+    const requestedKeys = channelKeys === undefined ? undefined : validateChannelKeys(channelKeys);
 
     // The zone is farm's answer for the sensor's site. The site is read first
     // and farm asked between the two reads, so no pooled connection waits on
@@ -213,7 +220,7 @@ export class ChannelReadingQueryService {
           new Date(),
           seriesZone.bucketZone,
         );
-        const sensorChannels = await this.allChannels(qr, [validSensorId]);
+        const sensorChannels = await this.allChannels(qr, [validSensorId], requestedKeys);
         const read = await this.resolveSeriesRead(qr, readPlan);
         if (sensorChannels.length === 0) {
           return {
@@ -400,9 +407,16 @@ export class ChannelReadingQueryService {
   }
 
   /** Every channel of the sensors, enabled or not — history outlives a switch-off. */
-  private allChannels(qr: QueryRunner, sensorIds: string[]): Promise<SensorDataChannel[]> {
+  private allChannels(
+    qr: QueryRunner,
+    sensorIds: string[],
+    channelKeys?: readonly string[],
+  ): Promise<SensorDataChannel[]> {
     return tenantManagerRepo(qr.manager, SensorDataChannel).find({
-      where: { sensorId: In(sensorIds) },
+      where: {
+        sensorId: In(sensorIds),
+        ...(channelKeys === undefined ? {} : { channelKey: In([...channelKeys]) }),
+      },
       order: { sensorId: 'ASC', displayOrder: 'ASC', channelKey: 'ASC' },
     });
   }

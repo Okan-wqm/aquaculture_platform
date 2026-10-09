@@ -1,9 +1,18 @@
 /**
  * Parameter-Equipment Mapping hooks for farm-module
- * Handles CRUD + bulk operations for mapping water quality parameters to equipment via GraphQL API
+ * Handles CRUD + bulk operations for mapping water quality parameters to equipment via GraphQL API.
+ *
+ * These are the MANUAL entry-plan lines. A sensor channel is bound as a source
+ * through useParameterSources (bindParameterChannel), never through a plan
+ * line: the backend refuses a sensorId here, so the inputs do not carry one.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -20,7 +29,6 @@ export interface ParamEquipmentMapping {
   equipmentId: string | null;
   isActive: boolean;
   monitoringFrequency: MonitoringFrequency;
-  sensorId: string | null;
   alertEnabled: boolean;
   notes: string | null;
   createdAt: string;
@@ -43,7 +51,6 @@ export interface CreateParamEquipmentInput {
   parameterConfigId: string;
   equipmentId: string;
   monitoringFrequency: MonitoringFrequency;
-  sensorId?: string;
   alertEnabled?: boolean;
   notes?: string;
   isActive?: boolean;
@@ -52,7 +59,6 @@ export interface CreateParamEquipmentInput {
 export interface UpdateParamEquipmentInput {
   id: string;
   monitoringFrequency?: MonitoringFrequency;
-  sensorId?: string | null;
   alertEnabled?: boolean;
   notes?: string | null;
   isActive?: boolean;
@@ -87,7 +93,6 @@ const MAPPING_FRAGMENT = `
   equipmentId
   isActive
   monitoringFrequency
-  sensorId
   alertEnabled
   notes
   createdAt
@@ -171,11 +176,10 @@ export function useParamEquipmentMappings(filters?: ParamEquipmentMappingFilter)
       }>(GET_PARAM_EQUIPMENT_MAPPINGS, {
         equipmentId: filters?.equipmentId,
         parameterConfigId: filters?.parameterConfigId,
-    enabled: !!tenantId,
       });
       return response.parameterEquipmentMappings;
     },
-    enabled: !!token,
+    enabled: !!token && !!tenantId,
     staleTime: 300000, // 5 min
   });
 }
@@ -216,7 +220,9 @@ export function useCreateParamEquipmentMapping() {
       return response.createParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings'),
+      });
     },
   });
 }
@@ -236,7 +242,9 @@ export function useUpdateParamEquipmentMapping() {
       return response.updateParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings'),
+      });
     },
   });
 }
@@ -256,7 +264,9 @@ export function useDeleteParamEquipmentMapping() {
       return response.deleteParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings'),
+      });
     },
   });
 }
@@ -276,7 +286,9 @@ export function useBulkMapParamsToEquipment() {
       return response.bulkMapParamsToEquipment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings'),
+      });
     },
   });
 }

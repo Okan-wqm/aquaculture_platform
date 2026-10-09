@@ -25,7 +25,7 @@ import {
   MeasurementPosition,
 } from '../entities/water-quality-param-equipment.entity';
 import type { ChannelSourceTarget } from '../commands/bind-parameter-channel.command';
-import type { MeasurementPoint } from '../services/parameter-sources';
+import type { MeasurementPoint, SourceLocation } from '../services/parameter-sources';
 
 /** A measurement point: exactly one of the four ids (checked by sourceLocationOf). */
 @InputType({
@@ -145,15 +145,24 @@ export function measurementPointOf(input: MeasurementPointInput): MeasurementPoi
   return point;
 }
 
+/** The location an input names: its point, at the representative position and no depth unless given. */
+export function sourceLocationOf(input: {
+  point: MeasurementPointInput;
+  position?: MeasurementPosition | null;
+  depthM?: number | null;
+}): SourceLocation {
+  return {
+    point: measurementPointOf(input.point),
+    position: input.position ?? MeasurementPosition.REPRESENTATIVE,
+    depthM: input.depthM ?? null,
+  };
+}
+
 /** The parameter, place and channel a bind or its dry run names. */
 export function channelSourceTargetOf(input: BindParameterChannelInput): ChannelSourceTarget {
   return {
     parameterConfigId: input.parameterConfigId,
-    location: {
-      point: measurementPointOf(input.point),
-      position: input.position ?? MeasurementPosition.REPRESENTATIVE,
-      depthM: input.depthM ?? null,
-    },
+    location: sourceLocationOf(input),
     channel: { sensorId: input.sensorId, channelKey: input.channelKey },
   };
 }

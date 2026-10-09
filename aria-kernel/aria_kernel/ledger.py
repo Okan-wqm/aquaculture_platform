@@ -1863,7 +1863,18 @@ def _rewrite_jsonl_unlocked(
     *,
     held_file_lock_paths: frozenset[Path] | None = None,
 ) -> None:
-    """Plan 026R §A.2 — internal rewrite under caller-held locks."""
+    """Plan 026R §A.2 — internal rewrite under caller-held locks.
+
+    Every rewrite of a declared ledger reaches the disk through here, so
+    this is where a memory ledger's past is held immutable (the memory-laws
+    finding): a rewrite that would change or drop a recorded row is refused
+    before a byte is written (``memory_class.refuse_history_rewrite``). The
+    import is local because ``memory_class`` reads this module's hash and
+    torn-tail primitives.
+    """
+    from .memory_class import refuse_history_rewrite
+
+    refuse_history_rewrite(path, rows)
     path.parent.mkdir(parents=True, exist_ok=True)
     previous_hash: str | None = None
     lines = []

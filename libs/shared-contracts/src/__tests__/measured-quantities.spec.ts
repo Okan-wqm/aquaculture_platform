@@ -2,8 +2,10 @@ import {
   CHANNEL_KEYS,
   channelKeyMeaning,
   channelKeyUnit,
+  convertUnit,
   declarableQuantities,
   effectiveQuantity,
+  fromCanonicalUnit,
   isAcceptedUnit,
   MEASURED_QUANTITIES,
   measuredQuantity,
@@ -182,6 +184,31 @@ describe('measured-quantity registry', () => {
     expect(toCanonicalUnit('ph', 'NBS', 7.9)).toBe(7.9);
     expect(toCanonicalUnit('waterLevel', '%', 40)).toBeNull();
     expect(unitConversion('salinity', 'ppt')).toEqual({ unit: 'ppt', factor: 1 });
+  });
+
+  it('carries a value from the canonical unit, and between two units of a quantity', () => {
+    expect(fromCanonicalUnit('temperature', '°F', 100)).toBeCloseTo(212, 10);
+    expect(fromCanonicalUnit('temperature', 'K', 0)).toBeCloseTo(273.15, 10);
+    expect(fromCanonicalUnit('h2s', 'mg/L', 15)).toBeCloseTo(0.015, 10);
+    expect(fromCanonicalUnit('waterLevel', '%', 40)).toBeNull();
+    expect(convertUnit('temperature', '°F', 'K', 212)).toBeCloseTo(373.15, 10);
+    expect(convertUnit('conductivity', 'mS/cm', 'S/m', 52)).toBeCloseTo(5.2, 10);
+    expect(convertUnit('salinity', 'psu', 'ppt', 34.5)).toBe(34.5);
+    expect(convertUnit('salinity', 'ppt', 'mg/L', 34.5)).toBeNull();
+    expect(convertUnit('salinity', 'mg/L', 'ppt', 34.5)).toBeNull();
+    for (const quantity of MEASURED_QUANTITIES) {
+      for (const unit of [
+        quantity.unit,
+        ...('conversions' in quantity ? quantity.conversions : []).map((c) => c.unit),
+      ]) {
+        const there = convertUnit(quantity.id, quantity.unit, unit, 12.5);
+        expect(there).not.toBeNull();
+        expect(convertUnit(quantity.id, unit, quantity.unit, there ?? Number.NaN)).toBeCloseTo(
+          12.5,
+          9,
+        );
+      }
+    }
   });
 
   it('lets only loop-uniform quantities be inherited from a system', () => {

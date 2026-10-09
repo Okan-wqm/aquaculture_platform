@@ -234,3 +234,34 @@ export async function seedLoop(
     return { systemId: system.id, equipmentId: equipment.id };
   });
 }
+
+/** A tank kept as equipment (isTank), linked to the given systems. */
+export async function seedEquipmentTank(
+  dataSource: DataSource,
+  tenantId: string,
+  topology: Pick<SourceTopology, 'departmentId'>,
+  code: string,
+  systemIds: readonly string[],
+): Promise<string> {
+  const manager = dataSource.manager;
+  return withTenantContext(tenantId, async () => {
+    const equipment = await manager.save(
+      manager.create(Equipment, {
+        tenantId,
+        equipmentTypeId: '0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e',
+        name: code,
+        code,
+        departmentId: topology.departmentId,
+        isTank: true,
+        isActive: true,
+        isDeleted: false,
+      }),
+    );
+    for (const systemId of systemIds) {
+      await manager.save(
+        manager.create(EquipmentSystem, { tenantId, equipmentId: equipment.id, systemId }),
+      );
+    }
+    return equipment.id;
+  });
+}

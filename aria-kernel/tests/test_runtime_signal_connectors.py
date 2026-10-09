@@ -94,10 +94,18 @@ class ResolveCodeRefTests(unittest.TestCase):
 
     def test_path_map_rewrites_external_prefix(self) -> None:
         resolved = resolve_code_ref(
-            "srv/farm/src/feed.ts", REPO_ROOT,
-            {"srv/farm/src": "apps/farm-service/src"},
+            "srv/kernel/cli.py:12", REPO_ROOT,
+            {"srv/kernel": "aria-kernel/aria_kernel"},
         )
-        self.assertEqual(resolved, "apps/farm-service/src/feed.ts")
+        self.assertEqual(resolved, "aria-kernel/aria_kernel/cli.py:12")
+
+    def test_path_map_rewrite_to_a_missing_file_is_dropped(self) -> None:
+        # The rewrite is grounded like every other candidate: a target the
+        # repo does not hold is dropped, not passed through as "plausible".
+        self.assertIsNone(resolve_code_ref(
+            "srv/kernel/no_such_module.py", REPO_ROOT,
+            {"srv/kernel": "aria-kernel/aria_kernel"},
+        ))
 
     def test_url_and_out_of_repo_absolute_are_dropped(self) -> None:
         self.assertIsNone(resolve_code_ref("https://sentry.io/x", REPO_ROOT, {}))
@@ -138,11 +146,11 @@ class ImportSignalsTests(unittest.TestCase):
             "project": "p",
         }]
         mapped, dropped = map_rows("sentry", rows, repo_root=self.repo, path_map={})
-        # The unmapped prefix still speaks repo-relative shape (a path with
-        # slashes), so it is kept — but the http/absolute classes in
-        # ResolveCodeRefTests pin the dropped side.
-        self.assertEqual(len(mapped), 1)
-        self.assertEqual(dropped, [])
+        # A path the repo cannot ground is DROPPED and reported: a
+        # "plausible" path is exactly what an attacker writing Sentry
+        # events through the public DSN would send.
+        self.assertEqual(mapped, [])
+        self.assertTrue(any("opaque-module/src/thing.rs" in d for d in dropped))
 
     def test_row_without_grounded_ref_is_dropped_and_reported(self) -> None:
         rows = [{"title": "only summary", "project": "p", "culprit": ""}]
@@ -177,7 +185,90 @@ class ImportSignalsTests(unittest.TestCase):
             next((self.tools / "runtime-signals").glob("*.json")).read_text(encoding="utf-8")
         )
         self.assertEqual(record["source"], "prod_log")
-        self.assertEqual(record["severity"], "critical")
+        # prod_log content is outside-authored: its severity is capped and the
+        # reported value kept beside the bounded one.
+        self.assertEqual(record["severity"], "high")
+        self.assertEqual(record["reported_severity"], "critical")
+
+    def test_line_suffix_is_kept_and_sentry_frame_objects_are_read(self) -> None:
+        rows = [{
+            "title": "NPE",
+            "project": "farm-service",
+            "location": [
+                {"filename": "apps/farm-service/src/feed.ts", "lineno": 42},
+                {"abs_path": str(self.repo / "apps/farm-service/src/feed.ts"), "lineno": 7},
+                "apps/farm-service/src/feed.ts:9",
+            ],
+        }]
+        mapped, dropped = map_rows("sentry", rows, repo_root=self.repo, path_map={})
+        self.assertEqual(dropped, [])
+        self.assertEqual(mapped[0]["code_refs"], [
+            "apps/farm-service/src/feed.ts:42",
+            "apps/farm-service/src/feed.ts:7",
+            "apps/farm-service/src/feed.ts:9",
+        ])
+
+    def test_hostile_refs_are_dropped_and_reported_per_row(self) -> None:
+        # Two hostile refs that DO resolve to files under the root, so it is
+        # the bridge's ref law — not groundedness — that refuses them.
+        (self.repo / "apps/farm-service/src/x").mkdir()
+        (self.repo / "apps/farm-service/src/[f]eed.ts").write_text("x", encoding="utf-8")
+        hostile = [
+            "../../../../etc/passwd",
+            "apps/../../../root/.ssh/id_rsa",
+            "apps/farm-service/src/x/../feed.ts",
+            "*/*",
+            "apps/farm-service/src/[f]eed.ts",
+            "apps/farm-service/src/feed.ts\x00",
+            "this is prose about feed.ts",
+            "/etc/passwd",
+        ]
+        rows = [{"summary": "s", "service": "svc", "code_refs": hostile}]
+        mapped, dropped = map_rows("incident", rows, repo_root=self.repo, path_map={})
+        self.assertEqual(mapped, [])
+        self.assertEqual(len([d for d in dropped if d.startswith("<row 0:")]), len(hostile) + 1)
+        refused = [d for d in dropped if "ref refused" in d]
+        self.assertTrue(any("runtime_signal_ref_glob" in d for d in refused))
+        self.assertTrue(any("agent_evidence_path_escapes_workspace" in d for d in refused))
+
+    def test_a_non_object_row_is_reported_and_the_rest_still_map(self) -> None:
+        rows = ["not a row", {"summary": "s", "service": "svc", "code_refs": ["apps/farm-service/src/feed.ts"]}]
+        mapped, dropped = map_rows("incident", rows, repo_root=self.repo, path_map={})
+        self.assertEqual(len(mapped), 1)
+        self.assertTrue(any(d.startswith("<row 0: not a JSON object") for d in dropped))
+
+    def _run(self, *argv: str) -> tuple[int, str]:
+        import io, contextlib
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = import_main(list(argv))
+        return code, out.getvalue()
+
+    def test_path_map_must_be_an_object_of_strings(self) -> None:
+        input_path = self.root / "rows.json"
+        input_path.write_text("[]", encoding="utf-8")
+        bad_map = self.root / "map.json"
+        bad_map.write_text(json.dumps({"ext/": 3}), encoding="utf-8")
+        with self.assertRaises(SystemExit) as caught:
+            self._run("--kind", "incident", "--input", str(input_path), "--repo-root", str(self.repo),
+                      "--tools-dir", str(self.tools), "--path-map", str(bad_map))
+        self.assertIn("--path-map", str(caught.exception))
+
+    def test_oversized_input_is_refused_before_parsing(self) -> None:
+        input_path = self.root / "big.json"
+        input_path.write_text(" " * (import_signals.MAX_INPUT_BYTES + 1), encoding="utf-8")
+        with self.assertRaises(SystemExit) as caught:
+            self._run("--kind", "incident", "--input", str(input_path), "--repo-root", str(self.repo),
+                      "--tools-dir", str(self.tools))
+        self.assertIn("at most", str(caught.exception))
+
+    def test_too_many_rows_are_refused(self) -> None:
+        input_path = self.root / "many.json"
+        input_path.write_text(json.dumps([{}] * (import_signals.MAX_ROWS + 1)), encoding="utf-8")
+        with self.assertRaises(SystemExit) as caught:
+            self._run("--kind", "incident", "--input", str(input_path), "--repo-root", str(self.repo),
+                      "--tools-dir", str(self.tools))
+        self.assertIn("rows", str(caught.exception))
 
 
 if __name__ == "__main__":  # pragma: no cover

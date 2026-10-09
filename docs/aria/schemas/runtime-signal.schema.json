@@ -33,6 +33,10 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "severity": { "enum": ["low", "medium", "high", "critical"] },
+    "reported_severity": {
+      "description": "Present only when the bridge capped an outside-authored source's claimed severity (UNTRUSTED_CONTENT_SOURCES): the value the source reported, kept beside the bounded severity.",
+      "enum": ["low", "medium", "high", "critical"]
+    },
     "trust_grade": { "const": "runtime_unverified" },
     "status": { "enum": ["open", "resolved"] },
     "recorded_at": {

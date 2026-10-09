@@ -24,6 +24,15 @@
  *      jetstreamManager() with its default `$JS.API.INFO` probe, then
  *      create-or-update the three streams (STREAM.INFO → STREAM.UPDATE, or
  *      STREAM.CREATE when absent).
+ * Then, for every responder identity that subscribes a literal `request.*`
+ * subject some other identity may publish (derived from services.yaml):
+ *   4. a request/reply round trip in BOTH client shapes — the requester's
+ *      `nc.request()` (mux inbox `_INBOX<CN>.<nuid>.<n>`) and the NestJS
+ *      ClientProxy shape (an explicit `_INBOX<CN>.<nuid>` subscription plus a
+ *      publish with `reply`) — answered by the responder through
+ *      `msg.respond()`. This is the leg INFRA-HIGH-187/188 were missing: the
+ *      requester's subscribe grant and the responder's `allow_responses` are
+ *      only proven together, by an answer that arrives.
  * A permissions violation, a timeout or a connect failure anywhere is a
  * finding. Run through scripts/nats/boot-path-acl-smoke-harness.sh, which
  * boots the broker on the repo's nats.conf and mints the certificates.
@@ -265,6 +274,136 @@ async function smokeService(
   return findings;
 }
 
+interface RequestReplyPair {
+  readonly requester: ServiceEntry;
+  readonly responder: ServiceEntry;
+  readonly subject: string;
+}
+
+/**
+ * One pair per responder: a literal `request.*` subject it subscribes and an
+ * identity that may publish it. Derived from services.yaml so a new RPC edge
+ * is covered by existing, not by remembering to list it here.
+ */
+function requestReplyPairs(services: readonly ServiceEntry[]): RequestReplyPair[] {
+  const pairs: RequestReplyPair[] = [];
+  for (const responder of services) {
+    if (!isNestApplication(responder.application)) continue;
+    const subjects = responder.subscribe.filter(
+      (subject) =>
+        subject.startsWith('request.') && !subject.includes('*') && !subject.includes('>'),
+    );
+    let found: RequestReplyPair | undefined;
+    for (const subject of subjects) {
+      const requester = services.find(
+        (candidate) =>
+          candidate.name !== responder.name &&
+          isNestApplication(candidate.application) &&
+          candidate.publish.some((grant) => grantCovers(grant, subject)),
+      );
+      if (requester !== undefined) {
+        found = { requester, responder, subject };
+        break;
+      }
+    }
+    if (found !== undefined) pairs.push(found);
+  }
+  return pairs;
+}
+
+async function connectAs(
+  service: ServiceEntry,
+  env: { url: string; ca: string; certDir: string },
+): Promise<NatsConnection> {
+  const certPath = resolve(env.certDir, `${service.name}-cert.pem`);
+  const keyPath = resolve(env.certDir, `${service.name}-key.pem`);
+  const prefix = scopedInboxPrefix(certificateCommonName(readFileSync(certPath, 'utf8'), certPath));
+  return connect({
+    servers: env.url,
+    name: `boot-path-smoke-${service.name}`,
+    inboxPrefix: prefix,
+    timeout: REQUEST_TIMEOUT_MS,
+    reconnect: false,
+    tls: { caFile: env.ca, certFile: certPath, keyFile: keyPath },
+  });
+}
+
+async function smokeRequestReply(
+  pair: RequestReplyPair,
+  env: { url: string; ca: string; certDir: string },
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  const label = `${pair.requester.name} → ${pair.responder.name} ${pair.subject}`;
+  const responder = await connectAs(pair.responder, env);
+  const requester = await connectAs(pair.requester, env);
+  const answer = new TextEncoder().encode('{"ok":true}');
+  const responderSub = responder.subscribe(pair.subject, {
+    callback: (error, message) => {
+      if (error === null) message.respond(answer);
+    },
+  });
+  try {
+    await responder.flush();
+
+    // (a) nc.request(): the mux inbox `_INBOX<CN>.<nuid>.<n>`.
+    try {
+      const reply = await requester.request(pair.subject, new Uint8Array(0), {
+        timeout: REQUEST_TIMEOUT_MS,
+      });
+      if (reply.string() !== '{"ok":true}') {
+        findings.push({
+          service: label,
+          step: 'request() reply',
+          detail: `unexpected payload ${reply.string()}`,
+        });
+      }
+    } catch (error: unknown) {
+      findings.push({ service: label, step: 'request() round trip', detail: errorMessage(error) });
+    }
+
+    // (b) the ClientProxy shape: explicit `_INBOX<CN>.<nuid>` subscription + publish with reply.
+    const requesterPrefix = scopedInboxPrefix(pair.requester.name);
+    const inbox = createInbox(requesterPrefix);
+    const received = new Promise<string>((resolveReply, rejectReply) => {
+      const timer = setTimeout(
+        () => rejectReply(new Error(`no reply on ${inbox} within ${REQUEST_TIMEOUT_MS}ms`)),
+        REQUEST_TIMEOUT_MS,
+      );
+      requester.subscribe(inbox, {
+        max: 1,
+        callback: (error, message) => {
+          clearTimeout(timer);
+          if (error !== null) rejectReply(error);
+          else resolveReply(message.string());
+        },
+      });
+    });
+    try {
+      await requester.flush();
+      requester.publish(pair.subject, new Uint8Array(0), { reply: inbox });
+      const payload = await received;
+      if (payload !== '{"ok":true}') {
+        findings.push({
+          service: label,
+          step: 'explicit-inbox reply',
+          detail: `unexpected payload ${payload}`,
+        });
+      }
+    } catch (error: unknown) {
+      findings.push({
+        service: label,
+        step: 'explicit-inbox round trip',
+        detail: errorMessage(error),
+      });
+    }
+  } finally {
+    responderSub.unsubscribe();
+    await requester.close();
+    await responder.close();
+  }
+  return findings;
+}
+
 async function main(): Promise<number> {
   const env = {
     url: requireEnv('NATS_URL'),
@@ -289,11 +428,21 @@ async function main(): Promise<number> {
     findings.push(...serviceFindings);
     process.stdout.write(`${serviceFindings.length === 0 ? 'ok   ' : 'FAIL '} ${service.name}\n`);
   }
+  const pairs = requestReplyPairs(services);
+  for (const pair of pairs) {
+    const pairFindings = await smokeRequestReply(pair, env);
+    findings.push(...pairFindings);
+    process.stdout.write(
+      `${pairFindings.length === 0 ? 'ok   ' : 'FAIL '} ${pair.requester.name} → ${pair.responder.name} ${pair.subject}\n`,
+    );
+  }
   for (const finding of findings) {
     process.stderr.write(`  ${finding.service}: ${finding.step} — ${finding.detail}\n`);
   }
-  process.stdout.write(`boot-path ACL smoke: ${checked} identities, ${findings.length} findings\n`);
-  return findings.length === 0 && checked > 0 ? 0 : 1;
+  process.stdout.write(
+    `boot-path ACL smoke: ${checked} identities, ${pairs.length} request/reply pairs, ${findings.length} findings\n`,
+  );
+  return findings.length === 0 && checked > 0 && pairs.length > 0 ? 0 : 1;
 }
 
 main().then(

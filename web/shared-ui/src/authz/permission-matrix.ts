@@ -101,7 +101,13 @@ export type FrontendMutationName =
   | 'skipMeal'
   | 'correctMealPour'
   | 'regenerateDayPlan'
-  | 'transitionUnitFeed';
+  | 'transitionUnitFeed'
+  // Water-chemistry sources (FARM-HIGH-373) — Sources tab + parameter quantity
+  | 'bindParameterChannel'
+  | 'unbindParameterChannel'
+  | 'replaceParameterChannel'
+  | 'declareParameterQuantity'
+  | 'clearParameterQuantity';
 
 /**
  * Source-of-frontend-truth role matrix. Mirrors the backend's
@@ -168,4 +174,10 @@ export const FRONTEND_MUTATION_ROLES: Readonly<Record<FrontendMutationName, read
     correctMealPour: ['MODULE_MANAGER', 'TENANT_ADMIN'],
     regenerateDayPlan: ['MODULE_MANAGER', 'TENANT_ADMIN'],
     transitionUnitFeed: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    // Water-chemistry sources — mirrors apps/farm-service/src/common/authz/permission-matrix.ts
+    bindParameterChannel: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    unbindParameterChannel: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    replaceParameterChannel: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    declareParameterQuantity: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    clearParameterQuantity: ['MODULE_MANAGER', 'TENANT_ADMIN'],
   });

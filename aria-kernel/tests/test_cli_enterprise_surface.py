@@ -49,6 +49,7 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
             'runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)',
             'runtime_restore.add_argument("--operator-approval-ref", required=True)',
             'runtime_rollback.add_argument("--workspace-root", required=True)',
+            'add_subparser(tool_sub, "fixture-refresh")',
             'add_subparser(autonomy_sub, "project-queue")',
             '"--output", choices=["summary", "full"]',
             'add_subparser(plan_sub, "advance-rounds")',

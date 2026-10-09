@@ -64,7 +64,6 @@ _FIXTURE_RUN_STORED_KEYS = frozenset({
     "ledger_hash",
 })
 
-
 def fixture_runs_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "fixture-runs.jsonl"
 
@@ -291,7 +290,10 @@ def fixture_status_report(
         "manifest_matches": status["manifest_matches"],
         "fixture_matches": status["fixture_matches"],
         "blocked_by": blockers,
-        "refresh_command": f"aria-kernel fixture refresh --tool-id {tool_id} --workspace-root . --cycle-id <cycle-id>",
+        "refresh_command": (
+            f"aria-kernel tool fixture-refresh --tool-id {tool_id} "
+            "--workspace-root <the store's bound checkout, clean> --cycle-id <cycle-id>"
+        ),
         "latest": status["latest"],
     }
 
@@ -314,6 +316,173 @@ def refresh_fixture_suite(
         "result": result,
         "after": after,
         "status": "current" if after["current_tool_passed"] else "stale_or_failed",
+    }
+
+
+def _git(workspace_root: str | os.PathLike[str], *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    """git in ``workspace_root`` with no caller-controlled GIT_* environment and no fsmonitor.
+
+    The pinned-checkout check must see the tree as it is: GIT_DIR, GIT_WORK_TREE
+    or GIT_INDEX_FILE from the caller's environment, or an fsmonitor hook from
+    the repository config, would let a caller decide what `git status` reports.
+    """
+    hermetic = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    return subprocess.run(
+        ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+         "-C", str(workspace_root), *args],
+        capture_output=True, text=True, timeout=timeout, check=False, env=hermetic,
+    )
+
+
+def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
+    """The checkout's HEAD commit, or None when it is not a git checkout."""
+    try:
+        completed = _git(workspace_root, "rev-parse", "--verify", "HEAD^{commit}", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    head = completed.stdout.strip()
+    return head if completed.returncode == 0 and len(head) == 40 else None
+
+
+#: The branch an operator-run refresh may certify: its HEAD must already be
+#: reachable from it, so a clean feature branch cannot certify unmerged code.
+FIXTURE_REFRESH_PINNED_REMOTE = "origin"
+FIXTURE_REFRESH_PINNED_BRANCH = "main"
+
+
+def require_pinned_fixture_workspace(
+    workspace_root: str | os.PathLike[str],
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> tuple[Path, str]:
+    """``(resolved checkout, HEAD)`` when ``workspace_root`` may be certified; a GovernanceError otherwise.
+
+    Review of #1898 (F1) — an operator-run refresh writes promotion evidence
+    (SHADOW to ACTIVE readiness reads it), so it runs only:
+
+    * in the checkout the store serves (``_repo_root_for_path_guard``);
+    * at a committed tree: no tracked change and no untracked file outside
+      the tools store, with no index flag (``assume-unchanged`` or
+      ``skip-worktree``) hiding a modified file from that check;
+    * at a commit already on ``origin/main`` (fetched first): a clean
+      feature branch would certify code nobody merged.
+
+    The RESOLVED path is returned and is the only path the caller may hand
+    on, so a symlink swapped after the check cannot redirect the run.
+    Residuals that only binding the proof row to script hashes closes are
+    recorded on ARIA-MEDIUM-400.
+    """
+    requested = Path(workspace_root).resolve()
+    bound = _repo_root_for_path_guard(base_dir)
+    if requested != bound:
+        raise GovernanceError(
+            f"fixture_refresh_workspace_not_bound_checkout: {requested.as_posix()} "
+            f"is not the store's checkout {bound.as_posix()}"
+        )
+    head = workspace_head_sha(requested)
+    if head is None:
+        raise GovernanceError(f"fixture_refresh_workspace_has_no_head: {requested.as_posix()}")
+    flagged = _git(requested, "ls-files", "-v")
+    if flagged.returncode != 0:
+        raise GovernanceError(f"fixture_refresh_workspace_unreadable: {flagged.stderr.strip()[:200]}")
+    hidden = [line[2:] for line in flagged.stdout.splitlines() if line[:1].islower() or line[:1] == "S"]
+    if hidden:
+        raise GovernanceError(f"fixture_refresh_workspace_index_flags_hide_changes: {hidden[:5]}")
+    pathspec = ["."]
+    tools_root = ensure_tools_dir(base_dir).resolve()
+    try:
+        pathspec.append(f":(exclude){tools_root.relative_to(requested).as_posix()}")
+    except ValueError:
+        pass
+    status = _git(requested, "status", "--porcelain", "--untracked-files=normal", "--", *pathspec)
+    if status.returncode != 0 or status.stdout.strip():
+        changed = status.stdout.strip().splitlines()[:5] if status.returncode == 0 else [status.stderr.strip()[:200]]
+        raise GovernanceError(f"fixture_refresh_workspace_dirty: {changed}")
+    remote, branch = FIXTURE_REFRESH_PINNED_REMOTE, FIXTURE_REFRESH_PINNED_BRANCH
+    fetched = _git(requested, "fetch", "--quiet", remote, branch, timeout=120)
+    if fetched.returncode != 0:
+        raise GovernanceError(f"fixture_refresh_origin_unavailable: {fetched.stderr.strip()[:200]}")
+    on_main = _git(requested, "merge-base", "--is-ancestor", head, f"{remote}/{branch}")
+    if on_main.returncode != 0:
+        raise GovernanceError(
+            f"fixture_refresh_head_not_on_{remote}_{branch}: {head} is not reachable from {remote}/{branch}"
+        )
+    return requested, head
+
+
+def refresh_fixture_suites(
+    *,
+    workspace_root: str | os.PathLike[str],
+    cycle_id: str,
+    base_dir: str | os.PathLike[str] | None = None,
+    tool_ids: list[str] | None = None,
+    deadline_reached: Any = None,
+) -> dict[str, Any]:
+    """Refresh fixture suites and report every blocked or skipped tool — the ONE refresh lane.
+
+    The cycle phase and the operator verb both call this, so the blocked
+    refresh is a ``fixture_refresh_blocked`` governance event whichever ran
+    it. ``tool_ids`` None walks every registered tool (a tool without a
+    ``fixture_set`` is reported, never run); an explicitly named tool without
+    one, or unknown, is refused by name.
+    """
+    from .ledger import LedgerReadLimitError, LedgerRowTooLargeError
+    from .tool_registry import append_tools_governance, list_tools
+
+    if tool_ids is None:
+        targets = [(str(t.get("tool_id") or ""), t) for t in list_tools(base_dir=base_dir)]
+        targets = [(tool_id, tool) for tool_id, tool in targets if tool_id]
+    else:
+        targets = []
+        for tool_id in tool_ids:
+            tool = get_tool(tool_id, base_dir)
+            if not tool.get("fixture_set"):
+                raise GovernanceError(f"fixture_refresh_tool_has_no_fixture_set: {tool_id}")
+            targets.append((tool_id, tool))
+    refreshed: list[dict[str, Any]] = []
+    skipped_no_fixture_set: list[str] = []
+    # ARIA-HIGH-140 — each suite is a subprocess run over the real checkout
+    # (minutes each under load), so the remaining wall-clock is asked BETWEEN
+    # suites; a suite that would start inside the close-out margin is skipped
+    # rather than begun and cut.
+    skipped_deadline: list[str] = []
+    for tool_id, tool in targets:
+        if not tool.get("fixture_set"):
+            skipped_no_fixture_set.append(tool_id)
+            continue
+        if deadline_reached is not None and deadline_reached():
+            skipped_deadline.append(tool_id)
+            continue
+        try:
+            result = refresh_fixture_suite(
+                tool_id, workspace_root=workspace_root, cycle_id=cycle_id, base_dir=base_dir,
+            )
+            refreshed.append({"tool_id": tool_id, "status": result.get("status", "ok")})
+        # Plan 032 Faz 032a — a ledger line-budget refusal (read OR write) is
+        # one tool's blocked refresh, not the lane's death.
+        except (GovernanceError, LedgerReadLimitError, LedgerRowTooLargeError) as exc:
+            refreshed.append({"tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200]})
+    # ORPHAN-MEDIUM-783 — a blocked refresh is a first-class health signal on
+    # the durable governance feed, not a detail inside a return value.
+    blocked = [entry for entry in refreshed if entry.get("status") == "blocked"]
+    if blocked or (skipped_no_fixture_set and not refreshed):
+        append_tools_governance(
+            base_dir,
+            "fixture_refresh_blocked",
+            {"cycle_id": cycle_id, "blocked": blocked, "skipped_no_fixture_set": skipped_no_fixture_set},
+        )
+    if skipped_deadline:
+        append_tools_governance(
+            base_dir,
+            "fixture_refresh_deadline_skipped",
+            {"cycle_id": cycle_id, "skipped": skipped_deadline, "refreshed": len(refreshed)},
+        )
+    return {
+        "status": "completed",
+        "tools": refreshed,
+        "blocked_count": len(blocked),
+        "skipped_no_fixture_set": skipped_no_fixture_set,
+        "skipped_deadline": skipped_deadline,
     }
 
 

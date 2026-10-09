@@ -34,7 +34,7 @@ registerEnumType(ChannelPresenceEnum, {
   description: 'Whether a (sensorId, channelKey) names a live channel, or what is missing',
 });
 
-const SampleQualityEnum: Record<SensorSampleQuality, SensorSampleQuality> = {
+export const SampleQualityEnum: Record<SensorSampleQuality, SensorSampleQuality> = {
   GOOD: 'GOOD',
   UNCERTAIN: 'UNCERTAIN',
   BAD: 'BAD',

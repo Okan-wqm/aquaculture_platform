@@ -2386,6 +2386,12 @@ export type CloseEscapeIncidentInput = {
   recoveredCount?: InputMaybe<Scalars['Int']['input']>;
 };
 
+/** SHORT (4 h) pH, temperature, TAN, H2S; DAILY (24 h) alkalinity for dosing; LONG (48 h) salinity, calcium */
+export type CoherenceWindow =
+  | 'DAILY'
+  | 'LONG'
+  | 'SHORT';
+
 export type ColumnInfo = {
   columnDefault?: Maybe<Scalars['String']['output']>;
   columnName: Scalars['String']['output'];
@@ -9270,6 +9276,19 @@ export type MeasurementPointInput = {
   tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
+/** A measurement point is a site, a system (loop), a tank or non-tank water equipment */
+export type MeasurementPointKind =
+  | 'EQUIPMENT'
+  | 'SITE'
+  | 'SYSTEM'
+  | 'TANK';
+
+/** A measurement point */
+export type MeasurementPointRef = {
+  id: Scalars['ID']['output'];
+  kind: MeasurementPointKind;
+};
+
 /** Where at a measurement point a source samples: representative, inlet or outlet */
 export type MeasurementPosition =
   | 'INLET'
@@ -14189,6 +14208,39 @@ export type ParameterQuantityDeclarationReason =
   | 'CLEARED'
   | 'DECLARED';
 
+/** The value of a parameter at a point now, and where it came from */
+export type ParameterReading = {
+  /** Seconds from observedAt to asOf */
+  ageSeconds?: Maybe<Scalars['Int']['output']>;
+  /** The instant the value was resolved at; ages are measured to it */
+  asOf: Scalars['DateTime']['output'];
+  channelKey?: Maybe<Scalars['String']['output']>;
+  depthM?: Maybe<Scalars['Float']['output']>;
+  /** SYSTEM or SITE when the value is inherited (loop-homogeneous quantities only) */
+  inheritedFrom?: Maybe<MeasurementPointKind>;
+  measurementId?: Maybe<Scalars['ID']['output']>;
+  observedAt?: Maybe<Scalars['DateTime']['output']>;
+  parameterConfigId: Scalars['ID']['output'];
+  /** The point asked about */
+  point: MeasurementPointRef;
+  position: MeasurementPosition;
+  /** Null for a manual sample */
+  quality?: Maybe<SampleQuality>;
+  /** The measured quantity the parameter records */
+  quantity?: Maybe<Scalars['String']['output']>;
+  /** Where the value was read */
+  resolvedAt?: Maybe<MeasurementPointRef>;
+  sensorId?: Maybe<Scalars['ID']['output']>;
+  skipped: Array<SkippedReadingCandidate>;
+  sourceId?: Maybe<Scalars['ID']['output']>;
+  sourceKind?: Maybe<ReadingSourceKind>;
+  /** The unit of value */
+  unit: Scalars['String']['output'];
+  /** Null when there is a value */
+  unresolved?: Maybe<ReadingUnresolved>;
+  value?: Maybe<Scalars['Float']['output']>;
+};
+
 export type ParameterSendResult = {
   checksum?: Maybe<Scalars['String']['output']>;
   error?: Maybe<Scalars['String']['output']>;
@@ -15995,6 +16047,7 @@ export type Query = {
   /** Server-assembled regulatory report draft with per-field provenance */
   reportPrefill: ReportPrefillOutput;
   resolveTagRefs: TagResolutionResultType;
+  resolvedParameterValue: ParameterReading;
   /** All retention policies for current tenant. */
   retentionPolicies: Array<RetentionPolicy>;
   reviewCycleStatus: ReviewCycleStatus;
@@ -16165,6 +16218,7 @@ export type Query = {
   vfdRegisterMappingsByCategory: Array<VfdRegisterMapping>;
   vfdStats: VfdStats;
   warehouseSummary: WarehouseSummaryResponse;
+  waterChemistryInputs: WaterChemistryInputsResult;
   waterQuality?: Maybe<WaterQualityMeasurement>;
   waterQualityChart: Array<WaterQualityMeasurement>;
   waterQualityChartBySystem: Array<WaterQualityMeasurement>;
@@ -17758,6 +17812,11 @@ export type QueryResolveTagRefsArgs = {
 };
 
 
+export type QueryResolvedParameterValueArgs = {
+  input: ResolvedParameterValueInput;
+};
+
+
 export type QueryReviewCycleStatusArgs = {
   periodType: ReviewPeriodType;
   year: Scalars['Int']['input'];
@@ -18457,6 +18516,12 @@ export type QueryVfdRegisterMappingsByCategoryArgs = {
 };
 
 
+export type QueryWaterChemistryInputsArgs = {
+  point: MeasurementPointInput;
+  set: WaterChemistryInputSet;
+};
+
+
 export type QueryWaterQualityArgs = {
   id: Scalars['ID']['input'];
 };
@@ -18596,6 +18661,25 @@ export type ReadHistoricalDataInput = {
   nodeId: Scalars['String']['input'];
   startTime: Scalars['DateTime']['input'];
 };
+
+/** Why a source the bind would accept was passed over for its value */
+export type ReadingProblem =
+  | 'NO_SAMPLE'
+  | 'OLDER_THAN_WINDOW'
+  | 'SAMPLE_QUALITY_BAD'
+  | 'UNIT_NOT_CONVERTIBLE'
+  | 'VALUE_NOT_NUMERIC';
+
+/** A primary channel, a backup channel, or a manual sample */
+export type ReadingSourceKind =
+  | 'CHANNEL_BACKUP'
+  | 'CHANNEL_PRIMARY'
+  | 'MANUAL';
+
+/** Why a parameter has no value at a point */
+export type ReadingUnresolved =
+  | 'NO_SOURCE'
+  | 'NO_USABLE_SOURCE';
 
 export type RecalculateParametersInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
@@ -19545,6 +19629,18 @@ export type ResistensType =
   | 'HYDROGENPEROKSID'
   | 'IMIDAKLOPRID'
   | 'TEFLUBENZURON';
+
+/** A parameter to read at a measurement point, now */
+export type ResolvedParameterValueInput = {
+  /** Sampling depth in metres */
+  depthM?: InputMaybe<Scalars['Float']['input']>;
+  /** Skip a value older than this many seconds; any age when omitted */
+  maxAgeSeconds?: InputMaybe<Scalars['Int']['input']>;
+  parameterConfigId: Scalars['ID']['input'];
+  point: MeasurementPointInput;
+  /** Where at the point; representative when omitted (manual samples are only there) */
+  position?: InputMaybe<MeasurementPosition>;
+};
 
 export type ResolvedTagBindingType = {
   dataType: TagDataType;
@@ -20635,6 +20731,26 @@ export type SkipDailyFeedingInput = {
 export type SkipMealInput = {
   mealId: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
+};
+
+/** A source passed over, and why */
+export type SkippedReadingCandidate = {
+  /** Why the bind would refuse the channel now (placement re-derived now) */
+  bindingProblems: Array<ChannelBindingProblem>;
+  channelKey?: Maybe<Scalars['String']['output']>;
+  /** Whether the source is at a system or site the point inherits from */
+  inherited: Scalars['Boolean']['output'];
+  /** The manual sample; null for a channel */
+  measurementId?: Maybe<Scalars['ID']['output']>;
+  observedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Where the source stands */
+  point: MeasurementPointRef;
+  quality?: Maybe<SampleQuality>;
+  readingProblems: Array<ReadingProblem>;
+  sensorId?: Maybe<Scalars['ID']['output']>;
+  /** The channel source row; null for a sample */
+  sourceId?: Maybe<Scalars['ID']['output']>;
+  sourceKind: ReadingSourceKind;
 };
 
 export type SlaughterFacility = {
@@ -25567,6 +25683,64 @@ export type WarehouseSummaryResponse = {
   todaysMovementCount: Scalars['Int']['output'];
   totalItems: Scalars['Int']['output'];
 };
+
+/** Why one input cannot feed a water-chemistry calculation */
+export type WaterChemistryInputProblem =
+  | 'NOT_AT_SAME_POINT'
+  | 'NOT_SAME_SAMPLE'
+  | 'NO_PARAMETER'
+  | 'NO_VALUE';
+
+/** DOSING at a system point, TOXICITY at a tank point */
+export type WaterChemistryInputSet =
+  | 'DOSING'
+  | 'TOXICITY';
+
+/** One input of a water-chemistry calculation, resolved at the point */
+export type WaterChemistryInputStatus = {
+  coherenceWindow: CoherenceWindow;
+  /** The WaterChemistryInputs field it feeds, e.g. tempC, h2sUgL */
+  engineInput: Scalars['String']['output'];
+  /** The active parameter recording the quantity */
+  parameterConfigId?: Maybe<Scalars['ID']['output']>;
+  problems: Array<WaterChemistryInputProblem>;
+  quantity: Scalars['String']['output'];
+  /** Null when no parameter records it */
+  reading?: Maybe<ParameterReading>;
+  /** The unit the value is in (the engine’s) */
+  unit: Scalars['String']['output'];
+  /** How old the value may be, in seconds */
+  windowSeconds: Scalars['Int']['output'];
+};
+
+/** The inputs of a water-chemistry calculation at a point, and its verdict */
+export type WaterChemistryInputsResult = {
+  asOf: Scalars['DateTime']['output'];
+  inputs: Array<WaterChemistryInputStatus>;
+  point: MeasurementPointRef;
+  problems: Array<WaterChemistrySetProblem>;
+  set: WaterChemistryInputSet;
+  /** The loop’s type (DOSING) */
+  systemType?: Maybe<SystemType>;
+  /** Water the loop’s active tanks hold (DOSING) */
+  tankWaterM3?: Maybe<Scalars['Float']['output']>;
+  verdict: WaterChemistryVerdict;
+  /** System.totalVolumeM3 (DOSING) */
+  volumeM3?: Maybe<Scalars['Float']['output']>;
+};
+
+/** Why a water-chemistry calculation is refused or incomplete at a point */
+export type WaterChemistrySetProblem =
+  | 'INPUTS_INCOMPLETE'
+  | 'SYSTEM_NOT_RECIRCULATING'
+  | 'VOLUME_BELOW_TANK_WATER'
+  | 'VOLUME_MISSING';
+
+/** READY, INCOMPLETE (an input is missing or stale) or REFUSED (does not apply here) */
+export type WaterChemistryVerdict =
+  | 'INCOMPLETE'
+  | 'READY'
+  | 'REFUSED';
 
 export type WaterFlowInput = {
   drainType?: InputMaybe<Scalars['String']['input']>;

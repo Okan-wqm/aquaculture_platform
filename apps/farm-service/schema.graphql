@@ -3005,6 +3005,195 @@ enum ParameterQuantityDeclarationReason {
   CLEARED
 }
 
+"""A measurement point"""
+type MeasurementPointRef {
+  kind: MeasurementPointKind!
+  id: ID!
+}
+
+"""
+A measurement point is a site, a system (loop), a tank or non-tank water equipment
+"""
+enum MeasurementPointKind {
+  SITE
+  SYSTEM
+  TANK
+  EQUIPMENT
+}
+
+"""A source passed over, and why"""
+type SkippedReadingCandidate {
+  sourceKind: ReadingSourceKind!
+
+  """Where the source stands"""
+  point: MeasurementPointRef!
+
+  """Whether the source is at a system or site the point inherits from"""
+  inherited: Boolean!
+
+  """The channel source row; null for a sample"""
+  sourceId: ID
+  sensorId: ID
+  channelKey: String
+
+  """The manual sample; null for a channel"""
+  measurementId: ID
+  observedAt: DateTime
+  quality: SampleQuality
+
+  """Why the bind would refuse the channel now (placement re-derived now)"""
+  bindingProblems: [ChannelBindingProblem!]!
+  readingProblems: [ReadingProblem!]!
+}
+
+"""A primary channel, a backup channel, or a manual sample"""
+enum ReadingSourceKind {
+  CHANNEL_PRIMARY
+  CHANNEL_BACKUP
+  MANUAL
+}
+
+"""Why a source the bind would accept was passed over for its value"""
+enum ReadingProblem {
+  NO_SAMPLE
+  SAMPLE_QUALITY_BAD
+  OLDER_THAN_WINDOW
+  VALUE_NOT_NUMERIC
+  UNIT_NOT_CONVERTIBLE
+}
+
+"""The value of a parameter at a point now, and where it came from"""
+type ParameterReading {
+  parameterConfigId: ID!
+
+  """The measured quantity the parameter records"""
+  quantity: String
+
+  """The point asked about"""
+  point: MeasurementPointRef!
+  position: MeasurementPosition!
+  depthM: Float
+
+  """The instant the value was resolved at; ages are measured to it"""
+  asOf: DateTime!
+  value: Float
+
+  """The unit of value"""
+  unit: String!
+  sourceKind: ReadingSourceKind
+
+  """Where the value was read"""
+  resolvedAt: MeasurementPointRef
+
+  """
+  SYSTEM or SITE when the value is inherited (loop-homogeneous quantities only)
+  """
+  inheritedFrom: MeasurementPointKind
+  sourceId: ID
+  sensorId: ID
+  channelKey: String
+  measurementId: ID
+  observedAt: DateTime
+
+  """Seconds from observedAt to asOf"""
+  ageSeconds: Int
+
+  """Null for a manual sample"""
+  quality: SampleQuality
+  skipped: [SkippedReadingCandidate!]!
+
+  """Null when there is a value"""
+  unresolved: ReadingUnresolved
+}
+
+"""Why a parameter has no value at a point"""
+enum ReadingUnresolved {
+  NO_SOURCE
+  NO_USABLE_SOURCE
+}
+
+"""One input of a water-chemistry calculation, resolved at the point"""
+type WaterChemistryInputStatus {
+  """The WaterChemistryInputs field it feeds, e.g. tempC, h2sUgL"""
+  engineInput: String!
+  quantity: String!
+
+  """The unit the value is in (the engine’s)"""
+  unit: String!
+  coherenceWindow: CoherenceWindow!
+
+  """How old the value may be, in seconds"""
+  windowSeconds: Int!
+
+  """The active parameter recording the quantity"""
+  parameterConfigId: ID
+
+  """Null when no parameter records it"""
+  reading: ParameterReading
+  problems: [WaterChemistryInputProblem!]!
+}
+
+"""
+SHORT (4 h) pH, temperature, TAN, H2S; DAILY (24 h) alkalinity for dosing; LONG (48 h) salinity, calcium
+"""
+enum CoherenceWindow {
+  SHORT
+  DAILY
+  LONG
+}
+
+"""Why one input cannot feed a water-chemistry calculation"""
+enum WaterChemistryInputProblem {
+  NO_PARAMETER
+  NO_VALUE
+  NOT_AT_SAME_POINT
+  NOT_SAME_SAMPLE
+}
+
+"""
+The inputs of a water-chemistry calculation at a point, and its verdict
+"""
+type WaterChemistryInputsResult {
+  set: WaterChemistryInputSet!
+  point: MeasurementPointRef!
+  asOf: DateTime!
+  verdict: WaterChemistryVerdict!
+  problems: [WaterChemistrySetProblem!]!
+
+  """The loop’s type (DOSING)"""
+  systemType: SystemType
+
+  """System.totalVolumeM3 (DOSING)"""
+  volumeM3: Float
+
+  """Water the loop’s active tanks hold (DOSING)"""
+  tankWaterM3: Float
+  inputs: [WaterChemistryInputStatus!]!
+}
+
+"""DOSING at a system point, TOXICITY at a tank point"""
+enum WaterChemistryInputSet {
+  DOSING
+  TOXICITY
+}
+
+"""
+READY, INCOMPLETE (an input is missing or stale) or REFUSED (does not apply here)
+"""
+enum WaterChemistryVerdict {
+  READY
+  INCOMPLETE
+  REFUSED
+}
+
+"""Why a water-chemistry calculation is refused or incomplete at a point"""
+enum WaterChemistrySetProblem {
+  SYSTEM_NOT_RECIRCULATING
+  VOLUME_MISSING
+  VOLUME_BELOW_TANK_WATER
+  INPUTS_INCOMPLETE
+}
+
 """One parameter to record at a unit, and whether it is required there"""
 type UnitMeasurementPlanEntry {
   parameter: WaterQualityParameterConfig!
@@ -5970,6 +6159,8 @@ type Query {
   checkParameterChannelBinding(input: BindParameterChannelInput!): ChannelBindingCheck!
   parameterSourcesAtPoint(point: MeasurementPointInput!): [ParameterSourceStatus!]!
   parameterQuantityDeclarations(parameterConfigId: ID!): [ParameterQuantityDeclaration!]!
+  resolvedParameterValue(input: ResolvedParameterValueInput!): ParameterReading!
+  waterChemistryInputs(point: MeasurementPointInput!, set: WaterChemistryInputSet!): WaterChemistryInputsResult!
   parameterConfigs(filter: ParameterConfigFilterInput): [WaterQualityParameterConfig!]!
   parameterConfig(id: ID!): WaterQualityParameterConfig
   parameterConfigByCode(code: String!): WaterQualityParameterConfig
@@ -6459,6 +6650,23 @@ input MeasurementPointInput {
 
   """Non-tank water equipment (a tank is tankId)"""
   equipmentId: ID
+}
+
+"""A parameter to read at a measurement point, now"""
+input ResolvedParameterValueInput {
+  parameterConfigId: ID!
+  point: MeasurementPointInput!
+
+  """
+  Where at the point; representative when omitted (manual samples are only there)
+  """
+  position: MeasurementPosition
+
+  """Sampling depth in metres"""
+  depthM: Float
+
+  """Skip a value older than this many seconds; any age when omitted"""
+  maxAgeSeconds: Int
 }
 
 input ParameterConfigFilterInput {

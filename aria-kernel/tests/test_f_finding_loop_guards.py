@@ -264,6 +264,54 @@ class CycleDetectionTests(_LoopFixture):
         self.assertEqual(self.skips("cyc-cool"), [("F-070", fg.SUBJECT_COOL_OFF)])
         self.assertEqual(self.skip_detail("F-070")["loop_guard"]["cause"], "plan_failed")
 
+    def _unverified_rejection(self, plan_id: str, at: str, domain: str = "unclassified") -> None:
+        self.plan_event(plan_id, "implementation_rejected", at, {
+            "rejection_class": "implementer_refused", "rejected_at": at, "stage": "agent_refusal",
+            "fault_domain": domain, "cause": "safety", "request_id": f"AIR-{plan_id}",
+        })
+
+    def test_one_unverified_implementation_ending_does_not_cool_the_subject_off(self) -> None:
+        # ARIA-HIGH-388 — the 2026-10-08 shape: the host's missing git identity
+        # reached the plan ledger as an agent refusal, `unclassified`.
+        self.finding("F-075", GROUNDED_FILE)
+        self.plan("plan-u1", "F-075", started=_ago(days=3))
+        self._unverified_rejection("plan-u1", _ago(days=2))
+        self.assertEqual(self.selected(self.synthesize("cyc-u1")), ("f_finding", "F-075"))
+
+    def test_the_second_consecutive_unverified_ending_cools_the_subject_off(self) -> None:
+        # Re-review N3 — nothing else bounded the re-plans of a subject whose
+        # implementation always ends unattributably.
+        self.finding("F-076", GROUNDED_FILE)
+        self.plan("plan-u1", "F-076", started=_ago(days=4))
+        self._unverified_rejection("plan-u1", _ago(days=3))
+        self.plan("plan-u2", "F-076", started=_ago(days=2))
+        self._unverified_rejection("plan-u2", _ago(days=1))
+        self.assertIsNone(self.synthesize("cyc-u2"))
+        self.assertEqual(self.skips("cyc-u2"), [("F-076", fg.SUBJECT_COOL_OFF)])
+        detail = self.skip_detail("F-076")["loop_guard"]
+        self.assertEqual((detail["cause"], detail["plans"]), ("repeated_unverified_failure", ["plan-u1", "plan-u2"]))
+
+    def test_harness_endings_never_cool_the_subject_off(self) -> None:
+        # Final review R1 — a `harness` ending is the lane's by the kernel's
+        # own verdict (two refused pushes, two reaps while the request waited
+        # on the delivery authority): never a streak.
+        self.finding("F-078", GROUNDED_FILE)
+        self.plan("plan-h1", "F-078", started=_ago(days=4))
+        self._unverified_rejection("plan-h1", _ago(days=3), domain="harness")
+        self.plan("plan-h2", "F-078", started=_ago(days=2))
+        self._unverified_rejection("plan-h2", _ago(days=1), domain="harness")
+        self.assertEqual(self.selected(self.synthesize("cyc-h2")), ("f_finding", "F-078"))
+
+    def test_a_merge_between_unverified_endings_breaks_the_streak(self) -> None:
+        self.finding("F-077", GROUNDED_FILE)
+        self.plan("plan-u1", "F-077", started=_ago(days=10))
+        self._unverified_rejection("plan-u1", _ago(days=9))
+        self.plan("plan-m", "F-077", started=_ago(days=9))
+        self.merged("plan-m", _ago(days=8, hours=12), "d" * 40)
+        self.plan("plan-u2", "F-077", started=_ago(days=3))
+        self._unverified_rejection("plan-u2", _ago(days=2))
+        self.assertEqual(self.selected(self.synthesize("cyc-u3")), ("f_finding", "F-077"))
+
     def test_a_new_finding_on_what_the_plan_changed_cools_the_subject_off(self) -> None:
         self.finding("F-080", GROUNDED_FILE)
         self.plan("plan-m", "F-080", started=_ago(days=4))

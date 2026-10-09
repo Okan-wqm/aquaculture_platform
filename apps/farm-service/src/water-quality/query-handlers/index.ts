@@ -11,6 +11,7 @@ import { GetEquipmentParamsHandler } from './get-equipment-params.handler';
 import { GetUnitMeasurementPlanHandler } from './get-unit-measurement-plan.handler';
 import {
   CheckParameterChannelBindingHandler,
+  CountLiveChannelSourcesHandler,
   ListParameterQuantityDeclarationsHandler,
   ListParameterSourcesAtPointHandler,
 } from './parameter-source-query.handlers';
@@ -58,6 +59,7 @@ export const WaterQualityQueryHandlers = [
   GetEquipmentParamsHandler,
   GetUnitMeasurementPlanHandler,
   CheckParameterChannelBindingHandler,
+  CountLiveChannelSourcesHandler,
   ListParameterSourcesAtPointHandler,
   ListParameterQuantityDeclarationsHandler,
   ResolveParameterValueHandler,

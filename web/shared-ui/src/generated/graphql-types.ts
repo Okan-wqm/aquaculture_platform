@@ -14252,9 +14252,13 @@ export type ParameterSendResult = {
 export type ParameterSourceStatus = {
   /** Null for a manual source */
   channel?: Maybe<BoundChannelStatus>;
+  /** The channel's newest sample in the parameter's unit; null for a manual source, without a sample, or when the channel unit cannot be carried into it */
+  latestValue?: Maybe<Scalars['Float']['output']>;
   /** Why the channel cannot feed the parameter here now; empty when it can */
   problems: Array<ChannelBindingProblem>;
   source: WaterQualityParamEquipment;
+  /** The unit of latestValue: the parameter’s own */
+  unit: Scalars['String']['output'];
 };
 
 export type ParameterTemplateResponse = {
@@ -15684,7 +15688,7 @@ export type Query = {
   /** Each enabled channel of the given sensors with its last-known value (≤100 sensors) */
   channelLatestValues: Array<ChannelLatestValue>;
   channelQuantityDeclarations: Array<ChannelQuantityDeclaration>;
-  /** Bucketed history of every enabled channel of one sensor over a time range */
+  /** Bucketed history of the channels of one sensor over a time range: every channel, or only the given keys */
   channelSeries: ChannelSeriesResponse;
   /** What each (sensorId, channelKey) is now (≤100): presence, sensor location, quantity, unit, last value — disabled channels included */
   channelsByKey: Array<SensorChannelDescriptionType>;
@@ -16547,6 +16551,7 @@ export type QueryChannelQuantityDeclarationsArgs = {
 
 
 export type QueryChannelSeriesArgs = {
+  channelKeys?: InputMaybe<Array<Scalars['String']['input']>>;
   endTime: Scalars['DateTime']['input'];
   interval?: InputMaybe<AggregationInterval>;
   sensorId: Scalars['ID']['input'];
@@ -25717,6 +25722,8 @@ export type WaterChemistryInputStatus = {
 export type WaterChemistryInputsResult = {
   asOf: Scalars['DateTime']['output'];
   inputs: Array<WaterChemistryInputStatus>;
+  /** At a tank: the live systems it belongs to — exactly one is the loop whose carbonate state and volume it shares; none or two or more (which loop is unknown) give it none. Empty at a system. */
+  loopSystemIds: Array<Scalars['ID']['output']>;
   point: MeasurementPointRef;
   problems: Array<WaterChemistrySetProblem>;
   set: WaterChemistryInputSet;
@@ -25921,6 +25928,8 @@ export type WaterQualityParameterConfig = {
   isRequired: Scalars['Boolean']['output'];
   /** Visible in UI lists and charts */
   isVisible: Scalars['Boolean']['output'];
+  /** Sensor channels bound to the parameter now; its meaning is fixed while any is */
+  liveChannelSourceCount: Scalars['Int']['output'];
   /** Display name */
   name: Scalars['String']['output'];
   /** Optimal maximum value */

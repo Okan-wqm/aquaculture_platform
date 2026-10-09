@@ -30,6 +30,8 @@ export interface ParameterConfig {
   name: string;
   unit: string;
   dataType: ParameterDataType;
+  /** The measured quantity the parameter records (declared, else named by its code); null: none. */
+  quantity: string | null;
   precision: number;
   group: ParameterGroup;
   optimalMin: number | null;
@@ -128,6 +130,7 @@ const PARAMETER_CONFIG_FRAGMENT = `
   code
   name
   unit
+  quantity
   dataType
   precision
   group

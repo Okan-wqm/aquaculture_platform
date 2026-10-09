@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -24,11 +25,17 @@ import WaterChemistryPage from './WaterChemistryPage';
 
 function renderWaterChemistryPage(route = '/water-chemistry'): ReturnType<typeof render> {
   window.history.pushState({}, '', route);
+  // The calculator reads a measurement point's values through react-query.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     React.createElement(
-      MemoryRouter,
-      { initialEntries: [route] },
-      React.createElement(WaterChemistryPage),
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: [route] },
+        React.createElement(WaterChemistryPage),
+      ),
     ),
   );
 }

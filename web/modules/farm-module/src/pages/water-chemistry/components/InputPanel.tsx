@@ -3,7 +3,13 @@
  * Tabs: System | Realtime | Target | Toxic Limits | Reagents
  */
 import { FishType, FishSize, REAGENTS } from '@platform/aquaculture-engines';
-import { Button, Input, Select } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Input,
+  RESOLVABLE_FIELDS,
+  Select,
+  type ResolvableField,
+} from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 // WaterChemistryInputs is the SSoT shape in shared-ui; re-exported so existing
@@ -18,6 +24,16 @@ interface InputPanelProps {
   onReagentsChange: (selected: string[]) => void;
   onDemandAmounts?: Record<string, number>;
   onDemandAmountsChange?: (amounts: Record<string, number>) => void;
+  /**
+   * The measured fields when the values come from a measurement point: shown
+   * read-only (null: not usable there); they are corrected or entered in the
+   * values bar, never here. Omitted (manual mode), every field is the entry.
+   */
+  pointValues?: Readonly<Record<ResolvableField, number | null>>;
+}
+
+function isResolvableField(field: string): field is ResolvableField {
+  return (RESOLVABLE_FIELDS as readonly string[]).includes(field);
 }
 
 type InputTab = 'system' | 'realtime' | 'target' | 'toxic' | 'reagents' | 'simulator';
@@ -65,6 +81,7 @@ const InputPanel: React.FC<InputPanelProps> = ({
   onReagentsChange,
   onDemandAmounts = {},
   onDemandAmountsChange,
+  pointValues,
 }) => {
   const [activeTab, setActiveTab] = useState<InputTab>('realtime');
 
@@ -103,6 +120,10 @@ const InputPanel: React.FC<InputPanelProps> = ({
     unit: string,
   ): React.ReactNode => {
     const inputId = `water-chemistry-${String(field)}`;
+    // undefined: the field is the operator's entry; a number or null: the point's.
+    const pointValue =
+      pointValues !== undefined && isResolvableField(field) ? pointValues[field] : undefined;
+    const fromPoint = pointValue !== undefined;
     return (
       <div className="flex items-center gap-1.5 mr-4">
         <label
@@ -114,7 +135,10 @@ const InputPanel: React.FC<InputPanelProps> = ({
         <Input
           id={inputId}
           type="number"
-          value={inputs[field] ?? ''}
+          value={pointValue === undefined ? inputs[field] : pointValue === null ? '' : pointValue}
+          readOnly={fromPoint}
+          disabled={fromPoint}
+          placeholder={fromPoint ? '—' : undefined}
           min={min}
           max={max}
           step={step}

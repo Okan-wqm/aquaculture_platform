@@ -182,7 +182,7 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 234
+      ceiling: 232
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -238,7 +238,7 @@ rawField:
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 379
+      ceiling: 373
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -310,7 +310,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 3212
+      ceiling: 3172
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -356,11 +356,11 @@ rawPageTitle:
       findingId: FE-MEDIUM-071
       reason: the pH/EC dosing simulator strip — the title is one control in a dense tool layout, compact by design
     - package: web/modules/sensor-module
-      ceiling: 5
+      ceiling: 4
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-071
-      reason: toolbars of full-screen tools (SCADA view, widget dashboard, water-chemistry monitor, VFD programming, tag registry) — the title is one control in a dense strip, compact by design; a page header would break the strip
+      reason: toolbars of full-screen tools (SCADA view, widget dashboard, VFD programming, tag registry) — the title is one control in a dense strip, compact by design; a page header would break the strip
     - package: web/shell
       ceiling: 1
       owner: okan

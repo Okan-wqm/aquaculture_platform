@@ -2796,6 +2796,11 @@ type WaterQualityParameterConfig {
   updatedAt: DateTime!
   quantityFamily: String
   declarableQuantities: [String!]!
+
+  """
+  Sensor channels bound to the parameter now; its meaning is fixed while any is
+  """
+  liveChannelSourceCount: Int!
 }
 
 """Data type of a water quality parameter value"""
@@ -2959,6 +2964,14 @@ type ParameterSourceStatus {
 
   """Why the channel cannot feed the parameter here now; empty when it can"""
   problems: [ChannelBindingProblem!]!
+
+  """
+  The channel's newest sample in the parameter's unit; null for a manual source, without a sample, or when the channel unit cannot be carried into it
+  """
+  latestValue: Float
+
+  """The unit of latestValue: the parameter’s own"""
+  unit: String!
 }
 
 """Why a sensor channel cannot feed a parameter at a point"""
@@ -3169,6 +3182,11 @@ type WaterChemistryInputsResult {
   """Water the loop’s active tanks hold (DOSING)"""
   tankWaterM3: Float
   inputs: [WaterChemistryInputStatus!]!
+
+  """
+  At a tank: the live systems it belongs to — exactly one is the loop whose carbonate state and volume it shares; none or two or more (which loop is unknown) give it none. Empty at a system.
+  """
+  loopSystemIds: [ID!]!
 }
 
 """DOSING at a system point, TOXICITY at a tank point"""

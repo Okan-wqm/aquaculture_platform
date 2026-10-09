@@ -20,6 +20,7 @@ import { DataSource } from 'typeorm';
 
 import {
   boundChannelStatus,
+  latestInParameterUnit,
   type ChannelBindingCheck,
   type ParameterSourceStatus,
 } from '../dto/parameter-source-status.response';
@@ -28,13 +29,14 @@ import { WaterQualityParamEquipment } from '../entities/water-quality-param-equi
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import {
   CheckParameterChannelBindingQuery,
+  CountLiveChannelSourcesQuery,
   ListParameterQuantityDeclarationsQuery,
   ListParameterSourcesAtPointQuery,
 } from '../queries/parameter-source-queries';
 import { assessChannel, bindingProblems } from '../services/channel-binding-rules';
 import { loadFarmPlacement } from '../services/channel-placement';
 import { assertLivePoint, assertPointReadable } from '../services/measurement-point-lookup';
-import { liveAtPoint, pointOf } from '../services/parameter-sources';
+import { liveAtPoint, liveChannelSourceCount, pointOf } from '../services/parameter-sources';
 import { SensorChannelDirectory } from '../services/sensor-channel-directory.service';
 
 @Injectable()
@@ -118,12 +120,20 @@ export class ListParameterSourcesAtPointHandler
       const description = byId.get(source.id);
       if (description === undefined) {
         // A manual source: nothing to describe.
-        return { source, channel: null, problems: [] };
+        return {
+          source,
+          channel: null,
+          problems: [],
+          latestValue: null,
+          unit: source.parameterConfig.unit,
+        };
       }
       return {
         source,
         channel: boundChannelStatus(description),
         problems: bindingProblems(source.parameterConfig, pointOf(source), description, farm),
+        latestValue: latestInParameterUnit(source.parameterConfig, description),
+        unit: source.parameterConfig.unit,
       };
     });
   }
@@ -145,6 +155,26 @@ export class ListParameterQuantityDeclarationsHandler
         where: { parameterConfigId },
         order: { declaredAt: 'DESC' },
       }),
+    );
+  }
+}
+
+/**
+ * The live channel sources of a parameter, counted where the declare and the
+ * config writers count them (liveChannelSourceCount), so the configuration UI
+ * shows a parameter's meaning as fixed exactly when a write would be refused
+ * with PARAMETER_BOUND.
+ */
+@Injectable()
+@QueryHandler(CountLiveChannelSourcesQuery)
+export class CountLiveChannelSourcesHandler
+  implements IQueryHandler<CountLiveChannelSourcesQuery, number>
+{
+  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+
+  async execute(query: CountLiveChannelSourcesQuery): Promise<number> {
+    return runInTenantRead(this.dataSource, 'farm', query.tenantId, (queryRunner) =>
+      liveChannelSourceCount(queryRunner.manager, query.tenantId, query.parameterConfigId),
     );
   }
 }

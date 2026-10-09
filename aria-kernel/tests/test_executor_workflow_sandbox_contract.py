@@ -18,6 +18,9 @@ scheduled run whose only symptom is an empty cycle.
   * I-SBX-03 — the assertion is a hard failure, not advisory
   * I-SBX-04 — the executor entrypoints this contract covers are enumerated, and
                the enumeration matches what the repo actually contains
+  * I-SBX-05 — every lane that builds the validation room provisions each
+               toolchain the tree declares, before the room is built
+               (ARIA-HIGH-383)
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
+
+from aria_kernel.implementation_safety import validation_toolchains_for
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
@@ -35,6 +40,21 @@ WRITE_CAPABLE_EXECUTORS: tuple[str, ...] = (
     "tools/aria-poc/ci_executor.py",
     "tools/aria-poc/worker_executor.py",
 )
+
+# I-SBX-05 — the lanes that build the validation room
+# (`implementation_delivery.validation_sandbox_for`), each with the step that
+# first builds it: the executor's apply gate, and the cycle's self-revert and
+# branch-update validation.
+VALIDATION_ROOM_LANES: dict[str, str] = {
+    "aria-agent-executor.yml": "name: Run CI executor",
+    "aria-auto-cycle.yml": "name: Run the nightly cycle under the resolved profile",
+}
+# The action that provisions each toolchain `validation_toolchains_for` can
+# declare.
+TOOLCHAIN_PROVISIONERS: dict[str, str] = {
+    "cargo": "./.github/actions/setup-rust-workspace",
+    "rustc": "./.github/actions/setup-rust-workspace",
+}
 
 _INSTALL_PATTERN = re.compile(r"apt-get\s+install[^\n]*\b(bubblewrap|firejail)\b")
 _ASSERT_PATTERN = re.compile(r"sandbox_backend\s*\(")
@@ -267,6 +287,36 @@ class ExecutorWorkflowSandboxContract(unittest.TestCase):
             "composite actions it uses — this assertion passed vacuously, which is "
             "how it survived RC-9 moving the verify step into a composite action",
         )
+
+
+    def test_i_sbx_05_validation_room_lanes_provision_declared_toolchains(self) -> None:
+        """ARIA-HIGH-383 — the room binds every toolchain the tree declares
+        (`implementation_safety.validation_toolchains_for`) or refuses by
+        name. No lane provisioned Rust, so the first CONVERGED plan's
+        implementer was refused before the spawn with
+        `validation_toolchain_unresolvable:cargo` (run 37713931273) — a
+        web-only plan stopped by a toolchain the runner never had.
+
+        Read off the kernel's own declaration, so a new declared toolchain
+        with no provisioner fails here instead of at the next delivery.
+        """
+        declared = validation_toolchains_for(_REPO_ROOT)
+        self.assertTrue(declared, "the tree declares no toolchain — this assertion would pass vacuously")
+        unprovisioned = sorted(set(declared) - set(TOOLCHAIN_PROVISIONERS))
+        self.assertEqual(
+            unprovisioned, [],
+            f"the tree declares {unprovisioned} but no action provisions it; add one to TOOLCHAIN_PROVISIONERS",
+        )
+        for lane, room_step in VALIDATION_ROOM_LANES.items():
+            code = executable_yaml((_WORKFLOWS / lane).read_text(encoding="utf-8"))
+            room_at = code.find(room_step)
+            with self.subTest(lane=lane):
+                self.assertGreaterEqual(room_at, 0, f"{lane} no longer has the step {room_step!r}")
+                for tool in declared:
+                    provisioner = f"uses: {TOOLCHAIN_PROVISIONERS[tool]}"
+                    at = code.find(provisioner)
+                    self.assertGreaterEqual(at, 0, f"{lane} builds the validation room but never provisions {tool}")
+                    self.assertLess(at, room_at, f"{lane} provisions {tool} after {room_step!r} has run")
 
 
 if __name__ == "__main__":

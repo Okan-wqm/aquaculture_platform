@@ -50,6 +50,11 @@ function makeHarness(
   jest.spyOn(manager, 'query').mockImplementation((raw: string, params?: unknown[]) => {
     const norm = raw.replace(/\s+/g, ' ').trim();
     sql.push(norm);
+    // bindTenantRlsContext: the two GUC writes, then the read-back.
+    if (norm.startsWith('SELECT set_config(')) return Promise.resolve([]);
+    if (norm.startsWith('SELECT current_setting($1, true) AS tenant')) {
+      return Promise.resolve([{ tenant: TENANT, bypass: 'off' }]);
+    }
     if (norm.includes('pg_advisory_xact_lock')) return Promise.resolve([]);
     if (norm.startsWith('INSERT INTO')) return Promise.resolve([]);
     if (norm.includes('information_schema.columns')) {

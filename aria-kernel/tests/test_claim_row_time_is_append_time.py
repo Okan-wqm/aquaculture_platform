@@ -36,6 +36,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.ledger import STATE_LOCK_LIVENESS_SECONDS, read_jsonl, state_transaction
 from aria_kernel.runtime_profile import set_profile
+from aria_kernel.request_admission import admit_request
 
 
 # `_iso` stamps whole seconds, so the hold must exceed a second by a margin
@@ -89,6 +90,7 @@ class ClaimRowTimeIsAppendTime(unittest.TestCase):
             allowed_scope=["docs/"],
             evidence_refs=["docs/a.md"],
             base_dir=self.base,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.base),
         )
         self.request_id = request["request_id"]
 

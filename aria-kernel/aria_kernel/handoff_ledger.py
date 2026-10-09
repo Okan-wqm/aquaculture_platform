@@ -14,8 +14,8 @@ Snapshot fields (Plan v3.3 §Phase 3.A — 7 fields)
 2. open_findings       — list_findings(repo) filtered status != WITHDRAWN.
 3. open_debts          — list_debts(repo) filtered status not in {RESOLVED}.
 4. pending_requests    — list_agent_invocation_requests(state='pending').
-5. claimed_requests    — derive_request_state(...) per pending row that has
-                         been CLAIMED / RUNNING / SUBMITTED.
+5. claimed_requests    — derive_request_states(...) rows that are
+                         CLAIMED / RUNNING / SUBMITTED / REQUEUED.
 6. last_change_chain   — list_change_chains() newest by recorded_at.
 7. last_validation     — governance.jsonl last architecture_spine_postcheck
                          OR change_validated event.
@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import (
-    derive_request_state,
+    derive_request_states,
     list_agent_invocation_requests,
 )
 from .change_ledger import list_change_chains
@@ -134,15 +134,22 @@ def _open_debts(repo_root: Path) -> list[dict[str, Any]]:
 
 
 def _request_states(base_dir: str | Path | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (pending_requests, claimed_requests) snapshots."""
+    """Return (pending_requests, claimed_requests) snapshots.
+
+    ARIA-HIGH-358 — every state comes from ONE ledger load. The per-request
+    form reloaded the three request ledgers for each of the 1,866 rows of
+    2026-10-06 (0.96 s a row): each snapshot took 22-27 min, and the cycle
+    and the executor take two per run.
+    """
     pending: list[dict[str, Any]] = []
     claimed: list[dict[str, Any]] = []
     rows = list_agent_invocation_requests(base_dir=base_dir)
+    states = derive_request_states(base_dir=base_dir)
     for row in rows:
         rid = row.get("request_id")
         if not rid:
             continue
-        derived = derive_request_state(request_id=rid, base_dir=base_dir)
+        derived = states[rid]
         snap = {
             "request_id": rid,
             "target_agent": row.get("target_agent"),

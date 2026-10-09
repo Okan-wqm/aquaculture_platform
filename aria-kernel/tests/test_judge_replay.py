@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.feedback_store import record_operator_feedback
+from aria_kernel.feedback_store import append_jsonl, finding_fingerprint, raw_findings_path, record_operator_feedback
 from aria_kernel.goldset import promote_goldset_proposal
 from aria_kernel.judge_replay import (
     REPLAY_GROUP_PREFIX,
@@ -20,10 +20,21 @@ from aria_kernel.judge_replay import (
 )
 from aria_kernel.tool_registry import ensure_tools_dir, utc_now
 
+from tests._helpers.rule_contracts import register_contracted_tool
 
-def _gi(run: str, finding: str, verdict: str) -> dict:
+
+def _gi(tools: Path, run: str, finding: str, verdict: str) -> dict:
+    # ARIA-HIGH-324 — a gold item replays its own adapter finding, resolved
+    # by fingerprint from the raw-findings ledger, under its rule's contract.
+    adapter_finding = {"id": finding, "rule": "rule-a", "path": f"src/{finding}.py", "message": "m",
+                       "severity": "medium", "evidence": [{"path": f"src/{finding}.py", "line": 1}]}
+    fingerprint = finding_fingerprint("tool-x", adapter_finding)
+    append_jsonl(raw_findings_path(tools), {
+        "schema_version": 1, "tool_id": "tool-x", "run_id": run, "finding_id": finding,
+        "finding_fingerprint": fingerprint, "status": "raw", "finding": adapter_finding,
+    })
     return {
-        "run_id": run, "finding_id": finding, "finding_fingerprint": f"fp:{finding}",
+        "run_id": run, "finding_id": finding, "finding_fingerprint": fingerprint,
         "verdict": verdict, "severity": "medium", "source_type": "human",
         "confidence": 0.9, "evidence_refs": [f"src/{finding}.py:1"], "rationale": "gt",
     }
@@ -34,8 +45,9 @@ class JudgeReplayTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
-        self.tp = [_gi("rtp0", "ftp0", "true_positive"), _gi("rtp1", "ftp1", "true_positive")]
-        self.fp = [_gi("rfp0", "ffp0", "false_positive")]
+        register_contracted_tool(self.tools, "tool-x")
+        self.tp = [_gi(self.tools, "rtp0", "ftp0", "true_positive"), _gi(self.tools, "rtp1", "ftp1", "true_positive")]
+        self.fp = [_gi(self.tools, "rfp0", "ffp0", "false_positive")]
         proposal = {
             "status": "ready", "recorded_at": utc_now(), "tool_id": "tool-x",
             "true_positive_count": 2, "known_false_positive_count": 1,
@@ -104,6 +116,30 @@ class JudgeReplayTests(unittest.TestCase):
         seeds = [r for r in load_feedback(base_dir=self.tools)
                  if r.get("judge_id") == "goldset-replay"]
         self.assertEqual(len(seeds), 3)  # one per gold item, not doubled
+
+    def test_replayed_judges_get_the_live_contract_bound_envelope(self) -> None:
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        replay_judges_on_goldset(tool_id="tool-x", base_dir=self.tools)
+        rows = list_agent_invocation_requests(base_dir=self.tools)
+        self.assertEqual(len(rows), 6)
+        for row in rows:
+            kinds = [item.get("kind") for item in row["must_satisfy"]]
+            self.assertEqual(kinds.count("rule_premise"), 2)
+            self.assertIn("product_defect", kinds)
+            self.assertIn("rule: rule-a", row["suggested_prompt"])
+
+    def test_an_item_whose_finding_is_unknown_is_not_replayed(self) -> None:
+        orphan = dict(_gi(self.tools, "rorph", "forph", "true_positive"), finding_fingerprint="finding:unknown")
+        promote_goldset_proposal(tool_id="tool-y", curator="okan", base_dir=self.tools, proposal={
+            "status": "ready", "recorded_at": utc_now(), "tool_id": "tool-y",
+            "true_positive_count": 1, "known_false_positive_count": 0,
+            "true_positive_items": [orphan], "known_false_positive_items": [],
+        })
+        result = replay_judges_on_goldset(tool_id="tool-y", base_dir=self.tools)
+        self.assertEqual(result["minted"], [])
+        self.assertEqual(result["seeded"], [])
+        self.assertEqual([u["reason"] for u in result["unjudgeable"]], ["adapter_finding_unresolved"])
 
     def test_no_active_goldset_is_noop(self) -> None:
         result = replay_judges_on_goldset(tool_id="other-tool", base_dir=self.tools)

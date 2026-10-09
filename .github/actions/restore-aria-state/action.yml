@@ -170,16 +170,26 @@ runs:
         GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.read_credential.outputs.header }}'
         LEASE_TTL_MINUTES: ${{ inputs.writer-lease-ttl-minutes }}
         LEASE_WAIT_SECONDS: ${{ inputs.writer-lease-wait-seconds }}
+        # ARIA-HIGH-350 — run-liveness reaping: a held gha: lease whose run
+        # attempt has concluded (a cancelled job runs no always() release) is
+        # taken over by CAS. The read uses the token this step already holds
+        # (the job needs actions: read); no answer means no reap.
+        GH_TOKEN: ${{ inputs.token || github.token }}
       run: |
         set -uo pipefail
         VERDICT="${RUNNER_TEMP}/aria-state-writer-lease.json"
         TOKEN_FILE="${RUNNER_TEMP}/aria-state-writer-lease.token"
+        # GitHub runs `shell: bash` as `bash -eo pipefail`, and `set -uo`
+        # does not lift errexit: a bare `LEASE_EXIT=$?` after a refused
+        # acquire was never reached, so every yield died red (ARIA-HIGH-356;
+        # aria-readiness-claim 37249919142, 37259375696). The exit is
+        # captured inside the list, where errexit does not apply.
+        LEASE_EXIT=0
         PYTHONPATH=aria-kernel python3 -m aria_kernel state lease acquire \
              --repo-root . \
              --ttl-minutes "$LEASE_TTL_MINUTES" \
              --wait-seconds "$LEASE_WAIT_SECONDS" \
-             --token-file "$TOKEN_FILE" > "$VERDICT"
-        LEASE_EXIT=$?
+             --token-file "$TOKEN_FILE" > "$VERDICT" || LEASE_EXIT=$?
         # The capability is on disk BEFORE the push that makes it the lease's
         # (R-2), so it is handed on whatever the exit: an acquire that died
         # after its push still lets the always() release step free the lease

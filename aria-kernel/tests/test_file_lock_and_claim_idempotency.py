@@ -29,6 +29,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.file_lock import lock_sidecar_path, lock_sidecar_target, with_exclusive_lock
+from aria_kernel.request_admission import admit_request
 from tests._helpers.operator_acts import operator_set_profile
 
 
@@ -319,6 +320,7 @@ class ImplementationScopeClaimTests(unittest.TestCase):
             role=role, suggested_prompt=purpose,
             must_satisfy=[{"id": "scope-owner", "description": "inspect the declared source"}],
             allowed_scope=[path], base_dir=tools,
+            admission=admit_request("operator_cli.request", role, base_dir=tools),
         )
 
     def test_heartbeat_owns_scope_through_exact_expiry_then_allows_next_claim(self) -> None:

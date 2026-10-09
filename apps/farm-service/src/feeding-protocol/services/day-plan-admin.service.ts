@@ -40,6 +40,7 @@ import { MealPlanGeneratorService, mixedTankStats } from './meal-plan-generator.
 import { DayPlanRecalcService } from './day-plan-recalc.service';
 import { ProtocolResolutionService } from './protocol-resolution.service';
 import { FeedingClockService } from './feeding-clock.service';
+import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 
@@ -73,6 +74,8 @@ export class DayPlanAdminService {
     // Takvim/saat çözümünün TEK sahibi (W5, D-B4) — servisin kendi
     // `timezoneFor` kopyası (site kolonu → 'UTC', tenant zonu YOK) silindi.
     private readonly clock: FeedingClockService,
+    // Zon hiyerarşisinin (site → tenant → UTC) tek sahibi.
+    private readonly siteTimeZones: SiteTimeZoneService,
   ) {}
 
   async regenerateDayPlan(
@@ -149,7 +152,7 @@ export class DayPlanAdminService {
         },
         temperature,
         planDate,
-        timezone: (await this.clock.siteZones(manager, tenantId)).zoneOf(assignment.siteId),
+        timezone: (await this.siteTimeZones.siteZones(manager, tenantId)).zoneOf(assignment.siteId),
         feedFcrMatrixByFeedId: buildFeedFcrMatrixMap(feeds),
       });
       if (!computed) {

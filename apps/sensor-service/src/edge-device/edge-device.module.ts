@@ -16,6 +16,7 @@ import { DeviceIoConfig } from './entities/device-io-config.entity';
 import { EdgeDeviceDirectory } from './entities/edge-device-directory.entity';
 import { EdgeDevice } from './entities/edge-device.entity';
 import { LoRaDevice } from './entities/lora-device.entity';
+import { TenantProvisioningKeyDirectory } from './entities/tenant-provisioning-key-directory.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { DeviceEvent } from './entities/device-event.entity';
 import {
@@ -50,6 +51,7 @@ import { TenantKeyService } from './tenant-key.service';
       DeviceIoConfig,
       LoRaDevice,
       TenantProvisioningKey,
+      TenantProvisioningKeyDirectory,
       DeviceEvent,
       // Additional entities for field resolver counts
       AutomationProgram,

@@ -1,0 +1,10 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "cycle_id": "fixture-banned-phrase-baseline"
+  },
+  "expected": {
+    "status": "ok"
+  }
+}

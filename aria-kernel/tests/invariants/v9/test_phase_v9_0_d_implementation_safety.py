@@ -23,6 +23,9 @@ from aria_kernel import implementation_safety as _is
 # ORPHAN-CRITICAL-428 — resolved from this file so the workspace root is
 # deterministic regardless of the runner's cwd.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
+_IMPLEMENTER = _is.GitCommitIdentity(
+    name="aria-implementer", email="aria-implementer@users.noreply.github.com",
+)
 
 
 class TestV9HardFailRegistry(unittest.TestCase):
@@ -34,10 +37,11 @@ class TestV9HardFailRegistry(unittest.TestCase):
         (ORPHAN-HIGH-310) added the 17th (plan_coverage_witness_verified);
         ARIA-HIGH-104 added the 18th (commit_contract_honoured);
         INFRA-MEDIUM-197 added the 19th (readonly_paths_untouched_at_merge);
-        ARIA-MEDIUM-282 added the 20th (enrolments_unexpired_at_merge)."""
+        ARIA-MEDIUM-282 added the 20th (enrolments_unexpired_at_merge);
+        ARIA-HIGH-387 added the 21st (commit_identity_is_the_kernels)."""
         self.assertEqual(
-            len(_is.HARD_FAIL_CHECKS), 20,
-            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 20)",
+            len(_is.HARD_FAIL_CHECKS), 21,
+            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 21)",
         )
 
     # ORPHAN-CRITICAL-428 — the count above was the ONLY thing pinned, and
@@ -222,6 +226,9 @@ class TestV9HardFailRegistry(unittest.TestCase):
             # ARIA-MEDIUM-282 — appended enrolment rows judged at the merge
             # authority's clock, not only when the required check ran.
             "enrolments_unexpired_at_merge",
+            # ARIA-HIGH-387 — every commit on a machine-approved branch is
+            # the kernel implementer identity's, author and committer.
+            "commit_identity_is_the_kernels",
         }
         actual = {c.name for c in _is.HARD_FAIL_CHECKS}
         self.assertEqual(
@@ -899,6 +906,17 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
             },
             "pr_body_templating": {
                 "pr_body": "## Problem\nno other sections"
+            },
+            # ARIA-HIGH-387 — a machine-approved branch whose commit names
+            # a foreign author (an `author.name` planted in the sandbox's
+            # writable HOME outranks the minted `user.name`).
+            "commit_identity_is_the_kernels": {
+                "commit_identity": _IMPLEMENTER,
+                "branch_commits": ({
+                    "sha": "c" * 40, "subject": "docs: note", "body": "",
+                    "author": "Evil <evil@example.com>",
+                    "committer": "aria-implementer <aria-implementer@users.noreply.github.com>",
+                },),
             },
             "commit_contract_honoured": {
                 "commit_contract": {

@@ -22,6 +22,7 @@ from aria_kernel.agent_invocations import (
     derive_request_states,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class BatchDerivationTests(unittest.TestCase):
@@ -45,6 +46,7 @@ class BatchDerivationTests(unittest.TestCase):
                 cycle_id="cyc-1",
                 target_sha="a" * 40,
                 base_dir=self.tools,
+                admission=admit_request("operator_cli.request", role, base_dir=self.tools),
             )
             self.ids.append(str(req["request_id"]))
 

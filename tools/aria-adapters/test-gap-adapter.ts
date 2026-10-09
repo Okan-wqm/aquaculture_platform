@@ -21,6 +21,10 @@ type FindingRule =
 
 interface AdapterInput {
   readonly roots?: readonly string[];
+  // ARIA-MEDIUM-329 — roots whose specs PROVIDE coverage and are never scanned
+  // as sources (the manifest passes e2e/ and tests/). Their specs reach a
+  // source through the GraphQL field or the route they call, not an import.
+  readonly coverageRoots?: readonly string[];
   readonly allowlist?: readonly string[];
   readonly includeWriteBoundaryFindings?: boolean;
   readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
@@ -114,10 +118,11 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
   const sources = units.filter((unit) => !unit.isTest);
   const sourcePaths = new Set(sources.map((source) => source.relativePath));
   const pathAliases = readPathAliases(workspaceRoot);
+  const providers = readCoverageProviders(input, workspaceRoot);
   const result: AnalysisResult = {
     observations: [],
     findings: [],
-    readPaths: units.map((unit) => unit.relativePath),
+    readPaths: [...units, ...providers.map((provider) => provider.unit)].map((unit) => unit.relativePath),
   };
 
   for (const test of tests) {
@@ -141,7 +146,10 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
     if (!risk.highRisk && !risk.securitySensitive && !risk.migrationHazard) {
       continue;
     }
-    const matchedTests = matchingTests(source, tests, sourcePaths, pathAliases);
+    const matchedTests = [
+      ...matchingTests(source, tests, sourcePaths, pathAliases),
+      ...callingProviders(source, providers),
+    ];
     const weakMatchedTests = weakSymbolTests(source, tests).filter(
       (test) => !matchedTests.some((matched) => matched.relativePath === test.relativePath),
     );
@@ -227,6 +235,7 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
       weakMatchCount,
       highRiskWithoutTest,
       unmatchedHighRiskCount: highRiskWithoutTest,
+      coverageProviderFiles: providers.length,
       scanMode: 'import_graph_v1',
     },
   });
@@ -267,13 +276,247 @@ function classifySourceRisk(unit: FileUnit): SourceRisk {
   const path = unit.relativePath;
   const text = unit.text;
   const riskClass = riskClassForPath(path);
-  const highRisk = /(\.controller|\.resolver|\.handler|\.guard|\.strategy|\.middleware|\.interceptor)\.ts$/.test(path);
-  const securitySensitive = /dangerouslySetInnerHTML|DOMPurify|sanitizeHtml|@Public\b|AuthGuard|TenantGuard|PermissionGuard/i.test(text)
-    || /(\.guard|\.strategy|\/auth\/|\/security\/|\/permission)/i.test(path);
+  // ARIA-MEDIUM-329 — a class that takes no dependencies and whose methods
+  // return constants (F-010's health resolver) has no behaviour a test could
+  // pin, whatever its file suffix says.
+  const highRisk =
+    /(\.controller|\.resolver|\.handler|\.guard|\.strategy|\.middleware|\.interceptor)\.ts$/.test(path) &&
+    !isConstantWithoutDependencies(unit.sourceFile);
+  // Security-sensitive is what the file DOES, not a word it contains: it
+  // implements a guard, or it exposes a write to unauthenticated callers.
+  // `@Public` anywhere in the text (a read, a comment) used to qualify.
+  const securitySensitive = isGuardImplementation(unit) || hasPublicWrite(unit.sourceFile);
   const writeBoundary = /@(Post|Put|Patch|Delete|Mutation)\b|\b(create|update|delete|remove|archive|approve|reject|reset|invite)\w*\s*\(/i.test(text);
   const migrationHazard = /\/migrations\/.*\.ts$/.test(path)
     && /\b(DROP|DELETE|TRUNCATE|ALTER\s+TYPE|ENABLE\s+ROW\s+LEVEL\s+SECURITY|FORCE\s+ROW\s+LEVEL\s+SECURITY)\b/i.test(text);
   return { riskClass, highRisk, securitySensitive, migrationHazard, writeBoundary };
+}
+
+const WRITE_DECORATORS = new Set(['Post', 'Put', 'Patch', 'Delete', 'Mutation']);
+const GRAPHQL_FIELD_DECORATORS = new Set(['Query', 'Mutation', 'Subscription', 'ResolveField']);
+const ROUTE_DECORATORS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete', 'All', 'Head', 'Options']);
+
+function classDeclarations(sourceFile: ts.SourceFile): ts.ClassDeclaration[] {
+  const classes: ts.ClassDeclaration[] = [];
+  visit(sourceFile, (node) => {
+    if (ts.isClassDeclaration(node)) {
+      classes.push(node);
+    }
+  });
+  return classes;
+}
+
+function decoratorCalls(node: ts.Node): { readonly name: string; readonly args: readonly ts.Expression[] }[] {
+  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
+  return decorators.map((decorator) => {
+    const call = ts.isCallExpression(decorator.expression) ? decorator.expression : undefined;
+    const callee = call ? call.expression : decorator.expression;
+    const name = ts.isIdentifier(callee)
+      ? callee.text
+      : ts.isPropertyAccessExpression(callee)
+        ? callee.name.text
+        : '';
+    return { name, args: call ? Array.from(call.arguments) : [] };
+  });
+}
+
+function hasDecorator(node: ts.Node, name: string): boolean {
+  return decoratorCalls(node).some((decorator) => decorator.name === name);
+}
+
+function isGuardImplementation(unit: FileUnit): boolean {
+  if (/\.(guard|strategy)\.ts$/.test(unit.relativePath)) {
+    return true;
+  }
+  return classDeclarations(unit.sourceFile).some((declaration) =>
+    (declaration.heritageClauses ?? []).some(
+      (clause) =>
+        clause.token === ts.SyntaxKind.ImplementsKeyword &&
+        clause.types.some((type) => type.expression.getText() === 'CanActivate'),
+    ),
+  );
+}
+
+function hasPublicWrite(sourceFile: ts.SourceFile): boolean {
+  return classDeclarations(sourceFile).some((declaration) => {
+    const classPublic = hasDecorator(declaration, 'Public');
+    return declaration.members.some(
+      (member) =>
+        ts.isMethodDeclaration(member) &&
+        decoratorCalls(member).some((decorator) => WRITE_DECORATORS.has(decorator.name)) &&
+        (classPublic || hasDecorator(member, 'Public')),
+    );
+  });
+}
+
+function isConstantExpression(expression: ts.Expression): boolean {
+  return (
+    ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression) ||
+    ts.isNumericLiteral(expression) ||
+    expression.kind === ts.SyntaxKind.TrueKeyword ||
+    expression.kind === ts.SyntaxKind.FalseKeyword ||
+    expression.kind === ts.SyntaxKind.NullKeyword
+  );
+}
+
+function returnsConstant(body: ts.Block | undefined): boolean {
+  const statement = body?.statements.length === 1 ? body.statements[0] : undefined;
+  return (
+    statement !== undefined &&
+    ts.isReturnStatement(statement) &&
+    (statement.expression === undefined || isConstantExpression(statement.expression))
+  );
+}
+
+function isConstantWithoutDependencies(sourceFile: ts.SourceFile): boolean {
+  let classes = 0;
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+      continue;
+    }
+    if (!ts.isClassDeclaration(statement)) {
+      return false;
+    }
+    classes += 1;
+    for (const member of statement.members) {
+      if (ts.isConstructorDeclaration(member)) {
+        if (member.parameters.length > 0 || (member.body?.statements.length ?? 0) > 0) {
+          return false;
+        }
+      } else if (ts.isMethodDeclaration(member) || ts.isGetAccessorDeclaration(member)) {
+        if (!returnsConstant(member.body)) {
+          return false;
+        }
+      } else if (!ts.isPropertyDeclaration(member) || (member.initializer !== undefined && !isConstantExpression(member.initializer))) {
+        return false;
+      }
+    }
+  }
+  return classes > 0;
+}
+
+interface CoverageProvider {
+  readonly unit: FileUnit;
+  readonly literals: readonly string[];
+}
+
+function readCoverageProviders(input: AdapterInput, workspaceRoot: string): readonly CoverageProvider[] {
+  const files = (input.coverageRoots ?? [])
+    .map((root) => resolveInsideWorkspace(workspaceRoot, root))
+    .filter((root) => workspacePathExists(root))
+    .flatMap((root) => collectSourceAndTestFiles(root));
+  return filterFilesBySnapshot(files, workspaceRoot, input)
+    .map((file) => readFileUnit(file, workspaceRoot))
+    .filter((unit) => unit.isTest)
+    .map((unit) => ({ unit, literals: stringLiteralTexts(unit.sourceFile) }));
+}
+
+/** Every string a spec spells, template substitutions read as one segment. */
+function stringLiteralTexts(sourceFile: ts.SourceFile): string[] {
+  const texts: string[] = [];
+  visit(sourceFile, (node) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      texts.push(node.text);
+    } else if (ts.isTemplateExpression(node)) {
+      texts.push(node.head.text + node.templateSpans.map((span) => `X${span.literal.text}`).join(''));
+    }
+  });
+  return texts;
+}
+
+function literalString(expression: ts.Expression | undefined, key: string): string | undefined {
+  if (expression === undefined) {
+    return undefined;
+  }
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+    return expression.text;
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    for (const property of expression.properties) {
+      if (
+        ts.isPropertyAssignment(property) &&
+        ts.isIdentifier(property.name) &&
+        property.name.text === key &&
+        (ts.isStringLiteral(property.initializer) || ts.isNoSubstitutionTemplateLiteral(property.initializer))
+      ) {
+        return property.initializer.text;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** GraphQL fields a resolver serves: the decorator's `name` option, else the method name. */
+function graphQlFieldNames(sourceFile: ts.SourceFile): string[] {
+  const fields: string[] = [];
+  for (const declaration of classDeclarations(sourceFile)) {
+    for (const member of declaration.members) {
+      if (!ts.isMethodDeclaration(member) || !ts.isIdentifier(member.name)) {
+        continue;
+      }
+      const decorator = decoratorCalls(member).find((call) => GRAPHQL_FIELD_DECORATORS.has(call.name));
+      if (decorator !== undefined) {
+        const named = decorator.args.map((arg) => literalString(arg, 'name')).find((name) => name !== undefined);
+        fields.push(named ?? member.name.text);
+      }
+    }
+  }
+  return fields;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Routes a controller serves, `:param` segments matching any one segment. */
+function routePatterns(sourceFile: ts.SourceFile): RegExp[] {
+  const patterns: RegExp[] = [];
+  for (const declaration of classDeclarations(sourceFile)) {
+    const controller = decoratorCalls(declaration).find((call) => call.name === 'Controller');
+    if (controller === undefined) {
+      continue;
+    }
+    const prefix = literalString(controller.args[0], 'path') ?? '';
+    for (const member of declaration.members) {
+      const route = decoratorCalls(member).find((call) => ROUTE_DECORATORS.has(call.name));
+      if (route === undefined) {
+        continue;
+      }
+      const segments = `${prefix}/${literalString(route.args[0], 'path') ?? ''}`
+        .split('/')
+        .filter((segment) => segment.length > 0)
+        .map((segment) => (segment.startsWith(':') ? '[^/?#]+' : escapeRegExp(segment)));
+      // A route with no literal segment (the controller root) names nothing a
+      // spec could be told apart by; it is never matched.
+      if (segments.length > 0) {
+        patterns.push(new RegExp(`(?:^|/)${segments.join('/')}(?=$|[/?#\\s'"\`])`));
+      }
+    }
+  }
+  return patterns;
+}
+
+/** Coverage-root specs that call one of the source's GraphQL fields or routes. */
+function callingProviders(source: FileUnit, providers: readonly CoverageProvider[]): readonly FileUnit[] {
+  const fields = graphQlFieldNames(source.sourceFile).map(
+    (field) => new RegExp(`(?:^|[^A-Za-z0-9_$])${escapeRegExp(field)}(?![A-Za-z0-9_])`),
+  );
+  const routes = routePatterns(source.sourceFile);
+  if (fields.length === 0 && routes.length === 0) {
+    return [];
+  }
+  return providers
+    .filter(({ literals }) =>
+      literals.some(
+        (literal) =>
+          // A GraphQL field counts only inside a document (a selection set),
+          // never as a bare string that happens to spell it.
+          (literal.includes('{') && fields.some((field) => field.test(literal))) ||
+          routes.some((route) => route.test(literal)),
+      ),
+    )
+    .map(({ unit }) => unit);
 }
 
 function riskClassForPath(path: string): string {

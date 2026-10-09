@@ -23,6 +23,17 @@ from .evidence_trust import is_self_output_ref
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
+from .plan_round_scope import PLANNING_ROUND_ROLES, plan_round_contract, require_plan_round_envelope
+from .request_admission import (
+    ADMISSIONS_SURFACE,
+    Admission,
+    admissions_path,
+    check_admission_binding,
+    ledger_stamp,
+    minted_row,
+    note_minted,
+    require_admitted,
+)
 from .ledger import (
     SEGMENTED_LEDGERS,
     StateTransaction,
@@ -44,8 +55,9 @@ from .tool_registry import (
 )
 from .workspace import governance_event
 
-if TYPE_CHECKING:  # the probe session is imported lazily where it is used
+if TYPE_CHECKING:  # the probe session and the clock are imported lazily where they are used
     from .evidence_probe import GitProbeSession
+    from .provider_clock import ProviderClock
 
 
 ROLES = INVOCATION_ROLES
@@ -836,6 +848,8 @@ def _render_repository_map(repository_map: Any) -> str:
 
     impacted = repository_map.get("impacted_projects") or []
     if impacted:
+        from .twin_test_surface import render_project_tests
+
         lines.append("")
         lines.append("Projects in the blast radius:")
         for item in impacted:
@@ -844,6 +858,7 @@ def _render_repository_map(repository_map: Any) -> str:
                 dependents = item[1].get("dependents") or []
                 suffix = f" → dependents: {', '.join(f'`{d}`' for d in dependents)}" if dependents else ""
                 lines.append(f"- `{item[0]}` (layer {item[1].get('layer')}){suffix}")
+                lines.extend(render_project_tests(item[1]))
     return "\n".join(lines) + "\n\n"
 
 
@@ -905,6 +920,70 @@ def _tagged(tag: str, attrs: str, block: str) -> str:
     return f"{opening}\n{block}</{tag}>\n\n"
 
 
+# ARIA-HIGH-355 — how much of a refusal a successor envelope carries. The
+# codes are the kernel's own vocabulary; the reasons quote what the refused
+# answer cited, so they are bounded and rendered as DATA.
+_PREDECESSOR_REJECTION_MAX_CODES = 20
+_PREDECESSOR_REJECTION_MAX_REASONS = 10
+_PREDECESSOR_REJECTION_REASON_CHARS = 400
+
+
+def _predecessor_rejection(root: Path, remint_of: str) -> dict[str, Any] | None:
+    """Why the request ``remint_of`` names was refused, or None when it was not."""
+    results = load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl", expected_surface="agent_invocation_results",
+    )
+    rows = _result_rows_for(results, remint_of)
+    if not rows or rows[-1].get("status") != "rejected":
+        return None
+    last = rows[-1]
+    codes = sorted({str(code) for code in last.get("rejection_codes") or [] if str(code).strip()})
+    reasons: list[str] = []
+    for reason in last.get("rejection_reasons") or []:
+        # A reason quotes refs the refused answer chose; it cannot close the
+        # DATA tag it is rendered inside.
+        text = str(reason).replace("<", "&lt;").replace(">", "&gt;")
+        if text not in reasons:
+            reasons.append(text)
+    return {
+        "request_id": remint_of,
+        "rejection_codes": codes[:_PREDECESSOR_REJECTION_MAX_CODES],
+        "rejection_reasons": [
+            reason[:_PREDECESSOR_REJECTION_REASON_CHARS]
+            for reason in reasons[:_PREDECESSOR_REJECTION_MAX_REASONS]
+        ],
+        "omitted_reasons": max(0, len(reasons) - _PREDECESSOR_REJECTION_MAX_REASONS),
+    }
+
+
+def _render_predecessor_rejection(rejection: Any) -> tuple[str, str]:
+    """(kernel instruction, refusal data) for a successor envelope; ("", "") on any other row.
+
+    The instruction is a kernel rule and renders outside the DATA tags. The
+    refusal reasons quote the refused answer, so they render inside them: a
+    corrective sentence placed there would be demoted to payload by the
+    prompt's own DATA notice.
+    """
+    if not isinstance(rejection, dict):
+        return "", ""
+    instruction = (
+        "## Your predecessor's answer was refused\n\n"
+        f"This request replaces `{rejection.get('request_id')}`, whose answer the kernel refused "
+        "for the reasons in the `predecessor_rejection` block. Answer the same task without "
+        "repeating them: cite only the evidence this prompt admits, and name no change outside "
+        "the allowed scope.\n\n"
+    )
+    lines = [
+        "Refusal codes: " + ", ".join(f"`{code}`" for code in rejection.get("rejection_codes") or []),
+        "",
+    ]
+    for reason in rejection.get("rejection_reasons") or []:
+        lines.append(f"- {reason}")
+    if rejection.get("omitted_reasons"):
+        lines.append(f"- ({rejection['omitted_reasons']} further reasons omitted)")
+    return instruction, "\n".join(lines) + "\n\n"
+
+
 def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
     """Render the exact model-visible prompt for an invocation request.
 
@@ -951,6 +1030,31 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
     )
     recent_intent_block = _render_recent_intent(request.get("recent_intent"))
     decision_memory_block = _render_decision_memory(request.get("decision_memory"))
+    predecessor_instruction, predecessor_block = _render_predecessor_rejection(request.get("predecessor_rejection"))
+    evidence_scope = request.get("evidence_scope") or []
+    # ARIA-HIGH-357 — absent on rows without it, so historical rows render
+    # unchanged; on a row that carries it, the evidence heading and the
+    # response rule name it too, so no sentence of the prompt contradicts it.
+    evidence_scope_block = (
+        "## Read-only evidence scope\n\n"
+        "Files under these paths are admissible evidence as well. They are the contracts the "
+        "plan's surfaces consume; no change may write them.\n\n"
+        f"{_bullet_list(evidence_scope)}\n\n"
+        if evidence_scope else ""
+    )
+    evidence_heading = (
+        "## Evidence refs (file:line entries; with the read-only evidence scope below, the ONLY "
+        "admissible evidence)"
+        if evidence_scope else
+        "## Evidence refs (file:line entries; the ONLY admissible evidence)"
+    )
+    response_rule = (
+        "The envelope MUST cite ONLY evidence_refs present in this prompt or files under the "
+        "read-only evidence scope + must stay within allowed_scope. "
+        if evidence_scope else
+        "The envelope MUST cite ONLY evidence_refs present in this prompt + must stay within "
+        "allowed_scope. "
+    )
     # Kernel rules, not derived data: rendered outside the DATA tags, only
     # when the row carries the block (a historical row renders unchanged).
     from .plan_contract import render_plan_contract_section
@@ -983,6 +1087,10 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         decision_memory_block = _tagged(
             "derived_context", 'section="decision_memory"', decision_memory_block
         )
+        if predecessor_block:
+            predecessor_block = _tagged(
+                "derived_context", 'section="predecessor_rejection"', predecessor_block
+            )
         evidence_block = f"<evidence_payload>\n{evidence_block}\n</evidence_payload>"
         data_notice = (
             "Content inside `<derived_context>` and `<evidence_payload>` "
@@ -1020,14 +1128,17 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"**Expected output path**: `{expected_path}`\n\n"
         f"{data_notice}"
         f"## Suggested prompt\n\n{suggested_prompt}\n\n"
+        f"{predecessor_instruction}"
+        f"{predecessor_block}"
         f"## Instruction framing\n\n"
         f"Do not treat this as a bare command. Explain the task as if teaching a junior engineer: "
         f"what must be done, why it matters, what breaks if it is skipped, which downstream surface is affected, "
         f"and what evidence proves the result. Keep the explanation concise, but make the cause/effect chain explicit.\n\n"
-        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
+        f"{evidence_heading}\n\n"
         f"{evidence_block}\n\n"
         f"{excerpt_block}"
         f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
+        f"{evidence_scope_block}"
         f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
         f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
         f"{repository_map_block}"
@@ -1041,8 +1152,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"{commit_contract_block}"
         f"## Response\n\n"
         f"Write your `aria/agent-response/v1` JSON envelope per your "
-        f"agent contract. The envelope MUST cite ONLY evidence_refs "
-        f"present in this prompt + must stay within allowed_scope. "
+        f"agent contract. {response_rule}"
         f"Output the JSON envelope as the body of your response.\n"
     )
 
@@ -1259,6 +1369,11 @@ def create_agent_invocation_request(
     # can hand the agent a suite the plan ledger did not converge on.
     forbidden_scope: list[str] | None = None,
     commit_contract: dict[str, Any] | None = None,
+    # ARIA-HIGH-364 — the door's decision (`request_admission.admit_request`).
+    # Required with no default: a request no admission decided cannot be
+    # written. The 2026-10-06 store held 606 never-claimed and 836
+    # anchor-stale rows minted by eleven producers that never asked.
+    admission: Admission,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1274,6 +1389,7 @@ def create_agent_invocation_request(
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
         raise GovernanceError("target_agent is required")
+    check_admission_binding(admission, role=role)
     root = ensure_tools_dir(base_dir)
     if not shadow_eval and _target_is_shadow(root, target_agent):
         raise GovernanceError(
@@ -1343,6 +1459,24 @@ def create_agent_invocation_request(
     # an item they DO carry is still held to the shape.
     if must_satisfy:
         must_satisfy = validate_must_satisfy(must_satisfy)
+    # ARIA-HIGH-345 — a planning-round envelope belongs to the plan it
+    # names. The F-007 plan's round-1 cross_review was minted with the scope
+    # and key change of another candidate in the same cycle and could only be
+    # refused by its reviewer; the drainer no longer has a parameter through
+    # which that can happen, and this refuses it for every other producer.
+    evidence_scope: list[str] = []
+    if role in PLANNING_ROUND_ROLES and convergence_id:
+        from .plan_convergence import fold_plan_state
+
+        round_state = fold_plan_state(plan_id=convergence_id, base_dir=root)
+        require_plan_round_envelope(
+            round_state,
+            role=role, allowed_scope=list(allowed_scope or []), must_satisfy=list(must_satisfy or []),
+        )
+        # ARIA-HIGH-357 (ADR-0021 D9) — the read-only evidence scope is the
+        # plan's own record, derived here so no producer can widen or forget it.
+        if isinstance(round_state.get("plan_started"), Mapping):
+            evidence_scope = list(plan_round_contract(round_state).evidence_scope)
     if forbidden_scope is not None and (
         not isinstance(forbidden_scope, list)
         or any(not isinstance(item, str) or not item.strip() for item in forbidden_scope)
@@ -1412,11 +1546,30 @@ def create_agent_invocation_request(
             **({"commit_contract": commit_contract} if commit_contract is not None else {}),
             **({"context_source_paths": context_source_paths} if context_source_paths is not None else {}),
             **({"context_source_paths_status": context_source_paths_status} if context_source_paths_status is not None else {}),
+            **({"evidence_scope": evidence_scope} if evidence_scope else {}),
         },
     )
     existing_request = _find_request_by_id(root, request_id)
     if existing_request is not None:
         return existing_request
+    # ARIA-HIGH-364 — a NEW identity is written only under an admitted
+    # decision; re-requesting a sealed row (above) consumes no budget.
+    require_admitted(admission)
+    # ARIA-HIGH-354 — what the submit law would refuse, the mint refuses:
+    # outside the arbitration roles (whose subject IS a recorded artifact) a
+    # state-store record is never admissible agent evidence, so an envelope
+    # handing one out could only burn a paid run. A kernel record reaches an
+    # agent as a ledger pointer or as prompt data. Judged for a NEW identity
+    # only: re-requesting a sealed row mints nothing and returns it.
+    from .evidence_validator import ARBITRATION_ROLES, state_store_record_refs
+
+    if role not in ARBITRATION_ROLES:
+        store_refs = state_store_record_refs(evidence_refs or [], store_root=root)
+        if store_refs:
+            raise GovernanceError(
+                f"request_evidence_state_store_record: role {role!r} cannot cite ARIA's "
+                f"state store {store_refs[:3]}; name a kernel record by its ledger pointer"
+            )
     # A sealed request owns its original context and audit. Only a new
     # identity acquires current optional inputs or captures budget costs.
     evidence_excerpts = _evidence_excerpts_for_refs(
@@ -1486,6 +1639,13 @@ def create_agent_invocation_request(
         "prompt_render_version": PROMPT_RENDER_VERSION,
         "implementation_ids": dict(implementation_ids) if implementation_ids else None,
     }
+    # ARIA-HIGH-355 — a successor of a refused answer is told why it was
+    # refused; absent on every other row, so historical rows render unchanged.
+    predecessor_rejection = _predecessor_rejection(root, remint_of) if remint_of else None
+    if predecessor_rejection is not None:
+        row["predecessor_rejection"] = predecessor_rejection
+    if evidence_scope:
+        row["evidence_scope"] = evidence_scope
     # PLAN Wave 3 — the Twin-lite slice for the files this request points at.
     # This is the map's ONE reader: what the agent gets instead of walking
     # directories to work out which project a file belongs to, what covers it,
@@ -1591,7 +1751,14 @@ def create_agent_invocation_request(
     # replace its sealed context or reject its already authorized publication.
     # The request and prompt paths are segment-0 anchors (ARIA-HIGH-275):
     # holding them holds the group lock the segment appends choose under.
-    with state_transaction([contexts_path, prompts_path, requests_path,
+    # ARIA-HIGH-364 — the admission is recorded with the request it admitted,
+    # in the same transaction, and only for this NEW identity; the row also
+    # names the producer and class, so a re-mint of it later keeps the class
+    # its first mint was admitted under (review of #1833, MEDIUM-2/-4).
+    row["request_admission"] = {"producer": admission.producer, "purpose_class": admission.purpose_class}
+    admission_row = minted_row(admission, request_id=request_id)
+    stamp_before = ledger_stamp(root)
+    with state_transaction([contexts_path, prompts_path, requests_path, admissions_path(root),
                             root / CONTEXT_AUDITS_FILENAME, root / "governance.jsonl"]) as txn:
         existing_locked = next(
             (item for item in reversed(txn.load_segments(root, "agent_invocation_requests"))
@@ -1639,9 +1806,12 @@ def create_agent_invocation_request(
         row["context_ledger_hash"] = stored_context.get("ledger_hash")
         row["prompt_ledger_hash"] = stored_prompt.get("ledger_hash")
         row["budget_audit_hash"] = budget_audit.get("ledger_hash")
-        return txn.append_segment_rows(
+        stored_request = txn.append_segment_rows(
             root, [row], expected_surface="agent_invocation_requests",
         )[0]
+        txn.append_declared_jsonl(admissions_path(root), admission_row, expected_surface=ADMISSIONS_SURFACE)
+    note_minted(root, admission_row, stamp_before=stamp_before)
+    return stored_request
 
 
 def record_transcript(
@@ -1867,13 +2037,11 @@ def list_agent_invocation_requests(
     on the value.
 
     Post-§B.4 the ``state`` filter routes through
-    ``derive_request_state(request_id, base_dir)`` which IS the SSoT
-    for derived state (PENDING / REQUEUED / CLAIMED / SUBMITTED /
+    ``derive_request_states(base_dir)``, the batch form of the SSoT for
+    derived state (PENDING / REQUEUED / CLAIMED / SUBMITTED /
     ACCEPTED / REJECTED / STALE / HUMAN_REQUIRED / CANCELLED /
-    ACCEPTED_PENDING_BRIDGE etc.). The derived state is cached per
-    request_id within the call so a single list() invocation pays
-    the derive cost at most once per row even when other filters
-    overlap.
+    ACCEPTED_PENDING_BRIDGE etc.): one ledger load per call, whatever
+    the row count (ARIA-HIGH-358).
 
     Case normalisation: ``derive_request_state`` returns uppercase
     state names (``"CLAIMED"``). Caller-supplied ``state`` is
@@ -1882,22 +2050,13 @@ def list_agent_invocation_requests(
     """
     rows = load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests")
     if state is not None:
-        # Plan 026R §B.4 — per-call derived-state cache. A single list()
-        # call may iterate many rows; only derive each request_id's
-        # current state once.
+        # Plan 026R §B.4 + ARIA-HIGH-358 — every row's state from ONE
+        # ledger load; the per-row form reloaded three ledgers per row.
         normalised = state.upper()
-        derive_cache: dict[str, str] = {}
-
-        def _derive(rid: str) -> str:
-            if rid not in derive_cache:
-                derive_cache[rid] = derive_request_state(
-                    request_id=rid, base_dir=base_dir,
-                )
-            return derive_cache[rid]
-
+        states = derive_request_states(base_dir=base_dir)
         rows = [
             row for row in rows
-            if _derive(str(row.get("request_id"))) == normalised
+            if states[str(row.get("request_id"))] == normalised
         ]
     if convergence_id is not None:
         rows = [row for row in rows if row.get("convergence_id") == convergence_id]
@@ -2491,6 +2650,18 @@ HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "provider_quota_unavailable:",
     "executor_uncaught_exit:",
     "human_required_record_unavailable:",
+    # ARIA-HIGH-366 — ``provider_unreachable:<provider>``: the vendor did not
+    # serve (429/529/network); an outage of the provider, never the request.
+    "provider_unreachable:",
+    # ARIA-HIGH-365 — ``anchor_expired_during_provider_outage:<providers>``: a
+    # request whose anchor window ran out although an outage of its role's
+    # provider overlapped the wait. Spelled once, by ARIA-HIGH-360's
+    # `anchor_expiry_cause.anchor_expiry_reason_in_outage`; pinned equal to
+    # its `ANCHOR_EXPIRED_IN_OUTAGE_PREFIX` by test_provider_outage_timers.
+    "anchor_expired_during_provider_outage:",
+    # ARIA-HIGH-367 — ``lease_expired_during_provider_outage:<provider>``:
+    # the lease ran out inside an open outage of the role's provider (M1).
+    "lease_expired_during_provider_outage:",
     # Typed-judgment plan Phase 4b — the batch child's ONE call failed for
     # every request it served: the vendor's or the host's state.
     "judge_batch_call_failed:",
@@ -2683,6 +2854,33 @@ def _latest_claim_row(rows: list[dict[str, Any]], request_id: str) -> dict[str, 
     return candidates[best_idx] if best_idx >= 0 else None
 
 
+def _escalation_stands(claims: list[dict[str, Any]], request_id: str) -> bool:
+    """Whether the request's ``human_required`` claim rows still escalate it.
+
+    ARIA-HIGH-367 (M2). This check used to be ``any(human_required row)``,
+    returned before the latest-claim fold, so the re-derivation in that fold's
+    ``human_required`` arm (written for exactly the rows below) could never
+    run: a request escalated when its releases were counted under an older,
+    wrong fault table stayed HUMAN_REQUIRED forever. Measured on the
+    production store: AIR-aria-autonomy-planner-eb17609b38b1 (three
+    ``claude_cli_exit_1`` releases, 2026-08-06..08) and
+    AIR-aria-autonomy-planner-228f33e15113 (three
+    ``prompt_hash_binding_mismatch``) — every release harness-class today.
+
+    An escalation STANDS when any of its rows names a cause that is not the
+    harness's (a deliberate executor escalation — branch collision, the
+    agent's refusal — an operator act, or a charged release), or when the
+    request-fault count still exceeds the ceiling. Only an escalation built
+    entirely from releases the harness owns is re-derived (and so healed).
+    """
+    rows = [row for row in claims if row.get("event") == "human_required" and row.get("request_id") == request_id]
+    if not rows:
+        return False
+    if any(not _is_harness_fault_reason(str(row.get("reason") or "")) for row in rows):
+        return True
+    return _request_fault_requeue_count(claims, request_id) > DEFAULT_MAX_REQUEUES
+
+
 def derive_request_state(
     *,
     request_id: str,
@@ -2768,18 +2966,8 @@ def derive_request_state(
     control = _control if _control is not None else effective_control(root)
     if control.is_cancelled(request_id):
         return CANCELLED_BY_OPERATOR_STATE
-    if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
+    if _escalation_stands(claims, request_id):
         return "HUMAN_REQUIRED"
-
-    # V10.5 Phase 3 (F-023, ADR-0001) — EXTERNAL_OUTAGE check AFTER
-    # HUMAN_REQUIRED to preserve HUMAN_REQUIRED stickiness. A transient
-    # Anthropic API 529 outage must NOT escape operator review. If the
-    # latest non-stale claim event for this request is api_backoff_exhausted,
-    # the request is in EXTERNAL_OUTAGE state (transient; reaped by
-    # external_outage_reaper after 30 min wall-clock).
-    latest_for_outage = _latest_claim_row(claims, request_id)
-    if latest_for_outage is not None and latest_for_outage.get("event") == "api_backoff_exhausted":
-        return "EXTERNAL_OUTAGE"
 
     # A durable prepared journal owns a commit-pending operation. Its lease
     # may expire while recovery is appending missing effects, but the request
@@ -2816,6 +3004,11 @@ def derive_request_state(
         if requeues > DEFAULT_MAX_REQUEUES:
             return "HUMAN_REQUIRED"
         return "REQUEUED" if requeues > 0 else "PENDING"
+    if event == "plan_closed":
+        # ARIA-HIGH-367 (H4) — the request's plan was ABANDONED while it sat
+        # unclaimed (`plan_request_closure`): terminal, never claimed again,
+        # so recovered quota is not spent answering into a closed plan.
+        return "CANCELLED"
     if event == "anchor_stale":
         # ORPHAN-MEDIUM-492 — terminal. The git evaluation happened at the
         # selection boundary (next_pending_request); this function stays a
@@ -3092,6 +3285,7 @@ def _anchor_refusal_reason(
     repo_root: Path,
     *,
     probes: "GitProbeSession",
+    clock: "ProviderClock",
     now: datetime | None = None,
     max_age_seconds: int = DEFAULT_ANCHOR_MAX_AGE_SECONDS,
 ) -> AnchorVerdict:
@@ -3163,12 +3357,51 @@ def _anchor_refusal_reason(
     created = _parse_iso(request.get("created_at"))
     if created is None:
         return AnchorVerdict(refusal="anchor_undatable")
-    age = ((now or _utc_now_dt()) - created).total_seconds()
-    if age > max_age_seconds:
-        return AnchorVerdict(refusal="anchor_expired")
+    expired = _anchor_expiry_reason(request, created, now or _utc_now_dt(), clock=clock,
+                                    max_age_seconds=max_age_seconds)
+    if expired is not None:
+        return AnchorVerdict(refusal=expired)
     if undecided is not None:
         return AnchorVerdict(undecided=undecided)
     return AnchorVerdict()
+
+
+def _anchor_expiry_reason(
+    request: dict[str, Any], created: datetime, now: datetime, *, clock: "ProviderClock",
+    max_age_seconds: int,
+) -> str | None:
+    """Why the request outlived its anchor window in PROVIDER-AVAILABLE time, or None.
+
+    ARIA-HIGH-365 (B3) — the window exists because a request still unclaimed
+    after it "was never picked up at all" (ORPHAN-MEDIUM-492). During an
+    outage of the provider the request's role is routed to, nothing could pick
+    it up, so that time does not count: measured 2026-08-21..25, 37 of 43
+    requests that aged out had seen only provider-class releases, and each
+    death spent one of the step's MAX_STEP_REQUEST_REMINTS successors on the
+    way to `convergence_envelope_dead`. Wall time is checked first because
+    available time can only be shorter, so the ledger is read only for a
+    request that is old by the wall clock.
+
+    An expiry that still happens after an outage overlapped the request's
+    wait (the outage was shorter than the excess) is written under
+    ``anchor_expiry_cause.anchor_expiry_reason_in_outage(<overlapping
+    providers>)`` — the one spelling ARIA-HIGH-360 reads, harness-class in
+    ``classify_release_reason`` — so the expiry disposition spends no re-mint
+    budget on it.
+    """
+    if (now - created).total_seconds() <= max_age_seconds:
+        return None
+    from .anchor_expiry_cause import anchor_expiry_reason_in_outage
+    from .provider_clock import role_head_providers
+
+    role = str(request.get("role") or "")
+    providers = role_head_providers([role]) if role else frozenset()
+    if clock.available_age(created, now, providers).total_seconds() <= max_age_seconds:
+        return None
+    overlapped = clock.overlapping(created, now, providers)
+    if not overlapped:
+        return "anchor_expired"
+    return anchor_expiry_reason_in_outage(interval.provider for interval in overlapped)
 
 
 def _record_anchor_stale(
@@ -3218,6 +3451,7 @@ def derive_request_states(
     *,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
+    ledgers: tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None = None,
 ) -> dict[str, str]:
     """ORPHAN-HIGH-794 — derive EVERY request's state with ONE ledger load.
 
@@ -3228,20 +3462,26 @@ def derive_request_states(
     memory window where the OOM killer ended the nightly (2026-08-22
     11:40, runner unit killed mid-cycle). The batch form loads once and
     feeds the same authoritative fold; states are identical by
-    construction and pinned by an equivalence test.
+    construction and pinned by an equivalence test. ``ledgers`` is a caller
+    that already loaded the same three ledgers (ARIA-HIGH-360's anchor sweep;
+    ARIA-HIGH-364's admission measurement, which reads their timestamps).
     """
     root = ensure_tools_dir(base_dir)
-    ledgers = (
-        load_segments(root, "agent_invocation_requests"),
-        load_declared_jsonl(
-            root / "agent-invocations" / "results.jsonl",
-            expected_surface="agent_invocation_results",
-        ),
-        load_declared_jsonl(
-            _claims_path(root),
-            expected_surface="agent_invocation_claims",
-        ),
-    )
+    # ARIA-HIGH-360 — a sweep that also reads the claims itself (the
+    # anchor-stale disposition reads each expiry's cause) loads the three
+    # ledgers once and hands them in.
+    if ledgers is None:
+        ledgers = (
+            load_segments(root, "agent_invocation_requests"),
+            load_declared_jsonl(
+                root / "agent-invocations" / "results.jsonl",
+                expected_surface="agent_invocation_results",
+            ),
+            load_declared_jsonl(
+                _claims_path(root),
+                expected_surface="agent_invocation_claims",
+            ),
+        )
     from .control import effective_control
     control = effective_control(root)
     return {
@@ -3280,9 +3520,17 @@ def sweep_expired_anchors(
     `derive_request_state` skips terminal requests, so a second sweep finds
     nothing.
     """
+    from .plan_request_closure import close_abandoned_plan_requests
+    from .provider_clock import provider_clock
+
     root = ensure_tools_dir(base_dir)
     reference = now or _utc_now_dt()
+    # ARIA-HIGH-367 (H4) — before the backlog is counted, the queue of every
+    # ABANDONED plan is closed (including plans abandoned before the closure
+    # existed): those requests are not work, and the mint gate must not count them.
+    close_abandoned_plan_requests(root, now=reference)
     max_age_seconds = _anchor_max_age_seconds(root)
+    clock = provider_clock(root)
     swept = 0
     by_role: dict[str, int] = {}
     # ORPHAN-HIGH-794 — one batch derivation for the whole backlog: the
@@ -3300,9 +3548,10 @@ def sweep_expired_anchors(
             # Undatable rows keep the claim-time refusal path; a sweep that
             # guessed an age would be the silent-narrowing class.
             continue
-        if (reference - created).total_seconds() <= max_age_seconds:
+        expired = _anchor_expiry_reason(row, created, reference, clock=clock, max_age_seconds=max_age_seconds)
+        if expired is None:
             continue
-        _record_anchor_stale(root, row, "anchor_expired", now=reference)
+        _record_anchor_stale(root, row, expired, now=reference)
         swept += 1
         role = str(row.get("role") or "unknown")
         by_role[role] = by_role.get(role, 0) + 1
@@ -3340,6 +3589,8 @@ def next_pending_request(
     from a clean ledger.
     """
     from .evidence_probe import GitProbeSession
+    from .human_required_adjudication import adjudication_envelope_is_moot
+    from .implementation_dispatch import disclose_undispatchable, implementation_dispatch_refusal
 
     root = ensure_tools_dir(base_dir)
     repo_root = _anchor_repo_root(root)
@@ -3355,8 +3606,32 @@ def next_pending_request(
     # whole has one clock — so a git that stopped answering costs one clock,
     # not five seconds times every candidate, and never a terminal verdict.
     probes = GitProbeSession()
+    # ARIA-HIGH-365 (B3) — the anchor window is provider-available time; the
+    # clock reads the ledger only if some candidate is old by the wall clock.
+    from .provider_clock import provider_clock
+
+    clock = provider_clock(root)
     undecided: dict[str, str] = {}
     selected: dict[str, Any] | None = None
+    # ARIA-HIGH-388 (re-review N2) — the selection's answer never depends on a
+    # write succeeding: under `frozen` (or `observe`) the profile refuses the
+    # claims and governance surfaces, and the disclosure or the durable
+    # anchor refusal raising took `agent next-pending`, and with it the whole
+    # drain, down. Asked once, only when a candidate needs a record.
+    writable: list[bool] = []
+
+    def may_record() -> bool:
+        if not writable:
+            from .runtime_profile import enforce_profile_for_write
+
+            try:
+                enforce_profile_for_write("tool_governance", base_dir=root)
+                enforce_profile_for_write("agent_claim", base_dir=root)
+                writable.append(True)
+            except GovernanceError:
+                writable.append(False)
+        return writable[0]
+
     for request in requests:
         if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
             continue
@@ -3372,17 +3647,34 @@ def next_pending_request(
         state = states.get(str(request.get("request_id") or ""), "PENDING")
         if state not in {"PENDING", "REQUEUED"}:
             continue
+        # ARIA-HIGH-360 — a panel envelope whose answer the adjudication
+        # sweep would never read (its escalation is resolved, handed to the
+        # operator, or of a kind no panel decides) is never handed out.
+        if adjudication_envelope_is_moot(root, request):
+            continue
+        # ARIA-HIGH-388 — an implementation request the delivery could not
+        # carry (no delivery authority) or whose plan already ended is never
+        # handed out: before any claim, identity mint or credential lease.
+        undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
+        if undispatchable is not None:
+            if may_record():
+                disclose_undispatchable(request=request, reason=undispatchable, base_dir=root)
+            continue
         if repo_root is not None:
             now = _utc_now_dt()
             verdict = _anchor_refusal_reason(
                 request,
                 repo_root,
                 probes=probes,
+                clock=clock,
                 now=now,
                 max_age_seconds=_anchor_max_age_seconds(root),
             )
             if verdict.refusal is not None:
-                _record_anchor_stale(root, request, verdict.refusal, now=now)
+                # Under a profile that stops writes the refusal is not made
+                # durable; the request is still skipped (re-review N2).
+                if may_record():
+                    _record_anchor_stale(root, request, verdict.refusal, now=now)
                 continue
             if verdict.undecided is not None:
                 # Skipped, not refused: the row stays PENDING and the next
@@ -3461,6 +3753,11 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
     "cycle_id",
     "context_ledger_hash",
     "prompt_ledger_hash",
+    # ARIA-HIGH-357 / ARIA-HIGH-355 — the renderer prints the read-only
+    # evidence scope and the refused predecessor's DATA block, so a claim
+    # response without them could not reproduce the prompt hash.
+    "evidence_scope",
+    "predecessor_rejection",
 )
 
 
@@ -3616,6 +3913,13 @@ def claim_request(
             raise GovernanceError(
                 f"shadow_agent_invocation_blocked: {request_for_check.get('target_agent')!r} is not an ACTIVE production target"
             )
+        # ARIA-HIGH-360 — the same rule the selection boundary applies: a
+        # panel envelope whose answer no sweep would read is not leased,
+        # whether it was selected by poll or named by id.
+        from .human_required_adjudication import adjudication_envelope_is_moot
+
+        if adjudication_envelope_is_moot(root, request_for_check):
+            raise GovernanceError(f"adjudication_envelope_moot: {request_id}")
         _strict_request_view(request_for_check)
         # Before any lease is issued: can the envelope this claim is about to
         # hand back still reproduce the prompt hash it was minted under? A
@@ -5230,10 +5534,20 @@ def judge_claim_submission(
 
     submitted_role = strict_request.get("role") or envelope.get("role")
     if submitted_role in PLAN_AUTHORING_ROLES:
-        for violation in plan_contract_violations(
-            submitted_plan_content(submitted_role, envelope), base_dir=root,
-        ):
+        submitted_body = submitted_plan_content(submitted_role, envelope)
+        for violation in plan_contract_violations(submitted_body, base_dir=root):
             reject("plan_contract", f"plan_contract: {violation}")
+        # ARIA-HIGH-355 review — the bridge's own refusals (shape, origin,
+        # admission bound, evidence), judged before acceptance for the same
+        # reason as the contract above.
+        plan_id = strict_request.get("convergence_id")
+        if plan_id and isinstance(submitted_body, dict):
+            from .plan_convergence import fold_plan_state, plan_body_refusals
+
+            for code, detail in plan_body_refusals(
+                fold_plan_state(plan_id=str(plan_id), base_dir=root), submitted_body, root=root,
+            ):
+                reject(code, f"{code}: {detail}")
     try:
         from .implementation_safety import (
             SecretLeakDetected,
@@ -5393,8 +5707,9 @@ def _prepare_claim_submission(
         )
     assert compliance is not None
 
-    request_context_hash = str(request.get("context_hash") or "")
-    request_prompt_hash = str(request.get("prompt_hash") or "")
+    request_binding = accepted_result_request_binding(request)
+    request_context_hash = request_binding["context_hash"]
+    request_prompt_hash = request_binding["prompt_hash"]
     if not request_context_hash or not request_prompt_hash:
         raise GovernanceError("submit_claim_result_request_missing_context_prompt_binding")
     if context_hash != request_context_hash:
@@ -5430,14 +5745,14 @@ def _prepare_claim_submission(
         output_path=store_relative_artifact_path(root, sealed_output),
         output_hash=output_hash,
         envelope_evidence_hash=submitted_hash,
-        context_hash=context_hash,
-        prompt_hash=prompt_hash,
+        # The request evidence in the projection's own spelling (equal to
+        # the submitted context/prompt hashes, checked above).
+        **request_binding,
         transcript_hash=transcript_hash,
         transcript_artifact_ref=store_relative_artifact_path(
             root,
             verified_transcript_artifact,
         ),
-        target_sha=str(request.get("target_sha") or ""),
         checked_evidence_count=len(revalidation["checked_refs"]),
     )
     return {
@@ -6118,6 +6433,27 @@ def submit_claim_result(
     return {"status": "accepted", "reasons": [], "row": persisted, "bridged": bridged}
 
 
+def accepted_result_request_binding(request: Mapping[str, Any]) -> dict[str, str]:
+    """The request evidence an accepted result row carries, spelled the way
+    the row carries it: ``target_sha``, ``context_hash``, ``prompt_hash``.
+
+    THE one projection. The accepted-row constructor writes it and every
+    reader that proves a row belongs to its request compares against it, so
+    the writer and the proof cannot disagree on how an absent field reads.
+    ARIA-HIGH-346: an unanchored request (``target_sha`` None or absent —
+    every HUMAN_REQUIRED adjudication panel seat, ORPHAN-CRITICAL-495) is
+    written as ``""`` while the executor's native reconciliation compared
+    the row against the raw ``None``, refusing every such accepted result
+    as ``native_runtime_result_request_evidence_unavailable`` (executor runs
+    37205463513, 37221168808).
+    """
+    return {
+        "target_sha": str(request.get("target_sha") or ""),
+        "context_hash": str(request.get("context_hash") or ""),
+        "prompt_hash": str(request.get("prompt_hash") or ""),
+    }
+
+
 def _build_accepted_row(
     *,
     claim_id: str,
@@ -6369,6 +6705,38 @@ def _verified_evidence_target_sha(
     return verified
 
 
+# The share of a lease an outage must have covered to own its expiry when the
+# outage had already ended by then (review MEDIUM-3): half — more of the
+# lease was the provider's than the request's.
+LEASE_OUTAGE_MIN_SHARE = 0.5
+
+
+def _lease_expiry_reason(
+    clock: "ProviderClock", claimed_at: datetime | None, expires: datetime, role: str,
+) -> str:
+    """``lease_expired``, or the harness-class reason when an outage ate the lease.
+
+    ARIA-HIGH-367 (M1). An expired lease was charged to the request
+    (``lease_expired`` is request-class: "the agent hung"), and three of them
+    escalate it. A lease that ran out while the provider its role is routed to
+    was in an open outage — a job killed in a network loss, a spawn that
+    waited on a vendor that was not serving — says nothing about the request.
+    """
+    from .provider_clock import role_head_providers
+
+    providers = role_head_providers([role]) if role else frozenset()
+    if claimed_at is None or not providers or expires <= claimed_at:
+        return "lease_expired"
+    # PR #1835 review MEDIUM-3 — ANY overlap used to waive the charge, so a
+    # 2-minute blip made a genuinely hung request un-chargeable forever. The
+    # outage must be standing when the lease ran out, or have eaten at least
+    # LEASE_OUTAGE_MIN_SHARE of the lease.
+    share = clock.covered(claimed_at, expires, providers) / (expires - claimed_at)
+    if not (clock.outage_active(providers, expires) or share >= LEASE_OUTAGE_MIN_SHARE):
+        return "lease_expired"
+    return f"lease_expired_during_provider_outage:{'+'.join(sorted(providers))}"
+
+
 def reap_stale_claims(
     *,
     base_dir: str | Path | None = None,
@@ -6396,6 +6764,9 @@ def reap_stale_claims(
         "requeued": [],
         "human_required": [],
     }
+    # ARIA-HIGH-367 (M1) — read only when some lease has actually expired.
+    lease_clock: "ProviderClock | None" = None
+    request_roles: dict[str, str] = {}
     for cid in candidate_ids:
         governance_details: dict[str, Any] | None = None
         with state_transaction([claims_path, results_path]) as transaction:
@@ -6436,6 +6807,16 @@ def reap_stale_claims(
                 continue
             request_id = str(claim_event.get("request_id") or "")
             agent_id = claim_event.get("agent_id")
+            if lease_clock is None:
+                from .provider_clock import provider_clock
+
+                lease_clock = provider_clock(root)
+                request_roles = {str(row.get("request_id")): str(row.get("role") or "")
+                                 for row in load_segments(root, "agent_invocation_requests")}
+            reason = _lease_expiry_reason(
+                lease_clock, _parse_iso(claim_event.get("claimed_at")), expires,
+                request_roles.get(request_id, ""),
+            )
             stale_row = {
                 "schema_version": 1,
                 "event": "stale",
@@ -6450,8 +6831,11 @@ def reap_stale_claims(
                 stale_row,
                 expected_surface="agent_invocation_claims",
             )
-            requeue_count = (
-                _request_fault_requeue_count(locked_claims, request_id) + 1
+            # The SAME counting rule as derivation and release (ARIA-MEDIUM-225):
+            # a lease that ran out inside a provider outage is not charged.
+            requeue_count = _request_fault_requeue_count(
+                [*locked_claims, {"request_id": request_id, "event": "requeued", "reason": reason}],
+                request_id,
             )
             kind = (
                 "requeued"
@@ -6465,7 +6849,7 @@ def reap_stale_claims(
                 "request_id": request_id,
                 "at": _iso(ts),
                 "requeue_count": requeue_count,
-                "reason": "lease_expired",
+                "reason": reason,
             }
             transaction.append_declared_jsonl(
                 claims_path,
@@ -6478,7 +6862,7 @@ def reap_stale_claims(
                 "claim_id": cid,
                 "request_id": request_id,
                 "requeue_count": requeue_count,
-                "reason": "lease_expired",
+                "reason": reason,
                 "kind": kind,
             }
         if governance_details is None:

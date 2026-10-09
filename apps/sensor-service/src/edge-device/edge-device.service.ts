@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'crypto';
 
 import {
-  getTenantSchemaName,
-  listTenantSchemas,
-  pinTenantSchemaTransactionSearchPath,
+  listActiveTenantSchemaIdentities,
+  runInTenantRead,
+  runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
+  tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 import {
   createStandardPaginatedResult,
@@ -30,8 +32,16 @@ import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
+import { DeviceDirectoryService } from './device-directory.service';
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
-import { EdgeDevice, DeviceLifecycleState, DeviceModel, isTerminalLifecycleState } from './entities/edge-device.entity';
+import {
+  BROKER_SESSION_STATES,
+  DeviceLifecycleState,
+  DeviceModel,
+  EdgeDevice,
+  isTerminalLifecycleState,
+  mayHoldBrokerSession,
+} from './entities/edge-device.entity';
 import { LoRaDevice, LoRaActivationMode, LoRaDeviceClass } from './entities/lora-device.entity';
 import { InstallerScriptService } from './installer-script.service';
 
@@ -100,13 +110,6 @@ export interface AddIoConfigInput {
 type DeviceIoConfigWithGpioPin = DeviceIoConfig & { gpioPin: number };
 type DeviceIoConfigWithI2cAddress = DeviceIoConfig & { i2cAddress: number };
 type DeviceIoConfigWithModbusRegister = DeviceIoConfig & { modbusRegister: number };
-
-interface EdgeDeviceFingerprint {
-  cpuSerial?: string;
-  macAddresses?: string[];
-  machineId?: string;
-  hostname?: string;
-}
 
 type RowValueMap = Record<string, unknown>;
 
@@ -330,6 +333,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     private readonly mqttClient: MqttClientService | null,
     private readonly installerScriptService: InstallerScriptService,
     private readonly configService: ConfigService,
+    private readonly deviceDirectory: DeviceDirectoryService,
   ) {
     // Start periodic cleanup of stale pending pings
     this.startPendingPingsCleanup();
@@ -497,7 +501,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
       createdBy,
     });
 
-    const saved = await this.deviceRepository.save(device);
+    // SENSOR-MEDIUM-004: the device and its O(1) directory route commit in one
+    // tenant transaction. The broker auth hook resolves a device only through
+    // the directory, so a device saved without a route could never connect.
+    const saved = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+      this.deviceDirectory.saveNewDevice(device, qr.manager),
+    );
     this.logger.log(`Registered new edge device: ${saved.deviceCode} (${saved.id})`);
     return saved;
   }
@@ -675,7 +684,15 @@ export class EdgeDeviceService implements OnModuleDestroy {
   }
 
   /**
-   * Update device heartbeat (called from MQTT listener)
+   * Update device heartbeat (called from MQTT listener).
+   *
+   * SENSOR-CRITICAL-143: the listener runs outside any request, so a pooled
+   * read of `"tenant_x".edge_devices` saw zero rows under FORCE RLS and every
+   * heartbeat was dropped as "unknown device". The device is now read and
+   * written inside its tenant's `runInTenantTransaction`. The tenant is the one
+   * named by the topic (the broker ACL has already proved the publisher owns
+   * `tenants/{tenantId}/devices/...`); a tenant-less legacy topic resolves it
+   * through the device directory, and a directory miss drops the heartbeat.
    */
   async updateHeartbeat(heartbeat: DeviceHeartbeat): Promise<EdgeDevice | null> {
     // Device identifier from MQTT topic can be either deviceCode (e.g. "PI-A36C09D4")
@@ -683,34 +700,61 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       heartbeat.deviceCode,
     );
-
-    // Use tenant-scoped query when tenantId is available (MQTT listener always provides it)
-    let device: EdgeDevice | null = null;
-    const tenantSchema = heartbeat.tenantId ? this.getTenantSchemaFromId(heartbeat.tenantId) : null;
-
-    if (tenantSchema) {
-      const column = isUuid ? 'id' : 'device_code';
-      const rows = await this.dataSource.query<RowValueMap[]>(
-        `SELECT * FROM "${tenantSchema}".edge_devices WHERE "${column}" = $1 LIMIT 1`,
-        [heartbeat.deviceCode],
-      );
-      const firstRow = rows[0];
-      if (firstRow) {
-        device = this.mapRowToEdgeDevice(firstRow);
-      }
-    } else {
-      const whereCondition: Record<string, unknown> = isUuid
-        ? { id: heartbeat.deviceCode }
-        : { deviceCode: heartbeat.deviceCode };
-      device = await this.deviceRepository.findOne({ where: whereCondition });
-    }
-
-    if (!device) {
+    const tenantId =
+      heartbeat.tenantId ??
+      (await this.deviceDirectory.lookupTenantId(
+        isUuid ? 'id' : 'device_code',
+        heartbeat.deviceCode,
+      ));
+    if (!tenantId) {
       this.logger.warn(`Heartbeat from unknown device: ${heartbeat.deviceCode}`);
       return null;
     }
 
-    // Update device health metrics
+    const device = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
+      const found = await tenantManagerRepo(qr.manager, EdgeDevice).findOne({
+        where: isUuid ? { id: heartbeat.deviceCode } : { deviceCode: heartbeat.deviceCode },
+      });
+      if (!found) {
+        return null;
+      }
+      this.applyHeartbeat(found, heartbeat);
+      // search_path is pinned to the tenant schema by the boundary.
+      await qr.query(
+        `UPDATE edge_devices SET
+          last_seen_at = $2, is_online = $3, lifecycle_state = $4,
+          cpu_usage = COALESCE($5, cpu_usage), memory_usage = COALESCE($6, memory_usage),
+          storage_usage = COALESCE($7, storage_usage), temperature_celsius = COALESCE($8, temperature_celsius),
+          uptime_seconds = COALESCE($9, uptime_seconds), firmware_version = COALESCE($10, firmware_version),
+          ip_address = COALESCE($11, ip_address), connection_quality = $12,
+          updated_at = NOW()
+        WHERE id = $1`,
+        [
+          found.id,
+          found.lastSeenAt,
+          found.isOnline,
+          found.lifecycleState,
+          found.cpuUsage ?? null,
+          found.memoryUsage ?? null,
+          found.storageUsage ?? null,
+          found.temperatureCelsius ?? null,
+          found.uptimeSeconds ?? null,
+          found.firmwareVersion ?? null,
+          found.ipAddress ?? null,
+          found.connectionQuality,
+        ],
+      );
+      return found;
+    });
+
+    if (!device) {
+      this.logger.warn(`Heartbeat from unknown device: ${heartbeat.deviceCode}`);
+    }
+    return device;
+  }
+
+  /** Fold a heartbeat's health metrics and reported status into the device. */
+  private applyHeartbeat(device: EdgeDevice, heartbeat: DeviceHeartbeat): void {
     device.lastSeenAt = new Date();
     device.isOnline = heartbeat.isOnline;
 
@@ -740,60 +784,42 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Update connection quality based on frequency of heartbeats
     device.connectionQuality = heartbeat.isOnline ? 100 : 0;
 
-    // Map status string to lifecycle state (skip DECOMMISSIONED/REVOKED — those are admin-only)
-    const status = heartbeat.status;
-    if (status === 'error') {
-      device.lifecycleState = DeviceLifecycleState.ERROR;
-    } else if (status === 'maintenance') {
-      device.lifecycleState = DeviceLifecycleState.MAINTENANCE;
-    } else if (status === 'offline' && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
-      device.lifecycleState = DeviceLifecycleState.OFFLINE;
-    } else if (
-      heartbeat.isOnline &&
-      (device.lifecycleState === DeviceLifecycleState.OFFLINE ||
-        device.lifecycleState === DeviceLifecycleState.PROVISIONING)
-    ) {
-      // Transition to ACTIVE when device comes online from OFFLINE or PROVISIONING state
-      device.lifecycleState = DeviceLifecycleState.ACTIVE;
-    } else if (!heartbeat.isOnline && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
-      // Transition to OFFLINE when device goes offline while in ACTIVE state
-      device.lifecycleState = DeviceLifecycleState.OFFLINE;
-    }
-
-    // Save using tenant-scoped query when available
-    if (tenantSchema) {
-      await this.dataSource.query(
-        `UPDATE "${tenantSchema}".edge_devices SET
-          last_seen_at = $2, is_online = $3, lifecycle_state = $4,
-          cpu_usage = COALESCE($5, cpu_usage), memory_usage = COALESCE($6, memory_usage),
-          storage_usage = COALESCE($7, storage_usage), temperature_celsius = COALESCE($8, temperature_celsius),
-          uptime_seconds = COALESCE($9, uptime_seconds), firmware_version = COALESCE($10, firmware_version),
-          ip_address = COALESCE($11, ip_address), connection_quality = $12,
-          updated_at = NOW()
-        WHERE id = $1`,
-        [
-          device.id,
-          device.lastSeenAt,
-          device.isOnline,
-          device.lifecycleState,
-          device.cpuUsage ?? null,
-          device.memoryUsage ?? null,
-          device.storageUsage ?? null,
-          device.temperatureCelsius ?? null,
-          device.uptimeSeconds ?? null,
-          device.firmwareVersion ?? null,
-          device.ipAddress ?? null,
-          device.connectionQuality,
-        ],
-      );
-      return device;
-    }
-
-    // SAFETY: Block writes without tenant context — would contaminate source schema
-    this.logger.error(
-      `BLOCKED: updateHeartbeat for device ${device.deviceCode ?? device.id} has no tenantSchema — would write to source schema`,
+    device.lifecycleState = EdgeDeviceService.heartbeatLifecycleState(
+      device.lifecycleState,
+      heartbeat,
     );
-    return device;
+  }
+
+  /**
+   * The lifecycle state a heartbeat moves a device to. Only a device already in
+   * service (mayHoldBrokerSession) is moved: the heartbeat is device-reported,
+   * and a device must never lift itself out of PENDING_APPROVAL, REGISTERED,
+   * REVOKED or DECOMMISSIONED into a state the broker admits (e.g. by
+   * reporting 'error'). DECOMMISSIONED/REVOKED stay admin-only.
+   */
+  private static heartbeatLifecycleState(
+    current: DeviceLifecycleState,
+    heartbeat: DeviceHeartbeat,
+  ): DeviceLifecycleState {
+    if (!mayHoldBrokerSession(current)) {
+      return current;
+    }
+    if (heartbeat.status === 'error') {
+      return DeviceLifecycleState.ERROR;
+    }
+    if (heartbeat.status === 'maintenance') {
+      return DeviceLifecycleState.MAINTENANCE;
+    }
+    if (heartbeat.status === 'offline' && current === DeviceLifecycleState.ACTIVE) {
+      return DeviceLifecycleState.OFFLINE;
+    }
+    if (heartbeat.isOnline && current === DeviceLifecycleState.OFFLINE) {
+      return DeviceLifecycleState.ACTIVE;
+    }
+    if (!heartbeat.isOnline && current === DeviceLifecycleState.ACTIVE) {
+      return DeviceLifecycleState.OFFLINE;
+    }
+    return current;
   }
 
   /**
@@ -815,11 +841,22 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
   async markStaleDevicesOffline(timeoutMinutes = 5): Promise<number> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    // Only devices in service go OFFLINE (MAINTENANCE keeps its state). A
+    // deny-list here moved PENDING_APPROVAL / REGISTERED / REVOKED rows into
+    // OFFLINE — a state mayHoldBrokerSession admits — so a stale pending
+    // device would have been let onto the broker without approval.
+    const staleable = BROKER_SESSION_STATES.filter(
+      (state) => state !== DeviceLifecycleState.MAINTENANCE,
+    );
     let totalAffected = 0;
 
-    let schemas: string[];
+    // SENSOR-MEDIUM-136 / SENSOR-CRITICAL-143: each tenant's UPDATE runs inside
+    // that tenant's RLS boundary. With search_path pinned alone the statement
+    // matched zero rows under FORCE RLS, so a dead edge device was never marked
+    // offline.
+    let tenants: Awaited<ReturnType<typeof listActiveTenantSchemaIdentities>>;
     try {
-      schemas = await listTenantSchemas(this.dataSource);
+      tenants = await listActiveTenantSchemaIdentities(this.dataSource);
     } catch (err) {
       this.logger.error(
         `Failed to fetch tenant schemas for stale-device check: ${(err as Error).message}`,
@@ -827,26 +864,26 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return 0;
     }
 
-    for (const schemaName of schemas) {
-      const qr = this.dataSource.createQueryRunner();
+    for (const { tenantId, schemaName } of tenants) {
       try {
-        await qr.connect();
-        await qr.startTransaction();
-        await pinTenantSchemaTransactionSearchPath(qr, 'sensor', schemaName);
-
-        const result: unknown = await qr.query(
-          `UPDATE edge_devices
-           SET is_online = false,
-               lifecycle_state = $1
-           WHERE is_online = true
-             AND last_seen_at < $2
-             AND lifecycle_state NOT IN ($3, $4)`,
-          [
-            DeviceLifecycleState.OFFLINE,
-            cutoff.toISOString(),
-            DeviceLifecycleState.DECOMMISSIONED,
-            DeviceLifecycleState.MAINTENANCE,
-          ],
+        const result: unknown = await runInTenantTransaction(
+          this.dataSource,
+          SENSOR_SOURCE_SCHEMA,
+          tenantId,
+          (qr) =>
+            qr.query(
+              `UPDATE edge_devices
+               SET is_online = false,
+                   lifecycle_state = $1
+               WHERE is_online = true
+                 AND last_seen_at < $2
+                 AND lifecycle_state::text = ANY($3::text[])`,
+              [DeviceLifecycleState.OFFLINE, cutoff.toISOString(), staleable],
+              // Structured result: a raw UPDATE answers `[rows, count]`,
+              // which queryAffectedRows cannot read — the job always
+              // reported 0 devices even when it changed rows.
+              true,
+            ),
         );
 
         const affected = EdgeDeviceService.queryAffectedRows(result);
@@ -854,19 +891,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
           this.logger.log(`Marked ${affected} devices as offline in ${schemaName}`);
           totalAffected += affected;
         }
-        await qr.commitTransaction();
       } catch (err) {
-        if (qr.isTransactionActive) {
-          await qr.rollbackTransaction().catch(() => undefined);
-        }
         this.logger.error(
           `Failed stale-device check for ${schemaName}: ${(err as Error).message}`,
         );
-      } finally {
-        await qr.release();
       }
     }
-
     if (totalAffected > 0) {
       this.logger.log(`Total devices marked offline across all tenants: ${totalAffected}`);
     }
@@ -900,7 +930,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
       GROUP BY lifecycle_state, device_model
     `;
 
-    const results: DeviceStatsRow[] = await this.dataSource.query(query, [tenantId]);
+    // Inside the tenant's read boundary: a pooled query has no RLS tenant bound.
+    const results: DeviceStatsRow[] = await runInTenantRead(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      (qr) => qr.query(query, [tenantId]),
+    );
 
     // Process results
     const byState: Map<DeviceLifecycleState, number> = new Map();
@@ -2581,95 +2617,6 @@ export class EdgeDeviceService implements OnModuleDestroy {
     if (update.devAddr) device.devAddr = update.devAddr;
 
     await this.loraDeviceRepository.save(device);
-  }
-
-  // ==================== Tenant Schema Helpers ====================
-  // getTenantSchemaFromId() consolidated into backend-common getTenantSchemaName().
-  // Using the shared util eliminates drift between edge-device.service.ts,
-  // provisioning.service.ts, and SchemaManagerService.
-
-  private getTenantSchemaFromId(tenantId: string): string {
-    return getTenantSchemaName(tenantId);
-  }
-
-  private rowString(row: RowValueMap, key: string): string | undefined {
-    const value = row[key];
-    return typeof value === 'string' ? value : undefined;
-  }
-
-  private rowNumber(row: RowValueMap, key: string): number | undefined {
-    const value = row[key];
-    return typeof value === 'number' ? value : undefined;
-  }
-
-  private rowBoolean(row: RowValueMap, key: string): boolean {
-    const value = row[key];
-    return typeof value === 'boolean' ? value : false;
-  }
-
-  private rowDate(row: RowValueMap, key: string): Date | undefined {
-    const value = row[key];
-    if (value instanceof Date) {
-      return value;
-    }
-    return typeof value === 'string' || typeof value === 'number' ? new Date(value) : undefined;
-  }
-
-  private rowObject(row: RowValueMap, key: string): Record<string, unknown> | undefined {
-    const value = row[key];
-    return EdgeDeviceService.isRecord(value) ? value : undefined;
-  }
-
-  private rowFingerprint(row: RowValueMap): EdgeDeviceFingerprint | null {
-    const value = this.rowObject(row, 'fingerprint');
-    if (!value) {
-      return null;
-    }
-    return {
-      cpuSerial: this.stringOrUndefined(value.cpuSerial),
-      macAddresses: Array.isArray(value.macAddresses)
-        ? value.macAddresses.filter((entry): entry is string => typeof entry === 'string')
-        : undefined,
-      machineId: this.stringOrUndefined(value.machineId),
-      hostname: this.stringOrUndefined(value.hostname),
-    };
-  }
-
-  private stringOrUndefined(value: unknown): string | undefined {
-    return typeof value === 'string' ? value : undefined;
-  }
-
-  private mapRowToEdgeDevice(row: RowValueMap): EdgeDevice {
-    const device = new EdgeDevice();
-    device.id = this.rowString(row, 'id') ?? '';
-    device.tenantId = this.rowString(row, 'tenant_id') ?? '';
-    device.deviceCode = this.rowString(row, 'device_code') ?? '';
-    device.deviceName = this.rowString(row, 'device_name') ?? '';
-    device.deviceModel =
-      (this.rowString(row, 'device_model') as DeviceModel | undefined) ?? DeviceModel.CUSTOM;
-    device.serialNumber = this.rowString(row, 'serial_number');
-    device.description = this.rowString(row, 'description');
-    device.siteId = this.rowString(row, 'site_id');
-    device.lifecycleState =
-      (this.rowString(row, 'lifecycle_state') as DeviceLifecycleState | undefined) ??
-      DeviceLifecycleState.REGISTERED;
-    device.mqttClientId = this.rowString(row, 'mqtt_client_id');
-    device.mqttPasswordHash = this.rowString(row, 'mqtt_password_hash') ?? null;
-    device.isOnline = this.rowBoolean(row, 'is_online');
-    device.lastSeenAt = this.rowDate(row, 'last_seen_at');
-    device.cpuUsage = this.rowNumber(row, 'cpu_usage');
-    device.memoryUsage = this.rowNumber(row, 'memory_usage');
-    device.storageUsage = this.rowNumber(row, 'storage_usage');
-    device.temperatureCelsius = this.rowNumber(row, 'temperature_celsius');
-    device.uptimeSeconds = this.rowNumber(row, 'uptime_seconds');
-    device.firmwareVersion = this.rowString(row, 'firmware_version');
-    device.targetFirmwareVersion = this.rowString(row, 'target_firmware_version');
-    device.ipAddress = this.rowString(row, 'ip_address');
-    device.connectionQuality = this.rowNumber(row, 'connection_quality');
-    device.fingerprint = this.rowFingerprint(row);
-    device.agentVersion = this.rowString(row, 'agent_version') ?? null;
-    device.config = this.rowObject(row, 'config');
-    return device;
   }
 }
 

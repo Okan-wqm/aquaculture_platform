@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'crypto';
+
 import {
   Controller,
   Post,
@@ -37,8 +39,10 @@ class MqttAuthDeniedException extends HttpException {
  * - No file locking or atomic write complexity
  *
  * Security:
- * - Docker network isolation (only Mosquitto on internal network can reach these endpoints)
- * - Optional shared secret (MQTT_AUTH_SECRET) for additional validation when header is present
+ * - Network isolation is the boundary: only the aqua-internal network reaches
+ *   sensor-service:3000, and nginx refuses /mqtt/* from outside.
+ * - X-Mosquitto-Auth, when a caller sends it, must equal MQTT_AUTH_SECRET
+ *   (constant-time). The broker itself cannot send it — see validateMosquittoSecret.
  *
  * Response convention: HTTP 200 = allowed, HTTP 403 = denied
  */
@@ -55,13 +59,14 @@ export class MqttAuthController {
   ) {
     this.mqttAuthSecret = this.configService.get<string>('MQTT_AUTH_SECRET');
 
-    // Note: mosquitto-go-auth does NOT support custom HTTP headers (auth_opt_http_headers
-    // is not a real config option). The shared secret validation is only effective when
-    // a reverse proxy or custom MQTT auth client injects the header. For the default
-    // go-auth HTTP backend, security relies on Docker network isolation (only Mosquitto
-    // can reach these endpoints on the internal network).
+    // mosquitto-go-auth (pinned 3.0.0, also the latest release) sets only
+    // Content-Type and User-Agent on its HTTP calls: backends/http.go parses no
+    // header option, so `auth_opt_http_headers` in mosquitto-production.conf is
+    // silently ignored and the broker never sends X-Mosquitto-Auth. The secret
+    // therefore authenticates nobody today; the endpoints rest on network
+    // isolation. Tracked as SENSOR-MEDIUM-174 (a transport the broker can carry).
     if (this.mqttAuthSecret) {
-      this.logger.log('MQTT_AUTH_SECRET is configured — header validation enabled for clients that send X-Mosquitto-Auth');
+      this.logger.log('MQTT_AUTH_SECRET is configured — a sent X-Mosquitto-Auth header must match it');
     } else {
       this.logger.warn('MQTT_AUTH_SECRET is not set — relying on Docker network isolation for MQTT auth endpoint security');
     }
@@ -87,20 +92,24 @@ export class MqttAuthController {
   }
 
   /**
-   * Validate the shared secret from Mosquitto (when available).
+   * Validate X-Mosquitto-Auth against MQTT_AUTH_SECRET.
    *
-   * mosquitto-go-auth does NOT support auth_opt_http_headers, so the header
-   * is only present when a custom proxy or client sends it. When the header
-   * is absent we allow the request through — security is provided by Docker
-   * network isolation (only Mosquitto on the internal network can reach this
-   * endpoint; Nginx does NOT proxy /mqtt/* to the outside).
+   * A header that is sent must match, compared in constant time on
+   * equal-length buffers (a length mismatch is a denial, decided before any
+   * byte comparison). An ABSENT header is admitted: mosquitto-go-auth cannot
+   * send one (see the constructor), so requiring it would refuse every
+   * CONNECT and ACL check in production. SENSOR-MEDIUM-174 tracks moving the
+   * secret onto a transport the broker supports, after which absence denies.
    */
-  private validateMosquittoSecret(headers: Record<string, string>): void {
+  private validateMosquittoSecret(headers: Record<string, string | undefined>): void {
     if (!this.mqttAuthSecret) return;
 
     const headerValue = headers['x-mosquitto-auth'];
-    // If the header IS present, it must match (prevents misuse from other internal services)
-    if (headerValue && headerValue !== this.mqttAuthSecret) {
+    if (headerValue === undefined) return;
+
+    const sent = Buffer.from(headerValue, 'utf8');
+    const expected = Buffer.from(this.mqttAuthSecret, 'utf8');
+    if (sent.length !== expected.length || !timingSafeEqual(sent, expected)) {
       throw new MqttAuthDeniedException();
     }
   }
@@ -116,22 +125,26 @@ export class MqttAuthController {
   @Post('auth')
   @HttpCode(HttpStatus.OK)
   async authenticate(
-    @Headers() headers: Record<string, string>,
+    @Headers() headers: Record<string, string | undefined>,
     @Body() body: { username: string; password: string; clientid?: string },
   ): Promise<string> {
     this.validateMosquittoSecret(headers);
 
-    const { username, password } = body;
+    const { username, password, clientid } = body;
 
     if (!username || !password) {
       this.logger.debug('MQTT auth rejected: missing credentials');
       throw new MqttAuthDeniedException();
     }
 
-    const isValid = await this.mqttAuthService.verifyDeviceCredentials(username, password);
+    const isValid = await this.mqttAuthService.verifyDeviceCredentials(
+      username,
+      password,
+      clientid,
+    );
 
     if (!isValid) {
-      this.logger.debug(`MQTT auth rejected for user: ${username}`);
+      // The reason and a username fingerprint are logged by the service.
       throw new MqttAuthDeniedException();
     }
 
@@ -149,7 +162,7 @@ export class MqttAuthController {
   @Post('superuser')
   @HttpCode(HttpStatus.OK)
   async checkSuperuser(
-    @Headers() headers: Record<string, string>,
+    @Headers() headers: Record<string, string | undefined>,
     @Body() body: { username: string },
   ): Promise<string> {
     this.validateMosquittoSecret(headers);
@@ -177,7 +190,7 @@ export class MqttAuthController {
   @Post('acl')
   @HttpCode(HttpStatus.OK)
   async checkAcl(
-    @Headers() headers: Record<string, string>,
+    @Headers() headers: Record<string, string | undefined>,
     @Body() body: { username: string; topic: string; clientid?: string; acc: number },
   ): Promise<string> {
     this.validateMosquittoSecret(headers);

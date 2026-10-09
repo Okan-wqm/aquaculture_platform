@@ -363,7 +363,7 @@ jobs:
               # remote. Declared rather than folded into `github_artifact`,
               # because they are different credentials with different blast
               # radii and a reviewer must be able to see the git one.
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "state restore/publish limited to the aria/state branch over "
                   "the repository remote; artifact upload limited to the "
@@ -543,6 +543,15 @@ jobs:
       - name: Ensure a verified sandbox backend
         if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
         uses: ./.github/actions/ensure-sandbox-backend
+
+      # ARIA-HIGH-383 — self-revert and branch-update validate in the same
+      # room as the executor's apply gate (`validation_sandbox_for`), and
+      # that room binds every toolchain the tree declares: the root
+      # Cargo.toml declares cargo + rustc. Without them the room is
+      # refused by name (`validation_toolchain_unresolvable:cargo`).
+      - name: Provision the Rust toolchain the tree declares
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        uses: ./.github/actions/setup-rust-workspace
 
       # The adapter manifests declare `npx ts-node …` runners, and the tool
       # runner refuses to execute them when the workspace has no repo-local
@@ -743,7 +752,7 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "state restore/publish limited to the aria/state branch over "
                   "the repository remote; artifact upload limited to the "
@@ -1146,3 +1155,30 @@ jobs:
         uses: ./.github/actions/release-aria-state-lease
         with:
           lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
+
+  # ORPHAN-724 / ARIA-HIGH-386 — the drain follows the producer. The edge is
+  # an explicit dispatch, not a `workflow_run` trigger on the executor:
+  # GitHub creates no `workflow_run` event for a run started with the job
+  # token, and the executor's `chain-next-cycle` and the dataflow watchdog
+  # both start this workflow that way, so every chained cycle ended with no
+  # drain after it (cycle 37728223278, 2026-10-08). A workflow_dispatch is
+  # the one event the job token may create. The executor's run waits in the
+  # shared concurrency group until this run has finished, the same order the
+  # trigger gave. A cancelled cycle is an operator stop, so it chains
+  # nothing.
+  chain-executor:
+    needs: cycle
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the drain that follows this cycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh workflow run aria-agent-executor.yml --ref main --repo "${REPOSITORY}"
+          echo "::notice::chained the drain"

@@ -1,3 +1,4 @@
+import type { AggregationIntervalSql } from '@aquaculture/shared-contracts';
 import { ObjectType, Field, Float, Int, registerEnumType } from '@nestjs/graphql';
 
 /**
@@ -11,6 +12,30 @@ export enum AggregationInterval {
   FOUR_HOURS = '4 hours',
   ONE_DAY = '1 day',
   ONE_WEEK = '1 week',
+}
+
+/**
+ * The GraphQL enum is a TypeScript enum (registerEnumType needs one); its
+ * values must be exactly the tier policy's interval whitelist. Both directions
+ * are checked at compile time, so adding a width to one side without the
+ * other does not build.
+ */
+type ExactlyTrue<T extends true> = T;
+export type AggregationIntervalMatchesPolicy = ExactlyTrue<
+  [`${AggregationInterval}`] extends [AggregationIntervalSql]
+    ? [AggregationIntervalSql] extends [`${AggregationInterval}`]
+      ? true
+      : false
+    : false
+>;
+
+/** The GraphQL enum member for a policy interval (values are identical). */
+export function aggregationIntervalOf(sql: AggregationIntervalSql): AggregationInterval {
+  const member = Object.values(AggregationInterval).find((value) => value === sql);
+  if (member === undefined) {
+    throw new Error(`AggregationInterval has no member for ${sql}`);
+  }
+  return member;
 }
 
 registerEnumType(AggregationInterval, {

@@ -7,14 +7,20 @@
  *   2. A failed validation (strict-mode reject of empty-with-keys / no-config)
  *      throws BadRequestException and NOTHING is persisted.
  *   3. update() re-validates the MERGED dynamic parameters against the
- *      measurement's stored equipmentId before save.
+ *      measurement's stored unit (tankId, else equipmentId) before save.
  *   4. The legacy fixed `parameters` field is structurally gone from the
  *      create/update DTOs — there is no second parameter channel.
  *
  * London-school: every collaborator (evaluation, validation, datasource,
  * outbox, repositories) is provided as a NestJS `useValue` double — no casts.
  */
-import { BadRequestException } from '@nestjs/common';
+const mockResolveMeasurementUnit = jest.fn();
+jest.mock('../services/measurement-unit', () => ({
+  ...jest.requireActual('../services/measurement-unit'),
+  resolveMeasurementUnit: (...args: unknown[]): unknown => mockResolveMeasurementUnit(...args),
+}));
+
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -37,12 +43,14 @@ import {
 } from '../entities/water-quality-measurement.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { CreateWaterQualityInput } from '../dto/create-water-quality.input';
+import { CreateBatchWaterQualityInput } from '../dto/create-batch-water-quality.input';
 import { UpdateWaterQualityInput } from '../dto/update-water-quality.input';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const EQUIPMENT = '22222222-2222-4222-8222-222222222222';
 const MEASUREMENT = '33333333-3333-4333-8333-333333333333';
 const USER = '44444444-4444-4444-8444-444444444444';
+const SITE = '55555555-5555-4555-8555-555555555555';
 
 // SEC-HIGH-051: the caller threaded into WaterQualityService.create. A
 // MODULE_MANAGER bypasses the object-level site check via the canonical role
@@ -65,6 +73,8 @@ interface ServiceHarness {
 }
 
 async function buildService(): Promise<ServiceHarness> {
+  mockResolveMeasurementUnit.mockReset();
+  mockResolveMeasurementUnit.mockResolvedValue({ kind: 'equipment', id: EQUIPMENT, siteId: SITE });
   const repository = createMockRepository<WaterQualityMeasurement>();
   const tankRepository = createMockRepository<Tank>();
 
@@ -192,8 +202,133 @@ describe('WaterQualityService — single-ingress validation', () => {
     });
   });
 
+  describe('create() — the unit decides the columns and the site', () => {
+    const createdEntity = (manager: ServiceHarness['mockManager']): Record<string, unknown> => {
+      const arg: unknown = manager.create.mock.calls[0]![1];
+      return arg as Record<string, unknown>;
+    };
+
+    it('records non-tank equipment as equipmentId and a tank as tankId, never both', async () => {
+      const equipment = await buildService();
+      await equipment.service.create(TENANT, createInput(), WQ_CALLER);
+      expect(createdEntity(equipment.mockManager)).toMatchObject({
+        equipmentId: EQUIPMENT,
+        tankId: undefined,
+        siteId: SITE,
+      });
+
+      const tank = await buildService();
+      mockResolveMeasurementUnit.mockResolvedValue({ kind: 'tank', id: EQUIPMENT, siteId: SITE });
+      await tank.service.create(TENANT, createInput({ tankId: EQUIPMENT }), WQ_CALLER);
+      expect(createdEntity(tank.mockManager)).toMatchObject({
+        tankId: EQUIPMENT,
+        equipmentId: undefined,
+      });
+    });
+
+    it('refuses a missing unit, a tankId naming another unit, and a siteId of another site', async () => {
+      const { service, mockManager } = await buildService();
+      mockResolveMeasurementUnit.mockResolvedValue(null);
+      await expect(service.create(TENANT, createInput(), WQ_CALLER)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      mockResolveMeasurementUnit.mockResolvedValue({ kind: 'tank', id: EQUIPMENT, siteId: SITE });
+      await expect(
+        service.create(TENANT, createInput({ tankId: USER }), WQ_CALLER),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.create(TENANT, createInput({ siteId: TENANT }), WQ_CALLER),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mockManager.save).not.toHaveBeenCalled();
+    });
+
+    it('authorizes a site-bound user by the unit’s own site, equipment-only payloads included', async () => {
+      const operator: WaterQualityCaller = {
+        sub: USER,
+        roles: [Role.MODULE_USER],
+        assignedSiteIds: [SITE],
+      };
+      const allowed = await buildService();
+      allowed.mockManager.save.mockImplementation((_e: unknown, entity: unknown) =>
+        Promise.resolve({ id: MEASUREMENT, ...(entity as object) }),
+      );
+      await expect(allowed.service.create(TENANT, createInput(), operator)).resolves.toBeDefined();
+
+      const denied = await buildService();
+      mockResolveMeasurementUnit.mockResolvedValue({
+        kind: 'equipment',
+        id: EQUIPMENT,
+        siteId: TENANT,
+      });
+      await expect(denied.service.create(TENANT, createInput(), operator)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+  });
+
+  describe('createBatch() — each item is filed by its unit’s kind, at its unit’s site', () => {
+    const TANK = '66666666-6666-4666-8666-666666666666';
+    const OTHER_SITE = '77777777-7777-4777-8777-777777777777';
+    const batchInput = (): CreateBatchWaterQualityInput => ({
+      measuredAt: new Date('2026-06-14T08:00:00Z'),
+      source: MeasurementSource.MANUAL,
+      measurements: [
+        { equipmentId: TANK, dynamicParameters: { ph: 7.1 }, idempotencyKey: MEASUREMENT },
+        { equipmentId: EQUIPMENT, dynamicParameters: { ph: 7.3 }, idempotencyKey: USER },
+      ],
+    });
+    const unitsBySite = (tankSite: string, equipmentSite: string) => (_m: unknown, id: unknown) =>
+      Promise.resolve(
+        id === TANK
+          ? { kind: 'tank', id: TANK, siteId: tankSite }
+          : { kind: 'equipment', id: EQUIPMENT, siteId: equipmentSite },
+      );
+
+    it('records a tank as tankId and other equipment as equipmentId, each with its unit’s site', async () => {
+      const { service, mockManager } = await buildService();
+      mockResolveMeasurementUnit.mockImplementation(unitsBySite(SITE, OTHER_SITE));
+
+      await service.createBatch(TENANT, batchInput(), WQ_CALLER);
+
+      expect(mockManager.create).toHaveBeenCalledWith(
+        WaterQualityMeasurement,
+        expect.objectContaining({ tankId: TANK, equipmentId: undefined, siteId: SITE }),
+      );
+      expect(mockManager.create).toHaveBeenCalledWith(
+        WaterQualityMeasurement,
+        expect.objectContaining({ tankId: undefined, equipmentId: EQUIPMENT, siteId: OTHER_SITE }),
+      );
+      expect(mockManager.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('denies the whole batch to a site-bound user when one unit is at another site', async () => {
+      const { service, mockManager } = await buildService();
+      mockResolveMeasurementUnit.mockImplementation(unitsBySite(SITE, OTHER_SITE));
+      const operator: WaterQualityCaller = {
+        sub: USER,
+        roles: [Role.MODULE_USER],
+        assignedSiteIds: [SITE],
+      };
+
+      await expect(service.createBatch(TENANT, batchInput(), operator)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(mockManager.save).not.toHaveBeenCalled();
+    });
+
+    it('refuses a unit that does not exist', async () => {
+      const { service, mockManager } = await buildService();
+      mockResolveMeasurementUnit.mockResolvedValue(null);
+
+      await expect(service.createBatch(TENANT, batchInput(), WQ_CALLER)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(mockManager.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('update()', () => {
-    it('re-validates the MERGED dynamic parameters against the stored equipmentId before save', async () => {
+    it('re-validates the MERGED dynamic parameters against the stored unit before save', async () => {
       const { service, validate, repository } = await buildService();
       const stored = {
         id: MEASUREMENT,
@@ -212,6 +347,27 @@ describe('WaterQualityService — single-ingress validation', () => {
 
       expect(validate).toHaveBeenCalledWith(TENANT, { temperature: 14, ph: 7.5 }, EQUIPMENT);
       expect(repository.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('validates a tank row against its tank (filed as tankId, no equipmentId)', async () => {
+      const { service, validate, repository } = await buildService();
+      repository.findOne.mockResolvedValue({
+        id: MEASUREMENT,
+        tenantId: TENANT,
+        tankId: EQUIPMENT,
+        parameters: { temperature: 14 },
+        overallStatus: WaterQualityStatus.OPTIMAL,
+        hasAlarm: false,
+      } as WaterQualityMeasurement);
+      repository.save.mockImplementation((m: unknown) =>
+        Promise.resolve(m as WaterQualityMeasurement),
+      );
+
+      await service.update(TENANT, MEASUREMENT, { dynamicParameters: { ph: 7.5 } });
+
+      // Validating against `equipmentId` (undefined here) applied the no-unit
+      // rule and required every tenant-required parameter.
+      expect(validate).toHaveBeenCalledWith(TENANT, { temperature: 14, ph: 7.5 }, EQUIPMENT);
     });
 
     it('rejects an update whose merged parameters fail validation and does NOT save', async () => {
@@ -295,17 +451,19 @@ describe('WaterQualityService — single-ingress validation', () => {
 
   describe('recordManualTemperature', () => {
     it('persists a MANUAL temperature-only measurement and triggers same-tx recalc (P-31)', async () => {
-      const { service, repository, mockManager, recalcForUnitMock } = await buildService();
-      repository.create.mockImplementation((m: unknown) => m as WaterQualityMeasurement);
+      const { service, mockManager, recalcForUnitMock } = await buildService();
+      mockResolveMeasurementUnit.mockResolvedValue({ kind: 'tank', id: 'tank-1', siteId: SITE });
 
       const result = await service.recordManualTemperature(TENANT, 'tank-1', 12.5, 'user-1');
 
       expect(result).toBe(true);
-      expect(repository.create).toHaveBeenCalledWith(
+      // A tank is recorded as tankId only — never also as equipment.
+      expect(mockManager.create).toHaveBeenCalledWith(
+        WaterQualityMeasurement,
         expect.objectContaining({
           tenantId: TENANT,
           tankId: 'tank-1',
-          equipmentId: 'tank-1',
+          equipmentId: undefined,
           source: MeasurementSource.MANUAL,
           temperature: 12.5,
           parameters: { temperature: 12.5 },

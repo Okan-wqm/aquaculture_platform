@@ -66,13 +66,20 @@ describe('BulkCreateFromTemplateHandler', () => {
 
   it('upserts template configs by code in overwrite mode — never deletes, preserves custom params', async () => {
     const { handler, mockManager, mockQueryRunner } = setup();
-    const templateCode = getTemplateById(templateId)?.parameters[0]?.code;
-    if (!templateCode) {
+    const templateParam = getTemplateById(templateId)?.parameters[0];
+    if (!templateParam) {
       throw new Error('salmon_freshwater template fixture has no parameters');
     }
+    const templateCode = templateParam.code;
     // existing rows: one template-code param the tenant tuned + one custom
     // (non-template) param that must survive the re-apply.
-    const tunedTemplateRow = { id: 'cfg-existing', tenantId, code: templateCode, optimalMin: 999 };
+    const tunedTemplateRow = {
+      id: 'cfg-existing',
+      tenantId,
+      code: templateCode,
+      unit: templateParam.unit,
+      optimalMin: 999,
+    };
     const customRow = { id: 'cfg-custom', tenantId, code: 'CUSTOM_PARAM_NOT_IN_TEMPLATE' };
     (mockManager.find as jest.Mock).mockResolvedValueOnce([tunedTemplateRow, customRow]);
     (mockManager.save as jest.Mock).mockImplementationOnce((entities: unknown[]) => Promise.resolve(entities));
@@ -86,6 +93,53 @@ describe('BulkCreateFromTemplateHandler', () => {
     expect(saved.map((entry) => entry.code)).not.toContain('CUSTOM_PARAM_NOT_IN_TEMPLATE');
     // the existing template-code row is updated IN PLACE (keeps its id), not re-inserted
     expect(saved.find((entry) => entry.code === templateCode)?.id).toBe('cfg-existing');
+    expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+  });
+
+  it('refuses an overwrite that would change the unit of a parameter with a bound channel', async () => {
+    const { handler, mockManager, mockQueryRunner } = setup();
+    const templateParam = getTemplateById(templateId)?.parameters[0];
+    if (!templateParam) {
+      throw new Error('salmon_freshwater template fixture has no parameters');
+    }
+    (mockManager.find as jest.Mock).mockResolvedValueOnce([
+      { id: 'cfg-bound', tenantId, code: templateParam.code, unit: 'not-the-template-unit' },
+    ]);
+    const boundSources = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(1),
+    };
+    (mockManager.createQueryBuilder as jest.Mock).mockReturnValueOnce(boundSources);
+
+    await expect(
+      handler.execute(new BulkCreateFromTemplateCommand(tenantId, templateId, true, userId)),
+    ).rejects.toMatchObject({ code: 'PARAMETER_BOUND' });
+    expect(mockManager.save).not.toHaveBeenCalled();
+    expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+  });
+
+  it('re-applies over an old spelling of the same unit without asking about measurements', async () => {
+    const { handler, mockManager, mockQueryRunner } = setup();
+    const ph = getTemplateById(templateId)?.parameters.find((param) => param.code === 'ph');
+    if (!ph) {
+      throw new Error('salmon_freshwater template fixture has no ph parameter');
+    }
+    // Prod configs still hold pH as '' (an old template spelling) beside
+    // measurements: the same unit, so neither the measurement nor the bound-
+    // channel guard may refuse the re-apply.
+    (mockManager.find as jest.Mock).mockResolvedValueOnce([
+      { id: 'cfg-ph', tenantId, code: 'ph', unit: '' },
+    ]);
+    (mockManager.save as jest.Mock).mockImplementationOnce((entities: unknown[]) =>
+      Promise.resolve(entities),
+    );
+
+    await handler.execute(new BulkCreateFromTemplateCommand(tenantId, templateId, true, userId));
+
+    expect(mockManager.createQueryBuilder).not.toHaveBeenCalled();
+    const saved = (mockManager.save as jest.Mock).mock.calls[0][0] as Array<{ id?: string; unit: string }>;
+    expect(saved.find((entry) => entry.id === 'cfg-ph')?.unit).toBe(ph.unit);
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
   });
 

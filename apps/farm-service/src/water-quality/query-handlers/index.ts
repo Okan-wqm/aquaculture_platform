@@ -8,6 +8,17 @@ import { GetParameterConfigByCodeHandler } from './get-parameter-config-by-code.
 import { ListParameterTemplatesHandler } from './list-parameter-templates.handler';
 import { ListParamEquipmentHandler } from './list-param-equipment.handler';
 import { GetEquipmentParamsHandler } from './get-equipment-params.handler';
+import { GetUnitMeasurementPlanHandler } from './get-unit-measurement-plan.handler';
+import {
+  CheckParameterChannelBindingHandler,
+  CountLiveChannelSourcesHandler,
+  ListParameterQuantityDeclarationsHandler,
+  ListParameterSourcesAtPointHandler,
+} from './parameter-source-query.handlers';
+import {
+  ResolveParameterValueHandler,
+  ResolveWaterChemistryInputsHandler,
+} from './reading-query.handlers';
 // Measurement read handlers (fail-closed tenant boundary — FARM-HIGH-076)
 import { GetWaterQualityHandler } from './get-water-quality.handler';
 import { ListWaterQualityHandler } from './list-water-quality.handler';
@@ -24,6 +35,9 @@ export * from './get-parameter-config-by-code.handler';
 export * from './list-parameter-templates.handler';
 export * from './list-param-equipment.handler';
 export * from './get-equipment-params.handler';
+export * from './get-unit-measurement-plan.handler';
+export * from './parameter-source-query.handlers';
+export * from './reading-query.handlers';
 export * from './get-water-quality.handler';
 export * from './list-water-quality.handler';
 export * from './get-latest-water-quality.handler';
@@ -43,6 +57,13 @@ export const WaterQualityQueryHandlers = [
   ListParameterTemplatesHandler,
   ListParamEquipmentHandler,
   GetEquipmentParamsHandler,
+  GetUnitMeasurementPlanHandler,
+  CheckParameterChannelBindingHandler,
+  CountLiveChannelSourcesHandler,
+  ListParameterSourcesAtPointHandler,
+  ListParameterQuantityDeclarationsHandler,
+  ResolveParameterValueHandler,
+  ResolveWaterChemistryInputsHandler,
   GetWaterQualityHandler,
   ListWaterQualityHandler,
   GetLatestWaterQualityHandler,

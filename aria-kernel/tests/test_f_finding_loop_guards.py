@@ -22,7 +22,7 @@ from unittest import mock
 
 from aria_kernel import finding_grounding as fg
 from aria_kernel.cycle_phases.plan_source import V9PressureSourceProvider
-from aria_kernel.finding import EXTERNAL_ORIGINATING_SKILLS, ORIGINATING_SKILL_ALLOWLIST, findings_dir
+from aria_kernel.finding import EXTERNAL_ORIGINATING_SKILLS, ORIGINATING_SKILL_ALLOWLIST
 from aria_kernel.genesis_policy import OVERRIDE_RELPATH
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.operator_feedback_ingestion import bind_plan_synthesis
@@ -73,14 +73,15 @@ class _LoopFixture(unittest.TestCase):
     # -- seeding the existing ledgers -------------------------------------------------
     def finding(self, finding_id: str, path: str, *, origin: str = "manual:operator",
                 created: str | None = None) -> None:
-        """Seed an OPEN finding. ``rank_candidate_sources`` orders F candidates by
-        ascending age, so each seed is stamped older than the one before it and the
-        provider meets them in seeding order."""
-        body: dict[str, Any] = {"originating_skill": origin, "created_at": created or _ago(days=30)}
-        self.fx.seed_finding(finding_id, refs=[f"{path}:3"], body=body)
+        """Seed an OPEN finding. The slot policy offers F candidates oldest first by
+        the folded record's ``created_at`` (ARIA-MEDIUM-330: the F source reads the
+        fold, never a file mtime), so each seed without an explicit stamp is a
+        second younger than the one before it and the provider meets them in
+        seeding order."""
         self._age += 1
-        stamp = 2_000_000 - self._age
-        os.utime(findings_dir(self.fx.repo) / f"{finding_id}.json", (stamp, stamp))
+        body: dict[str, Any] = {"originating_skill": origin,
+                                "created_at": created or _ago(days=30, seconds=-self._age)}
+        self.fx.seed_finding(finding_id, refs=[f"{path}:3"], body=body)
 
     def plan(self, plan_id: str, finding_id: str, *, started: str, source: str = "f_finding",
              surfaces: tuple[str, ...] = (GROUNDED_FILE,)) -> None:
@@ -126,6 +127,13 @@ class _LoopFixture(unittest.TestCase):
                 if row["kind"] == "plan_candidate_conversion_skipped"
                 and (cycle_id is None or row["details"]["cycle_id"] == cycle_id)]
 
+    def slot_dropped(self, cycle_id: str) -> list[tuple[str, str]]:
+        """ARIA-HIGH-369 — what the slot policy dropped before admission, disclosed once per synthesis."""
+        rows = load_declared_jsonl(self.fx.tools / "governance.jsonl", expected_surface="tools_governance")
+        return [(drop["candidate_id"], drop["reason"]) for row in rows
+                if row["kind"] == "plan_slot_policy_applied" and row["details"]["cycle_id"] == cycle_id
+                for drop in row["details"]["dropped"]]
+
     def skip_detail(self, candidate_id: str) -> dict[str, Any]:
         rows = load_declared_jsonl(self.fx.tools / "governance.jsonl", expected_surface="tools_governance")
         return next(row["details"] for row in rows if row["kind"] == "plan_candidate_conversion_skipped"
@@ -160,8 +168,9 @@ class SelfLoopGuardTests(_LoopFixture):
         self.fx.set_status("F-030", "RESOLVED")
         self.finding("F-031", GROUNDED_FILE, origin="aria-watchdog:runtime_anomaly")
         self.assertIsNone(self.synthesize("cyc-wd"))
-        self.assertEqual(self.skips("cyc-wd"),
-                         [("F-030", fg.FINDING_NOT_OPEN), ("F-031", fg.SELF_LOOP_WATCHDOG_RECENT)])
+        self.assertEqual(self.skips("cyc-wd"), [("F-031", fg.SELF_LOOP_WATCHDOG_RECENT)])
+        # The RESOLVED finding never reaches admission: the slot policy drops it by the same reason.
+        self.assertEqual(self.slot_dropped("cyc-wd"), [("F-030", fg.FINDING_NOT_OPEN)])
 
     def test_external_origins_are_exactly_the_operator_and_the_review_registry(self) -> None:
         # Widening this set lets ARIA's own findings plan ARIA's own paths unattended:
@@ -255,12 +264,62 @@ class CycleDetectionTests(_LoopFixture):
         self.assertEqual(self.skips("cyc-cool"), [("F-070", fg.SUBJECT_COOL_OFF)])
         self.assertEqual(self.skip_detail("F-070")["loop_guard"]["cause"], "plan_failed")
 
+    def _unverified_rejection(self, plan_id: str, at: str, domain: str = "unclassified") -> None:
+        self.plan_event(plan_id, "implementation_rejected", at, {
+            "rejection_class": "implementer_refused", "rejected_at": at, "stage": "agent_refusal",
+            "fault_domain": domain, "cause": "safety", "request_id": f"AIR-{plan_id}",
+        })
+
+    def test_one_unverified_implementation_ending_does_not_cool_the_subject_off(self) -> None:
+        # ARIA-HIGH-388 — the 2026-10-08 shape: the host's missing git identity
+        # reached the plan ledger as an agent refusal, `unclassified`.
+        self.finding("F-075", GROUNDED_FILE)
+        self.plan("plan-u1", "F-075", started=_ago(days=3))
+        self._unverified_rejection("plan-u1", _ago(days=2))
+        self.assertEqual(self.selected(self.synthesize("cyc-u1")), ("f_finding", "F-075"))
+
+    def test_the_second_consecutive_unverified_ending_cools_the_subject_off(self) -> None:
+        # Re-review N3 — nothing else bounded the re-plans of a subject whose
+        # implementation always ends unattributably.
+        self.finding("F-076", GROUNDED_FILE)
+        self.plan("plan-u1", "F-076", started=_ago(days=4))
+        self._unverified_rejection("plan-u1", _ago(days=3))
+        self.plan("plan-u2", "F-076", started=_ago(days=2))
+        self._unverified_rejection("plan-u2", _ago(days=1))
+        self.assertIsNone(self.synthesize("cyc-u2"))
+        self.assertEqual(self.skips("cyc-u2"), [("F-076", fg.SUBJECT_COOL_OFF)])
+        detail = self.skip_detail("F-076")["loop_guard"]
+        self.assertEqual((detail["cause"], detail["plans"]), ("repeated_unverified_failure", ["plan-u1", "plan-u2"]))
+
+    def test_harness_endings_never_cool_the_subject_off(self) -> None:
+        # Final review R1 — a `harness` ending is the lane's by the kernel's
+        # own verdict (two refused pushes, two reaps while the request waited
+        # on the delivery authority): never a streak.
+        self.finding("F-078", GROUNDED_FILE)
+        self.plan("plan-h1", "F-078", started=_ago(days=4))
+        self._unverified_rejection("plan-h1", _ago(days=3), domain="harness")
+        self.plan("plan-h2", "F-078", started=_ago(days=2))
+        self._unverified_rejection("plan-h2", _ago(days=1), domain="harness")
+        self.assertEqual(self.selected(self.synthesize("cyc-h2")), ("f_finding", "F-078"))
+
+    def test_a_merge_between_unverified_endings_breaks_the_streak(self) -> None:
+        self.finding("F-077", GROUNDED_FILE)
+        self.plan("plan-u1", "F-077", started=_ago(days=10))
+        self._unverified_rejection("plan-u1", _ago(days=9))
+        self.plan("plan-m", "F-077", started=_ago(days=9))
+        self.merged("plan-m", _ago(days=8, hours=12), "d" * 40)
+        self.plan("plan-u2", "F-077", started=_ago(days=3))
+        self._unverified_rejection("plan-u2", _ago(days=2))
+        self.assertEqual(self.selected(self.synthesize("cyc-u3")), ("f_finding", "F-077"))
+
     def test_a_new_finding_on_what_the_plan_changed_cools_the_subject_off(self) -> None:
         self.finding("F-080", GROUNDED_FILE)
         self.plan("plan-m", "F-080", started=_ago(days=4))
         self.merged("plan-m", _ago(days=3), "c" * 40)
         self.finding("F-081", GROUNDED_FILE, created=_ago(days=1))
         self.assertIsNone(self.synthesize("cyc-new"))
+        # One subject: the slot policy offers its oldest member first, by the
+        # folded created_at — F-080 is a month old and F-081 a day.
         self.assertEqual(self.skips("cyc-new"),
                          [("F-080", fg.SUBJECT_COOL_OFF), ("F-081", fg.SELF_LOOP_OWN_CHANGE)])
         detail = self.skip_detail("F-080")["loop_guard"]
@@ -272,8 +331,8 @@ class CycleDetectionTests(_LoopFixture):
             self.fx.set_status(f"F-0{number}", "RESOLVED")
         self.finding("F-053", GROUNDED_FILE)
         self.assertIsNone(self.synthesize("cyc-streak"))
-        self.assertEqual(self.skips("cyc-streak")[-1], ("F-053", fg.WATCHDOG_RESOLUTION_STREAK))
-        self.assertEqual({reason for _id, reason in self.skips("cyc-streak")[:-1]}, {fg.FINDING_NOT_OPEN})
+        self.assertEqual(self.skips("cyc-streak"), [("F-053", fg.WATCHDOG_RESOLUTION_STREAK)])
+        self.assertEqual({reason for _id, reason in self.slot_dropped("cyc-streak")}, {fg.FINDING_NOT_OPEN})
 
 
 class ScopeTests(_LoopFixture):

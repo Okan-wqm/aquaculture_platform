@@ -240,7 +240,13 @@ def carry_started_origin(plan_content: Any, state: Any) -> Any:
 REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE = "revision_scope_exceeds_admission_closure"
 ADMISSION_SCOPE_MISSING = "admission_scope_missing"
 # 2 adds ``pin_policy``; a version-1 record predates the committed policy.
-ADMISSION_SCOPE_SCHEMA_VERSION = 2
+# 3 adds ``dependency_roots`` (ADR-0021 D9, ARIA-HIGH-357): the roots of the
+# projects the admitted surfaces import, which a planning-round agent may cite
+# and no body may write.
+# 4 adds ``evidence_surfaces`` (ARIA-HIGH-381): the files the started body
+# cites and does not write (``plan_write_scope``), read-only even under a
+# closure root, so no revision can turn a cited contract back into a write.
+ADMISSION_SCOPE_SCHEMA_VERSION = 4
 _ADMISSION_SCOPE_LIST_FIELDS = ("admitted_surfaces", "closure_projects", "closure_roots", "policy_pins")
 
 # CB-5 / program ruling 15 (ARIA-LOW-280) — subject pins are committed policy
@@ -321,6 +327,22 @@ def _admitted_surfaces(plan_content: Any) -> list[str]:
     return sorted(admitted)
 
 
+def _evidence_surfaces(plan_content: Any) -> list[str]:
+    """The started body's cited files that are not its surfaces: evidence, never written.
+
+    Re-derivable from the body alone (its ``evidence_refs`` minus its
+    ``affected_surfaces``), so a record that widens or narrows it is refused
+    on every fold exactly as ``admitted_surfaces`` is.
+    """
+    from .evidence_trust import parse_evidence_ref
+
+    admitted = set(_admitted_surfaces(plan_content))
+    refs = plan_content.get("evidence_refs") if isinstance(plan_content.get("evidence_refs"), list) else []
+    cited = {_bound_path(parsed[0]) for parsed in map(parse_evidence_ref, (r for r in refs if isinstance(r, str)))
+             if parsed is not None}
+    return sorted(path for path in cited if path is not None and path not in admitted)
+
+
 def _parse_subject_pins(content: bytes) -> tuple[SubjectPin, ...]:
     """Every pin the policy names, or GovernanceError: one bad entry refuses the whole file."""
     try:
@@ -379,6 +401,12 @@ def compute_admission_scope(
     impact = plan_downstream_impact(changed_files=admitted, workspace_root=workspace_root, base_dir=base_dir)
     projects = sorted({*impact["changed_projects"], *impact["downstream_projects"]})
     roots = sorted({root for root in map(_bound_path, impact["project_roots"].values()) if root})
+    # ADR-0021 D9 — read-only: a dependency root under a closure root is
+    # already writable, so only the rest is recorded.
+    dependency_roots = sorted({
+        root for root in map(_bound_path, (impact.get("upstream_project_roots") or {}).values())
+        if root and not any(root == entry or root.startswith(entry + "/") for entry in roots)
+    })
     policy = load_subject_pin_policy(workspace_root)
     if policy.refused is not None:
         # A refused policy is a standing fact of its commit, disclosed once.
@@ -392,6 +420,8 @@ def compute_admission_scope(
         "admitted_surfaces": admitted,
         "closure_projects": projects,
         "closure_roots": roots,
+        "dependency_roots": dependency_roots,
+        "evidence_surfaces": _evidence_surfaces(plan_content),
         "policy_pins": sorted({p for pin in policy.pins if pin.subject in subjects for p in pin.paths}),
         "pin_policy": policy.record(),
         "graph_source": impact["graph_source"],
@@ -404,8 +434,22 @@ def compute_admission_scope(
 def validate_admission_scope(scope: Any, plan_content: Any) -> None:
     """Refuse an ``admission_scope`` record that is not the shape the kernel computes."""
     version = scope.get("schema_version") if isinstance(scope, dict) else None
-    if type(version) is not int or version not in (1, ADMISSION_SCOPE_SCHEMA_VERSION):
-        raise GovernanceError(f"admission_scope must be a schema_version 1 or {ADMISSION_SCOPE_SCHEMA_VERSION} object")
+    if type(version) is not int or version not in (1, 2, 3, ADMISSION_SCOPE_SCHEMA_VERSION):
+        raise GovernanceError(f"admission_scope must be a schema_version 1 to {ADMISSION_SCOPE_SCHEMA_VERSION} object")
+    # A dependency root is read-only context (D9): v3 records it, an earlier
+    # record never does, and nothing reads it as a place a body may write.
+    if version >= 3:
+        dependency_roots = scope.get("dependency_roots")
+        if (not isinstance(dependency_roots, list)
+                or any(not isinstance(item, str) or _bound_path(item) != item for item in dependency_roots)):
+            raise GovernanceError("admission_scope.dependency_roots must be an array of canonical repository paths")
+    elif "dependency_roots" in scope:
+        raise GovernanceError(f"admission_scope v{version} predates dependency_roots")
+    if version >= 4:
+        if scope.get("evidence_surfaces") != _evidence_surfaces(plan_content):
+            raise GovernanceError("admission_scope.evidence_surfaces must be the started plan's cited, unwritten files")
+    elif "evidence_surfaces" in scope:
+        raise GovernanceError(f"admission_scope v{version} predates evidence_surfaces")
     record = scope.get("pin_policy")
     if version == 1:
         # Recorded when the only policy was the kernel's empty tuple: no pins, no policy record.
@@ -445,14 +489,16 @@ def admission_scope_for_plan(state: Any) -> dict[str, Any] | None:
 
 
 def paths_outside_admission_scope(scope: Mapping[str, Any], paths: list[Any]) -> list[str]:
-    """Every path that is neither a bound entry nor under one, named safely, in order."""
+    """Every path that is neither a bound entry nor under one, or is a read-only evidence surface, in order."""
     from .finding_grounding import safe_repo_ref
 
     bound = [*scope["admitted_surfaces"], *scope["closure_roots"], *scope["policy_pins"]]
+    read_only = set(scope.get("evidence_surfaces") or [])
     offending: list[str] = []
     for raw in paths:
         path = _bound_path(raw)
-        if path is not None and any(path == entry or path.startswith(entry + "/") for entry in bound):
+        if (path is not None and path not in read_only
+                and any(path == entry or path.startswith(entry + "/") for entry in bound)):
             continue
         text = str(raw)
         label = text if safe_repo_ref(text) else "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -547,6 +593,28 @@ def render_commit_contract_section(contract: Any) -> str:
     else:
         lines.append("- No `Closes:` trailer exists for this origin; write none. Never invent one.")
     lines.append(f"- Commit subject types admitted: {types}")
+    # ARIA-HIGH-371 — the two lines above were the whole section, while the
+    # repository CLAUDE.md the agent also reads demands `fix(...)` plus a
+    # `Closes:` line for every fix. An F-origin plan (F-015, the first live
+    # delivery) IS a fix whose contract refuses exactly that: the agent was
+    # left to reconcile two contradicting instructions, and a `fix` subject
+    # is refused at pre-PR-open after the whole suite ran. The refused types,
+    # the subject shape, the precedence and one literal command are now
+    # printed, derived from the same contract the perimeter judges with.
+    refused = [kind for kind in COMMIT_TYPES if kind not in (contract.get("commit_types") or [])]
+    first = (contract.get("commit_types") or ["chore"])[0]
+    lines.append(f"- Subject line: `<type>(<scope>): <subject>` with `<type>` one of {types}, "
+                 "whatever the change does (a defect fix included)")
+    if refused:
+        lines.append("- Refused for this origin: a subject opening with "
+                     + ", ".join(f"`{kind}`" for kind in refused)
+                     + " — the commit-msg gate demands a `Closes:` trailer for those and this origin has none")
+    lines.append("- This contract replaces the repository CLAUDE.md commit format and `Closes:` rule for these "
+                 "commits; `commit_contract_honoured` refuses the delivery before the push otherwise")
+    example = f'git commit -m "{first}(<scope>): <subject>" -m "<why>"'
+    if trailer is not None:
+        example += f' -m "{trailer}"'
+    lines.append(f"- Exactly: `{example}`")
     return "\n".join(lines) + "\n\n"
 
 

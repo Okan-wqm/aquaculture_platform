@@ -28,6 +28,7 @@ WHAT IS ASSERTED HERE, and why each one is not obvious:
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import replace
 import errno
 import hashlib
@@ -38,6 +39,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, Iterator
 from unittest import mock
 
 import aria_kernel.state_snapshot as state_snapshot_module
@@ -59,6 +61,62 @@ from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 
 HAS_SSH_KEYGEN = shutil.which("ssh-keygen") is not None
+
+
+class _OneTickStat:
+    """A stat result whose timestamps stay inside one clock tick.
+
+    Linux stamps inode times from the coarse clock, so a write lands on a
+    jiffy boundary (1 ms at HZ=1000, 4 ms at HZ=250), and some filesystems
+    keep whole seconds. Two writes inside one tick leave ``st_mtime_ns`` and
+    ``st_ctime_ns`` exactly as they were. Every other field is the real one.
+    """
+
+    st_atime_ns = st_mtime_ns = st_ctime_ns = 0
+    st_atime = st_mtime = st_ctime = 0.0
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+@contextlib.contextmanager
+def _timestamps_frozen_in_one_tick() -> Iterator[None]:
+    """Make "every mutation lands inside one timestamp tick" the deterministic case.
+
+    The mutation tests below used to pass or fail on whether the kernel tick
+    happened to advance between the fixture write and the mutation: about
+    one millisecond apart, so about one tick. Under this context the tick
+    never advances. A mutation the snapshot still rejects here is rejected
+    by content or by namespace, not by the clock.
+    """
+    real_stat = os.stat
+    real_fstat = os.fstat
+    real_entry_lstat = state_snapshot_module._entry_lstat
+    with mock.patch.object(
+        state_snapshot_module.os,
+        "stat",
+        side_effect=lambda *args, **kwargs: _OneTickStat(real_stat(*args, **kwargs)),
+    ), mock.patch.object(
+        state_snapshot_module.os,
+        "fstat",
+        side_effect=lambda *args, **kwargs: _OneTickStat(real_fstat(*args, **kwargs)),
+    ), mock.patch.object(
+        state_snapshot_module,
+        "_entry_lstat",
+        side_effect=lambda *args, **kwargs: _OneTickStat(
+            real_entry_lstat(*args, **kwargs),
+        ),
+    ), mock.patch.object(
+        # The no-follow probe checks os.stat's identity in os.supports_dir_fd;
+        # a wrapped os.stat is not in that set, though the real one is.
+        state_snapshot_module,
+        "_require_nofollow_dirfd_support",
+        return_value=None,
+    ):
+        yield
 
 
 class SnapshotPolicyTests(unittest.TestCase):
@@ -422,7 +480,7 @@ class SnapshotBuildTests(unittest.TestCase):
                 (nested / "nonmatching.tmp").write_text("changed", encoding="utf-8")
             return matches
 
-        with mock.patch.object(
+        with _timestamps_frozen_in_one_tick(), mock.patch.object(
             state_snapshot_module,
             "iter_surfaces",
             return_value=(artifact,),
@@ -435,6 +493,7 @@ class SnapshotBuildTests(unittest.TestCase):
             "snapshot_surface_changed",
         ):
             self._build()
+        self.assertEqual(calls, 2, "fixture must mutate after the second projection")
 
     def test_two_pass_projection_is_stable_and_deterministic(self) -> None:
         artifact = self._surface("agent_output_artifacts")
@@ -523,18 +582,17 @@ class SnapshotBuildTests(unittest.TestCase):
         leaf = self.tools / "agent-invocations" / "outputs" / "emfile" / "result.md"
         leaf.parent.mkdir(parents=True)
         leaf.write_text("fixture", encoding="utf-8")
-        real_matches = state_snapshot_module._secure_surface_matches
+        real_revalidate = state_snapshot_module._revalidate_snapshot_directories
         real_open = os.open
-        projections = 0
         final_revalidation = False
 
-        def mark_second_projection(*args, **kwargs):
-            nonlocal projections, final_revalidation
-            matches = real_matches(*args, **kwargs)
-            projections += 1
-            if projections == 2:
-                final_revalidation = True
-            return matches
+        # The window opens when the final directory revalidation starts, not
+        # when pass two ends: the leaf content re-read runs between the two
+        # and opens descriptors of its own.
+        def mark_final_revalidation(*args, **kwargs):
+            nonlocal final_revalidation
+            final_revalidation = True
+            return real_revalidate(*args, **kwargs)
 
         def exhaust_only_during_final(*args, **kwargs):
             if final_revalidation and kwargs.get("dir_fd") is not None:
@@ -547,8 +605,8 @@ class SnapshotBuildTests(unittest.TestCase):
             return_value=(artifact,),
         ), mock.patch.object(
             state_snapshot_module,
-            "_secure_surface_matches",
-            side_effect=mark_second_projection,
+            "_revalidate_snapshot_directories",
+            side_effect=mark_final_revalidation,
         ), mock.patch.object(
             state_snapshot_module.os,
             "open",
@@ -562,6 +620,7 @@ class SnapshotBuildTests(unittest.TestCase):
             r"snapshot_surface_revalidation_unavailable:.*errno=24",
         ):
             self._build()
+        self.assertTrue(final_revalidation, "fixture must reach the final revalidation")
 
     def test_root_inode_stability_does_not_hide_child_content_mutation(self) -> None:
         artifact = self._surface("agent_output_artifacts")
@@ -587,7 +646,9 @@ class SnapshotBuildTests(unittest.TestCase):
                 )
             return entry
 
-        with mock.patch.object(
+        # "alpha" -> "omega" keeps the size and the inode; inside one tick it
+        # keeps the timestamps too, so only the bytes differ.
+        with _timestamps_frozen_in_one_tick(), mock.patch.object(
             state_snapshot_module,
             "iter_surfaces",
             return_value=(artifact,),
@@ -601,6 +662,25 @@ class SnapshotBuildTests(unittest.TestCase):
         ):
             self._build()
         self.assertTrue(mutated, "fixture must mutate a child without replacing the root")
+
+    def test_a_quiet_tree_builds_when_timestamps_stay_in_one_tick(self) -> None:
+        """The content and namespace checks must not refuse a tree nobody touched."""
+        artifact = self._surface("agent_output_artifacts")
+        beliefs = self._surface("memory_beliefs")
+        nested = self.tools / "agent-invocations" / "outputs" / "quiet" / "nested"
+        nested.mkdir(parents=True)
+        (nested / "result.md").write_text("stable", encoding="utf-8")
+        (nested / "nonmatching.tmp").write_text("ignored", encoding="utf-8")
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact, beliefs),
+        ):
+            expected = self._build()
+            with _timestamps_frozen_in_one_tick():
+                frozen = self._build()
+        self.assertEqual(frozen, expected)
 
     def test_snapshot_path_normalization_errors_are_named(self) -> None:
         path = self.tools / "dispatch" / "artifacts"

@@ -51,9 +51,11 @@ from typing import Any
 class GitSigningWiring:
     """ARIA-HIGH-114 — the mint's receipt for the checkout's signing config.
 
-    ``configured`` is True only when every one of ``_SIGNING_CONFIG_KEYS``
-    was written to ``scope`` (``--local`` on a main checkout, ``--worktree``
-    on a linked worktree). Otherwise ``reason`` names why not, in the
+    ``configured`` is True only when every key of the mint's transaction —
+    the four ``_SIGNING_CONFIG_KEYS``, plus ``_IDENTITY_CONFIG_KEYS`` when
+    the holder named a ``GitCommitIdentity`` (ARIA-HIGH-387) — was written
+    to ``scope`` (``--local`` on a main checkout, ``--worktree`` on a
+    linked worktree). Otherwise ``reason`` names why not, in the
     closed vocabulary ``not_a_checkout`` (the workspace root is not inside
     a git checkout), ``git_unavailable`` (git did not answer), and
     ``worktree_scope_unavailable:<why>`` (a linked worktree whose
@@ -64,6 +66,32 @@ class GitSigningWiring:
     configured: bool
     scope: str | None
     reason: str | None
+
+
+@dataclass(frozen=True)
+class GitCommitIdentity:
+    """ARIA-HIGH-387 — the named author AND committer a mint's holder commits as.
+
+    The mint is the checkout's config transaction; WHO commits is the
+    holder's concept, so the holder names it and the mint only writes it
+    (``user.name`` / ``user.email``, in the same scope and the same
+    snapshot/restore transaction as the signing keys). A holder that never
+    commits — the knowledge signer — names none, and the operator's
+    checkout keeps whatever identity it had. The executor's implementation
+    identity names ``implementation_identity.IMPLEMENTER_COMMIT_IDENTITY``:
+    the agent may not choose its own identity (``command_policy`` refuses
+    ``git config``, ``--author`` and ``-S``), so a tree whose config names
+    none cannot produce a commit object at all.
+    """
+
+    name: str
+    email: str
+
+
+class CommitIdentityScopeRefused(ValueError):
+    """ARIA-HIGH-387 — a ``commit_identity`` was asked of a workspace that is
+    not a linked worktree. A ``ValueError``: it is a malformed request of the
+    mint, in the failure class its holders already name."""
 
 
 @dataclass(frozen=True)
@@ -440,8 +468,16 @@ def mint_signing_key(
     cycle_id: str,
     workspace_root: str | Path,
     overwrite: bool = False,
+    commit_identity: GitCommitIdentity | None = None,
 ) -> SigningKey:
     """Mints a per-cycle ed25519 keypair via ``ssh-keygen``.
+
+    ``commit_identity`` (ARIA-HIGH-387) — the author and committer the
+    holder commits as, written into the same config transaction as the
+    signing keys (``user.name`` / ``user.email``, same scope, same
+    snapshot, same restore). ``None`` for a holder that never commits.
+    Admitted only in a linked worktree (``CommitIdentityScopeRefused``
+    otherwise, before anything is written).
 
     Files written:
       * ``<workspace>/aria-debts/keys/<cycle_id>`` — private key,
@@ -459,6 +495,19 @@ def mint_signing_key(
     """
     _validate_cycle_id(cycle_id)
     workspace_root = _resolve_workspace_root(workspace_root)
+    if commit_identity is not None:
+        # ARIA-HIGH-387 — an identity is written only where it is the tree's
+        # own: a linked worktree's ``--worktree`` config. A main checkout's
+        # ``--local`` config is the one every worktree of the repository
+        # shares, the operator's included, so a commit identity installed
+        # there would author everybody's commits for the window. Refused
+        # before the key, the snapshot or any config write exists.
+        checkout = signing_checkout(workspace_root)
+        if checkout is None or not checkout.linked:
+            raise CommitIdentityScopeRefused(
+                "commit_identity_requires_linked_worktree:"
+                + ("not_a_checkout" if checkout is None else checkout.config_scope)
+            )
     keys_dir = _keys_dir(workspace_root)
     private_path = keys_dir / cycle_id
     public_path = keys_dir / f"{cycle_id}.pub"
@@ -519,6 +568,7 @@ def mint_signing_key(
         cycle_id=cycle_id,
         private_path=private_path,
         public_path=public_path,
+        commit_identity=commit_identity,
     )
 
     return SigningKey(
@@ -530,15 +580,29 @@ def mint_signing_key(
     )
 
 
-# B7 — the four LOCAL git config keys the mint writes. Each value is
-# snapshotted before the first write and restored on revoke: a mint/revoke
-# pair is a TRANSACTION on the checkout's config, never a net edit of it.
+# B7 — the four signing keys every mint writes, in the checkout's scope.
+# Each value is snapshotted before the first write and restored on revoke:
+# a mint/revoke pair is a TRANSACTION on the checkout's config, never a net
+# edit of it.
 _SIGNING_CONFIG_KEYS: tuple[str, ...] = (
     "commit.gpgsign",
     "gpg.format",
     "user.signingkey",
     "gpg.ssh.allowedSignersFile",
 )
+# ARIA-HIGH-387 — the identity keys a mint writes when its holder names a
+# ``GitCommitIdentity``. Signing alone does not make a commit: git builds
+# the commit object (author + committer) BEFORE it signs, and a tree whose
+# config resolves no identity — the self-hosted runner has no global one,
+# and the sandbox's HOME is an empty tmpfs anyway — exits 128 "Author
+# identity unknown" after the whole plan was applied. These two ride the
+# SAME transaction as the signing keys: snapshotted before the first
+# write (only when this mint writes them, so a knowledge-signer mint in
+# the operator's checkout never touches the operator's identity), written
+# AFTER the ownership marker, and restored before it is released.
+_IDENTITY_CONFIG_KEYS: tuple[str, ...] = ("user.name", "user.email")
+# Every key a mint's transaction can own, in restore order.
+_TRANSACTION_CONFIG_KEYS: tuple[str, ...] = (*_SIGNING_CONFIG_KEYS, *_IDENTITY_CONFIG_KEYS)
 # The config sections those keys live in, as (section, key-regexp) pairs.
 # A section that did not exist before the mint is removed again on
 # restore, so the file the operator had back is the file they get back —
@@ -608,10 +672,21 @@ def _git_config(workspace_root: Path, *args: str) -> subprocess.CompletedProcess
     return _git_config_at(workspace_root, scope, *args)
 
 
-def _snapshot_git_commit_signing(*, workspace_root: Path) -> dict[str, Any]:
-    """Read the scoped values the mint will overwrite, and which sections exist."""
+def _transaction_config_keys(commit_identity: GitCommitIdentity | None) -> tuple[str, ...]:
+    """The keys THIS mint writes: the signing keys always, the identity keys
+    only for a holder that commits (ARIA-HIGH-387)."""
+    return _TRANSACTION_CONFIG_KEYS if commit_identity is not None else _SIGNING_CONFIG_KEYS
+
+
+def _snapshot_git_commit_signing(
+    *, workspace_root: Path, keys_written: tuple[str, ...] = _SIGNING_CONFIG_KEYS,
+) -> dict[str, Any]:
+    """Read the scoped values the mint will overwrite, and which sections exist.
+
+    ``keys`` records exactly ``keys_written``: a key the mint does not write
+    is not part of the transaction, so the restore never touches it."""
     keys: dict[str, str | None] = {}
-    for key in _SIGNING_CONFIG_KEYS:
+    for key in keys_written:
         current = _git_config(workspace_root, "--get", key)
         keys[key] = current.stdout.rstrip("\n") if current.returncode == 0 else None
     sections: dict[str, bool] = {}
@@ -673,12 +748,56 @@ def _inherit_crashed_cycle_snapshot(
     return installed_path.name
 
 
+def _write_signing_config_snapshot(snapshot_path: Path, snapshot: Mapping[str, Any]) -> None:
+    """Written whole or not at all: a process killed mid-write must not
+    leave a torn snapshot the restore cannot read."""
+    snapshot_path.parent.mkdir(mode=0o700, exist_ok=True)
+    staging = snapshot_path.with_name(snapshot_path.name + ".tmp")
+    staging.write_text(json.dumps(snapshot, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    staging.chmod(0o600)
+    os.replace(staging, snapshot_path)
+
+
+def _record_unrecorded_keys(
+    snapshot: dict[str, Any], current: Mapping[str, Any], keys_written: tuple[str, ...],
+) -> bool:
+    """Add to ``snapshot["keys"]`` every key of ``keys_written`` it does not
+    record, with the value ``current`` read before this mint's first write.
+    True when the snapshot changed."""
+    recorded = snapshot["keys"]
+    missing = [key for key in keys_written if key not in recorded]
+    for key in missing:
+        recorded[key] = current["keys"][key]
+    return bool(missing)
+
+
+def _extend_signing_config_snapshot(
+    *, workspace_root: Path, snapshot_path: Path, keys_written: tuple[str, ...],
+) -> None:
+    """Join the keys this mint writes to a transaction that is already open.
+
+    A snapshot that does not read is left exactly as it is: it is the
+    only record of the operator's config, and the restore reports it
+    ``UNDECIDED`` rather than replaying a guess."""
+    try:
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        recorded = snapshot["keys"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    if not isinstance(recorded, dict) or all(key in recorded for key in keys_written):
+        return
+    current = _snapshot_git_commit_signing(workspace_root=workspace_root, keys_written=keys_written)
+    if _record_unrecorded_keys(snapshot, current, keys_written):
+        _write_signing_config_snapshot(snapshot_path, snapshot)
+
+
 def _configure_git_commit_signing(
     *,
     workspace_root: Path,
     cycle_id: str,
     private_path: Path,
     public_path: Path,
+    commit_identity: GitCommitIdentity | None = None,
 ) -> GitSigningWiring:
     """Plan ARIA-V3.1-B-3 — wire git for per-cycle SSH commit signing.
 
@@ -690,6 +809,11 @@ def _configure_git_commit_signing(
       * gpg.format ssh
       * user.signingkey <private_path>
       * gpg.ssh.allowedSignersFile <git_dir/aria-allowed-signers>
+      * user.name / user.email — only when the holder names a
+        ``commit_identity`` (ARIA-HIGH-387), written after
+        ``user.signingkey`` so the ownership marker is set before any
+        identity key is: a write that fails midway is still unwound by the
+        revoke's ownership-checked restore.
 
     ARIA-HIGH-114 — the checkout is what git says it is, not
     ``<workspace>/.git`` tested as a directory: in a linked worktree —
@@ -747,19 +871,27 @@ def _configure_git_commit_signing(
     git_dir = checkout.git_dir
     allowed_signers = git_dir / "aria-allowed-signers"
     snapshot_path = _signing_config_snapshot_path(git_dir, cycle_id)
+    keys_written = _transaction_config_keys(commit_identity)
     try:
         if not snapshot_path.exists():
-            snapshot = {"cycle_id": cycle_id, **_snapshot_git_commit_signing(workspace_root=workspace_root)}
-            _inherit_crashed_cycle_snapshot(
+            current = _snapshot_git_commit_signing(workspace_root=workspace_root, keys_written=keys_written)
+            snapshot = {"cycle_id": cycle_id, **current}
+            if _inherit_crashed_cycle_snapshot(
                 workspace_root=workspace_root, git_dir=git_dir, cycle_id=cycle_id, snapshot=snapshot,
+            ) is not None:
+                # ARIA-HIGH-387 — a crashed cycle that wrote no identity
+                # (a knowledge signer) recorded none; the identity this mint
+                # is about to write is still the operator's as read now.
+                _record_unrecorded_keys(snapshot, current, keys_written)
+            _write_signing_config_snapshot(snapshot_path, snapshot)
+        else:
+            # The transaction started earlier (an ``overwrite=True``
+            # re-mint): keep its start, but a key THIS mint writes that the
+            # start did not record joins it with the value it has now —
+            # otherwise the revoke would leave it behind.
+            _extend_signing_config_snapshot(
+                workspace_root=workspace_root, snapshot_path=snapshot_path, keys_written=keys_written,
             )
-            snapshot_path.parent.mkdir(mode=0o700, exist_ok=True)
-            # Written whole or not at all: a process killed mid-write must
-            # not leave a torn snapshot the restore cannot read.
-            staging = snapshot_path.with_name(snapshot_path.name + ".tmp")
-            staging.write_text(json.dumps(snapshot, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-            staging.chmod(0o600)
-            os.replace(staging, snapshot_path)
         # Public key file format: "<comment> <key_type> <key_blob>".
         # The allowed-signers format expects "<principal> <key_type>
         # <key_blob>"; we use the cycle_id as principal.
@@ -773,12 +905,14 @@ def _configure_git_commit_signing(
             )
     except (OSError, subprocess.SubprocessError):
         return GitSigningWiring(configured=False, scope=checkout.config_scope, reason="git_unavailable")
-    cfg = (
+    cfg: tuple[tuple[str, str], ...] = (
         ("commit.gpgsign", "true"),
         ("gpg.format", "ssh"),
         ("user.signingkey", str(private_path)),
         ("gpg.ssh.allowedSignersFile", str(allowed_signers)),
     )
+    if commit_identity is not None:
+        cfg = (*cfg, ("user.name", commit_identity.name), ("user.email", commit_identity.email))
     for key, value in cfg:
         try:
             written = _git_config(workspace_root, key, value)
@@ -848,7 +982,8 @@ def _restore_git_commit_signing(
 ) -> SigningConfigRestoreReceipt:
     """B7 — put back the git signing config the mint replaced, if it is ours.
 
-    The inverse of ``_configure_git_commit_signing``: each of the four keys
+    The inverse of ``_configure_git_commit_signing``: each of the four
+    signing keys — and each identity key the mint wrote (ARIA-HIGH-387) —
     returns to the value the snapshot recorded (unset when it was absent),
     a section the mint created is removed again, and the cycle's
     allowed-signers file is unlinked. The result is the operator's config
@@ -887,8 +1022,15 @@ def _restore_git_commit_signing(
         snapshot_path.unlink(missing_ok=True)
         return SigningConfigRestoreReceipt(SigningConfigRestore.FOREIGN)
     try:
-        for key in _SIGNING_CONFIG_KEYS:
+        for key in _TRANSACTION_CONFIG_KEYS:
             if key == _SIGNING_CONFIG_OWNERSHIP_KEY:
+                continue
+            if key in _IDENTITY_CONFIG_KEYS and key not in keys:
+                # ARIA-HIGH-387 — an identity key is part of the transaction
+                # only when the mint wrote it, and then the snapshot records
+                # it (a mint without a ``commit_identity``, and every
+                # snapshot written before this key set existed, records
+                # none): a key the mint never wrote is never reverted.
                 continue
             value = keys.get(key)
             if value is None:
@@ -1399,6 +1541,8 @@ def revoke_installation_token(
 __all__ = (
     "CONFIG_SCOPE_LOCAL",
     "CONFIG_SCOPE_WORKTREE",
+    "CommitIdentityScopeRefused",
+    "GitCommitIdentity",
     "GitSigningWiring",
     "SigningCheckout",
     "SigningKey",

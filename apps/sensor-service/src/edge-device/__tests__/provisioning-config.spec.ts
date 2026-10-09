@@ -35,6 +35,25 @@ import { DeviceEventService } from '../device-event.service';
 import { DeviceDirectoryService } from '../device-directory.service';
 import { ProvisioningService } from '../provisioning.service';
 
+// SENSOR-CRITICAL-143: device writes run inside runInTenantTransaction. The
+// boundary itself is proven on real Postgres (edge-mqtt-auth.rls.postgres.spec);
+// here the callback receives the same transactional manager the DataSource
+// mock's transaction() hands out, so the provisioning logic stays under test.
+jest.mock('@aquaculture/backend-common/database', () => {
+  const actual = jest.requireActual('@aquaculture/backend-common/database');
+  return {
+    ...actual,
+    runInTenantTransaction: jest.fn(
+      (
+        dataSource: { transaction: (cb: (manager: unknown) => Promise<unknown>) => Promise<unknown> },
+        _schema: string,
+        _tenantId: string,
+        fn: (qr: { manager: unknown }) => Promise<unknown>,
+      ) => dataSource.transaction((manager) => fn({ manager })),
+    ),
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Mock global fetch
 // ---------------------------------------------------------------------------
@@ -90,7 +109,7 @@ const mockConfigService = {
 // MqttAuthService mock
 // ---------------------------------------------------------------------------
 const mockMqttAuthService = {
-  generateCredentials: jest.fn().mockReturnValue({
+  generateCredentials: jest.fn().mockResolvedValue({
     password: 'mqtt-plain-password',
     hash: '$7$101$fakesalt$fakehash',
   }),
@@ -188,10 +207,14 @@ describe('ProvisioningService - Config Management', () => {
         {
           provide: DeviceDirectoryService,
           useValue: {
-            upsert: jest.fn().mockResolvedValue(undefined),
-            lookupTenantId: jest.fn().mockResolvedValue(null),
-            backfill: jest.fn().mockResolvedValue(undefined),
-            remove: jest.fn().mockResolvedValue(undefined),
+            // SENSOR-MEDIUM-004: device creation saves through the
+            // transaction's manager (the device and its route commit together).
+            saveNewDevice: jest.fn(
+              (device: EdgeDevice, manager: { save: (e: EdgeDevice) => Promise<EdgeDevice> }) =>
+                manager.save(device),
+            ),
+            // SENSOR-CRITICAL-143: public lookups resolve through findDevice.
+            findDevice: jest.fn(async () => deviceRepo.findOne({})),
           },
         },
       ],

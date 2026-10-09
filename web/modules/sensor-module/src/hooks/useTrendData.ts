@@ -2,7 +2,8 @@
  * useTrendData — Query and cache historical tag data from IDataProvider.
  *
  * Features:
- *  - Converts ChartTimeRange presets ('last1h', 'last8h', …) to Date ranges.
+ *  - Converts ChartTimeRange presets ('last1h', 'last8h', …) to Date ranges
+ *    with the durations of the shared time-range table.
  *  - Deduplicates concurrent in-flight queries (same tagIds + time window).
  *  - Caches results keyed by a stable query hash so rapid re-mounts are free.
  *  - Optional auto-refresh via refreshIntervalMs option.
@@ -17,6 +18,7 @@ import type {
   HistoricalDataPoint,
 } from '../types/scada-runtime.types';
 import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
+import { scadaRangeDurationMs } from '@aquaculture/shared-contracts';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -35,20 +37,6 @@ export interface TrendDataResult {
   error: string | null;
   refresh: () => void;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Constants — preset → milliseconds                                   */
-/* ------------------------------------------------------------------ */
-
-const PRESET_MS: Record<ChartTimeRange, number | null> = {
-  last1h:  1 * 60 * 60 * 1000,
-  last8h:  8 * 60 * 60 * 1000,
-  last1d: 24 * 60 * 60 * 1000,
-  last3d:  3 * 24 * 60 * 60 * 1000,
-  last1w:  7 * 24 * 60 * 60 * 1000,
-  last1m: 30 * 24 * 60 * 60 * 1000,
-  custom:  null, // caller must supply a {from, to} object
-};
 
 /* ------------------------------------------------------------------ */
 /*  Module-scope query cache                                            */
@@ -76,15 +64,13 @@ const inflightPromises = new Map<
 /*  Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-function resolveTimeRange(range: TrendTimeRange): { from: Date; to: Date } | null {
-  if (typeof range === 'object' && 'from' in range) {
+/** The window a trend range covers: a fixed pair as given, a token ending now. */
+export function resolveTrendTimeRange(range: TrendTimeRange): { from: Date; to: Date } {
+  if (typeof range === 'object') {
     return range;
   }
-  const ms = PRESET_MS[range as ChartTimeRange];
-  if (ms === null) return null; // 'custom' without an explicit range
   const to = new Date();
-  const from = new Date(to.getTime() - ms);
-  return { from, to };
+  return { from: new Date(to.getTime() - scadaRangeDurationMs(range)), to };
 }
 
 function buildCacheKey(
@@ -144,11 +130,7 @@ export function useTrendData(
     const currentTagIds = tagIdsKey ? tagIdsKey.split('\0') : [];
     if (currentTagIds.length === 0) return;
 
-    const resolved = resolveTimeRange(timeRange);
-    if (!resolved) {
-      setError('useTrendData: timeRange is "custom" but no {from, to} object was provided');
-      return;
-    }
+    const resolved = resolveTrendTimeRange(timeRange);
 
     const cacheKey = buildCacheKey(currentTagIds, resolved.from, resolved.to, aggregation);
 

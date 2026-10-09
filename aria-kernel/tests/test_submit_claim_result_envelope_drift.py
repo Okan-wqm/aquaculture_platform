@@ -49,6 +49,7 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.file_lock import with_exclusive_lock
 from aria_kernel.ledger import STATE_LOCK_LIVENESS_SECONDS, load_jsonl, rewrite_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import append_declared_fixture, sha256_file
 
 
@@ -96,6 +97,7 @@ class _SubmitFixture(unittest.TestCase):
             convergence_id="conv-plan-025-a1",
             target_sha=self.target_sha,
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         self.claim = claim_request(
             request_id=self.request["request_id"],

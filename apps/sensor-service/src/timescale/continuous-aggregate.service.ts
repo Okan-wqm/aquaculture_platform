@@ -1,4 +1,5 @@
 import {
+  CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME,
   getTenantSchemaName,
   listTenantSchemas,
   resolveDbMigrateAuthoritativeFromConfig,
@@ -8,6 +9,7 @@ import {
   SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS,
   validateTenantSchemaName,
 } from '@aquaculture/backend-common/database';
+import { metricTier } from '@aquaculture/shared-contracts';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -208,6 +210,33 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       }
     }
 
+    // Under row security the owner refreshes through its own read policy or
+    // not at all: without it every refresh materializes zero rows and marks
+    // the window done (SENSOR-HIGH-146). applyTenantRlsToSchema installs the
+    // policy when it arms RLS; this proves it did. Absent RLS (a legacy
+    // compressed hypertable) the GRANT alone is the read path.
+    const [rls]: Array<{ row_security: boolean; owner_policy: boolean }> = await queryRunner.query(
+      `SELECT c.relrowsecurity AS row_security,
+              EXISTS (
+                SELECT 1 FROM pg_policies p
+                 WHERE p.schemaname = $1
+                   AND p.tablename = 'sensor_metrics'
+                   AND p.policyname = $2
+                   AND p.cmd = 'SELECT'
+                   AND $3 = ANY (p.roles)
+              ) AS owner_policy
+         FROM pg_class c
+        WHERE c.oid = to_regclass(format('%I.sensor_metrics', $1::text))`,
+      [schema, CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME, SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE],
+    );
+    if (rls === undefined) {
+      violations.push('sensor_metrics missing');
+    } else if (rls.row_security && !rls.owner_policy) {
+      violations.push(
+        `sensor_metrics has row security but no ${CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME} policy`,
+      );
+    }
+
     if (violations.length > 0) {
       throw new Error(`db-migrate continuous-aggregate contract drift: ${violations.join(', ')}`);
     }
@@ -301,9 +330,14 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
     ]);
   }
 
-  /** Lower-tier retention horizons (ms) a manual refresh may never cross. */
+  /**
+   * Lower-tier retention horizons (ms) a manual refresh may never cross, from
+   * the tier policy. metrics_1hour is built from metrics_1min; metrics_1day
+   * from metrics_1hour, which keeps longer — but its own minute lineage is
+   * what caps a recompute, so both are bounded by the minute tier.
+   */
   private static readonly REFRESH_HORIZONS: Readonly<Record<string, number>> = {
-    metrics_1hour: 365 * 24 * 60 * 60 * 1000, // metrics_1min is retained 1 year
-    metrics_1day: 365 * 24 * 60 * 60 * 1000, // metrics_1hour keeps 5 years, but its 1min lineage caps us
+    [metricTier('hour').table]: metricTier('minute').retention.ms,
+    [metricTier('day').table]: metricTier('minute').retention.ms,
   };
 }

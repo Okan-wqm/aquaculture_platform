@@ -23,6 +23,7 @@ from aria_kernel.must_satisfy import must_satisfy_item
 from aria_kernel.plan_contract import plan_validation_suite
 from aria_kernel.plan_convergence import fold_plan_state, plan_body_for_revision, start_plan
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 
 from tests.test_implementation_lifecycle_continuity import converging_plan_content
 
@@ -49,6 +50,7 @@ class MinterWritesTheContractTests(unittest.TestCase):
             base_dir=self.tools, cycle_id="cyc-104",
         )
         kwargs.update(overrides)
+        kwargs.setdefault("admission", admit_request("operator_cli.request", kwargs["role"], base_dir=self.tools))
         return create_agent_invocation_request(**kwargs)
 
     def test_the_minter_writes_every_required_field_of_the_schema(self) -> None:
@@ -79,8 +81,10 @@ class MinterWritesTheContractTests(unittest.TestCase):
         row = issue_challenger_envelope(
             plan_id="plan-104-seed", round_number=1,
             must_satisfy=[must_satisfy_item(id="draft", description="write a competing plan")],
-            evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["docs/**"],
+            # ARIA-HIGH-345 — a round envelope is scoped to its plan's surfaces.
+            evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-kernel/aria_kernel/plan_convergence.py"],
             base_dir=self.tools, plan_revision_hash=self.seed_hash, cycle_id="cyc-104",
+            admission=admit_request("convergence_drainer.plan_step", "challenger_plan", base_dir=self.tools),
         )
         body = plan_body_for_revision(plan_id="plan-104-seed", content_hash=self.seed_hash, base_dir=self.tools)
         self.assertEqual(row["validation_commands"], list(plan_validation_suite(body["plan_content"], base_dir=self.tools)))
@@ -150,6 +154,7 @@ class ValidatorRefusesDisagreementTests(unittest.TestCase):
             allowed_scope=["apps/svc/**"], evidence_refs=["apps/svc/src/a.ts:1"],
             base_dir=self.tools, cycle_id="cyc-104",
             convergence_id="plan-104-seed", plan_revision_hash=self.seed_hash,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
 
     def tearDown(self) -> None:

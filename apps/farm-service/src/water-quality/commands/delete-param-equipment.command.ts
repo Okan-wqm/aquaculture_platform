@@ -13,5 +13,7 @@ export class DeleteParamEquipmentCommand implements ITenantCommand {
   constructor(
     public readonly tenantId: string,
     public readonly mappingId: string,
+    /** Who removed the plan line; recorded as its unboundBy. */
+    public readonly userId: string,
   ) {}
 }

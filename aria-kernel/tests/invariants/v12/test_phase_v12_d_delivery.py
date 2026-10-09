@@ -271,7 +271,8 @@ class CredentialsAreScoped(unittest.TestCase):
         self.assertEqual((admitted[0]["details"]["mode"], admitted[0]["details"]["covers_seconds"]),
                          ("dry_run", dcred.DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS))
         self.assertEqual(
-            dcred.DELIVERY_CREDENTIAL_CONSUMERS, ("executor_admission", "executor_delivery", "self_revert_delivery"),
+            dcred.DELIVERY_CREDENTIAL_CONSUMERS,
+            ("executor_admission", "executor_delivery", "self_revert_delivery", "pr_branch_update"),
         )
         # Without the grant: nothing minted, nothing recorded.
         closed = SimpleNamespace(external_writes=False, profile_id="worker")
@@ -476,7 +477,13 @@ class CredentialsAreScoped(unittest.TestCase):
         gate = delivery.index("run_apply_gate(")
         hold = delivery.index("hold_delivery_credentials(")
         push = delivery.index('["push", _PUSH_REMOTE')
-        opener = delivery.index("open_pr_for_action(")
+        opener = delivery.index("open_prepared_pr(")
+        # ARIA-HIGH-371 — the PR open's checks (the live GATE_PRE_PR_OPEN
+        # perimeter) are decided after the gate and BEFORE the mint and the
+        # push: a refused commit leaves no pushed branch.
+        prepared = delivery.index("prepare_pr_open(")
+        self.assertLess(gate, prepared)
+        self.assertLess(prepared, hold, "the perimeter is decided before the credential")
         self.assertLess(gate, hold, "minted after the gate")
         self.assertLess(hold, push, "minted before the push")
         self.assertLess(push, opener)

@@ -45,6 +45,7 @@ from .agent_invocations import (
     create_agent_invocation_request,
     list_agent_invocation_requests,
 )
+from .request_admission import admit_request
 from .tool_registry import ensure_tools_dir
 
 
@@ -119,7 +120,7 @@ def default_dispatcher_config() -> DispatcherConfig:
 # ---------------------------------------------------------------------
 
 
-def select_drafter(*, role: str, config: DispatcherConfig | None = None):
+def select_drafter(*, role: str, config: DispatcherConfig | None = None, cycle_id: str | None = None):
     """Plan ARIA-V7 §2g v2 — return a DrafterFn for the given role.
 
     role MUST be one of ``"primary_authoring"`` or
@@ -161,6 +162,12 @@ def select_drafter(*, role: str, config: DispatcherConfig | None = None):
             allowed_scope=[f"convergent/{seed_id}"],
             evidence_refs=[f"seed:{seed_id}", f"round:{round_number}"],
             base_dir=evidence_pack.get("_base_dir"),
+            # ARIA-HIGH-364 — a round of an authoring run the drainer already
+            # admitted (skill_genesis.authoring_run): critical path.
+            admission=admit_request(
+                "convergent_authoring.round_step", role, base_dir=evidence_pack.get("_base_dir"),
+                cycle_id=cycle_id,
+            ),
         )
         return _poll_for_drafter_response(
             envelope=envelope,
@@ -179,7 +186,7 @@ def select_drafter(*, role: str, config: DispatcherConfig | None = None):
 # ---------------------------------------------------------------------
 
 
-def select_judge(*, role: str, config: DispatcherConfig | None = None):
+def select_judge(*, role: str, config: DispatcherConfig | None = None, cycle_id: str | None = None):
     """Plan ARIA-V7 §2g v2 — return a JudgeFn for the given role."""
     if role not in ("evidence_judgment", "adversarial_judgment"):
         raise ValueError(
@@ -222,6 +229,11 @@ def select_judge(*, role: str, config: DispatcherConfig | None = None):
                 f"sandbox_result:precision={sandbox_result.get('precision')}",
             ],
             base_dir=evidence_pack.get("_base_dir"),
+            # ARIA-HIGH-364 — a judge of an admitted authoring run: critical path.
+            admission=admit_request(
+                "convergent_authoring.round_step", role, base_dir=evidence_pack.get("_base_dir"),
+                cycle_id=cycle_id,
+            ),
         )
         return _poll_for_judge_response(
             envelope=envelope,

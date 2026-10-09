@@ -1042,6 +1042,17 @@ def _emit_runtime_profile_diagnostic(
         pass
 
 
+class ProfileActionRefused(GovernanceError):
+    """ARIA-HIGH-362 (review M5) — the ACTIVE profile refused an action.
+
+    A GovernanceError like every other refusal (callers that catch that keep
+    working), but typed: the converged-plan delivery must tell "the lane lost
+    its authority mid-cycle" (weather, uncounted) from "this plan cannot be
+    staged" (the plan's own failure, counted), and a message prefix is not a
+    contract.
+    """
+
+
 def enforce_profile_for_action(
     action_kind: str,
     *,
@@ -1073,7 +1084,7 @@ def enforce_profile_for_action(
     if diagnostic is not None:
         _emit_runtime_profile_diagnostic(diagnostic, base_dir=base_dir)
     if profile not in permitted:
-        raise GovernanceError(
+        raise ProfileActionRefused(
             f"profile_violation: action {action_kind!r} blocked under profile "
             f"{profile!r} (permitted: {sorted(permitted)})"
         )

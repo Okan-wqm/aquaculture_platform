@@ -27,6 +27,7 @@ import { runInTenantRead } from '@aquaculture/backend-common/database';
 
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { round2 } from '../../common/utils/rounding.util';
+import { measurementUnitIdSql, measurementUnitMatchSql } from './measurement-unit-reader';
 
 export type WaterTemperatureSource = 'manual' | 'sensor';
 
@@ -189,7 +190,7 @@ export class WaterTemperatureService {
       const manualRows: DatedTemperatureRow[] = await queryRunner.manager.query(
         `SELECT m."temperature" AS celsius, m."measuredAt" AS "measuredAt"
            FROM water_quality_measurements m
-           JOIN tanks t ON t.id = m."tankId" AND t."tenantId" = m."tenantId"
+           JOIN tanks t ON t.id = ${measurementUnitIdSql('m')} AND t."tenantId" = m."tenantId"
            JOIN departments d ON d.id = t."departmentId"
           WHERE m."tenantId" = $1
             AND d."siteId" = $2
@@ -260,7 +261,7 @@ export class WaterTemperatureService {
                 MAX(m."temperature") AS "maxC",
                 COUNT(DISTINCT (m."measuredAt" AT TIME ZONE 'UTC')::date) AS "coverageDays"
            FROM water_quality_measurements m
-           JOIN tanks t ON t.id = m."tankId" AND t."tenantId" = m."tenantId"
+           JOIN tanks t ON t.id = ${measurementUnitIdSql('m')} AND t."tenantId" = m."tenantId"
            JOIN departments d ON d.id = t."departmentId"
           WHERE m."tenantId" = $1
             AND d."siteId" = $2
@@ -369,13 +370,13 @@ export class WaterTemperatureService {
                   m."temperature" AS celsius,
                   m."measuredAt"  AS "measuredAt"
              FROM (
-               SELECT COALESCE("tankId", "equipmentId") AS "unitId",
-                      "temperature", "measuredAt"
-                 FROM water_quality_measurements
-                WHERE "tenantId" = $2
-                  AND ("tankId" = ANY($1) OR "equipmentId" = ANY($1))
-                  AND "temperature" IS NOT NULL
-                  AND "measuredAt" >= now() - ($3 || ' hours')::interval
+               SELECT ${measurementUnitIdSql('wq')} AS "unitId",
+                      wq."temperature", wq."measuredAt"
+                 FROM water_quality_measurements wq
+                WHERE wq."tenantId" = $2
+                  AND ${measurementUnitMatchSql('wq', '= ANY($1)')}
+                  AND wq."temperature" IS NOT NULL
+                  AND wq."measuredAt" >= now() - ($3 || ' hours')::interval
              ) m
             ORDER BY m."unitId", m."measuredAt" DESC`,
             [unresolved, tenantId, String(MANUAL_FRESHNESS_HOURS)],
@@ -502,12 +503,12 @@ export class WaterTemperatureService {
     tankId: string,
   ): Promise<DatedTemperature | null> {
     const rows: DatedTemperatureRow[] = await queryRunner.manager.query(
-      `SELECT "temperature" AS celsius, "measuredAt" AS "measuredAt"
-         FROM water_quality_measurements
-        WHERE "tenantId" = $1
-          AND ("tankId" = $2 OR "equipmentId" = $2)
-          AND "temperature" IS NOT NULL
-        ORDER BY "measuredAt" DESC
+      `SELECT wq."temperature" AS celsius, wq."measuredAt" AS "measuredAt"
+         FROM water_quality_measurements wq
+        WHERE wq."tenantId" = $1
+          AND ${measurementUnitMatchSql('wq', '= $2')}
+          AND wq."temperature" IS NOT NULL
+        ORDER BY wq."measuredAt" DESC
         LIMIT 1`,
       [tenantId, tankId],
     );

@@ -30,6 +30,17 @@
     "tmp/**"
   ],
   "claim_types": ["contract_parity"],
+  "rules": {
+    "hand_copied_dto_field_drift": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A frontend DTO hand-copied from a backend DTO has drifted, so the ValidationPipe strips or rejects fields and input is lost.",
+      "premises": [
+        "The frontend type is a copy of the cited backend DTO, sent to or read from the endpoint that DTO validates.",
+        "The two field sets differ in a field the request or response actually carries."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

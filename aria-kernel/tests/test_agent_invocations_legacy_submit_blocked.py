@@ -40,6 +40,7 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.cli import main as cli_main
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 def _argparse_help_exit_code(argv: list[str]) -> int:
@@ -118,6 +119,7 @@ class LegacySubmitBlockedTests(unittest.TestCase):
             suggested_prompt="hello",
             legacy_strict_fields_optional=True,
             base_dir=self.tools_dir,
+            admission=admit_request("operator_cli.request", "cross_review", base_dir=self.tools_dir),
         )
         out = self.tools_dir / "out.md"
         out.write_text("ok\n", encoding="utf-8")
@@ -143,6 +145,7 @@ class LegacySubmitBlockedTests(unittest.TestCase):
             legacy_strict_fields_optional=True,
             expected_output_path=(self.tools_dir / "expected.md").as_posix(),
             base_dir=self.tools_dir,
+            admission=admit_request("operator_cli.request", "cross_review", base_dir=self.tools_dir),
         )
         expected_path = Path(request["expected_output_path"])
         expected_path.write_text("ok\n", encoding="utf-8")
@@ -178,6 +181,7 @@ class LegacySubmitBlockedTests(unittest.TestCase):
             legacy_strict_fields_optional=True,
             expected_output_path=(self.tools_dir / "expected2.md").as_posix(),
             base_dir=self.tools_dir,
+            admission=admit_request("operator_cli.request", "cross_review", base_dir=self.tools_dir),
         )
         rid = request["request_id"]
         # Before any result: not legacy-decided.

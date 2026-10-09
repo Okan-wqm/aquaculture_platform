@@ -64,6 +64,7 @@ from .agent_invocations import (
     derive_request_state,
 )
 from .agent_surface import TERMINAL_REQUEST_STATES
+from .request_admission import admit_request
 from .tool_registry import ensure_tools_dir
 
 # The judge's sealed response must carry an explicit machine-readable
@@ -302,6 +303,11 @@ def run_review_runner(
             round_number=round_n,
             base_dir=base_dir,
             plan_revision_hash=worker_artifact_hash or None,
+            # ARIA-HIGH-364 — Gate B review of an implementation in flight:
+            # critical path (the merge waits on it), never throttled.
+            admission=admit_request(
+                "review_runner.post_implementation", _ADVERSARIAL_ROLE, base_dir=base_dir, cycle_id=cycle_id,
+            ),
         )
         adversarial_request_id = str(adversarial_request["request_id"])
         request_ids.append(adversarial_request_id)

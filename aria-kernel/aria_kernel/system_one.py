@@ -273,18 +273,18 @@ def _git(workspace: Path, *args: str, max_chars: int = VALUE_MAX_CHARS, config: 
 def _public_transport_config() -> tuple[str, ...]:
     """Command-line config for every git call that reaches the public URL; ``-c`` outranks repository config.
 
-    No proxy, TLS verified against the SYSTEM CA bundle (OpenSSL's compiled
-    default, not an environment override), and no credential helper: through
-    a proxy with verification off or a custom CA, a man-in-the-middle could
-    make a private sha look public, and an operator's credential helper would
-    make a PRIVATE repository answer as if it were public. (An EMPTY
-    ``http.sslCAInfo`` is not "the default": curl then fails every TLS
-    handshake, measured — so the bundle is named.)
+    No proxy, TLS verified against a SYSTEM CA bundle (never an environment
+    override), and no credential helper: through a proxy with verification
+    off or a custom CA, a man-in-the-middle could make a private sha look
+    public, and an operator's credential helper would make a PRIVATE
+    repository answer as if it were public. (An EMPTY ``http.sslCAInfo`` is
+    not "the default": curl then fails every TLS handshake, measured — so
+    the bundle is named.)
     """
     import ssl
 
-    cafile = Path(ssl.get_default_verify_paths().openssl_cafile or "")
-    if not cafile.is_file():
+    cafile = _system_ca_bundle()
+    if cafile is None:
         raise _Refusal("public_remote_ca_unavailable")
     url = PUBLIC_REPOSITORY_URL
     return (
@@ -292,6 +292,32 @@ def _public_transport_config() -> tuple[str, ...]:
         f"http.sslCAInfo={cafile}", f"http.{url}.sslCAInfo={cafile}", "http.sslCAPath=",
         "credential.helper=", "core.askPass=",
     )
+
+
+def _system_ca_bundle() -> Path | None:
+    """A SYSTEM trust bundle that exists as a file, or None.
+
+    OpenSSL's compiled default is tried first; on hosts where that path is
+    absent (measured: GitHub's ubuntu runners carry the distro bundle, not
+    the compiled default) the distro's system bundle is the same trust
+    store, so it is an equivalent SYSTEM source — never an environment
+    override, never a custom CA. Callers fail closed on None.
+    """
+    import ssl
+
+    candidates = [
+        ssl.get_default_verify_paths().openssl_cafile or "",
+        # Distro system bundles — same trust roots, same admin-owned path.
+        "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu (ca-certificates)
+        "/etc/pki/tls/certs/ca-bundle.crt",  # RHEL/Fedora
+        "/etc/ssl/ca-bundle.pem",  # openSUSE
+    ]
+    for candidate in candidates:
+        if candidate:
+            path = Path(candidate)
+            if path.is_file() and path.stat().st_size > 0:
+                return path
+    return None
 
 
 def _fetch_public(workspace: Path) -> None:

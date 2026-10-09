@@ -55,6 +55,15 @@ def failure_is_lane_fault(
     """True when the failure ``event`` records was caused by the lane, not by the work."""
     from .release_reason import parse_release_reason
 
+    # ARIA-HIGH-388 — a SETTLED implementation outcome names its own fault
+    # domain (`implementation_rejections.settlement_for_*`). Only a fault the
+    # kernel verified as the work's (`request`) cools the finding's subject
+    # off; `harness` (GitHub refused a push) and `unclassified` (an agent's
+    # refusal, a cause the kernel cannot attribute: on 2026-10-08 the host's
+    # missing commit identity reached us as `agent_refused:safety`) never do.
+    settled_domain = (event.get("payload") or {}).get("fault_domain")
+    if event.get("event_type") == "implementation_rejected" and settled_domain:
+        return settled_domain != "request"
     stall = (event.get("payload") or {}).get("stall")
     if isinstance(stall, dict):
         domain = stall.get("fault_domain") or parse_release_reason(str(stall.get("cause") or "")).fault_domain

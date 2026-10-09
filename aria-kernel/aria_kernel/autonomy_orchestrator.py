@@ -1301,8 +1301,9 @@ def run_autonomy_orchestrator(
             # bypass_profile_gate=True on the summary event ensures
             # the reaper's audit row reaches the ledger even under
             # frozen/observe profiles (the reaping itself goes
-            # through record_implementation_rejected which respects
-            # profile gating). When no orphans are found the
+            # through implementation_settlement.settle_orphaned_plan,
+            # ARIA-HIGH-388, which respects profile gating). When no
+            # orphans are found the
             # summary event is suppressed (zero-noise floor).
             if profile_announce_allowed:
                 try:
@@ -1313,7 +1314,6 @@ def run_autonomy_orchestrator(
                         ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                         decide_orphan_reap,
                         scan_orphan_implementation_requests,
-                        record_implementation_rejected,
                     )
                     _orphans = scan_orphan_implementation_requests(base_dir=root)
                 except (ImportError, Exception) as _orphan_scan_exc:
@@ -1347,6 +1347,8 @@ def run_autonomy_orchestrator(
                 # deciding and hands the plan to the operator queue, once, by
                 # a request_id that dedupes across every later scan.
                 _spared_recent: list[dict[str, Any]] = []
+                _already_settled: list[dict[str, Any]] = []
+                _reap_failed: list[dict[str, Any]] = []
                 _escalated_undateable: list[dict[str, Any]] = []
                 # ARIA-HIGH-365 (B2) — one provider-available clock for the
                 # whole scan: an implementation request outstanding through an
@@ -1414,17 +1416,41 @@ def run_autonomy_orchestrator(
                         _spared_recent.append(_orphan)
                         continue
                     try:
-                        record_implementation_rejected(
-                            plan_id=_orphan_plan_id,
-                            rejection_class="orchestrator_restart_reaped_orphan",
-                            rejected_at=_iso_now(),
-                            base_dir=root,
+                        # ARIA-HIGH-388 — through the one settlement writer:
+                        # the reap carries a fault domain from the request's
+                        # wait (an outage, a missing delivery authority:
+                        # `harness`; anything else `unclassified`), so a
+                        # reaped plan never cools its finding off, and an
+                        # executor that settled first is not overwritten.
+                        from .implementation_settlement import (
+                            ALREADY_SETTLED, IN_FLIGHT, SETTLED, settle_orphaned_plan,
                         )
+
+                        _settled_orphan = settle_orphaned_plan(plan_id=_orphan_plan_id, base_dir=root)
+                        if _settled_orphan.get("status") == IN_FLIGHT:
+                            # ARIA-HIGH-389 — its request holds a live claim
+                            # lease (a delivery may be opening its PR):
+                            # spared, whatever the ledger's age says.
+                            _spared_recent.append(_orphan)
+                            continue
+                        if _settled_orphan.get("status") == ALREADY_SETTLED:
+                            # The executor (or a concurrent reaper) wrote
+                            # the terminal first, under the plan lock.
+                            _already_settled.append(_orphan)
+                            continue
+                        if _settled_orphan.get("status") != SETTLED:
+                            # The settlement wrote its own
+                            # `implementation_settlement_failed` row; the
+                            # plan stays for the next pass.
+                            _reap_failed.append(_orphan)
+                            continue
                         _reaped.append(_orphan)
                         append_tools_governance(
                             root, "implementation_orphan_reaped",
                             {
                                 "plan_id": _orphan_plan_id,
+                                "fault_domain": _settled_orphan.get("fault_domain"),
+                                "wait_cause": _settled_orphan.get("cause"),
                                 "prior_state": _orphan.get("state"),
                                 "last_event_at": _orphan.get("last_event_at"),
                                 # Which stamp the age came from, because a
@@ -1452,7 +1478,7 @@ def run_autonomy_orchestrator(
                             },
                             bypass_profile_gate=True,
                         )
-                if _reaped or _spared_recent or _escalated_undateable:
+                if _reaped or _spared_recent or _escalated_undateable or _already_settled or _reap_failed:
                     append_tools_governance(
                         root, "implementation_orphans_reaped_summary",
                         {
@@ -1467,6 +1493,11 @@ def run_autonomy_orchestrator(
                             # same silence.
                             "spared_recent_count": len(_spared_recent),
                             "escalated_undateable_count": len(_escalated_undateable),
+                            # ARIA-HIGH-388 — a settled-elsewhere plan and a
+                            # settlement the store refused are their own
+                            # counts, never "spared".
+                            "already_settled_count": len(_already_settled),
+                            "reap_failed_count": len(_reap_failed),
                             "reap_after_hours":
                                 ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                         },

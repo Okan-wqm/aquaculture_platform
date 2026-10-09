@@ -105,6 +105,13 @@ def self_merge_refusals(
     from .runtime_profile import assert_merge_authorized
 
     reasons: list[str] = []
+    # ARIA-HIGH-389 — a PR whose plan ended after its delivery (the
+    # executor's hand-over, or the orphan reaper after a run that died past
+    # the push): no merge lane merges from a rejected plan, so the person
+    # decides (merge or close), and the record stays theirs.
+    handed_over = _handed_over_reason(opened, base_dir=base_dir)
+    if handed_over is not None:
+        reasons.append(handed_over)
     route = opened.get("merge_route") if isinstance(opened.get("merge_route"), dict) else {}
     lane = str(route.get("lane") or "")
     if route.get("human_merge") is True or not route:
@@ -133,6 +140,57 @@ def self_merge_refusals(
             and ci_summary(live.get("statusCheckRollup"))["state"] != CI_PENDING:
         reasons.append("blocked_by_branch_protection")
     return reasons
+
+
+HANDED_OVER_REASON_PREFIX = "implementation_settled_after_delivery"
+
+
+def _handed_over_reason(opened: dict[str, Any], *, base_dir: str | Path | None) -> str | None:
+    from .implementation_settlement import rejected_plan_for_change
+
+    if base_dir is None:
+        return None
+    settled = rejected_plan_for_change(str(opened.get("change_id") or ""), base_dir=Path(base_dir))
+    if settled is None:
+        return None
+    return f"{HANDED_OVER_REASON_PREFIX}:{settled.get('rejection_class')}:{settled.get('cause') or 'unrecorded'}"
+
+
+def record_handed_over_pr(
+    *, pr_number: int, pr_url: str, branch: str, head_sha: str, change_id: str | None, plan_id: str | None,
+    request_id: str, rejection_class: str, cause: str, settlement_status: str, base_dir: str | Path | None,
+) -> str:
+    """ARIA-HIGH-389 — the open PR of a result refused after its delivery, handed
+    to a person as the PR's one human-merge record, at once.
+
+    Same record and shape the cycle's surface keeps for every ARIA PR that
+    needs a person (``surface_human_merge_prs`` refreshes this context with
+    GitHub's live CI and merge state, and resolves it by observation when the
+    PR is merged or closed). The facts are the kernel's delivery's. Returns
+    the record's id; an open record for the PR is returned as it is.
+    """
+    from .own_pr_delivery import ci_summary
+
+    root = ensure_tools_dir(base_dir)
+    for record in list_human_required(base_dir=root):
+        context = record.get("context") or {}
+        if context.get("kind") == HUMAN_MERGE_PR_KIND and context.get("pr_number") == pr_number \
+                and record.get("status") == "open":
+            return str(record["request_id"])
+    record_id = human_merge_request_id(pr_number, base_dir=root)
+    reason = f"{HANDED_OVER_REASON_PREFIX}:{rejection_class}:{cause}"
+    record_human_required(
+        request_id=record_id, severity=HUMAN_MERGE_SEVERITY, base_dir=root,
+        reason=f"{pr_url or f'PR #{pr_number}'} was delivered, then its result was refused ({cause}); "
+               "its plan is settled: merge or close it",
+        context={
+            "kind": HUMAN_MERGE_PR_KIND, "pr_number": pr_number, "pr_url": pr_url, "branch": branch,
+            "head_sha": head_sha, "change_id": change_id, "merge_state": "UNKNOWN", "ci": ci_summary(None),
+            "not_self_mergeable_because": [reason], "self_mergeable_now": False,
+            "plan_id": plan_id, "implementation_request_id": request_id, "settlement_status": settlement_status,
+        },
+    )
+    return record_id
 
 
 def _context(number: int, opened: dict[str, Any], live: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
@@ -219,9 +277,11 @@ def daily_report_lines(items: list[dict[str, Any]]) -> list[str]:
 
 
 __all__ = [
+    "HANDED_OVER_REASON_PREFIX",
     "HUMAN_MERGE_SEVERITY",
     "daily_report_lines",
     "human_merge_request_id",
+    "record_handed_over_pr",
     "self_merge_refusals",
     "surface_human_merge_prs",
 ]

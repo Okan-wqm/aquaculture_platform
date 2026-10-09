@@ -696,6 +696,28 @@ class HumanRequiredRecordUnavailable(RuntimeError):
     must say so (`_release_unescalated`), never release as if it did."""
 
 
+def _hand_over_after_delivery(*, tools_dir: Path, request_id: str, delivered: Any, cause: str) -> None:
+    """ARIA-HIGH-389 — a refusal after THIS run's delivery opened the PR.
+
+    ``delivered`` is the kernel's ``ImplementationDelivery`` (None when this
+    run delivered nothing: every other role, and an implementation refused
+    before its push, which ARIA-HIGH-388 settles at its own site). Called
+    after the claim's release, so the settlement's request closure finds the
+    request unheld. The plan ends with the PR on its event and the PR goes to
+    a person (``implementation_settlement.hand_over_delivered_implementation``).
+    """
+    if delivered is None:
+        return
+    from aria_kernel.implementation_settlement import hand_over_delivered_implementation
+
+    outcome = hand_over_delivered_implementation(
+        request_id=request_id, cause=cause, pr_number=delivered.pr_number, pr_url=delivered.pr_url,
+        branch=delivered.branch, branch_tip_sha=delivered.branch_tip_sha, base_dir=tools_dir,
+    )
+    _stage(f"implementation_handed_over status={outcome['status']} class={outcome['rejection_class']} "
+           f"pr={delivered.pr_number} record={outcome.get('handed_over')}")
+
+
 def _record_human_required(
     *, tools_dir: Path, request_id: str, severity: str, reason: str, context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -4926,6 +4948,27 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # identity a pre-spawn refusal left held.
     _identity_stack = _runtime_stack.enter_context(_ExitStack())
     if request_envelope["role"] == "implementation":
+        # ARIA-HIGH-388 — the same question the queue's selection asks before
+        # any claim (`implementation_dispatch`), asked again here for a
+        # targeted dispatch, BEFORE the signing identity is minted and the
+        # delivery credential leased: no authority, or a plan that already
+        # ended, spends nothing. Harness-class, the budget kept.
+        from aria_kernel.implementation_dispatch import implementation_dispatch_refusal
+
+        _undispatchable = implementation_dispatch_refusal(request=request_envelope, base_dir=tools_dir)
+        if _undispatchable is not None:
+            sys.stderr.write(f"{DELIVERY_WINDOW_REFUSAL.release_reason}: {_undispatchable} (before the identity)\n")
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+            )
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+                failure_class=DELIVERY_WINDOW_REFUSAL.failure_class,
+                retryable=DELIVERY_WINDOW_REFUSAL.retryable,
+            )
         from aria_kernel.gh_token_factory import signing_keys_dir as _signing_keys_dir
         from aria_kernel.implementation_identity import (
             ImplementationIdentityRefusal,
@@ -5075,7 +5118,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                         else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.release_reason if _request_invalid
                         else IMPLEMENTATION_IDENTITY_REFUSAL.release_reason),
             )
-            return _refuse_dispatch(
+            _refused = _refuse_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 reason=_branch_refusal_reason,
                 failure_class=(IMPLEMENTATION_BRANCH_COLLISION_REFUSAL.failure_class if _collision
@@ -5085,6 +5128,16 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                            else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.retryable if _request_invalid
                            else IMPLEMENTATION_IDENTITY_REFUSAL.retryable),
             )
+            if _collision or _request_invalid:
+                # ARIA-HIGH-388 — both end the request for good (escalated
+                # above), so they end its plan too
+                # (`implementation_rejections.PRE_SPAWN_SETTLEMENT`).
+                from aria_kernel.implementation_settlement import settle_pre_spawn_refusal
+
+                _settled = settle_pre_spawn_refusal(request_id=request_id, release_reason=_branch_refusal_reason,
+                                                    base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+            return _refused
         _stage(f"implementation_branch_prepared branch={_implementation_ids.get('branch')} base_sha={_implementation_ids.get('base_sha')}")
         # ARIA-HIGH-124 (round 3) — the window: the job's remaining wall
         # clock must hold the CLI at its cap AND everything this child runs
@@ -5488,10 +5541,26 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             # agent-supplied class stays out of the summary (it is sanitized
             # by construction); the release reason and the HUMAN_REQUIRED
             # row carry it.
-            return _refuse_dispatch(
+            _refused = _refuse_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 reason="agent_refused",
             )
+            if request_envelope.get("role") == "implementation":
+                # ARIA-HIGH-388 — the refusal ends the PLAN too, on its own
+                # ledger, `unclassified` (the agent's word is not a verified
+                # cause: the 2026-10-08 `safety` refusal was the host's missing
+                # git identity), so the finding is never cooled off by it.
+                # After the dispatch's own refusal: a settlement fault can
+                # never skip it.
+                from aria_kernel.implementation_settlement import settle_agent_refusal
+
+                _settled = settle_agent_refusal(request_id=request_id, reason_class=_reason_class, base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+            return _refused
+    # ARIA-HIGH-389 — what THIS run's delivery opened, from the kernel's own
+    # delivery result (never the agent's envelope): set only once the push
+    # and the PR succeeded, and read by every refusal after it.
+    _delivered = None
     if isinstance(_envelope_for_validation, dict):
         # Plan ARIA-V8.4 — auto-fill missing canonical plan_content
         # fields from compatible sources within the envelope before
@@ -5625,10 +5694,21 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                     agent_id=agent_id, lease_token=lease_token,
                     reason=f"implementation_delivery_refused:{exc.stage}",
                 )
-                return _refuse_dispatch(
+                _refused = _refuse_dispatch(
                     request=request_envelope, request_id=request_id, target_agent=subagent_type,
                     reason="implementation_delivery_refused",
                 )
+                # ARIA-HIGH-388 — the plan ends with the class and fault domain
+                # the kernel can VERIFY from the refusal's own reason
+                # (`implementation_rejections.settlement_for_delivery`); an
+                # unverifiable cause is `unclassified` and cools nothing off.
+                from aria_kernel.implementation_settlement import settle_delivery_refusal
+
+                _settled = settle_delivery_refusal(request_id=request_id, stage=exc.stage, reason=exc.reason,
+                                                   base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+                return _refused
+            _delivered = _delivery
             _mutated_delivery = stamp_implementation_delivery(
                 _envelope_for_validation, delivery=_delivery, request_id=request_id, claim_id=claim_id,
                 base_dir=tools_dir,
@@ -5711,10 +5791,13 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             # this later terminal supersedes it with the refusal, named by
             # the same code family as the release reason (the field-level
             # errors are in the stage line above, not in the summary).
-            return _refuse_dispatch(
+            _refused = _refuse_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 reason=_release_reason.split(":", 1)[0],
             )
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="pre_submit_invalid")
+            return _refused
         _stage("pre_submit_validation_passed")
 
     _stage("submit_step_begin claim=" + claim_id)
@@ -5761,10 +5844,13 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             agent_id=agent_id, lease_token=lease_token,
             reason=f"submit_timeout_{SUBMIT_RESULT_TIMEOUT_SECONDS}s",
         )
-        return _fail_submit_dispatch(
+        _failed = _fail_submit_dispatch(
             request=request_envelope, request_id=request_id, target_agent=subagent_type,
             failure_class="timeout", retryable=True, detail_code="submit_timeout",
         )
+        _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                  cause="submit_timeout")
+        return _failed
     _stage(f"submit_step_done rc={submit_proc.returncode}")
     if submit_proc.returncode != 0:
         # STDOUT as well as stderr, and this is the whole point: the kernel CLI
@@ -5808,33 +5894,44 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 agent_id=agent_id, lease_token=lease_token,
                 reason="evidence_verification_unavailable",
             )
-            return _fail_submit_dispatch(
+            _failed = _fail_submit_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 failure_class="harness_unavailable", retryable=True, detail_code="evidence_verification_unavailable",
             )
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="evidence_verification_unavailable")
+            return _failed
         if _rejected_result_recorded(submit_proc.stdout):
             _stage("submit_rejected_recorded: the kernel appended the rejected result row; "
                    "the claim is terminal and the request derives REJECTED")
-            return _fail_submit_dispatch(
+            _failed = _fail_submit_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 failure_class="response_schema_rejected", retryable=False, detail_code="agent_result_rejected",
             )
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="agent_result_rejected")
+            return _failed
         else:
             _release_claim(
                 tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                 agent_id=agent_id, lease_token=lease_token,
                 reason="submit_rejected",
             )
-            return _fail_submit_dispatch(
+            _failed = _fail_submit_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 failure_class="response_schema_rejected", retryable=False, detail_code="submit_rejected",
             )
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="submit_rejected")
+            return _failed
     if native_runtime is not None:
         if not _reconcile_native_result(
             tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
             session_id=_session_id, policy_digest=native_runtime.policy.policy_digest,
             request_envelope=request_envelope,
         ):
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="native_result_unreconciled")
             return 1
         # ARIA-HIGH-182 — the native paths' one success summary. The Claude
         # CLI path emits its `succeeded` summary inside invoke_claude_cli;

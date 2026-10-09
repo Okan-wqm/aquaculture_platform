@@ -20,6 +20,21 @@ path and never flows through ``record_implementation_outcome`` validation.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
+
+# ARIA-HIGH-388 — the classes an executor-side terminal outcome settles with
+# (``settlement_for_*`` below, written by ``implementation_settlement``).
+IMPLEMENTER_REFUSED = "implementer_refused"
+IMPLEMENTATION_RESULT_INADMISSIBLE = "implementation_result_inadmissible"
+IMPLEMENTATION_DELIVERY_UNCLASSIFIED = "implementation_delivery_unclassified"
+IMPLEMENTATION_REQUEST_INVALID = "implementation_request_invalid"
+PUSH_REFUSED = "push_refused"
+PR_OPEN_REFUSED = "pr_open_refused"
+# ARIA-HIGH-389 — a result refused AFTER its delivery opened the PR.
+IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY = "implementation_result_refused_after_delivery"
+
 
 # Closed set of rejection classes accepted by
 # plan_convergence.record_implementation_outcome for IMPLEMENTATION_REJECTED rows.
@@ -61,6 +76,18 @@ VALID_IMPLEMENTATION_REJECTION_CLASSES: frozenset[str] = frozenset(
         # lands; if the agent's claim was IMPLEMENTATION_IN_FLIGHT, the
         # orchestrator can reap with this canonical class.
         "commit_signature_unverified",
+        # ARIA-HIGH-388 — the executor's own terminal outcomes of an
+        # implementation request, settled onto the plan ledger
+        # (`implementation_settlement`) instead of living only in governance
+        # and HUMAN_REQUIRED rows that no learning consumer reads.
+        IMPLEMENTER_REFUSED,
+        IMPLEMENTATION_RESULT_INADMISSIBLE,
+        IMPLEMENTATION_DELIVERY_UNCLASSIFIED,
+        IMPLEMENTATION_REQUEST_INVALID,
+        PUSH_REFUSED,
+        PR_OPEN_REFUSED,
+        # ARIA-HIGH-389 — the submit refused a result whose PR is already open.
+        IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
     }
 )
 
@@ -71,3 +98,166 @@ VALID_IMPLEMENTATION_REJECTION_CLASSES: frozenset[str] = frozenset(
 # VALID_IMPLEMENTATION_REJECTION_CLASSES: it is emitted only on the auto-merge
 # decision path and is never validated by record_implementation_outcome.
 V9_MERGE_PATH_DISABLED_REJECTION_CLASS: str = "v9_merge_path_disabled_use_merge_if_green"
+
+
+# ===========================================================================
+# ARIA-HIGH-388 — how an implementation request's terminal outcome is SETTLED
+# ===========================================================================
+#
+# A settlement says what ended the plan and WHOSE fault it was, and the fault
+# domain decides two things downstream: whether the finding's subject cools
+# off (`outage_attribution.failure_is_lane_fault`: only a `request` fault does)
+# and, through the class, whether the implementer is blamed
+# (`failure_attribution.APPLY_GATE_REJECTION_CLASSES`).
+#
+# The domain is `request` ONLY where the kernel can VERIFY the cause is the
+# work's: a reason the kernel itself produced from the agent's output. A
+# delivery stage is not enough (adversarial review of cd2166bb4): the same
+# `branch_publication` stage refuses an agent that committed nothing AND a
+# host with no git identity, and `apply_gate` refuses a red suite AND a
+# kernel GovernanceError. Everything the kernel cannot verify is
+# `unclassified`: it ends the plan, cools nothing off and blames no one. An
+# agent's own refusal is never verifiable (it is the agent's word; on
+# 2026-10-08 `agent_refused:safety` was the host's missing commit identity).
+
+FAULT_REQUEST = "request"
+FAULT_HARNESS = "harness"
+FAULT_UNCLASSIFIED = "unclassified"
+AGENT_REFUSAL_STAGE = "agent_refusal"
+PRE_SPAWN_STAGE = "pre_spawn"
+ORPHAN_REAP_STAGE = "orphan_reap"
+ORPHAN_REAPED = "orchestrator_restart_reaped_orphan"
+POST_DELIVERY_STAGE = "post_delivery"
+# Gate blockers that PROVE the agent's change is at fault: a regression
+# against the baseline the same suite measured (`validation.
+# compare_validation_groups`), and a suppression pattern in the agent's own
+# diff (`apply_engine`). `candidate_validation_not_green` alone proves
+# nothing (re-review N1): it is set whenever the candidate run is not ok,
+# including when the baseline was red too (a red main, a missing toolchain).
+# It may accompany a proving blocker; on its own the gate is unclassified.
+# `validation_room_unobserved` is the host's.
+AGENT_PROVING_GATE_BLOCKERS: frozenset[str] = frozenset({"validation_regression", "suppression_pattern"})
+AGENT_GATE_BLOCKERS: frozenset[str] = AGENT_PROVING_GATE_BLOCKERS | frozenset({"candidate_validation_not_green"})
+
+
+@dataclass(frozen=True)
+class ImplementationSettlement:
+    """The typed facts a settled ``implementation_rejected`` event carries."""
+
+    rejection_class: str
+    fault_domain: str
+    stage: str
+    cause: str
+    request_id: str = ""
+    # ARIA-HIGH-389 — the PR the kernel's delivery opened before the result
+    # was refused; absent (and absent from the payload, so every earlier
+    # settlement keeps its shape and idempotency key) when nothing was opened.
+    pr_number: int | None = None
+
+    def payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"stage": self.stage, "fault_domain": self.fault_domain, "cause": self.cause,
+                                   "request_id": self.request_id}
+        if self.pr_number is not None:
+            payload["pr_number"] = self.pr_number
+        return payload
+
+
+def _cause(reason: str) -> str:
+    return reason.split(":", 1)[0].strip()[:64]
+
+
+def _gate_blockers_are_the_agents(reason: str) -> bool:
+    items = {item for item in reason.split(":", 1)[1].split(",") if item}
+    return items <= AGENT_GATE_BLOCKERS and bool(items & AGENT_PROVING_GATE_BLOCKERS)
+
+
+def _result_codes_are_the_agents(reason: str) -> bool:
+    from .failure_attribution import attributable_rejection_code
+
+    codes = [code for code in reason.split(":", 2)[1].split(",") if code]
+    return bool(codes) and all(attributable_rejection_code(code) for code in codes)
+
+
+# (stage, reason prefix, class, domain, verifier) — the delivery causes the
+# kernel can attribute; the first match wins, no match is unclassified.
+_VERIFIED_DELIVERY_CAUSES: tuple[tuple[str, str, str, str, object], ...] = (
+    ("change_ledger", "change_committed_refused:scope_drift_requires_human",
+     "forbidden_scope_violation", FAULT_REQUEST, None),
+    ("result_admissible", "diff_secret_shaped:", "secret_leak_detected", FAULT_REQUEST, None),
+    ("result_admissible", "result_rejected:", IMPLEMENTATION_RESULT_INADMISSIBLE, FAULT_REQUEST,
+     _result_codes_are_the_agents),
+    ("apply_gate", "gate_blocked:", "validation_failed", FAULT_REQUEST, _gate_blockers_are_the_agents),
+    ("push", "push_failed:", PUSH_REFUSED, FAULT_HARNESS, None),
+    ("pr_open", "pr_open_refused:", PR_OPEN_REFUSED, FAULT_HARNESS, None),
+)
+
+
+def settlement_for_delivery(*, stage: str, reason: str, request_id: str) -> ImplementationSettlement:
+    """The settlement of a delivery the kernel refused at ``stage`` for ``reason``."""
+    for rule_stage, prefix, rejection_class, domain, verifier in _VERIFIED_DELIVERY_CAUSES:
+        if stage == rule_stage and reason.startswith(prefix) and (verifier is None or verifier(reason)):
+            return ImplementationSettlement(rejection_class, domain, stage, _cause(reason), request_id)
+    return ImplementationSettlement(IMPLEMENTATION_DELIVERY_UNCLASSIFIED, FAULT_UNCLASSIFIED, stage,
+                                    _cause(reason), request_id)
+
+
+def settlement_for_agent_refusal(*, reason_class: str, request_id: str) -> ImplementationSettlement:
+    """An agent's refusal: the agent's word, never verifiable, so unclassified."""
+    return ImplementationSettlement(IMPLEMENTER_REFUSED, FAULT_UNCLASSIFIED, AGENT_REFUSAL_STAGE,
+                                    _cause(reason_class), request_id)
+
+
+# The executor's pre-spawn refusals that end a request for good (released
+# request-class, escalated): a published branch a retry would collide with
+# (whose cause the kernel cannot tell), and a request row whose own
+# implementation ids are unusable (the kernel's mint).
+PRE_SPAWN_SETTLEMENT: dict[str, tuple[str, str]] = {
+    "implementation_branch_collision": ("branch_collision", FAULT_UNCLASSIFIED),
+    "implementation_request_invalid": (IMPLEMENTATION_REQUEST_INVALID, FAULT_HARNESS),
+}
+
+
+def settlement_for_pre_spawn(*, release_reason: str, request_id: str) -> ImplementationSettlement:
+    rejection_class, domain = PRE_SPAWN_SETTLEMENT[release_reason]
+    return ImplementationSettlement(rejection_class, domain, PRE_SPAWN_STAGE, release_reason, request_id)
+
+
+def settlement_for_orphan(*, request_id: str, wait_cause: str, waiting: bool) -> ImplementationSettlement:
+    """The orphan reaper's settlement (ARIA-HIGH-388): a plan whose implementation
+    request produced no outcome inside the reap bound.
+
+    No agent answer was judged, so it is never a `request` fault: `harness`
+    when the request was still waiting for the lane (never claimed, or last
+    released harness-class: an outage, a missing delivery authority, a
+    window), `unclassified` otherwise (claimed and lost, or escalated by a
+    writer that predates the settlement). Neither cools the finding off.
+    """
+    return ImplementationSettlement(ORPHAN_REAPED, FAULT_HARNESS if waiting else FAULT_UNCLASSIFIED,
+                                    ORPHAN_REAP_STAGE, _cause(wait_cause), request_id)
+
+
+# ARIA-HIGH-389 — the executor's refusals AFTER a successful delivery (the
+# branch pushed, the PR open), by the cause the executor names. None of them
+# is the work's: the delivery already ran the submit's own admissibility
+# decision on this envelope (`implementation_delivery`, round 5) and the apply
+# gate passed. The submit's bound, its probes, its lease or transport and the
+# native reconcile are the lane's (`harness`); the kernel refusing what it
+# admitted minutes earlier, or the executor's pre-submit check failing on
+# facts the kernel stamped, is a disagreement it cannot attribute
+# (`unclassified`). An unknown cause is `unclassified`.
+POST_DELIVERY_FAULT_DOMAINS: dict[str, str] = {
+    "submit_timeout": FAULT_HARNESS,
+    "evidence_verification_unavailable": FAULT_HARNESS,
+    "submit_rejected": FAULT_HARNESS,
+    "agent_result_rejected": FAULT_UNCLASSIFIED,
+    "pre_submit_invalid": FAULT_UNCLASSIFIED,
+    "native_result_unreconciled": FAULT_UNCLASSIFIED,
+}
+
+
+def settlement_for_post_delivery(*, request_id: str, cause: str, pr_number: int) -> ImplementationSettlement:
+    """A result refused after its PR was opened: the plan ends, carrying the PR
+    (``human_merge_surface`` hands it to a person by that number)."""
+    return ImplementationSettlement(IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
+                                    POST_DELIVERY_FAULT_DOMAINS.get(cause, FAULT_UNCLASSIFIED),
+                                    POST_DELIVERY_STAGE, _cause(cause), request_id, pr_number)

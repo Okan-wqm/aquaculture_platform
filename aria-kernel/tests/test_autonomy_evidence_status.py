@@ -1509,6 +1509,17 @@ def alias_factory(root):
                 "outage causality reads request state to gate a timer pause; it cannot accept a result",
             ("executor", f"{KERNEL}plan_request_closure.py", "consumer"):
                 "plan closure reads request state to cancel only unheld requests; it cannot accept a result",
+            # ARIA-HIGH-388 — the orphan reap's settlement derives the newest
+            # implementation request's state to name its wait (the fault
+            # domain); it reads the verdict, it cannot render one.
+            ("executor", f"{KERNEL}implementation_settlement.py", "consumer"):
+                "the settlement reads request state to name an orphaned plan's wait; it cannot accept a result",
+            # ARIA-HIGH-204 — the questioning fold reads a verification
+            # request's accepted result to record the outcome of re-asking a
+            # closed decision and to escalate an overturn; it reads the
+            # verdict, it cannot render one.
+            ("executor", f"{KERNEL}decision_questioning.py", "consumer"):
+                "the questioning fold reads request state to record the outcome of asking; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):

@@ -28,11 +28,16 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .finding_closure import FindingDetector, close_merged_plan_finding, default_detectors
-from .plan_convergence import (
-    events_path,
-    fold_plan_state,
-    record_implementation_merged,
+from .implementation_rejections import MERGEABLE_AFTER_REJECTION
+from .merge_record import (
+    MERGED_BY_OBSERVED,
+    MergeNotProven,
+    lifecycle_rows,
+    opened_row,
+    record_merge,
+    verify_merge_after_rejection,
 )
+from .plan_convergence import events_path, fold_plan_state
 from .ledger import LedgerIntegrityError, load_jsonl, state_transaction
 from .tool_registry import GovernanceError, ensure_tools_dir
 
@@ -61,11 +66,91 @@ def _implementation_states(root: Path) -> dict[str, dict[str, Any]]:
         plan_ids = sorted({
             str(row["plan_id"]) for row in events
             if row.get("event_type") in {"implementation_outcome_recorded", "implementation_merged"}
+            # ARIA-HIGH-390 — a plan ended after its PR existed may still be merged by a person.
+            or (row.get("event_type") == "implementation_rejected"
+                and (row.get("payload") or {}).get("rejection_class") in MERGEABLE_AFTER_REJECTION)
         })
     return {
         plan_id: fold_plan_state(plan_id=plan_id, base_dir=root)
         for plan_id in plan_ids
     }
+
+
+def _plan_change_ids(root: Path) -> dict[str, tuple[str, ...]]:
+    """plan id → the change ids the kernel minted for its implementation requests."""
+    from .agent_invocations import list_agent_invocation_requests
+
+    out: dict[str, list[str]] = {}
+    for row in list_agent_invocation_requests(base_dir=root):
+        change_id = (row.get("implementation_ids") or {}).get("change_id")
+        if row.get("role") == "implementation" and row.get("convergence_id") and isinstance(change_id, str):
+            out.setdefault(str(row["convergence_id"]), []).append(change_id)
+    return {plan_id: tuple(ids) for plan_id, ids in out.items()}
+
+
+def _observe_merge(
+    plan_id: str, state: dict[str, Any], *, reader: Any, lifecycle: list[dict[str, Any]],
+    change_ids: tuple[str, ...], base_branch: str,
+) -> dict[str, Any] | None:
+    """What GitHub says of the plan's PR: None (nothing to ask, or not merged), a refusal, or the merge."""
+    impl = state.get("implementation") or {}
+    if state.get("state") == "IMPLEMENTATION_RECORDED":
+        pr_number = _pr_number_from_url(str(impl.get("pr_url") or ""))
+        if pr_number is None:
+            return None
+        remote = reader.pr_merge_state(pr_number)
+        if not isinstance(remote, dict):
+            return None
+        merged_at = remote.get("mergedAt")
+        merge_commit = remote.get("mergeCommit") or {}
+        merge_sha = str(merge_commit.get("oid") or "") if isinstance(merge_commit, dict) else ""
+        if str(remote.get("state") or "").upper() != "MERGED" or not merged_at or not merge_sha:
+            return None
+        pr = opened_row(lifecycle, pr_number=pr_number) or {"number": pr_number, "head_sha": impl.get("branch_tip_sha")}
+        return {"merge": {
+            "pr": pr, "merge_sha": merge_sha, "merged_at": str(merged_at),
+            "idempotency_key_hash": _idempotency_key_hash(
+                plan_id, str(impl.get("diff_hash") or ""), pr_number, base_branch,
+                str(impl.get("branch_tip_sha") or "")),
+        }}
+    rejected_class = impl.get("rejection_class")
+    if state.get("state") != "IMPLEMENTATION_REJECTED" or rejected_class not in MERGEABLE_AFTER_REJECTION:
+        return None
+    # ARIA-HIGH-390 — the kernel's own PR for this plan, by the change it minted.
+    opened = None
+    for change_id in change_ids:
+        opened = opened_row(lifecycle, change_id=change_id) or opened
+    if opened is None:
+        return None
+    remote = reader.pr_merge_state(int(opened["pr_number"]))
+    if not isinstance(remote, dict) or str(remote.get("state") or "").upper() != "MERGED":
+        return None
+    try:
+        merge_sha, merged_at = verify_merge_after_rejection(opened=opened, remote=remote)
+    except MergeNotProven as exc:
+        return {"refused": str(exc)}
+    return {"merge": {
+        "pr": opened, "merge_sha": merge_sha, "merged_at": merged_at,
+        "idempotency_key_hash": _idempotency_key_hash(
+            plan_id, "", int(opened["pr_number"]), base_branch, str(opened["head_sha"])),
+        "merged_after_rejection": {"rejection_class": str(rejected_class), "pr_number": int(opened["pr_number"]),
+                                   "head_sha": str(opened["head_sha"])},
+    }}
+
+
+def _backfill_lifecycle(
+    plan_id: str, state: dict[str, Any], lifecycle: list[dict[str, Any]], root: Path,
+) -> list[dict[str, Any]]:
+    impl = state.get("implementation") or {}
+    after = (state.get("implementation") or {}).get("merged_after_rejection") or {}
+    pr_number = _pr_number_from_url(str(impl.get("pr_url") or "")) or after.get("pr_number")
+    if type(pr_number) is not int or any(row.get("event") == "merged" and row.get("pr_number") == pr_number
+                                         for row in lifecycle):
+        return []
+    pr = opened_row(lifecycle, pr_number=pr_number) or {"number": pr_number, "head_sha": impl.get("branch_tip_sha")}
+    written = record_merge(pr=pr, merged_by=MERGED_BY_OBSERVED, base_dir=root)
+    lifecycle.extend(lifecycle_rows(root)[len(lifecycle):])
+    return [{"plan_id": plan_id, "pr_number": pr_number}] if written["lifecycle_row"] else []
 
 
 def _reconcile_promotion(plan_id: str, root: Path) -> dict[str, Any]:
@@ -143,11 +228,13 @@ def reconcile_recorded_implementations(
     # pass checks its completion and its unverifiable tries against it, and a
     # completed pass is skipped without folding the finding store.
     history = load_jsonl(root / "governance.jsonl") if any(
-        state.get("state") in {"IMPLEMENTATION_MERGED", "IMPLEMENTATION_RECORDED"} for state in states.values()
+        state.get("state") in {"IMPLEMENTATION_MERGED", "IMPLEMENTATION_RECORDED", "IMPLEMENTATION_REJECTED"}
+        for state in states.values()
     ) else []
     result: dict[str, Any] = {
         "status": "reconciled", "merged": [], "checked": 0,
         "promotions": [], "merge_errors": [], "finding_closures": [],
+        "merge_refusals": [], "lifecycle_backfilled": [],
     }
     for plan_id, state in states.items():
         if state.get("state") == "IMPLEMENTATION_MERGED":
@@ -156,6 +243,14 @@ def reconcile_recorded_implementations(
                 _close_finding(plan_id, state, root, checkout, finding_detectors, history),
             )
 
+    # ARIA-HIGH-390 — a plan merged before the one owner existed (or by a
+    # writer that recorded only the plan) gets its PR's lifecycle row from
+    # the plan's own merge: no GitHub read, the merge is already proven.
+    lifecycle = lifecycle_rows(root)
+    for plan_id, state in states.items():
+        if state.get("state") == "IMPLEMENTATION_MERGED":
+            result["lifecycle_backfilled"].extend(_backfill_lifecycle(plan_id, state, lifecycle, root))
+
     # Local recovery above does not depend on credentials or network health.
     # Neither this call nor pr_merge_state below runs inside a state lock.
     readable, reason = reader.readable()
@@ -163,43 +258,27 @@ def reconcile_recorded_implementations(
         result.update(status="unreadable", reason=reason)
         return result
 
+    change_ids = _plan_change_ids(root)
     for plan_id, state in states.items():
-        if state.get("state") != "IMPLEMENTATION_RECORDED":
-            continue
-        impl = state.get("implementation") or {}
-        pr_number = _pr_number_from_url(str(impl.get("pr_url") or ""))
-        if pr_number is None:
+        observed = _observe_merge(plan_id, state, reader=reader, lifecycle=lifecycle,
+                                  change_ids=change_ids.get(plan_id, ()), base_branch=base_branch)
+        if observed is None:
             continue
         result["checked"] += 1
-        remote = reader.pr_merge_state(pr_number)
-        if not isinstance(remote, dict):
-            continue
-        merged_at = remote.get("mergedAt")
-        merge_commit = remote.get("mergeCommit") or {}
-        merge_sha = str(merge_commit.get("oid") or "") if isinstance(merge_commit, dict) else ""
-        if str(remote.get("state") or "").upper() != "MERGED" or not merged_at or not merge_sha:
+        if "refused" in observed:
+            result["merge_refusals"].append({"plan_id": plan_id, "reason": observed["refused"]})
             continue
         try:
-            event = record_implementation_merged(
-                plan_id=plan_id,
-                merge_sha=merge_sha,
-                merged_at=str(merged_at),
-                idempotency_key_hash=_idempotency_key_hash(
-                    plan_id,
-                    str(impl.get("diff_hash") or ""),
-                    pr_number,
-                    base_branch,
-                    str(impl.get("branch_tip_sha") or ""),
-                ),
-                base_dir=root,
-            )
-        except GovernanceError as exc:
+            written = record_merge(plan_id=plan_id, merged_by=MERGED_BY_OBSERVED, base_dir=root, **observed["merge"])
+        except (GovernanceError, MergeNotProven) as exc:
             # Contention or a refused transition is observable. The next pass
             # discovers any concurrently persisted merge from its own ledger.
             result["merge_errors"].append({"plan_id": plan_id, "reason": str(exc)[:500]})
             continue
-        if event["event_appended"]:
-            result["merged"].append({"plan_id": plan_id, "pr_number": pr_number, "merge_sha": merge_sha})
+        event = written.get("plan_event") or {}
+        if event.get("event_appended"):
+            result["merged"].append({"plan_id": plan_id, "pr_number": written["pr_number"],
+                                     "merge_sha": observed["merge"]["merge_sha"]})
         result["promotions"].append(_reconcile_promotion(plan_id, root))
         result["finding_closures"].append(_close_finding(
             plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), root, checkout, finding_detectors, history,

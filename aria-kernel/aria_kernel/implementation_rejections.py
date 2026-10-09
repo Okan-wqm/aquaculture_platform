@@ -261,3 +261,13 @@ def settlement_for_post_delivery(*, request_id: str, cause: str, pr_number: int)
     return ImplementationSettlement(IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
                                     POST_DELIVERY_FAULT_DOMAINS.get(cause, FAULT_UNCLASSIFIED),
                                     POST_DELIVERY_STAGE, _cause(cause), request_id, pr_number)
+
+
+# ARIA-HIGH-390 — the classes that end a plan after its PR existed: a person
+# may still merge that PR, and the plan ledger then records the merge
+# (`merge_record`, `plan_convergence.record_implementation_merged`). Every
+# other rejection ended the plan before anything was published to merge.
+MERGEABLE_AFTER_REJECTION: frozenset[str] = frozenset({
+    IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
+    ORPHAN_REAPED,
+})

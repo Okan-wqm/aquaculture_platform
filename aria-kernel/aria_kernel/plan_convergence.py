@@ -1643,6 +1643,32 @@ def record_implementation_outcome(
     )
 
 
+def _require_mergeable(state: dict[str, Any], merged_after_rejection: Any) -> None:
+    """ARIA-HIGH-390 — the one predecessor rule of ``implementation_merged``.
+
+    RECORDED, as always; or REJECTED when the event names the plan's own
+    rejection, of a class that ended the plan after its PR existed
+    (``implementation_rejections.MERGEABLE_AFTER_REJECTION``) — a person merged
+    that PR anyway. ``merge_record`` verified the merge on GitHub against the
+    kernel's own ``opened`` row before writing.
+    """
+    from .implementation_rejections import MERGEABLE_AFTER_REJECTION
+
+    prior = state.get("state")
+    if merged_after_rejection is None and prior == "IMPLEMENTATION_RECORDED":
+        return
+    rejected_class = (state.get("implementation") or {}).get("rejection_class")
+    if (prior == "IMPLEMENTATION_REJECTED" and isinstance(merged_after_rejection, dict)
+            and merged_after_rejection.get("rejection_class") == rejected_class
+            and rejected_class in MERGEABLE_AFTER_REJECTION):
+        return
+    raise GovernanceError(
+        f"invalid_transition: from={prior} event=implementation_merged expected=IMPLEMENTATION_RECORDED "
+        f"(or IMPLEMENTATION_REJECTED of a class in {sorted(MERGEABLE_AFTER_REJECTION)} named by "
+        f"merged_after_rejection)"
+    )
+
+
 def record_implementation_merged(
     *,
     plan_id: str,
@@ -1650,11 +1676,14 @@ def record_implementation_merged(
     merged_at: str,
     idempotency_key_hash: str,
     base_dir: str | Path | None = None,
+    merged_after_rejection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """V9.2 — emit ``implementation_merged`` event (terminal state
     IMPLEMENTATION_MERGED).
 
-    State precondition: IMPLEMENTATION_RECORDED. CI green + auto-merge
+    State precondition: IMPLEMENTATION_RECORDED, or a REJECTED plan whose PR a
+    person merged (``merged_after_rejection``, ARIA-HIGH-390; ``merge_record`` is
+    the only caller and verifies the merge first). CI green + auto-merge
     succeeded.
 
     ``idempotency_key_hash`` is sha256 of the V9.6 5-tuple
@@ -1666,11 +1695,13 @@ def record_implementation_merged(
     _require_non_empty(merge_sha, "merge_sha")
     _require_non_empty(merged_at, "merged_at")
     _require_hash(idempotency_key_hash, "idempotency_key_hash")
-    payload = {
+    payload: dict[str, Any] = {
         "merge_sha": merge_sha,
         "merged_at": merged_at,
         "idempotency_key_hash": idempotency_key_hash,
     }
+    if merged_after_rejection is not None:
+        payload["merged_after_rejection"] = merged_after_rejection
     return _mutate(
         plan_id=plan_id,
         command_name="record-implementation-merged",
@@ -1678,9 +1709,7 @@ def record_implementation_merged(
         event_type="implementation_merged",
         payload=payload,
         base_dir=base_dir,
-        validator=lambda state: _require_state(
-            state, {"IMPLEMENTATION_RECORDED"}, "record implementation merged",
-        ),
+        validator=lambda state: _require_mergeable(state, merged_after_rejection),
     )
 
 
@@ -2480,11 +2509,9 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         impl["base_branch_sha"] = payload["base_branch_sha"]
         impl["completed_at"] = payload.get("completed_at")
     elif event_type == "implementation_merged":
-        if state.get("state") != "IMPLEMENTATION_RECORDED":
-            raise GovernanceError(
-                f"invalid_transition: from={state.get('state')} "
-                f"event=implementation_merged expected=IMPLEMENTATION_RECORDED"
-            )
+        _require_mergeable(state, payload.get("merged_after_rejection"))
+        if payload.get("merged_after_rejection") is not None:
+            state["implementation"]["merged_after_rejection"] = payload["merged_after_rejection"]
         state["state"] = "IMPLEMENTATION_MERGED"
         state["terminal_state"] = "IMPLEMENTATION_MERGED"
         state["implementation"]["merge_sha"] = payload["merge_sha"]
@@ -3178,6 +3205,12 @@ def _validate_event(event: dict[str, Any]) -> None:
     elif event_type == "implementation_merged":
         _require_non_empty(payload.get("merge_sha"), "merge_sha")
         _require_non_empty(payload.get("merged_at"), "merged_at")
+        if "merged_after_rejection" in payload:
+            after = payload["merged_after_rejection"]
+            if (not isinstance(after, dict) or type(after.get("pr_number")) is not int
+                    or not all(isinstance(after.get(key), str) and after[key]
+                               for key in ("rejection_class", "head_sha"))):
+                raise GovernanceError("merged_after_rejection names rejection_class, pr_number and head_sha")
         # Idempotency-key is a 5-tuple per V9.6 (closes arb HIGH-006).
         # Encoded here as a sha256 hash of the canonical tuple so the
         # validator can _require_hash without re-implementing 5-field

@@ -12,7 +12,6 @@ from .auto_merge import (
     evaluate_auto_merge,
     human_merge_decision,
     merge_outcome,
-    record_pr_lifecycle,
 )
 from .autonomous_host_lease import release_remote_cas_lease
 from .autonomy_unlock import assert_autonomy_unlocked
@@ -25,6 +24,7 @@ from .incident_ledger import (
 )
 from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .merge_lane_merge_state import route_unmergeable_merge_state
+from .merge_record import MERGED_BY_MERGE_LANE, record_merge
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
@@ -465,7 +465,8 @@ def _record_merge_result(
             merge_result=merge_result,
             base_dir=base_dir,
         )
-        record_pr_lifecycle(fresh_pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
+        # ARIA-HIGH-390 — the one writer of "merged" (`merge_record`).
+        record_merge(pr=fresh_pr, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir, cycle_id=cycle_id)
         return result
     if merge_result.get("enqueued") is True:
         result.update({"decision": "enqueued", "eligible": True})
@@ -553,7 +554,7 @@ def reconcile_enqueued_merges(
                 merge_result=row["merge_result"],
                 base_dir=base_dir,
             )
-            record_pr_lifecycle(pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
+            record_merge(pr=pr, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir, cycle_id=cycle_id)
         else:
             observed = str(state.get("state") or "")
             if state.get("head_sha") != head_sha:

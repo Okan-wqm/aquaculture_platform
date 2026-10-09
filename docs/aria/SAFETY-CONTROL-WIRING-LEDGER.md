@@ -417,9 +417,9 @@ with it the `aria-kernel` / `unittest` check that had been red on `main` since
 
 Measured 2026-09-09; check them before acting, they may have moved.
 
-| Control             | Disposition    | Why                                                                                        |
-| ------------------- | -------------- | ------------------------------------------------------------------------------------------ |
-| `verify_branch_tip` | keep (in date) | `merge_pr_if_ready` does its own inline head-SHA comparison; PLAN Wave 8 collapses the two |
+| Control             | Disposition          | Why                                                                                                                                                                                                                                 |
+| ------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verify_branch_tip` | deleted (2026-10-08) | Never called: the V9 merge surface it served is disabled (`evaluate_v9_implementation_merge` always returns `v9_merge_path_disabled`), and the head-SHA recheck lives in `implementation_safety._check_branch_tip_lock_and_recheck` |
 
 What 2026-09-09 actually taught, now that the deletions have been done rather
 than planned:

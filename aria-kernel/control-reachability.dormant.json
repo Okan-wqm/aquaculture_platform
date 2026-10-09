@@ -28,11 +28,5 @@
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
     "reason": "Sandbox check for a generated adapter's entry-point signature. Same dormant skill-genesis lane; wire with its siblings or not at all. Renewed 2026-09-21 for thirty days by the operator's delegate: the flow this control belongs to has not started, and the six dormancy waivers lapsed together on 2026-09-20 and turned every kernel lane red."
-  },
-  "verify_branch_tip": {
-    "expires_on": "2026-10-20",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "Auto-merge head-SHA freshness check. merge_pr_if_ready performs its own head-SHA freshness comparison inline, so the protection exists; this is the extracted helper that the inline code never adopted. PLAN Wave 8 implements branch_tip_lock_and_recheck as a real hard-fail check - that is where these two collapse into one. Renewed 2026-09-21 for thirty days by the operator's delegate: the flow this control belongs to has not started, and the six dormancy waivers lapsed together on 2026-09-20 and turned every kernel lane red."
   }
 }

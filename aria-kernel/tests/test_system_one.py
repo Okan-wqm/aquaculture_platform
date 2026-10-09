@@ -107,6 +107,14 @@ class _Store(unittest.TestCase):
         pinned = mock.patch.object(system_one, "PUBLIC_REPOSITORY_URL", str(self.origin))
         pinned.start()
         self.addCleanup(pinned.stop)
+        # Hermetic: no test depends on the host's certificate files; the CA
+        # bundle is a file this test owns.
+        self.ca_bundle = Path(self._tmp.name + "-ca.pem")
+        self.ca_bundle.write_text("-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n", encoding="utf-8")
+        self.addCleanup(lambda: self.ca_bundle.unlink(missing_ok=True))
+        ca = mock.patch.object(system_one, "_system_ca_bundle", return_value=self.ca_bundle)
+        ca.start()
+        self.addCleanup(ca.stop)
         self.base = self.commit_file("src/x.ts", "repo.getRepository(X)\n", "base")
         self.fix = self.commit_file("src/x.ts", "repo.getScopedRepository(X)\n", "scope the repository")
         self.tools = ensure_tools_dir(self.root / "aria-tools")
@@ -327,8 +335,12 @@ class Refusals(_Store):
             self.assertIn("http.proxy=", settings)
             self.assertIn("http.sslVerify=true", settings)
             self.assertIn("credential.helper=", settings)
-            self.assertTrue(any(s.startswith("http.sslCAInfo=") and s != "http.sslCAInfo=/tmp/evil-ca.pem"
-                                for s in settings))
+            self.assertIn(f"http.sslCAInfo={self.ca_bundle}", settings)
+
+    def test_no_system_ca_bundle_is_a_named_refusal(self) -> None:
+        transport = _Transport()
+        with mock.patch.object(system_one, "_system_ca_bundle", return_value=None):
+            self.assert_refused(self.ask("J0", self.refs(), transport), transport, "public_remote_ca_unavailable")
 
     def test_a_url_rewrite_of_the_pinned_repository_is_refused(self) -> None:
         self.git("config", f"url.{self.root}.insteadOf", str(self.origin))
@@ -404,6 +416,42 @@ class Refusals(_Store):
         transport = _Transport()
         self.assert_refused(self.ask("J0", self.refs(), transport, subject="customer jane.doe asked"), transport,
                             "subject_not_an_id")
+
+
+class SystemCaBundle(unittest.TestCase):
+    """The resolver picks the first existing bundle and never the environment's."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def paths(self, openssl_cafile: str, cafile: str) -> Any:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(openssl_cafile=openssl_cafile, cafile=cafile, openssl_cafile_env="SSL_CERT_FILE")
+
+    def test_a_missing_compiled_default_falls_back_to_a_system_bundle(self) -> None:
+        bundle = self.root / "ca-certificates.crt"
+        bundle.write_text("x", encoding="utf-8")
+        with mock.patch("ssl.get_default_verify_paths", return_value=self.paths("/nonexistent/cert.pem", "/nonexistent/cert.pem")), \
+                mock.patch.object(system_one, "SYSTEM_CA_BUNDLES", ("/nonexistent/a.crt", str(bundle))), \
+                mock.patch.dict(system_one.os.environ, {}, clear=False):
+            system_one.os.environ.pop("SSL_CERT_FILE", None)
+            self.assertEqual(system_one._system_ca_bundle(), bundle)
+
+    def test_the_environment_override_is_never_chosen(self) -> None:
+        planted = self.root / "planted.pem"
+        planted.write_text("x", encoding="utf-8")
+        with mock.patch("ssl.get_default_verify_paths", return_value=self.paths("/nonexistent/cert.pem", str(planted))), \
+                mock.patch.object(system_one, "SYSTEM_CA_BUNDLES", ("/nonexistent/a.crt",)), \
+                mock.patch.dict(system_one.os.environ, {"SSL_CERT_FILE": str(planted)}):
+            self.assertIsNone(system_one._system_ca_bundle())
+
+    def test_none_when_no_bundle_exists(self) -> None:
+        with mock.patch("ssl.get_default_verify_paths", return_value=self.paths("/nonexistent/x", "/nonexistent/y")), \
+                mock.patch.object(system_one, "SYSTEM_CA_BUNDLES", ("/nonexistent/a.crt",)):
+            self.assertIsNone(system_one._system_ca_bundle())
 
 
 class Ledger(_Store):

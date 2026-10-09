@@ -294,6 +294,14 @@ def _public_transport_config() -> tuple[str, ...]:
     )
 
 
+#: Distro system bundles — same trust roots as the compiled default, admin-owned paths.
+SYSTEM_CA_BUNDLES = (
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu (ca-certificates)
+    "/etc/pki/tls/certs/ca-bundle.crt",  # RHEL/Fedora
+    "/etc/ssl/ca-bundle.pem",  # openSUSE
+)
+
+
 def _system_ca_bundle() -> Path | None:
     """A SYSTEM trust bundle that exists as a file, or None.
 
@@ -305,13 +313,7 @@ def _system_ca_bundle() -> Path | None:
     """
     import ssl
 
-    candidates = [
-        ssl.get_default_verify_paths().openssl_cafile or "",
-        # Distro system bundles — same trust roots, same admin-owned path.
-        "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu (ca-certificates)
-        "/etc/pki/tls/certs/ca-bundle.crt",  # RHEL/Fedora
-        "/etc/ssl/ca-bundle.pem",  # openSUSE
-    ]
+    candidates = [ssl.get_default_verify_paths().openssl_cafile or "", *SYSTEM_CA_BUNDLES]
     for candidate in candidates:
         if candidate:
             path = Path(candidate)

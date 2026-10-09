@@ -390,6 +390,17 @@ def compute_plan_coverage(
     manifest_hash = "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()
 
     fields = _coverage_report_fields(report, round_number=round_number, manifest_relpath=manifest_relpath)
+    # ARIA-HIGH-397 — the same round's evaluation target, asked a second
+    # question: do the module specifiers its key changes prescribe resolve
+    # under the repository's own TypeScript? Its risks ride the block (the
+    # coverage verdict stays the closure's own) and are folded onto the same
+    # risk channel by the reducer.
+    from .plan_import_resolution import compute_import_resolution
+
+    import_resolution, import_risks = compute_import_resolution(
+        plan_content=plan_content, round_number=round_number, workspace_root=workspace,
+        input_path=coverage_dir / f"{plan_id}-r{round_number}-imports-input.json", runner=runner,
+    )
     return {
         "round_number": round_number,
         "target_revision_id": target_revision_id,
@@ -403,4 +414,5 @@ def compute_plan_coverage(
         "synthetic_risks": fields["synthetic_risks"],
         "computed_at_sha": computed_at_sha,
         "witness": witness_meta,
+        "import_resolution": {**import_resolution, "synthetic_risks": import_risks},
     }

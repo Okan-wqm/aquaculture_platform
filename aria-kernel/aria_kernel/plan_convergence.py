@@ -2383,7 +2383,10 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         # globally-accumulating resolved_review_risk_ids set cannot mask a
         # re-detected gap in a later round.
         surfaced = state["cross_review_risks_by_round"].setdefault(round_number, [])
-        for risk in payload.get("synthetic_risks", []):
+        # ARIA-HIGH-397 — an unresolved prescribed import rides the same
+        # channel (IMP-R{N}-… ids, round-scoped like coverage gaps).
+        import_risks = (payload.get("import_resolution") or {}).get("synthetic_risks", [])
+        for risk in [*payload.get("synthetic_risks", []), *import_risks]:
             surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
     elif event_type == "plan_evaluated":
         state["state"] = payload["terminal_state"]
@@ -2881,6 +2884,19 @@ def _validate_coverage_record(state: dict[str, Any], payload: dict[str, Any]) ->
         raise GovernanceError("synthetic_risks must be an array within the risk limit")
     for risk in synthetic_risks:
         _validate_cross_review_risk(risk)
+    # ARIA-HIGH-397 — the prescribed-imports block (absent on events recorded
+    # before it existed). Its risks are validated like any risk and must name
+    # exactly the unresolved specifiers.
+    if "import_resolution" in payload:
+        from .plan_import_resolution import validate_import_resolution
+
+        imports = payload["import_resolution"]
+        validate_import_resolution(imports)
+        import_risks = imports.get("synthetic_risks")
+        if not isinstance(import_risks, list) or len(import_risks) != len(imports["unresolved"]):
+            raise GovernanceError("import_resolution synthetic_risks must name each unresolved specifier once")
+        for risk in import_risks:
+            _validate_cross_review_risk(risk)
     # Verdict/content consistency — a "gaps" verdict without named nodes (or
     # vice versa) is a witness bug and must not enter the ledger.
     if verdict == "gaps":
@@ -3272,6 +3288,58 @@ def _evaluate_state(state: dict[str, Any], round_number: int) -> dict[str, Any]:
     }
 
 
+PRESCRIBED_IMPORTS_GATE = "prescribed_imports_resolve"
+PRESCRIBED_IMPORTS_UNRESOLVED = "prescribed_imports_unresolved"
+PRESCRIBED_IMPORTS_UNCHECKED = "prescribed_imports_unchecked"
+PRESCRIBED_IMPORTS_ENVIRONMENT_UNABLE = "prescribed_imports_environment_unable"
+
+
+def _coverage_target_content(state: dict[str, Any], coverage: dict[str, Any]) -> dict[str, Any] | None:
+    """The plan body a round's coverage event evaluated (the challenger's in round 1, else a revision)."""
+    target = (coverage.get("target_revision_id"), coverage.get("target_plan_content_hash"))
+    challenger = state.get("challenger") or {}
+    if target == (challenger.get("challenger_revision_id"), challenger.get("content_hash")):
+        return challenger.get("plan_content")
+    latest = state.get("latest_revision") or {}
+    if target == (latest.get("revision_id"), latest.get("content_hash")):
+        if latest.get("source") == "plan_started":
+            return (state.get("plan_started") or {}).get("plan_content")
+        return latest.get("content")
+    return None
+
+
+def _prescribed_imports_gate(
+    state: dict[str, Any], coverage: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """(the gate decision or None when the target prescribes nothing, an escalation reason or None)."""
+    from .plan_import_resolution import (
+        VERDICT_ENVIRONMENT_UNABLE,
+        VERDICT_NOT_APPLICABLE,
+        VERDICT_UNRESOLVED,
+        prescribed_imports,
+    )
+
+    if coverage is None:
+        return None, None
+    block = coverage.get("import_resolution")
+    content = _coverage_target_content(state, coverage)
+    if block is None and not prescribed_imports(content):
+        return None, None
+    if block is None or (block.get("verdict") == VERDICT_NOT_APPLICABLE and prescribed_imports(content)):
+        gate = {"gate": PRESCRIBED_IMPORTS_GATE, "verdict": "unchecked", "passed": False}
+        return gate, PRESCRIBED_IMPORTS_UNCHECKED
+    verdict = block.get("verdict")
+    gate = {
+        "gate": PRESCRIBED_IMPORTS_GATE,
+        "verdict": verdict,
+        "passed": verdict != VERDICT_UNRESOLVED and verdict != VERDICT_ENVIRONMENT_UNABLE,
+        "unresolved": [f"{item.get('specifier')} @ {item.get('from_path')}" for item in block.get("unresolved") or []],
+    }
+    if verdict == VERDICT_ENVIRONMENT_UNABLE:
+        return gate, PRESCRIBED_IMPORTS_ENVIRONMENT_UNABLE
+    return gate, None
+
+
 def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, max_rounds: int) -> dict[str, Any]:
     cross = state["cross_reviews"][round_number]
     risks = list(state.get("cross_review_risks_by_round", {}).get(round_number, []))
@@ -3331,6 +3399,24 @@ def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, ma
             }
         if coverage_verdict == "gaps":
             blockers.append("coverage_gaps_present")
+        # ARIA-HIGH-397 — the round's target prescribes module specifiers:
+        # the compiler-backed witness must have answered, and every one must
+        # resolve. A missing or unusable answer is HUMAN_REQUIRED (the
+        # environment does not heal round over round); an unresolved one is
+        # a blocker the next revision addresses through its IMP risk.
+        imports_gate, imports_escalation = _prescribed_imports_gate(state, coverage)
+        if imports_gate is not None:
+            gate_decisions.append(imports_gate)
+            summary["prescribed_imports"] = imports_gate["verdict"]
+        if imports_escalation is not None:
+            return {
+                "terminal_state": "HUMAN_REQUIRED",
+                "risks_rollup_summary": summary,
+                "gate_decisions": gate_decisions,
+                "reason_codes": sorted(set(blockers + [imports_escalation])),
+            }
+        if imports_gate is not None and not imports_gate["passed"]:
+            blockers.append(PRESCRIBED_IMPORTS_UNRESOLVED)
     if blockers:
         if round_number >= max_rounds:
             return {

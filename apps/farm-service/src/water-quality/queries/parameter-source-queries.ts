@@ -46,3 +46,13 @@ export class ListParameterQuantityDeclarationsQuery implements ITenantQuery {
     public readonly parameterConfigId: string,
   ) {}
 }
+
+/** How many live channel sources a parameter has anywhere (its meaning is fixed while any exists). */
+export class CountLiveChannelSourcesQuery implements ITenantQuery {
+  readonly queryName = 'CountLiveChannelSourcesQuery';
+
+  constructor(
+    public readonly tenantId: string,
+    public readonly parameterConfigId: string,
+  ) {}
+}

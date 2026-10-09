@@ -26,6 +26,7 @@ import {
   FRONTEND_MUTATION_ROLES,
   type FrontendMutationName,
 } from './permission-matrix';
+import { SENSOR_MUTATION_ROLES, type SensorMutationName } from './sensor-permission-matrix';
 
 export function useCanMutate(name: FrontendMutationName): boolean {
   const { user, isAuthenticated } = useAuth();
@@ -40,4 +41,13 @@ export function useCanMutate(name: FrontendMutationName): boolean {
     FRONTEND_MUTATION_ROLES[name] ?? [];
 
   return allowedRoles.includes(user.role as UserRole);
+}
+
+/** The same gate for a sensor-service mutation (SENSOR_MUTATION_ROLES mirrors its resolver). */
+export function useCanMutateSensor(name: SensorMutationName): boolean {
+  const { user, isAuthenticated } = useAuth();
+  if (!isAuthenticated || !user) return false;
+  if (user.role === 'SUPER_ADMIN') return true;
+  const allowedRoles: readonly UserRole[] = SENSOR_MUTATION_ROLES[name];
+  return allowedRoles.some((role) => role === user.role);
 }

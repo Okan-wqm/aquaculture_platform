@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useConfirm, useToast, Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { graphqlFetch } from '../config/api';
 import {
   ArrowLeft,
@@ -272,7 +272,14 @@ const DeviceDetailPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'channels'>('overview');
+  // `?tab=channels&channel=<key>` opens a channel directly — the link a
+  // water-chemistry source problem (CHANNEL_HAS_NO_QUANTITY, QUANTITY_MISMATCH…)
+  // fixes from.
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<'overview' | 'channels'>(
+    searchParams.get('tab') === 'channels' ? 'channels' : 'overview',
+  );
+  const focusChannelKey = searchParams.get('channel');
 
   const fetchDevice = useCallback(async () => {
     if (!deviceId) return;
@@ -448,7 +455,9 @@ const DeviceDetailPage: React.FC = () => {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'channels' && deviceId && <ChannelManagerPanel sensorId={deviceId} />}
+      {activeTab === 'channels' && deviceId && (
+        <ChannelManagerPanel sensorId={deviceId} focusChannelKey={focusChannelKey} />
+      )}
 
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

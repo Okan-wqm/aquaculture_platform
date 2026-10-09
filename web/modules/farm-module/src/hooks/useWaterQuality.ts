@@ -74,7 +74,10 @@ export interface WaterQualitySummary {
 export interface WaterQualityMeasurement {
   id: string;
   tenantId: string;
+  /** The measurement's point — exactly one of tankId, equipmentId, systemId (the one-point rule). */
   tankId?: string;
+  equipmentId?: string;
+  systemId?: string;
   pondId?: string;
   siteId?: string;
   batchId?: string;
@@ -189,6 +192,8 @@ const WATER_QUALITY_FRAGMENT = `
   id
   tenantId
   tankId
+  equipmentId
+  systemId
   pondId
   siteId
   batchId

@@ -7,12 +7,14 @@
 
 import React, { useState, useCallback } from 'react';
 import {
+  useCanMutateSensor,
   useConfirm,
   DataTable,
   type DataTableColumn,
   Spinner,
   Button,
 } from '@aquaculture/shared-ui';
+import { ChannelQuantitySelect } from './ChannelQuantitySelect';
 import { Plus, Edit, Trash2, AlertCircle, Sparkles } from 'lucide-react';
 import {
   useChannelManagement,
@@ -30,6 +32,8 @@ import { DataChannelConfig, ChannelDataType } from '../../types/registration.typ
 
 interface ChannelManagerPanelProps {
   sensorId: string;
+  /** A channel to point out (opened from a water-chemistry source problem). */
+  focusChannelKey?: string | null;
 }
 
 // ============================================================================
@@ -148,10 +152,18 @@ function getSourceBadge(source?: string) {
 // Component
 // ============================================================================
 
-export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensorId }) => {
+export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({
+  sensorId,
+  focusChannelKey = null,
+}) => {
   const confirm = useConfirm();
+  // The shared sensor mirror of the resolver's @Roles (parity-tested).
+  const canDeclare = useCanMutateSensor('declareChannelQuantity');
+  const canClear = useCanMutateSensor('clearChannelQuantity');
+  const canDeclareQuantity = canDeclare && canClear;
   const {
     channels,
+    setChannelQuantity,
     fetchLoading,
     error,
     mutationError,
@@ -262,7 +274,14 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
     {
       key: 'kanalAnahtari',
       header: 'Kanal Anahtari',
-      render: (_value, ch) => ch.channelKey,
+      render: (_value, ch) =>
+        ch.channelKey === focusChannelKey ? (
+          <mark className="rounded bg-warning-100 px-1 dark:bg-warning-900/40" data-focused-channel>
+            {ch.channelKey}
+          </mark>
+        ) : (
+          ch.channelKey
+        ),
     },
     {
       key: 'etiket',
@@ -278,6 +297,17 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       key: 'birim',
       header: 'Birim',
       render: (_value, ch) => ch.unit || '-',
+    },
+    {
+      key: 'olcum',
+      header: 'Ölçülen büyüklük',
+      render: (_value, ch) => (
+        <ChannelQuantitySelect
+          channel={ch}
+          disabled={!canDeclareQuantity}
+          onChange={(quantity) => void setChannelQuantity(ch.id, quantity)}
+        />
+      ),
     },
     {
       key: 'aralik',

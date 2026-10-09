@@ -144,3 +144,22 @@ test('Deffeyes ALK/DIC chart, report print, and CSP stay release-safe', async ({
   expect(cspMessages).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
+
+test('the Sources tab opens for a reader without a page error and offers no write', async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  await installShellAuthMocks(page);
+  await page.goto('');
+  await expect(page.getByText('Water Quality Management Chart').first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Sources', exact: true }).click();
+  await expect(
+    page.getByText('Choose a measurement point to see where each parameter is read there.'),
+  ).toBeVisible();
+  // MODULE_USER reads sources; binding is TENANT_ADMIN / MODULE_MANAGER only.
+  await expect(page.getByRole('button', { name: 'Bind', exact: true })).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
+});

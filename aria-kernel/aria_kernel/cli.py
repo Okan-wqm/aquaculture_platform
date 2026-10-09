@@ -1265,6 +1265,17 @@ def build_parser() -> argparse.ArgumentParser:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+    # ARIA-MEDIUM-395 — the standalone fixture runner. refresh_fixture_suite
+    # was reachable only through the superseded heartbeat phase, so with that
+    # driver dead no fixture suite ran and SHADOW->ACTIVE promotion evidence
+    # could only rot.
+    tool_fixture_refresh = add_subparser(tool_sub, "fixture-refresh")
+    tool_fixture_refresh.add_argument("--tool-id", default=None,
+        help="Refresh one tool's fixture suite; without it every registered tool is walked.")
+    tool_fixture_refresh.add_argument("--cycle-id", required=True)
+    # Required and pinned: the verb writes promotion evidence, so it runs
+    # only against the store's own checkout at a clean HEAD.
+    tool_fixture_refresh.add_argument("--workspace-root", required=True)
     # C1 (E4) — the promotion verb the registry never had. promote_tool has
     # existed with every gate (fixture pass, readiness, operator approval)
     # and ZERO command surface, so no adapter could ever leave SHADOW and
@@ -4239,6 +4250,30 @@ def _main(argv: list[str] | None = None) -> int:
         # can pattern-match exit code for failure detection.
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+
+    # ARIA-MEDIUM-395 — standalone fixture runner dispatch: the cycle phase's
+    # own refresh lane, behind the pinned-workspace check.
+    if args.command == "tool" and args.tool_command == "fixture-refresh":
+        from .fixture_runner import refresh_fixture_suites, require_pinned_fixture_workspace
+
+        try:
+            # The RESOLVED checkout from the check is the only path handed on,
+            # so a symlink swapped after the check cannot redirect the run.
+            workspace, head = require_pinned_fixture_workspace(args.workspace_root, base_dir=args.tools_dir)
+            payload = refresh_fixture_suites(
+                workspace_root=workspace,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+                tool_ids=[args.tool_id] if args.tool_id else None,
+            )
+        except GovernanceError as exc:
+            print(json.dumps({"status": "refused", "reason": str(exc)[:300]}, indent=2, sort_keys=True))
+            return 1
+        payload["workspace_commit_sha"] = head
+        print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+        # A blocked or non-current suite is a per-tool signal in the payload;
+        # the exit code carries the aggregate for operator scripts.
+        return 0 if all(row.get("status") == "current" for row in payload["tools"]) else 1
 
     if args.command == "merge-lane" and args.merge_command == "run":
         from .auto_merge_runners import (

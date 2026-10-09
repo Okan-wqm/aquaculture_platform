@@ -44,3 +44,45 @@ beside `implementation_settlement.py`, `outage_causality.py` and
 defect and its closure so the red interval has a registry row a `Closes:`
 trailer can point at; the duplicate roster entry the first salvage branch
 carried was dropped in favour of #1897's.
+
+## ARIA-MEDIUM-400 — the fixture-run proof row does not bind what it measured
+
+Recorded 2026-10-09 by the security review of #1898 (finding F1).
+
+`fixture_suite_row` (`aria-kernel/aria_kernel/fixture_runner.py`) writes the
+`fixture_calibration` proof row that SHADOW→ACTIVE readiness reads. The row
+does not carry:
+
+- the workspace commit the suite ran against;
+- a hash of the scripts the runner argv executed.
+
+`latest_fixture_status` decides whether a verdict is still current from the
+tool version, the manifest hash and the fixture-set hash only. So a verdict
+can outlive the code it measured.
+
+#1898 adds the primary control: `tool fixture-refresh` runs only against the
+store's own checkout at a clean HEAD. Binding the row itself is a separate
+lane (owner claude, deadline 2026-10-20). It covers:
+
+1. Schema version 2 of the proof row: `workspace_commit_sha` and
+   `argv_scripts_hash`, both inside `evidence_hash`. `latest_fixture_status`
+   re-hashes the scripts.
+2. A deliberate semantic-authority bump for `fixture_calibration`, with the
+   producer and fold pins in `tests/invariants/capability_semantic_equivalence`
+   recorded in the same PR. This is an accepted reset of that capability's
+   evidence.
+3. No parallel provenance ledger: a run's facts have one owner.
+
+Residuals the clean-checkout check cannot close. Only binding the row to the
+script bytes, or to the inputs the scripts load, closes them:
+
+- **Gitignored runtime inputs.** `node_modules` runner binaries and `.pyc`
+  caches are not part of "clean". A modified ignored dependency runs
+  unseen.
+- **Repo-root override.** The `ARIA_REPO_ROOT` environment override
+  redefines which checkout the store counts as bound.
+- **Git environment and configuration.** These can change what `git status`
+  reports. The check strips caller `GIT_*` variables and disables
+  `core.fsmonitor` and the untracked cache. Other repository configuration
+  (for example a `core.worktree` or attribute filters) is still read as
+  configured.

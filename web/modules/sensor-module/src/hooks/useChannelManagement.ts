@@ -56,6 +56,35 @@ const GET_SENSOR_CHANNELS_QUERY = `
       discoverySource
       isEnabled
       displayOrder
+      quantity
+      declaredQuantity
+      quantityFamily
+      declarableQuantities
+    }
+  }
+`;
+
+// What a channel measures, when its key does not say (a family key such as
+// `ammonia`) or says something else than the device reports (an optode's `do`
+// in % saturation). The water-chemistry binding refuses a channel whose
+// quantity is unknown or differs from the parameter's (CHANNEL_HAS_NO_QUANTITY,
+// QUANTITY_MISMATCH); this is where that is fixed.
+const DECLARE_CHANNEL_QUANTITY_MUTATION = `
+  mutation DeclareChannelQuantity($input: DeclareChannelQuantityInput!) {
+    declareChannelQuantity(input: $input) {
+      id
+      quantity
+      declaredQuantity
+    }
+  }
+`;
+
+const CLEAR_CHANNEL_QUANTITY_MUTATION = `
+  mutation ClearChannelQuantity($channelId: ID!) {
+    clearChannelQuantity(channelId: $channelId) {
+      id
+      quantity
+      declaredQuantity
     }
   }
 `;
@@ -131,6 +160,13 @@ export interface SensorDataChannel {
   discoverySource?: 'template' | 'manual' | 'auto';
   isEnabled: boolean;
   displayOrder: number;
+  /** The measured quantity the channel reports: declared, else named by its key; null if unknown. */
+  quantity: string | null;
+  declaredQuantity: string | null;
+  /** The family a key names without saying which member (e.g. ammonia). */
+  quantityFamily: string | null;
+  /** The quantities an operator may declare for this channel's key. */
+  declarableQuantities: string[];
 }
 
 // ============================================================================
@@ -328,8 +364,36 @@ export function useChannelManagement(sensorId: string) {
     [refetch],
   );
 
+  /** Declare what the channel measures (null clears it, so the key's own meaning stands). */
+  const setChannelQuantity = useCallback(
+    async (channelId: string, quantity: string | null): Promise<boolean> => {
+      setMutating(true);
+      setMutationError(null);
+      try {
+        if (quantity === null) {
+          await graphqlFetch(CLEAR_CHANNEL_QUANTITY_MUTATION, { channelId });
+        } else {
+          await graphqlFetch(DECLARE_CHANNEL_QUANTITY_MUTATION, { input: { channelId, quantity } });
+        }
+        if (!mountedRef.current) return false;
+        await refetch();
+        return true;
+      } catch (err) {
+        if (!mountedRef.current) return false;
+        setMutationError(err instanceof Error ? err : new Error(String(err)));
+        return false;
+      } finally {
+        if (mountedRef.current) {
+          setMutating(false);
+        }
+      }
+    },
+    [refetch],
+  );
+
   return {
     channels,
+    setChannelQuantity,
     loading: fetchLoading || mutating,
     fetchLoading,
     mutating,

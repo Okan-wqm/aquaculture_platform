@@ -2,6 +2,8 @@ import { BadRequestException } from '@nestjs/common';
 
 import {
   validateAggregationInterval,
+  validateChannelKeys,
+  MAX_SERIES_CHANNEL_KEYS,
   validateUUID,
   validateTenantId,
   validateSensorId,
@@ -301,6 +303,26 @@ describe('Input Sanitizer', () => {
 
     it('should throw for invalid table name', () => {
       expect(() => createSafeTableRef('tenant_123', 'drop-table')).toThrow(BadRequestException);
+    });
+  });
+
+  describe('validateChannelKeys', () => {
+    it('keeps each named key once, in order', () => {
+      expect(validateChannelKeys(['ph', 'temperature', 'ph'])).toEqual(['ph', 'temperature']);
+    });
+
+    it('answers an empty list with no channel rather than every channel', () => {
+      expect(validateChannelKeys([])).toEqual([]);
+    });
+
+    it('refuses an empty or over-long key', () => {
+      expect(() => validateChannelKeys([''])).toThrow(BadRequestException);
+      expect(() => validateChannelKeys(['k'.repeat(101)])).toThrow(BadRequestException);
+    });
+
+    it('refuses more keys than a series request may name', () => {
+      const keys = Array.from({ length: MAX_SERIES_CHANNEL_KEYS + 1 }, (_, i) => `k${i}`);
+      expect(() => validateChannelKeys(keys)).toThrow(BadRequestException);
     });
   });
 });

@@ -11,12 +11,6 @@
     "owner": "okan",
     "reason": "Genesis lifecycle state precondition. The genesis machine runs today through its own transition table; this helper is the alternative entry point. PLAN Wave 6 merges the genesis and tool_registry lifecycles onto one vocabulary - route it or drop it there, not before. Renewed 2026-09-21 for thirty days by the operator's delegate: the flow this control belongs to has not started, and the six dormancy waivers lapsed together on 2026-09-20 and turned every kernel lane red."
   },
-  "validate_file": {
-    "expires_on": "2026-10-09",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "REASON REPLACED 2026-09-09. The previous one said 'Operator-facing CLI surface with no CLI verb attached - give it one or delete it', which reads as dead code. It is not. validate_file is the ENGINE of the V4 narrative-shape invariant: tests/invariants/v4/test_phase_v4_b_narrative_shape.py:62,66 runs it over every agent file to enforce the pedagogy contract, and that test is a real gate. pedagogy_lint.py (which does run in CI) only mentions this module in a comment; it does not import it. So the consumer is an invariant test, which is this control's INTENDED and sufficient consumer -- there is no unguarded production path here to close. The reachability gate cannot express that distinction: its rule that 'tests calling a control directly cannot count as evidence' is right for a control meant to run in production and wrong for one whose gate IS the invariant. Third instance of the CONTROL_VERBS classification problem, after record_resolution (a real control the prefix list cannot see) and check_remaining_budget (an accessor it wrongly called a control, since renamed). Open decision is whether the gate learns 'invariant-driven control' as a category, not whether to delete this."
-  },
   "validate_generated_adapter": {
     "expires_on": "2026-10-20",
     "finding_id": "ORPHAN-HIGH-573",

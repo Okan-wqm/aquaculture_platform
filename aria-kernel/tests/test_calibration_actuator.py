@@ -114,6 +114,15 @@ class OnlyGroundTruthMovesAnAutoAppliedDialTests(unittest.TestCase):
                 "source_type": "ai_consensus", "judge_count": 2, "judges_voted": 2}
         self.assertEqual(self.count([{**base, "verdict": "false_positive"}] * 20), (0, 0))
 
+    def test_a_belief_verdict_never_moves_the_source_tools_dial(self) -> None:
+        # An operator settling a belief escalation is recorded as a human
+        # row carrying the source tool's id (human_required); it judges the
+        # belief, not the adapter.
+        base = {"tool_id": TOOL, "recorded_at": T0.isoformat(), "finding_id": "x", "source_type": "human"}
+        rows = [{**base, "verdict": "false_positive", "judgment_subject": "belief"}]
+        self.assertEqual(self.count(rows), (0, 0))
+        self.assertEqual(self.count([{**base, "verdict": "false_positive", "judgment_subject": "finding"}]), (0, 1))
+
     def test_replay_rows_never_move_a_dial_even_as_human(self) -> None:
         base = {"tool_id": TOOL, "recorded_at": T0.isoformat(), "finding_id": "x", "source_type": "human"}
         rows = [{**base, "verdict": "true_positive", "judgment_group_id": f"replay:{TOOL}:r:f"},

@@ -81,6 +81,8 @@ def moves_auto_applied_dial(row: Mapping[str, Any]) -> bool:
     The cycle phase's replay had the same effect before the verb existed.
 
     The rule, decided once here for every auto-applied dial:
+      * only a verdict about a FINDING moves a dial — a belief verdict
+        (``judgment_subject == "belief"``) is about the belief, not the tool;
       * nothing from a replay moves a dial — no ``replay:`` judgment group,
         no ``goldset-replay`` seed;
       * only GROUND TRUTH moves a dial: a human label, or an ai_consensus
@@ -89,9 +91,14 @@ def moves_auto_applied_dial(row: Mapping[str, Any]) -> bool:
         refute, is an opinion, and an auto-applied dial is the last place to
         let an opinion act without a person.
     """
-    from .feedback_store import is_ground_truth_row
+    from .feedback_store import JUDGMENT_SUBJECT_FINDING, is_ground_truth_row, judgment_subject_of
     from .judge_replay import REPLAY_GROUP_PREFIX
 
+    # A verdict about a BELIEF (an operator settling a belief escalation,
+    # recorded with the source tool's id) says nothing about the adapter's
+    # precision; the adapter-precision lanes already exclude it.
+    if judgment_subject_of(dict(row)) != JUDGMENT_SUBJECT_FINDING:
+        return False
     group = row.get("judgment_group_id")
     if isinstance(group, str) and group.startswith(REPLAY_GROUP_PREFIX):
         return False

@@ -78,25 +78,51 @@ class MissionCapabilityGateTests(unittest.TestCase):
         self.assertEqual(result["event"]["to_state"], "IMPLEMENTING")
 
     def test_rejected_decision_still_refuses(self) -> None:
-        resolve_capability(
-            capability_key="denied-cap",
-            requested_kind="agent",
-            title="Denied capability",
-            base_dir=self.base,
+        from aria_kernel.ledger import append_declared_jsonl
+        from aria_kernel.tool_registry import ensure_tools_dir, utc_now
+
+        append_declared_jsonl(
+            ensure_tools_dir(self.base) / "capability-resolution" / "decisions.jsonl",
+            {
+                "schema_version": 1, "recorded_at": utc_now(),
+                "row_id": "capability-resolution:denied", "row_type": "capability_resolution_decision",
+                "capability_key": "denied-cap", "requested_kind": "agent", "title": "Denied capability",
+                "decision": "reject_duplicate", "existing_capabilities": [],
+            },
+            expected_surface="capability_resolution_decisions",
         )
         mission_id = _open(self.base, "ORPHAN-HIGH-4", capability="denied-cap")
-        from aria_kernel.capability_resolver import require_capability_resolution
-        # require_ with the strict default allowed set excludes nothing here
-        # ("request" is allowed); simulate the rejected path by asserting the
-        # gate consults the ledger: a decided capability passes, and the
-        # refusal semantics come from require_ itself.
-        row = require_capability_resolution(
-            capability_key="denied-cap", requested_kind="agent", base_dir=self.base,
-        )
-        self.assertEqual(row["decision"], "request")
-        result = self._to_implementing(mission_id)
-        self.assertEqual(result["event"]["to_state"], "IMPLEMENTING")
+        with self.assertRaises(GovernanceError) as ctx:
+            self._to_implementing(mission_id)
+        self.assertIn("capability_resolution_decision_rejected:reject_duplicate", str(ctx.exception))
 
+    def test_kernel_native_service_missions_pass_with_no_ledger_row(self) -> None:
+        """The live shape (runner store, 2026-10-09): 56 missions minted with
+        capability=service_hardening and no ledger decision keyed to it. The
+        kernel provides that capability itself, so its declaration is the
+        resolution; each mission still reaches IMPLEMENTING."""
+        from aria_kernel.capability_resolver import SERVICE_HARDENING_CAPABILITY
+
+        ledger = self.base / "capability-resolution" / "decisions.jsonl"
+        for index in range(56):
+            mission_id = _open(self.base, f"service-{index:02d}", capability=SERVICE_HARDENING_CAPABILITY)
+            result = self._to_implementing(mission_id)
+            self.assertEqual(result["event"]["to_state"], "IMPLEMENTING")
+        self.assertFalse(ledger.exists() and ledger.read_text(encoding="utf-8").strip())
+
+    def test_an_unknown_capability_is_still_blocked_beside_a_native_one(self) -> None:
+        mission_id = _open(self.base, "ORPHAN-HIGH-5", capability="service_hardening_v2")
+        with self.assertRaises(GovernanceError) as ctx:
+            self._to_implementing(mission_id)
+        self.assertIn("capability_resolution_required_for_mission_step", str(ctx.exception))
+
+    def test_the_service_minter_and_the_native_set_share_one_constant(self) -> None:
+        from aria_kernel.capability_resolver import KERNEL_NATIVE_CAPABILITIES, SERVICE_HARDENING_CAPABILITY
+
+        cycle_source = (Path(__file__).resolve().parents[1] / "aria_kernel" / "cycle.py").read_text(encoding="utf-8")
+        self.assertIn("capability=SERVICE_HARDENING_CAPABILITY", cycle_source)
+        self.assertNotIn('capability="service_hardening"', cycle_source)
+        self.assertIn(SERVICE_HARDENING_CAPABILITY, KERNEL_NATIVE_CAPABILITIES)
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

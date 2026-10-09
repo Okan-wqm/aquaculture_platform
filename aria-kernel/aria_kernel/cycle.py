@@ -29,6 +29,7 @@ from .memory import decay_beliefs_by_head_distance, decay_stale_beliefs_by_age, 
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import budget_projection, read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
+from .capability_resolver import SERVICE_HARDENING_CAPABILITY
 from .genesis_policy import load_policy
 from .reflection import run_reflection
 from .human_required import (
@@ -2661,7 +2662,7 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
             ),
             next_action=next_action,
             wake_condition=wake_condition,
-            capability="service_hardening",
+            capability=SERVICE_HARDENING_CAPABILITY,
             priority=priority,
             target_project=project,
             base_dir=context.base_dir,

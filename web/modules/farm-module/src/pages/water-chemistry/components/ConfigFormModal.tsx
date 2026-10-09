@@ -6,7 +6,18 @@
  * and editing existing ones.
  */
 import React, { useState } from 'react';
-import { Modal, colors, Button, Input, Select } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  colors,
+  Button,
+  Input,
+  Select,
+  bindingRefusal,
+  errorText,
+  useI18n,
+} from '@aquaculture/shared-ui';
+import { useParameterQuantityState } from '../../../hooks/useParameterSources';
+import { MeasuredQuantityField } from './MeasuredQuantityField';
 import {
   ParameterDataType,
   ParameterGroup,
@@ -58,6 +69,8 @@ export const EMPTY_FORM: ConfigFormData = {
 
 interface ConfigFormModalProps {
   mode: 'create' | 'edit';
+  /** The parameter being edited (null when creating): its measured quantity is declared here too. */
+  parameterConfigId: string | null;
   initialData: ConfigFormData;
   onSubmit: (data: ConfigFormData) => void;
   onClose: () => void;
@@ -112,6 +125,7 @@ const RangeFieldset: React.FC<{
 
 export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
   mode,
+  parameterConfigId,
   initialData,
   onSubmit,
   onClose,
@@ -119,6 +133,14 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
   error,
 }) => {
   const [formData, setFormData] = useState<ConfigFormData>(initialData);
+  const { t } = useI18n();
+  const quantityState = useParameterQuantityState(parameterConfigId);
+  // A bound channel fixes the parameter's unit (the backend refuses with PARAMETER_BOUND).
+  const unitFixed =
+    quantityState.data !== undefined &&
+    quantityState.data !== null &&
+    quantityState.data.liveChannelSourceCount > 0;
+  const refusal = error === null ? null : bindingRefusal(error);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -143,7 +165,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
     >
       {error && (
         <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 text-sm text-error-800 dark:text-error-200">
-          {error.message}
+          {refusal === null ? error.message : errorText(t, refusal.code)}
         </div>
       )}
 
@@ -191,10 +213,16 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
               value={formData.unit}
               onChange={handleChange}
               required
+              disabled={unitFixed}
               placeholder="e.g., mg/L"
             />
           </div>
         </div>
+
+        {/* Measured quantity — its own write, fixed while a channel is bound */}
+        {parameterConfigId !== null && (
+          <MeasuredQuantityField parameterConfigId={parameterConfigId} />
+        )}
 
         {/* Data Type + Group */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

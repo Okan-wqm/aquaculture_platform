@@ -11,11 +11,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from .agent_priors import reviewer_names
-from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
-from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl_verified_text, verify_jsonl
+from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES, ImplementationSettlement
+from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
+from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, verify_jsonl
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -24,6 +25,9 @@ from .tool_registry import (
     parse_utc_stamp,
     utc_now,
 )
+
+if TYPE_CHECKING:
+    from .provider_clock import ProviderClock
 
 
 FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3,}$")
@@ -38,7 +42,12 @@ EVENT_TYPES = {
     "revision_recorded",
     "plan_evaluated",
     "plan_abandoned",
-    "lock_reaped",
+    # `lock_reaped` — RETIRED (ORPHAN-MEDIUM-838): it had a payload validator
+    # and no emitter. `_reap_stale_lock` records nothing, and a lock reap
+    # belongs to no plan; the sibling reapers (tools root, migration) record
+    # one as a governance row. Retired before any events.jsonl row used it —
+    # the one moment this door allows. Pinned by
+    # tests/invariants/v9/test_phase_v9_0_b_event_state_machine.py.
     # Plan ARIA-V9.0-B — implementation-phase event types. Adding a
     # new event type beyond this set is a one-way door (every row in
     # events.jsonl is now signed by content_hash; renaming a kind
@@ -69,6 +78,23 @@ EVENT_TYPES = {
     # coverage_gap risks into cross_review_risks_by_round[N]. The
     # payload shape is a one-way door like every event here.
     "coverage_computed",
+    # ARIA-HIGH-362 — a CONVERGED plan's delivery attempts, recorded on the
+    # plan's own ledger. An ANNOTATION like coverage_computed: the reducer
+    # appends to state["implementation_delivery_attempts"] and never changes
+    # state["state"]; its only legal state is CONVERGED. Before it, a
+    # converged plan got exactly one offer to the V9 runner — the cycle that
+    # converged it — and a refusal, a staging error or a runner exception in
+    # that cycle left it CONVERGED (terminal) with nothing that would ever
+    # offer it again. The attempt count bounds the re-offers
+    # (`converged_delivery`), so it lives where it cannot be lost or reset:
+    # the signed plan ledger, idempotent per (plan, attempt).
+    "implementation_delivery_attempted",
+    # ARIA-HIGH-362 (review M5) — an attempt the runner reported as refused
+    # by the PROFILE at staging (a mid-cycle demotion) is weather, not the
+    # plan's failure. The attempt row stays (it was made, and the record of
+    # it is signed history); this annotation marks it uncounted. Legal only
+    # in CONVERGED, once per attempt.
+    "implementation_delivery_attempt_voided",
 }
 TERMINAL_STATES = {
     "CONVERGED",
@@ -147,7 +173,18 @@ def start_plan(
     plan_content: dict[str, Any],
     initial_revision_id: str,
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Open a plan. A plan started from a finding records its admission bound.
+
+    ADR-0021 — the bound (``plan_origin.compute_admission_scope``) is
+    computed HERE from the seed's surfaces and the impact graph of
+    ``workspace_root``; there is no parameter to pass one in, so no caller
+    and no planner prose can set it. A finding-origin plan without a
+    workspace to compute it in is refused.
+    """
+    from .plan_origin import compute_admission_scope
+
     _validate_id(plan_id, "plan_id")
     _validate_id(initial_revision_id, "initial_revision_id")
     _validate_plan_content(plan_content)
@@ -156,6 +193,9 @@ def start_plan(
         "content_hash": content_hash(plan_content),
         "initial_revision_id": initial_revision_id,
     }
+    admission_scope = compute_admission_scope(plan_content, workspace_root=workspace_root, base_dir=base_dir)
+    if admission_scope is not None:
+        payload["admission_scope"] = admission_scope
     return _mutate(
         plan_id=plan_id,
         command_name="start",
@@ -592,16 +632,87 @@ def _validate_submitted_plan(
     ADR-0018 D4 — one origin check for every origin kind: a body whose
     ``finding_id`` differs from, adds to or drops the started plan's is
     refused (``plan_origin.PLAN_ORIGIN_CHANGED``).
+
+    ADR-0021 — and every path the body names stays inside the bound the plan
+    was admitted with (``revision_scope_exceeds_admission_closure``); the
+    refusal names the paths and leaves a plan-keyed governance row.
     """
     from .plan_contract import require_plan_contract
-    from .plan_origin import require_origin_unchanged
+    from .plan_origin import (
+        AdmissionScopeExceeded, admission_scope_for_plan, body_paths,
+        record_admission_scope_refusal, require_origin_unchanged, require_within_admission_scope,
+    )
 
     state_validator(state, payload)
     if body is None:
         return
     _validate_plan_content(body)
     require_origin_unchanged(state, body)
+    try:
+        require_within_admission_scope(admission_scope_for_plan(state), body_paths(body))
+    except AdmissionScopeExceeded as exc:
+        record_admission_scope_refusal(root, plan_id=state.get("plan_id"), stage="plan_submission", error=exc)
+        raise
+    evidence_refusals = plan_body_evidence_refusals(state, body, root=root)
+    if evidence_refusals:
+        raise GovernanceError("; ".join(f"{code}: {ref}" for code, ref in evidence_refusals))
     require_plan_contract(body, base_dir=root)
+
+
+PLAN_EVIDENCE_STATE_STORE_RECORD = "plan_evidence_state_store_record"
+PLAN_EVIDENCE_POINTER_UNBOUND = "plan_evidence_pointer_unbound"
+
+
+def plan_body_evidence_refusals(state: dict[str, Any], body: dict[str, Any], *, root: Path) -> list[tuple[str, str]]:
+    """Every ``evidence_refs`` entry of a body that no later envelope may carry.
+
+    ARIA-HIGH-354 — a body's refs become the refs of every later planning
+    envelope of the plan (``_planning_source_context``), and the request mint
+    refuses a state-store record. A body citing one would make every later
+    mint for the plan raise. A coverage pointer is admitted only for a round
+    this plan has measured; any other names a manifest nobody handed it.
+    """
+    from .evidence_validator import _is_coverage_manifest_pointer, state_store_record_refs
+
+    refs = [ref for ref in body.get("evidence_refs") or [] if isinstance(ref, str)]
+    measured = set(_reviewed_coverage_pointers(state))
+    return [
+        *((PLAN_EVIDENCE_STATE_STORE_RECORD, ref) for ref in state_store_record_refs(refs, store_root=root)),
+        *((PLAN_EVIDENCE_POINTER_UNBOUND, ref) for ref in refs
+          if _is_coverage_manifest_pointer(ref) and ref not in measured),
+    ]
+
+
+def plan_body_refusals(state: dict[str, Any], body: Any, *, root: Path) -> list[tuple[str, str]]:
+    """The bridge's deterministic refusals of ``body``, as (code, detail), judged before acceptance.
+
+    ARIA-HIGH-355 review — ``submit_claim_result`` judged only the plan
+    contract before accepting a planner's answer; the bridge then judged the
+    shape, the origin, the admission bound (ADR-0021) and the evidence. A body
+    the bridge refuses after acceptance leaves the request
+    ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL, an outcome no successor can
+    change, so the plan died. Judged here, the same body is REJECTED and the
+    step's successor carries the reasons (``predecessor_rejection``). The
+    bridge keeps every check as the last line.
+    """
+    from .plan_origin import (
+        REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE, admission_scope_for_plan, body_paths,
+        paths_outside_admission_scope, require_origin_unchanged,
+    )
+
+    if not isinstance(body, dict):
+        return []
+    try:
+        _validate_plan_content(body)
+        require_origin_unchanged(state, body)
+    except GovernanceError as exc:
+        return [("plan_body_invalid", str(exc))]
+    scope = admission_scope_for_plan(state)
+    outside = paths_outside_admission_scope(scope, body_paths(body)) if scope is not None else []
+    return [
+        *((REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE, path) for path in outside),
+        *plan_body_evidence_refusals(state, body, root=root),
+    ]
 
 
 def record_coverage(
@@ -639,6 +750,18 @@ def evaluate_plan(
     base_dir: str | Path | None = None,
     max_rounds: int = MAX_CROSS_REVIEW_ROUNDS,
 ) -> dict[str, Any]:
+    """Judge one round and record the verdict.
+
+    ARIA-HIGH-375 — a cross-reviewed round's independence is a GATE of this
+    decision, like the spine and the contract below, and it is derived HERE
+    (``round_independence``) so no caller can converge a round without it: a
+    round that would converge on a review that echoes the plans it reviewed
+    is recorded HUMAN_REQUIRED with ``CROSS_REVIEW_SELF_AGREEMENT_REASON`` in
+    the same single event. It used to be checked by the drainer AFTER this
+    function had written CONVERGED, so the plan stayed CONVERGED and the next
+    cycle's stranded-plan sweep offered it to the implementer by state alone;
+    the operator's `plan evaluate` and `plan advance-rounds` never checked it.
+    """
     _validate_id(plan_id, "plan_id")
     if not isinstance(round_number, int) or round_number <= 0:
         raise GovernanceError("round_number must be a positive integer")
@@ -689,6 +812,23 @@ def evaluate_plan(
                     decision["reason_codes"].append("max_rounds_reached")
             elif decision["terminal_state"] != "HUMAN_REQUIRED":
                 decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
+        if decision["terminal_state"] == "CONVERGED" and cross_reviewed_round(state, round_number):
+            from .round_independence import round_independence_verdict
+
+            passed, violations = round_independence_verdict(
+                plan_id=plan_id, round_number=round_number, state=state, base_dir=root,
+            )
+            decision["gate_decisions"].append({
+                "gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": bool(passed),
+                "violation_reasons": list(violations),
+            })
+            # Only a cross-reviewed round that would CONVERGE is judged: a
+            # round going to another round is judged there, an escalated one
+            # is escalated, and a legacy critique-only round (V8
+            # `request_critics`) has no cross reviewer to be independent of.
+            if not passed:
+                decision["terminal_state"] = "HUMAN_REQUIRED"
+                decision["reason_codes"] = [CROSS_REVIEW_SELF_AGREEMENT_REASON]
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
             return {
                 "schema_version": 1,
@@ -910,6 +1050,8 @@ class OrphanReapDecision:
 def decide_orphan_reap(
     orphan: dict[str, Any],
     *,
+    clock: "ProviderClock",
+    awaits_provider: bool,
     reap_after_hours: int = ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
     now: datetime | None = None,
 ) -> OrphanReapDecision:
@@ -937,14 +1079,26 @@ def decide_orphan_reap(
     event stream — which `_append_event` cannot produce, so the ledger has
     been corrupted or hand-written. That is not a scheduling question and the
     caller escalates it to a human instead of guessing in either direction.
+
+    ARIA-HIGH-365 (B2) — the age is PROVIDER-AVAILABLE time (``clock``, a
+    required argument so no caller can fall back to wall time): an
+    implementation request outstanding through a 3-day outage of the
+    implementer's provider was reaped to IMPLEMENTATION_REJECTED, a terminal,
+    though nothing could have answered it. ``age_hours`` is that age.
+    ``awaits_provider`` (review HIGH-1, ``outage_causality``) is whether the
+    plan's implementation request is still waiting on a provider; when it is
+    not, an outage explains nothing and the age is wall time.
     """
+    from .provider_clock import role_head_providers
+
     reference = now or datetime.now(timezone.utc)
+    providers = role_head_providers(["implementation"]) if awaits_provider else frozenset()
     for source in ("last_event_at", "first_event_at"):
         raw = orphan.get(source)
         parsed = parse_utc_stamp(raw) if isinstance(raw, str) and raw else None
         if parsed is None:
             continue
-        age = reference - parsed
+        age = clock.available_age(parsed, reference, providers)
         return OrphanReapDecision(
             decision=(
                 ORPHAN_DECISION_REAP
@@ -986,8 +1140,13 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     event is older than STALE_PLAN_MAX_AGE_HOURS is abandoned (recorded,
     reason carries the stall timestamp) and the scan moves on.
     """
+    from .outage_causality import request_awaits_provider
+    from .provider_clock import provider_clock, role_head_providers
+
     root = ensure_tools_dir(base_dir)
     last_seen = _last_event_at_by_plan(root)
+    clock = provider_clock(root)
+    invocations: list[list[dict[str, Any]]] = []
     for plan_id in reversed(list_active_plans(base_dir=base_dir)):
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
         if not isinstance(state, dict):
@@ -996,19 +1155,133 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
             continue
         stamp = last_seen.get(plan_id)
         if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
-            abandon_plan(
-                plan_id=plan_id,
-                reason=f"stalled: no plan event since {stamp} "
-                f"(> {STALE_PLAN_MAX_AGE_HOURS}h at adoption)",
-                base_dir=base_dir,
+            # ARIA-MEDIUM-291 — the abandonment says WHY the plan stopped,
+            # read from its newest request's claim ledger; the invocation
+            # ledgers are read once per scan, and only when a plan stalled.
+            if not invocations:
+                invocations.extend(load_jsonl(root / "agent-invocations" / name)
+                                   for name in ("requests.jsonl", "claims.jsonl"))
+            stall = _stall_cause(plan_id, requests=invocations[0], claims=invocations[1])
+            # ARIA-HIGH-365 (B1) — the bound is on PROVIDER-AVAILABLE time:
+            # wall time minus the outage of the provider the plan's waiting
+            # request is routed to. A plan whose 72 h are a provider outage
+            # (measured: `stalled:provider_quota_unavailable:anthropic`) was
+            # not neglected; it is adopted and continues where it stopped.
+            # Review HIGH-1: only while that request is still WAITING on a
+            # provider (`outage_causality`); one a fallback rung answered and
+            # that died for its own reason is held to the wall clock.
+            waiting = request_awaits_provider(stall.get("request_id"), base_dir=root, claims=invocations[1])
+            available = clock.available_age(
+                parse_utc_stamp(stamp), datetime.now(timezone.utc),
+                role_head_providers([stall["role"]]) if waiting and stall.get("role") else frozenset(),
             )
+            if available <= timedelta(hours=STALE_PLAN_MAX_AGE_HOURS):
+                return plan_id
+            stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS,
+                         provider_available_hours=round(available.total_seconds() / 3600.0, 3))
+            abandon_plan(plan_id=plan_id, reason=f"stalled:{stall['cause']}", stall=stall, base_dir=base_dir)
             continue
         return plan_id
     return None
 
 
+def in_flight_plan_id(*, base_dir: str | Path | None = None) -> str | None:
+    """ARIA-HIGH-369 review M4 — the plan :func:`resume_candidate_plan_id` adopts, read without abandoning.
+
+    The orchestrator adopts before it synthesizes, so after its call this is
+    the adopted plan; a reader (the plan provider deciding whether a new
+    envelope will be used at all) must not abandon anything itself.
+    """
+    root = ensure_tools_dir(base_dir)
+    last_seen = _last_event_at_by_plan(root)
+    for plan_id in reversed(list_active_plans(base_dir=base_dir)):
+        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if not isinstance(state, dict) or state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+            continue
+        stamp = last_seen.get(plan_id)
+        if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
+            continue
+        return plan_id
+    return None
+
+
+def _stall_cause(
+    plan_id: str, *, requests: list[dict[str, Any]], claims: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """WHY a plan stopped moving: what its newest request last ran into.
+
+    The cause is that request's last release or refusal reason on the claim
+    ledger (``provider_quota_unavailable:anthropic``, ``anchor_expired``, ...)
+    with the release envelope's code and fault domain; ``no_consumer`` when
+    nothing ever claimed it; ``no_request`` when the plan minted none; the
+    newest claim event when the request was claimed and nothing gave a reason.
+    """
+    from .release_reason import parse_release_reason
+
+    mine = [row for row in requests if row.get("convergence_id") == plan_id]
+    if not mine:
+        return {"cause": "no_request", "request_id": None, "role": None}
+    newest = mine[-1]
+    rows = [row for row in claims if row.get("request_id") == newest.get("request_id")]
+    reasoned = [row for row in rows if isinstance(row.get("reason"), str) and row["reason"].strip()]
+    if reasoned:
+        cause = reasoned[-1]["reason"].strip()
+        envelope = parse_release_reason(cause).to_row_fields()
+    else:
+        cause = "no_consumer" if not rows else f"last_claim_event:{rows[-1].get('event')}"
+        envelope = {}
+    return {"cause": cause, **envelope, "request_id": newest.get("request_id"), "role": newest.get("role")}
+
+
+class PlanLedgerLocked(GovernanceError):
+    """ARIA-HIGH-388 — another writer holds the plan ledger's lock: a store
+    condition a caller may report and retry, told apart from a refused write."""
+
+
+class PlanStateRefused(GovernanceError):
+    """ARIA-HIGH-362 (review M3) — a guarded transition found the plan in another state.
+
+    Typed so a caller that raced a concurrent writer can tell "the plan moved
+    on" from every other refusal without reading a message.
+    """
+
+
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
+# ARIA-HIGH-375 — the independence gate `evaluate_plan` applies. A round that
+# fails it is escalated with `independence_check.CROSS_REVIEW_SELF_AGREEMENT_
+# REASON`, which the drainer maps to the `cross_review_self_agreement` verdict.
+CROSS_REVIEW_INDEPENDENCE_GATE = "cross_review_independence"
+
+
+def cross_reviewed_round(state: dict[str, Any], round_number: int) -> bool:
+    """Did ``round_number`` of this plan have a cross review? Only such a round
+    has a reviewer whose independence the gate can judge."""
+    return round_number in (state.get("cross_reviews") or {})
+
+
+def independence_violations(payload: dict[str, Any]) -> list[str]:
+    """The independence gate's violation reasons on one ``plan_evaluated``
+    payload, or [] when the evaluation carries no such gate."""
+    for gate in payload.get("gate_decisions") or []:
+        if isinstance(gate, dict) and gate.get("gate") == CROSS_REVIEW_INDEPENDENCE_GATE:
+            return [str(reason) for reason in gate.get("violation_reasons") or []]
+    return []
+
+
+def independence_gated(payload: dict[str, Any]) -> bool:
+    """Did this ``plan_evaluated`` payload pass through the independence gate?
+    A CONVERGED evaluation without it predates ARIA-HIGH-375."""
+    return any(isinstance(gate, dict) and gate.get("gate") == CROSS_REVIEW_INDEPENDENCE_GATE
+               for gate in payload.get("gate_decisions") or [])
 FORCED_ESCALATION_GATE = "forced_escalation"
+# ARIA-HIGH-370 (second review of #1829, M3) — who forced the escalation, on
+# the row itself. `plan force-human-required` writes exactly the row a kernel
+# caller writes, so the codes alone cannot say whether the kernel judged the
+# plan; the learning loop attributes a forced row only for a kernel caller.
+FORCED_BY_OPERATOR = "operator"
+KERNEL_FORCERS: frozenset[str] = frozenset({
+    "kernel:convergence_drainer", "kernel:plan_round_controller", "kernel:converged_delivery",
+})
 
 
 def force_plan_human_required(
@@ -1017,13 +1290,30 @@ def force_plan_human_required(
     round_number: int,
     reason_codes: list[str],
     active_gap_count: int = 0,
+    from_states: frozenset[str] | None = None,
     base_dir: str | Path | None = None,
+    forced_by: str = FORCED_BY_OPERATOR,
 ) -> dict[str, Any]:
+    """Escalate a plan to HUMAN_REQUIRED from a state the caller names.
+
+    ``forced_by`` is stamped on the row: a kernel caller names itself
+    (:data:`KERNEL_FORCERS`); every other caller is the operator's path.
+
+    ARIA-HIGH-362 (review M3) — the from-state is checked INSIDE the plan
+    lock, against the fold taken under it. It used to check only that the
+    plan had started, so a caller that read CONVERGED, then lost a race to a
+    mint, would overwrite IMPLEMENTATION_REQUESTED (or any terminal) with
+    HUMAN_REQUIRED. ``from_states`` None means the forced-escalation
+    callers' own case: a plan still mid-convergence (neither terminal nor in
+    the implementation phase).
+    """
     _validate_id(plan_id, "plan_id")
     if not isinstance(round_number, int) or round_number <= 0:
         raise GovernanceError("round_number must be a positive integer")
     if not reason_codes:
         raise GovernanceError("reason_codes must be non-empty")
+    if forced_by != FORCED_BY_OPERATOR and forced_by not in KERNEL_FORCERS:
+        raise GovernanceError(f"forced_by must be {FORCED_BY_OPERATOR!r} or one of {sorted(KERNEL_FORCERS)}")
     root = ensure_tools_dir(base_dir)
     # ARIA-HIGH-194 — the event says WHY it was forced, from the caller's own
     # codes. It used to stamp `gate: max_rounds, max_rounds_reached: true`
@@ -1040,6 +1330,7 @@ def force_plan_human_required(
             "reason_codes": reason_codes,
         }],
         "reason_codes": reason_codes,
+        "forced_by": forced_by,
     }
     key = _idempotency_key(plan_id, "force-human-required", payload)
     with _plan_lock(root):
@@ -1049,6 +1340,15 @@ def force_plan_human_required(
             return _event_result(existing, idempotent=True)
         state = fold_plan_state(plan_id=plan_id, base_dir=root)
         _require_started(state, "force human required")
+        current = state.get("state")
+        allowed = (current in from_states) if from_states is not None else (
+            current not in TERMINAL_STATES and current not in _IMPLEMENTATION_PHASE_STATES
+        )
+        if not allowed:
+            raise PlanStateRefused(
+                f"force_human_required_from_state_refused: plan {plan_id!r} is {current!r}; "
+                f"expected {sorted(from_states) if from_states is not None else 'mid-convergence'}"
+            )
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_evaluated", payload=payload, idempotency_key=key)
         return _event_result(event, idempotent=False)
 
@@ -1057,8 +1357,10 @@ def abandon_plan(
     *,
     plan_id: str,
     reason: str,
+    stall: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Abandon a plan; ``stall`` is the stall rule's cause record (ARIA-MEDIUM-291)."""
     _validate_id(plan_id, "plan_id")
     if not isinstance(reason, str) or not reason.strip():
         raise GovernanceError("reason must be a non-empty string")
@@ -1071,12 +1373,19 @@ def abandon_plan(
             return _event_result(existing_abandon, idempotent=True)
         _require_started(state, "abandon plan")
         payload = {"reason": reason.strip(), "abandoned_from_state": state["state"]}
+        if stall is not None:
+            payload["stall"] = stall
         key = _idempotency_key(plan_id, "abandon", payload)
         existing = _find_by_idempotency(root, key)
         if existing:
             return _event_result(existing, idempotent=True)
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_abandoned", payload=payload, idempotency_key=key)
-        return _event_result(event, idempotent=False)
+    # ARIA-HIGH-367 (H4) — the plan's unclaimed requests close with it, outside
+    # the plan lock (the claims ledger has its own transaction).
+    from .plan_request_closure import close_abandoned_plan_requests
+
+    close_abandoned_plan_requests(root, plan_ids=[plan_id])
+    return _event_result(event, idempotent=False)
 
 
 # =============================================================================
@@ -1144,6 +1453,99 @@ def request_implementation(
             _require_state(state, {"CONVERGED"}, "request implementation"),
             _require_coverage_for_implementation(state),
         ),
+    )
+
+
+def record_implementation_delivery_attempt(
+    *,
+    plan_id: str,
+    attempt: int,
+    cycle_id: str,
+    profile: str,
+    runner_class: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-362 — claim delivery attempt ``attempt`` of a CONVERGED plan.
+
+    Written BEFORE the runner is called, so an attempt the process does not
+    survive still counts: the bound is on offers made, read back from this
+    ledger, never on an in-memory counter.
+
+    Idempotent per (plan, attempt): the key is the attempt number alone, so
+    two offers racing for the same number append ONE event and the loser is
+    told ``idempotent=True`` — the caller treats that as "attempt N is
+    someone else's" and does not run. The validator also refuses a number
+    that is not the next one, so attempts are dense and their count is the
+    length of the fold's list.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(cycle_id, "cycle_id")
+    _require_non_empty(profile, "profile")
+    _require_non_empty(runner_class, "runner_class")
+
+    def _validate(state: dict[str, Any]) -> None:
+        _require_state(state, {"CONVERGED"}, "record implementation delivery attempt")
+        expected = len(state.get("implementation_delivery_attempts") or []) + 1
+        if attempt != expected:
+            raise GovernanceError(
+                f"implementation_delivery_attempt_out_of_order: plan {plan_id!r} "
+                f"has {expected - 1} attempt(s); the next is {expected}, not {attempt}"
+            )
+
+    return _mutate(
+        plan_id=plan_id,
+        command_name="implementation-delivery-attempt",
+        canonical_payload={"attempt": attempt},
+        event_type="implementation_delivery_attempted",
+        payload={
+            "attempt": attempt,
+            "cycle_id": cycle_id,
+            "profile": profile,
+            "runner_class": runner_class,
+        },
+        base_dir=base_dir,
+        validator=_validate,
+    )
+
+
+def counted_delivery_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """ARIA-HIGH-362 — the delivery attempts that count against the bound (not voided)."""
+    return [row for row in state.get("implementation_delivery_attempts") or [] if not row.get("voided")]
+
+
+def void_implementation_delivery_attempt(
+    *,
+    plan_id: str,
+    attempt: int,
+    reason: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-362 (review M5) — mark attempt ``attempt`` uncounted, once.
+
+    The producer is the delivery entry, for a staging step the PROFILE
+    refused: the lane lost its authority between the cycle's start and the
+    staging call, which says nothing about the plan.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(reason, "reason")
+
+    def _validate(state: dict[str, Any]) -> None:
+        _require_state(state, {"CONVERGED"}, "void implementation delivery attempt")
+        if not any(row.get("attempt") == attempt and not row.get("voided")
+                   for row in state.get("implementation_delivery_attempts") or []):
+            raise GovernanceError(
+                f"implementation_delivery_attempt_not_voidable: plan {plan_id!r} has no "
+                f"unvoided attempt {attempt}"
+            )
+
+    return _mutate(
+        plan_id=plan_id,
+        command_name="implementation-delivery-attempt-void",
+        canonical_payload={"attempt": attempt},
+        event_type="implementation_delivery_attempt_voided",
+        payload={"attempt": attempt, "reason": reason},
+        base_dir=base_dir,
+        validator=_validate,
     )
 
 
@@ -1324,6 +1726,53 @@ def record_implementation_rejected(
     )
 
 
+_SETTLEABLE_IMPLEMENTATION_STATES = frozenset({
+    "IMPLEMENTATION_REQUESTED", "IMPLEMENTATION_IN_FLIGHT", "IMPLEMENTATION_RECORDED",
+})
+
+
+def settle_implementation_rejected(
+    *,
+    plan_id: str,
+    settlement: ImplementationSettlement,
+    rejected_at: str,
+    base_dir: str | Path | None = None,
+    settleable_states: frozenset[str] | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-388 — end a plan's implementation phase with a SETTLED rejection.
+
+    ``settleable_states`` narrows the states this settlement may end
+    (ARIA-HIGH-389: the orphan reap ends only the orphan states it scanned,
+    `_ORPHAN_PENDING_STATES`, so a plan that reached IMPLEMENTATION_RECORDED
+    between the scan and the settle is refused, not rejected beside its PR).
+
+    The executor's terminal outcomes (``implementation_settlement``) write
+    through here: the typed settlement (class, fault domain, stage, cause,
+    request) is the payload, and the state is checked INSIDE the plan lock,
+    so a reaper or a second settle that got there first is
+    :class:`PlanStateRefused` (the caller reports it), never a misread state.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(rejected_at, "rejected_at")
+    payload = {"rejection_class": settlement.rejection_class, "rejected_at": rejected_at,
+               **settlement.payload()}
+
+    def _settleable(state: dict[str, Any]) -> None:
+        _require_started(state, "settle implementation")
+        if state["state"] not in (settleable_states or _SETTLEABLE_IMPLEMENTATION_STATES):
+            raise PlanStateRefused(f"implementation_already_settled: plan {plan_id!r} is {state['state']!r}")
+
+    return _mutate(
+        plan_id=plan_id,
+        command_name="settle-implementation-rejected",
+        canonical_payload={key: value for key, value in payload.items() if key != "rejected_at"},
+        event_type="implementation_rejected",
+        payload=payload,
+        base_dir=base_dir,
+        validator=_settleable,
+    )
+
+
 # =============================================================================
 # End Plan ARIA-V9.2 implementation-phase public API
 # =============================================================================
@@ -1484,7 +1933,13 @@ def content_hash(payload: Any) -> str:
 
 
 def events_path(base_dir: str | Path | None = None) -> Path:
-    return ensure_tools_dir(base_dir) / "plans" / "events.jsonl"
+    return events_file(ensure_tools_dir(base_dir))
+
+
+def events_file(root: Path) -> Path:
+    """The plan ledger under an already-resolved tools root — no bootstrap
+    write, so read-only callers (agent_eval's doctor reader) can name it."""
+    return root / "plans" / "events.jsonl"
 
 
 def _mutate(
@@ -1693,7 +2148,7 @@ def _plan_lock(root: Path) -> Iterator[None]:
         except FileExistsError:
             if _reap_stale_lock(lock_path):
                 continue
-            raise GovernanceError("plans/events.jsonl is locked")
+            raise PlanLedgerLocked("plans/events.jsonl is locked")
     try:
         os.write(fd, json.dumps(payload, sort_keys=True).encode("utf-8"))
         yield
@@ -1751,6 +2206,7 @@ def _initial_state(plan_id: str) -> dict[str, Any]:
         "cross_review_risks_by_round": {},
         "resolved_review_risk_ids": [],
         "coverage_by_round": {},
+        "implementation_delivery_attempts": [],
         "terminal_state": None,
     }
 
@@ -1932,9 +2388,36 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
     elif event_type == "plan_evaluated":
         state["state"] = payload["terminal_state"]
         state["terminal_state"] = payload["terminal_state"]
+    elif event_type == "implementation_delivery_attempted":
+        # ARIA-HIGH-362 — annotation; legal only while the plan rests in
+        # CONVERGED, the one state a delivery can be offered from.
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_delivery_attempted expected=CONVERGED"
+            )
+        state.setdefault("implementation_delivery_attempts", []).append({
+            **payload, "recorded_at": event.get("recorded_at"),
+        })
+    elif event_type == "implementation_delivery_attempt_voided":
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_delivery_attempt_voided expected=CONVERGED"
+            )
+        attempts = state.get("implementation_delivery_attempts") or []
+        target = next((row for row in attempts if row.get("attempt") == payload["attempt"]), None)
+        if target is None or target.get("voided"):
+            raise GovernanceError(
+                f"implementation_delivery_attempt_voided: attempt {payload['attempt']} "
+                f"is not an unvoided attempt of plan {state.get('plan_id')!r}"
+            )
+        target["voided"] = payload["reason"]
     elif event_type == "plan_abandoned":
         state["state"] = "ABANDONED"
         state["terminal_state"] = "ABANDONED"
+        # ARIA-MEDIUM-291 — why, on the state every reader folds.
+        state["abandonment"] = {"reason": payload["reason"], "stall": payload.get("stall")}
     # Plan ARIA-V9.0-B — implementation-phase reducer transitions.
     # Each event_type checks the single legal predecessor state and
     # raises GovernanceError(invalid_transition: …) on out-of-order
@@ -2572,6 +3055,10 @@ def _validate_event(event: dict[str, Any]) -> None:
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("initial_revision_id"), "initial_revision_id")
+        if "admission_scope" in payload:
+            from .plan_origin import validate_admission_scope
+
+            validate_admission_scope(payload["admission_scope"], payload.get("plan_content"))
     elif event_type == "challenger_plan_drafted":
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
@@ -2647,13 +3134,25 @@ def _validate_event(event: dict[str, Any]) -> None:
         for field in ("risks_rollup_summary", "gate_decisions", "reason_codes"):
             if field not in payload:
                 raise GovernanceError(f"plan_evaluated missing {field}")
+    elif event_type == "implementation_delivery_attempted":
+        attempt = payload.get("attempt")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt <= 0:
+            raise GovernanceError("implementation_delivery_attempted attempt must be a positive integer")
+        for field in ("cycle_id", "profile", "runner_class"):
+            _require_non_empty(payload.get(field), field)
+    elif event_type == "implementation_delivery_attempt_voided":
+        attempt = payload.get("attempt")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt <= 0:
+            raise GovernanceError("implementation_delivery_attempt_voided attempt must be a positive integer")
+        _require_non_empty(payload.get("reason"), "reason")
     elif event_type == "plan_abandoned":
         _require_non_empty(payload.get("reason"), "reason")
         _require_non_empty(payload.get("abandoned_from_state"), "abandoned_from_state")
-    elif event_type == "lock_reaped":
-        for field in ("stale_lock_pid", "lock_age_seconds", "reaped_by_pid"):
-            if not isinstance(payload.get(field), int):
-                raise GovernanceError(f"lock_reaped {field} must be an integer")
+        if "stall" in payload:
+            stall = payload["stall"]
+            if not isinstance(stall, dict):
+                raise GovernanceError("plan_abandoned stall must be an object")
+            _require_non_empty(stall.get("cause"), "stall.cause")
     # Plan ARIA-V9.0-B — implementation-phase event payload validators.
     # State preconditions live in _apply_event (the reducer), not here
     # — _validate_event is shape-only because validation runs once per
@@ -3264,15 +3763,39 @@ def _planning_source_context(state: dict[str, Any], fallback_refs: list[str]) ->
     never use a previous seed's refs and label them current. This helper
     derives retrieval inputs only, not write scope or planner proposals.
     """
+    pointers = _reviewed_coverage_pointers(state)
     try:
         body = plan_body_from_state(state)
     except GovernanceError:
-        return list(fallback_refs), None, None
+        return _with_pointers(list(fallback_refs), pointers), None, None
     refs = body["plan_content"].get("evidence_refs")
     paths = affected_surface_paths(body["plan_content"].get("affected_surfaces", []))
     if not isinstance(refs, list) or not refs or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
         refs = fallback_refs
-    return list(refs), body["content_hash"], paths or None
+    return _with_pointers(list(refs), pointers), body["content_hash"], paths or None
+
+
+def _reviewed_coverage_pointers(state: dict[str, Any]) -> list[str]:
+    """The citable pointer of every coverage manifest recorded for this plan.
+
+    ARIA-HIGH-354 — a round's coverage gaps reach the next round's planners
+    as synthetic risks that cite the manifest by its pointer, and the
+    response law admits a pointer only when the answered envelope carries it.
+    Every planning envelope of the plan therefore carries the pointers of
+    the rounds already measured, oldest first.
+    """
+    from .evidence_validator import coverage_manifest_pointer
+
+    rounds = state.get("coverage_by_round") or {}
+    return [
+        coverage_manifest_pointer(str(rounds[number]["closure_manifest_path"]))
+        for number in sorted(rounds, key=int)
+        if isinstance(rounds[number], dict) and rounds[number].get("closure_manifest_path")
+    ]
+
+
+def _with_pointers(refs: list[str], pointers: list[str]) -> list[str]:
+    return [*refs, *(pointer for pointer in pointers if pointer not in refs)]
 
 
 def _coerce_plan_body(candidate: Any) -> dict[str, Any] | None:

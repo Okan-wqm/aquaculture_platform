@@ -107,7 +107,7 @@ class _Fixture(unittest.TestCase):
             monotonic=self.clock.monotonic, sleep=self.clock.sleep,
         )
         return _native_runtime_admission(
-            repo_root=self.repo, profile=self.profile, policy=self.policy,
+            repo_root=self.repo, profile=self.profile, role="evidence_judgment", policy=self.policy,
             environ=self.environ, observe_status=observe,
             # No provider is cooled here: every member must be PROBED for
             # the budget arithmetic to be measured at all.

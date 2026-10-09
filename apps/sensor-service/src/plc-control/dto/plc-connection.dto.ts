@@ -1,18 +1,19 @@
 import { InputType, Field, ID, Int, ObjectType } from '@nestjs/graphql';
 import {
-  IsString,
+  IsDate,
+  IsEnum,
+  IsIn,
+  IsInt,
   IsNotEmpty,
   IsOptional,
-  IsEnum,
+  IsString,
   IsUUID,
   IsUrl,
-  IsInt,
-  Min,
+  Matches,
   Max,
   MaxLength,
+  Min,
   MinLength,
-  Matches,
-  IsIn,
 } from 'class-validator';
 
 import {
@@ -553,9 +554,11 @@ export class ReadHistoricalDataInputDto {
   nodeId!: string;
 
   @Field()
+  @IsDate()
   startTime!: Date;
 
   @Field()
+  @IsDate()
   endTime!: Date;
 
   @Field(() => Int, { nullable: true, defaultValue: 1000 })

@@ -15,7 +15,6 @@ import { ProtocolAssignment } from './entities/protocol-assignment.entity';
 import { FeedingDayPlan } from './entities/feeding-day-plan.entity';
 import { FeedingMeal } from './entities/feeding-meal.entity';
 import { FeedingForecastSnapshot } from './entities/feeding-forecast-snapshot.entity';
-import { TenantLocalization } from './entities/tenant-localization.entity';
 import { FeedingJobRun } from './entities/feeding-job-run.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
@@ -31,7 +30,6 @@ import { FeedingCronV2Service } from './services/feeding-cron-v2.service';
 import { FeedingClockService } from './services/feeding-clock.service';
 import { FeedingJobRunService } from './services/feeding-job-run.service';
 import { FeedingWindowReadinessListener } from './listeners/feeding-window-readiness.listener';
-import { TenantLocalizationProjectionListener } from './listeners/tenant-localization-projection.listener';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
@@ -59,9 +57,12 @@ import {
 } from './query-handlers/feeding-protocol-v2.query-handlers';
 import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resolver';
 import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
+import { LocalizationModule } from '../localization/localization.module';
 
 @Module({
   imports: [
+    // Zon hiyerarşisinin tek sahibi (SiteTimeZoneService) + tenant lokalizasyon projeksiyonu.
+    LocalizationModule,
     // Band/oran/FCR çözümü ve gün-planı yeniden hesabı: tek örnek, yaprak modül
     // (feeding-protocol-core.module.ts — neden orada). Buradan da dışa
     // aktarılır; tüketiciler doğrudan çekirdeği de import edebilir.
@@ -83,8 +84,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
       FeedingDayPlan,
       FeedingMeal,
       FeedingForecastSnapshot,
-      // Cross-tenant saat/koşu altyapısı (W5) — `schema: 'farm'` bildirir.
-      TenantLocalization,
+      // Cross-tenant koşu altyapısı (W5) — `schema: 'farm'` bildirir.
       FeedingJobRun,
       Feed,
       Species,
@@ -101,7 +101,6 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     FeedingCronV2Service,
     FeedingClockService,
     FeedingJobRunService,
-    TenantLocalizationProjectionListener,
     // W7/FARM-MEDIUM-271 — sensor-service'in öğün öncesi oksijen verdiktini
     // öğüne damgalar; MealBoard rozeti buradan beslenir.
     FeedingWindowReadinessListener,

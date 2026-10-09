@@ -238,3 +238,34 @@ describe('SensorTopicCacheService tenant-scoped reads', () => {
     };
   }
 });
+
+// Moved from the MqttListenerService spec: the listener's own copy of the
+// matcher went with its RLS-blind legacy resolver (SENSOR-HIGH-137); the topic
+// cache is now the only topic→sensor resolver.
+describe('SensorTopicCacheService topic wildcard matching', () => {
+  const service = new SensorTopicCacheService(
+    {} as Partial<RedisService> as RedisService,
+    {} as Partial<DataSource> as DataSource,
+  );
+  const topicMatches = (pattern: string, topic: string): boolean =>
+    service['topicMatches'](pattern, topic);
+
+  it('matches a single-level wildcard (+)', () => {
+    expect(topicMatches('sensors/+/data', 'sensors/abc/data')).toBe(true);
+    expect(topicMatches('sensors/+/data', 'sensors/abc/other')).toBe(false);
+  });
+
+  it('matches a multi-level wildcard (#)', () => {
+    expect(topicMatches('sensors/#', 'sensors/a/b/c')).toBe(true);
+    expect(topicMatches('sensors/#', 'sensors')).toBe(true);
+  });
+
+  it('does not match when the pattern has more levels than the topic', () => {
+    expect(topicMatches('sensors/a/b/c', 'sensors/a')).toBe(false);
+  });
+
+  it('matches an exact topic without wildcards', () => {
+    expect(topicMatches('sensors/abc/data', 'sensors/abc/data')).toBe(true);
+    expect(topicMatches('sensors/abc/data', 'sensors/xyz/data')).toBe(false);
+  });
+});

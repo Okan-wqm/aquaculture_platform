@@ -56,12 +56,16 @@ POLICY_KEYS = {
     # per-role pending ceiling that stops the nightly mint when the
     # executor's drain is behind. Consumed via judgment_pipeline_policy.
     "judgment_pipeline",
-    # E25-a (ORPHAN-710) — rhythm discipline: the open-backlog ceiling that
-    # pauses work-minting phases (watchdog_sweep, experiment_author) until
-    # ARIA finishes what it already opened. Consumed by
-    # cycle._backlog_below_cap via rhythm_policy.
+    # E25-a (ORPHAN-710), wall #7 — rhythm discipline: the closable-backlog
+    # ceiling, the closure SLO and the rate they throttle finding openers
+    # to. Consumed by cycle_guard.backlog_census / admit_finding_opener via
+    # rhythm_policy.
     "executor",
     "rhythm",
+    # ARIA-HIGH-364 — agent-request admission: the backlog the measured drain
+    # may carry and when the executor counts as not draining. Consumed by
+    # request_drain_capacity.request_admission_policy.
+    "request_admission",
     # E24-a (ORPHAN-711) — runtime telemetry pull: where the watchdog reads
     # production metrics from, and the thresholds its detectors apply.
     # Consumed by aria_watchdog.run_watchdog_sweep via watchdog_pull_policy.
@@ -85,6 +89,10 @@ POLICY_KEYS = {
     # implementer_turn_budget_for_store); the key joins the contract here so
     # an operator override is merged rather than silently dropped.
     "implementer_turn_budget",
+    # ARIA-HIGH-260 — ADR-0003's loop guards on the aging F_FINDING source:
+    # the per-24h plan-start cap and the subject cool-off. Validated and
+    # consumed by finding_grounding.f_finding_loop_policy.
+    "f_finding_loop_guards",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
@@ -202,8 +210,19 @@ RHYTHM_DEFAULTS: dict[str, Any] = {
     # Calibrated against the live store at E25 time: 2 kernel findings open.
     # 25 leaves an order of magnitude of headroom before the gate first
     # fires — the ceiling exists for the pile-up failure mode, not for
-    # steady state.
+    # steady state. Wall #7: it bounds the CLOSABLE backlog
+    # (cycle_guard.backlog_census), and reaching it throttles the openers
+    # to a rate; it never pauses them.
     "backlog_cap": 25,
+    # Wall #7 — the closure SLO: closable findings opened inside this window
+    # must not outnumber the findings closed inside it.
+    "closure_slo_window_days": 7,
+    # Wall #7 — under backlog pressure an opener is admitted once per this
+    # many hours: a rate, so discovery slows and never stops.
+    "opener_throttle_interval_hours": 24.0,
+    # Wall #7 — an operator-only finding this old is escalated once on
+    # governance; it is never counted against the cap.
+    "operator_escalation_age_days": 14,
     # Plan 032 Faz 032a — the chain's minimum spacing (SI-5 brake) becomes
     # policy: a plan needs at least three executor→cycle turns
     # (challenger → cross_review → evaluate), and at the 6h code default that
@@ -211,6 +230,18 @@ RHYTHM_DEFAULTS: dict[str, Any] = {
     # the operator override lowers it. `cycle_rhythm.MIN_CYCLE_INTERVAL_HOURS`
     # remains the code-side floor the decider falls back to.
     "min_interval_hours": 6.0,
+}
+
+# Wall #7 — inclusive (type, low, high) per rhythm key. 2h is the floor the
+# operator override names as the chain's ceiling (12 cycles/day); an int key
+# refuses a float, every key refuses a bool. A value outside is refused by
+# name, never clamped — a misread brake is worse than a loud one.
+RHYTHM_BOUNDS: dict[str, tuple[type, float, float]] = {
+    "backlog_cap": (int, 1, 10_000),
+    "min_interval_hours": (float, 2.0, 168.0),
+    "closure_slo_window_days": (int, 1, 90),
+    "opener_throttle_interval_hours": (float, 1.0, 168.0),
+    "operator_escalation_age_days": (int, 1, 365),
 }
 
 
@@ -221,11 +252,49 @@ EXECUTOR_DEFAULTS: dict[str, Any] = {
     # `worktree_per_request` is on, so two agents never share a checkout.
     "max_concurrent": 1,
     "worktree_per_request": False,
+    # Plan progress before backlog (the first live end-to-end run,
+    # 2026-10-04): once a drain has succeeded on a planning-lane request and
+    # none is left pending, it finishes its quota round and stops, so the
+    # plan's next cycle is not queued behind backlog work on the shared
+    # runner. This is how many MORE backlog requests it may take beyond the
+    # quota round before stopping. 0 = none; the run cap
+    # (MAX_REQUESTS_PER_RUN) and the drain window still bound any value.
+    "surplus_after_planning_turn": 0,
 }
 
 
+def _validated_surplus_after_planning_turn(raw: Any) -> int:
+    """One gate for the planning-turn surplus: a non-negative integer.
+
+    Refused, never coerced (RC-4, the source_qualification discipline): a
+    ``true``, a ``"3"`` or a ``1.5`` silently read as a count would teach
+    the operator something false about what the drain does after a plan's
+    turn.
+    """
+    from .tool_registry import GovernanceError
+
+    # bool is an int subclass; ``true`` is not a number of requests.
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise GovernanceError(
+            "genesis_policy_executor_surplus_after_planning_turn_not_an_integer: "
+            f"surplus_after_planning_turn={raw!r}. Write a whole number of backlog "
+            "requests (0 or more) the drain may take after a planning turn."
+        )
+    if raw < 0:
+        raise GovernanceError(
+            "genesis_policy_executor_surplus_after_planning_turn_negative: "
+            f"surplus_after_planning_turn={raw!r}. A drain cannot take fewer than "
+            "zero requests; write 0 to stop right after the quota round."
+        )
+    return raw
+
+
 def executor_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
-    """Plan 032 Faz 032h — typed accessor for the executor block."""
+    """Plan 032 Faz 032h — typed accessor for the executor block.
+
+    ``surplus_after_planning_turn`` is validated field by field and a bad
+    value is refused with a ``GovernanceError`` naming the field.
+    """
     if repo_root is not None:
         merged = load_policy(repo_root)
     else:
@@ -239,6 +308,9 @@ def executor_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
         block.update({k: raw_block[k] for k in EXECUTOR_DEFAULTS if k in raw_block})
     block["max_concurrent"] = max(1, min(8, int(block["max_concurrent"])))
     block["worktree_per_request"] = bool(block["worktree_per_request"])
+    block["surplus_after_planning_turn"] = _validated_surplus_after_planning_turn(
+        block["surplus_after_planning_turn"]
+    )
     return block
 
 
@@ -454,10 +526,17 @@ def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
             (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
         )
         merged = raw if isinstance(raw, dict) else {}
+    from .tool_registry import GovernanceError
+
     block = dict(RHYTHM_DEFAULTS)
     raw_block = merged.get("rhythm")
     if isinstance(raw_block, dict):
         block.update({k: raw_block[k] for k in RHYTHM_DEFAULTS if k in raw_block})
+    for key, (kind, low, high) in RHYTHM_BOUNDS.items():
+        value = block[key]
+        typed = isinstance(value, int if kind is int else (int, float)) and not isinstance(value, bool)
+        if not typed or not low <= value <= high:
+            raise GovernanceError(f"rhythm.{key}={value!r} must be {kind.__name__} in [{low}, {high}]")
     return block
 
 

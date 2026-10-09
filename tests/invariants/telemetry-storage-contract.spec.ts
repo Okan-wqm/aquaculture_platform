@@ -19,9 +19,12 @@ import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
+// SENSOR-MEDIUM-139: the two dead readers (metric-query, time-bucket) are gone;
+// every sensor_metrics/rollup read now goes through these files.
 const ACTIVE_SENSOR_QUERY_FILES = [
-  'apps/sensor-service/src/sensor/services/metric-query.service.ts',
-  'apps/sensor-service/src/aggregation/time-bucket.service.ts',
+  'apps/sensor-service/src/sensor/services/metric-source.ts',
+  'apps/sensor-service/src/sensor/services/sensor-query.service.ts',
+  'apps/sensor-service/src/sensor/services/channel-reading-query.service.ts',
 ] as const;
 
 const SHARED_SCHEMA_SQL_RE = /sensor\.(sensor_metrics|metrics_1min|metrics_1hour|metrics_1day)\b/;

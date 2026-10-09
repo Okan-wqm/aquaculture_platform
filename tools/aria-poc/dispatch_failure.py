@@ -140,6 +140,9 @@ _EXCEPTION_CLASSES: tuple[tuple[type[BaseException], DispatchFailureClass], ...]
     (claude_runtime.ClaudeCliUnavailable, "cli_unavailable"),
     (claude_runtime.ClaudeUsageUnavailable, "usage_unavailable"),
     (claude_runtime.ClaudeCreditExhausted, "credit_exhausted"),
+    # ARIA-HIGH-366 — the vendor did not serve (429/529/network): the
+    # host's view of a provider outage, retried when the provider is back.
+    (claude_runtime.ClaudeProviderUnreachable, "harness_unavailable"),
     (claude_runtime.ClaudePolicyViolation, "policy_violation"),
     (subprocess.TimeoutExpired, "timeout"),
 )
@@ -186,7 +189,7 @@ def classify_dispatch_failure(
             if isinstance(exception, exc_type):
                 return DispatchFailure(
                     failure_class=failure_class,
-                    retryable=failure_class == "timeout",
+                    retryable=failure_class in ("timeout", "harness_unavailable"),
                     detail_code=_detail_from_exception(exception, failure_class),
                     phase=phase,
                     exit_code=getattr(exception, "returncode", None),
@@ -242,13 +245,17 @@ def resolve_dispatch_route(
 ) -> DispatchRoute:
     """The route a dispatch on ``request`` will take, resolved pre-claim.
 
-    Model comes from the frontmatter SSoT (``resolve_claude_model``);
-    provider comes from the fleet SSoT
-    (``model_fleet.dispatching_provider_for_model`` — an unlisted model is
-    the managed Anthropic session's, stated once there), because this
-    function never touches spawn environment at all.
+    ARIA-HIGH-290 — a routed role's route is the head of its ladder in the
+    routing table (``runtime_profiles.load_provider_routing``, suspended
+    providers included: this is the DECLARED route, the identity a circuit
+    keys on), at the model that provider runs for the agent's profile
+    (``model_fleet.route_model``). A role-less dispatch — the worker lane's
+    assignment carries no role — keeps the frontmatter model
+    (``resolve_claude_model``) under the provider the fleet binds it to.
+    Never touches the spawn environment beyond the model override names.
     """
-    from aria_kernel.model_fleet import dispatching_provider_for_model
+    from aria_kernel.model_fleet import _FLEET, dispatching_provider_for_model, route_model
+    from aria_kernel.runtime_profiles import load_provider_routing
 
     target_agent = str(request.get("target_agent") or "").strip()
     if not target_agent:
@@ -256,6 +263,9 @@ def resolve_dispatch_route(
     role = str(request.get("role") or "").strip()
     model = resolve_claude_model(target_agent, repo_root=repo_root)
     provider = dispatching_provider_for_model(model)
+    if role:
+        provider = load_provider_routing().ladder_for(role, target_agent, include_suspended=True)[0]
+        model = route_model(next(row for row in _FLEET if row.key == provider), model, os.environ)
     return DispatchRoute(
         provider=provider, model=model, role=role, target_agent=target_agent,
     )

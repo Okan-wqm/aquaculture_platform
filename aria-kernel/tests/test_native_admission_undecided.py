@@ -244,6 +244,9 @@ class _FleetFixture(unittest.TestCase):
                                              tools=("Read", "Grep", "Glob"))
         self.fake = _FakeClock()
         self.probed: list[str] = []
+        # ARIA-HIGH-290 — the ladder is the role's (routing table); this
+        # role's ladder is the fleet order every test here was written for.
+        self.role = "evidence_judgment"
 
     def _admit(self, answers: dict[str, list[_RuntimeStatusObservation]], cooled: dict | None = None) -> _NativeRuntimeAdmission:
         """`answers[provider]` is the observation of each successive attempt;
@@ -264,7 +267,7 @@ class _FleetFixture(unittest.TestCase):
             return answer
 
         return _native_runtime_admission(
-            repo_root=self.root, profile=self.read_only, policy=self.policy, environ=self.environ,
+            repo_root=self.root, profile=self.read_only, role=self.role, policy=self.policy, environ=self.environ,
             observe_status=observe, cooled_providers=cooled or {}, clock=_clock(self.fake),
         )
 
@@ -309,7 +312,7 @@ class TheLadderMovesOnlyOnADecision(_FleetFixture):
 
         cooldown = record_provider_cooldown(
             self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-            request_id="AIR-1", claim_id="CL-1", detection={},
+            request_id="AIR-1", claim_id="CL-1", detection={"signature": "claude_credit_error"},
             now=datetime(2026, 9, 12, 20, 0, tzinfo=timezone.utc),
         )["details"]
         admission = self._admit({}, cooled={"anthropic": cooldown})
@@ -557,7 +560,10 @@ class TheHookAndTheDaemonBackOff(unittest.TestCase):
         self.assertEqual(derive_request_state(request_id="REQ-UNCONTAINED", base_dir=self.tools), "REQUEUED")
         governance = [json.loads(line) for line in (self.tools / "governance.jsonl").read_text().splitlines() if line.strip()]
         self.assertIn("planner_dispatch_provider_control_unavailable", [row["kind"] for row in governance])
-        self.assertEqual(hook.ADMISSION_BACKOFF_STATUSES, frozenset(hook.ADMISSION_HALT_STATUSES.values()))
+        # ARIA-HIGH-364 — the back-off set is the halts plus the pre-claim
+        # provider cooldown, nothing else.
+        self.assertEqual(hook.ADMISSION_BACKOFF_STATUSES,
+                         frozenset({*hook.ADMISSION_HALT_STATUSES.values(), hook.PROVIDER_COOLDOWN_STATUS}))
 
     def test_the_daemon_sleeps_the_poll_interval_and_counts_no_dispatch(self) -> None:
         from aria_kernel.autonomous_planner_dispatcher import run_planner_dispatch_daemon

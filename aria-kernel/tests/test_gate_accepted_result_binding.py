@@ -39,6 +39,7 @@ import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
+from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.operator_acts import operator_set_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +64,7 @@ from aria_kernel.specialist_review_runner import (  # noqa: E402
     run_specialist_review_runner,
 )
 from aria_kernel.tool_registry import ensure_tools_dir  # noqa: E402
+from aria_kernel.request_admission import admit_request
 
 
 _ADVERSARIAL_ROLE = "adversarial_judgment"
@@ -78,6 +80,7 @@ def _seed_review_request(tools: Path) -> str:
         allowed_scope=["aria-kernel/**"],
         convergence_id="conv-gate-001",
         base_dir=tools,
+        admission=admit_request("operator_cli.request", _ADVERSARIAL_ROLE, base_dir=tools),
     )
     return str(request["request_id"])
 
@@ -657,10 +660,10 @@ class NativeSpecialistPlanBinding(unittest.TestCase):
             self.assertEqual("sha256:" + hashlib.sha256(prompt.encode()).hexdigest(), row["prompt_hash"])
             self.assertIn(json.dumps(plan.plan_content, sort_keys=True), prompt)
             self.assertEqual(bound["context"]["target_sha"], target_sha)
-        request_bytes = (tools / "agent-invocations/requests.jsonl").read_bytes()
+        request_bytes = segmented_ledger_bytes(tools, "agent_invocation_requests")
         repeated = run_specialist_review_runner(**arguments)
         self.assertEqual(repeated["request_ids"], result["request_ids"])
-        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes(), request_bytes)
+        self.assertEqual(segmented_ledger_bytes(tools, "agent_invocation_requests"), request_bytes)
 
 
 if __name__ == "__main__":

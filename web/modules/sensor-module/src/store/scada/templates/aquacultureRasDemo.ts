@@ -1128,7 +1128,7 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
             ],
             showGrid: true,
             showLegend: true,
-            defaultRange: '4h',
+            defaultRange: '24h',
             chartHeightMode: 'auto',
           },
           zIndex: 40,

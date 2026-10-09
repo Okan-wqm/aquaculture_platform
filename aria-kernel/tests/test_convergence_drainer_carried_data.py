@@ -25,6 +25,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import convergence_drainer as cd
+from aria_kernel.ledger import load_segments
 from aria_kernel.agent_invocations import render_invocation_prompt
 from aria_kernel.architecture_spine_gate import InvariantMeasurement, take_baseline, take_postcheck
 from aria_kernel.cross_review_bridge import issue_primary_envelope
@@ -38,6 +39,7 @@ from aria_kernel.plan_convergence import (
     submit_challenger_plan,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from aria_kernel.request_admission import admit_request
 
 # The three measured facts, each spelled with a word the mint's scan refuses
 # — read from the SSoT the scan reads, never spelled here: the gate that
@@ -118,14 +120,12 @@ class CarriedDataMintsThroughTheRealBridge(unittest.TestCase):
     def step(self) -> dict:
         return cd.run_convergence_drainer(
             cycle_id="cyc-carried-data", base_dir=self.tools, workspace_root=self.root, plan_id="plan-1",
-            plan_seed=self.body(), must_satisfy=[{"id": "MS-1", "description": "do x"}],
-            evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-kernel/**"], max_rounds=4,
+            plan_seed=self.body(), max_rounds=4,
             coverage_computer=self.gaps_payload,
         )
 
     def requests(self) -> list[dict]:
-        path = self.tools / "agent-invocations" / "requests.jsonl"
-        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.exists() else []
+        return load_segments(self.tools, "agent_invocation_requests")
 
     def _cross_task(self, task_id: str, reviewer: str, direction: str, rev: str, digest: str) -> dict:
         from datetime import datetime, timedelta, timezone
@@ -223,6 +223,7 @@ class CarriedDataMintsThroughTheRealBridge(unittest.TestCase):
                 plan_id="plan-1", round_number=2,
                 must_satisfy=[{"id": "MS-1", "description": f"Patch the store {_CMD_PHRASE}."}],
                 evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-kernel/**"], base_dir=self.tools,
+                admission=admit_request("convergence_drainer.plan_step", "primary_plan", base_dir=self.tools),
             )
         self.assertEqual([row for row in self.requests() if row["role"] == "primary_plan"], [])
 

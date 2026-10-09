@@ -12,12 +12,9 @@ from aria_kernel import adapter_portfolio
 from aria_kernel.adapter_portfolio import (
     PLAN_016_MVP_TOOL_IDS,
     list_mvp_status,
-    register_mvp_adapters,
 )
 from aria_kernel.tool_registry import (
-    DEFAULT_FRESHNESS_WINDOW_HOURS,
     ensure_tools_dir,
-    load_registry,
     parse_window_signature,
 )
 
@@ -54,37 +51,17 @@ class ParseWindowSignatureTests(unittest.TestCase):
         self.assertEqual(parse_window_signature(a), parse_window_signature(b))
 
 
-class RegisterMVPTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tools = _seed_tools()
-        self.repo = self.tools.parent
+class SecondDeclarationSourceRemovedTests(unittest.TestCase):
+    """ARIA-MEDIUM-378 — this module registered four adapters from rows of
+    its own, each on the no-op shadow_runner.py, through a command no
+    workflow ran; the parsers that existed never ran outside tests. The
+    manifests are the only declaration now, and these pins break if a row
+    builder or a registration path comes back here."""
 
-    def tearDown(self) -> None:
-        import shutil
-        shutil.rmtree(self.repo, ignore_errors=True)
-
-    def test_register_creates_four_new_adapters_on_empty_registry(self) -> None:
-        result = register_mvp_adapters(base_dir=self.tools)
-        self.assertEqual(len(result["registered"]), 4)
-        self.assertEqual(result["skipped_existing"], [])
-        # Each registered tool carries the freshness fields — derived by
-        # validate_tool_definition (E13-C11), NOT set by adapter_portfolio.
-        registry = load_registry(self.tools)
-        ids = {t["tool_id"] for t in registry["tools"]}
-        for expected in ("banned-phrase-adapter", "cqrs-adapter", "outbox-adapter", "dual-alias-adapter"):
-            self.assertIn(expected, ids)
-            tool = next(t for t in registry["tools"] if t["tool_id"] == expected)
-            self.assertTrue(tool["parse_window_signature"].startswith("sha256:"))
-            self.assertEqual(tool["parse_window_signature"], parse_window_signature(tool))
-            self.assertEqual(tool["freshness_window_hours"], DEFAULT_FRESHNESS_WINDOW_HOURS)
-            self.assertEqual(tool["status"], "SHADOW")
-
-    def test_register_is_idempotent(self) -> None:
-        first = register_mvp_adapters(base_dir=self.tools)
-        second = register_mvp_adapters(base_dir=self.tools)
-        self.assertEqual(len(first["registered"]), 4)
-        self.assertEqual(len(second["registered"]), 0)
-        self.assertEqual(set(second["skipped_existing"]), set(first["registered"]))
+    def test_the_portfolio_declares_no_adapter_rows(self) -> None:
+        for name in ("_MVP_ADAPTERS", "_build_adapter_row", "register_mvp_adapters"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(adapter_portfolio, name))
 
 
 class RuntimePatchLayerRemovedTests(unittest.TestCase):
@@ -121,21 +98,6 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(result["expected_count"], 8)
         self.assertEqual(result["registered_count"], 0)
         self.assertEqual(set(result["missing"]), set(PLAN_016_MVP_TOOL_IDS))
-
-    def test_status_after_register_has_no_missing_for_new_adapters(self) -> None:
-        register_mvp_adapters(base_dir=self.tools)
-        result = list_mvp_status(base_dir=self.tools)
-        # Four MVP names registered; the other four (tenant-scoping etc.) are not
-        # in this fresh fixture registry, so they will appear in `missing`.
-        self.assertEqual(result["registered_count"], 4)
-        new_ids = {
-            "banned-phrase-adapter",
-            "cqrs-adapter",
-            "outbox-adapter",
-            "dual-alias-adapter",
-        }
-        for mid in result["missing"]:
-            self.assertNotIn(mid, new_ids)
 
 
 if __name__ == "__main__":

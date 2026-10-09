@@ -69,7 +69,7 @@ const CROSS_TENANT_LEDGER_ALLOWLIST = new Set<string>([
   // `INSERT INTO farm.tenant_localization ... ON CONFLICT ("tenantId")`, a
   // cross-tenant infrastructure ledger (MODULE_SCHEMAS['farm']
   // .infrastructureTables) that is never cloned into tenant schemas.
-  'feeding-protocol/listeners/tenant-localization-projection.listener.ts',
+  'localization/listeners/tenant-localization-projection.listener.ts',
 ]);
 
 /**

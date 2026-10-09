@@ -45,6 +45,7 @@ from typing import Any, Callable, Literal, Protocol, TypedDict
 
 from .convergent_skill_authoring import run_convergent_authoring
 from .ledger import append_declared_jsonl, load_jsonl
+from .request_admission import admit_request
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -88,6 +89,10 @@ class SkillGenesisDrainResult(TypedDict):
     requests_skipped_already_terminal: int
     requests_skipped_token_budget: int
     requests_skipped_non_convergent: int
+    # ARIA-HIGH-364 — authoring runs the request-admission door refused to
+    # start this cycle; their status stays non-terminal, so they are
+    # candidates again next cycle.
+    requests_skipped_request_admission: int
     authoring_results: list[dict[str, Any]]
     tokens_spent_this_cycle: int
     aggregate_verdict: Literal[
@@ -98,6 +103,7 @@ class SkillGenesisDrainResult(TypedDict):
         "dispatchers_unavailable",
         "token_budget_exceeded",
         "authoring_error_present",
+        "request_admission_throttled",
     ]
 
 
@@ -169,6 +175,7 @@ def run_skill_genesis_drainer(
         "requests_skipped_already_terminal": 0,
         "requests_skipped_token_budget": 0,
         "requests_skipped_non_convergent": 0,
+        "requests_skipped_request_admission": 0,
         "authoring_results": [],
         "tokens_spent_this_cycle": 0,
         "aggregate_verdict": "no_requests",
@@ -275,6 +282,17 @@ def run_skill_genesis_drainer(
                     )
                     result["requests_skipped_evidence_insufficient"] += 1
                     continue
+        # ARIA-HIGH-364 — an authoring run is new work: discretionary. Its
+        # drafter and judge envelopes are then steps of an admitted run
+        # (dispatcher_factory, critical path). A refused run is recorded
+        # under a non-terminal status and is a candidate again next cycle.
+        run_admission = admit_request(
+            "skill_genesis.authoring_run", "primary_authoring", base_dir=root, cycle_id=cycle_id,
+        )
+        if not run_admission.admitted:
+            _persist_status(request_id, "skipped_request_admission", base_dir, reason=run_admission.refusal)
+            result["requests_skipped_request_admission"] += 1
+            continue
         # Plan ARIA-V7 §2h v2 (I-V7.4-08) — crash-catch envelope.
         # Source-substring invariant pins the literal try/except.
         try:
@@ -321,6 +339,8 @@ def run_skill_genesis_drainer(
             result["aggregate_verdict"] = "no_requests"
         elif result["requests_skipped_token_budget"] > 0:
             result["aggregate_verdict"] = "token_budget_exceeded"
+        elif result["requests_skipped_request_admission"] > 0:
+            result["aggregate_verdict"] = "request_admission_throttled"
         else:
             result["aggregate_verdict"] = "no_requests"
     elif authoring_error_present:

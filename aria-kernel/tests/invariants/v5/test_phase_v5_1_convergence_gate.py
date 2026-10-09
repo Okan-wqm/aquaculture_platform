@@ -32,6 +32,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
+from aria_kernel.request_admission import admit_request
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -326,6 +327,7 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
             allowed_scope=["test/"],
             plan_revision_hash="rev-1",
             base_dir=self.base,
+            admission=admit_request("convergence_drainer.plan_step", "challenger_plan", base_dir=self.base),
         )
         cross_review_record = issue_cross_review_envelope(
             plan_id="plan-v5_1-03",
@@ -339,6 +341,7 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
             allowed_scope=["test/"],
             plan_revision_hash="rev-1",
             base_dir=self.base,
+            admission=admit_request("convergence_drainer.plan_step", "cross_review", base_dir=self.base),
         )
         self.assertEqual(
             challenger_record["convergence_id"],
@@ -384,6 +387,8 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
             "primary_revision_failed",
             "budget_exhausted",
             "aria_stop_interrupted",
+            # ARIA-HIGH-364 — the door refused to start the plan.
+            "request_admission_throttled",
         ]
         for verdict in non_converged:
             with self.subTest(verdict=verdict):

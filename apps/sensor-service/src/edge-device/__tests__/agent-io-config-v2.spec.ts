@@ -1,6 +1,9 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+import { collaborator } from '@aquaculture/testing';
+
+import { DeviceDirectoryService } from '../device-directory.service';
 import { EdgeDeviceService } from '../edge-device.service';
 import { DeviceIoConfig, IoDataType, IoType } from '../entities/device-io-config.entity';
 import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
@@ -47,6 +50,8 @@ function makeService(overrides: {
     (overrides.mqttClient === undefined ? null : overrides.mqttClient) as never,
     {} as never,
     { get: jest.fn() } as never,
+    // registerDevice is not on this path; any call names the missing member.
+    collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
   );
 }
 
@@ -238,6 +243,7 @@ describe('pushIoConfigToDevice ack correlation (SENSOR-HIGH-064)', () => {
       mqttClient as never,
       {} as never,
       { get: jest.fn() } as never,
+      collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
     );
     return { service, deviceRepository, mqttClient };
   }

@@ -22,7 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aria_kernel import agent_invocations as ai
-from aria_kernel.convergence_drainer import _live_request_id
+from aria_kernel.convergence_drainer import _requests_for_step
+from aria_kernel.step_request import step_request_disposition
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 
@@ -46,7 +47,11 @@ class _Fixture(unittest.TestCase):
         }, expected_surface="agent_invocation_requests")
 
     def _live(self) -> str | None:
-        return _live_request_id(self.tools, convergence_id=self.plan_id, role="cross_review", round_number=3)
+        # ARIA-HIGH-355 — the step's one disposition rule (step_request) is
+        # the drainer's read; "live" is the kind that makes it wait.
+        rows = _requests_for_step(self.tools, convergence_id=self.plan_id, role="cross_review", round_number=3)
+        disposition = step_request_disposition(rows, role="cross_review", base_dir=self.tools)
+        return disposition.request_id if disposition.kind == "live" else None
 
 
 class AStaleEnvelopeIsAlive(_Fixture):

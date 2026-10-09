@@ -59,11 +59,13 @@ from typing import Iterator
 # than 5 minutes is genuinely stuck; one that needs 3 is normal.
 GIT_TIMEOUT_SECONDS = 300
 
-# How many times the publish orchestrator may lose the race to the remote
-# tip and rebuild onto the winner before it gives up
-# (`state_store.publish_with_contention_replay`). Named so the lifecycle
+# How many publish attempts the orchestrator makes
+# (`state_store.publish_with_contention_replay`). ONE since ARIA-HIGH-342: a
+# publish runs under the aria/state writer lease, and contention under a lease
+# is refused as `state_writer_lease_lost` — never rebuilt onto the winner and
+# retried, which is what the attempts used to price. Named so the lifecycle
 # bound below can be derived from the arc it protects.
-PUBLISH_MAX_ATTEMPTS = 3
+PUBLISH_MAX_ATTEMPTS = 1
 
 # Git operations whose duration scales with the remote's latency or with
 # the size of the working tree: the transports, and the commands that
@@ -272,14 +274,25 @@ STATE_TRANSACTION_ARCS: dict[str, LifecycleArc] = {
 # registries cannot describe the same code differently.
 
 # ONE attempt of `_publish_with_contention_replay_locked` at its longest:
-# the push is rejected; `_reconcile_nonzero_push` probes the remote and
-# fetches the winner (when the winner already carries the commit it
-# fast-forwards instead and the attempt ends there — the shorter branch);
-# the contention is classified and the rebase runs its transaction arc.
+# the atomic push (state + writer-lease fence) exits non-zero;
+# `_reconcile_nonzero_push` probes the remote and fetches its tip; then
+# either the remote already carries the commit and the store fast-forwards
+# onto it, or the state tip did not move and one probe of the lease branch
+# tells a takeover from a refused write (R-6). Contention ends the attempt
+# with a refusal: ARIA-HIGH-342 took the rebase out of the publish, so it is
+# priced by its own arc below.
 PUBLISH_ATTEMPT_ARC: LifecycleArc = (
     PUBLISH_PUSH_STEP,
     REMOTE_TIP_PROBE_STEP,
     REMOTE_BRANCH_FETCH_STEP,
+    (OWNED_STORE_FAST_FORWARD_STEP, REMOTE_TIP_PROBE_STEP),
+)
+
+# `rebase_store_onto_remote` (its one production caller is
+# `memory_gap.restore_and_replay`, a store found behind the tip at cycle
+# start): the pending recovery, then the rebase's transaction arc.
+REBASE_ARC: LifecycleArc = (
+    *PENDING_RECOVERY_ARC,
     *REBASE_TRANSACTION_ARC,
 )
 
@@ -311,6 +324,7 @@ CHECKOUT_BOOTSTRAP_ARC: LifecycleArc = (
 LIFECYCLE_ARCS: dict[str, LifecycleArc] = {
     "pending_recovery": PENDING_RECOVERY_ARC,
     "publish_attempt": PUBLISH_ATTEMPT_ARC,
+    "rebase": REBASE_ARC,
     "checkout_restore": CHECKOUT_RESTORE_ARC,
     "checkout_bootstrap": CHECKOUT_BOOTSTRAP_ARC,
 }
@@ -347,9 +361,12 @@ STATE_STORE_CHECKOUT_ARC_SECONDS: float = max(
 # holder a waiter can be stuck behind is a live one, and this is the
 # longest a live one can legitimately be. A wedge still fails loudly, at
 # the bound.
+# The rebase holder (`memory_gap.restore_and_replay`).
+STATE_STORE_REBASE_ARC_SECONDS: float = arc_seconds(REBASE_ARC)
 STATE_STORE_LIFECYCLE_LIVENESS_SECONDS: float = max(
     STATE_STORE_PUBLISH_ARC_SECONDS,
     STATE_STORE_CHECKOUT_ARC_SECONDS,
+    STATE_STORE_REBASE_ARC_SECONDS,
 )
 # How long a state writer waits for the LIVE holder of a state-group, index
 # or file lock (`ledger.state_transaction`'s default): the longest arc any
@@ -445,6 +462,7 @@ __all__ = [
     "PUBLISH_MAX_ATTEMPTS",
     "PUBLISH_PUSH_STEP",
     "REMOTE_BRANCH_FETCH_STEP",
+    "REBASE_ARC",
     "REBASE_TRANSACTION_ARC",
     "REMOTE_TIP_PROBE_STEP",
     "REPLAY_RESET_STEP",
@@ -452,6 +470,7 @@ __all__ = [
     "STATE_STORE_CHECKOUT_ARC_SECONDS",
     "STATE_STORE_LIFECYCLE_LIVENESS_SECONDS",
     "STATE_STORE_PUBLISH_ARC_SECONDS",
+    "STATE_STORE_REBASE_ARC_SECONDS",
     "STATE_TRANSACTION_ARCS",
     "STATE_TRANSACTION_STEPS",
     "STORE_WORKTREE_ADD_STEP",

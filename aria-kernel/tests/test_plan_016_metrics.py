@@ -18,6 +18,7 @@ from aria_kernel.plan_016_metrics import (
     write_dashboard,
 )
 from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 def _seed_tools() -> Path:
@@ -75,6 +76,7 @@ class CounterIncrementTests(unittest.TestCase):
                 suggested_prompt=f"prompt {i}",
                 legacy_strict_fields_optional=True,
                 base_dir=self.tools,
+                admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
             )
         metrics = compute_plan_016_metrics(base_dir=self.tools)
         self.assertEqual(metrics["aria_agent_request_total"], 3)
@@ -92,6 +94,7 @@ class CounterIncrementTests(unittest.TestCase):
             must_satisfy=[{"id": "claim-test", "description": "claim is active"}],
             allowed_scope=["aria-kernel/**"],
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.tools),
         )
         claim = claim_request(request_id=req["request_id"], agent_id="worker-1", base_dir=self.tools)
         metrics = compute_plan_016_metrics(base_dir=self.tools)

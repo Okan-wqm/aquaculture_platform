@@ -12,7 +12,7 @@ import { AccessLogEntity, AccessLogModule, AuditedOperationModule } from '@aquac
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 
 import {
-  MqttAuthCacheInvalidationHook,
+  EdgeRouteDirectoryPurgeHook,
   PublishedOutboxPurgeHook,
   SensorErasureModule,
 } from './compliance/erasure/erasure.module';
@@ -52,6 +52,7 @@ import { DeploymentLog } from './automation/entities/deployment-log.entity';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DashboardLayout } from './dashboard/entities/dashboard-layout.entity';
 import { CalibrationEvent } from './calibration/calibration-event.entity';
+import { ChannelQuantityDeclaration } from './database/entities/channel-quantity-declaration.entity';
 import { CalibrationModule } from './calibration/calibration.module';
 import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
 import { SensorProtocol } from './database/entities/sensor-protocol.entity';
@@ -212,6 +213,7 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
             Sensor,
             SensorProtocol,
             SensorDataChannel,
+            ChannelQuantityDeclaration,
             CalibrationEvent,
             VfdDevice,
             VfdReading,
@@ -359,11 +361,11 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
     }),
     SensorOutboxModule,
     TenantErasureTargetModule.forService('sensor-service', {
-      // Task 1.8: purge the tenant's PUBLISHED outbox rows + drop the MQTT
-      // auth cache entries mapping to the erased tenant, atomically with
-      // the erasure.
+      // Task 1.8: purge the tenant's PUBLISHED outbox rows, and (SENSOR-HIGH-175)
+      // its device and provisioning-key routes in `sensor`, atomically with
+      // the erasure. (MQTT auth keeps no positive device cache to drop.)
       imports: [SensorErasureModule],
-      postErasureHooks: [PublishedOutboxPurgeHook, MqttAuthCacheInvalidationHook],
+      postErasureHooks: [PublishedOutboxPurgeHook, EdgeRouteDirectoryPurgeHook],
     }),
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared

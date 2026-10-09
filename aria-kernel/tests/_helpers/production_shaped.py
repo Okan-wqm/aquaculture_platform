@@ -44,6 +44,7 @@ from typing import Any
 from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workflow_contract_registry import cycle_wall_clock_cap_seconds
+from aria_kernel.request_admission import admit_request
 
 from .git_fixtures import make_repo_with_initial_commit
 from .operator_acts import operator_set_profile
@@ -325,6 +326,7 @@ def production_implementation_request(
         base_sha=base_sha,
         base_dir=tools_dir,
         cycle_id=cycle_id,
+        admission=admit_request("implementer.converged_plan", "implementation", base_dir=tools_dir),
     )
 
 
@@ -358,7 +360,7 @@ def production_staged_implementation_request(
     staged ids. Returns the request row the executor lane claims.
     """
     from aria_kernel.cycle_phases.implementer import AutonomousV9ImplementationRunner
-    from aria_kernel.ledger import load_declared_jsonl
+    from aria_kernel.ledger import load_segments
 
     operator_set_profile("strict", base_dir=tools_dir, scheduler_ceiling="strict")
     plan = production_converged_plan(
@@ -371,10 +373,7 @@ def production_staged_implementation_request(
     )
     if result.terminal_state != "IMPLEMENTATION_DISPATCHED":
         raise AssertionError(f"fixture plan was not dispatched: {result}")
-    requests = load_declared_jsonl(
-        ensure_tools_dir(tools_dir) / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    requests = load_segments(ensure_tools_dir(tools_dir), "agent_invocation_requests")
     row = next(
         (row for row in reversed(requests)
          if row.get("row_type") == "request" and row.get("role") == "implementation"
@@ -412,6 +411,7 @@ def production_request_without_anchor(
         suggested_prompt=suggested_prompt,
         base_dir=base_dir,
         **extra,
+        admission=admit_request("operator_cli.request", role, base_dir=base_dir),
     )
 
 
@@ -440,6 +440,7 @@ def production_request_with_anchor(
         target_sha=target_sha,
         cycle_id=cycle_id,
         **extra,
+        admission=admit_request("operator_cli.request", role, base_dir=base_dir),
     )
 
 

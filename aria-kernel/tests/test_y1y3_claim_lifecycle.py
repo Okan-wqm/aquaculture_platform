@@ -209,6 +209,13 @@ class DeadPlannerRequestRemintTests(_StoreCase):
             "plan_id": "conv-y3-test",
             "latest_revision": {"revision_id": "rev-1"},
             "current_round": 1,
+            # ARIA-HIGH-345 — the controller scopes a planner request to the
+            # plan it names, read from the plan's start record.
+            "plan_started": {"plan_content": {
+                "affected_surfaces": ["aria-kernel/aria_kernel/plan_round_controller.py"],
+                "key_changes": ["re-mint a dead planner request with lineage"],
+                "evidence_refs": ["aria-kernel/aria_kernel/plan_round_controller.py:1"],
+            }},
         }
 
     def _ensure(self) -> dict[str, Any]:

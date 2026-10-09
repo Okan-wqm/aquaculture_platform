@@ -61,7 +61,7 @@ describe('farm-realtime-invalidation', () => {
     const segments = keys().map((k) => k.slice(2));
     expect(segments).toContainEqual(['tanks']);
     expect(segments).toContainEqual(['feedingDayPlans']);
-    expect(segments).toContainEqual(['equipment-params']);
+    expect(segments).toContainEqual(['unit-measurement-plan']);
     // the union is de-duplicated
     expect(keys().length).toBe(FARM_REALTIME_ALL_SEGMENTS.length);
   });

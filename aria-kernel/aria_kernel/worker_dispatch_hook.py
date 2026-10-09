@@ -354,7 +354,13 @@ def dispatch_one_pending_worker_assignment(
             return 1
 
     if exit_code != 0:
-        cooldown = provider_cooldown_for_claim(root, claim_id=claim_id)
+        # ARIA-HIGH-290 — a cooldown is written once per transition, so a
+        # child that hit an exhaustion ANOTHER run had already cooled finds
+        # that standing row instead of writing its own. No cooldown stood for
+        # this provider when the claim was taken (step 2 refused otherwise),
+        # so one standing now began while this claim ran.
+        cooldown = (provider_cooldown_for_claim(root, claim_id=claim_id)
+                    or active_provider_cooldowns(root).get(provider))
         if cooldown is not None:
             # The child cooled the provider under THIS claim (worker_executor's
             # `except ClaudeCreditExhausted` arm): a quota exhaustion, not a

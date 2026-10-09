@@ -32,7 +32,8 @@
       ],
       "@platform/sensor-contracts": [
         "../../../libs/sensor-contracts/src/index.ts"
-      ]
+      ],
+      "@aquaculture/shared-contracts": ["../../../libs/shared-contracts/src"]
     }
   },
   "include": ["src"],

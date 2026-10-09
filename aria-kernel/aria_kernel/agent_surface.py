@@ -23,8 +23,13 @@ REQUEST_ROLES: tuple[str, ...] = (
     "completeness_critique",
     "implementation",
     "verification",
-    "gap_finding",
-    "gap_closure",
+    # `gap_finding` — REMOVED (program rev3.1): no kernel path ever minted it;
+    # the acceptance-lane gap hunt it named is an operator-driven dispatch
+    # outside the kernel. Blind enumeration (K42) re-adds a role only when its
+    # evidence trigger fires. Pinned by tests/test_role_hygiene_e14.py.
+    # `gap_closure` — REMOVED for the same reason (ORPHAN-MEDIUM-836): the
+    # executor twin of `implementation`, budgeted and never minted; the
+    # acceptance-lane gap closer is likewise an operator-driven dispatch.
     "maintenance_utility",
     "primary_authoring",
     "challenger_authoring",
@@ -84,6 +89,18 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     # is minted but can never be claimed, are the same defect from opposite
     # ends, and this repository has now closed nineteen of them.
     "verification",
+    # ARIA-HIGH-344 — the twentieth. Minted by two kernel paths (the
+    # autonomy_orchestrator next-cycle queue projection and
+    # self_change_bridge) and drained by the executor's quota round since
+    # Y4 (ORPHAN-705), it was never named here because the drain spawns
+    # `ci_executor.py <request_id>` and never passes the
+    # `claim_and_dispatch_one` gate this set guards. The provider routing
+    # table (ARIA-HIGH-290) is validated against THIS set, so the role was
+    # left unrouted and every drained request died in admission
+    # (`provider_routing_role_unrouted:maintenance_utility`, executor runs
+    # 37192561282 and 37205463513). `ci_executor_drain` now refuses to load
+    # an arc naming a role outside this set.
+    "maintenance_utility",
 })
 
 DRAFTER_ROLES: FrozenSet[str] = frozenset({
@@ -163,6 +180,12 @@ ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
     "verification": ("aria-adversarial-judge",),
     "change_intelligence": ("aria-change-intelligence",),
     "goldset_curation": ("aria-goldset-curator",),
+    # The one agent both maintenance_utility minters address
+    # (autonomy_orchestrator's queue projection and
+    # self_change_bridge.SELF_CHANGE_TARGET_AGENT): read-only and
+    # kernel-envelope only, so a queue item or a self-change PROPOSAL can
+    # never be served by an agent that holds write tools.
+    "maintenance_utility": ("aria-autonomy-planner",),
 }
 
 DERIVED_REQUEST_STATES: tuple[str, ...] = (
@@ -178,7 +201,12 @@ DERIVED_REQUEST_STATES: tuple[str, ...] = (
     "CANCELLED",
     "ACCEPTED_PENDING_BRIDGE",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
-    "EXTERNAL_OUTAGE",
+    # EXTERNAL_OUTAGE — RETIRED (ARIA-HIGH-366, 2026-10-07): it was derived
+    # from an `api_backoff_exhausted` claim event that no producer ever
+    # wrote, and its reaper requeued on a 30-minute wall clock and escalated
+    # after four — a timer that would have killed work in any outage longer
+    # than two hours. A provider outage is now the `provider_outage_ledger` fact; the
+    # request stays PENDING/REQUEUED under a harness-class release.
     # ORPHAN-MEDIUM-492 — the request's target_sha no longer describes the
     # repo it would be executed against. Distinct from STALE, which is a
     # lease-expiry and is retryable: a lease can be re-claimed, but a plan
@@ -202,7 +230,10 @@ TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
 # is one of these: the second night's measurement showed a challenger_plan
 # round and consumed autonomy queue items permanently blocked by their own
 # dead envelopes. ACCEPTED/REJECTED stay out — they are verdicts about the
-# WORK and their consumers handle them through result folds, never re-mints.
+# WORK and their consumers handle them through result folds. The one
+# exception is a planning-round step, whose refused answer gets a successor
+# carrying the refusal (`step_request.successor_eligible_states`,
+# ARIA-HIGH-355); a planning step also treats STALE as live, the reaper's.
 REMINT_ELIGIBLE_DEAD_STATES: FrozenSet[str] = frozenset({
     "HUMAN_REQUIRED",
     "ANCHOR_STALE",

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .ledger import load_declared_jsonl
+from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments
 from .tool_registry import ensure_tools_dir
 
 INDEX_DIRNAME = "index"
@@ -82,10 +82,13 @@ def rebuild_index(*, workspace_root: str | Path, base_dir: str | Path | None = N
         conn.execute("DELETE FROM hits")
         for kind, rel, surface, fields in _SOURCES:
             ledger = root / rel
-            if not ledger.exists():
+            if surface in SEGMENTED_LEDGERS:
+                rows = load_segments(root, surface)
+            elif not ledger.exists():
                 counts[kind] = 0
                 continue
-            rows = load_declared_jsonl(ledger, expected_surface=surface)
+            else:
+                rows = load_declared_jsonl(ledger, expected_surface=surface)
             n = 0
             for row in rows:
                 ref = str(row.get("request_id") or row.get("mission_id") or row.get("event_id") or row.get("row_id") or "")

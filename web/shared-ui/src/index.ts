@@ -192,6 +192,9 @@ export {
 
 export { I18nProvider, useI18n } from './i18n';
 export type { I18nProviderProps, I18nContextValue, SupportedLocale, MessageKey } from './i18n';
+
+// Time-range words (durations and parsing live in @aquaculture/shared-contracts).
+export * from './time-range';
 export {
   SUPPORTED_LOCALES,
   DEFAULT_LOCALE,
@@ -232,7 +235,14 @@ export {
 // Frontend authorization (Scope C PR-0a) — mirror of backend matrix
 // ============================================================================
 
-export { FRONTEND_MUTATION_ROLES, useCanMutate, type FrontendMutationName } from './authz';
+export {
+  FRONTEND_MUTATION_ROLES,
+  useCanMutate,
+  useCanMutateSensor,
+  SENSOR_MUTATION_ROLES,
+  type FrontendMutationName,
+  type SensorMutationName,
+} from './authz';
 
 export {
   ADMIN_BILLING_HIDDEN_ROUTES,

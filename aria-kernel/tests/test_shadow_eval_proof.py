@@ -9,6 +9,7 @@ from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class ShadowEvalProofTests(unittest.TestCase):
@@ -221,6 +222,7 @@ class ShadowEvalProofTests(unittest.TestCase):
             "must_satisfy": [{"id": "m1", "description": "pass"}],
             "allowed_scope": ["libs/example/**"],
             "base_dir": self.tools,
+            "admission": admit_request("operator_cli.request", "primary_plan", base_dir=self.tools),
         }
 
     def test_shadow_eval_requires_complete_proof(self) -> None:

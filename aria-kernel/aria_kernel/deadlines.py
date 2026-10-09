@@ -44,7 +44,6 @@ not a clean bill.
 from __future__ import annotations
 
 import functools
-import json
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -52,6 +51,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import surface_waivers
+from .report_ingestion import REGISTRY_FINDINGS_RELPATH, read_registry_view
 from .surface_waivers import (
     BATCH_CONTAINMENT_MANIFEST,
     DORMANT_CONTROL_MANIFEST,
@@ -65,9 +65,12 @@ from .surface_waivers import (
 # conversation, not a scramble.
 DEADLINE_WARNING_DAYS = 7
 
-# Where the review registry keeps every finding; the daily sweep
-# (`tools/gates/finding-registry.ts planSweep`) reads the same file.
-REGISTRY_FINDINGS_RELPATH = ("docs", "reviews", "_registry", "findings.jsonl")
+# The review registry is read through the one registry view
+# (report_ingestion.read_registry_view): the chain the daily sweep
+# (`tools/gates/finding-registry.ts planSweep`) reads, with every merged delta
+# row folded over it, so the organ tracks the state a merged PR recorded
+# (ARIA-HIGH-279).
+
 # The states the sweep can still act on: RESOLVED is done, BLOCKED is the
 # state the sweep plans (a BLOCKED finding's deadline moves nothing).
 REGISTRY_DEADLINE_STATES_EXCLUDED: frozenset[str] = frozenset({"RESOLVED", "BLOCKED"})
@@ -188,12 +191,8 @@ def read_registry_deadlines(tools_dir: Path, workspace_root: Path) -> list[Deadl
     """Every finding the daily sweep would still act on, from the committed
     registry. An absent registry is not "no findings": this checkout is not
     the repository the kernel serves, and the reader raises."""
-    path = workspace_root.joinpath(*REGISTRY_FINDINGS_RELPATH)
     rows: list[DeadlineRow] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        finding = json.loads(line)
+    for finding in read_registry_view(workspace_root).rows:
         deadline = finding.get("deadline")
         if not deadline or str(finding.get("state")) in REGISTRY_DEADLINE_STATES_EXCLUDED:
             continue

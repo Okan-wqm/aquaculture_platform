@@ -77,7 +77,8 @@ class OriginFixedAtStartTests(unittest.TestCase):
     def _start(self, body: dict) -> str:
         self.plan_counter += 1
         plan_id = f"plan-{self.plan_counter}"
-        start_plan(plan_id=plan_id, plan_content=body, initial_revision_id=f"{plan_id}-r0", base_dir=self.tools)
+        start_plan(plan_id=plan_id, plan_content=body, initial_revision_id=f"{plan_id}-r0", base_dir=self.tools,
+                   workspace_root=self.root)
         return plan_id
 
     def _challenge(self, plan_id: str, body: dict) -> dict:

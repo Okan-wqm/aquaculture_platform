@@ -1,3 +1,4 @@
+import { channelKeyUnit, measuredQuantity } from '@aquaculture/shared-contracts';
 import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
@@ -38,12 +39,17 @@ export interface AnalyzeSensorDataOutput {
   };
 }
 
-/** Heuristic map: if a field name matches the pattern, suggest the given unit */
-const UNIT_HEURISTICS: Array<{ patterns: string[]; unit: string }> = [
-  { patterns: ['temp'], unit: '\u00b0C' },
-  { patterns: ['hum', 'moisture'], unit: '%RH' },
-  { patterns: ['ph'], unit: 'pH' },
-  { patterns: ['pressure'], unit: 'hPa' },
+/**
+ * Name fragments → unit, for field names that are not a channel key the
+ * measured-quantity registry knows (`temp_c`, `diss_oxy_1`, `wind_speed`, …).
+ * A fragment that names a registry quantity takes the registry's unit, so the
+ * suggestion matches the channel sensor discovery creates for the same field.
+ */
+const UNIT_HEURISTICS: ReadonlyArray<{ patterns: readonly string[]; unit: string }> = [
+  { patterns: ['temp'], unit: measuredQuantity('temperature').unit },
+  { patterns: ['hum', 'moisture'], unit: measuredQuantity('humidity').unit },
+  { patterns: ['ph'], unit: measuredQuantity('ph').unit },
+  { patterns: ['pressure'], unit: measuredQuantity('pressure').unit },
   { patterns: ['wind_speed', 'windspeed'], unit: 'm/s' },
   { patterns: ['wind_dir', 'winddir'], unit: '\u00b0' },
   { patterns: ['light', 'lux'], unit: 'lux' },
@@ -51,11 +57,18 @@ const UNIT_HEURISTICS: Array<{ patterns: string[]; unit: string }> = [
   { patterns: ['current', 'amp'], unit: 'A' },
   { patterns: ['power', 'watt'], unit: 'W' },
   { patterns: ['vibr'], unit: 'mm/s' },
-  { patterns: ['dissolved_o', 'diss_oxy', 'do_level', 'do_mg', 'oxygen'], unit: 'mg/L' },
-  { patterns: ['salinity', 'tds'], unit: 'ppt' },
+  {
+    patterns: ['dissolved_o', 'diss_oxy', 'do_mg', 'oxygen'],
+    unit: measuredQuantity('dissolvedOxygen').unit,
+  },
+  { patterns: ['salinity'], unit: measuredQuantity('salinity').unit },
+  { patterns: ['tds'], unit: measuredQuantity('tds').unit },
 ];
 
 function guessUnit(fieldName: string): string {
+  const registered = channelKeyUnit(fieldName);
+  if (registered !== undefined) return registered;
+
   const lower = fieldName.toLowerCase();
   // Special compound checks: wind+speed, wind+dir
   if (lower.includes('wind') && lower.includes('speed')) return 'm/s';

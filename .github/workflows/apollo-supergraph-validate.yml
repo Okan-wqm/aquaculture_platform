@@ -34,6 +34,11 @@ on:
       - 'mcp/**/*.ts'
       - 'scripts/ci/validate-graphql-operations.mjs'
       - 'scripts/ci/graphql-fe-drift.baseline.json'
+  # Weekly on main so the `supergraph-sdl` artifact (14-day retention) never expires while the schema is quiet:
+  # the nightly ARIA cycle reads it to judge UI values against what GraphQL carries (tools/aria-poc/fetch_supergraph.py).
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch: {}
   pull_request:
     branches: [main, develop]
     paths:

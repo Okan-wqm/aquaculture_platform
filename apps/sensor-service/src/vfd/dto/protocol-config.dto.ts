@@ -1,13 +1,15 @@
 import { InputType, Field, Int } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsOptional,
-  IsInt,
-  IsEnum,
   IsBoolean,
-  Min,
-  Max,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
   Matches,
+  Max,
+  Min,
+  ValidateNested,
 } from 'class-validator';
 
 import { VfdProtocol } from '../entities/vfd.enums';
@@ -498,6 +500,8 @@ export class TestVfdConnectionConfigDto {
   protocol!: VfdProtocol;
 
   @Field(() => ProtocolConfigurationDto)
+  @ValidateNested()
+  @Type(() => ProtocolConfigurationDto)
   configuration!: ProtocolConfigurationDto;
 
   @Field(() => String, { nullable: true })

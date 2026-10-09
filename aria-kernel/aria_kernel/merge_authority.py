@@ -23,7 +23,8 @@ from .incident_ledger import (
     finalize_merge_incident,
     record_merge_failed_incident,
 )
-from .ledger import load_declared_jsonl
+from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
+from .merge_lane_merge_state import route_unmergeable_merge_state
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
@@ -124,6 +125,15 @@ def merge_pr_if_ready(
     # ARIA-MEDIUM-227 — the freeze's GitHub notice is read through this
     # adapter too, so a freeze the cycle has not yet published stops merges.
     assert_self_merge_not_frozen(pr_number=pr_number, head_sha=head_sha, adapter=adapter, base_dir=base_dir)
+    # ARIA-HIGH-374 — GitHub's mergeability verdict, before any proof is
+    # read or incident row written: BEHIND asks for the branch update (the
+    # cycle's own call) and DIRTY/BLOCKED are named skips, never an hourly
+    # refused merge call.
+    unmergeable = route_unmergeable_merge_state(
+        adapter=adapter, pr_number=pr_number, head_sha=head_sha, base_dir=base_dir, workspace_root=workspace_root,
+    )
+    if unmergeable is not None:
+        return unmergeable
 
     # ARIA-CRITICAL-214 — the change is classified as the checkout's git
     # holds it (rename sources included), never from the platform's
@@ -198,6 +208,10 @@ def merge_pr_if_ready(
             pr_number=pr_number,
             head_sha=head_sha,
             base_dir=base_dir,
+            # ARIA-HIGH-374 — an updated head is judged by the shared
+            # lineage verifier against the live base, in this checkout.
+            workspace_root=workspace_root,
+            live_base_sha=_first_string(live_pr, "base_sha", "baseRefOid") or None,
         )
         if not triple["passed"]:
             result = dict(decision)
@@ -649,6 +663,9 @@ def state_store_intent_publisher(
 
     def publish(intent: dict[str, Any]) -> dict[str, Any]:
         store = open_state_store(root)
+        # ARIA-HIGH-342 — the orchestrator fences this publish with the
+        # writer lease the merge lane's restore took; the token reaches this
+        # step through $ARIA_STATE_WRITER_LEASE_TOKEN.
         return publish_with_contention_replay(
             store,
             snapshot_id=f"merge-intent-{intent['pr_number']}-{str(intent['head_sha'])[:12]}-{run_label}",
@@ -908,6 +925,12 @@ def _capture_pre_merge_context(
         base_sha = _git(workspace, "merge-base", live_base_sha, head_sha).strip()
         if _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None:
             raise GovernanceError(reason)
+        # ARIA-HIGH-374 — what GitHub will merge: the live PR head and the
+        # base it forked from (the shaped workspace stands there). Until the
+        # change join below, `head_sha`/`base_sha` name this pair too; after
+        # it they name the IMPLEMENTATION pair the evidence is bound to,
+        # which differs only when ARIA's own pure branch updates sit between.
+        merge_head_sha, merge_base_sha = head_sha, base_sha
 
         sources = {
             "pr_lifecycle": tools / "pr-lifecycle.jsonl",
@@ -936,7 +959,13 @@ def _capture_pre_merge_context(
         }
         sources.update(optional_sources)
 
-        def read_prefix(surface: str, path: Path) -> bytes | None:
+        def read_prefix(surface: str, path: Path) -> bytes | tuple[bytes, ...] | None:
+            if surface in SEGMENTED_LEDGERS:
+                # ARIA-HIGH-275 — a segment that grew or opened between reads changes the context.
+                return tuple(
+                    _read_bounded_regular_file(segment)[0]
+                    for segment in segment_paths(tools, surface)
+                ) or None
             if surface in optional_sources and not path.exists():
                 return None
             return _read_bounded_regular_file(path)[0]
@@ -953,8 +982,9 @@ def _capture_pre_merge_context(
                 surface: read_prefix(surface, path)
                 for surface, path in sources.items()
             }
+            segmented = {surface: load_segments(tools, surface) for surface in SEGMENTED_LEDGERS}
         rows = {
-            surface: _load_verified_text(
+            surface: segmented[surface] if surface in segmented else _load_verified_text(
                 prefixes[surface].decode("utf-8"), source=path,
                 expected_surface=surface,
             ) if prefixes[surface] is not None else []
@@ -989,7 +1019,21 @@ def _capture_pre_merge_context(
             raise GovernanceError(reason)
         planned, committed = planned_rows[0], committed_rows[0]
         if committed.get("commit_sha") != head_sha:
-            raise GovernanceError(reason)
+            # ARIA-HIGH-374 — the one verifier all three gates share; any
+            # other head stays `pr_change_join_unavailable`, named.
+            from .branch_update_lineage import BranchUpdateLineageRefused, verify_branch_update_lineage
+
+            try:
+                verify_branch_update_lineage(
+                    workspace=workspace, base_dir=tools, pr_number=number, head_sha=merge_head_sha,
+                    delivered_sha=str(committed.get("commit_sha") or ""), live_base_sha=live_base_sha,
+                )
+            except BranchUpdateLineageRefused as exc:
+                raise GovernanceError(f"{reason}:{exc.reason}") from exc
+            head_sha = str(committed["commit_sha"])
+            base_sha = _git(workspace, "merge-base", live_base_sha, head_sha).strip()
+            if _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None:
+                raise GovernanceError(reason)
 
         reason = "plan_revision_unavailable"
         plan_id = planned["plan_id"]
@@ -1009,7 +1053,7 @@ def _capture_pre_merge_context(
 
         reason = "committed_snapshot_unavailable"
         snapshot = _build_snapshot(workspace_root=workspace, mode="committed")
-        if snapshot.get("base_commit_sha") != head_sha or snapshot.get("unknown_count") != 0:
+        if snapshot.get("base_commit_sha") != merge_head_sha or snapshot.get("unknown_count") != 0:
             raise GovernanceError(reason)
         reason = "committed_paths_unavailable"
         # ARIA-CRITICAL-214 — the one reader of a change's paths (rename
@@ -1018,11 +1062,18 @@ def _capture_pre_merge_context(
         changed_paths = list(_read_change_paths(workspace, base_sha, head_sha).paths)
         if changed_paths != sorted(committed.get("actual_affected_files") or []):
             raise GovernanceError(reason)
+        # ARIA-HIGH-374 — what is MERGED is the live pair; pure updates can
+        # only narrow it (main already holding an identical change), never
+        # widen it. These are the paths the read-only check judges.
+        merged_paths = list(_read_change_paths(workspace, merge_base_sha, merge_head_sha).paths)
+        if not set(merged_paths) <= set(changed_paths):
+            raise GovernanceError(f"{reason}:merged_paths_exceed_the_implementation")
 
         implementation, gaps = _join_pre_merge_implementation(
             tools=tools, workspace=workspace, rows=rows, state=state,
             body=body, planned=planned, committed=committed, observed=observed,
             pr=pr, base_sha=base_sha, head_sha=head_sha, diff_text=diff_text,
+            merge_base_sha=merge_base_sha, merge_head_sha=merge_head_sha,
         )
         coverage_observation: dict[str, Any] = {}
         coverage_files: dict[Path, bytes | None] = {}
@@ -1041,6 +1092,7 @@ def _capture_pre_merge_context(
             )
             feedback_observation = _capture_pre_merge_operator_feedback(
                 plan_id=plan_id, state=state, rows=rows, workspace=workspace, trust_sha=live_base_sha,
+                tools=tools,
             )
             budget_observation = _capture_pre_merge_turn_budget(
                 tools=tools, rows=rows, implementation=implementation,
@@ -1081,7 +1133,7 @@ def _capture_pre_merge_context(
 
         return _replace(
             context,
-            affected_paths=tuple(changed_paths),
+            affected_paths=tuple(merged_paths),
             envelope={"affected_surfaces": list(changed_paths)},
             pre_merge_evidence=_PreMergeEvidence(
                 unavailable_reasons=gaps, pr_number=number, change_id=change_id,
@@ -1089,7 +1141,7 @@ def _capture_pre_merge_context(
                 committed_row_hash=committed["ledger_hash"], plan_id=plan_id,
                 plan_revision_id=body["revision_id"], plan_content_hash=body["content_hash"],
                 repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
-                live_base_sha=live_base_sha,
+                live_base_sha=live_base_sha, merge_base_sha=merge_base_sha, merge_head_sha=merge_head_sha,
                 snapshot_hash=snapshot["snapshot_hash"],
                 **implementation, **scope_observation, **coverage_observation,
                 **expert_observation, **feedback_observation, **budget_observation,
@@ -1230,7 +1282,7 @@ def _capture_pre_merge_coverage(
 
 def _capture_pre_merge_operator_feedback(
     *, plan_id: str, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
-    workspace: Path, trust_sha: str,
+    workspace: Path, trust_sha: str, tools: Path,
 ) -> dict[str, Any]:
     """Observe the synthesizer's operator-feedback ingestion for THIS plan.
 
@@ -1243,19 +1295,20 @@ def _capture_pre_merge_operator_feedback(
     committed at ``trust_sha`` (the PR's live base on ``main``), read through
     the hardened git reader of ``main_anchor``: a principal revoked on
     ``main`` after the cycle cannot merge what it asked for (ADR-0020). A git
-    object needs no recheck and the lane holds no key.
+    object needs no recheck and the lane holds no key. ``tools`` names the
+    keys ARIA's runner holds, which the anchor never enrols (ARIA-HIGH-281).
     """
     from .operator_feedback_observation import observe_operator_feedback_for_plan
     from .operator_request_signature import allowed_signers_at
 
-    signers = allowed_signers_at(workspace, commit=trust_sha)
+    signers = allowed_signers_at(workspace, commit=trust_sha, base_dir=tools)
     return observe_operator_feedback_for_plan(
         plan_id=plan_id,
         plan_started=state.get("plan_started"),
         ingestion_rows=rows["operator_feedback_ingestion"],
         feedback_rows=rows["operator_feedback"],
         plan_events=rows["plan_convergence_events"],
-        allowed_signers=signers.content if signers is not None else None,
+        allowed_signers=signers,
     )
 
 
@@ -1400,8 +1453,16 @@ def _join_pre_merge_implementation(
     state: dict[str, Any], body: dict[str, Any], planned: dict[str, Any],
     committed: dict[str, Any], observed: dict[str, Any], pr: dict[str, Any],
     base_sha: str, head_sha: str, diff_text: str | None,
+    merge_base_sha: str, merge_head_sha: str,
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
-    """Join native implementation evidence; retain explicit historical gaps."""
+    """Join native implementation evidence; retain explicit historical gaps.
+
+    ``base_sha``/``head_sha`` are the implementation pair the evidence binds;
+    ``merge_*`` the live pair GitHub merges. They differ only after ARIA's own
+    pure branch updates, which the caller has verified (ARIA-HIGH-374): the
+    PR's diff is then compared with the live pair, the recorded diff hash
+    with the implementation pair.
+    """
     import hashlib as _hashlib
     import json as _json
 
@@ -1513,7 +1574,10 @@ def _join_pre_merge_implementation(
         if not bridge_rows or bridge_rows[-1].get("transition") != "ok" or bridge["state"] != "ok":
             raise GovernanceError(reason)
         actual_diff = _git(workspace, "diff", base_sha, head_sha).strip()
-        if diff_text is None or diff_text.strip() != actual_diff:
+        merged_diff = actual_diff if (merge_base_sha, merge_head_sha) == (base_sha, head_sha) else (
+            _git(workspace, "diff", merge_base_sha, merge_head_sha).strip()
+        )
+        if diff_text is None or diff_text.strip() != merged_diff:
             raise GovernanceError("implementation_diff_unavailable")
         actual_diff_hash = "sha256:" + _hashlib.sha256(actual_diff.encode("utf-8")).hexdigest()
         if outcome.get("diff_hash") != actual_diff_hash:

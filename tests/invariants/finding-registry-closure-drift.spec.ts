@@ -39,15 +39,33 @@
  * Branch-local commits are deliberately NOT considered: a finding closed on an
  * unmerged branch is not yet closed, which is the same rule `close` enforces by
  * refusing a SHA unreachable from `origin/main`.
+ *
+ * ## Who answers for drift (INFRA-MEDIUM-207)
+ *
+ * The derivation runs in its own lane. After every merge that carries a
+ * `Closes:` trailer, `automation/finding-closure-reconcile` opens the PR that
+ * records it (#1790, #1793, #1799). Until that PR merges, `origin/main` itself
+ * carries the drift. Every open PR used to fail here on drift it did not
+ * cause. With strict branch protection, each such merge cost every other PR
+ * an extra update-and-CI round, waiting on the reconcile PR. A pull request
+ * therefore answers for the drift it ADDS, measured against the drift already
+ * on its base. A push to main inherits nothing, so main stays red until the
+ * reconcile lane catches up, and the derivation cannot quietly stop being run.
  */
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
   collectMergedClosures,
   planClosureReconciliation,
   loadRegistryForInspection,
+  type MergedClosure,
 } from '../../tools/gates/finding-registry';
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+
+type RegistryEntries = ReturnType<typeof loadRegistryForInspection>;
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
@@ -73,6 +91,63 @@ function resolveBaseRef(): string {
   );
 }
 
+/** The drift ids `entries` carries that `inherited` does not: what a PR adds. */
+export function driftAdded(
+  entries: RegistryEntries,
+  inherited: RegistryEntries | null,
+  closures: readonly MergedClosure[],
+): ReturnType<typeof planClosureReconciliation> {
+  const drift = planClosureReconciliation(entries, closures);
+  if (inherited === null) return drift;
+  const onBase = new Set(
+    planClosureReconciliation(inherited, closures).map((item) => item.findingId),
+  );
+  return drift.filter((item) => !onBase.has(item.findingId));
+}
+
+/**
+ * The commit the tree under test was built on: `merge-base HEAD <baseRef>`.
+ *
+ * Not the base ref's tip. GitHub builds `refs/pull/N/merge` against the base
+ * as it was when the PR was last pushed, while `fetch-depth: 0` fetches the
+ * base as it is when the job starts. If the reconcile PR merges in between,
+ * the tip has RESOLVED what the tree under test still has OPEN, and inherited
+ * drift reads as drift the PR added (#1801's own run: SENSOR-MEDIUM-136 after
+ * #1806). The fork point is the base this tree actually inherited from; on a
+ * local branch it is the branch point, and on main it is HEAD itself.
+ */
+function inheritedBaseCommit(baseRef: string): string {
+  return execFileSync('git', ['-C', REPO_ROOT, 'merge-base', 'HEAD', baseRef], {
+    encoding: 'utf8',
+  }).trim();
+}
+
+/**
+ * The registry the tree under test inherited, in a pull request; null on a
+ * push. GitHub sets `GITHUB_BASE_REF` only for pull_request events.
+ */
+function inheritedRegistry(baseRef: string): RegistryEntries | null {
+  if (!process.env.GITHUB_BASE_REF) return null;
+  const text = execFileSync(
+    'git',
+    [
+      '-C',
+      REPO_ROOT,
+      'show',
+      `${inheritedBaseCommit(baseRef)}:docs/reviews/_registry/findings.jsonl`,
+    ],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
+  );
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'closure-drift-base-'));
+  try {
+    const file = path.join(dir, 'findings.jsonl');
+    writeFileSync(file, text, 'utf8');
+    return loadRegistryForInspection(file);
+  } finally {
+    removeFixtureTree(dir);
+  }
+}
+
 describe('INVARIANT: finding registry closure drift', () => {
   const baseRef = resolveBaseRef();
   const entries = loadRegistryForInspection();
@@ -85,8 +160,25 @@ describe('INVARIANT: finding registry closure drift', () => {
     expect(closures.length).toBeGreaterThan(50);
   });
 
+  it('a pull request answers for the drift it adds, a push for all of it', () => {
+    // A finding closed on the base ref and RESOLVED there: OPEN in a PR's
+    // registry is drift the PR added; OPEN on the base too is inherited.
+    const closure = closures.find((item) =>
+      entries.some((entry) => entry.id === item.findingId && entry.state === 'RESOLVED'),
+    );
+    expect(closure).toBeDefined();
+    const reopened = entries.map((entry) =>
+      entry.id === closure!.findingId ? { ...entry, state: 'OPEN' as const } : entry,
+    ) as RegistryEntries;
+    const ids = (drift: ReturnType<typeof planClosureReconciliation>): string[] =>
+      drift.map((item) => item.findingId);
+    expect(ids(driftAdded(reopened, entries, [closure!]))).toEqual([closure!.findingId]);
+    expect(ids(driftAdded(reopened, reopened, [closure!]))).toEqual([]);
+    expect(ids(driftAdded(reopened, null, [closure!]))).toEqual([closure!.findingId]);
+  });
+
   it('marks every finding closed by a merged commit as RESOLVED', () => {
-    const drift = planClosureReconciliation(entries, closures);
+    const drift = driftAdded(entries, inheritedRegistry(baseRef), closures);
     const offenders = drift.map(
       (item) =>
         `${item.findingId} is ${item.currentState} but ${item.sha.slice(0, 12)} on ${baseRef} ` +

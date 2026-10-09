@@ -31,6 +31,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 def _git(root: Path, *args: str) -> str:
@@ -80,6 +81,7 @@ def _seed(tools: Path, *, target_sha: str | None, prompt: str = "plan it") -> di
         allowed_scope=["aria-kernel/**"],
         target_sha=target_sha,
         base_dir=tools,
+        admission=admit_request("operator_cli.request", "primary_plan", base_dir=tools),
     )
 
 

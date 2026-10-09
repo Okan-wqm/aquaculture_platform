@@ -39,7 +39,7 @@ from typing import Any, TextIO
 
 from .hmac_keyring import HmacKeyring, hmac_sign
 from .ledger import append_declared_jsonl
-from .operator_request_signature import REQUEST_ROW_SCHEMA_VERSION
+from .operator_request_signature import REQUEST_ROW_SCHEMA_VERSION, SIGNATURE_NAMESPACE, AllowedSigners
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 OPERATOR_FEEDBACK_SURFACE = "operator_feedback"
@@ -239,11 +239,13 @@ def record_operator_request(
     finding_id: str,
     signing_key: str | Path,
     signer_principal: str,
+    actor_class: str,
     request_id: str | None = None,
     expires_in_hours: int | None = None,
     base_dir: str | Path | None = None,
     repo_root: str | Path = ".",
     subject_stream: TextIO | None = None,
+    write_roots: list[str] | None = None,
 ) -> dict[str, Any]:
     """The kernel-owned writer for the plan-request rows the synthesizer mines.
 
@@ -259,14 +261,26 @@ def record_operator_request(
     operator-act lifetime away (the default), and the digest of the
     grounding it just admitted. The exact subject is printed to
     ``subject_stream`` (stderr by default) before ssh-keygen runs.
+
+    ADR-0023 — ``actor_class`` (T0 the operator, T1 a root session acting
+    for the operator) is the signer's signed declaration of who signs, so a
+    delegated request is recorded as delegated.
+
+    ARIA-HIGH-381 — ``write_roots`` is the operator's declared boundary: the
+    repository roots the plan may change. Every cited file outside them is
+    read-only evidence (``plan_write_scope``). It is signed with the row (the
+    signature covers every field), recorded only when given, so a request
+    signed without it keeps its bytes; a boundary that leaves no grounded
+    surface to change is refused here, before anything is signed.
     """
     from .finding_grounding import admit_finding, load_grounding_context
     from .operator_request_signature import (
+        OPERATOR_ACTOR_CLASSES,
         allowed_signers_for_checkout,
         sign_operator_request,
         verify_operator_request,
     )
-    from .operator_request_terms import max_request_lifetime, request_audience, utc_iso
+    from .operator_request_terms import utc_iso
 
     text = str(request or "").strip()
     if not text:
@@ -286,18 +300,27 @@ def record_operator_request(
     identifier = str(request_id or "").strip() or f"OP-{uuid.uuid4()}"
     if _REQUEST_ID_RE.fullmatch(identifier) is None:
         raise GovernanceError(f"operator_request_id_invalid: {identifier!r}")
-    lifetime = max_request_lifetime()
-    hours = lifetime.total_seconds() / 3600 if expires_in_hours is None else expires_in_hours
-    if isinstance(hours, bool) or not 0 < hours <= lifetime.total_seconds() / 3600:
-        raise GovernanceError(f"operator_request_expiry_out_of_range: {expires_in_hours!r}")
+    if actor_class not in OPERATOR_ACTOR_CLASSES:
+        raise GovernanceError(f"operator_request_actor_class_invalid: {actor_class!r}")
     root = ensure_tools_dir(base_dir)
     ledger = root / OPERATOR_FEEDBACK_LEDGER_NAME
     if identifier in _ids_already_used(ledger, root):
         raise GovernanceError(f"operator_request_id_reused: {identifier!r}")
-    signers, anchor_reason = allowed_signers_for_checkout(repo_root)
+    signers, anchor_reason = allowed_signers_for_checkout(repo_root, base_dir=root)
     if signers is None:
         raise GovernanceError(f"operator_request_anchor_unavailable: {anchor_reason}")
-    admission = admit_finding(load_grounding_context(repo_root), target)
+    # ADR-0023 — the lifetime bound is the committed registry's request entry.
+    bound = int(signers.namespaces[SIGNATURE_NAMESPACE].expiry_hours or 0)
+    hours = bound if expires_in_hours is None else expires_in_hours
+    if isinstance(hours, bool) or not 0 < hours <= bound:
+        raise GovernanceError(f"operator_request_expiry_out_of_range: {expires_in_hours!r}")
+    if write_roots is not None:
+        from .plan_write_scope import write_roots_violation
+
+        violation = write_roots_violation(write_roots)
+        if violation is not None:
+            raise GovernanceError(f"operator_request_write_roots_invalid: {violation}")
+    admission = admit_finding(load_grounding_context(repo_root), target, write_roots=write_roots)
     if not admission.admitted:
         raise GovernanceError(f"operator_request_finding_not_a_plan_ground: {admission.reason}")
     authored = datetime.now(timezone.utc).replace(microsecond=0)
@@ -308,15 +331,17 @@ def record_operator_request(
         "finding_id": target,
         "authored_at": utc_iso(authored),
         "expires_at": utc_iso(authored + timedelta(hours=hours)),
-        "audience": request_audience(),
+        "audience": signers.audience,
         "grounding_digest": admission.grounding_digest,
         "authored_by": author,
         "request": text,
         "priority": priority,
         "status": OPERATOR_REQUEST_STATUS_UNADDRESSED,
+        "actor_class": actor_class,
+        **({"write_roots": list(write_roots)} if write_roots is not None else {}),
     }, signing_key=signing_key, signer_principal=signer_principal,
         subject_stream=subject_stream if subject_stream is not None else sys.stderr)
-    verdict = verify_operator_request(row, allowed_signers=signers.content)
+    verdict = verify_operator_request(row, allowed_signers=signers)
     if not verdict.valid:
         raise GovernanceError(f"operator_request_signature_unverified: {verdict.reason}")
     stored = append_declared_jsonl(ledger, row, expected_surface=OPERATOR_FEEDBACK_SURFACE)
@@ -349,7 +374,7 @@ def _ids_already_used(ledger: Path, root: Path) -> set[str]:
     return used
 
 
-def operator_request_schema_reason(row: dict[str, Any], *, now: datetime) -> str | None:
+def operator_request_schema_reason(row: dict[str, Any], *, now: datetime, anchor: AllowedSigners) -> str | None:
     """Why a request row is not one the synthesizer consumes at ``now``, or None.
 
     Kept separate from signature verification so the drop reason can say
@@ -372,7 +397,13 @@ def operator_request_schema_reason(row: dict[str, Any], *, now: datetime) -> str
         return SCHEMA_INVALID
     if row["priority"] not in OPERATOR_REQUEST_PRIORITIES:
         return SCHEMA_INVALID
-    return request_terms_reason(row, now=now)
+    if "write_roots" in row:
+        from .plan_write_scope import write_roots_violation
+
+        if write_roots_violation(row["write_roots"]) is not None:
+            return SCHEMA_INVALID
+    return request_terms_reason(row, now=now, audience=anchor.audience,
+                                max_hours=int(anchor.namespaces[SIGNATURE_NAMESPACE].expiry_hours or 0))
 
 
 __all__ = [

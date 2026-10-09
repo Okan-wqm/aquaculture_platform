@@ -22,10 +22,12 @@ export class StoredEventsCryptoShredHook implements TenantErasurePostErasureHook
 
   constructor(private readonly payloadCrypto: TenantPayloadCryptoService) {}
 
-  async onTenantErased(event: TenantErasureRequestedEvent): Promise<void> {
-    await this.payloadCrypto.shred(event.tenantId);
+  /** Resolves 1 when this run destroyed the tenant's key, 0 when none was left. */
+  async onTenantErased(event: TenantErasureRequestedEvent): Promise<number> {
+    const shredded = await this.payloadCrypto.shred(event.tenantId);
     this.logger.log(
       `stored_events crypto-shred completed for tenant=${event.tenantId} operation=${event.operationId}`,
     );
+    return shredded ? 1 : 0;
   }
 }

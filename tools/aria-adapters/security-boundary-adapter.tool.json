@@ -42,6 +42,53 @@
     "tmp/**"
   ],
   "claim_types": ["security_boundary"],
+  "rules": {
+    "public_write_endpoint_without_allowlist": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "An unauthenticated caller can reach a write endpoint that no allowlist or tenant-skip rationale accounts for.",
+      "premises": [
+        "The cited endpoint is marked public and performs a write (POST, PUT, PATCH, DELETE or a GraphQL mutation).",
+        "No allowlist entry, tenant-skip rationale or gateway rule restricts who can reach it."
+      ]
+    },
+    "mutation_missing_role_boundary": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A GraphQL mutation runs for any authenticated caller, without a role, permission or guard check.",
+      "premises": [
+        "The cited mutation has no role, permission or guard decorator on the method or its class.",
+        "No guard registered for the whole service (APP_GUARD or the gateway) enforces a role or permission for it."
+      ]
+    },
+    "controller_missing_guard_boundary": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A route is reachable without the authentication or authorization its data requires.",
+      "premises": [
+        "The cited route has no guard, role or permission decorator on the method or its class, and is not marked public.",
+        "No guard registered for the whole service (APP_GUARD, middleware or the gateway) protects the route."
+      ]
+    },
+    "dangerous_html_without_sanitizer": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "Markup that can carry attacker-controlled content is rendered unsanitized.",
+      "premises": [
+        "The cited sink passes markup to dangerouslySetInnerHTML without sanitizing it first.",
+        "The markup can contain content a user or an external system supplies."
+      ]
+    },
+    "raw_security_sensitive_import": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A security-sensitive SDK is used directly instead of through the approved wrapper.",
+      "premises": [
+        "The cited file imports the named SDK directly.",
+        "The file is runtime code outside the approved wrapper, not a test, a type-only import or the wrapper itself."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

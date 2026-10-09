@@ -29,6 +29,17 @@
     "tmp/**"
   ],
   "claim_types": ["doc_staleness"],
+  "rules": {
+    "doc_references_missing_path": {
+      "claim_type": "currency_gap",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A document describes a repository path that no longer exists, so a reader is pointed at a surface that is gone.",
+      "premises": [
+        "The cited line names the path as an existing part of the repository, not as a file to create, a removed file or a historical record.",
+        "The path does not exist in the repository at the judged commit, and no file it was renamed to is named beside it."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

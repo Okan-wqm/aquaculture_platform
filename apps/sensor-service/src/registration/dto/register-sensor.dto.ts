@@ -1,6 +1,20 @@
 import { InputType, Field, ID, ObjectType, registerEnumType, Float, Int } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNotEmpty, IsObject, IsArray, ValidateNested, Min, Max } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import {
@@ -141,64 +155,99 @@ export class RegisterSensorInput {
 @InputType()
 export class UpdateSensorProtocolInput {
   @Field(() => ID)
+  @IsUUID()
   sensorId!: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   protocolCode?: string;
 
   @Field(() => GraphQLJSON)
+  @IsObject()
   protocolConfiguration!: object;
 }
 
 @InputType()
 export class UpdateSensorInfoInput {
   @Field(() => ID)
+  @IsUUID()
   sensorId!: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   name?: string;
 
   @Field(() => SensorType, { nullable: true })
+  @IsOptional()
+  @IsEnum(SensorType)
   type?: SensorType;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   manufacturer?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   model?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   serialNumber?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   farmId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   pondId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   tankId?: string;
 
   // New location hierarchy fields
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   siteId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   departmentId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   systemId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   equipmentId?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   location?: string;
 
   @Field(() => GraphQLJSON, { nullable: true })
+  @IsOptional()
+  @IsObject()
   metadata?: object;
 }
 
@@ -419,36 +468,56 @@ export class PaginationInput extends StandardPaginationInput {}
 @InputType()
 export class AlertThresholdRangeInput {
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   low?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   high?: number;
 }
 
 @InputType()
 export class SensorAlertThresholdsInput {
   @Field(() => AlertThresholdRangeInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AlertThresholdRangeInput)
   warning?: AlertThresholdRangeInput;
 
   @Field(() => AlertThresholdRangeInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AlertThresholdRangeInput)
   critical?: AlertThresholdRangeInput;
 }
 
 @InputType()
 export class DisplaySettingsInput {
   @Field({ nullable: true, defaultValue: true })
+  @IsOptional()
+  @IsBoolean()
   showOnDashboard?: boolean;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   widgetType?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   color?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsInt()
   sortOrder?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsInt()
   decimalPlaces?: number;
 }
 

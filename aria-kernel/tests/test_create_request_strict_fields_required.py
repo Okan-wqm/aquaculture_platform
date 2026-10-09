@@ -45,6 +45,7 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.evidence_validator import validate_agent_response_evidence
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class CreateRequestStrictFieldsTests(unittest.TestCase):
@@ -67,6 +68,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
             allowed_scope=["aria-kernel/**"],
             evidence_refs=["aria-kernel/aria_kernel/agent_contract.py:1"],
             base_dir=self.tools_dir,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools_dir),
         )
         self.assertEqual(request["must_satisfy"][0]["id"], "c1")
         self.assertEqual(request["allowed_scope"], ["aria-kernel/**"])
@@ -90,6 +92,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
                 must_satisfy=[],
                 allowed_scope=["aria-kernel/**"],
                 base_dir=self.tools_dir,
+                admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools_dir),
             )
         self.assertIn("create_agent_invocation_request_strict_fields_required",
                       str(ctx.exception))
@@ -105,6 +108,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
                 must_satisfy=[{"id": "c", "description": "ok"}],
                 allowed_scope=[],
                 base_dir=self.tools_dir,
+                admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools_dir),
             )
         self.assertIn("allowed_scope", str(ctx.exception))
 
@@ -116,6 +120,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
                 role="evidence_judgment",
                 suggested_prompt="x",
                 base_dir=self.tools_dir,
+                admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools_dir),
             )
         msg = str(ctx.exception)
         self.assertIn("must_satisfy", msg)
@@ -133,6 +138,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
             suggested_prompt="legacy escape test",
             legacy_strict_fields_optional=True,
             base_dir=self.tools_dir,
+            admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.tools_dir),
         )
         self.assertEqual(request["must_satisfy"], [])
         self.assertEqual(request["allowed_scope"], [])
@@ -170,6 +176,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
                 must_satisfy=[{"id": "c", "description": "ok"}],
                 allowed_scope=["aria-kernel/**"],
                 base_dir=self.tools_dir,
+                admission=admit_request("operator_cli.request", "implementation", base_dir=self.tools_dir),
             )
         self.assertIn("role_target_pairing_violation", str(ctx.exception))
 
@@ -184,6 +191,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
                 allowed_scope=["aria-kernel/**"],
                 evidence_refs=["valid-string", 123],
                 base_dir=self.tools_dir,
+                admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools_dir),
             )
         self.assertIn(
             "create_agent_invocation_request_evidence_refs_must_be_list_of_strings",

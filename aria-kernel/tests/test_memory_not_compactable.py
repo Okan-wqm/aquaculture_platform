@@ -375,7 +375,7 @@ class APublishNeverShrinksMemory(MaintenanceLaneTestCase):
             StateStoreRefusal, f"state_publish_continuity_{MEMORY_REWRITE_STATUS}",
         ):
             publish_state(
-                store, snapshot=snapshot, cycle_id="cycle-2", repo_hash=REPO_HASH,
+                store, writer_fence=None, snapshot=snapshot, cycle_id="cycle-2", repo_hash=REPO_HASH,
                 expected_base_head=head,
             )
         self.assertEqual(_git(store.root, "rev-parse", "HEAD").strip(), head)

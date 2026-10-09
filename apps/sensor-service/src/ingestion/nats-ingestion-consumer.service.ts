@@ -202,9 +202,12 @@ export class NatsIngestionConsumerService
       return HandlerOutcome.terminate(`SensorMetricIngested: ${schemaResult.errors}`);
     }
 
-    // 1. Sensor metadata lookup (cached) — needed for tenantId
-    //    cross-check + farmId / pondId enrichment.
-    const sensor = await this.metaCache.getSensor(event.sensorId);
+    // 1. Sensor metadata lookup (cached), read inside the event's tenant
+    //    boundary (SENSOR-HIGH-148) — needed for farmId / pondId enrichment.
+    //    A sensor of another tenant is invisible there and lands in the
+    //    unknown-sensor branch below; it can never be written under this
+    //    event's tenant.
+    const sensor = await this.metaCache.getSensor(event.sensorId, event.tenantId);
     if (!sensor) {
       this.skippedNoSensorCount++;
       this.logger.debug(
@@ -216,9 +219,9 @@ export class NatsIngestionConsumerService
     }
 
     // 2. ADR-025 § Threat 2 sanity: the sidecar already enforces
-    //    topic↔payload tenant binding. Re-checking here as defence in
-    //    depth — if a bug or a future relaxation lets a mismatched
-    //    event through, this drop keeps the persistence path honest.
+    //    topic↔payload tenant binding, and step 1 reads inside the event's
+    //    tenant. Kept as an assertion over that read: if it ever returned a
+    //    sensor of another tenant, this drop keeps the persistence path honest.
     if (sensor.tenantId !== event.tenantId) {
       this.logger.warn(
         `Tenant mismatch on SensorMetricIngested: event.tenantId=${event.tenantId} sensor.tenantId=${sensor.tenantId}; dropping`,
@@ -229,7 +232,7 @@ export class NatsIngestionConsumerService
     // 3. Channel lookup (cached). The sidecar identifies the channel
     //    by uuid; we resolve to the channel definition for channelKey
     //    + dataType.
-    const channels = await this.metaCache.getChannels(event.sensorId);
+    const channels = await this.metaCache.getChannels(event.sensorId, event.tenantId);
     const channel = channels.find((c) => c.id === event.channelId);
     if (!channel) {
       this.skippedNoChannelCount++;

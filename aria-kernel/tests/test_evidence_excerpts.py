@@ -32,6 +32,8 @@ from aria_kernel.evidence_excerpts import (
     excerpts_for_refs,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
+from tests._helpers.declared_fixtures import native_invocation_bytes
 
 TARGET = "src/feed.service.ts"
 
@@ -292,6 +294,7 @@ def _mint(tools: Path, *, evidence_refs: list[str], repo_root: Path | None) -> d
         convergence_id="conv-excerpt",
         base_dir=tools,
         context_repo_root=repo_root,
+        admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=tools),
     )
 
 
@@ -462,6 +465,7 @@ class PlannerSelectedSourceTests(unittest.TestCase):
                     must_satisfy=[{"id": "source", "description": "Use the selected revision"}],
                     allowed_scope=["src/**"], evidence_refs=["src/ack.ts:1", "src/new.ts:1"],
                     context_repo_root=repo, target_sha=head, base_dir=tools,
+                    admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=tools),
                 )
                 available, unavailable = request["evidence_excerpts"]
                 self.assertEqual(available["content"], original)
@@ -516,7 +520,7 @@ class PlannerSelectedSourceTests(unittest.TestCase):
         from unittest.mock import patch
         from aria_kernel.convergence_drainer import run_convergence_drainer
         from aria_kernel.cycle import _phase_discovery, _phase_twin_refresh, build_phase_context
-        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.ledger import load_segments
         from aria_kernel.plan_convergence import content_hash, start_plan
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
@@ -578,14 +582,10 @@ class PlannerSelectedSourceTests(unittest.TestCase):
                 result = run_convergence_drainer(
                     cycle_id="cyc-flow-source", base_dir=tools, workspace_root=repo,
                     plan_id="flow-plan", plan_seed=body,
-                    must_satisfy=[{"id": "flow-contract", "kind": "obligation",
-                                   "description": "Verify acknowledgement across the named flow", "source": "test"}],
-                    evidence_refs=refs, allowed_scope=["web/shell/**", "apps/notification-service/**"],
                     max_rounds=4,
                 )
                 self.assertEqual(result["arbiter_verdict"], "in_progress")
-                requests = load_declared_jsonl(tools / "agent-invocations/requests.jsonl",
-                                               expected_surface="agent_invocation_requests")
+                requests = load_segments(tools, "agent_invocation_requests")
                 self.assertEqual(len(requests), 1)
                 request = requests[0]
                 self.assertEqual(request["role"], "challenger_plan")
@@ -605,12 +605,10 @@ class PlannerSelectedSourceTests(unittest.TestCase):
                 self.assertEqual(excerpt["content_hash"],
                                  "sha256:" + hashlib.sha256(expected.encode()).hexdigest())
                 self.assertIn(expected, prompt)
-                sealed = {name: (tools / f"agent-invocations/{name}.jsonl").read_bytes()
-                          for name in ("requests", "contexts", "prompts")}
+                sealed = native_invocation_bytes(tools)
                 (repo / owner).unlink()
                 self.assertEqual(ai.render_invocation_prompt(ai.fuse_prompt_envelope(request)), prompt)
-                for name, original in sealed.items():
-                    self.assertEqual((tools / f"agent-invocations/{name}.jsonl").read_bytes(), original)
+                self.assertEqual(native_invocation_bytes(tools), sealed)
 
 
 if __name__ == "__main__":

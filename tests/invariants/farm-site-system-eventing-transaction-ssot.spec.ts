@@ -36,12 +36,22 @@ describe('INVARIANT: farm setup hierarchy writes use transaction and outbox SSOT
   it('keeps migrated write handlers on tenant transaction plus tenantManagerRepo', () => {
     for (const path of migratedWriteHandlers) {
       const source = read(path);
-      expect(source).toMatch(/runInTenantTransaction\(this\.dataSource, 'farm', tenantId/);
+      // runRetryingTenantTransaction is runInTenantTransaction on the farm
+      // schema with deadlock/serialization retry (pinned below).
+      expect(source).toMatch(
+        /runInTenantTransaction\(this\.dataSource, 'farm', tenantId|runRetryingTenantTransaction\(this\.dataSource, tenantId/,
+      );
       expect(source).toMatch(/tenantManagerRepo\(queryRunner\.manager,/);
       expect(source).toMatch(/private readonly dataSource: DataSource/);
       expect(source).not.toMatch(/@InjectRepository\(/);
       expect(source).not.toMatch(/private readonly \w+Repository: Repository/);
     }
+  });
+
+  it('keeps the retrying wrapper on the farm tenant transaction', () => {
+    expect(read('apps/farm-service/src/common/database/retrying-tenant-transaction.ts')).toMatch(
+      /runInTenantTransaction\(dataSource, 'farm', tenantId, work\)/,
+    );
   });
 
   it('keeps migrated write events durable and transaction-bound', () => {

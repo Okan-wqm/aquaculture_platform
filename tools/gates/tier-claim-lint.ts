@@ -57,10 +57,16 @@ const ALLOWLIST_PATH = resolve(
 /**
  * Well-formed tier-claim patterns. Case-sensitive on the `tier` prefix
  * so we don't false-positive on non-canonical capitalisations elsewhere.
+ *
+ * `//[/!]?` admits the Rust doc-comment forms beside the plain line
+ * comment: `///` (outer doc) already matched by accident of the
+ * unanchored search, but `//!` (inner doc, the module-level claim
+ * position in Rust) did not, so a module-level Rust claim escaped every
+ * rule. Both doc forms are now matched explicitly.
  */
-const INLINE_RE = /\/\/\s*tier-([0-9]+)\s*:\s*(.*)$/;
-const BEGIN_RE = /\/\/\s*tier-([0-9]+)-begin\s*:\s*(.*)$/;
-const END_RE = /\/\/\s*tier-([0-9]+)-end\s*$/;
+const INLINE_RE = /\/\/[/!]?\s*tier-([0-9]+)\s*:\s*(.*)$/;
+const BEGIN_RE = /\/\/[/!]?\s*tier-([0-9]+)-begin\s*:\s*(.*)$/;
+const END_RE = /\/\/[/!]?\s*tier-([0-9]+)-end\s*$/;
 
 /**
  * "Mechanism" hints — a non-vague tier claim must mention AT LEAST ONE.
@@ -83,13 +89,29 @@ const MECHANISM_HINTS: readonly RegExp[] = [
   /\b@Column\b/i,
   /\b@Entity\b/i,
   /\bADR-\d+\b/i,
-  /\bnever\b/i, // `switch (state: never)`
+  // The TypeScript never-TYPE form only: an identifier annotated `: never`
+  // and closed like a type position (`switch (state: never)`, `x: never;`,
+  // `x: never =`), or `as never`. A bare `\bnever\b` matched prose — a
+  // tier-1 claim reading "careful code, never panics" passed R7 once .rs
+  // files were admitted — and so did a loose `: never`, which "careful:
+  // never panics" satisfies (fixtures claim-vague-never*.rs).
+  /\w+\s*:\s*never\s*[),;=|>]/,
+  /\bas\s+never\b/,
   /\brepository\s+boundary\b/i,
   /\bRuntime\s+guard\b/i,
   /\bzod\b/i,
   /\bclass-validator\b/i,
   /\bgenerated\b/i,
   /\bcodegen\b/i,
+  // ARIA-MEDIUM-392 — Rust mechanisms: Tier-1 newtype, exhaustive
+  // match, non_exhaustive attribute. Tier-2 crate clippy deny wall.
+  // Tier-3 clippy or rustc lint id, Rust CI invariant.
+  /\bnewtype\b/i,
+  /\bexhaustive\s+match\b/i,
+  /#\[non_exhaustive\]/,
+  // A clippy lint is a mechanism only when it is NAMED: `clippy::unwrap_used`
+  // is checkable, the bare word "clippy" is not.
+  /\bclippy::[a-z_]+\b/,
 ];
 
 type RuleId =
@@ -149,7 +171,11 @@ function matchesAllowlist(relPath: string, globs: readonly string[]): boolean {
   return false;
 }
 
-const DOMAIN_CODE_RE = /^apps\/[^/]+\/src\//;
+// ARIA-MEDIUM-392 — the enforcement domain admits the Rust roots
+// (sens-api-gateway/src, crates/<crate>/src) beside the NestJS apps,
+// so a tier-4 claim in Rust code faces the same boundary allowlist
+// gate as one in TypeScript.
+const DOMAIN_CODE_RE = /^(?:apps\/[^/]+|sens-api-gateway|crates\/[^/]+)\/src\//;
 
 function scanContent(relPath: string, content: string, allowlist: readonly string[]): Violation[] {
   const violations: Violation[] = [];
@@ -215,7 +241,7 @@ function scanContent(relPath: string, content: string, allowlist: readonly strin
           lineNo,
           'R7-vague-claim',
           line.trim(),
-          'tier-N justification does not name a concrete mechanism (branded type / ESLint rule / invariant / migration / ADR / @Column / etc.).',
+          'tier-N justification does not name a concrete mechanism (branded type / ESLint rule / invariant / migration / ADR / @Column / Rust newtype / exhaustive match / clippy / etc.).',
         );
       }
       if (blockStack.length > 0) {
@@ -231,7 +257,7 @@ function scanContent(relPath: string, content: string, allowlist: readonly strin
           lineNo,
           'R6-unapproved-tier4-in-domain',
           line.trim(),
-          'tier-4 claim in apps/**/src/** requires an entry in .claude/allowlists/boundary-files.yaml.',
+          'tier-4 claim in enforced source roots (apps, sens-api-gateway, crates) requires an entry in .claude/allowlists/boundary-files.yaml.',
         );
       }
       blockStack.push({ tier, openLine: lineNo });
@@ -260,7 +286,7 @@ function scanContent(relPath: string, content: string, allowlist: readonly strin
           lineNo,
           'R7-vague-claim',
           line.trim(),
-          'tier-N justification does not name a concrete mechanism (branded type / ESLint rule / invariant / migration / ADR / @Column / etc.).',
+          'tier-N justification does not name a concrete mechanism (branded type / ESLint rule / invariant / migration / ADR / @Column / Rust newtype / exhaustive match / clippy / etc.).',
         );
       }
       if (tier === 4 && inDomain && !isAllowlisted) {
@@ -268,7 +294,7 @@ function scanContent(relPath: string, content: string, allowlist: readonly strin
           lineNo,
           'R6-unapproved-tier4-in-domain',
           line.trim(),
-          'tier-4 claim in apps/**/src/** requires an entry in .claude/allowlists/boundary-files.yaml.',
+          'tier-4 claim in enforced source roots (apps, sens-api-gateway, crates) requires an entry in .claude/allowlists/boundary-files.yaml.',
         );
       }
     }
@@ -299,16 +325,28 @@ function run(cmd: string): string {
   }
 }
 
+// Staged/range selection is the PRODUCT surface: the fixtures under
+// tests/**/fixtures/ deliberately contain claims that violate rules (they
+// pin this gate), so only they are excluded. Every other file under tests/
+// — specs and helpers — is code a claim can sit in, and stays scanned.
+// --mode=file remains the explicit operator surface and scans any path
+// given, fixtures included.
+const TEST_FIXTURE_RE = /^tests\/(?:[^/]+\/)*fixtures\//;
+
+function isProductCode(relPath: string): boolean {
+  return !TEST_FIXTURE_RE.test(relPath) && /\.(ts|tsx|rs)$/.test(relPath);
+}
+
 function stagedFiles(): string[] {
   return run('git diff --cached --name-only --diff-filter=ACM')
     .split('\n')
-    .filter((f) => f.length > 0 && /\.(ts|tsx)$/.test(f));
+    .filter((f) => f.length > 0 && isProductCode(f));
 }
 
 function rangeFiles(baseRef: string, headRef: string): string[] {
   return run(`git diff ${baseRef}..${headRef} --name-only --diff-filter=ACM`)
     .split('\n')
-    .filter((f) => f.length > 0 && /\.(ts|tsx)$/.test(f));
+    .filter((f) => f.length > 0 && isProductCode(f));
 }
 
 function scanFile(relPath: string, allowlist: readonly string[]): Violation[] {

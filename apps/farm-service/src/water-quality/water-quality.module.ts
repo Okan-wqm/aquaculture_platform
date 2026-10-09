@@ -15,6 +15,7 @@
  * @module WaterQuality
  */
 import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -27,6 +28,7 @@ import { SensorTemperatureLatest } from './entities/sensor-temperature-latest.en
 import { SensorTemperatureDaily } from './entities/sensor-temperature-daily.entity';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
 import { WaterQualityParamEquipment } from './entities/water-quality-param-equipment.entity';
+import { ParameterQuantityDeclaration } from './entities/parameter-quantity-declaration.entity';
 
 // Related entities
 import { Tank } from '../tank/entities/tank.entity';
@@ -40,6 +42,8 @@ import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-
 // Resolvers
 import { WaterQualityResolver } from './water-quality.resolver';
 import { WaterQualityParameterConfigResolver } from './water-quality-parameter-config.resolver';
+import { ParameterChannelBindingResolver } from './parameter-channel-binding.resolver';
+import { WaterChemistryReadingResolver } from './water-chemistry-reading.resolver';
 
 // Parameter Config Command Handlers
 import {
@@ -52,6 +56,11 @@ import {
   UpdateParamEquipmentHandler,
   DeleteParamEquipmentHandler,
   BulkMapParamsEquipmentHandler,
+  BindParameterChannelHandler,
+  UnbindParameterChannelHandler,
+  ReplaceParameterChannelHandler,
+  DeclareParameterQuantityHandler,
+  ClearParameterQuantityHandler,
 } from './handlers';
 
 // Parameter Config Query Handlers
@@ -62,6 +71,8 @@ import { ParameterConfigCacheService } from './services/parameter-config-cache.s
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
+import { SensorChannelDirectory } from './services/sensor-channel-directory.service';
+import { ParameterReadingResolver } from './services/parameter-reading-resolver.service';
 
 // Phase 7.5 — event handler that auto-seeds default WQ parameter
 // configs when a new tenant is provisioned. The handler also runs
@@ -86,6 +97,11 @@ const CommandHandlers = [
   UpdateParamEquipmentHandler,
   DeleteParamEquipmentHandler,
   BulkMapParamsEquipmentHandler,
+  BindParameterChannelHandler,
+  UnbindParameterChannelHandler,
+  ReplaceParameterChannelHandler,
+  DeclareParameterQuantityHandler,
+  ClearParameterQuantityHandler,
 ];
 
 @Module({
@@ -96,6 +112,7 @@ const CommandHandlers = [
       WaterQualityMeasurement,
       WaterQualityParameterConfig,
       WaterQualityParamEquipment,
+      ParameterQuantityDeclaration,
       Tank,
       Equipment,
       SensorTemperatureLatest,
@@ -112,6 +129,8 @@ const CommandHandlers = [
     RegulatoryModule,
     EquipmentModule,
     FinanceModule,
+    // SensorChannelDirectory asks the sensor service through a fail-closed breaker.
+    CircuitBreakerModule,
   ],
   controllers: [GetWaterQualityOverviewResponder, WaterQualityAiQueryResponder],
   providers: [
@@ -131,6 +150,12 @@ const CommandHandlers = [
     TenantOnboardingEventHandler,
     WaterQualityResolver,
     WaterQualityParameterConfigResolver,
+    ParameterChannelBindingResolver,
+    WaterChemistryReadingResolver,
+    // The only farm caller of request.sensor.describeChannels (FARM-HIGH-373).
+    SensorChannelDirectory,
+    // The one reader of "the value of a parameter at a point, now" (PR-4).
+    ParameterReadingResolver,
     ...CommandHandlers,
     ...WaterQualityQueryHandlers,
   ],

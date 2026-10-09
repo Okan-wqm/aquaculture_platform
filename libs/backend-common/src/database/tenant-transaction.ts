@@ -184,31 +184,88 @@ export async function bindTenantRlsContext(
   // a stale `on` would expose every row the policy is supposed to hide.
   await queryRunner.query(`SELECT set_config($1, 'off', true)`, [RLS_BYPASS_GUC]);
 
+  // Same contract as assertTenantTransactionContext: a live connection always
+  // answers the read-back; only a unit-test mock with no backing connection
+  // returns nothing, and there is nothing live to assert against.
+  const row = await readRlsBinding(queryRunner);
+  if (row && !rlsBindingMatches(row, tenantId)) {
+    throw rlsMismatch(tenantId, sourceSchema);
+  }
+}
+
+/** What a binding read-back returns: the two RLS settings as the session sees them. */
+interface RlsBindingRow {
+  tenant?: string | null;
+  bypass?: string | null;
+}
+
+/**
+ * The single rule for "this session is bound to `tenantId`": the tenant
+ * setting names it (the policy casts to uuid, so case is not significant) and
+ * bypass is exactly `off`. Shared by every boundary assertion so they cannot
+ * disagree about what a bound session is.
+ */
+async function readRlsBinding(
+  queryRunner: TenantContextQueryExecutor,
+): Promise<RlsBindingRow | null> {
   const rows = await queryRunner.query(
     `SELECT current_setting($1, true) AS tenant,
             current_setting($2, true) AS bypass`,
     [RLS_TENANT_GUC, RLS_BYPASS_GUC],
   );
-  const row = (Array.isArray(rows) ? rows[0] : rows) as
-    | { tenant?: string | null; bypass?: string | null }
-    | undefined
-    | null;
-  if (!row) {
-    return;
+  return ((Array.isArray(rows) ? rows[0] : rows) as RlsBindingRow | undefined | null) ?? null;
+}
+
+/**
+ * A binding that did not take. No schema claim is made: the bindings checked
+ * here serve writers whose tables live in the source schema, so
+ * `resolvedSchema` stays null rather than asserting something never asked for.
+ */
+function rlsMismatch(tenantId: string, sourceSchema: string): TenantContextError {
+  return new TenantContextError({
+    state: 'RLS_MISMATCH',
+    expectedSchema: getTenantSchemaName(tenantId),
+    resolvedSchema: null,
+    sourceSchema,
+  });
+}
+
+function rlsBindingMatches(row: RlsBindingRow, tenantId: string): boolean {
+  const resolvedTenant = row.tenant ?? null;
+  return (
+    resolvedTenant !== null &&
+    resolvedTenant.toLowerCase() === tenantId.toLowerCase() &&
+    row.bypass === 'off'
+  );
+}
+
+/**
+ * Verify — without changing anything — that the caller's transaction is bound
+ * to `tenantId`: `app.current_tenant` names it and `app.bypass_rls` is off.
+ *
+ * For code that writes on a transaction someone else opened (a managed
+ * EntityManager): it must not re-bind the caller's tenant, because a write on
+ * behalf of tenant B inside tenant A's transaction is the defect to refuse,
+ * not a context to repair. Reading back is the half of
+ * {@link bindTenantRlsContext} that such a writer is allowed to perform.
+ */
+export async function assertTenantRlsBound(
+  queryRunner: TenantContextQueryExecutor,
+  tenantId: string,
+  sourceSchema: string,
+): Promise<void> {
+  if (!SOURCE_SCHEMA_RE.test(sourceSchema)) {
+    throw new Error(`assertTenantRlsBound: invalid source schema "${sourceSchema}"`);
+  }
+  if (!isValidUUID(tenantId)) {
+    throw new Error(`assertTenantRlsBound: invalid tenantId "${tenantId}"`);
   }
 
-  const resolvedTenant: string | null = row.tenant ?? null;
-  const resolvedBypass: string | null = row.bypass ?? null;
-  if (resolvedTenant !== tenantId || (resolvedBypass ?? 'off') !== 'off') {
-    throw new TenantContextError({
-      state: 'RLS_MISMATCH',
-      expectedSchema: getTenantSchemaName(tenantId),
-      // No schema claim is being made here: this binding is used by writers
-      // whose tables live in the source schema, so `resolvedSchema` stays
-      // null rather than asserting something the caller never asked for.
-      resolvedSchema: null,
-      sourceSchema,
-    });
+  // Fail closed: a read-back that returns nothing proves nothing about the
+  // binding, and this check exists for writers that must not guess.
+  const row = await readRlsBinding(queryRunner);
+  if (!row || !rlsBindingMatches(row, tenantId)) {
+    throw rlsMismatch(tenantId, sourceSchema);
   }
 }
 
@@ -256,8 +313,6 @@ export async function assertTenantTransactionContext(
   }
 
   const resolvedSchema: string | null = row.schema ?? null;
-  const resolvedTenant: string | null = row.tenant ?? null;
-  const resolvedBypass: string | null = row.bypass ?? null;
 
   if (resolvedSchema !== expectedSchema) {
     throw new TenantContextError({
@@ -267,11 +322,7 @@ export async function assertTenantTransactionContext(
       sourceSchema,
     });
   }
-  if (
-    !resolvedTenant ||
-    resolvedTenant.toLowerCase() !== tenantId.toLowerCase() ||
-    resolvedBypass !== 'off'
-  ) {
+  if (!rlsBindingMatches(row, tenantId)) {
     throw new TenantContextError({
       state: 'RLS_MISMATCH',
       expectedSchema,

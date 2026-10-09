@@ -24,7 +24,7 @@ from unittest import mock
 from aria_kernel import pr_manager
 from aria_kernel.auto_merge import human_merge_decision, record_pr_lifecycle
 from aria_kernel.auto_merge_runners import select_auto_merge_runner
-from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
+from aria_kernel.plan_synthesizer import PlanEvidenceGround, convert_candidate_to_plan_content
 from aria_kernel.risk_policy import HUMAN_MERGE_DECISION, HUMAN_MERGE_LABEL, classify_change
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.git_fixtures import make_local_git_repo
@@ -37,6 +37,16 @@ def _git(repo: Path, *args: str) -> str:
 
 class AnL3FindingIsStillPlannedTests(unittest.TestCase):
     def test_an_l3_finding_is_planned_on_bare_path_surfaces(self) -> None:
+        # ORPHAN-HIGH-519 — the plan cites only refs the challenger's rule
+        # admits, so the cited lines are committed in a checkout.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = make_local_git_repo(Path(tmp.name))
+        for relative in ("docs/aria/runbook.md", "docs/adr/030-x.md"):
+            (repo / relative).parent.mkdir(parents=True, exist_ok=True)
+            (repo / relative).write_text("".join(f"line {n}\n" for n in range(1, 21)), encoding="utf-8")
+            _git(repo, "add", "--", relative)
+        _git(repo, "commit", "-q", "-m", "docs(test): the cited pages")
         envelope = convert_candidate_to_plan_content({
             "source_type": "orphan_finding",
             "candidate_id": "ORPHAN-MEDIUM-901",
@@ -44,7 +54,7 @@ class AnL3FindingIsStillPlannedTests(unittest.TestCase):
             "raw_id": "901",
             "title_hint": "Address ORPHAN-MEDIUM-901",
             "evidence": ["docs/aria/runbook.md:12", "docs/adr/030-x.md:4"],
-        })
+        }, ground=PlanEvidenceGround.of(repo)).envelope
         self.assertIsNotNone(envelope, "an L3 finding is planned, not routed away")
         assert envelope is not None
         self.assertEqual(envelope.content["evidence_refs"], ["docs/aria/runbook.md:12", "docs/adr/030-x.md:4"])

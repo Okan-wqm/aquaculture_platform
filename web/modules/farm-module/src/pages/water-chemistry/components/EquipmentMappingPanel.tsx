@@ -23,6 +23,7 @@ import {
   MONITORING_FREQUENCY_OPTIONS,
   EQUIPMENT_CATEGORY_OPTIONS,
   getFrequencyLabel,
+  mappingUnitId,
 } from '../../../hooks/useParamEquipmentMapping';
 import { useEquipmentList } from '../../../hooks/useEquipment';
 import { Plus } from 'lucide-react';
@@ -89,10 +90,23 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
   const updateMutation = useUpdateParamEquipmentMapping();
   const deleteMutation = useDeleteParamEquipmentMapping();
 
+  // A tank's plan line names it as tankId with no equipment relation: name it
+  // from the unit list, which presents tanks beside water equipment.
+  const unitById = useMemo(
+    () => new Map((equipmentData?.items ?? []).map((unit) => [unit.id, unit])),
+    [equipmentData],
+  );
+  const unitOf = (mapping: ParamEquipmentMapping): { name: string; code: string } | undefined => {
+    const unitId = mappingUnitId(mapping);
+    return unitId === null ? undefined : unitById.get(unitId);
+  };
+
   // Filter equipment list: exclude already-mapped equipment and apply category filter
   const alreadyMappedIds = useMemo(() => {
     if (!mappings) return new Set<string>();
-    return new Set(mappings.map((m) => m.equipmentId));
+    return new Set(
+      mappings.map(mappingUnitId).filter((unitId): unitId is string => unitId !== null),
+    );
   }, [mappings]);
 
   const filteredEquipment = useMemo(() => {
@@ -163,7 +177,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       header: 'Equipment Name',
       render: (_value, mapping) => (
         <span className="whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">
-          {mapping.equipment?.name ?? '-'}
+          {mapping.equipment?.name ?? unitOf(mapping)?.name ?? '-'}
         </span>
       ),
     },
@@ -172,7 +186,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       header: 'Code',
       render: (_value, mapping) => (
         <span className="whitespace-nowrap font-mono text-gray-500 dark:text-gray-400">
-          {mapping.equipment?.code ?? '-'}
+          {mapping.equipment?.code ?? unitOf(mapping)?.code ?? '-'}
         </span>
       ),
     },

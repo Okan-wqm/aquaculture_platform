@@ -34,10 +34,14 @@ try:
     sys.path.insert(0, str(_POC_DIR.parents[1] / "aria-kernel"))
     from aria_kernel.circuit_breaker import evaluate_breaker, record_failure
     from aria_kernel.agent_surface import JUDGE_ROLES as _JUDGE_ROLES
+    from aria_kernel.agent_surface import PLANNER_BRIDGE_ROLES as _PLANNER_BRIDGE_ROLES
+    from aria_kernel.cross_review_bridge import COMPLETENESS_CRITIC_ROLE as _COMPLETENESS_CRITIC_ROLE
 except ImportError:  # pragma: no cover — kernel-less standalone import
     evaluate_breaker = None  # type: ignore[assignment]
     record_failure = None  # type: ignore[assignment]
     _JUDGE_ROLES = ()  # type: ignore[assignment]
+    _PLANNER_BRIDGE_ROLES = frozenset()  # type: ignore[assignment]
+    _COMPLETENESS_CRITIC_ROLE = ()  # type: ignore[assignment]
 
 
 # ARIA-HIGH-003 — failure classes that name an environment condition no
@@ -269,7 +273,8 @@ DEFAULT_DRAIN_BUDGET_SECONDS = (
 #   count typed here);
 # * the publish after it — the lifecycle holder's longest arc
 #   (`state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS`: the pending
-#   recovery, then every attempt's push, probe, fetches and tree move);
+#   recovery, then the leased publish's push, probe, fetch and tree move —
+#   it never replays since ARIA-HIGH-342);
 # * the steps around them that carry no kernel bound — checkout of main,
 #   node dependencies (a cold `npm ci` measured 2m50s), the attestation
 #   probe, integrity verification, the handoff snapshot, artifact uploads —
@@ -279,10 +284,23 @@ DEFAULT_DRAIN_BUDGET_SECONDS = (
 # reserve arithmetic spent two state-lock bounds of this on them; now the
 # window charges the child, and the reserve is the job's own.
 STATE_RESTORE_WORST_CASE_SECONDS = _engine._STATE_STORE_CHECKOUT_ARC_SECONDS
+# ARIA-HIGH-342 — before that restore the job takes the aria/state writer
+# lease, waiting at most this long for another writer (the restore action's
+# `writer-lease-wait-seconds` in aria-agent-executor.yml, pinned equal by
+# tests/test_state_lock_liveness_bound.py) before it yields by name.
+WRITER_LEASE_WAIT_SECONDS = 1800
 JOB_STEPS_ALLOWANCE_SECONDS = 900
+# ARIA-HIGH-342 (PR #1779 re-review R-3) — the publish is more than its
+# locked arc: before the lock the orchestrator builds the writer-lease fence
+# (lease reads, a renewal when the lease runs short) and stages the cold
+# eviction. `state_writer_lease.PUBLISH_PREAMBLE_SECONDS` prices that at the
+# git cap; dropping it is how a job runs out of time with its work unpublished.
+PUBLISH_PREAMBLE_SECONDS = _engine._STATE_PUBLISH_PREAMBLE_SECONDS
 JOB_RESERVE_SECONDS = int(
-    STATE_RESTORE_WORST_CASE_SECONDS
+    WRITER_LEASE_WAIT_SECONDS
+    + STATE_RESTORE_WORST_CASE_SECONDS
     + _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
+    + PUBLISH_PREAMBLE_SECONDS
     + JOB_STEPS_ALLOWANCE_SECONDS
 )
 # ARIA-HIGH-124 (round 3) — the part of that reserve the job still needs
@@ -292,7 +310,9 @@ JOB_RESERVE_SECONDS = int(
 # delivery in the job runs under. The restore arc is spent BEFORE the drain,
 # so it is inside the window's elapsed time, not after the deadline.
 JOB_RESERVE_AFTER_DRAIN_SECONDS = int(
-    _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS + JOB_STEPS_ALLOWANCE_SECONDS
+    _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
+    + PUBLISH_PREAMBLE_SECONDS
+    + JOB_STEPS_ALLOWANCE_SECONDS
 )
 
 
@@ -332,6 +352,57 @@ _ROLE_QUOTA_ORDER: tuple[str, ...] = (
     "specialist_domain_review",
     "maintenance_utility",
 )
+
+
+def require_dispatchable_arc(arc: tuple[str, ...], dispatchable: frozenset[str]) -> None:
+    """Refuse an arc that names a role the executor may not claim.
+
+    ARIA-HIGH-344. The arc is the drain's own list; the provider routing
+    table is validated against `DISPATCHABLE_ROLES` (runtime_profiles
+    `_validate_routing`). Nothing compared the two, so `maintenance_utility`
+    rode the arc for weeks outside the dispatchable set and, once routing
+    became the admission's first question, every request of it died there
+    (`provider_routing_role_unrouted`) and counted as a harness failure.
+    Checked at import, against the executor's `SUPPORTED_ROLES` (the kernel
+    set, or its no-drift standalone mirror): a drain that could only reach
+    an unroutable role does not start.
+    """
+    stray = sorted(set(arc) - set(dispatchable))
+    if stray:
+        raise RuntimeError(f"drain_arc_role_not_dispatchable:{stray}")
+
+
+require_dispatchable_arc(_ROLE_QUOTA_ORDER, _engine.SUPPORTED_ROLES)
+
+# Plan progress before backlog — the first live end-to-end run (2026-10-04,
+# executor run 37192561282) drained its plan's one challenger, accepted at
+# 10:03Z, and then kept draining a ~1,600-row judge backlog at ~6 minutes a
+# request up to the run cap. The executor, the auto-cycle and the burn-in
+# share one self-hosted runner and one concurrency group, so the plan's next
+# turn (cycle → cross_review → cycle → CONVERGED → implementation) waited
+# hours behind work that advances no plan.
+#
+# The PLANNING LANE is the set of roles whose accepted result moves a plan:
+# the four bridge roles a submit routes through plan state
+# (`agent_surface.PLANNER_BRIDGE_ROLES`) and the coverage-waiver critic the
+# convergence drainer waits on before a round can close
+# (`cross_review_bridge.COMPLETENESS_CRITIC_ROLE` — annotation-only, so it is
+# not a bridge role, but a plan with waivers cannot advance without it).
+# Derived, never typed: a role that joins either constant joins the lane.
+_PLANNING_LANE_ROLES: frozenset[str] = frozenset(_PLANNER_BRIDGE_ROLES) | frozenset(_COMPLETENESS_CRITIC_ROLE[1:])
+# The planning lane in arc order — what a finished planning turn still
+# asks for before it stops, so a planning request that became pending
+# mid-run is served first.
+_PLANNING_LANE_ORDER: tuple[str, ...] = tuple(r for r in _ROLE_QUOTA_ORDER if r in _PLANNING_LANE_ROLES)
+# The rest of the arc, in arc order — what the policy surplus may buy.
+_BACKLOG_ORDER: tuple[str, ...] = tuple(r for r in _ROLE_QUOTA_ORDER if r not in _PLANNING_LANE_ROLES)
+# A run that has succeeded on a planning-lane request, with none left
+# pending and its quota round finished, stops here: its `drained` count is
+# > 0, so the rhythm job chains the next cycle, and that cycle — not the
+# backlog — gets the runner. The quota round still gives every waiting
+# role its one slot (Y4, ORPHAN-HIGH-786); only the arc-order SURPLUS is
+# withheld, beyond the `executor.surplus_after_planning_turn` policy share.
+PLANNING_TURN_COMPLETE_STOP_REASON = "planning_turn_complete"
 
 
 def absolute_pythonpath(value: str | None, *, repo_root: Path) -> str:
@@ -471,14 +542,17 @@ class _FinishedChild:
 
 
 def _executor_policy(repo_root: Path) -> dict:
-    """Plan 032 Faz 032h — the kernel's executor block (max_concurrent, worktree_per_request)."""
+    """Plan 032 Faz 032h — the kernel's executor block (max_concurrent,
+    worktree_per_request, surplus_after_planning_turn)."""
     try:
         from aria_kernel.genesis_policy import executor_policy
 
         return executor_policy(repo_root)
     except Exception as exc:  # noqa: BLE001 — an unreadable policy means the serial default
         _engine._stage(f"drain_executor_policy_unreadable {type(exc).__name__}")
-        return {"max_concurrent": 1, "worktree_per_request": False}
+        # The surplus falls back to none: a refused policy value must never
+        # widen what a finished planning turn spends on the backlog.
+        return {"max_concurrent": 1, "worktree_per_request": False, "surplus_after_planning_turn": 0}
 
 
 # The per-request worktrees live INSIDE the checkout, under this directory,
@@ -657,6 +731,11 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     dispatched_target_shas: set[str] = set()
     # Y4 (ORPHAN-705) — roles still owed their guaranteed slot this run.
     quota_pending: list[str] = list(_ROLE_QUOTA_ORDER)
+    # Plan progress before backlog — set when a planning-lane request
+    # SUCCEEDS (its child's summary, never a dispatch alone); from then on
+    # the run's arc-order surplus is withheld beyond the policy share.
+    planning_succeeded = False
+    surplus_taken = 0
     succeeded = 0
     failed = 0
     stop_reason = "queue_empty"
@@ -675,6 +754,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     executor_cfg = _executor_policy(repo_root)
     max_concurrent = int(executor_cfg["max_concurrent"])
     worktree_per_request = bool(executor_cfg["worktree_per_request"])
+    surplus_after_planning_turn = int(executor_cfg["surplus_after_planning_turn"])
     judge_batch_size, judge_batch_runtimes = _judge_batch_policy(repo_root)
 
     def _batch_fill_cap(elapsed_seconds: float) -> int:
@@ -687,6 +767,29 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             k += 1
         return k
     inflight: list[dict] = []
+    # ARIA-HIGH-368 — this run's convergence advances (the cap's counter).
+    # Imported here: a drain needs the kernel anyway, a kernel-less import of
+    # this module does not.
+    from aria_kernel.executor_convergence import AdvanceBudget, advance_after_accepted_step
+
+    advance_budget = AdvanceBudget()
+
+    def _advance_plan(request: dict) -> None:
+        """One in-run convergence step for the plan ``request`` answered:
+        lease, deadline and cap gated, idempotent per (plan, role, round)."""
+        outcome = advance_after_accepted_step(
+            request=request, tools_dir=tools_dir, workspace_root=repo_root,
+            # The job ATTEMPT, not only the run: a re-run is another job.
+            run_id=f"{run_ref}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}",
+            budget=advance_budget,
+            # Read at the staging check itself, after the step's own work.
+            drain_remaining=lambda: _drain_budget_seconds() - (time.monotonic() - started),
+        )
+        _engine._stage(
+            f"drain_convergence_advance request_id={request.get('request_id')} "
+            f"status={outcome['status']} reason={outcome.get('reason') or '-'} "
+            f"verdict={outcome.get('verdict') or '-'} minted={','.join(outcome.get('minted_request_ids') or []) or '-'}"
+        )
 
     def _launch(request: dict, request_id: str, target_agent: str, worktree: Path | None,
                 batch: list[dict] | None = None) -> None:
@@ -800,7 +903,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                          breaker_recorded: set[str]) -> None:
         """Fold ONE request's terminal outcome (the pre-4b `_settle` tail, verbatim);
         the persistent breaker is told once per child per kind."""
-        nonlocal succeeded, failed, harness_failed, request_failed
+        nonlocal succeeded, failed, harness_failed, request_failed, planning_succeeded
 
         # ARIA-HIGH-003 — classify the terminal outcome from the child's own
         # v1 summary and fold it into the circuit, the persistent breaker,
@@ -828,6 +931,14 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         elif outcome == "succeeded":
             succeeded += 1
             bucket["succeeded"] += 1
+            # The trusted request row names the role the drain selected —
+            # the same identity the route is resolved from.
+            if str(request.get("role") or "") in _PLANNING_LANE_ROLES:
+                planning_succeeded = True
+            # ARIA-HIGH-368 — the answer is in; take the plan's next step NOW,
+            # so the envelope it mints is claimed by this run's planning turn
+            # instead of waiting a cycle (a plan round measured ~18 h).
+            _advance_plan(request)
         else:
             failed += 1
             bucket["failed"] += 1
@@ -937,8 +1048,22 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             )
             if candidate is not None:
                 request = candidate
+        # Plan progress before backlog — the quota round is over and a
+        # planning-lane request has succeeded: the planning lane is asked
+        # first (a planning request that became pending mid-run is served
+        # before the stop), and the backlog only while the policy surplus
+        # lasts. A run with no planning success keeps the arc fallback as it
+        # always was.
+        planning_turn = planning_succeeded and not quota_pending and request is None
+        surplus_open = surplus_taken < surplus_after_planning_turn
+        if planning_turn:
+            fallback_order: tuple[str | None, ...] = _PLANNING_LANE_ORDER + (
+                _BACKLOG_ORDER + (None,) if surplus_open else ()
+            )
+        else:
+            fallback_order = _ROLE_QUOTA_ORDER + (None,)
         if request is None and selection_error is None:
-            for role_filter in _ROLE_QUOTA_ORDER + (None,):
+            for role_filter in fallback_order:
                 candidate, selection_error = _next_pending_for_role(
                     tools_dir=tools_dir, repo_root=repo_root,
                     role_filter=role_filter, attempted=excluded,
@@ -961,9 +1086,17 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             break
         request_id = (request or {}).get("request_id")
         if not request_id:
+            if planning_turn and not surplus_open:
+                # No planning-lane request is left pending and the surplus
+                # is spent: the plan's turn is complete, and the next cycle
+                # — not the backlog — is what moves it now.
+                stop_reason = PLANNING_TURN_COMPLETE_STOP_REASON
+                break
             # Nothing pending outside tonight's excluded sets — the queue
             # is exhausted for this run (clean stop, not a failure).
             break
+        # A backlog request bought by the planning turn's policy surplus.
+        surplus_pick = planning_turn and str(request.get("role") or "") not in _PLANNING_LANE_ROLES
 
         # ARIA-HIGH-003 — resolve the route pre-dispatch (the trusted row is
         # the identity); an open circuit on that (provider, model) skips the
@@ -1022,6 +1155,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 judge_batch_size,
                 _engine._max_requests() - len(attempted) - len(quota_pending),
                 _batch_fill_cap(time.monotonic() - started),
+                # A surplus batch never outgrows what the surplus has left.
+                *((surplus_after_planning_turn - surplus_taken,) if surplus_pick else ()),
             )
             batch_excluded = set(excluded) | {request_id}
             while len(batch_members) < batch_cap:
@@ -1090,6 +1225,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             worktree = added.path
         for member in batch_members:
             attempted.add(str(member["request_id"]))
+        if surplus_pick:
+            surplus_taken += len(batch_members)
         dispatched_target_shas.add(str(request.get("target_sha") or ""))
 
         target_agent = str(request.get("target_agent") or "").strip()
@@ -1105,6 +1242,14 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         f"stop={stop_reason} "
         f"circuit_skipped={len(circuit_excluded)} window_skipped={len(window_excluded)}"
     )
+    # The stop reason on the run page itself (a GitHub annotation, the
+    # channel the request-fault warnings already use), so why a drain ended
+    # — `planning_turn_complete` above all — is read without opening the log.
+    sys.stdout.write(
+        f"::notice title=ARIA drain stopped::stop={stop_reason} attempted={len(attempted)} "
+        f"succeeded={succeeded} failed={failed}\n"
+    )
+    sys.stdout.flush()
     if _engine._append_tools_governance is not None:
         try:
             _engine._append_tools_governance(

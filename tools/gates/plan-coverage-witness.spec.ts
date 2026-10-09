@@ -8,16 +8,24 @@
  * the stdout JSON shape ARE the contract that aria_kernel/plan_coverage.py
  * depends on, so that is exactly what gets pinned.
  *
+ * ARIA-HIGH-306: a fixture-only spec stayed green for months while the live
+ * infrastructure/nats/services.yaml changed format under it and the witness
+ * parsed none of it. The live cases below run the witness against the real
+ * SSoT and the real event contracts and compare it to an independent read of
+ * the same file, so the next format drift turns this spec red.
+ *
  * Invoke via:
  *   ts-node --project tools/gates/tsconfig.json tools/gates/plan-coverage-witness.spec.ts
  */
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
+
+import { parse as yamlParse } from 'yaml';
 
 const GATE_DIR = dirname(resolve(__filename));
 const REPO_ROOT = resolve(GATE_DIR, '..', '..');
@@ -26,6 +34,19 @@ const FIXTURES = join(GATE_DIR, 'fixtures', 'plan-coverage');
 const GRAPH = join(FIXTURES, 'nx-graph.json');
 const SERVICES_YAML = join(FIXTURES, 'services.yaml');
 const FIXTURE_REPO = join(FIXTURES, 'repo');
+const LIVE_SERVICES_YAML = join(REPO_ROOT, 'infrastructure', 'nats', 'services.yaml');
+/** Run against the live SSoT and the real contracts; the nx graph stays the fixture's. */
+const LIVE_ARGS = ['--services-yaml', LIVE_SERVICES_YAML, '--repo-root', REPO_ROOT];
+
+// Typed `unknown` so every read of the parsed document is narrowed explicitly.
+const parseYaml: (input: string) => unknown = yamlParse;
+
+interface ServicesYamlLedger {
+  services: number;
+  publish_patterns: number;
+  subscribe_patterns: number;
+  event_types: number;
+}
 
 interface WitnessRun {
   readonly exitCode: number;
@@ -33,15 +54,69 @@ interface WitnessRun {
     verdict: string;
     closure: {
       projects: { name: string; reason: string }[];
-      event_consumers: { event_type: string; consumer: string }[];
+      event_consumers: { event_type: string; consumer: string; matching_pattern: string; subject: string }[];
       migration_couplings: { service: string }[];
     };
     uncovered: { node_id: string; kind: string; why: string }[];
     waived: { node_id: string; reason: string }[];
     unmapped_paths: string[];
+    ledger: { services_yaml: ServicesYamlLedger | null };
     inputs_hash: string;
   };
   readonly stdout: string;
+}
+
+interface LiveService {
+  readonly name: string;
+  readonly application: string;
+  readonly publish: readonly string[];
+  readonly subscribe: readonly string[];
+}
+
+function stringList(value: unknown): string[] {
+  assert.ok(Array.isArray(value), 'services.yaml list expected');
+  return value.map((item: unknown) => {
+    assert.equal(typeof item, 'string');
+    return String(item);
+  });
+}
+
+/** The live SSoT read independently of the witness — the oracle the live cases compare to. */
+function loadLiveServices(): LiveService[] {
+  const document = parseYaml(readFileSync(LIVE_SERVICES_YAML, 'utf8'));
+  assert.ok(typeof document === 'object' && document !== null && 'services' in document);
+  const services: unknown = document.services;
+  assert.ok(Array.isArray(services));
+  return services.map((entry: unknown): LiveService => {
+    assert.ok(typeof entry === 'object' && entry !== null);
+    const record = entry as Record<string, unknown>;
+    return {
+      name: String(record['name']),
+      application: String(record['application']),
+      publish: stringList(record['publish']),
+      subscribe: stringList(record['subscribe']),
+    };
+  });
+}
+
+/** NATS overlap of two subject patterns (`*` = one token, `>` = one or more), the test's own. */
+function natsOverlap(a: string, b: string): boolean {
+  const left = a.split('.');
+  const right = b.split('.');
+  for (let index = 0; ; index += 1) {
+    const x = left[index];
+    const y = right[index];
+    if (x === undefined || y === undefined) return x === y;
+    if (x === '>' || y === '>') return true;
+    if (x !== '*' && y !== '*' && x !== y) return false;
+  }
+}
+
+function writeServicesYaml(source: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'plan-coverage-yaml-'));
+  const path = join(dir, 'services.yaml');
+  writeFileSync(path, source, 'utf8');
+  return path;
 }
 
 function runWitness(input: object, extraArgs: string[] = []): WitnessRun {
@@ -122,6 +197,9 @@ void test('touching an event contract surfaces untouched NATS consumers', () => 
   });
   assert.equal(run.exitCode, 1);
   const consumerNodes = run.report.uncovered.filter((n) => n.kind === 'event_consumer');
+  // The yaml names the NATS identity `notification_service`; the node names
+  // the nx project its `application:` field maps to. The matching grant is the
+  // fixture's one quoted item.
   assert.deepEqual(
     consumerNodes.map((n) => n.node_id),
     ['event-consumer:notification-service:BatchHarvested'],
@@ -130,7 +208,8 @@ void test('touching an event contract surfaces untouched NATS consumers', () => 
     {
       event_type: 'BatchHarvested',
       consumer: 'notification-service',
-      matching_pattern: 'AQUACULTURE_EVENTS.BatchHarvested.>',
+      matching_pattern: 'events.*.BatchHarvested',
+      subject: 'events.*.BatchHarvested',
     },
   ]);
 });
@@ -144,8 +223,182 @@ void test('a touched consumer project produces no event-consumer node', () => {
     ],
     waivers: [{ node: 'dependents-of:event-contracts', reason: 'covered by direct touch + consumer check' }],
   });
+  // The consumer IS recognized (through `application:`), and is covered
+  // because the plan touches its nx project — not because nothing matched.
+  assert.deepEqual(
+    run.report.closure.event_consumers.map((c) => c.consumer),
+    ['notification-service'],
+  );
   const consumerNodes = run.report.uncovered.filter((n) => n.kind === 'event_consumer');
   assert.equal(consumerNodes.length, 0);
+});
+
+void test('quoted and unquoted services.yaml items both parse, and the ledger counts them', () => {
+  const run = runWitness({
+    schema_version: 1,
+    affected_paths: ['libs/event-contracts/src/farm-events.ts'],
+    waivers: [],
+  });
+  assert.deepEqual(run.report.ledger.services_yaml, {
+    services: 2,
+    publish_patterns: 3,
+    subscribe_patterns: 4,
+    event_types: 1,
+  });
+});
+
+void test('subjects come from the declared publish grants; events.*.<T> only when none declares <T>', () => {
+  const subscribers = [
+    '- name: gateway_service',
+    '  application: gateway-api',
+    '  description: events-root subscriber',
+    '  publish:',
+    '  - _INBOX.>',
+    '  subscribe:',
+    '  - events.>',
+    '- name: notification_service',
+    '  application: notification-service',
+    '  description: telemetry-root subscriber',
+    '  publish:',
+    '  - _INBOX.>',
+    '  subscribe:',
+    '  - telemetry.>',
+  ];
+  const yamlWith = (farmPublish: string): string =>
+    [
+      'version: 1',
+      'services:',
+      '- name: farm_service',
+      '  application: farm-service',
+      '  description: publisher',
+      '  publish:',
+      `  - ${farmPublish}`,
+      '  subscribe:',
+      '  - _INBOXFARM_SERVICE.>',
+      ...subscribers,
+      '',
+    ].join('\n');
+  const input = {
+    schema_version: 1,
+    affected_paths: ['libs/event-contracts/src/farm-events.ts'],
+    waivers: [],
+  };
+
+  // Declared on the telemetry root: only the telemetry subscriber consumes it.
+  const declared = runWitness(input, ['--services-yaml', writeServicesYaml(yamlWith('telemetry.*.BatchHarvested'))]);
+  assert.deepEqual(declared.report.closure.event_consumers, [
+    {
+      event_type: 'BatchHarvested',
+      consumer: 'notification-service',
+      matching_pattern: 'telemetry.>',
+      subject: 'telemetry.*.BatchHarvested',
+    },
+  ]);
+
+  // Declared by no service: the event bus's default root, events.*.<T>.
+  const undeclared = runWitness(input, ['--services-yaml', writeServicesYaml(yamlWith('events.*.OtherEvent'))]);
+  assert.deepEqual(undeclared.report.closure.event_consumers, [
+    {
+      event_type: 'BatchHarvested',
+      consumer: 'gateway-api',
+      matching_pattern: 'events.>',
+      subject: 'events.*.BatchHarvested',
+    },
+  ]);
+});
+
+void test('services present with zero parsed patterns is an environment error (exit 2), not an empty closure', () => {
+  const emptied = writeServicesYaml(
+    [
+      'version: 1',
+      'services:',
+      '- name: farm_service',
+      '  application: farm-service',
+      '  description: every grant lost',
+      '  publish: []',
+      '  subscribe: []',
+      '',
+    ].join('\n'),
+  );
+  const run = runWitness(
+    { schema_version: 1, affected_paths: ['libs/event-contracts/src/farm-events.ts'], waivers: [] },
+    ['--services-yaml', emptied],
+  );
+  assert.equal(run.exitCode, 2);
+  assert.equal(run.stdout, '');
+});
+
+void test('a services.yaml entry without application: is an environment error (exit 2)', () => {
+  const unmapped = writeServicesYaml(
+    [
+      'version: 1',
+      'services:',
+      '- name: notification_service',
+      '  description: no nx project named',
+      '  publish:',
+      '  - events.*.NotificationSent',
+      '  subscribe:',
+      '  - events.*.BatchHarvested',
+      '',
+    ].join('\n'),
+  );
+  const run = runWitness(
+    { schema_version: 1, affected_paths: ['libs/event-contracts/src/farm-events.ts'], waivers: [] },
+    ['--services-yaml', unmapped],
+  );
+  assert.equal(run.exitCode, 2);
+  assert.equal(run.stdout, '');
+});
+
+void test('the live services.yaml parses: the ledger counts every publish and subscribe grant', () => {
+  const live = loadLiveServices();
+  const run = runWitness(
+    { schema_version: 1, affected_paths: ['libs/event-contracts/src/notification-events.ts'], waivers: [] },
+    LIVE_ARGS,
+  );
+  assert.ok(run.exitCode === 0 || run.exitCode === 1, `witness exit ${run.exitCode}`);
+  const ledger = run.report.ledger.services_yaml;
+  assert.ok(ledger !== null);
+  assert.equal(ledger.services, live.length);
+  assert.equal(ledger.publish_patterns, live.reduce((sum, s) => sum + s.publish.length, 0));
+  assert.equal(ledger.subscribe_patterns, live.reduce((sum, s) => sum + s.subscribe.length, 0));
+  assert.ok(ledger.subscribe_patterns >= 1);
+});
+
+void test('the UserInvited contract yields a node per live events.*.UserInvited subscriber, by nx project', () => {
+  const live = loadLiveServices();
+  const declared = live.flatMap((s) => s.publish).filter((p) => p.split('.').includes('UserInvited'));
+  assert.ok(declared.includes('events.*.UserInvited'), 'auth_service declares events.*.UserInvited');
+  const expected = live
+    .filter((s) => s.subscribe.some((pattern) => declared.some((subject) => natsOverlap(pattern, subject))))
+    .map((s) => `event-consumer:${s.application}:UserInvited`)
+    .sort();
+  assert.ok(expected.length >= 1, 'the live SSoT grants events.*.UserInvited to at least one subscriber');
+
+  const run = runWitness(
+    { schema_version: 1, affected_paths: ['libs/event-contracts/src/notification-events.ts'], waivers: [] },
+    LIVE_ARGS,
+  );
+  const nodes = run.report.uncovered
+    .filter((n) => n.kind === 'event_consumer' && n.node_id.endsWith(':UserInvited'))
+    .map((n) => n.node_id)
+    .sort();
+  assert.deepEqual(nodes, expected);
+});
+
+void test('a change to auth-events.ts yields event-consumer nodes named by nx project on the live SSoT', () => {
+  const live = loadLiveServices();
+  const applications = new Set(live.map((s) => s.application));
+  const run = runWitness(
+    { schema_version: 1, affected_paths: ['libs/event-contracts/src/auth-events.ts'], waivers: [] },
+    LIVE_ARGS,
+  );
+  const consumerNodes = run.report.uncovered.filter((n) => n.kind === 'event_consumer');
+  assert.ok(consumerNodes.length >= 1, 'auth events have live subscribers');
+  for (const node of consumerNodes) {
+    const consumer = node.node_id.split(':')[1] ?? '';
+    assert.ok(applications.has(consumer), `${node.node_id} names an application, not a NATS identity`);
+  }
 });
 
 void test('an entity edit without a migration surfaces migration:<svc>; with one it does not', () => {

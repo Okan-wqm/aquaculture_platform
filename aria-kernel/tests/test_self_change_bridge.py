@@ -44,6 +44,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from tests._helpers.mint_patch import patched_mint
 
 from aria_kernel import autonomy_orchestrator as ao
 from aria_kernel import self_change_bridge as scb
@@ -68,6 +69,7 @@ from aria_kernel.self_improvement import (
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.workspace import canonical_identity
+from aria_kernel.request_admission import admit_request
 
 from tests._helpers.declared_fixtures import append_declared_fixture
 
@@ -124,7 +126,7 @@ class TheMissionBranchMintsTheContract(_Store):
                 "recommended_action": SELF_CHANGE_NEXT_ACTION, "candidate_tools": []}
         with patch.object(ao, "read_pending", return_value=[item]), patch.object(ao, "mark_consumed"), \
              patch.object(ao, "_find_projected_queue_request", return_value=None), \
-             patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
+             patched_mint(fake_create), \
              patch("aria_kernel.tool_registry.append_tools_governance"):
             ao._drain_next_cycle_queue(base_dir=self.tools, daemon_agent_id="t", limit=1, workspace_root=self.ws)
         return captured
@@ -149,7 +151,12 @@ class TheMissionBranchMintsTheContract(_Store):
         row = open_mission(source_kind="service_hardening", source_id="auth-service", repo_hash="rh-1", title="Harden auth-service",
                            next_action="Harden auth-service against finding F-1", wake_condition={"kind": "evidence", "key": "finding:F-1"},
                            target_project="auth-service", base_dir=self.tools)
-        # The generic projection mints only with evidence (ARIA-HIGH-243).
+        # The generic projection mints only with evidence (ARIA-HIGH-243), and
+        # only with refs the agent law admits at the checkout (ARIA-HIGH-384),
+        # so the cited file is committed.
+        from tests._helpers.git_fixtures import commit_files
+
+        commit_files(self.ws, {"apps/auth-service/src/auth.service.ts": "line\n" * 12})
         transition_mission(mission_id=str(row["mission_id"]), to_state="CONTRACTING", reason_code="service_hardening_contracting",
                            step_id="s1", next_action="Harden auth-service against finding F-1",
                            wake_condition={"kind": "evidence", "key": "finding:F-1"},
@@ -172,7 +179,7 @@ class TheMissionBranchMintsTheContract(_Store):
                 "recommended_action": SELF_CHANGE_NEXT_ACTION, "candidate_tools": []}
         with patch.object(ao, "read_pending", return_value=[item]), patch.object(ao, "mark_consumed"), \
              patch.object(ao, "_find_projected_queue_request", return_value=None), \
-             patch("aria_kernel.agent_invocations.create_agent_invocation_request") as create, \
+             patched_mint() as create, \
              patch("aria_kernel.tool_registry.append_tools_governance", side_effect=lambda _r, kind, details: disclosed.append((kind, details))):
             consumed = ao._drain_next_cycle_queue(base_dir=self.tools, daemon_agent_id="t", limit=1, workspace_root=self.ws)
         self.assertEqual((consumed, create.call_count), (0, 0))
@@ -243,6 +250,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
             target_agent=scb.SELF_CHANGE_TARGET_AGENT, role=scb.SELF_CHANGE_ROLE, suggested_prompt=json.dumps(prompt, sort_keys=True),
             must_satisfy=scb.self_change_must_satisfy(), allowed_scope=scb.self_change_allowed_scope(), evidence_refs=[queue_item_id],
             pressure_event_id=f"mission:{mission_id}", base_dir=self.tools,
+            admission=admit_request("operator_cli.request", scb.SELF_CHANGE_ROLE, base_dir=self.tools),
         )
 
     @staticmethod

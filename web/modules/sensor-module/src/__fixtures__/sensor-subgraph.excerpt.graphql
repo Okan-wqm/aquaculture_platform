@@ -43,6 +43,10 @@ type DataChannelType {
   description: String
   dataType: ChannelDataType!
   unit: String
+  declaredQuantity: String
+  quantity: String
+  quantityFamily: String
+  declarableQuantities: [String!]!
   dataPath: String
   minValue: Float
   maxValue: Float
@@ -85,26 +89,23 @@ type ChannelDisplaySettingsType {
   chartConfig: JSON
 }
 
+# Copied from the emitted sensor SDL: GraphQL enum members are the NAMES.
 enum SensorType {
-  temperature
-  ph
-  dissolved_oxygen
-  salinity
-  ammonia
-  nitrite
-  nitrate
-  turbidity
-  water_level
-  flow_rate
-  pressure
-  humidity
-  air_temperature
-  light_intensity
-  co2
-  orp
-  conductivity
-  multi_parameter
-  custom
+  TEMPERATURE
+  PH
+  DISSOLVED_OXYGEN
+  SALINITY
+  AMMONIA
+  NITRITE
+  NITRATE
+  TURBIDITY
+  WATER_LEVEL
+  MULTI_PARAMETER
+  FLOW_RATE
+  CONDUCTIVITY
+  ORP
+  CHLORINE
+  CO2
 }
 
 enum SensorRegistrationStatus {
@@ -156,9 +157,176 @@ type RegisteredSensorType {
   updatedAt: DateTime!
 }
 
+# Registration inputs (SENSOR-HIGH-140), copied from the emitted sensor SDL.
+input RegisterParentWithChildrenInput {
+  parent: RegisterParentDeviceInput!
+  children: [RegisterChildSensorInput!]!
+  skipConnectionTest: Boolean = false
+}
+
+input RegisterParentDeviceInput {
+  name: String!
+  protocolCode: String!
+  protocolConfiguration: JSON!
+  manufacturer: String
+  model: String
+  serialNumber: String
+  description: String
+  farmId: ID
+  pondId: ID
+  tankId: ID
+  siteId: ID
+  departmentId: ID
+  systemId: ID
+  equipmentId: ID
+  location: String
+  metadata: JSON
+}
+
+input RegisterChildSensorInput {
+  name: String!
+  type: SensorType!
+  typeDefinitionId: ID
+  dataPath: String!
+  unit: String
+  minValue: Float
+  maxValue: Float
+  calibrationEnabled: Boolean = false
+  calibrationMultiplier: Float = 1
+  calibrationOffset: Float = 0
+  alertThresholds: SensorAlertThresholdsInput
+  displaySettings: DisplaySettingsInput
+}
+
+input SensorAlertThresholdsInput {
+  warning: AlertThresholdRangeInput
+  critical: AlertThresholdRangeInput
+}
+
+input AlertThresholdRangeInput {
+  low: Float
+  high: Float
+}
+
+input DisplaySettingsInput {
+  showOnDashboard: Boolean = true
+  widgetType: String
+  color: String
+  sortOrder: Float
+  decimalPlaces: Float
+}
+
+# Channel-generic reads (SENSOR-HIGH-138), copied from the emitted sensor SDL
+# (dist/graphql/subgraphs/sensor.graphql, 2026-10-07).
+enum ChannelAlertLevel {
+  NORMAL
+  WARNING
+  CRITICAL
+}
+
+type ChannelLatestValue {
+  sensorId: ID!
+  channelId: ID!
+  channelKey: String!
+  displayLabel: String!
+  unit: String
+  unitSymbol: String
+  displayOrder: Int!
+  precision: Int
+  value: Float
+  time: DateTime
+  qualityCode: Int
+  alertLevel: ChannelAlertLevel
+}
+
+type ChannelSeriesPoint {
+  bucket: DateTime!
+  avg: Float!
+  min: Float
+  max: Float
+  count: Int!
+  badCount: Int!
+}
+
+type TimeWindow {
+  start: DateTime!
+  end: DateTime!
+}
+
+type ChannelSeries {
+  channelId: ID!
+  channelKey: String!
+  displayLabel: String!
+  unit: String
+  unitSymbol: String
+  precision: Int
+  enabled: Boolean!
+  points: [ChannelSeriesPoint!]!
+  gaps: [TimeWindow!]!
+}
+
+enum MetricSourceTier {
+  RAW
+  MINUTE
+  HOUR
+  DAY
+}
+
+enum SeriesTimeZoneSource {
+  SITE
+  TENANT
+  UNAVAILABLE
+}
+
+type ChannelSeriesResponse {
+  sensorId: ID!
+  interval: String! @deprecated(reason: "Use resolution")
+  resolution: AggregationInterval!
+  sourceTier: MetricSourceTier!
+  bucketTimeZone: String!
+  displayTimeZone: String!
+  displayTimeZoneSource: SeriesTimeZoneSource!
+  maxRangeSeconds: Int!
+  startTime: DateTime!
+  endTime: DateTime!
+  channels: [ChannelSeries!]!
+}
+
+type ChannelDataBounds {
+  sensorId: ID!
+  channelId: ID!
+  firstSampleAt: DateTime
+  lastSampleAt: DateTime
+}
+
+type SeriesDisplayTimeZone {
+  displayTimeZone: String!
+  source: SeriesTimeZoneSource!
+}
+
+enum AggregationInterval {
+  ONE_MINUTE
+  FIVE_MINUTES
+  FIFTEEN_MINUTES
+  ONE_HOUR
+  FOUR_HOURS
+  ONE_DAY
+  ONE_WEEK
+}
+
 type Query {
   sensor(id: ID!): RegisteredSensorType
   dataChannelsBySensor(sensorId: ID!): [DataChannelType!]!
+  channelLatestValues(sensorIds: [ID!]!): [ChannelLatestValue!]!
+  channelSeries(
+    sensorId: ID!
+    startTime: DateTime!
+    endTime: DateTime!
+    interval: AggregationInterval
+    channelKeys: [String!]
+  ): ChannelSeriesResponse!
+  seriesDisplayTimeZone(sensorIds: [ID!]!): SeriesDisplayTimeZone!
+  channelDataBounds(sensorIds: [ID!]!): [ChannelDataBounds!]!
 }
 
 scalar DateTime

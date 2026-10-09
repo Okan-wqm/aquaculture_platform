@@ -45,6 +45,7 @@ from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.git_fixtures import implementer_identity_args
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.production_shaped import production_converged_plan
 from tests._helpers.node_modules import installed_node_modules
@@ -290,7 +291,10 @@ class OpenPRForActionTests(unittest.TestCase):
         gh_calls = [c for c in calls if c.argv[:3] == ["gh", "pr", "create"]]
         git_calls = [c for c in calls if c.argv[:2] == ["git", "rev-parse"]]
         self.assertEqual(len(gh_calls), 1)
-        self.assertEqual(len(git_calls), 1)
+        # ARIA-HIGH-371 — the head is read when the perimeter judges it
+        # (`prepare_pr_open`) and re-read at the create (`open_prepared_pr`),
+        # which refuses a head that moved in between.
+        self.assertEqual(len(git_calls), 2)
         argv = gh_calls[0].argv
         self.assertIn("--title", argv)
         self.assertEqual(argv[argv.index("--title") + 1], proposal["title"])
@@ -822,8 +826,10 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
             encoding="utf-8",
         )
         _sp.run(["git", "add", FIXTURE_CHANGED_FILE], cwd=self.repo, check=True)
+        # As the hold's identity (ARIA-HIGH-387): the perimeter refuses any
+        # other author or committer on a machine-approved branch.
         _sp.run(
-            ["git", "commit", "-q", "-m", "[ARIA-AUTO] implement the converged plan"],
+            ["git", *implementer_identity_args(), "commit", "-q", "-m", "[ARIA-AUTO] implement the converged plan"],
             cwd=self.repo, check=True, capture_output=True,
         )
 

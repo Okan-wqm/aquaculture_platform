@@ -133,7 +133,7 @@ class V9PressureSourceProvider:
     successfully-yielding candidate to a CyclePlanEnvelope.
 
     Iterative fallback (closes H-2): if `convert_candidate_to_plan_content`
-    returns None for the first candidate, the provider continues
+    yields no plan for the first candidate, the provider continues
     through ALL ranked candidates before delegating to the V7
     git_diff fallback. Pre-V3.1-A, the synthesizer fell back to V7
     immediately on the first None — operator feedback was silently
@@ -174,11 +174,16 @@ class V9PressureSourceProvider:
         base_dir: Path,
         profile: str,
     ) -> CyclePlanEnvelope | None:
-        from ..finding_grounding import admit_candidate, load_grounding_context
+        from ..finding_grounding import load_grounding_context
+        from ..finding_seed import SubjectProbe, admit_and_seed
+        from ..plan_convergence import in_flight_plan_id
+        from ..plan_slot_policy import SLOT_POLICY_EVENT, order_for_slot
         from ..operator_feedback_ingestion import bind_plan_synthesis, record_request_refused
+        from ..admission_lessons import RECURRING_FAILURE_PROBE, AdmissionHistory, admission_verdict, record_probe
         from ..operator_request_spend import REQUEST_TEXT_UNUSABLE
         from ..plan_candidate_source import PlanCandidateSource
         from ..plan_synthesizer import (
+            PlanEvidenceGround,
             convert_candidate_to_plan_content,
             rank_candidate_sources,
         )
@@ -188,32 +193,102 @@ class V9PressureSourceProvider:
         # V9.5 check 12 — the tools store and cycle reach the operator-feedback
         # scanner so its ingestion row lands in the store the merge owner reads
         # and carries the cycle the binding below joins on.
-        candidates = rank_candidate_sources(
-            workspace_root=workspace_root, base_dir=base_dir, cycle_id=cycle_id,
-        )
-        attempted = 0
         # ADR-0018 D5 — the anchor commit and the finding fold are read ONCE
         # per synthesis (arbiter ruling iv), then every finding-naming
-        # candidate is judged against the same view.
-        grounding_context = load_grounding_context(workspace_root)
+        # candidate is judged against the same view. ARIA-HIGH-260 — the
+        # store's plan, binding and self-revert ledgers are folded into that
+        # view too: the aging F_FINDING source carries ADR-0003's loop guards.
+        # ARIA-MEDIUM-330 — read BEFORE ranking, because the F_FINDING source
+        # names its candidates from this same fold: the slot policy and
+        # admission then judge them against the view that produced them.
+        grounding_context = load_grounding_context(workspace_root, tools_root=base_dir)
+        candidates = rank_candidate_sources(
+            workspace_root=workspace_root, base_dir=base_dir, cycle_id=cycle_id,
+            findings=grounding_context.findings,
+        )
+        attempted = 0
+        # ORPHAN-HIGH-519 — and every candidate's refs are judged at the one
+        # commit the challenger request will name.
+        ground = PlanEvidenceGround.of(workspace_root)
+        # ARIA-HIGH-369 — the one slot is offered in the slot policy's order
+        # (operator first, ARIA's own red workflows and cooling ones dropped,
+        # F collapsed by subject, F and the other automated sources taking
+        # turns), and what it dropped is disclosed once per synthesis.
+        slot = order_for_slot(candidates, findings=grounding_context.findings,
+                              history=grounding_context.loop_history)
+        # Review M4 — while a plan is in flight the orchestrator adopts it and
+        # this envelope only seeds a plan that does not exist, so it is never
+        # started: no detector scan (a worktree + a full drift scan) is spent
+        # on it. Seeds fall back to the diff line map, which costs one git
+        # diff per cited path, and the mode is disclosed.
+        # A plan ledger the fold refuses is disclosed and the detectors stay
+        # on: not knowing whether a plan is in flight costs a scan, never a
+        # stale plan. (The orchestrator's own adoption read raises on such a
+        # ledger before this provider runs.)
+        try:
+            in_flight, ledger_fault = in_flight_plan_id(base_dir=base_dir), None
+        except GovernanceError as exc:
+            in_flight, ledger_fault = None, str(exc)[:200]
+        append_tools_governance(base_dir, SLOT_POLICY_EVENT, {
+            "cycle_id": cycle_id, "plan_in_flight": in_flight, "plan_ledger_fault": ledger_fault,
+            "seed_detectors": "skipped_plan_in_flight" if in_flight else "on", **slot.disclosure(),
+        })
+        candidates = list(slot.ordered)
+        probe = SubjectProbe({}) if in_flight else SubjectProbe()
+        # ARIA-HIGH-370 — the recorded lessons, read once for every candidate
+        # (review of #1829, M: the plan and procedural ledgers per candidate).
+        lessons = AdmissionHistory.load(base_dir, findings=grounding_context.findings)
         for candidate in candidates:
             # One admission for every source that names an F finding (aging
-            # F findings and operator requests alike); None for sources that
-            # name none.
-            admission = admit_candidate(candidate, grounding_context)
-            envelope = convert_candidate_to_plan_content(candidate, admission=admission)
+            # F findings and operator requests alike), then its seed: the
+            # finding's evidence re-grounded at the anchor (ARIA-HIGH-369);
+            # None, None for sources that name none.
+            admission, seeded = admit_and_seed(candidate, grounding_context, probe)
+            conversion = convert_candidate_to_plan_content(
+                candidate, admission=admission, ground=ground,
+                seed=seeded.seed if seeded is not None else None,
+            )
+            envelope = conversion.envelope
             attempted += 1
             grounding: dict[str, Any] = {}
+            if conversion.refused_evidence_refs:
+                # A ref the challenger's rule refused is named, whether or
+                # not the candidate still converted.
+                grounding["refused_evidence_refs"] = list(conversion.refused_evidence_refs)
             if admission is not None:
                 # Refused surfaces and refs are named in the conversion
                 # event, never dropped silently; a ref that failed the safe
                 # charset is named by its hash, never echoed.
-                grounding = {
+                grounding.update({
                     "finding_id": admission.finding_id,
                     "anchor_commit": admission.anchor_commit,
                     "refused_surfaces": admission.refused_surface_records(),
                     "refused_refs": admission.refused_ref_records(),
-                }
+                })
+                if seeded is not None:
+                    grounding["seed"] = seeded.disclosure()
+                if admission.loop_guard is not None:
+                    # The loop guard's evidence rides on the one skip event
+                    # the candidate gets this cycle (ARIA-HIGH-260).
+                    grounding["loop_guard"] = dict(admission.loop_guard)
+            if envelope is not None and candidate.get("source_type") != PlanCandidateSource.OPERATOR_FEEDBACK.value:
+                # ARIA-HIGH-370 — after the slot policy (#1826) ordered and
+                # cooled the candidates: an identity whose last attributed
+                # attempts all failed in one mode is refused unchanged until
+                # the breaker's half-open probe (``admission_lessons``). An
+                # operator request outranks this brake as it outranks the
+                # loop guards.
+                lesson = admission_verdict(lessons, envelope.content)
+                if lesson is not None and lesson["reason"] != RECURRING_FAILURE_PROBE:
+                    envelope = None
+                    grounding.update({"reason": lesson["reason"], "runner_fault": False, "lesson": lesson})
+                elif lesson is not None:
+                    grounding["lesson_probe"] = lesson
+                    # One probe is one probe (second review of #1829, M5);
+                    # while a plan is in flight this envelope starts nothing
+                    # and the probe is not spent.
+                    if not in_flight:
+                        record_probe(base_dir=base_dir, lesson=lesson, cycle_id=cycle_id)
             if envelope is not None:
                 # Bind BEFORE announcing the selection: the synthesized content
                 # hash is what plan_started will record, and the pre-merge
@@ -236,7 +311,10 @@ class V9PressureSourceProvider:
                     },
                 )
                 return envelope
-            if admission is not None:
+            if conversion.skip_reason is not None and "lesson" not in grounding:
+                grounding["reason"] = conversion.skip_reason
+                grounding["runner_fault"] = conversion.harness_fault
+            elif admission is not None and "lesson" not in grounding:
                 grounding["reason"] = admission.reason or REQUEST_TEXT_UNUSABLE
                 grounding["runner_fault"] = admission.runner_fault
             append_tools_governance(

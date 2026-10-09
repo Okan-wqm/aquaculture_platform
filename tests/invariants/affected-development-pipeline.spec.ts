@@ -1596,7 +1596,9 @@ describe('affected development workflow contract', () => {
       group: 'deploy-development',
       'cancel-in-progress': false,
     });
-    expect(deploy).toContain('git ls-remote origin refs/heads/main');
+    // The stale-main refusal runs before checkout (INFRA-CRITICAL-080), so it
+    // reads main's head from the API rather than from a cloned `origin`.
+    expect(deploy).toContain('repos/${GITHUB_REPOSITORY}/git/ref/heads/main');
     expect(deploy).toContain('RUN_DB_MIGRATE');
     expect(deploy).toContain('scripts/deploy/droplet-up.sh');
     expect(deploy).toContain('deployed/development');
@@ -1604,7 +1606,7 @@ describe('affected development workflow contract', () => {
     expect(deploy).toContain(':development-latest');
     expect(deploy).not.toMatch(/docker\s+build(?:\s|$)/);
     expect(deploy).not.toMatch(/nx\s+(?:affected|build|run)/);
-    const staleCheck = deploy.indexOf('git ls-remote origin refs/heads/main');
+    const staleCheck = deploy.indexOf('repos/${GITHUB_REPOSITORY}/git/ref/heads/main');
     const firstSsh = deploy.indexOf('appleboy/ssh-action');
     const healthCheckedDeploy = deploy.indexOf('bash scripts/deploy/droplet-up.sh');
     const latestPromotion = deploy.indexOf('docker buildx imagetools create');
@@ -1622,7 +1624,9 @@ describe('affected development workflow contract', () => {
     };
 
     expect(development.permissions).toEqual({ contents: 'read' });
-    expect(development.jobs?.['capacity-preflight']?.permissions).toBeUndefined();
+    // Declared, not inherited: every production-deploy job states its own
+    // scopes (tests/invariants/production-deploy-authority.spec.ts).
+    expect(development.jobs?.['capacity-preflight']?.permissions).toEqual({ contents: 'read' });
     expect(development.jobs?.deploy?.permissions).toEqual({
       contents: 'write',
       packages: 'write',

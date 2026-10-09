@@ -76,18 +76,45 @@ class WorkflowRegistryVerdict:
 
 
 def discover_aria_workflows(workspace_root: str | Path) -> dict[str, Path]:
+    """Every workflow the registry must cover: ARIA's ``aria-*`` namespace,
+    and any workflow that calls the kernel's enterprise preflight.
+
+    ARIA-HIGH-279 — the second set was a hand list (finding-state-sweep,
+    rule-health-report) that had already lost finding-closure-reconcile. The
+    preflight refuses an uncontracted workflow at run time; deriving the set
+    from the call makes the registry refuse it at test time instead.
+    """
     workflows = Path(workspace_root) / ".github" / "workflows"
     found: dict[str, Path] = {}
     if not workflows.is_dir():
         return found
-    for path in sorted([*workflows.glob("aria-*.yml"), *workflows.glob("aria-*.yaml")]):
-        found[path.stem] = path
-    for name in ("finding-state-sweep", "rule-health-report"):
-        for suffix in (".yml", ".yaml"):
-            path = workflows / f"{name}{suffix}"
-            if path.exists():
-                found[name] = path
+    for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
+        if path.stem.startswith("aria-") or _calls_workflow_preflight(path):
+            found[path.stem] = path
     return found
+
+
+def _calls_workflow_preflight(path: Path) -> bool:
+    """A ``run:`` block calls ``verify_workflow_preflight(``; YAML comments do
+    not count. Unparseable YAML counts: it cannot be shown not to call it."""
+    call = "verify_workflow_preflight("
+    text = path.read_text(encoding="utf-8")
+    if call not in text:
+        return False
+    try:
+        workflow = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return True
+    jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+    if not isinstance(jobs, dict):
+        return False
+    for job in jobs.values():
+        steps = job.get("steps") if isinstance(job, dict) else None
+        if isinstance(steps, list) and any(
+            isinstance(step, dict) and call in str(step.get("run") or "") for step in steps
+        ):
+            return True
+    return False
 
 
 def verify_workflow_registry(
@@ -555,6 +582,12 @@ def _verify_abort_gate(
         # ORPHAN-CRITICAL-469 restored, with the contract gate still green.
         # It is now allowed on the declared announce step alone.
         is_announce_step = _step_label(step, index) == gate.announce_step
+        if (
+            _step_label(step, index) in gate.cleanup_steps
+            and condition == "always()"
+            and step.get("uses") == WRITER_LEASE_RELEASE_ACTION
+        ):
+            continue
         if _step_is_gated(
             condition,
             guard=guard,
@@ -566,6 +599,9 @@ def _verify_abort_gate(
         )
         failure_classes.append("workflow_contract_abort_gate")
 
+
+# ARIA-HIGH-342 — the one action a gate's cleanup step may be.
+WRITER_LEASE_RELEASE_ACTION = "./.github/actions/release-aria-state-lease"
 
 _BURN_IN_STEP_MARKER = "autonomy burn-in observe"
 # The burn-in branch of a mode-aware timeout expression, e.g.

@@ -24,18 +24,15 @@ import {
   ValidatorConstraintInterface,
 } from 'class-validator';
 
-import { MeasurementSource } from '../entities/water-quality-measurement.entity';
+import { MACHINE_MEASUREMENT_SOURCES } from '../entities/water-quality-measurement.entity';
 
 /** Provenance that only machine ingestion paths may set. */
-const MACHINE_SOURCES: ReadonlySet<string> = new Set([
-  MeasurementSource.SENSOR_AUTOMATIC,
-  MeasurementSource.SENSOR_TRIGGERED,
-]);
+const MACHINE_SOURCES: ReadonlySet<string> = new Set(MACHINE_MEASUREMENT_SOURCES);
 
 @ValidatorConstraint({ name: 'isHumanMeasurementSource', async: false })
 export class HumanMeasurementSourceConstraint implements ValidatorConstraintInterface {
   validate(value: unknown): boolean {
-    return typeof value === 'string' && !MACHINE_SOURCES.has(value as MeasurementSource);
+    return typeof value === 'string' && !MACHINE_SOURCES.has(value);
   }
 
   defaultMessage(arguments_: ValidationArguments): string {

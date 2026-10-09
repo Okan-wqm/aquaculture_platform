@@ -86,6 +86,30 @@ export function validateSensorId(sensorId: string): string {
   return validateUUID(sensorId, 'sensorId');
 }
 
+/** The most channels a series request may name (a sensor rarely has more). */
+export const MAX_SERIES_CHANNEL_KEYS = 50;
+
+/**
+ * Validate the channel keys a series request narrows to: at most
+ * MAX_SERIES_CHANNEL_KEYS non-empty keys of a channel_key's length (varchar
+ * 100), duplicates dropped. An empty list is a request for no channel.
+ * @throws BadRequestException when a key is empty or too long, or too many are named
+ */
+export function validateChannelKeys(channelKeys: readonly string[]): string[] {
+  const keys = [...new Set(channelKeys)];
+  if (keys.length > MAX_SERIES_CHANNEL_KEYS) {
+    throw new BadRequestException(
+      `At most ${MAX_SERIES_CHANNEL_KEYS} channel keys may be named, got ${keys.length}`,
+    );
+  }
+  for (const key of keys) {
+    if (key.length === 0 || key.length > 100) {
+      throw new BadRequestException(`Invalid channel key: '${key}' (1-100 characters)`);
+    }
+  }
+  return keys;
+}
+
 /**
  * Sanitize search string for LIKE queries
  * Escapes SQL wildcards and special characters

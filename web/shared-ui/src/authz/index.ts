@@ -10,4 +10,9 @@ export {
   FRONTEND_MUTATION_ROLES,
   type FrontendMutationName,
 } from './permission-matrix';
-export { useCanMutate } from './useCanMutate';
+export { useCanMutate, useCanMutateSensor } from './useCanMutate';
+export {
+  SENSOR_MUTATION_ROLES,
+  SENSOR_MUTATION_RESOLVERS,
+  type SensorMutationName,
+} from './sensor-permission-matrix';

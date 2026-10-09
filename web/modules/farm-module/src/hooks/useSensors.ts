@@ -19,6 +19,12 @@ export interface FarmSensor {
   type: string;
   serialNumber?: string;
   registrationStatus?: string;
+  siteId: string | null;
+}
+
+/** Narrows the list to one site's sensors (the binding dialog picks among the point's site). */
+export interface SensorListFilter {
+  siteId?: string;
 }
 
 interface SensorsResponse {
@@ -30,14 +36,15 @@ interface SensorsResponse {
 // with limit capped at 100 by the backend; limit:100 fetches the full sensor
 // list for the picker in a single request.
 const SENSORS_QUERY = `
-  query Sensors($pagination: SensorPaginationInput) {
-    sensors(pagination: $pagination) {
+  query Sensors($filter: SensorFilterInput, $pagination: SensorPaginationInput) {
+    sensors(filter: $filter, pagination: $pagination) {
       items {
         id
         name
         type
         serialNumber
         registrationStatus
+        siteId
       }
       total
     }
@@ -50,14 +57,16 @@ interface UseSensorsResult {
 }
 
 /**
- * Hook to fetch the tenant's registered sensors for linking to equipment
- * (tanks/ponds/cages) at create/edit time.
+ * Hook to fetch the tenant's registered sensors — all of them for linking to
+ * equipment (tanks/ponds/cages) at create/edit time, or one site's for the
+ * water-chemistry channel binding.
  */
-export function useSensors(): UseSensorsResult {
+export function useSensors(filter: SensorListFilter = {}): UseSensorsResult {
   const { data, isLoading } = useTenantQuery<SensorsResponse>(
-    ['sensors', 'list'],
+    ['sensors', 'list', filter],
     async (): Promise<SensorsResponse> => {
       const result = await graphqlClient.request<{ sensors: SensorsResponse }>(SENSORS_QUERY, {
+        filter,
         pagination: { page: 1, limit: 100 },
       });
       return result.sensors;

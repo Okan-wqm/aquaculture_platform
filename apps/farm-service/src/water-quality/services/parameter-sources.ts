@@ -1,6 +1,6 @@
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { type EntityManager, type FindOptionsWhere, IsNull, Not } from 'typeorm';
+import { type EntityManager, type FindOptionsWhere, In, IsNull, Not } from 'typeorm';
 
 import {
   MeasurementPosition,
@@ -83,6 +83,21 @@ export function liveAtLocation(
     ...nullablePointWhere(location.point),
     position: location.position,
     depthM: location.depthM === null ? IsNull() : location.depthM,
+    unboundAt: IsNull(),
+  };
+}
+
+/** Live channel sources of these parameters at one location (the reading resolver's candidates). */
+export function liveChannelsAtLocation(
+  parameterConfigIds: readonly string[],
+  location: SourceLocation,
+): FindOptionsWhere<WaterQualityParamEquipment> {
+  return {
+    parameterConfigId: In([...parameterConfigIds]),
+    ...nullablePointWhere(location.point),
+    position: location.position,
+    depthM: location.depthM === null ? IsNull() : location.depthM,
+    channelKey: Not(IsNull()),
     unboundAt: IsNull(),
   };
 }

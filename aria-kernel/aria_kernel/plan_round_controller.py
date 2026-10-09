@@ -138,7 +138,7 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
     # which the challenger must not see.
     ranked = rank_candidate_files(
         plan=lambda: (state.get("plan_started") or {}).get("plan_content"), workspace_root=workspace_root,
-        base_dir=root, subject=f"plan:{plan_id}:{role}",
+        base_dir=root,
     )
     target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
     # ARIA-HIGH-345 — the scope and key-change obligations are THIS plan's

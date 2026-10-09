@@ -3,35 +3,47 @@
 SHADOW — answered, recorded on the System One call ledger, read by nothing:
 the PR opener asks J0 for every finding a branch commit claims to close
 (``Closes:``) once per changed file — J0 was validated on per-file diffs, a
-finding's verdict being the maximum over its files — and R5 for the PR's
-title and body against its diff; the merge authority asks J0 for every
-``Closes:`` trailer of the PR's commits; the judge fan-out asks each question
-registered for ``judge_fanout`` (J1, one per rule family) about every finding
-it mints judges for. No caller reads a return value, every entry point
-swallows its own failure, and each stops asking once SHADOW_BUDGET_SECONDS of
+finding's verdict being the maximum over its files — and R5 for the head
+commit's message against each changed file's diff (R5 first, so a J0 fan-out
+that spends the budget never starves a file's R5); the merge authority asks
+J0 for every ``Closes:`` trailer of the PR's commits; the judge fan-out asks
+each question registered for ``judge_fanout`` (J1, one per rule family) about
+every finding it mints judges for. No caller reads a return value, every entry
+point swallows its own failure, and each stops asking once SHADOW_BUDGET_SECONDS of
 wall clock is spent (a slow Jev answers within the 5 s transport ceiling, so
 without a budget a 40-file diff could hold the 15-minute merge lane): a reflex
 never changes what the protocol does, nor how long it takes beyond the budget.
 
+A decision point hands ``system_one.ask`` REFERENCES (``StateRef``), never
+text: the finding id a ``Closes:`` trailer names or a fan-out item carries,
+the PR/checkout head commit with the changed path (J0's diff, R5's message and
+diff, J1's excerpt at the cited line), the resolved revision for R4's symbol
+outline. ``system_one`` builds every state value from those references itself
+— the finding title and rule as the public remote's registry holds them, the
+diffs and excerpts from commits a public branch holds — and what a point
+computes locally (the plan's title and summary that pick R4's candidates)
+never leaves the host.
+
 ORDER — R4 ranks deterministic candidate files (tracked files that name the
 problem's identifiers) for planner and implementer envelopes ONLY when the
-operator's registry declares R4 ``order`` and its own model answered. Under
-the seed (``enabled: false``, R4 ``shadow``) nothing is asked and every
-envelope prompt, and so every bound prompt hash, is byte-identical.
+operator's registry declares R4 ``order``, its own model answered, and the
+plan names the finding it addresses (``plan_content.finding_id`` — the one
+reference R4's ``problem`` state can carry; a plan with no finding origin
+names nothing R4 may send, so it ranks nothing). Under the seed (``enabled:
+false``, R4 ``shadow``) nothing is asked and every envelope prompt, and so
+every bound prompt hash, is byte-identical.
 """
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from .system_one import Answer, Registry, ask, load_registry
+from .system_one import Answer, Registry, StateRef, ask, load_registry
 from .tool_registry import bound_workspace_root
 
-REGISTRY_FINDINGS = "docs/reviews/_registry/findings.jsonl"
 FILE_DIFF_MAX_CHARS = 12_000  # J0 was validated on per-file diffs cut at 12k characters
 MAX_FILES = 40
 MAX_CANDIDATES = 12
@@ -42,6 +54,10 @@ SHADOW_BUDGET_SECONDS = 15.0
 _clock: Callable[[], float] = time.monotonic
 _SKIP_PATH = re.compile(r"^(docs/|\.claude/)|\.md$|findings\.jsonl$|\.generated\.|/generated/|package-lock\.json$")
 _CLOSES = re.compile(r"^Closes:\s*\S+?#([A-Z][A-Z0-9]*-[A-Z]+-\d+)\s*$", re.MULTILINE)
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+# The id shapes the ledger's subject law and the finding builder accept.
+_FINDING_ID = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}$")
+_CITED_LINE = re.compile(r"^(.+?):(\d+)$")
 _OUTLINE = re.compile(
     r"^\s*(export |@|class |interface |type |enum |async |function |public |private |protected |def "
     r"|const \w+ = (async )?\()"
@@ -83,51 +99,33 @@ def closes_ids(messages: Iterable[str]) -> list[str]:
     return sorted({match.group(1) for text in messages for match in _CLOSES.finditer(text or "")})
 
 
-def finding_claims(registry_text: str, finding_ids: Iterable[str]) -> dict[str, dict[str, str]]:
-    """``{id: {finding: title, rule: rule_violated}}`` from registry rows — the text J0 was validated on."""
-    wanted: set[str] = set(finding_ids)
-    claims: dict[str, dict[str, str]] = {}
-    for line in registry_text.splitlines() if wanted else ():
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(row, dict) and row.get("id") in wanted:
-            claims[str(row["id"])] = {"finding": str(row.get("title") or ""), "rule": str(row.get("rule_violated") or "")}
-    return claims
-
-
-def _ask_j0(claims: Mapping[str, Mapping[str, str]], diff_text: str, *, point: str,
-            base_dir: str | Path | None, subject: str, budget: _Budget) -> None:
-    diffs = file_diffs(diff_text)
-    for finding_id, claim in claims.items():
-        for path, diff in diffs.items():
-            if not budget.left():
-                return
-            ask("J0", {"finding": dict(claim), "diff": diff}, decision_point=point, base_dir=base_dir,
-                subject=f"{subject}:{finding_id}:{path}")
-
-
 def _messages(commits: Iterable[Mapping[str, Any]] | None) -> list[str]:
     return [f"{commit.get('subject') or ''}\n\n{commit.get('body') or ''}" for commit in commits or ()]
 
 
 def shadow_pr_open(
     *, base_dir: str | Path | None, workspace_root: str | Path, diff_text: str | None,
-    commits: Sequence[Mapping[str, Any]] | None, title: str, body: str, subject: str,
+    head_sha: str | None, commits: Sequence[Mapping[str, Any]] | None,
 ) -> None:
-    """J0 per claimed finding × file, R5 for the PR text — recorded, never read."""
+    """R5 for the head commit's message against each changed file's diff, then J0 per claimed
+    finding × file — recorded, never read."""
     try:
         budget = _Budget()
-        if _enabled(base_dir) is None or not diff_text:
+        head = head_sha if isinstance(head_sha, str) and _COMMIT_RE.match(head_sha) else ""
+        if _enabled(base_dir) is None or not diff_text or not head:
             return
-        # R5 first: one call, so a J0 fan-out that spends the budget never starves it.
-        ask("R5", {"message": f"{title}\n\n{body}", "diff": diff_text[:FILE_DIFF_MAX_CHARS]},
-            decision_point="pre_pr_open", base_dir=base_dir, subject=subject)
         ids = closes_ids(_messages(commits))
-        registry_path = Path(workspace_root) / REGISTRY_FINDINGS
-        claims = finding_claims(registry_path.read_text(encoding="utf-8"), ids) if ids and registry_path.is_file() else {}
-        _ask_j0(claims, diff_text, point="pre_pr_open", base_dir=base_dir, subject=subject, budget=budget)
+        for path in file_diffs(diff_text):
+            if not budget.left():
+                return
+            # R5 before this file's J0 fan-out, so a fan-out that spends the budget never starves it.
+            ask("R5", {"message": StateRef(commit=head), "diff": StateRef(commit=head, path=path)},
+                decision_point="pre_pr_open", base_dir=base_dir, subject=head)
+            for finding_id in ids:
+                if not budget.left():
+                    return
+                ask("J0", {"finding": StateRef(finding_id=finding_id), "diff": StateRef(commit=head, path=path)},
+                    decision_point="pre_pr_open", base_dir=base_dir, subject=finding_id)
     except Exception:  # noqa: BLE001 — a shadow reflex never breaks the PR opener
         return
 
@@ -144,23 +142,24 @@ def shadow_merge(
             return
         log = _git(workspace_root, "log", "--format=%B%x00", f"{base}..{head}")
         ids = closes_ids(log.split("\x00"))
-        claims = finding_claims(_git(workspace_root, "show", f"{head}:{REGISTRY_FINDINGS}"), ids) if ids else {}
-        _ask_j0(claims, diff_text, point="merge_authority", base_dir=base_dir, subject=f"pr:{pr.get('number')}",
-                budget=budget)
+        for path in file_diffs(diff_text):
+            for finding_id in ids:
+                if not budget.left():
+                    return
+                ask("J0", {"finding": StateRef(finding_id=finding_id), "diff": StateRef(commit=head, path=path)},
+                    decision_point="merge_authority", base_dir=base_dir, subject=finding_id)
     except Exception:  # noqa: BLE001 — a shadow reflex never breaks the merge authority
         return
 
 
-def _excerpt(item: Mapping[str, Any], repo_root: str | Path) -> str:
-    from .evidence_excerpts import excerpts_for_refs
-
-    refs = [str(item.get("path") or ""), *[str(ref) for ref in item.get("evidence") or ()]]
-    refs = sorted({ref for ref in refs if ref}, key=lambda ref: (not re.search(r":\d+", ref), ref))
-    for entry in excerpts_for_refs(refs, repo_root=repo_root, line_radius=6, per_ref_cap=4000, total_cap=8000):
-        if entry.get("content"):
-            start = int(entry.get("start_line") or 1)
-            return "\n".join(f"{start + index:5d} {line}" for index, line in enumerate(str(entry["content"]).splitlines()))
-    return ""
+def _cited_line(item: Mapping[str, Any]) -> tuple[str, int] | None:
+    """The item's first cited reference as ``(path, line)`` — refs naming a line first."""
+    refs = sorted({str(ref) for ref in (item.get("path") or "", *(item.get("evidence") or ())) if str(ref)},
+                  key=lambda ref: (not _CITED_LINE.match(ref), ref))
+    if not refs:
+        return None
+    match = _CITED_LINE.match(refs[0])
+    return (match.group(1), int(match.group(2))) if match else (refs[0], 1)
 
 
 def shadow_judge_fanout(
@@ -172,17 +171,23 @@ def shadow_judge_fanout(
         registry = _enabled(base_dir)
         if registry is None or repo_root is None:
             return
+        head = _git(repo_root, "rev-parse", "HEAD").strip()
+        if not _COMMIT_RE.match(head):
+            return
         questions = [q for q in registry.questions.values() if "judge_fanout" in q.decision_points]
         for item in items:
             for question in (q for q in questions if str(item.get("tool_id") or "") in q.tool_ids):
                 if not budget.left():
                     return
-                excerpt = _excerpt(item, repo_root)
-                if excerpt:
-                    rule = f"{item.get('rule') or ''}: {item.get('message') or ''}"
-                    ask(question.id, {"rule": rule, "file": str(item.get("path") or "").split(":")[0], "excerpt": excerpt},
-                        decision_point="judge_fanout", base_dir=base_dir,
-                        subject=f"finding:{item.get('finding_fingerprint') or item.get('finding_id')}")
+                cited = _cited_line(item)
+                if cited is None:
+                    continue
+                path, line = cited
+                finding_id = str(item.get("finding_id") or "")
+                ask(question.id, {"rule": StateRef(finding_id=finding_id), "file": StateRef(path=path),
+                                 "excerpt": StateRef(commit=head, path=path, line=line)},
+                    decision_point="judge_fanout", base_dir=base_dir,
+                    subject=finding_id if _FINDING_ID.match(finding_id) else None)
     except Exception:  # noqa: BLE001 — a shadow reflex never breaks the fan-out
         return
 
@@ -205,13 +210,17 @@ def _candidates(problem: str, root: str | Path, rev: str) -> list[str]:
 
 def rank_candidate_files(
     *, plan: Callable[[], Mapping[str, Any] | None], workspace_root: str | Path | None,
-    base_dir: str | Path | None, subject: str, rev: str = "HEAD",
+    base_dir: str | Path | None, rev: str = "HEAD",
 ) -> list[dict[str, Any]]:
-    """R4's top-k candidate files for the plan's title and summary; ``[]`` unless R4 runs in order mode.
+    """R4's top-k candidate files for the finding the plan addresses; ``[]`` unless R4 runs in order mode.
 
-    ``plan`` is read (and the workspace resolved — the store's bound one when
-    None) only after the flag says R4 runs, inside the guard: with R4 off the
-    envelope builders do no extra work at all.
+    R4 runs only when the registry declares it ``order`` AND the plan names the
+    finding it addresses (``plan_content.finding_id``): ``problem`` is a
+    reference — a registered finding — and a plan with no finding origin names
+    nothing R4 may send. The plan is read (and the workspace resolved — the
+    store's bound one when None) only after both hold, inside the guard: with
+    R4 off the envelope builders do no extra work at all. The title and
+    summary that pick the candidates locally never leave the host.
     """
     try:
         budget = _Budget()
@@ -220,16 +229,21 @@ def rank_candidate_files(
         if question is None or question.mode != "order" or "envelope_candidate_files" not in question.decision_points:
             return []
         content = plan() or {}
+        finding_id = content.get("finding_id")
+        if not isinstance(finding_id, str) or not _FINDING_ID.match(finding_id):
+            return []
         problem = f"{content.get('title') or ''}\n{content.get('summary') or ''}"
         root = workspace_root if workspace_root is not None else bound_workspace_root(base_dir)
+        sha = _git(root, "rev-parse", str(rev)).strip()
+        if not _COMMIT_RE.match(sha):
+            return []
         ranked: list[dict[str, Any]] = []
         for path in _candidates(problem, root, rev):
             if not budget.left():
                 break
-            source = _git(root, "show", f"{rev}:{path}").splitlines()
-            picked = [f"{index + 1:5d} {line.strip()[:140]}" for index, line in enumerate(source) if _OUTLINE.match(line)][:60]
-            answer = ask("R4", {"problem": problem, "file": path, "outline": "\n".join(picked)},
-                         decision_point="envelope_candidate_files", base_dir=base_dir, subject=f"{subject}:{path}")
+            answer = ask("R4", {"problem": StateRef(finding_id=finding_id), "file": StateRef(path=path),
+                                "outline": StateRef(commit=sha, path=path)},
+                         decision_point="envelope_candidate_files", base_dir=base_dir, subject=finding_id)
             if isinstance(answer, Answer) and answer.mode == "order":
                 ranked.append({"path": path, "score": round(float(answer.value), 3)})
         top_k = max(0, min(int(question.thresholds.get("top_k", 3)), MAX_CANDIDATES))

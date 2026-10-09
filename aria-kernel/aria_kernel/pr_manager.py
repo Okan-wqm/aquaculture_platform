@@ -626,7 +626,12 @@ def open_prepared_pr(
 
 
 def _shadow_system_one_pre_pr_open(prepared: PreparedPrOpen, *, base_dir: str | Path | None) -> None:
-    """Derive the diff and commit texts the shadow asks need, then ask (SHADOW)."""
+    """Derive the diff and commit list the shadow asks need, then ask (SHADOW).
+
+    The PR's title and body no longer travel: a decision point hands
+    references, never text, so R5's message is the head commit's own
+    message, built by ``system_one`` from ``head_sha``.
+    """
 
     def _git(*args: str) -> str:
         completed = subprocess.run(
@@ -647,8 +652,7 @@ def _shadow_system_one_pre_pr_open(prepared: PreparedPrOpen, *, base_dir: str | 
     ]
     shadow_pr_open(
         base_dir=base_dir, workspace_root=prepared.workspace_path, diff_text=diff_text,
-        commits=commits, title=prepared.title, body=prepared.body,
-        subject=f"proposal:{prepared.proposal_id}",
+        head_sha=prepared.head_sha, commits=commits,
     )
 
 

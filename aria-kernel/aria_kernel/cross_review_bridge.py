@@ -928,7 +928,7 @@ def issue_implementation_envelope(
         cross_review_summary_text=cross_review_summary_text,
         implementation_ids=implementation_ids,
         candidate_files=rank_candidate_files(
-            plan=lambda: plan_content, workspace_root=None, base_dir=base_dir, subject=f"plan:{plan_id}",
+            plan=lambda: plan_content, workspace_root=None, base_dir=base_dir,
             rev=implementation_ids["base_sha"],
         ),
     )

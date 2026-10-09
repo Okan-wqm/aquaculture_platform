@@ -27,10 +27,12 @@ class RecordingQueryRunner {
   readonly statements: string[] = [];
   readonly parameters: unknown[][] = [];
 
-  async query(statement: string, parameters?: unknown[]): Promise<unknown[]> {
+  query(statement: string, parameters?: unknown[]): Promise<unknown[]> {
+    // Not async on purpose: no await inside, and @typescript-eslint/
+    // require-await fires on an async method without one.
     this.statements.push(statement);
     this.parameters.push(parameters ?? []);
-    return [];
+    return Promise.resolve([]);
   }
 }
 

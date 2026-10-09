@@ -43,7 +43,7 @@ function stripComments(source: string): string {
 }
 
 function upBody(source: string): string {
-  const match = source.match(/async up\([^)]*\)[^{]*\{([\s\S]*?)(?:async down\(|\Z)/);
+  const match = source.match(/async up\([^)]*\)[^{]*\{([\s\S]*?)(?:async down\(|$)/);
   return match?.[1] ?? '';
 }
 

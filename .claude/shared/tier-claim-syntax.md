@@ -2,14 +2,14 @@
 
 **Audience:** every enterprise-v2 agent (CATCHER verifies, TEACHER explains, WRITER emits). Also consumed by `tools/gates/tier-claim-lint.ts` (W7) and `root-cause-auditor` (W9).
 
-## The 4-tier hierarchy (structure from CLAUDE.md; mechanism examples per language)
+## The 4-tier hierarchy (from CLAUDE.md)
 
-| Tier | Name | Example (TypeScript) | Example (Rust) |
-|------|------|----------------------|----------------|
-| 1 | Make it impossible | Branded type, DB constraint, exhaustive `switch (state: never)` | newtype, exhaustive `match`, `#[non_exhaustive]` on cross-boundary enums |
-| 2 | Make it automatic | Runtime guard, generated code, default-safe API shape | crate clippy `deny` wall, named by lint id (`clippy::unwrap_used`, `clippy::indexing_slicing`) |
-| 3 | Make it detectable | ESLint rule, CI invariant test, schema-drift validator | named lint id (`clippy::<lint>`), Rust CI invariant (`tools/gates/clippy-affected.ts`) |
-| 4 | Documented only | Comment, runbook, ADR — REVIEWER attention required | same — REVIEWER attention required |
+| Tier | Name | Example |
+|------|------|---------|
+| 1 | Make it impossible | Branded type, DB constraint, exhaustive `switch (state: never)` |
+| 2 | Make it automatic | Runtime guard, generated code, default-safe API shape |
+| 3 | Make it detectable | ESLint rule, CI invariant test, schema-drift validator |
+| 4 | Documented only | Comment, runbook, ADR — REVIEWER attention required |
 
 **Rule:** always pick the highest tier that applies. Tier-4 is a last resort, acceptable only when Tiers 1-3 are genuinely impossible or when the change is a narrowly-scoped boundary.
 

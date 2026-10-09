@@ -243,6 +243,7 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
     'merge-gate',
     'aria-merge-authority',
     'build-status',
+    'aria-kernel',
   ];
 
   if (manifest.schema_version !== 1) {

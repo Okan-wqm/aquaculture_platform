@@ -1,0 +1,48 @@
+# Git-worktree garbage collector — see tools/host-maintenance/worktree-gc.ts.
+#
+# Type=oneshot: each pass is a complete decision from scratch. Nothing is
+# carried between passes, so a pass that dies half-way leaves only worktrees
+# that git itself already removed cleanly.
+[Unit]
+Description=Aquaculture git-worktree garbage collector (merged, clean, idle worktrees only)
+Documentation=https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/maintenance/worktree-gc.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The repository whose worktrees are collected. Roots, grace period, dry run
+# and the size-measurement budget are read from /etc/default/aqua-worktree-gc
+# (WORKTREE_GC_ROOTS, WORKTREE_GC_GRACE_HOURS, WORKTREE_GC_DRY_RUN,
+# WORKTREE_GC_SIZE_BUDGET_SECONDS, WORKTREE_GC_EXTRA_PROTECTED).
+Environment=AQUA_REPO=/var/aqua-saas
+# Same reason as aqua-supervisor.service: /usr/bin/node on this host is Node
+# 18, which has no type stripping. Node 22+ must come first on PATH, and the
+# executable is /usr/bin/env because systemd does not expand variables in
+# the first token of ExecStart.
+Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/bin
+EnvironmentFile=-/etc/default/aqua-worktree-gc
+ExecStart=/usr/bin/env node --experimental-strip-types ${AQUA_REPO}/tools/host-maintenance/worktree-gc.ts
+# Exit 3 means "the pass ran, but some removal or the prune failed" - a
+# result, with the failing worktree named in the summary. Exit 1 (fetch
+# failed, not a repository, bad configuration) stays a unit failure.
+SuccessExitStatus=0 3
+StandardOutput=journal
+StandardError=journal
+# Housekeeping must never compete with the production containers on this
+# host: lowest CPU priority short of idle, and disk I/O only when the disk
+# is otherwise idle.
+Nice=10
+IOSchedulingClass=idle
+# A fetch, one `git status` per candidate and a bounded `du` per removal.
+# Anything past this is a hung git process, not a slow pass.
+TimeoutStartSec=30min
+NoNewPrivileges=yes
+ProtectSystem=full
+# NO ProtectHome= and NO PrivateTmp=, on purpose. The collector writes under
+# /var/aqua-saas and /root/wt, and git's worktree records point into /root
+# and /tmp as well. A mount namespace that hides /root or replaces /tmp makes
+# those worktrees look deleted to git, and `git worktree prune` would then
+# destroy the records of worktrees other sessions are using. The tool also
+# refuses to prune when a missing worktree lies outside its roots, but the
+# unit must not create that situation in the first place.

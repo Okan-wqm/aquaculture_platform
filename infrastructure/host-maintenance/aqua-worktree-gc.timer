@@ -1,0 +1,16 @@
+# Hourly. A merged agent worktree costs ~2 GB until it is collected; an
+# hourly pass with a six-hour grace period bounds that to about seven hours.
+# The randomized delay keeps the pass off the top of the hour, where CI
+# deploys and other hourly timers cluster.
+[Unit]
+Description=Run the aquaculture git-worktree garbage collector hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=20min
+AccuracySec=1min
+Persistent=false
+Unit=aqua-worktree-gc.service
+
+[Install]
+WantedBy=timers.target

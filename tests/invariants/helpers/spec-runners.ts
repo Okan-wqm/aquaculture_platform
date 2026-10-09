@@ -46,7 +46,7 @@ export const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
     // package.json `tools:test`, invoked by .github/workflows/quality-gates.yml
     kind: 'declared-non-nx',
     script: 'tools:test',
-    owns: (p) => /^tools\/(supervisor|watchdog)\/[^/]+\.spec\.(ts|mjs)$/.test(p),
+    owns: (p) => /^tools\/(supervisor|host-maintenance|watchdog)\/[^/]+\.spec\.(ts|mjs)$/.test(p),
   },
   {
     // package.json `gates:test` (globs the directory), invoked by

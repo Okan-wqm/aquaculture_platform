@@ -127,12 +127,12 @@ export function backdate(worktree: string): void {
 export function addWorktree(
   fx: Fixture,
   name: string,
-  opts: { old?: boolean; under?: string } = {},
+  opts: { old?: boolean; under?: string; branch?: string } = {},
 ): string {
   const path = join(opts.under ?? fx.roots, name);
   const old = opts.old ?? true;
   git(
-    ['-C', fx.repo, 'worktree', 'add', '--quiet', '-b', name, path, 'origin/main'],
+    ['-C', fx.repo, 'worktree', 'add', '--quiet', '-b', opts.branch ?? name, path, 'origin/main'],
     old ? OLD_ENV : {},
   );
   if (old) backdate(path);

@@ -34,6 +34,7 @@ import {
   runGc,
   wrappedGit,
 } from './gc-test-fixture.ts';
+import { executePass } from './worktree-gc.ts';
 
 void test('removes a merged, clean, idle worktree and keeps its branch and the main checkout', () => {
   const fx = fixture();
@@ -283,6 +284,67 @@ void test('a removal git refuses is moved back, kept, and the pass exits 3', () 
     new RegExp(`worktree ${wt}\n`),
   );
   assert.match(readFileSync(fx.textfile, 'utf8'), /^aqua_worktree_gc_last_exit_code 3$/m);
+});
+
+void test('a removal that failed after it began deleting stays in quarantine', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'half-deleted');
+  // git deletes part of the tree, then fails on a busy file. Moving that
+  // back would hand its owner a damaged checkout.
+  const busy = wrappedGit(
+    fx,
+    'busy-git',
+    '*"worktree remove"*',
+    'for last; do :; done; rm -f "$last/README.md"; echo "error: failed to delete: Device or resource busy" >&2; exit 128',
+  );
+
+  const first = runGc(fx, [], { AQUA_GIT_BIN: busy });
+
+  assert.equal(first.exitCode, 3);
+  assert.equal(reportFor(first, wt).decision, 'remove_failed');
+  assert.match(String(reportFor(first, wt).detail), /removal had begun/);
+  assert.equal(existsSync(wt), false);
+  const [left] = readdirSync(join(fx.roots, QUARANTINE_DIR));
+  assert.ok(left);
+  const leftover = join(fx.roots, QUARANTINE_DIR, left);
+
+  const second = runGc(fx);
+  assert.equal(reportFor(second, leftover).decision, 'removed');
+  assert.equal(existsSync(leftover), false);
+});
+
+void test('a quarantine that cannot be created fails the removal, not the pass', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'no-room');
+  writeFileSync(join(fx.roots, QUARANTINE_DIR), 'a file where the quarantine should be\n');
+
+  const run = runGc(fx);
+
+  assert.equal(run.exitCode, 3);
+  assert.equal(reportFor(run, wt).decision, 'remove_failed');
+  assert.match(String(reportFor(run, wt).detail), /cannot create quarantine/);
+  assert.ok(existsSync(join(wt, 'README.md')));
+  assert.match(readFileSync(fx.textfile, 'utf8'), /^aqua_worktree_gc_last_exit_code 3$/m);
+});
+
+void test('an exception nobody anticipated still writes a fatal summary and the textfile', () => {
+  const fx = fixture();
+  const lines: string[] = [];
+
+  const exitCode = executePass(
+    [],
+    { AQUA_REPO: fx.repo, WORKTREE_GC_TEXTFILE_PATH: fx.textfile },
+    (l) => {
+      lines.push(l);
+    },
+    () => {
+      throw new Error('ENOSPC: no space left on device, write');
+    },
+  );
+
+  assert.equal(exitCode, 1);
+  assert.match(lines.join(''), /"kind":"crash".*ENOSPC/);
+  assert.match(readFileSync(fx.textfile, 'utf8'), /^aqua_worktree_gc_last_exit_code 1$/m);
 });
 
 void test('an interrupted removal is finished only while nothing but the removal touched it', () => {

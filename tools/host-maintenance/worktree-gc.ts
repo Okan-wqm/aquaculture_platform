@@ -80,8 +80,10 @@ import {
   type WorktreeRecord,
 } from './worktree-list.ts';
 import {
-  ariaStoreEvidence,
+  ariaArtifact,
+  ariaName,
   canonical,
+  headRef,
   isRebuildableCache,
   isStrictlyWithin,
   lastActivityMs,
@@ -108,7 +110,7 @@ export type Reason =
   | 'ignored_content'
   | 'status_failed'
   | 'unreachable_reflog'
-  | 'aria_store'
+  | 'aria'
   | 'process_held'
   | 'proc_unreadable'
   | 'symlink_target'
@@ -220,16 +222,10 @@ function contentVerdict(pass: Pass, real: string, allowDeleted: boolean): Verdic
       detail: `${changes.length} uncommitted or untracked path(s): ${changes.slice(0, 3).join(', ')}`,
     };
   }
-  const store = ariaStoreEvidence(real);
-  if (store) return { reason: 'aria_store', detail: store };
-  // ARIA byproducts are disposable only in agent worktrees (owner decision
-  // 2026-10-09, see worktree-state.ts).
-  const worktrees = join(pass.config.repo, '.worktrees');
-  const ariaByproducts = isStrictlyWithin(real, canonical(worktrees) ?? worktrees);
   const keep = lines
     .filter((l) => l.startsWith('!! '))
     .map((l) => l.slice(3))
-    .filter((p) => !isRebuildableCache(p, ariaByproducts));
+    .filter((p) => !isRebuildableCache(p));
   if (keep.length > 0) {
     return {
       reason: 'ignored_content',
@@ -283,6 +279,20 @@ function classifyLeftover(pass: Pass, real: string): Verdict {
   );
 }
 
+/**
+ * ARIA-specific structures are never removed or quarantined (user decision,
+ * 2026-10-09): an ARIA artifact path in the tree, or an ARIA branch or
+ * directory name (worktree-state.ts spells out the matchers).
+ */
+function ariaVerdict(record: WorktreeRecord, real: string | null): Verdict | null {
+  const artifact = real === null ? null : ariaArtifact(real);
+  if (artifact) return { reason: 'aria', detail: `contains ${artifact}` };
+  const gitDir = real === null ? null : worktreeGitDir(real);
+  const ref = (gitDir === null ? null : headRef(gitDir)) ?? record.branch;
+  const name = ariaName(ref, real ?? record.path) ?? ariaName(null, record.path);
+  return name ? { reason: 'aria', detail: name } : null;
+}
+
 /** Every check except the process scan and symlink dependents. Re-run before each removal. */
 function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
   const { config } = pass;
@@ -290,6 +300,8 @@ function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
   const location = classifyLocation(record.path, real, config.roots, config.protectedPaths);
   if (location) return { reason: location };
   if (record.locked) return { reason: 'locked' };
+  const aria = ariaVerdict(record, real);
+  if (aria) return aria;
   if (quarantineOf(record.path, config.roots)) {
     if (real === null || isStranded(real)) return { reason: 'quarantine_stranded' };
     return classifyLeftover(pass, real);
@@ -427,6 +439,12 @@ function quarantineOrphans(pass: Pass): WorktreeReport[] {
         reason: 'quarantine_orphan',
       };
       orphans.push(report);
+      const aria = ariaArtifact(path) ?? ariaName(null, path);
+      if (aria) {
+        report.reason = 'aria';
+        report.detail = aria;
+        continue;
+      }
       if (isStranded(path)) {
         report.reason = 'quarantine_stranded';
         const busy = inUse(canonical(path) ?? path, pass);
@@ -467,7 +485,14 @@ function removeViaQuarantine(
     report.detail = 'no quarantine directory under any root';
     return;
   }
-  mkdirSync(dirname(quarantine), { recursive: true });
+  try {
+    mkdirSync(dirname(quarantine), { recursive: true });
+  } catch (error) {
+    // ENOSPC and friends: report it, never crash the pass before its textfile.
+    report.decision = 'remove_failed';
+    report.detail = `cannot create quarantine: ${firstLine(error instanceof Error ? error.message : String(error))}`;
+    return;
+  }
   const move = git(config.gitBin, ['-C', config.repo, 'worktree', 'move', record.path, quarantine]);
   if (!move.ok) {
     report.decision = 'remove_failed';
@@ -488,8 +513,18 @@ function removeViaQuarantine(
     report.detail = `${firstLine(removal.stderr)}; left in ${quarantine} for the next pass`;
     return;
   }
-  // git refused: something changed after the re-check. That is somebody's
-  // work; put the tree back where its owner left it.
+  // git stopped without a timeout. If it had already begun deleting (EBUSY,
+  // EPERM half-way), the tree is no longer anybody's intact work: it stays in
+  // quarantine and a later pass finishes it under the leftover rules. Only an
+  // untouched tree - a refusal because something appeared after the re-check
+  // - goes back where its owner left it.
+  const after = gitIn(pass, quarantine, ['--no-optional-locks', 'status', '--porcelain']);
+  const started = !after.ok || after.stdout.split('\n').some((l) => l.startsWith(' D '));
+  if (started) {
+    report.decision = 'remove_failed';
+    report.detail = `${firstLine(removal.stderr)}; removal had begun, left in ${quarantine} for the next pass`;
+    return;
+  }
   const back = git(config.gitBin, ['-C', config.repo, 'worktree', 'move', quarantine, record.path]);
   if (back.ok) {
     report.reason = 'remove_refused';
@@ -697,32 +732,62 @@ function outcomes(
   };
 }
 
-function main(): number {
+const NO_OUTCOMES = {
+  removed: 0,
+  would_remove: 0,
+  remove_failed: 0,
+  remove_refused: 0,
+  attention: 0,
+};
+
+function message(error: unknown): string {
+  return firstLine(error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * One pass, end to end: configuration, the pass itself, the journal lines
+ * and the textfile. Whatever goes wrong - bad configuration, or an exception
+ * nothing anticipated (ENOSPC on the very disk this tool exists for) - the
+ * pass still prints a fatal summary and writes the textfile with exit 1, so
+ * the alerts see a failing collector rather than a silent one.
+ */
+export function executePass(
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+  write: (line: string) => void,
+  runPass: (config: GcConfig) => PassResult = run,
+): number {
+  const failed = (
+    kind: string,
+    detail: string,
+    armed: boolean,
+    textfile: string | null,
+  ): number => {
+    write(`${JSON.stringify({ schema: 'aqua/worktree-gc/v1', fatal: { kind, detail } })}\n`);
+    writeTextfile(textfile, { exitCode: 1, armed, outcomes: NO_OUTCOMES, bytesReclaimed: null });
+    return 1;
+  };
   let config: GcConfig;
   try {
-    config = readConfig(process.argv.slice(2), process.env);
+    config = readConfig(argv, env);
   } catch (error) {
-    if (!(error instanceof ConfigError)) throw error;
-    process.stdout.write(
-      `${JSON.stringify({ schema: 'aqua/worktree-gc/v1', fatal: { kind: 'bad_config', detail: error.message } })}\n`,
-    );
-    writeTextfile(textfilePathFrom(process.env), {
-      exitCode: 1,
-      armed: process.env.WORKTREE_GC_ARMED === '1',
-      outcomes: { removed: 0, would_remove: 0, remove_failed: 0, remove_refused: 0, attention: 0 },
-      bytesReclaimed: null,
-    });
-    return 1;
+    const kind = error instanceof ConfigError ? 'bad_config' : 'crash';
+    return failed(kind, message(error), env.WORKTREE_GC_ARMED === '1', textfilePathFrom(env));
   }
-  const result = run(config);
+  let result: PassResult;
+  try {
+    result = runPass(config);
+  } catch (error) {
+    return failed('crash', message(error), config.armed, config.textfilePath);
+  }
   // One line per worktree, then the summary: journald splits a line longer
   // than LineMax (48 KiB) into fragments that no longer parse.
   for (const report of result.reports) {
-    process.stdout.write(
+    write(
       `${JSON.stringify({ schema: 'aqua/worktree-gc/worktree/v1', checked_at: result.summary.checked_at, ...report })}\n`,
     );
   }
-  process.stdout.write(`${JSON.stringify(result.summary)}\n`);
+  write(`${JSON.stringify(result.summary)}\n`);
   writeTextfile(config.textfilePath, {
     exitCode: result.exitCode,
     armed: config.armed,
@@ -730,6 +795,12 @@ function main(): number {
     bytesReclaimed: result.summary.bytes_reclaimed_estimate,
   });
   return result.exitCode;
+}
+
+function main(): number {
+  return executePass(process.argv.slice(2), process.env, (line) => {
+    process.stdout.write(line);
+  });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

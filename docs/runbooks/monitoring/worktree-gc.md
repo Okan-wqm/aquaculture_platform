@@ -40,6 +40,12 @@ No pass has completed in three hours. Check that the timer is enabled and that t
 not hanging (`TimeoutStartSec=30min`). Until it runs, merged worktrees accumulate on the
 production disk.
 
+## WorktreeGcNeverCompleted (warning)
+
+The collector has a last-run stamp but no pass has ever completed: every pass since install or
+deploy failed (exit 1) or was skipped because the deployed checkout lacks the script (exit 4).
+Read `aqua_worktree_gc_last_exit_code` and follow WorktreeGcFailing.
+
 ## WorktreeGcUnarmed (warning)
 
 Every pass for seven days has been a dry run. Read the last pass's `counts` and `attention`,

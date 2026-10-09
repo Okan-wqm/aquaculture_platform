@@ -119,71 +119,76 @@ const REBUILDABLE_DIRS = new Set([
 ]);
 const REBUILDABLE_FILE = /(\.pyc|\.tsbuildinfo|^\.eslintcache)$/;
 
-/**
- * ARIA byproducts. Decision of the ARIA owner, 2026-10-09: inside
- * <repo>/.worktrees/* the gitignored `aria-findings/`, `.aria-ci/` and
- * `aria-tools/**` are written by local kernel, hook and test runs and are
- * never canonical; canonical ARIA state lives in aria/state, /root/aria-8b,
- * /var/lib/aria* and the runner's .aria-state-store. Anywhere else these
- * paths stay ignored content that keeps the worktree, and even inside
- * .worktrees an aria-tools/ that looks like a real store keeps it
- * (ariaStoreEvidence).
- */
-const ARIA_BYPRODUCT_TOPS = new Set(['aria-findings', '.aria-ci', 'aria-tools']);
-
-export function isRebuildableCache(path: string, ariaByproducts = false): boolean {
+export function isRebuildableCache(path: string): boolean {
   const segments = path.replace(/\/$/, '').split('/');
   const base = segments[segments.length - 1] ?? '';
-  if (ariaByproducts && ARIA_BYPRODUCT_TOPS.has(segments[0] ?? '')) return true;
   return segments.some((s) => REBUILDABLE_DIRS.has(s)) || REBUILDABLE_FILE.test(base);
 }
 
-const ARIA_STORE_MARKERS = new Set(['state.git', '.aria-state-store']);
-const ARIA_STORE_LIMIT_BYTES = 50 * 1024 * 1024;
-const ARIA_STORE_MAX_ENTRIES = 100_000;
+/**
+ * ARIA-specific structures are never deleted - the user's decision of
+ * 2026-10-09 ("ARIA'ya özgü yapılar silinmemeli"), which replaced an
+ * earlier allow-list that had treated some ARIA paths as disposable inside
+ * <repo>/.worktrees. A worktree is ARIA's, and kept, when it contains any of
+ * these paths - tracked, untracked or ignored, file, directory or symlink:
+ */
+export const ARIA_ARTIFACT_PATHS = [
+  'aria-findings',
+  '.aria-ci',
+  'aria-tools',
+  'aria-worktrees',
+  '.aria-state-store',
+  'state.git',
+  '.claude/agents/.dispatch-log.jsonl',
+];
+/** ...or a top-level entry whose name starts with `aria-agent-outputs`. */
+const ARIA_ARTIFACT_PREFIX = 'aria-agent-outputs';
 
-function errorCode(error: unknown): string {
-  return error instanceof Error && 'code' in error ? String(error.code) : 'UNKNOWN';
+function lexists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The first ARIA artifact path present in the worktree, or null. */
+export function ariaArtifact(worktree: string): string | null {
+  const named = ARIA_ARTIFACT_PATHS.find((p) => lexists(join(worktree, p)));
+  if (named) return named;
+  try {
+    return readdirSync(worktree).find((e) => e.startsWith(ARIA_ARTIFACT_PREFIX)) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Why this worktree looks like it was used as a real ARIA store, or null.
- * A top-level `.aria-state-store`, a `state.git` or `.aria-state-store`
- * anywhere under aria-tools/, or an aria-tools/ over 50 MB (byproducts are
- * tens of kilobytes) all keep it. Symlinks are not followed; a tree too big
- * or too unreadable to judge keeps it too.
+ * ...or whose name says it is ARIA's work, case-insensitively:
+ * - a branch (or any ref named in HEAD) with a path segment starting with
+ *   `aria` - covers `aria/...`, `x/aria-...`, `lane/aria...`, `claude/aria-...`;
+ * - a worktree path with `aria` anywhere in any directory name (`*aria*`).
+ * The directory rule is deliberately broad: a false keep costs disk, a false
+ * removal costs ARIA's work.
  */
-export function ariaStoreEvidence(worktree: string): string | null {
-  if (existsSync(join(worktree, '.aria-state-store'))) return '.aria-state-store at the top level';
-  const root = join(worktree, 'aria-tools');
-  const stack = [root];
-  let bytes = 0;
-  let entries = 0;
-  for (let dir = stack.pop(); dir !== undefined; dir = stack.pop()) {
-    let names: string[];
-    try {
-      names = readdirSync(dir);
-    } catch (error) {
-      if (dir === root && errorCode(error) === 'ENOENT') return null;
-      return `${dir}: ${errorCode(error)}`;
-    }
-    for (const name of names) {
-      const full = join(dir, name);
-      if (ARIA_STORE_MARKERS.has(name)) return `${full.slice(worktree.length + 1)} present`;
-      entries += 1;
-      if (entries > ARIA_STORE_MAX_ENTRIES)
-        return `aria-tools has over ${ARIA_STORE_MAX_ENTRIES} entries`;
-      try {
-        const stat = lstatSync(full);
-        if (stat.isDirectory()) stack.push(full);
-        else bytes += stat.size;
-      } catch (error) {
-        return `${full}: ${errorCode(error)}`;
-      }
-      if (bytes > ARIA_STORE_LIMIT_BYTES) return 'aria-tools exceeds 50 MB';
-    }
+export function ariaName(ref: string | null, path: string): string | null {
+  if (ref !== null) {
+    const short = ref.replace(/^refs\/heads\//, '');
+    if (short.split('/').some((segment) => /^aria/i.test(segment))) return `branch ${short}`;
   }
-  return null;
+  const dir = path.split('/').find((segment) => /aria/i.test(segment));
+  return dir ? `directory ${dir}` : null;
+}
+
+/** The ref HEAD names in a worktree's git directory (`ref: refs/heads/x`), or null when detached. */
+export function headRef(gitDir: string): string | null {
+  try {
+    const match = /^ref: (.+)$/m.exec(readFileSync(join(gitDir, 'HEAD'), 'utf8'));
+    return match?.[1]?.trim() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function symlinkTarget(link: string): string | null {

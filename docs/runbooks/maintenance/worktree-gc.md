@@ -29,28 +29,32 @@ A worktree is removed only when every one of these holds:
    worktrees), not canonical ARIA state (`/root/aria-8b`, `/var/lib/aria*`,
    `/home/gharunner/**`, or any path through a `.aria-state-store` directory), and not
    `locked`. The deploy and ARIA guards are hard-coded; no root setting widens past them.
-3. It contains no other worktree.
-4. Its HEAD is an ancestor of `origin/main`, after a `git fetch origin --prune` that succeeded.
-5. Its HEAD reflog and its index have not changed for the grace period (default 6 h).
-6. No rebase, merge, cherry-pick, revert or bisect is half done, and it has no per-worktree
+3. It is not ARIA's (`aria`). ARIA-specific structures are never deleted or quarantined, by
+   the user's decision of 2026-10-09 ("ARIA'ya özgü yapılar silinmemeli") — an explicit rule,
+   not an inference about which ARIA files are disposable. A worktree is ARIA's when:
+   - it contains, tracked or untracked or ignored, any of `aria-findings`, `.aria-ci`,
+     `aria-tools`, `aria-worktrees`, `.aria-state-store`, `state.git`,
+     `.claude/agents/.dispatch-log.jsonl`, or a top-level `aria-agent-outputs*` entry;
+   - its branch has a path segment starting with `aria`, case-insensitive (`aria/...`,
+     `x/aria-...`, `lane/aria...`, `claude/aria-...`);
+   - any directory in its path contains `aria`, case-insensitive (`*aria*`; deliberately broad:
+     a false keep costs disk, a false removal costs ARIA's work).
+4. It contains no other worktree.
+5. Its HEAD is an ancestor of `origin/main`, after a `git fetch origin --prune` that succeeded.
+6. Its HEAD reflog and its index have not changed for the grace period (default 6 h).
+7. No rebase, merge, cherry-pick, revert or bisect is half done, and it has no per-worktree
    refs (`refs/worktree/*`, `refs/bisect/*`).
-7. `git status --porcelain --ignored=matching --untracked-files=all` shows no tracked change and
+8. `git status --porcelain --ignored=matching --untracked-files=all` shows no tracked change and
    no untracked file, and every ignored path is a rebuildable cache: a path through
    `node_modules`, `.nx`, `dist`, `out-tsc`, `coverage`, `target`, `__pycache__`,
    `.pytest_cache`, `.mypy_cache`, `.ruff_cache` or `.turbo`, or a `*.pyc`, `*.tsbuildinfo` or
-   `.eslintcache` file. Inside `<repo>/.worktrees` only, `aria-findings/`, `.aria-ci/` and
-   `aria-tools/**` also count: the ARIA owner decided on 2026-10-09 that there they are
-   byproducts of local kernel, hook and test runs, never canonical state. Any other ignored
-   content — review state, local evidence, keys, and those ARIA paths anywhere else — is
+   `.eslintcache` file. Any other ignored content — review state, local evidence, keys — is
    somebody's data and keeps the worktree.
-   An `aria-tools/` that was used as a real store keeps the worktree even inside `.worktrees`
-   (`aria_store`): one holding a `state.git` or `.aria-state-store`, one over 50 MB, or a
-   top-level `.aria-state-store`.
-8. Its HEAD reflog reaches no commit that no branch, tag or remote-tracking ref holds (work
+9. Its HEAD reflog reaches no commit that no branch, tag or remote-tracking ref holds (work
    that was committed and then reset away). Reflogs longer than 2000 entries keep the worktree.
-9. No process has its cwd, an open file, or a mapped file inside it (`/proc/*/cwd`, `fd`,
-   `maps`).
-10. No other worktree's top-level symlinks or npm-workspace `node_modules` links point into it.
+10. No process has its cwd, an open file, or a mapped file inside it (`/proc/*/cwd`, `fd`,
+    `maps`).
+11. No other worktree's top-level symlinks or npm-workspace `node_modules` links point into it.
 
 Every check runs once for the report and again for each candidate immediately before it is
 touched. Its size is measured (`du`) before that final re-check, so nothing slow sits between
@@ -90,7 +94,7 @@ Every check that cannot be answered keeps the worktree. Each worktree's line nam
 | ----------------------- | --------------------------------------------------------------------- |
 | `merged_but_dirty`      | Merged, but holds uncommitted or untracked files: someone's work.     |
 | `ignored_content`       | Ignored files that are not rebuildable caches; `detail` names them.   |
-| `aria_store`            | `aria-tools/` or the tree was used as a real ARIA store.              |
+| `aria`                  | ARIA's: an ARIA artifact path, branch or directory name (rule 3).     |
 | `unreachable_reflog`    | The reflog holds a commit nothing else does.                          |
 | `operation_in_progress` | A rebase, merge, cherry-pick, revert or bisect is unfinished.         |
 | `worktree_refs`         | It has refs of its own under `refs/worktree/` or `refs/bisect/`.      |

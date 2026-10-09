@@ -50,6 +50,22 @@ groups:
           description: 'No pass has finished since {{ $value | humanizeDuration }} ago. Check aqua-worktree-gc.timer and the journal.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/worktree-gc.md'
 
+      - alert: WorktreeGcNeverCompleted
+        # WorktreeGcStale needs a success stamp to age. A collector that has
+        # run (a last-run stamp exists) but never completed a single pass
+        # since it was installed or deployed has none, so this asks directly.
+        expr: |
+          absent(aqua_worktree_gc_last_success_timestamp_seconds)
+            and on() (count(aqua_worktree_gc_last_run_timestamp_seconds) > 0)
+        for: 3h
+        labels:
+          severity: warning
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Worktree collector has never completed a pass'
+          description: 'Passes run (or the unit skips them) but none has completed since install or deploy. Read aqua_worktree_gc_last_exit_code and the journal.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/worktree-gc.md'
+
       - alert: WorktreeGcUnarmed
         # Unarmed passes only report. Seven days of that means installation
         # was finished but the arming decision was never taken.

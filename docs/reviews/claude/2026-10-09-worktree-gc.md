@@ -105,8 +105,33 @@ A re-review of 8f7e46f7e blocked it again:
   including a bad-config pass (exit 1) and a pass the unit skips because the deployed checkout
   lacks the script (exit 4, written by the `ExecCondition`).
 
-With the ARIA allow-list and these fixes, an unarmed pass on 2026-10-09 marks 6 worktrees
+With the ARIA allow-list and these fixes, an unarmed pass on 2026-10-09 marked 6 worktrees
 removable, about 1.3 GB.
+
+### Final review, and the user's ARIA decision
+
+- A removal that fails after git began deleting (EBUSY/EPERM, not a timeout) is no longer moved
+  back: if `git status` in the quarantined tree shows ` D` lines it stays there for the leftover
+  rules. Creating the quarantine is guarded, and the whole pass is wrapped so an unanticipated
+  exception (ENOSPC) still prints a fatal summary and writes the textfile with exit 1.
+  `WorktreeGcNeverCompleted` (absent success stamp while passes run) closes the alerting gap.
+- The user decided on 2026-10-09: "ARIA'ya özgü yapılar silinmemeli" — ARIA-specific
+  structures must never be deleted. That replaced the ARIA allow-list above (and the
+  `aria-tools/secrets|memory|audit` carve-out an infra review had asked for) with an explicit
+  keep rule, not an inference: a worktree holding `aria-findings`, `.aria-ci`, `aria-tools`,
+  `aria-worktrees`, `.aria-state-store`, `state.git`, `.claude/agents/.dispatch-log.jsonl` or a
+  top-level `aria-agent-outputs*` entry (tracked or ignored), on a branch with a segment
+  starting `aria`, or with `aria` in any directory name of its path is kept (`kept_aria`), never
+  removed or quarantined. The hard exclusions for canonical ARIA state stay.
+
+### Status of INFRA-HIGH-208: not resolved
+
+The unarmed pass after the user's decision (2026-10-09) removes nothing: 114 worktrees are
+`kept_aria`, because `aria-tools/` is tracked in this repository, so every checkout contains it.
+51 of those 114 hold no ARIA content beyond the tracked, unmodified files. The collector is
+correct and safe, but it does not yet free the disk the finding is about, so the finding stays
+OPEN. Narrowing the rule (for example, counting only untracked, ignored or modified ARIA
+content) is the user's decision to make.
 
 ### Not done here
 

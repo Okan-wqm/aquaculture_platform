@@ -117,11 +117,22 @@ class MissionCapabilityGateTests(unittest.TestCase):
         self.assertIn("capability_resolution_required_for_mission_step", str(ctx.exception))
 
     def test_the_service_minter_and_the_native_set_share_one_constant(self) -> None:
+        import ast
+
         from aria_kernel.capability_resolver import KERNEL_NATIVE_CAPABILITIES, SERVICE_HARDENING_CAPABILITY
 
-        cycle_source = (Path(__file__).resolve().parents[1] / "aria_kernel" / "cycle.py").read_text(encoding="utf-8")
-        self.assertIn("capability=SERVICE_HARDENING_CAPABILITY", cycle_source)
-        self.assertNotIn('capability="service_hardening"', cycle_source)
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "aria_kernel" / "cycle.py").read_text(encoding="utf-8"))
+        service_mints = [
+            call for call in ast.walk(tree)
+            if isinstance(call, ast.Call) and getattr(call.func, "id", None) == "open_mission"
+            and any(k.arg == "source_kind" and isinstance(k.value, ast.Constant) and k.value.value == "service_hardening"
+                    for k in call.keywords)
+        ]
+        self.assertEqual(len(service_mints), 1)
+        capability = next(k.value for k in service_mints[0].keywords if k.arg == "capability")
+        # The minter names the constant, never a literal that could drift from the native set.
+        self.assertIsInstance(capability, ast.Name)
+        self.assertEqual(capability.id, "SERVICE_HARDENING_CAPABILITY")
         self.assertIn(SERVICE_HARDENING_CAPABILITY, KERNEL_NATIVE_CAPABILITIES)
 
 if __name__ == "__main__":  # pragma: no cover

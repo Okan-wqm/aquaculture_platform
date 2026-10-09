@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -327,6 +328,139 @@ def validate_generated_adapter(
         diff = (manifest_claims ^ declared_claims)
         reasons.append(f"claim_types_mismatch_seed: diff={sorted(diff)}")
     return {"status": "ok" if not reasons else "failed", "reasons": reasons}
+
+
+def materialize_generated_adapter(
+    *,
+    primary_draft: dict[str, Any],
+    seed: dict[str, Any],
+    base_dir: str | Path | None,
+    evidence_pack: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """ORPHAN-HIGH-573 (skill-genesis trio) — the kernel-side adapter
+    materializer the drainer hands to ``run_convergent_authoring``.
+
+    One lane, three gates in order:
+      1. ``verify_adapter_imports`` on the draft source BEFORE any file
+         exists (Tier-1 pre-write: an adapter with network/subprocess
+         capability is refused, not quarantined after the fact);
+      2. write the adapter + a sha256 bundle, then
+         ``verify_adapter_signature`` on the written artifact;
+      3. ``validate_generated_adapter`` on the manifest BEFORE
+         ``register_tool`` (scope/claim/threshold contract).
+
+    Any refusal raises GovernanceError with every gathered reason — the
+    authoring's materialize seam catches it into judge_consensus_log and
+    the adapter never registers (fails loudly, never silently).
+    Registration is idempotent: re-materializing the same draft returns
+    the existing paths.
+    """
+    from .skill_genesis_sandbox import UnsafeAdapterImport, verify_adapter_imports, verify_adapter_signature
+    from .tool_registry import list_tools, register_tool
+
+    source = str(primary_draft.get("adapter_source") or "")
+    manifest = dict(primary_draft.get("adapter_manifest") or {})
+    draft_id = str(primary_draft.get("draft_id") or "unknown-draft")
+    reasons: list[str] = []
+    if not source:
+        reasons.append("draft_missing_adapter_source")
+    if not manifest:
+        reasons.append("draft_missing_adapter_manifest")
+    if reasons:
+        raise GovernanceError(f"materialize_generated_adapter: {'; '.join(reasons)}")
+
+    tool_id = str(manifest.get("tool_id") or "")
+    existing = {
+        str(t.get("tool_id")): t for t in list_tools(base_dir=base_dir)
+    }
+    if tool_id and tool_id in existing:
+        row = existing[tool_id]
+        if str(row.get("status")) != "SHADOW":
+            raise GovernanceError(
+                f"materialize_generated_adapter: tool {tool_id} already "
+                f"registered as {row.get('status')} — genesis registers SHADOW only"
+            )
+        # Idempotent re-materialization of the same authored adapter.
+        return {
+            "status": "ok",
+            "adapter_path": str(
+                Path(primary_draft.get("_workspace_root") or Path.cwd())
+                / "tools" / "aria-adapters" / f"{tool_id}.py"
+            ),
+            "manifest_path": str(
+                ensure_tools_dir(base_dir) / "skill-genesis" / "adapters" / tool_id / "bundle.json"
+            ),
+            "already_registered": True,
+        }
+
+    # Gate 1 — Tier-1 pre-write import allowlist.
+    try:
+        verify_adapter_imports(source)
+    except UnsafeAdapterImport as exc:
+        raise GovernanceError(f"unsafe_adapter_import: {exc}") from exc
+
+    root = ensure_tools_dir(base_dir)
+    # The adapter is a REPO artifact and lives in the one directory the
+    # argv trust policy names for it (TRUSTED_PYTHON_SCRIPT_PREFIXES:
+    # tools/aria-adapters/) — that is where the hand-authored adapters
+    # live too, so generated and curated tools share one home. The
+    # sha256 bundle is runtime state and stays under the tools root.
+    workspace_root = Path(
+        primary_draft.get("_workspace_root") or Path.cwd()
+    )
+    adapters_dir = workspace_root / "tools" / "aria-adapters"
+    adapters_dir.mkdir(parents=True, exist_ok=True)
+    adapter_path = adapters_dir / f"{tool_id or draft_id}.py"
+    adapter_path.write_text(source, encoding="utf-8")
+    bundle_dir = root / "skill-genesis" / "adapters" / (tool_id or draft_id)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    bundle_path = bundle_dir / "bundle.json"
+    # The materializer owns the path binding: a drafter's manifest cannot
+    # know where the adapter will live. The RELATIVE argv + cwd "." form
+    # is what the command policy trusts for this prefix.
+    runner = dict(manifest.get("runner") or {})
+    runner.update({
+        "type": "subprocess",
+        "argv": ["python3", f"tools/aria-adapters/{tool_id or draft_id}.py"],
+        "cwd": ".",
+        "stdin_json": True,
+    })
+    manifest["runner"] = runner
+    bundle = {
+        "schema_version": 1,
+        "tool_id": tool_id,
+        "draft_id": draft_id,
+        "recorded_at": utc_now(),
+        "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+    }
+    bundle_path.write_text(
+        json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    # Gate 2 — Tier-3 signature check on the WRITTEN artifact.
+    if not verify_adapter_signature(adapter_path, bundle_path):
+        adapter_path.unlink(missing_ok=True)
+        bundle_path.unlink(missing_ok=True)
+        raise GovernanceError("adapter_signature_verification_failed")
+
+    # Gate 3 — manifest contract BEFORE registration.
+    verdict = validate_generated_adapter(adapter_manifest=manifest, seed=seed)
+    if verdict.get("status") != "ok":
+        raise GovernanceError(
+            "validate_generated_adapter_failed: " + "; ".join(verdict.get("reasons") or [])
+        )
+
+    register_tool(manifest, base_dir=root)
+    append_tools_governance(
+        root,
+        "genesis_adapter_materialized",
+        {"tool_id": tool_id, "draft_id": draft_id},
+    )
+    return {
+        "status": "ok",
+        "adapter_path": str(adapter_path),
+        "manifest_path": str(bundle_path),
+    }
 
 
 def execute_adapter_against_corpus(

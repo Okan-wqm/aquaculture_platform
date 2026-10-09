@@ -120,7 +120,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -129,7 +129,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -180,7 +180,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -189,7 +189,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -274,7 +274,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -283,7 +283,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -397,7 +397,7 @@ jobs:
     # BEFORE: broken unit tests were invisible to reviewers — PRs merged with red tests.
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -406,7 +406,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -666,7 +666,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -675,7 +675,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -806,7 +806,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -815,7 +815,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -895,7 +895,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -904,7 +904,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -976,7 +976,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -985,7 +985,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -1441,7 +1441,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -1450,7 +1450,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -1502,7 +1502,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -1511,7 +1511,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -1658,7 +1658,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -1667,7 +1667,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -1703,7 +1703,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -1712,7 +1712,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -1764,7 +1764,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -1773,7 +1773,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -1824,7 +1824,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -1833,7 +1833,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -1897,7 +1897,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -1906,7 +1906,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222
@@ -1965,7 +1965,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -1974,7 +1974,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       nats:
-        image: nats:2.10-alpine
+        image: public.ecr.aws/docker/library/nats:2.10-alpine
         ports:
           - 4222:4222
           - 8222:8222

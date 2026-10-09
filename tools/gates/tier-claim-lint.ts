@@ -89,12 +89,13 @@ const MECHANISM_HINTS: readonly RegExp[] = [
   /\b@Column\b/i,
   /\b@Entity\b/i,
   /\bADR-\d+\b/i,
-  // The TypeScript never-TYPE form only (`state: never`, `x as never`).
-  // A bare `\bnever\b` also matched prose: a tier-1 claim reading
-  // "careful code, never panics" passed R7 once .rs files were admitted
-  // (fixture tier-claim-rust/claim-vague-never.rs), and prose is exactly
-  // what R7 exists to refuse.
-  /:\s*never\b/,
+  // The TypeScript never-TYPE form only: an identifier annotated `: never`
+  // and closed like a type position (`switch (state: never)`, `x: never;`,
+  // `x: never =`), or `as never`. A bare `\bnever\b` matched prose — a
+  // tier-1 claim reading "careful code, never panics" passed R7 once .rs
+  // files were admitted — and so did a loose `: never`, which "careful:
+  // never panics" satisfies (fixtures claim-vague-never*.rs).
+  /\w+\s*:\s*never\s*[),;=|>]/,
   /\bas\s+never\b/,
   /\brepository\s+boundary\b/i,
   /\bRuntime\s+guard\b/i,

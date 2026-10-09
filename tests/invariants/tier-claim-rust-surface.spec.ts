@@ -121,6 +121,20 @@ describe('ARIA-MEDIUM-392 — Rust tier-claim surface', () => {
       expect(result.out).toMatch(/R7-vague-claim/);
     });
 
+    it('flags "careful: never panics" — a colon before prose is not the never type (R7)', () => {
+      const result = runGate(
+        'tests/invariants/fixtures/tier-claim-rust/claim-vague-never-colon.rs',
+      );
+      expect(result.status).toBe(1);
+      expect(result.out).toMatch(/R7-vague-claim/);
+    });
+
+    it('accepts the TypeScript never-type form in a type position', () => {
+      const result = runGate('tests/invariants/fixtures/tier-claim-rust/claim-never-type.ts');
+      expect(result.status).toBe(0);
+      expect(result.out).toMatch(/passed/i);
+    });
+
     it('flags a bare "clippy" that names no lint (R7)', () => {
       const result = runGate('tests/invariants/fixtures/tier-claim-rust/claim-bare-clippy.rs');
       expect(result.status).toBe(1);

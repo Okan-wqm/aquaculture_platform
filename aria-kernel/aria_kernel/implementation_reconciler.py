@@ -30,11 +30,16 @@ from typing import Any, Mapping
 from .finding_closure import FindingDetector, close_merged_plan_finding, default_detectors
 from .implementation_rejections import MERGEABLE_AFTER_REJECTION
 from .merge_record import (
+    EVENT_CLOSED_UNMERGED,
+    EVENT_MERGE_UNPROVEN,
     MERGED_BY_OBSERVED,
     MergeNotProven,
+    classify_merged_head,
     lifecycle_rows,
+    observed_merge,
     opened_row,
     record_merge,
+    record_pr_unmergeable,
     verify_merge_after_rejection,
 )
 from .plan_convergence import events_path, fold_plan_state
@@ -88,9 +93,15 @@ def _plan_change_ids(root: Path) -> dict[str, tuple[str, ...]]:
     return {plan_id: tuple(ids) for plan_id, ids in out.items()}
 
 
+def _terminal_prs(lifecycle: list[dict[str, Any]]) -> set[int]:
+    """PRs whose lifecycle already ends: merged, closed unmerged, or a merge refused once (F7)."""
+    return {row["pr_number"] for row in lifecycle if type(row.get("pr_number")) is int
+            and row.get("event") in {"merged", EVENT_CLOSED_UNMERGED, EVENT_MERGE_UNPROVEN}}
+
+
 def _observe_merge(
     plan_id: str, state: dict[str, Any], *, reader: Any, lifecycle: list[dict[str, Any]],
-    change_ids: tuple[str, ...], base_branch: str,
+    change_ids: tuple[str, ...], base_branch: str, workspace: Path, root: Path,
 ) -> dict[str, Any] | None:
     """What GitHub says of the plan's PR: None (nothing to ask, or not merged), a refusal, or the merge."""
     impl = state.get("implementation") or {}
@@ -98,59 +109,87 @@ def _observe_merge(
         pr_number = _pr_number_from_url(str(impl.get("pr_url") or ""))
         if pr_number is None:
             return None
-        remote = reader.pr_merge_state(pr_number)
-        if not isinstance(remote, dict):
+        merge = observed_merge(reader.pr_merge_state(pr_number), pr_number=pr_number)
+        if merge is None:
             return None
-        merged_at = remote.get("mergedAt")
-        merge_commit = remote.get("mergeCommit") or {}
-        merge_sha = str(merge_commit.get("oid") or "") if isinstance(merge_commit, dict) else ""
-        if str(remote.get("state") or "").upper() != "MERGED" or not merged_at or not merge_sha:
-            return None
-        pr = opened_row(lifecycle, pr_number=pr_number) or {"number": pr_number, "head_sha": impl.get("branch_tip_sha")}
+        merge_sha, merged_at, head = merge
+        delivered = str(impl.get("branch_tip_sha") or "")
+        pr = opened_row(lifecycle, pr_number=pr_number) or {"number": pr_number, "head_sha": delivered}
+        # Review of #1910, F1 — the plan's PR merged (the plan folds MERGED
+        # whatever happened on the branch), but the row says what merged: a
+        # head with a person's commits is not ARIA's change, and the readers
+        # that credit ARIA refuse it (`merge_record.merged_row_is_arias`).
+        lineage = classify_merged_head(workspace, pr_number=pr_number, delivered_sha=delivered,
+                                       head_sha=head, merge_sha=merge_sha)
         return {"merge": {
-            "pr": pr, "merge_sha": merge_sha, "merged_at": str(merged_at),
+            "pr": pr, "merge_sha": merge_sha, "merged_at": merged_at, "merged_head_sha": head or None,
+            "head_lineage": lineage,
             "idempotency_key_hash": _idempotency_key_hash(
-                plan_id, str(impl.get("diff_hash") or ""), pr_number, base_branch,
-                str(impl.get("branch_tip_sha") or "")),
+                plan_id, str(impl.get("diff_hash") or ""), pr_number, base_branch, delivered),
         }}
     rejected_class = impl.get("rejection_class")
     if state.get("state") != "IMPLEMENTATION_REJECTED" or rejected_class not in MERGEABLE_AFTER_REJECTION:
         return None
-    # ARIA-HIGH-390 — the kernel's own PR for this plan, by the change it minted.
-    opened = None
+    # ARIA-HIGH-390 — the kernel's own PRs for this plan, by the change it
+    # minted; every one still open to a merge is asked (a re-opened PR is
+    # another opened row), and a PR whose lifecycle ended is not asked again.
+    terminal = _terminal_prs(lifecycle)
+    candidates: dict[int, dict[str, Any]] = {}
     for change_id in change_ids:
-        opened = opened_row(lifecycle, change_id=change_id) or opened
-    if opened is None:
-        return None
-    remote = reader.pr_merge_state(int(opened["pr_number"]))
-    if not isinstance(remote, dict) or str(remote.get("state") or "").upper() != "MERGED":
-        return None
-    try:
-        merge_sha, merged_at = verify_merge_after_rejection(opened=opened, remote=remote)
-    except MergeNotProven as exc:
-        return {"refused": str(exc)}
-    return {"merge": {
-        "pr": opened, "merge_sha": merge_sha, "merged_at": merged_at,
-        "idempotency_key_hash": _idempotency_key_hash(
-            plan_id, "", int(opened["pr_number"]), base_branch, str(opened["head_sha"])),
-        "merged_after_rejection": {"rejection_class": str(rejected_class), "pr_number": int(opened["pr_number"]),
-                                   "head_sha": str(opened["head_sha"])},
-    }}
+        for row in lifecycle:
+            if (row.get("event") == "opened" and row.get("change_id") == change_id
+                    and type(row.get("pr_number")) is int and row["pr_number"] not in terminal):
+                candidates[row["pr_number"]] = row
+    for number, opened in sorted(candidates.items()):
+        remote = reader.pr_merge_state(number)
+        if not isinstance(remote, dict):
+            continue
+        state_name = str(remote.get("state") or "").upper()
+        if state_name == "CLOSED":
+            record_pr_unmergeable(pr=opened, event=EVENT_CLOSED_UNMERGED, reason="closed_unmerged_on_github",
+                                  base_dir=root)
+            continue
+        if state_name != "MERGED":
+            continue
+        try:
+            merge_sha, merged_at, head, lineage = verify_merge_after_rejection(
+                opened=opened, remote=remote, workspace=workspace)
+        except MergeNotProven as exc:
+            record_pr_unmergeable(pr=opened, event=EVENT_MERGE_UNPROVEN, reason=str(exc), base_dir=root)
+            return {"refused": str(exc)}
+        return {"merge": {
+            "pr": opened, "merge_sha": merge_sha, "merged_at": merged_at, "merged_head_sha": head,
+            "head_lineage": lineage,
+            "idempotency_key_hash": _idempotency_key_hash(plan_id, "", number, base_branch, str(opened["head_sha"])),
+            "merged_after_rejection": {"rejection_class": str(rejected_class), "pr_number": number,
+                                       "head_sha": str(opened["head_sha"])},
+        }}
+    return None
 
 
 def _backfill_lifecycle(
     plan_id: str, state: dict[str, Any], lifecycle: list[dict[str, Any]], root: Path,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(backfilled, skipped) for a plan merged before the one owner existed.
+
+    The row is written only from the kernel's own ``opened`` row and the
+    plan's merge facts (``merge_sha``, ``merged_at``); without an opened row
+    nothing is guessed (review of #1910, F3).
+    """
     impl = state.get("implementation") or {}
-    after = (state.get("implementation") or {}).get("merged_after_rejection") or {}
+    after = impl.get("merged_after_rejection") or {}
     pr_number = _pr_number_from_url(str(impl.get("pr_url") or "")) or after.get("pr_number")
     if type(pr_number) is not int or any(row.get("event") == "merged" and row.get("pr_number") == pr_number
                                          for row in lifecycle):
-        return []
-    pr = opened_row(lifecycle, pr_number=pr_number) or {"number": pr_number, "head_sha": impl.get("branch_tip_sha")}
-    written = record_merge(pr=pr, merged_by=MERGED_BY_OBSERVED, base_dir=root)
-    lifecycle.extend(lifecycle_rows(root)[len(lifecycle):])
-    return [{"plan_id": plan_id, "pr_number": pr_number}] if written["lifecycle_row"] else []
+        return [], []
+    pr = opened_row(lifecycle, pr_number=pr_number)
+    if pr is None:
+        return [], [{"plan_id": plan_id, "pr_number": pr_number, "reason": "no_opened_row"}]
+    written = record_merge(pr=pr, merged_by=MERGED_BY_OBSERVED, base_dir=root,
+                           merge_sha=str(impl.get("merge_sha") or "") or None,
+                           merged_at=str(impl.get("merged_at") or "") or None)
+    lifecycle[:] = lifecycle_rows(root)
+    return ([{"plan_id": plan_id, "pr_number": pr_number}] if written["lifecycle_row"] else []), []
 
 
 def _reconcile_promotion(plan_id: str, root: Path) -> dict[str, Any]:
@@ -234,7 +273,7 @@ def reconcile_recorded_implementations(
     result: dict[str, Any] = {
         "status": "reconciled", "merged": [], "checked": 0,
         "promotions": [], "merge_errors": [], "finding_closures": [],
-        "merge_refusals": [], "lifecycle_backfilled": [],
+        "merge_refusals": [], "lifecycle_backfilled": [], "lifecycle_backfill_skipped": [],
     }
     for plan_id, state in states.items():
         if state.get("state") == "IMPLEMENTATION_MERGED":
@@ -249,7 +288,9 @@ def reconcile_recorded_implementations(
     lifecycle = lifecycle_rows(root)
     for plan_id, state in states.items():
         if state.get("state") == "IMPLEMENTATION_MERGED":
-            result["lifecycle_backfilled"].extend(_backfill_lifecycle(plan_id, state, lifecycle, root))
+            backfilled, skipped = _backfill_lifecycle(plan_id, state, lifecycle, root)
+            result["lifecycle_backfilled"].extend(backfilled)
+            result["lifecycle_backfill_skipped"].extend(skipped)
 
     # Local recovery above does not depend on credentials or network health.
     # Neither this call nor pr_merge_state below runs inside a state lock.
@@ -261,7 +302,8 @@ def reconcile_recorded_implementations(
     change_ids = _plan_change_ids(root)
     for plan_id, state in states.items():
         observed = _observe_merge(plan_id, state, reader=reader, lifecycle=lifecycle,
-                                  change_ids=change_ids.get(plan_id, ()), base_branch=base_branch)
+                                  change_ids=change_ids.get(plan_id, ()), base_branch=base_branch,
+                                  workspace=checkout, root=root)
         if observed is None:
             continue
         result["checked"] += 1

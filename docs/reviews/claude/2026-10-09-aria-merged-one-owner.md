@@ -56,3 +56,44 @@ PR opened for another change, the wrong class, and no claim at all.
 plan's own merge, with no GitHub read. That covers #1906 if it merges before this change deploys.
 
 `github_adapters.pr_merge_state` now also returns `headRefOid`.
+
+## Review corrections (adversarial review of #1910)
+
+- **F1 HIGH, closed: a person's commits were credited to ARIA.**
+  - The merged row now carries what GitHub observed: the merged head, `merge_sha` and `merged_at`,
+    beside `delivered_head_sha` and the head's lineage (`merge_record.classify_merged_head`).
+  - Lineages:
+    - `delivered`: the same commit.
+    - `base_merged`: every later commit is a pure two-parent merge of a commit the merge contains,
+      GitHub's update-branch, which is #1906's case under strict.
+    - `patch_unchanged`: the delivered patch, rebased.
+    - `head_diverged` or `head_unverifiable`: anything else.
+  - `change_outcome` refuses a diverged merge (`change_outcome_merge_head_diverged`, or a
+    `merge_head_diverged` skip in the nightly selection). `pr_tracking` does not carry it into
+    impact learning.
+  - The REJECTED path accepts exactly the ARIA lineages. This also closes F5: an update-branch merge
+    is no longer refused forever.
+- **F2, closed:** `change_outcome` and `pr_tracking` anchor on the row's `merged_at`
+  (`merge_record.merged_row_instant`). A backfill carries the plan's own `merge_sha` and
+  `merged_at`.
+- **F3, closed:** a backfill without the kernel's `opened` row is skipped and reported, never
+  written degraded.
+- **F4, closed (tier 1 + tier 3).**
+  - The plan event's writer is private (`plan_convergence._record_implementation_merged`).
+  - `auto_merge.record_pr_lifecycle` refuses the owned events (`merged`, `closed_unmerged`,
+    `merge_unproven`) without the owner token `_MERGED_ROW_OWNER`, which only `merge_record`
+    imports.
+  - `tests/invariants/test_merged_single_writer.py` catches every bypass the review named: an
+    import, alias or `getattr` string of either private name, a `**` splat or non-literal event, an
+    `implementation_merged` event type handed to a writer, and a direct `pr_lifecycle` append. It
+    self-tests on a forged module.
+- **F6, closed:** `agent_eval`'s merged episode supersedes the rejected one when the merge
+  followed a rejection. `finding_grounding` drops `failed_at` and `unverified_failed_at` once the plan merged.
+- **F7, closed:** a PR GitHub reports CLOSED unmerged, or whose merge was refused once, gets a
+  `closed_unmerged` or `merge_unproven` lifecycle row and is not asked about again. Every opened row
+  of the plan's change is asked about, so a later one no longer shadows the first.
+- **F8, closed:** the check and the append run under the `pr-lifecycle` ledger lock.
+- **F9, closed:** reads use `ensure_tools_dir_readonly`. The queue-settled path names the PR it
+  dequeued, so a payload without its number never loses the row.
+- **F10, closed:** the reducer ties `merged_after_rejection.pr_number` to the PR the post-delivery
+  settlement named.

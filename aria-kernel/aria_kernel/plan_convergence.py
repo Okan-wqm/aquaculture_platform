@@ -1657,10 +1657,14 @@ def _require_mergeable(state: dict[str, Any], merged_after_rejection: Any) -> No
     prior = state.get("state")
     if merged_after_rejection is None and prior == "IMPLEMENTATION_RECORDED":
         return
-    rejected_class = (state.get("implementation") or {}).get("rejection_class")
+    impl = state.get("implementation") or {}
+    rejected_class = impl.get("rejection_class")
+    # Review of #1910, F10 — a settlement that named its PR binds the merge to it.
+    rejected_pr = impl.get("rejected_pr_number")
     if (prior == "IMPLEMENTATION_REJECTED" and isinstance(merged_after_rejection, dict)
             and merged_after_rejection.get("rejection_class") == rejected_class
-            and rejected_class in MERGEABLE_AFTER_REJECTION):
+            and rejected_class in MERGEABLE_AFTER_REJECTION
+            and (rejected_pr is None or merged_after_rejection.get("pr_number") == rejected_pr)):
         return
     raise GovernanceError(
         f"invalid_transition: from={prior} event=implementation_merged expected=IMPLEMENTATION_RECORDED "
@@ -1669,7 +1673,7 @@ def _require_mergeable(state: dict[str, Any], merged_after_rejection: Any) -> No
     )
 
 
-def record_implementation_merged(
+def _record_implementation_merged(
     *,
     plan_id: str,
     merge_sha: str,
@@ -2539,6 +2543,8 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         impl = state.setdefault("implementation", {})
         impl["rejection_class"] = payload["rejection_class"]
         impl["rejected_at"] = payload["rejected_at"]
+        if type(payload.get("pr_number")) is int:
+            impl["rejected_pr_number"] = payload["pr_number"]
         # Record the predecessor explicitly for audit forensics — V9.6
         # auto_merge runner reads rejected_from_state to attribute
         # rejection reason to a specific transition (e.g. ci_check_red

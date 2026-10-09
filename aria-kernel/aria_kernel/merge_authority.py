@@ -554,7 +554,10 @@ def reconcile_enqueued_merges(
                 merge_result=row["merge_result"],
                 base_dir=base_dir,
             )
-            record_merge(pr=pr, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir, cycle_id=cycle_id)
+            # Review of #1910, F9 — the queue entry names the PR; a payload
+            # missing its number never loses the merged row.
+            record_merge(pr={**pr, "number": number}, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir,
+                         cycle_id=cycle_id)
         else:
             observed = str(state.get("state") or "")
             if state.get("head_sha") != head_sha:

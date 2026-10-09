@@ -13,7 +13,8 @@ person's merge):
 """
 from __future__ import annotations
 
-import ast
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,16 +23,23 @@ from typing import Any
 from aria_kernel.implementation_reconciler import reconcile_recorded_implementations
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.merge_record import (
+    LINEAGE_BASE_MERGED,
+    LINEAGE_DELIVERED,
+    LINEAGE_DIVERGED,
+    LINEAGE_PATCH_UNCHANGED,
+    LINEAGE_UNVERIFIABLE,
     MERGED_BY_MERGE_LANE,
     MergeNotProven,
+    classify_merged_head,
     lifecycle_rows,
+    merged_row_is_arias,
     record_merge,
     verify_merge_after_rejection,
 )
 from aria_kernel.plan_convergence import (
+    _record_implementation_merged as record_implementation_merged,
     events_path,
     fold_plan_state,
-    record_implementation_merged,
     record_implementation_outcome,
     record_implementation_started,
 )
@@ -105,8 +113,9 @@ class APersonsMergeOfARecordedPlan(unittest.TestCase):
         self.assertEqual([row["plan_id"] for row in result["merged"]], ["plan-r"], result)
         self.assertEqual(fold_plan_state(plan_id="plan-r", base_dir=self.tools)["state"], "IMPLEMENTATION_MERGED")
         merged = _merged_rows(self.tools)
-        self.assertEqual([(row["pr_number"], row["head_sha"], row["change_id"]) for row in merged],
-                         [(PR, TIP, "chg-r")])
+        self.assertEqual([(row["pr_number"], row["head_sha"], row["delivered_head_sha"], row["change_id"],
+                           row["merge_sha"], row["merged_at"], row["head_lineage"]) for row in merged],
+                         [(PR, TIP, TIP, "chg-r", MERGE_SHA, "2026-10-09T12:00:00Z", LINEAGE_DELIVERED)])
         # The finding closure and the convention promotion ran for it.
         self.assertEqual([row["plan_id"] for row in result["finding_closures"]], ["plan-r"])
         self.assertEqual([row["plan_id"] for row in result["promotions"]], ["plan-r"])
@@ -123,7 +132,9 @@ class APersonsMergeOfARecordedPlan(unittest.TestCase):
         self.assertEqual(_merged_rows(self.tools), [])
         first = self.reconcile(Unreadable())  # the backfill needs no GitHub read
         self.assertEqual(first["lifecycle_backfilled"], [{"plan_id": "plan-r", "pr_number": PR}])
-        self.assertEqual(len(_merged_rows(self.tools)), 1)
+        [row] = _merged_rows(self.tools)
+        # F2 — the plan's own merge facts, never "merged today".
+        self.assertEqual((row["merged_at"], row["merge_sha"]), ("2026-10-09T12:00:00Z", MERGE_SHA))
         self.assertEqual(self.reconcile(Unreadable())["lifecycle_backfilled"], [])
         self.assertEqual(len(_merged_rows(self.tools)), 1)
 
@@ -131,6 +142,29 @@ class APersonsMergeOfARecordedPlan(unittest.TestCase):
         self.reconcile(Reader(state="OPEN", mergedAt=None, mergeCommit=None))
         self.assertEqual(fold_plan_state(plan_id="plan-r", base_dir=self.tools)["state"], "IMPLEMENTATION_RECORDED")
         self.assertEqual(_merged_rows(self.tools), [])
+
+    def test_a_backfill_without_the_kernels_opened_row_is_skipped_not_guessed(self) -> None:
+        (self.tools / "pr-lifecycle.jsonl").unlink()
+        record_implementation_merged(plan_id="plan-r", merge_sha=MERGE_SHA, merged_at="2026-10-09T12:00:00Z",
+                                     idempotency_key_hash="sha256:" + "a" * 64, base_dir=self.tools)
+        result = self.reconcile(Unreadable())
+        self.assertEqual(result["lifecycle_backfill_skipped"],
+                         [{"plan_id": "plan-r", "pr_number": PR, "reason": "no_opened_row"}])
+        self.assertEqual(_merged_rows(self.tools), [])
+
+    def test_a_person_s_commits_on_the_branch_are_not_credited_to_aria(self) -> None:
+        # F1 — the plan's PR merged (the plan folds MERGED), but at a head the
+        # kernel cannot prove is its delivered change: the row says so and
+        # the readers that credit ARIA refuse it.
+        self.reconcile(Reader(headRefOid="7" * 40))
+        self.assertEqual(fold_plan_state(plan_id="plan-r", base_dir=self.tools)["state"], "IMPLEMENTATION_MERGED")
+        [row] = _merged_rows(self.tools)
+        self.assertEqual((row["head_sha"], row["delivered_head_sha"]), ("7" * 40, TIP))
+        self.assertIn(row["head_lineage"], {LINEAGE_DIVERGED, LINEAGE_UNVERIFIABLE})
+        self.assertFalse(merged_row_is_arias(row))
+        from aria_kernel.pr_tracking import ingest_merged_pr_lifecycle
+
+        self.assertEqual(ingest_merged_pr_lifecycle(base_dir=self.tools)["ingested"], [])
 
 
 class APersonsMergeOfAHandedOverPlan(_ImplementationRequested):
@@ -161,19 +195,53 @@ class APersonsMergeOfAHandedOverPlan(_ImplementationRequested):
         self.assertEqual(len(_merged_rows(self.tools)), 1)
         self.assertEqual(self.reconcile(Reader())["merged"], [])
 
-    def test_a_merge_at_another_head_is_refused(self) -> None:
-        result = self.reconcile(Reader(headRefOid="9" * 40))
-        self.assertEqual(result["merge_refusals"], [{"plan_id": "plan-1",
-                                                     "reason": "merged_head_is_not_the_delivered_head"}])
+    def test_the_merge_supersedes_the_rejection_in_learning(self) -> None:
+        # F6 — one change, one verdict: the merged episode supersedes the
+        # rejected one, and the loop guard no longer counts the plan failed.
+        from datetime import datetime, timezone
+
+        from aria_kernel.finding_grounding import _fold_plans
+
+        self.reconcile(Reader())
+        rejected, merged = self.implementer_episodes()
+        self.assertEqual((rejected["outcome"], merged["outcome"]), ("rejected", "merged"))
+        self.assertEqual(merged["supersedes"], rejected["episode_id"])
+        [plan] = [record for record in _fold_plans(self.tools, datetime.now(timezone.utc))
+                  if record.plan_id == "plan-1"]
+        self.assertIsNotNone(plan.merged_at)
+        self.assertEqual((plan.failed_at, plan.unverified_failed_at), (None, None))
+
+    def test_a_merge_at_an_unproven_head_is_refused_once_and_not_asked_again(self) -> None:
+        reader = Reader(headRefOid="9" * 40)
+        result = self.reconcile(reader)
+        self.assertEqual(len(result["merge_refusals"]), 1)
+        self.assertTrue(result["merge_refusals"][0]["reason"].startswith("merged_head_is_not_the_delivered_change:"))
         self.assertEqual(self.state(), "IMPLEMENTATION_REJECTED")
         self.assertEqual(_merged_rows(self.tools), [])
+        self.reconcile(reader)
+        self.assertEqual(reader.asked, [PR])  # F7: recorded once, never re-polled
 
-    def test_an_unmerged_or_another_pr_changes_nothing(self) -> None:
-        self.reconcile(Reader(state="CLOSED", mergedAt=None, mergeCommit=None))
+    def test_a_pr_closed_unmerged_is_recorded_and_not_asked_again(self) -> None:
+        reader = Reader(state="CLOSED", mergedAt=None, mergeCommit=None)
+        for _ in range(3):
+            self.reconcile(reader)
+        self.assertEqual(reader.asked, [PR])
+        self.assertEqual([row["event"] for row in lifecycle_rows(self.tools) if row.get("pr_number") == PR][-1],
+                         "closed_unmerged")
         self.assertEqual(self.state(), "IMPLEMENTATION_REJECTED")
+
+    def test_github_answering_another_pr_is_refused(self) -> None:
         self.assertEqual(self.reconcile(Reader(number=9999))["merge_refusals"][0]["reason"],
                          "github_answered_another_pr")
         self.assertEqual(self.state(), "IMPLEMENTATION_REJECTED")
+
+    def test_every_pr_opened_for_the_plans_change_is_asked(self) -> None:
+        # A second opened row for the same change no longer shadows the first.
+        _opened(self.tools, change_id="chg-1", head_sha="9" * 40, pr_number=PR + 1)
+        reader = Reader()
+        self.reconcile(reader)
+        self.assertEqual(reader.asked[0], PR)
+        self.assertEqual(self.state(), "IMPLEMENTATION_MERGED")
 
     def test_a_pr_opened_for_another_change_is_never_this_plans(self) -> None:
         tmp_reader = Reader()
@@ -191,6 +259,12 @@ class APersonsMergeOfAHandedOverPlan(_ImplementationRequested):
                 record_implementation_merged(plan_id="plan-1", merge_sha=MERGE_SHA, merged_at="2026-10-09T12:00:00Z",
                                              idempotency_key_hash="sha256:" + "a" * 64,
                                              merged_after_rejection=forged, base_dir=self.tools)
+        with self.assertRaises(GovernanceError):  # F10: the settlement named PR, not another
+            record_implementation_merged(
+                plan_id="plan-1", merge_sha=MERGE_SHA, merged_at="2026-10-09T12:00:00Z",
+                idempotency_key_hash="sha256:" + "a" * 64, base_dir=self.tools,
+                merged_after_rejection={"rejection_class": "implementation_result_refused_after_delivery",
+                                        "pr_number": PR + 7, "head_sha": TIP})
         with self.assertRaises(GovernanceError):  # no claim at all: REJECTED never folds MERGED
             record_implementation_merged(plan_id="plan-1", merge_sha=MERGE_SHA, merged_at="2026-10-09T12:00:00Z",
                                          idempotency_key_hash="sha256:" + "a" * 64, base_dir=self.tools)
@@ -203,11 +277,17 @@ class TheOwnersVerification(unittest.TestCase):
             "no_opened_row_for_the_plans_change": (None, Reader().answer),
             "github_unanswered": (opened, None),
             "pr_not_merged": (opened, {**Reader().answer, "state": "OPEN"}),
-            "merged_head_is_not_the_delivered_head": (opened, {**Reader().answer, "headRefOid": "0" * 40}),
+            "merged_head_is_not_the_delivered_change": (opened, {**Reader().answer, "headRefOid": "0" * 40}),
         }
         for reason, (row, remote) in cases.items():
             with self.subTest(reason=reason), self.assertRaisesRegex(MergeNotProven, reason):
-                verify_merge_after_rejection(opened=row, remote=remote)
+                verify_merge_after_rejection(opened=row, remote=remote, workspace=None)
+
+    def test_only_the_owner_writes_a_merged_lifecycle_row(self) -> None:
+        from aria_kernel.auto_merge import record_pr_lifecycle
+
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(GovernanceError, "has_one_writer"):
+            record_pr_lifecycle({"number": PR}, event="merged", base_dir=Path(tmp) / "aria-tools")
 
     def test_the_merge_lane_records_one_row_per_pr(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -218,28 +298,69 @@ class TheOwnersVerification(unittest.TestCase):
             self.assertEqual(len(_merged_rows(tools)), 1)
 
 
-class NothingElseWritesMerged(unittest.TestCase):
-    """Tier-3: a second writer of either "merged" fact fails the build."""
+def _git(repo: Path, *args: str) -> str:
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null"}
+    return subprocess.run(["git", "-c", "commit.gpgsign=false", *args], cwd=repo, check=True, capture_output=True,
+                          text=True, env=env).stdout.strip()
 
-    def test_only_merge_record_writes_a_merged_lifecycle_row_or_a_plan_merge(self) -> None:
-        offenders: list[str] = []
-        for root in ("aria-kernel/aria_kernel", "tools/aria-poc", "tools/aria"):
-            for path in sorted((_REPO_ROOT / root).rglob("*.py")):
-                relative = path.relative_to(_REPO_ROOT).as_posix()
-                if "/tests/" in relative or relative.endswith("aria_kernel/merge_record.py"):
-                    continue
-                for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                    if not isinstance(node, ast.Call):
-                        continue
-                    name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
-                    if name == "record_implementation_merged":
-                        offenders.append(f"{relative}:{node.lineno}")
-                    elif name == "record_pr_lifecycle" and any(
-                            keyword.arg == "event" and not (isinstance(keyword.value, ast.Constant)
-                                                            and keyword.value.value != "merged")
-                            for keyword in node.keywords):
-                        offenders.append(f"{relative}:{node.lineno}")
-        self.assertEqual(offenders, [])
+
+class TheMergedHeadsLineage(unittest.TestCase):
+    """F1 — main moved (A -> B); ARIA delivered D on A; what merged at S?"""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory(prefix="aria-lineage-")
+        self.addCleanup(tmp.cleanup)
+        self.repo = Path(tmp.name)
+        _git(self.repo, "init", "-q", "-b", "main")
+        (self.repo / "base.txt").write_text("a\n")
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-q", "-m", "A")
+        self.a = _git(self.repo, "rev-parse", "HEAD")
+        _git(self.repo, "checkout", "-q", "-b", "feature")
+        (self.repo / "feature.txt").write_text("aria\n")
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-q", "-m", "D")
+        self.d = _git(self.repo, "rev-parse", "HEAD")
+        _git(self.repo, "checkout", "-q", "main")
+        (self.repo / "other.txt").write_text("b\n")
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-q", "-m", "B")
+        self.b = _git(self.repo, "rev-parse", "HEAD")
+
+    def _merge_into_main(self, head: str) -> str:
+        _git(self.repo, "checkout", "-q", "main")
+        _git(self.repo, "merge", "-q", "--no-ff", "-m", "S", head)
+        return _git(self.repo, "rev-parse", "HEAD")
+
+    def classify(self, head: str, merge_sha: str) -> str:
+        return classify_merged_head(self.repo, pr_number=PR, delivered_sha=self.d, head_sha=head, merge_sha=merge_sha)
+
+    def test_the_delivered_head(self) -> None:
+        self.assertEqual(self.classify(self.d, self._merge_into_main(self.d)), LINEAGE_DELIVERED)
+
+    def test_an_update_branch_merge_of_the_base_is_arias(self) -> None:
+        _git(self.repo, "checkout", "-q", "feature")
+        _git(self.repo, "merge", "-q", "--no-ff", "-m", "update", self.b)
+        updated = _git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(self.classify(updated, self._merge_into_main(updated)), LINEAGE_BASE_MERGED)
+
+    def test_the_delivered_patch_rebased_is_arias(self) -> None:
+        _git(self.repo, "checkout", "-q", "-b", "rebased", self.b)
+        _git(self.repo, "cherry-pick", self.d)
+        rebased = _git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(self.classify(rebased, self._merge_into_main(rebased)), LINEAGE_PATCH_UNCHANGED)
+
+    def test_a_persons_commit_on_top_is_not(self) -> None:
+        _git(self.repo, "checkout", "-q", "feature")
+        (self.repo / "feature.txt").write_text("a person's edit\n")
+        _git(self.repo, "commit", "-q", "-am", "E")
+        extra = _git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(self.classify(extra, self._merge_into_main(extra)), LINEAGE_DIVERGED)
+
+    def test_without_a_checkout_nothing_is_proven(self) -> None:
+        self.assertEqual(classify_merged_head(None, pr_number=PR, delivered_sha=self.d, head_sha="9" * 40,
+                                              merge_sha=MERGE_SHA), LINEAGE_UNVERIFIABLE)
 
 
 if __name__ == "__main__":

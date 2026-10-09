@@ -36,8 +36,11 @@ class TestV9PublicApiExists(unittest.TestCase):
     def test_record_implementation_outcome_callable(self):
         self.assertTrue(callable(_pc.record_implementation_outcome))
 
-    def test_record_implementation_merged_callable(self):
-        self.assertTrue(callable(_pc.record_implementation_merged))
+    def test_record_implementation_merged_is_the_owners_alone(self):
+        # ARIA-HIGH-390 — the plan's merge has one writer (`merge_record`):
+        # the event writer is private, and no public name reaches it.
+        self.assertFalse(hasattr(_pc, "record_implementation_merged"))
+        self.assertTrue(callable(_pc._record_implementation_merged))
 
     def test_record_implementation_rejected_callable(self):
         self.assertTrue(callable(_pc.record_implementation_rejected))
@@ -176,7 +179,7 @@ class TestV9StatePreconditions(unittest.TestCase):
                 completed_at="2026-05-18T16:05:00Z",
                 base_dir=workspace,
             )
-            _pc.record_implementation_merged(
+            _pc._record_implementation_merged(
                 plan_id=plan_id,
                 merge_sha="merge0123456789",
                 merged_at="2026-05-18T16:10:00Z",

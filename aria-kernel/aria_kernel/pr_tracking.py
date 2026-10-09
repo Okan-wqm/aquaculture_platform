@@ -123,6 +123,8 @@ def ingest_merged_pr_lifecycle(
     producer that carries them across, keyed on (pr_number, head_sha) so a
     re-run ingests nothing twice.
     """
+    from .merge_record import merged_row_instant, merged_row_is_arias
+
     root = ensure_tools_dir(base_dir)
     seen = {
         (row.get("pr_number"), row.get("head_sha"))
@@ -136,6 +138,10 @@ def ingest_merged_pr_lifecycle(
     for row in load_declared_jsonl(lifecycle_path, expected_surface="pr_lifecycle"):
         if row.get("event") != "merged":
             continue
+        # ARIA-HIGH-390 (review of #1910, F1) — a merge at a head carrying a
+        # person's commits is not ARIA's change to carry into impact learning.
+        if not merged_row_is_arias(row):
+            continue
         key = (row.get("pr_number"), row.get("head_sha"))
         if key in seen:
             already_known += 1
@@ -147,11 +153,11 @@ def ingest_merged_pr_lifecycle(
                     "event": "merged",
                     "pr_number": row.get("pr_number"),
                     "head_sha": row.get("head_sha"),
-                    # Squash merges mint a new commit the lifecycle row does not
-                    # carry; the merged head SHA is the anchor we can prove.
-                    "merge_commit_sha": None,
+                    # The merge commit GitHub reported, when the row carries
+                    # it (ARIA-HIGH-390); the merged head SHA is the anchor.
+                    "merge_commit_sha": row.get("merge_sha"),
                     "changed_files": _string_list(row.get("changed_files")),
-                    "merged_at": row.get("recorded_at"),
+                    "merged_at": merged_row_instant(row),
                     "source": "pr_lifecycle",
                     "proposal_id": row.get("proposal_id"),
                 },

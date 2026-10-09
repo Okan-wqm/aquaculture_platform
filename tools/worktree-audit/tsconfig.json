@@ -1,17 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "esModuleInterop": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "types": ["node"]
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["**/*.ts"],
-  "ts-node": {
-    "transpileOnly": true
-  }
+  "include": ["**/*.ts"]
 }

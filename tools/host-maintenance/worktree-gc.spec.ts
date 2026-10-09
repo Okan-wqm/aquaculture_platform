@@ -34,7 +34,6 @@ import {
   BUILTIN_PROTECTED,
   classifyLocation,
   heldWorktrees,
-  parseWorktreeList,
   readConfig,
   type WorktreeReport,
 } from './worktree-gc.ts';
@@ -351,6 +350,38 @@ void test('keeps a worktree that contains another worktree', () => {
   assert.ok(existsSync(join(outer, 'README.md')));
 });
 
+void test('keeps a worktree git refuses to remove, records it, and exits 3', () => {
+  const fx = fixture();
+  const refused = addWorktree(fx, 'refused');
+  // A git that refuses every `worktree remove` and is the real git otherwise:
+  // the removal fails after every check passed, which is the only way exit 3
+  // happens on a host (a worktree turning dirty in the gap, a submodule).
+  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const wrapper = join(fx.tmp, 'refusing-git');
+  writeFileSync(
+    wrapper,
+    [
+      '#!/bin/sh',
+      'if [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then',
+      '  echo "fatal: simulated refusal" >&2',
+      '  exit 128',
+      'fi',
+      `exec ${realGit} "$@"`,
+    ].join('\n') + '\n',
+    { mode: 0o755 },
+  );
+
+  const { summary, exitCode } = runGc(fx, [], { AQUA_GIT_BIN: wrapper });
+
+  assert.equal(exitCode, 3);
+  const report = reportFor(summary, refused);
+  assert.equal(report.decision, 'remove_failed');
+  assert.match(String(report.detail), /simulated refusal/);
+  assert.equal(summary.counts.remove_failed, 1);
+  assert.equal(summary.fatal, null);
+  assert.ok(existsSync(refused));
+});
+
 void test('removes nothing and exits 1 when the fetch fails', () => {
   const fx = fixture();
   const wt = addWorktree(fx, 'would-go');
@@ -390,36 +421,6 @@ void test('dry run reports the same decision, removes nothing, and does not make
   }
   assert.ok(existsSync(wt));
   assert.ok(existsSync(dirty));
-});
-
-void test('parses porcelain -z records including locked and prunable', () => {
-  const raw = [
-    'worktree /repo',
-    'bare',
-    '',
-    'worktree /repo/.worktrees/a',
-    'HEAD abc',
-    'branch refs/heads/feat/a',
-    '',
-    'worktree /root/wt/b',
-    'HEAD def',
-    'detached',
-    'locked reason here',
-    '',
-    'worktree /root/wt/c',
-    'HEAD 123',
-    'detached',
-    'prunable gitdir file points to non-existent location',
-    '',
-  ].join('\0');
-
-  const records = parseWorktreeList(raw);
-
-  assert.equal(records.length, 4);
-  assert.equal(records[0]?.bare, true);
-  assert.equal(records[1]?.branch, 'feat/a');
-  assert.equal(records[2]?.locked, true);
-  assert.equal(records[3]?.prunable, true);
 });
 
 void test('a path held by a deleted-file mapping still counts', () => {

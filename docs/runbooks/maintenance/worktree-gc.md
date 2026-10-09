@@ -91,7 +91,7 @@ journalctl -u aqua-worktree-gc.service -o cat | tail -1 \
 | `WORKTREE_GC_SIZE_BUDGET_SECONDS` | `120` (`0` = do not measure)     |
 | `WORKTREE_GC_EXTRA_PROTECTED`     | unset (colon-separated paths)    |
 
-`WORKTREE_GC_PROC_ROOT` exists for the test suite. Do not set it on a host.
+`WORKTREE_GC_PROC_ROOT` and `AQUA_GIT_BIN` exist for the test suite. Do not set them on a host.
 
 Claude Code session worktrees live under `<repo>/.claude/worktrees`. They are not a default
 root; add it to `WORKTREE_GC_ROOTS` only after confirming the same rules suit them.

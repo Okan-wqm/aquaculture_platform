@@ -57,14 +57,12 @@ import {
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export interface WorktreeRecord {
-  path: string;
-  head: string | null;
-  branch: string | null;
-  bare: boolean;
-  locked: boolean;
-  prunable: boolean;
-}
+import {
+  WORKTREE_LIST_ARGS,
+  parseWorktreeList,
+  shortBranch,
+  type WorktreeRecord,
+} from './worktree-list.ts';
 
 export type Reason =
   | 'main_checkout'
@@ -103,6 +101,8 @@ export interface GcConfig {
   dryRun: boolean;
   sizeBudgetMs: number;
   procRoot: string;
+  /** The git executable. Tests point it at a wrapper that makes one subcommand fail. */
+  gitBin: string;
 }
 
 /** The deploy checkout and its rollback worktrees. Not configurable away. */
@@ -166,6 +166,7 @@ export function readConfig(argv: string[], env: NodeJS.ProcessEnv): GcConfig {
     dryRun: argv.includes('--dry-run') || dryEnv === '1' || dryEnv === 'true',
     sizeBudgetMs: budgetSeconds * 1000,
     procRoot: env.WORKTREE_GC_PROC_ROOT ?? '/proc',
+    gitBin: env.AQUA_GIT_BIN ?? 'git',
   };
 }
 
@@ -181,8 +182,8 @@ function gitEnv(): NodeJS.ProcessEnv {
   return { ...Object.fromEntries(inherited), GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
 }
 
-function git(args: string[], timeout: number = GIT_TIMEOUT_MS): GitResult {
-  const r = spawnSync('git', args, {
+function git(bin: string, args: string[], timeout: number = GIT_TIMEOUT_MS): GitResult {
+  const r = spawnSync(bin, args, {
     encoding: 'utf8',
     timeout,
     env: gitEnv(),
@@ -194,40 +195,6 @@ function git(args: string[], timeout: number = GIT_TIMEOUT_MS): GitResult {
 
 function firstLine(text: string): string {
   return text.split('\n')[0]?.slice(0, 300) ?? '';
-}
-
-/** Parses `git worktree list --porcelain -z`: NUL-terminated fields, an empty field ends a record. */
-export function parseWorktreeList(raw: string): WorktreeRecord[] {
-  const records: WorktreeRecord[] = [];
-  let current: WorktreeRecord | null = null;
-  for (const field of raw.split('\0')) {
-    if (field === '') {
-      if (current) records.push(current);
-      current = null;
-      continue;
-    }
-    const space = field.indexOf(' ');
-    const key = space === -1 ? field : field.slice(0, space);
-    const value = space === -1 ? '' : field.slice(space + 1);
-    if (key === 'worktree') {
-      current = {
-        path: value,
-        head: null,
-        branch: null,
-        bare: false,
-        locked: false,
-        prunable: false,
-      };
-    } else if (current) {
-      if (key === 'HEAD') current.head = value;
-      else if (key === 'branch') current.branch = value.replace(/^refs\/heads\//, '');
-      else if (key === 'bare') current.bare = true;
-      else if (key === 'locked') current.locked = true;
-      else if (key === 'prunable') current.prunable = true;
-    }
-  }
-  if (current) records.push(current);
-  return records;
 }
 
 /** Strictly inside: a root itself is never a removable worktree. */
@@ -441,7 +408,14 @@ function classify(
   );
   if (nested) return { reason: 'contains_worktree', detail: nested.path };
   if (!record.head) return { reason: 'merge_check_failed', detail: 'no HEAD recorded' };
-  const ancestor = git(['-C', config.repo, 'merge-base', '--is-ancestor', record.head, base]);
+  const ancestor = git(config.gitBin, [
+    '-C',
+    config.repo,
+    'merge-base',
+    '--is-ancestor',
+    record.head,
+    base,
+  ]);
   if (ancestor.code === 1) return { reason: 'unmerged' };
   if (!ancestor.ok) return { reason: 'merge_check_failed', detail: firstLine(ancestor.stderr) };
   const activity = lastActivityMs(real);
@@ -452,7 +426,7 @@ function classify(
       detail: `last activity ${new Date(activity).toISOString()}`,
     };
   }
-  const status = git([
+  const status = git(config.gitBin, [
     '-C',
     real,
     '--no-optional-locks',
@@ -472,20 +446,30 @@ export function run(
   now: number = Date.now(),
 ): { summary: Summary; exitCode: number } {
   const summary = emptySummary(config, now);
-  const probe = git(['-C', config.repo, 'rev-parse', '--git-common-dir']);
+  const probe = git(config.gitBin, ['-C', config.repo, 'rev-parse', '--git-common-dir']);
   if (!probe.ok) return fatal(summary, 'not_a_repo', firstLine(probe.stderr));
 
   // "Merged" means merged into the origin/main that exists now. A stale
   // tracking ref would understate merges, never overstate them, but a fetch
   // failure also means we cannot see the host's view of the world clearly.
-  const fetch = git(['-C', config.repo, 'fetch', '--quiet', 'origin', '--prune'], FETCH_TIMEOUT_MS);
+  const fetch = git(
+    config.gitBin,
+    ['-C', config.repo, 'fetch', '--quiet', 'origin', '--prune'],
+    FETCH_TIMEOUT_MS,
+  );
   if (!fetch.ok) return fatal(summary, 'fetch_failed', firstLine(fetch.stderr));
-  const baseRes = git(['-C', config.repo, 'rev-parse', '--verify', `${BASE_REF}^{commit}`]);
+  const baseRes = git(config.gitBin, [
+    '-C',
+    config.repo,
+    'rev-parse',
+    '--verify',
+    `${BASE_REF}^{commit}`,
+  ]);
   if (!baseRes.ok) return fatal(summary, 'no_base', firstLine(baseRes.stderr));
   const base = baseRes.stdout.trim();
   summary.base = base;
 
-  const list = git(['-C', config.repo, 'worktree', 'list', '--porcelain', '-z']);
+  const list = git(config.gitBin, ['-C', config.repo, ...WORKTREE_LIST_ARGS]);
   if (!list.ok) return fatal(summary, 'worktree_list_failed', firstLine(list.stderr));
   const records = parseWorktreeList(list.stdout);
   const mainReal = canonical(config.repo) ?? config.repo;
@@ -493,7 +477,7 @@ export function run(
   const reports: WorktreeReport[] = records.map((record, index) => {
     const report = {
       path: record.path,
-      branch: record.branch,
+      branch: shortBranch(record.branch),
       head: record.head?.slice(0, 12) ?? null,
     };
     // git lists the main checkout (or the bare repository) first, always.
@@ -539,7 +523,7 @@ export function run(
       report.decision = 'would_remove';
       continue;
     }
-    const removal = git(['-C', config.repo, 'worktree', 'remove', report.path]);
+    const removal = git(config.gitBin, ['-C', config.repo, 'worktree', 'remove', report.path]);
     if (removal.ok) {
       report.decision = 'removed';
     } else {
@@ -564,7 +548,7 @@ export function run(
     // destroy its record; that is not this tool's call to make.
     summary.prune = 'skipped_prunable_outside_roots';
   } else {
-    const prune = git(['-C', config.repo, 'worktree', 'prune']);
+    const prune = git(config.gitBin, ['-C', config.repo, 'worktree', 'prune']);
     summary.prune = prune.ok ? 'ok' : 'failed';
     if (!prune.ok) failures += 1;
   }

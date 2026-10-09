@@ -34,6 +34,11 @@ filled by git worktrees that agent sessions left behind after their PRs merged.
 - `tools/host-maintenance/worktree-gc.spec.ts` runs the script against real throwaway git
   repositories. It is reached through `npm run tools:test` in `quality-gates.yml`, and
   `tests/invariants/helpers/spec-runners.ts` declares the directory as that runner's.
+- `tools/host-maintenance/worktree-list.ts` is the one parser of `git worktree list
+--porcelain -z` (including `bare`, `detached`, `locked`, `prunable`). `tools/worktree-audit`
+  moved to ESM under the same strip-types runner and uses it instead of its own copy; its
+  inventory output is byte-identical on a fixture, and its spec now runs in `tools:test`,
+  which takes it off the `KNOWN_UNRUNNABLE_SPECS` ratchet.
 - Runbook: `docs/runbooks/maintenance/worktree-gc.md`.
 
 ### Not done here

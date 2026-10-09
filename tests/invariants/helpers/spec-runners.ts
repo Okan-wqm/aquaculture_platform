@@ -46,7 +46,10 @@ export const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
     // package.json `tools:test`, invoked by .github/workflows/quality-gates.yml
     kind: 'declared-non-nx',
     script: 'tools:test',
-    owns: (p) => /^tools\/(supervisor|host-maintenance|watchdog)\/[^/]+\.spec\.(ts|mjs)$/.test(p),
+    owns: (p) =>
+      /^tools\/(supervisor|host-maintenance|worktree-audit|watchdog)\/[^/]+\.spec\.(ts|mjs)$/.test(
+        p,
+      ),
   },
   {
     // package.json `gates:test` (globs the directory), invoked by
@@ -74,15 +77,13 @@ export const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
  * may not grow — that is the whole contract. Each entry is a real gap, not an
  * exemption: the code is tested on someone's laptop and nowhere else.
  *
- * `tools/lint-gates` and `tools/worktree-audit` are ts-node CommonJS specs
- * like `tools/gates/**`, but without the npm scripts that make those
- * reachable; they need the same treatment as tools/gates rather than the
- * strip-types runner.
+ * `tools/lint-gates` is a ts-node CommonJS spec like `tools/gates/**`, but
+ * without the npm script that makes those reachable; it needs the same
+ * treatment as tools/gates rather than the strip-types runner.
+ * (`tools/worktree-audit` left this list when it moved to ESM to share the
+ * worktree-list parser with tools/host-maintenance; `tools:test` runs it.)
  */
-export const KNOWN_UNRUNNABLE_SPECS: ReadonlySet<string> = new Set([
-  'tools/lint-gates',
-  'tools/worktree-audit',
-]);
+export const KNOWN_UNRUNNABLE_SPECS: ReadonlySet<string> = new Set(['tools/lint-gates']);
 
 export function isKnownUnrunnable(relPath: string): boolean {
   for (const prefix of KNOWN_UNRUNNABLE_SPECS) {

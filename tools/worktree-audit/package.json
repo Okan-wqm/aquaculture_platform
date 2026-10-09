@@ -1,0 +1,5 @@
+{
+  "name": "@aquaculture/worktree-audit-tools",
+  "private": true,
+  "type": "module"
+}

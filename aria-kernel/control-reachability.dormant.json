@@ -34,11 +34,5 @@
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
     "reason": "Auto-merge head-SHA freshness check. merge_pr_if_ready performs its own head-SHA freshness comparison inline, so the protection exists; this is the extracted helper that the inline code never adopted. PLAN Wave 8 implements branch_tip_lock_and_recheck as a real hard-fail check - that is where these two collapse into one. Renewed 2026-09-21 for thirty days by the operator's delegate: the flow this control belongs to has not started, and the six dormancy waivers lapsed together on 2026-09-20 and turned every kernel lane red."
-  },
-  "verify_workflow_registry": {
-    "expires_on": "2026-10-09",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "REASON REPLACED 2026-09-09, and the previous one was FALSE. It claimed 'the equivalent assertion runs in CI as a TypeScript invariant, so the drift IS caught - by the other lane'. Checked: no spec under tests/invariants references WORKFLOW_CONTRACTS, and the nearest one (aria-kernel-workflow-setup.spec.ts) asserts something else entirely -- that a job running kernel code provisions the kernel first. Deleting on that reason would have removed an UNDUPLICATED guarantee: preflight's live verify_workflow_contract validates ONE contract against its YAML and by construction only ever visits workflows that already have a contract, so an ARIA workflow added with neither a contract nor an audited exclusion is invisible to it. Only the whole-inventory verdict sees that. Wiring it into verify_workflow_preflight was attempted and REVERTED: that preflight legitimately runs against synthetic workspaces, where the workflow YAMLs are absent and the inventory verdict is invalid for a reason that is not a defect (test_workflow_enterprise_preflight proved it). A repo-wide invariant needs a caller that always sees the real repo, and neither a CLI verb nor a CI step exists for it yet -- that entry point is the open decision, not whether the control is worth keeping. Verified valid=True against the live tree on 2026-09-09, so it will pass the day it is wired."
   }
 }

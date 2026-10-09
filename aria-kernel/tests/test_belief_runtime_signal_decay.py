@@ -147,5 +147,70 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         self.assertEqual(self._row("b-open").get("needs_revalidation_cycles"), 1)
 
 
+    def _write_pre_law_signal(self, signal_id: str, code_refs: list[str]) -> Path:
+        """A record as the bridge wrote it before it enforced the ref law."""
+        import json
+
+        path = self.tools / "runtime-signals" / f"{signal_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "$schema": "aria/runtime-signal/v1", "schema_version": 1, "signal_id": signal_id,
+            "source": "sentry", "service": "farm-service", "summary": "forged frame",
+            "code_refs": code_refs, "severity": "high", "trust_grade": "runtime_unverified",
+            "status": "open", "recorded_at": "2026-10-08T00:00:00Z",
+        }), encoding="utf-8")
+        return path
+
+    def test_a_pre_law_glob_record_is_quarantined_and_decays_nothing(self) -> None:
+        # ARIA-MEDIUM-393 review — one `*/*` frame stored before the bridge
+        # refused globs would have marked every belief stale.
+        import json
+
+        from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
+
+        for belief_id in ("b-1", "b-2", "b-3"):
+            self._seed(belief_id, [f"src/{belief_id}.ts:1"])
+        path = self._write_pre_law_signal("runtime-00000000000000aa", ["*/*"])
+        result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools)
+        self.assertEqual(result["decayed_count"], 0)
+        for belief_id in ("b-1", "b-2", "b-3"):
+            self.assertEqual(self._row(belief_id).get("status"), "supported")
+        record = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(record["status"], "quarantined")
+        self.assertTrue(record["quarantine_reason"].startswith("runtime_signal_ref_glob"))
+        governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(governance.count("runtime_signal_quarantined"), 1)
+        # Quarantine is written once: a later read neither returns the record
+        # nor records it again.
+        self.assertEqual(load_open_runtime_signals(base_dir=self.tools), [])
+        governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(governance.count("runtime_signal_quarantined"), 1)
+
+    def test_pre_law_escape_and_control_records_are_quarantined(self) -> None:
+        from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
+
+        self._write_pre_law_signal("runtime-00000000000000bb", ["../../../../etc/passwd"])
+        self._write_pre_law_signal("runtime-00000000000000cc", ["src/a.ts\x00"])
+        self._write_pre_law_signal("runtime-00000000000000dd", ["a prose ref"])
+        self.assertEqual(load_open_runtime_signals(base_dir=self.tools), [])
+
+    def test_a_valid_pre_law_record_is_returned_canonical(self) -> None:
+        from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
+
+        self._write_pre_law_signal("runtime-00000000000000ee", ["./src//a.ts:3"])
+        [signal] = load_open_runtime_signals(base_dir=self.tools)
+        self.assertEqual(signal["code_refs"], ["src/a.ts:3"])
+
+    def test_the_matcher_never_treats_a_signal_ref_as_a_pattern(self) -> None:
+        from aria_kernel.memory import _refs_touch
+
+        self.assertFalse(_refs_touch("*/*", "src/a.ts"))
+        self.assertFalse(_refs_touch("src/[ab].ts", "src/a.ts"))
+        self.assertFalse(_refs_touch("src/?.ts", "src/a.ts"))
+        # The kernel-authored belief side may still name a class of files.
+        self.assertTrue(_refs_touch("src/adapters/pdf.ts", "src/adapters/*.ts"))
+        self.assertTrue(_refs_touch("src/a.ts", "src/a.ts"))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

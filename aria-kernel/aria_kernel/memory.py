@@ -845,17 +845,29 @@ def _normalize_ref(raw: str) -> str:
     return ref
 
 
-def _refs_touch(ref_a: str, ref_b: str) -> bool:
-    """Do two normalized refs describe the same code area? Either side
-    may carry fnmatch wildcards (a belief about a CLASS of files, or a
-    signal naming an area) — the concrete side matches the glob side."""
-    if any(ch in ref_a for ch in ("*", "?", "[")):
-        if fnmatch.fnmatch(ref_b, ref_a):
-            return True
-    if any(ch in ref_b for ch in ("*", "?", "[")):
-        if fnmatch.fnmatch(ref_a, ref_b):
-            return True
-    return ref_a == ref_b
+_GLOB_METACHARACTERS = ("*", "?", "[")
+
+
+def _is_glob(ref: str) -> bool:
+    return any(ch in ref for ch in _GLOB_METACHARACTERS)
+
+
+def _refs_touch(signal_ref: str, evidence_ref: str) -> bool:
+    """Does a runtime signal's normalized ref touch a belief's normalized evidence ref?
+
+    The signal side is outside-authored, so it is only ever a CONCRETE ref:
+    a glob there is never treated as a pattern (one `*/*` would touch every
+    belief). The bridge already refuses glob refs at ingest and quarantines
+    pre-law records on read; this refusal is the matcher's own, so the
+    amplifier cannot come back through any other writer. The belief side is
+    kernel-authored and may name a CLASS of files with a glob; the concrete
+    signal ref is matched against it.
+    """
+    if _is_glob(signal_ref):
+        return False
+    if _is_glob(evidence_ref):
+        return fnmatch.fnmatchcase(signal_ref, evidence_ref)
+    return signal_ref == evidence_ref
 
 
 def decay_beliefs_by_runtime_signals(
@@ -876,8 +888,8 @@ def decay_beliefs_by_runtime_signals(
     plumbing.
 
     Matching reuses the evidence normalization (``:line`` suffix,
-    backslash, ``./``) and accepts fnmatch globs on either side — a
-    code_ref is a free-form area string, not a guaranteed path. Refs
+    backslash, ``./``). A belief's evidence ref may be a glob naming a class
+    of files; a signal's ref never is (``_refs_touch``). Refs
     that match nothing are REPORTED (``unmatched_refs``), never silent:
     a signal nobody's beliefs speak to is an observation gap, not a
     zero. Only OPEN signals decay; resolution is the signal lane's own
@@ -891,7 +903,7 @@ def decay_beliefs_by_runtime_signals(
         return {
             "schema_version": 1, "cycle_id": cycle_id,
             "signal_count": 0, "decayed_count": 0, "decayed": [],
-            "unmatched_refs": [],
+            "unmatched_refs": [], "refused_glob_refs": [],
         }
     normalized_signals = [
         {
@@ -951,11 +963,12 @@ def decay_beliefs_by_runtime_signals(
             "source": hit["source"],
             "status": status,
         })
+    refused = sorted({ref for signal in normalized_signals for ref in signal["refs"] if _is_glob(ref)})
     unmatched = sorted({
         ref
         for signal in normalized_signals
         for ref in signal["refs"]
-        if ref not in matched_refs
+        if ref not in matched_refs and not _is_glob(ref)
     })
     return {
         "schema_version": 1,
@@ -964,6 +977,8 @@ def decay_beliefs_by_runtime_signals(
         "decayed_count": len(decayed),
         "decayed": decayed,
         "unmatched_refs": unmatched,
+        # Glob refs a signal carried: refused as patterns, reported.
+        "refused_glob_refs": refused,
     }
 
 

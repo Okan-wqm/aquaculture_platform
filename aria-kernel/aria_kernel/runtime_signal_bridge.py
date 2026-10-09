@@ -222,8 +222,31 @@ def ingest_runtime_signal(
     return record
 
 
+def _quarantine_signal(root: Path, path: Path, doc: dict[str, Any], reason: str) -> None:
+    """Move an open record that fails the current ref law out of the open set, once, on the record and in governance."""
+    doc = dict(doc)
+    doc["status"] = "quarantined"
+    doc["quarantine_reason"] = reason
+    doc["quarantined_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    append_tools_governance(
+        root,
+        "runtime_signal_quarantined",
+        {"signal_id": str(doc.get("signal_id") or path.stem), "reason": reason[:200]},
+    )
+
+
 def load_open_runtime_signals(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    """Open (unresolved) runtime signals, most severe first."""
+    """Open (unresolved) runtime signals, most severe first, each re-checked against the ref law.
+
+    A record written before the bridge enforced canonical_runtime_signal_ref
+    (a `*/*` frame, a `../` escape) would otherwise keep reaching every
+    reader — pressure, belief decay — for as long as it stays open. Each
+    open record's refs are re-validated on read: a record that fails is
+    QUARANTINED (status, reason and a governance row, written once) and
+    never returned; a record that passes is returned with its refs in
+    their canonical spelling.
+    """
     root = ensure_tools_dir(base_dir)
     directory = _signals_dir(root)
     if not directory.exists():
@@ -235,8 +258,21 @@ def load_open_runtime_signals(*, base_dir: str | Path | None = None) -> list[dic
             doc = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if doc.get("status") == "open":
-            rows.append(doc)
+        if not isinstance(doc, dict) or doc.get("status") != "open":
+            continue
+        refs = doc.get("code_refs")
+        try:
+            if not isinstance(refs, list) or not refs or len(refs) > MAX_CODE_REFS:
+                raise GovernanceError(f"runtime_signal_refs_invalid: {type(refs).__name__} of {len(refs) if isinstance(refs, list) else 0}")
+            canonical: list[str] = []
+            for ref in refs:
+                value = canonical_runtime_signal_ref(ref)
+                if value not in canonical:
+                    canonical.append(value)
+        except GovernanceError as exc:
+            _quarantine_signal(root, path, doc, str(exc))
+            continue
+        rows.append({**doc, "code_refs": canonical})
     rows.sort(key=lambda r: (order.get(str(r.get("severity")), 9), str(r.get("signal_id"))))
     return rows
 

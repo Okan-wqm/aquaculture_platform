@@ -1,4 +1,4 @@
-# ARIA genesis adapters execute unsandboxed with the runner's authority
+# ARIA adapters execute unsandboxed with the runner's authority
 
 Recorded 2026-10-09 from the independent security review of PR #1900
 (`claude/aria-skill-genesis-validation`, head `fbfef05c5`), which wires
@@ -8,6 +8,29 @@ tool. The review's verdict was DO NOT MERGE; #1900 is a draft and has left the
 landing train. The defects below are on `main` today or are introduced by
 that wiring. Each one was reproduced by a probe against the #1900 tree. This
 record exists so the fix lane has a registry row to close.
+
+## Scope: every adapter execution, not only genesis-drafted adapters
+
+The security review of #1898 (fixture refresh) found that the defect is not
+specific to genesis. Every adapter the kernel executes runs as an ordinary
+host process with the runner's full environment:
+
+- `tool_runner.run_tool`, `aria-kernel/aria_kernel/tool_runner.py:133-148`,
+  calls `subprocess.run(..., env=dict(os.environ))`.
+- `fixture_runner`, `aria-kernel/aria_kernel/fixture_runner.py:608`, calls
+  `subprocess.run(...)` with no `env=`, so the child inherits the parent's
+  environment.
+
+This applies to curated adapters under `tools/aria-adapters/` as much as to
+generated ones. A curated adapter is reviewed code, but its dependencies and
+inputs are not. ARIA-CRITICAL-399 therefore covers ALL adapter execution:
+
+- a scrubbed environment, with an explicit allowlist that never includes a
+  token, a key path or proxy credentials;
+- the sandbox (no network, non-root uid, workspace bound read-only to the
+  declared scope).
+
+The genesis-specific items below still apply on top of that.
 
 ## ARIA-CRITICAL-399 — a generated adapter runs as an ordinary host process
 
@@ -74,6 +97,9 @@ writer ever attested to it.
 This is not started here; it is a separate lane, owner `claude`, deadline
 2026-10-16. It must deliver:
 
+0. Every adapter execution — `tool_runner` and `fixture_runner` alike, curated
+   or generated — runs with a scrubbed, allowlisted environment and inside the
+   sandbox. The genesis items below come on top of that.
 1. Execution of every genesis-origin tool goes through the sandbox
    (`execute_in_sandbox` or its successor). That means no network, a
    scrubbed environment, a non-root uid, read-only workspace binds limited to

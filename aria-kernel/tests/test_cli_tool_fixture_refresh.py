@@ -17,8 +17,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import subprocess
+
 from aria_kernel.cli import main as cli_main
-from aria_kernel.tool_registry import register_tool
+from aria_kernel.tool_registry import ensure_tools_binding, register_tool
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -80,7 +82,12 @@ class ToolFixtureRefreshVerbTests(unittest.TestCase):
         (self.root / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
         (self.root / "package.json").write_text('{"name":"fixture"}\n', encoding="utf-8")
         (self.root / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
+        # Review of #1898 (F1) — the verb runs only against the store's own
+        # checkout at a clean, committed HEAD.
+        self._git("init", "-q")
+        self._commit("fixture workspace")
         self.tools_dir = Path(self._tmp.name) / "aria-tools"
+        ensure_tools_binding(self.tools_dir, workspace_root=self.root)
         fixture_root = self.tools_dir / "fixtures" / "learning-adapter" / "cases"
         fixture_root.mkdir(parents=True)
         (fixture_root / "clean.json").write_text(
@@ -90,6 +97,16 @@ class ToolFixtureRefreshVerbTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
+
+    def _git(self, *args: str, cwd: Path | None = None) -> str:
+        return subprocess.run(
+            ["git", "-C", str(cwd or self.root), *args], check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    def _commit(self, message: str, cwd: Path | None = None) -> None:
+        self._git("add", "-A", cwd=cwd)
+        self._git("-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+                  "commit", "-q", "--allow-empty", "-m", message, cwd=cwd)
 
     def _argv(self, *extra: str) -> list[str]:
         return [
@@ -106,8 +123,9 @@ class ToolFixtureRefreshVerbTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         payload = json.loads(out)
         self.assertEqual(payload["status"], "completed")
-        self.assertEqual(payload["refreshed"][0]["tool_id"], "learning-adapter")
-        self.assertEqual(payload["refreshed"][0]["status"], "current")
+        self.assertEqual(payload["tools"][0]["tool_id"], "learning-adapter")
+        self.assertEqual(payload["tools"][0]["status"], "current")
+        self.assertEqual(payload["workspace_commit_sha"], self._git("rev-parse", "HEAD"))
 
     def test_walk_skips_tools_without_a_fixture_set(self) -> None:
         register_tool(tool_definition(), base_dir=self.tools_dir)
@@ -123,7 +141,7 @@ class ToolFixtureRefreshVerbTests(unittest.TestCase):
         code, out = _run(self._argv())
         self.assertEqual(code, 0, out)
         payload = json.loads(out)
-        refreshed_ids = {row["tool_id"] for row in payload["refreshed"]}
+        refreshed_ids = {row["tool_id"] for row in payload["tools"]}
         skipped_ids = set(payload["skipped_no_fixture_set"])
         self.assertIn("learning-adapter", refreshed_ids)
         self.assertIn("no-fixture-adapter", skipped_ids)
@@ -150,7 +168,58 @@ class ToolFixtureRefreshVerbTests(unittest.TestCase):
         code, out = _run(self._argv("--tool-id", "learning-adapter"))
         self.assertEqual(code, 1, out)
         payload = json.loads(out)
-        self.assertEqual(payload["refreshed"][0]["status"], "stale_or_failed")
+        self.assertEqual(payload["tools"][0]["status"], "stale_or_failed")
+
+    def test_workspace_root_is_required(self) -> None:
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        code, _ = _run(["--tools-dir", str(self.tools_dir), "tool", "fixture-refresh", "--cycle-id", "c"])
+        self.assertEqual(code, 2)
+
+    def test_a_dirty_checkout_is_refused_and_writes_no_evidence(self) -> None:
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        (self.root / "src" / "app.ts").write_text("export const app = false;\n", encoding="utf-8")
+        code, out = _run(self._argv("--tool-id", "learning-adapter"))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(json.loads(out)["status"], "refused")
+        self.assertIn("fixture_refresh_workspace_dirty", json.loads(out)["reason"])
+        self.assertFalse((self.tools_dir / "fixture-runs.jsonl").exists()
+                         and (self.tools_dir / "fixture-runs.jsonl").read_text(encoding="utf-8").strip())
+
+    def test_a_checkout_the_store_is_not_bound_to_is_refused(self) -> None:
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        other = Path(self._tmp.name) / "other"
+        other.mkdir()
+        self._git("init", "-q", cwd=other)
+        self._commit("other", cwd=other)
+        code, out = _run([
+            "--tools-dir", str(self.tools_dir), "tool", "fixture-refresh",
+            "--workspace-root", str(other), "--cycle-id", "c", "--tool-id", "learning-adapter",
+        ])
+        self.assertEqual(code, 1, out)
+        self.assertIn("fixture_refresh_workspace_not_bound_checkout", json.loads(out)["reason"])
+
+    def test_a_named_tool_without_a_fixture_set_is_refused_by_name(self) -> None:
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        no_fixture = tool_definition(tool_id="no-fixture-adapter", claim_types=["other"])
+        no_fixture.pop("fixture_set")
+        registry_path = self.tools_dir / "registry.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        registry["tools"].append(no_fixture)
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        code, out = _run(self._argv("--tool-id", "no-fixture-adapter"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("fixture_refresh_tool_has_no_fixture_set: no-fixture-adapter", json.loads(out)["reason"])
+
+    def test_a_blocked_refresh_reaches_governance_from_the_verb(self) -> None:
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        import shutil
+
+        shutil.rmtree(self.tools_dir / "fixtures" / "learning-adapter" / "cases")
+        code, out = _run(self._argv("--tool-id", "learning-adapter"))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(json.loads(out)["tools"][0]["status"], "blocked")
+        governance = (self.tools_dir / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertIn("fixture_refresh_blocked", governance)
 
 
 if __name__ == "__main__":  # pragma: no cover

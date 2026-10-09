@@ -1273,7 +1273,9 @@ def build_parser() -> argparse.ArgumentParser:
     tool_fixture_refresh.add_argument("--tool-id", default=None,
         help="Refresh one tool's fixture suite; without it every registered tool is walked.")
     tool_fixture_refresh.add_argument("--cycle-id", required=True)
-    tool_fixture_refresh.add_argument("--workspace-root", default=".")
+    # Required and pinned: the verb writes promotion evidence, so it runs
+    # only against the store's own checkout at a clean HEAD.
+    tool_fixture_refresh.add_argument("--workspace-root", required=True)
     # C1 (E4) — the promotion verb the registry never had. promote_tool has
     # existed with every gate (fixture pass, readiness, operator approval)
     # and ZERO command surface, so no adapter could ever leave SHADOW and
@@ -4240,50 +4242,27 @@ def _main(argv: list[str] | None = None) -> int:
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
 
-    # ARIA-MEDIUM-395 — standalone fixture runner dispatch.
+    # ARIA-MEDIUM-395 — standalone fixture runner dispatch: the cycle phase's
+    # own refresh lane, behind the pinned-workspace check.
     if args.command == "tool" and args.tool_command == "fixture-refresh":
-        from .fixture_runner import refresh_fixture_suite
-        from .ledger import LedgerReadLimitError, LedgerRowTooLargeError
+        from .fixture_runner import refresh_fixture_suites, require_pinned_fixture_workspace
 
-        rows = list_tools(base_dir=args.tools_dir)
-        if args.tool_id:
-            targets = [(args.tool_id, True)]
-        else:
-            targets = [
-                (str(tool.get("tool_id") or ""), bool(tool.get("fixture_set")))
-                for tool in rows
-            ]
-            targets = [target for target in targets if target[0]]
-        refreshed: list[dict[str, Any]] = []
-        skipped_no_fixture_set: list[str] = []
-        # A suite-level failure or a blocked refresh is a per-tool health
-        # signal in the payload (the phase doctrine); the EXIT code carries
-        # the aggregate so operator scripts can gate on it.
-        exit_code = 0
-        for tool_id, has_fixture_set in targets:
-            if not has_fixture_set:
-                skipped_no_fixture_set.append(tool_id)
-                continue
-            try:
-                result = refresh_fixture_suite(
-                    tool_id,
-                    workspace_root=args.workspace_root,
-                    cycle_id=args.cycle_id,
-                    base_dir=args.tools_dir,
-                )
-                refreshed.append({"tool_id": tool_id, "status": result.get("status", "ok")})
-                if result.get("status") != "current":
-                    exit_code = 1
-            except (GovernanceError, LedgerReadLimitError, LedgerRowTooLargeError) as exc:
-                refreshed.append({"tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200]})
-                exit_code = 1
-        payload = {
-            "status": "completed",
-            "refreshed": refreshed,
-            "skipped_no_fixture_set": skipped_no_fixture_set,
-        }
+        try:
+            head = require_pinned_fixture_workspace(args.workspace_root, base_dir=args.tools_dir)
+            payload = refresh_fixture_suites(
+                workspace_root=args.workspace_root,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+                tool_ids=[args.tool_id] if args.tool_id else None,
+            )
+        except GovernanceError as exc:
+            print(json.dumps({"status": "refused", "reason": str(exc)[:300]}, indent=2, sort_keys=True))
+            return 1
+        payload["workspace_commit_sha"] = head
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
-        return exit_code
+        # A blocked or non-current suite is a per-tool signal in the payload;
+        # the exit code carries the aggregate for operator scripts.
+        return 0 if all(row.get("status") == "current" for row in payload["tools"]) else 1
 
     if args.command == "merge-lane" and args.merge_command == "run":
         from .auto_merge_runners import (

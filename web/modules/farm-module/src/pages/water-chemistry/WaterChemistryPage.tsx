@@ -7,8 +7,17 @@
  */
 import {
   buildDeffeyesData,
+  composePointInputs,
+  engineRecordOf,
+  usableValues,
+  type EngineRecord,
+  type OperatorEntries,
   computeWaterChemistryOutputs,
+  DEFAULT_WATER_CHEMISTRY_INPUTS,
   useCanMutate,
+  useI18n,
+  type PointRef,
+  type ResolvableField,
   type WaterChemistryInputs,
   PageHeader,
   Button,
@@ -41,6 +50,9 @@ import InputPanel from './components/InputPanel';
 import OnDemandPanel from './components/OnDemandPanel';
 import { ParameterConfigManager } from './components/ParameterConfigManager';
 import { RecordTab } from './components/RecordTab';
+import { SourcesTab } from './components/sources/SourcesTab';
+import { ValuesSourceBar } from './components/ValuesSourceBar';
+import { usePointSets } from '../../hooks/useParameterSources';
 import { reportWaterChemistryDiagnostic } from './waterChemistryDiagnostics';
 import {
   buildWaterChemistryReportHtml,
@@ -49,36 +61,46 @@ import {
 } from './waterChemistryReportExport';
 import { Printer } from 'lucide-react';
 // ============================================================================
-// DEFAULT INPUT VALUES
-// ============================================================================
-
-const DEFAULT_INPUTS: WaterChemistryInputs = {
-  tempC: 12,
-  pH: 7.0,
-  salinity: 1,
-  alkalinityMg: 80,
-  targetpH: 7.5,
-  targetAlkalinityMg: 100,
-  alkMinMg: 50,
-  alkMaxMg: 100,
-  tan: 0.5,
-  unIonizedNH3: 0.0125,
-  co2Toxic: 40,
-  h2sUgL: 15,
-  h2sLimitUgL: 25,
-  caMgL: 400,
-  volume: 1,
-  fishType: 'Arctic Charr',
-  fishSize: '0-5 gram',
-  showTarget: true,
-};
-
-// ============================================================================
 // OVERVIEW CONTENT - Upgraded with Millero engine
 // ============================================================================
 
 const OverviewContent: React.FC = () => {
-  const [inputs, setInputs] = useState<WaterChemistryInputs>(DEFAULT_INPUTS);
+  const { t } = useI18n();
+  // The operator's record: in manual mode every field; at a point only the
+  // settings (targets, limits, fish) — the measured fields are the point's.
+  const [manualInputs, setManualInputs] = useState<WaterChemistryInputs>(() => ({
+    ...DEFAULT_WATER_CHEMISTRY_INPUTS,
+  }));
+  const [valuesPoint, setValuesPoint] = useState<PointRef | null>(null);
+  // Session-only corrections and entries at the point (never written back).
+  const [entries, setEntries] = useState<OperatorEntries>({});
+  const pointSets = usePointSets(valuesPoint);
+  const composed = useMemo(
+    () =>
+      valuesPoint === null || pointSets.sets === null
+        ? null
+        : composePointInputs(pointSets.sets, entries),
+    [valuesPoint, pointSets.sets, entries],
+  );
+  const record: EngineRecord | null =
+    valuesPoint === null
+      ? { inputs: manualInputs, dosing: true }
+      : composed === null
+        ? null
+        : engineRecordOf(composed, manualInputs);
+
+  const changeValuesPoint = (point: PointRef | null): void => {
+    setValuesPoint(point);
+    setEntries({});
+  };
+  const enter = (field: ResolvableField, value: number | null): void => {
+    setEntries((prev) => {
+      const next = { ...prev };
+      if (value === null) delete next[field];
+      else next[field] = value;
+      return next;
+    });
+  };
   const [selectedReagents, setSelectedReagents] = useState<string[]>([
     'Sodium Bicarbonate',
     'Sodium Hydroxide',
@@ -86,7 +108,87 @@ const OverviewContent: React.FC = () => {
     'De-gas CO₂',
   ]);
   const [onDemandAmounts, setOnDemandAmounts] = useState<Record<string, number>>({});
+  const pointValues = composed === null ? undefined : usableValues(composed);
 
+  const notReady = (): string => {
+    if (pointSets.error !== null)
+      return t('wqSource.ui.readFailed', { error: pointSets.error.message });
+    if (valuesPoint === null || composed === null) {
+      return pointSets.loading ? t('wqSource.ui.loadingPoint') : t('wqSource.ui.chooseCalcPoint');
+    }
+    if (record !== null && record.inputs === null) {
+      return t('wqSource.blocking', {
+        fields: record.blocking.map((entry) => t(`wqSource.field.${entry.field}`)).join(', '),
+      });
+    }
+    return t('wqSource.ui.loadingPoint');
+  };
+  const dosingUnavailable =
+    composed === null || composed.dosing.available
+      ? undefined
+      : t(`wqSource.dosing.${composed.dosing.reason}`);
+
+  return (
+    <div className="space-y-2">
+      <ValuesSourceBar
+        point={valuesPoint}
+        onPointChange={changeValuesPoint}
+        ownSet={pointSets.sets === null ? null : pointSets.sets.own}
+        composed={composed}
+        loading={pointSets.loading}
+        loadError={pointSets.error}
+        stale={pointSets.stale}
+        now={Date.now()}
+        onEnter={enter}
+      />
+
+      {/* ROW 1: Horizontal Input Bar — the operator's entries; the point's values read-only */}
+      <InputPanel
+        inputs={manualInputs}
+        onChange={setManualInputs}
+        selectedReagents={selectedReagents}
+        onReagentsChange={setSelectedReagents}
+        onDemandAmounts={onDemandAmounts}
+        onDemandAmountsChange={setOnDemandAmounts}
+        pointValues={pointValues}
+      />
+
+      {record === null || record.inputs === null ? (
+        <div
+          role="status"
+          data-testid="engine-not-ready"
+          className="rounded-lg border border-dashed border-warning-300 bg-warning-50 p-4 text-sm text-warning-800 dark:border-warning-700 dark:bg-warning-900/20 dark:text-warning-200"
+        >
+          {notReady()}
+        </div>
+      ) : (
+        <CalculatorResults
+          inputs={record.inputs}
+          // Without a dose here (a tank, a dosing set not READY) no reagent is
+          // passed: the volume is then never read.
+          selectedReagents={record.dosing ? selectedReagents : NO_REAGENTS}
+          onDemandAmounts={record.dosing ? onDemandAmounts : NO_AMOUNTS}
+          dosingUnavailable={dosingUnavailable}
+        />
+      )}
+    </div>
+  );
+};
+
+const NO_REAGENTS: string[] = [];
+const NO_AMOUNTS: Record<string, number> = {};
+
+/**
+ * The charts, results and report of one input record — rendered only when the
+ * record is complete (the engine-not-ready guard is the caller's).
+ */
+const CalculatorResults: React.FC<{
+  inputs: WaterChemistryInputs;
+  selectedReagents: string[];
+  onDemandAmounts: Record<string, number>;
+  /** Why no dose is computed here (shown in place of the recipes). */
+  dosingUnavailable: string | undefined;
+}> = ({ inputs, selectedReagents, onDemandAmounts, dosingUnavailable }) => {
   // Convert inputs to engine parameters
   const alkMeq = alkMgToMeq(inputs.alkalinityMg);
 
@@ -151,7 +253,7 @@ const OverviewContent: React.FC = () => {
       ['Fish Type', inputs.fishType, 'Fish Size', inputs.fishSize],
       [
         'Volume',
-        `${inputs.volume} m³`,
+        Number.isNaN(inputs.volume) ? '—' : `${inputs.volume} m³`,
         'Alk Range',
         `${inputs.alkMinMg} - ${inputs.alkMaxMg} mg/L`,
       ],
@@ -215,16 +317,6 @@ const OverviewContent: React.FC = () => {
 
   return (
     <div className="space-y-2" ref={chartAreaRef}>
-      {/* ROW 1: Horizontal Input Bar + Print button */}
-      <InputPanel
-        inputs={inputs}
-        onChange={setInputs}
-        selectedReagents={selectedReagents}
-        onReagentsChange={setSelectedReagents}
-        onDemandAmounts={onDemandAmounts}
-        onDemandAmountsChange={setOnDemandAmounts}
-      />
-
       {/* Print button */}
       <div className="flex justify-end">
         <Button variant="secondary" size="xs" onClick={handlePrintClick}>
@@ -263,7 +355,7 @@ const OverviewContent: React.FC = () => {
       </div>
 
       {/* ROW 3: Results - UIA Status | Calculated Values | Dosing Recipes */}
-      <ResultsPanel outputs={outputs} />
+      <ResultsPanel outputs={outputs} dosingUnavailable={dosingUnavailable} />
     </div>
   );
 };
@@ -272,7 +364,7 @@ const OverviewContent: React.FC = () => {
 // MAIN COMPONENT
 // ============================================================================
 
-type TabId = 'calculator' | 'record' | 'bulk' | 'history' | 'parameters';
+type TabId = 'calculator' | 'record' | 'bulk' | 'history' | 'sources' | 'parameters';
 
 const WaterChemistryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -285,9 +377,11 @@ const WaterChemistryPage: React.FC = () => {
         ? 'bulk'
         : tabParam === 'history'
           ? 'history'
-          : tabParam === 'parameters'
-            ? 'parameters'
-            : 'calculator';
+          : tabParam === 'sources'
+            ? 'sources'
+            : tabParam === 'parameters'
+              ? 'parameters'
+              : 'calculator';
 
   const handleTabChange = (tabId: TabId): void => {
     setSearchParams((prev) => {
@@ -301,6 +395,7 @@ const WaterChemistryPage: React.FC = () => {
     { id: 'record', name: 'Record' },
     ...(canBulk ? [{ id: 'bulk' as TabId, name: 'Bulk' }] : []),
     { id: 'history', name: 'History' },
+    { id: 'sources', name: 'Sources' },
     { id: 'parameters', name: 'Parameters' },
   ];
 
@@ -342,6 +437,7 @@ const WaterChemistryPage: React.FC = () => {
         {activeTab === 'record' && <RecordTab />}
         {activeTab === 'bulk' && canBulk && <BulkRecordTab />}
         {activeTab === 'history' && <HistoryTab />}
+        {activeTab === 'sources' && <SourcesTab />}
         {activeTab === 'parameters' && <ParameterConfigManager />}
       </div>
     </div>

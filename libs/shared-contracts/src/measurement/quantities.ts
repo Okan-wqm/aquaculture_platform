@@ -446,6 +446,26 @@ export function toCanonicalUnit(id: QuantityId, unit: string, value: number): nu
   return conversion === null ? null : value * conversion.factor + (conversion.offset ?? 0);
 }
 
+/** A value in the quantity's canonical unit expressed in `unit`, or null if not convertible. */
+export function fromCanonicalUnit(id: QuantityId, unit: string, value: number): number | null {
+  const conversion = unitConversion(id, unit);
+  return conversion === null ? null : (value - (conversion.offset ?? 0)) / conversion.factor;
+}
+
+/**
+ * A value of the quantity carried from one of its units to another (through
+ * the canonical unit), or null when either unit is not one of the quantity's.
+ */
+export function convertUnit(
+  id: QuantityId,
+  fromUnit: string,
+  toUnit: string,
+  value: number,
+): number | null {
+  const canonical = toCanonicalUnit(id, fromUnit, value);
+  return canonical === null ? null : fromCanonicalUnit(id, toUnit, canonical);
+}
+
 /** Whether a tank may inherit this quantity from its system's source (see QuantityDefinition). */
 export function isLoopHomogeneous(id: QuantityId): boolean {
   const quantity: QuantityDefinition = measuredQuantity(id);

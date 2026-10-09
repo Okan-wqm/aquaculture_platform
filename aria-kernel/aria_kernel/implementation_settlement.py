@@ -42,6 +42,7 @@ from .implementation_rejections import (
     ImplementationSettlement,
     settlement_for_agent_refusal,
     settlement_for_delivery,
+    settlement_for_post_delivery,
     settlement_for_pre_spawn,
 )
 
@@ -51,6 +52,13 @@ ALREADY_SETTLED = "already_settled"
 NOT_AN_IMPLEMENTATION = "not_an_implementation_request"
 FAILED = "failed"
 CLAIMED_IN_FLIGHT = "claimed_in_flight"
+CLAIM_LEASE_EXPIRED = "claim_lease_expired"
+IN_FLIGHT = "in_flight"
+# ARIA-HIGH-389 — request states that hold an unexpired claim lease (or a
+# submission in progress): `agent_invocations.derive_request_state` derives
+# an expired lease STALE. A plan whose request is in one is mid-implementation
+# (mid-delivery, possibly with its PR opening) and is never reaped.
+LIVE_CLAIM_STATES = frozenset({"CLAIMED", "RUNNING"})
 
 
 def _plan_of(request_id: str, base_dir: Path) -> str | None:
@@ -70,7 +78,8 @@ SETTLE_LOCK_ATTEMPTS = 3
 SETTLE_LOCK_BACKOFF_SECONDS = 1.0
 
 
-def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettlement, root: Path) -> dict[str, Any]:
+def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettlement, root: Path,
+                               settleable_states: frozenset[str] | None = None) -> dict[str, Any]:
     import time
 
     from .plan_convergence import PlanLedgerLocked, settle_implementation_rejected
@@ -79,7 +88,7 @@ def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettle
     while True:
         try:
             return settle_implementation_rejected(
-                plan_id=plan_id, settlement=settlement, base_dir=root,
+                plan_id=plan_id, settlement=settlement, base_dir=root, settleable_states=settleable_states,
                 rejected_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             )
         except PlanLedgerLocked:
@@ -89,7 +98,8 @@ def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettle
             attempt += 1
 
 
-def _settle(settlement: ImplementationSettlement, *, base_dir: Path, plan_id: str | None = None) -> dict[str, Any]:
+def _settle(settlement: ImplementationSettlement, *, base_dir: Path, plan_id: str | None = None,
+            settleable_states: frozenset[str] | None = None) -> dict[str, Any]:
     from .ledger import LedgerIntegrityError
     from .plan_convergence import PlanLedgerLocked, PlanStateRefused
     from .tool_registry import append_tools_governance, ensure_tools_dir
@@ -101,7 +111,8 @@ def _settle(settlement: ImplementationSettlement, *, base_dir: Path, plan_id: st
         return {**outcome, "status": NOT_AN_IMPLEMENTATION}
     outcome["plan_id"] = plan_id
     try:
-        written = _settle_with_bounded_retry(plan_id=plan_id, settlement=settlement, root=root)
+        written = _settle_with_bounded_retry(plan_id=plan_id, settlement=settlement, root=root,
+                                             settleable_states=settleable_states)
     except PlanStateRefused as refused:
         return {**outcome, "status": ALREADY_SETTLED, "detail": str(refused)[:200]}
     except (PlanLedgerLocked, LedgerIntegrityError, OSError) as exc:
@@ -147,9 +158,10 @@ def settle_pre_spawn_refusal(*, request_id: str, release_reason: str, base_dir: 
                    base_dir=base_dir)
 
 
-def _wait_of(request: dict[str, Any] | None, *, root: Path) -> tuple[str, bool]:
-    """(cause, still waiting on the lane) for the plan's newest implementation request."""
-    from .agent_invocations import _claims_path, derive_request_state
+def _wait_of(request: dict[str, Any] | None, state: str | None, *, root: Path) -> tuple[str, bool]:
+    """(cause, still waiting on the lane) for the plan's newest implementation
+    request, whose derived ``state`` the caller read once."""
+    from .agent_invocations import _claims_path
     from .implementation_dispatch import implementation_dispatch_refusal
     from .ledger import load_jsonl
     from .outage_causality import WAITING_STATES
@@ -158,7 +170,6 @@ def _wait_of(request: dict[str, Any] | None, *, root: Path) -> tuple[str, bool]:
     if request is None:
         return "no_request", True
     request_id = str(request.get("request_id") or "")
-    state = derive_request_state(request_id=request_id, base_dir=root)
     undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
     if state in WAITING_STATES and undispatchable is not None:
         return undispatchable, True
@@ -168,10 +179,11 @@ def _wait_of(request: dict[str, Any] | None, *, root: Path) -> tuple[str, bool]:
     last = reasoned[-1]["reason"] if reasoned else None
     if last is not None and parse_release_reason(last).fault_domain == "harness":
         return last, True
-    if state == "CLAIMED":
-        # Final review R2 — a claim row carries no reason; a request held by
-        # a live claim at the reap was in flight, not unclaimed.
-        return CLAIMED_IN_FLIGHT, False
+    if state == "STALE":
+        # Final review R2 — a claim row carries no reason; a request whose
+        # claim lease ran out was claimed and lost, not unclaimed. (A LIVE
+        # lease is never reaped: `settle_orphaned_plan`, ARIA-HIGH-389.)
+        return CLAIM_LEASE_EXPIRED, False
     return (last or "unclaimed"), state in WAITING_STATES
 
 
@@ -186,21 +198,114 @@ def settle_orphaned_plan(*, plan_id: str, base_dir: Path) -> dict[str, Any]:
     from .outage_causality import newest_request_id
     from .tool_registry import ensure_tools_dir
 
+    from .agent_invocations import derive_request_state
+    from .implementation_rejections import ORPHAN_REAPED
+    from .plan_convergence import _ORPHAN_PENDING_STATES
+
     root = ensure_tools_dir(base_dir)
     requests = list_agent_invocation_requests(base_dir=root)
     request_id = newest_request_id(requests, plan_id=plan_id, role="implementation")
     request = next((row for row in requests if row.get("request_id") == request_id), None)
-    cause, waiting = _wait_of(request, root=root)
+    # ARIA-HIGH-389 — the reaper ages a plan by its ledger events, which a
+    # delivery in progress does not write: a request under a live lease is
+    # in flight, its PR possibly opening, and is left to its executor.
+    # One derivation per reap: it decides both the lease check and the wait.
+    state = derive_request_state(request_id=request_id, base_dir=root) if request_id else None
+    if state in LIVE_CLAIM_STATES:
+        return {"status": IN_FLIGHT, "plan_id": plan_id, "request_id": request_id,
+                "rejection_class": ORPHAN_REAPED, "cause": CLAIMED_IN_FLIGHT}
+    cause, waiting = _wait_of(request, state, root=root)
+    # Only the orphan states the reaper scanned: a plan RECORDED in between
+    # (its outcome landed, its PR is the merge lane's) is refused.
     return _settle(settlement_for_orphan(request_id=request_id or "", wait_cause=cause, waiting=waiting),
-                   base_dir=root, plan_id=plan_id)
+                   base_dir=root, plan_id=plan_id, settleable_states=_ORPHAN_PENDING_STATES)
+
+
+def hand_over_delivered_implementation(
+    *, request_id: str, cause: str, pr_number: int, pr_url: str, branch: str, branch_tip_sha: str,
+    base_dir: Path,
+) -> dict[str, Any]:
+    """ARIA-HIGH-389 — a result refused AFTER the kernel's delivery opened its PR.
+
+    A retry cannot happen (the published branch collides), so the plan ends
+    here (``implementation_result_refused_after_delivery``, stage
+    ``post_delivery``, the PR's number on the event), and the live PR is
+    handed to a person as its ``human-merge-pr-<n>`` record
+    (``human_merge_surface.record_handed_over_pr``): GitHub-observable, so
+    the cycle's surface resolves it when the PR is merged or closed. The
+    record is written whatever the settlement's status: the PR is open
+    either way. The PR facts are the kernel's delivery's, never the agent's.
+    A person's merge of that PR is not yet folded onto the plan ledger
+    (ARIA-HIGH-390).
+    """
+    from .human_merge_surface import record_handed_over_pr
+    from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+
+    root = ensure_tools_dir(base_dir)
+    outcome = _settle(settlement_for_post_delivery(request_id=request_id, cause=cause, pr_number=pr_number),
+                      base_dir=root)
+    from .agent_invocations import _find_request_by_id
+
+    # The change the kernel minted for this request (its implementation ids),
+    # the same id the PR's `opened` lifecycle row carries.
+    minted = (_find_request_by_id(root, request_id) or {}).get("implementation_ids") or {}
+    try:
+        outcome["handed_over"] = record_handed_over_pr(
+            pr_number=pr_number, pr_url=pr_url, branch=branch, head_sha=branch_tip_sha,
+            change_id=str(minted.get("change_id") or "") or None, plan_id=outcome.get("plan_id"), request_id=request_id, rejection_class=outcome["rejection_class"],
+            cause=outcome["cause"], settlement_status=outcome["status"], base_dir=root,
+        )
+    except (GovernanceError, OSError) as exc:
+        append_tools_governance(
+            root, SETTLEMENT_FAILED_KIND,
+            {**{key: value for key, value in outcome.items() if key != "status"}, "stage_failed": "hand_over",
+             "error_class": type(exc).__name__, "error_message": str(exc)[:500]},
+            bypass_profile_gate=True,
+        )
+        outcome["handed_over"] = None
+    return outcome
+
+
+def rejected_plan_for_change(change_id: str, *, base_dir: Path) -> dict[str, Any] | None:
+    """The settlement that ended the plan which minted ``change_id``, or None
+    while that plan is not IMPLEMENTATION_REJECTED (ARIA-HIGH-389).
+
+    Read by ``human_merge_surface`` for every open ARIA PR (whose ``opened``
+    row carries the change): a PR whose plan ended, by the executor's
+    hand-over or by the orphan reaper after a run that died past its
+    delivery, is a person's, because no merge lane merges from a rejected
+    plan (``merge_authority``). The plan state is the one source; the
+    change is the kernel's mint (the request's ``implementation_ids``).
+    """
+    from .agent_invocations import list_agent_invocation_requests
+    from .ledger import load_jsonl
+    from .plan_convergence import events_path, fold_plan_state
+    from .tool_registry import ensure_tools_dir
+
+    if not change_id:
+        return None
+    root = ensure_tools_dir(base_dir)
+    plan_ids = {str(row.get("convergence_id")) for row in list_agent_invocation_requests(base_dir=root)
+                if row.get("role") == "implementation" and row.get("convergence_id")
+                and (row.get("implementation_ids") or {}).get("change_id") == change_id}
+    for plan_id in sorted(plan_ids):
+        if fold_plan_state(plan_id=plan_id, base_dir=root).get("state") != "IMPLEMENTATION_REJECTED":
+            continue
+        rejected = [row.get("payload") or {} for row in load_jsonl(events_path(root))
+                    if row.get("plan_id") == plan_id and row.get("event_type") == "implementation_rejected"]
+        return {"plan_id": plan_id, **(rejected[-1] if rejected else {})}
+    return None
 
 
 __all__ = [
     "ALREADY_SETTLED",
     "FAILED",
+    "IN_FLIGHT",
     "NOT_AN_IMPLEMENTATION",
     "SETTLED",
     "SETTLEMENT_FAILED_KIND",
+    "hand_over_delivered_implementation",
+    "rejected_plan_for_change",
     "settle_agent_refusal",
     "settle_delivery_refusal",
     "settle_orphaned_plan",

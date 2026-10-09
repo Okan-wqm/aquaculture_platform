@@ -10,7 +10,8 @@ import {
   timeRangeToParams,
   type TimeRangeSpec,
 } from '@aquaculture/shared-contracts';
-import { useTenantQuery } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, useAuth, useTenantQuery } from '@aquaculture/shared-ui';
+import { useQueries } from '@tanstack/react-query';
 
 import { graphqlFetch } from '../config/api';
 import {
@@ -95,7 +96,9 @@ export interface UseChannelSeriesResult {
 }
 
 /**
- * History of every channel of one sensor over a range. A preset ("last 24
+ * History of the channels of one sensor over a range — every channel, or only
+ * `channelKeys` (the server narrows it, so a water-chemistry tile charting one
+ * bound channel does not fetch the sensor's others). A preset ("last 24
  * hours") is re-anchored at now on every fetch and refreshed; a fixed window
  * is fetched once — nothing new arrives in the past.
  */
@@ -103,10 +106,11 @@ export function useChannelSeries(
   sensorId: string | null,
   range: TimeRangeSpec,
   refreshMs: number | false = 60_000,
+  channelKeys: readonly string[] | null = null,
 ): UseChannelSeriesResult {
   const rangeKey = JSON.stringify(timeRangeToParams(range));
   const query = useTenantQuery(
-    ['sensor', 'channel-series', sensorId, rangeKey],
+    ['sensor', 'channel-series', sensorId, rangeKey, channelKeys],
     async () => {
       const window = resolveTimeRange(range, Date.now());
       if (!window.ok) {
@@ -118,6 +122,7 @@ export function useChannelSeries(
         sensorId,
         startTime: new Date(window.startMs).toISOString(),
         endTime: new Date(window.endMs).toISOString(),
+        channelKeys,
       });
       return result.channelSeries;
     },
@@ -134,6 +139,65 @@ export function useChannelSeries(
     fetching: query.isFetching,
     error: query.error ? query.error.message : null,
   };
+}
+
+export interface SensorSeriesRequest {
+  readonly sensorId: string;
+  /** The channels of the sensor to chart (the server narrows the series to them). */
+  readonly channelKeys: readonly string[];
+}
+
+/**
+ * The series of several sensors at once, each narrowed to the channels asked
+ * for it — one request per sensor, however many tiles chart its channels.
+ * Keyed and gated like useChannelSeries (tenant prefix, authenticated only).
+ */
+export function useChannelSeriesBySensor(
+  requests: readonly SensorSeriesRequest[],
+  range: TimeRangeSpec,
+  refreshMs: number | false = 60_000,
+): ReadonlyMap<string, ChannelSeriesResponse> {
+  const { token, tenantId } = useAuth();
+  const authenticatedTenantId = token && tenantId ? tenantId : null;
+  const rangeKey = JSON.stringify(timeRangeToParams(range));
+  return useQueries({
+    queries: requests.map((request) => ({
+      queryKey: createTenantQueryKey(
+        authenticatedTenantId,
+        'sensor',
+        'channel-series',
+        request.sensorId,
+        rangeKey,
+        request.channelKeys,
+      ),
+      queryFn: async (): Promise<ChannelSeriesResponse> => {
+        const window = resolveTimeRange(range, Date.now());
+        if (!window.ok) throw new Error(`Invalid series range: ${window.error}`);
+        const result = await graphqlFetch<ChannelSeriesResult>(CHANNEL_SERIES_QUERY, {
+          sensorId: request.sensorId,
+          startTime: new Date(window.startMs).toISOString(),
+          endTime: new Date(window.endMs).toISOString(),
+          channelKeys: request.channelKeys,
+        });
+        return result.channelSeries;
+      },
+      enabled: authenticatedTenantId !== null,
+      refetchInterval: range.kind === 'relative' ? refreshMs : false,
+      staleTime: 30_000,
+    })),
+    combine: seriesBySensor,
+  });
+}
+
+/** Stable (module-level) so react-query keeps the combined map while the answers are unchanged. */
+function seriesBySensor(
+  results: ReadonlyArray<{ data?: ChannelSeriesResponse }>,
+): ReadonlyMap<string, ChannelSeriesResponse> {
+  const bySensor = new Map<string, ChannelSeriesResponse>();
+  for (const result of results) {
+    if (result.data !== undefined) bySensor.set(result.data.sensorId, result.data);
+  }
+  return bySensor;
 }
 
 export interface UseSeriesDisplayTimeZoneResult {

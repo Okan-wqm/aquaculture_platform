@@ -1700,10 +1700,44 @@ def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
     moved keeps its verdict forever. This phase is that question's only
     production caller: without it the minter would be exactly the
     mechanism-with-no-caller defect the sibling invariant in this change hunts.
-    """
-    from .decision_questioning import open_decision_questioning
 
-    return open_decision_questioning(base_dir=context.base_dir, cycle_id=context.cycle_id)
+    ARIA-HIGH-204 — asking was only half the mechanism. The fold runs right
+    AFTER the mint in the same phase, so the answers previous cycles earned
+    (this cycle's envelopes are answered later, by the executor) land in the
+    outcome ledger every cycle instead of waiting on a caller that never
+    came: an overturn that nothing read was spend without effect.
+
+    SEPARATE ERROR SURFACES (re-review of the fix). The mint and the fold
+    fail for different reasons, and a fold crash must not fail the PHASE:
+    a failed phase here makes every later ``halt_sequence`` phase skip on
+    ``upstream_failure``, so a verdict reader's crash would cost the night
+    its calibration and reflection organs. The fold's exception is caught,
+    recorded (``decision_questioning_fold_failed`` on governance plus the
+    phase outcome), and the mint summary still stands. Nothing is swallowed
+    silently: if even the governance append fails, that failure rides the
+    phase outcome too.
+    """
+    from .decision_questioning import fold_questioning_results, open_decision_questioning
+
+    summary = open_decision_questioning(base_dir=context.base_dir, cycle_id=context.cycle_id)
+    try:
+        summary["fold"] = fold_questioning_results(
+            base_dir=context.base_dir, cycle_id=context.cycle_id,
+        )
+    except Exception as exc:
+        failure: dict[str, Any] = {"status": "failed", "error": str(exc)[:300]}
+        try:
+            append_tools_governance(
+                context.base_dir,
+                "decision_questioning_fold_failed",
+                {"cycle_id": context.cycle_id, "error": str(exc)[:300]},
+            )
+        except Exception as governance_exc:
+            # The audit ledger itself refused the record: carry the failure
+            # in the phase outcome, which the cycle runner persists anyway.
+            failure["governance_error"] = str(governance_exc)[:300]
+        summary["fold"] = failure
+    return summary
 
 def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     """Carry each merge into the impact ledger, then ask what the globs missed.

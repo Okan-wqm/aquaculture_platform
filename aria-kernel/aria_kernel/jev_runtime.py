@@ -8,12 +8,13 @@ the exact bytes that leave. This module only moves those bytes:
 
 * the endpoint is pinned (``https`` and ``api.typesafe.ai``) and checked at
   every call; no caller can name another;
-* no redirect is followed and any 3xx is refused, environment proxies are
-  ignored, and TLS is verified with the default context — the bearer key
-  can reach no other host;
+* the request goes over ``http.client``: no redirect is followed (any 3xx
+  is refused), no environment proxy is read, and TLS is verified with the
+  default context — the bearer key can reach no other host;
 * one monotonic deadline (``TIMEOUT_CEILING_SECONDS``) bounds both attempts
-  together, the body is read in chunks against it, and a reply completing
-  after it is refused; the response is capped by Content-Length and by the read;
+  together; a watchdog shuts the socket at it, the body is read in chunks
+  against it, and a reply completing after it is refused; the response is
+  capped by Content-Length and by the read;
 * the key comes ONLY from the file ``ARIA_JEV_API_KEY_FILE`` names, opened
   without following a symlink and accepted only as a regular file owned by
   this euid with no group/other bits, of a fixed charset — so it can never
@@ -28,10 +29,11 @@ import http.client
 import json
 import os
 import re
+import socket
 import ssl
 import stat
+import threading
 import time
-import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
@@ -129,57 +131,77 @@ def _read_key(environ: Mapping[str, str]) -> str:
     return secret
 
 
-class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
-    """Never follow: the bearer key must reach the pinned host and nothing else."""
-
-    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
-        return None
-
-
-def _pinned_opener() -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(
-        urllib.request.ProxyHandler({}),  # environment proxies are ignored
-        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
-        _RefuseRedirect(),
-    )
-
-
 READ_CHUNK_BYTES = 4096
 
 
-def _urllib_opener(request: urllib.request.Request, timeout_seconds: float) -> tuple[int, bytes]:
-    """One request on the pinned opener, its body read in chunks against ``timeout_seconds`` as a DEADLINE.
+def _http_opener(request: urllib.request.Request, timeout_seconds: float) -> tuple[int, bytes]:
+    """One request over ``http.client``, held to ``timeout_seconds`` as a DEADLINE for the whole exchange.
 
-    A socket timeout bounds each read, not the whole body: a server that
-    trickles a chunk just inside it keeps the call alive indefinitely
-    (measured: a 1 s timeout took 14.1 s). The clock is checked between
-    chunks and a body still arriving at the deadline is refused.
+    ``http.client`` follows no redirect (a 3xx comes back as its status, which
+    ``_attempt`` refuses) and reads no proxy from the environment; TLS is
+    verified with the default context. A socket timeout bounds each read, not
+    the exchange: a server trickling headers or body just inside it held a
+    call for 16.1 s. A watchdog therefore shuts the socket at the deadline,
+    and the body is read in chunks with the clock checked between them; an
+    exchange still running at the deadline is refused.
     """
+    target = urlsplit(request.full_url)
+    if target.scheme == "https":
+        connection: http.client.HTTPConnection = http.client.HTTPSConnection(
+            target.hostname or "", target.port, timeout=timeout_seconds, context=ssl.create_default_context(),
+        )
+    elif target.scheme == "http":  # only ever a local test vendor: _post pins https before any call
+        connection = http.client.HTTPConnection(target.hostname or "", target.port, timeout=timeout_seconds)
+    else:
+        raise _Refused("endpoint_not_pinned")
     deadline = time.monotonic() + timeout_seconds
+    expired = threading.Event()
+
+    def _cut() -> None:
+        expired.set()
+        sock = connection.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    watchdog = threading.Timer(timeout_seconds, _cut)
+    watchdog.daemon = True
+    watchdog.start()
     try:
-        with _pinned_opener().open(request, timeout=timeout_seconds) as response:
-            declared = response.headers.get("Content-Length")
-            if declared is not None and (not declared.strip().isdigit() or int(declared) > MAX_RESPONSE_BYTES):
+        path = target.path or "/"
+        if target.query:
+            path += "?" + target.query
+        connection.request(request.get_method(), path, body=request.data, headers=dict(request.header_items()))
+        response = connection.getresponse()
+        declared = response.getheader("Content-Length")
+        if declared is not None and (not declared.strip().isdigit() or int(declared) > MAX_RESPONSE_BYTES):
+            raise _Refused("response_too_large")
+        chunks: list[bytes] = []
+        received = 0
+        while True:
+            if expired.is_set() or time.monotonic() > deadline:
+                raise _Refused("deadline_exceeded")
+            # read1: what has arrived, up to the chunk size — read(n) on a
+            # buffered response blocks until n bytes or the end.
+            chunk = response.read1(READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            received += len(chunk)
+            if received > MAX_RESPONSE_BYTES:
                 raise _Refused("response_too_large")
-            chunks: list[bytes] = []
-            received = 0
-            while True:
-                if time.monotonic() > deadline:
-                    raise _Refused("deadline_exceeded")
-                # read1: what has arrived, up to the chunk size — read(n) on a
-                # buffered response blocks until n bytes or the end.
-                chunk = response.read1(READ_CHUNK_BYTES)
-                if not chunk:
-                    break
-                received += len(chunk)
-                if received > MAX_RESPONSE_BYTES:
-                    raise _Refused("response_too_large")
-                chunks.append(chunk)
-            return int(response.status), b"".join(chunks)
-    except urllib.error.HTTPError as exc:  # 3xx (not followed), 4xx and 5xx all land here
-        return int(exc.code), b""
-    except (OSError, http.client.HTTPException) as exc:  # URLError names its cause in .reason
-        raise _Refused(f"transport_error:{type(getattr(exc, 'reason', exc)).__name__}", retryable=True) from exc
+            chunks.append(chunk)
+        if expired.is_set():
+            raise _Refused("deadline_exceeded")
+        return int(response.status), b"".join(chunks)
+    except (OSError, http.client.HTTPException) as exc:
+        if expired.is_set():
+            raise _Refused("deadline_exceeded") from exc
+        raise _Refused(f"transport_error:{type(exc).__name__}", retryable=True) from exc
+    finally:
+        watchdog.cancel()
+        connection.close()
 
 
 def _attempt(key: str, body: bytes, *, timeout: float, opener: Opener) -> JevReply:
@@ -250,7 +272,7 @@ def _post(
             gate.record(False)
             return JevUnavailable("deadline_exceeded")
         try:
-            reply = _attempt(key, body, timeout=remaining, opener=opener or _urllib_opener)
+            reply = _attempt(key, body, timeout=remaining, opener=opener or _http_opener)
             if clock() > deadline:
                 # A reply that completed after the deadline is not accepted.
                 raise _Refused("deadline_exceeded")

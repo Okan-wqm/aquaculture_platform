@@ -107,16 +107,26 @@ calls are logged without content. The review found and #1756 fixed:
 
 Re-review, the same day:
 
-- **"Public" now means what the remote `origin` publishes.** A commit is admissible only when an
-  `origin/*` ref contains it after a fetch done per ask. Finding text is read from
-  `origin/main:docs/reviews/_registry/findings.jsonl`, never the working tree. By design there is
-  no second admissible source:
+- **"Public" now means what the public repository publishes.** The checkout's own remote
+  configuration is never consulted: neither `remote.origin.url` nor its refspec. Per ask:
+  - the module fetches from the pinned URL `https://github.com/Okan-wqm/aquaculture_platform.git`
+    with an explicit refspec into `refs/aria-public/heads/*`, using `--prune`, so a locally
+    planted ref there is removed;
+  - before that fetch, `ls-remote --get-url` must return the pinned URL, so no `insteadOf`
+    rewrite can redirect it;
+  - a commit is admissible only when a `refs/aria-public/` ref contains it;
+  - finding text is read from `refs/aria-public/heads/main`, never the working tree.
+
+  By design there is no second admissible source:
   - unpushed work is refused;
   - a stash commit carrying ignored files is refused;
   - an ARIA implementation branch becomes askable once it is pushed (`origin/aria-impl-*`), so a
     `pre_pr_open` question about an unpushed commit is refused.
-- **The response deadline holds.** The body is read in chunks against the deadline, and a reply
-  completing after it is refused.
+
+- **The response deadline holds.** The transport uses `http.client`, which follows no redirect
+  and reads no proxy from the environment. A watchdog shuts the socket at the deadline, so
+  trickled headers cannot hold a call. The body is read in chunks against the deadline, and a
+  reply completing after it is refused.
 - **The transport stays private.** `system_one` binds it under a private alias. The invariant
   test flags any name, attribute, import or importlib string naming it outside the two modules.
 - **More credential-shaped paths are refused:** `credentials*.json`, `service-account*.json`,

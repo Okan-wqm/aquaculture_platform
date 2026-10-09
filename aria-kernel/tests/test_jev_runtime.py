@@ -260,7 +260,7 @@ class TheRealOpener(unittest.TestCase):
     def test_a_redirect_is_never_followed(self) -> None:
         with _Vendor() as sink, _Vendor() as vendor:
             vendor.script = [(302, b"", {"Location": sink.url("/steal")})]
-            status, body = jev_runtime._urllib_opener(urllib.request.Request(vendor.url(), method="GET"), 2.0)
+            status, body = jev_runtime._http_opener(urllib.request.Request(vendor.url(), method="GET"), 2.0)
             self.assertEqual((status, body), (302, b""))
             self.assertEqual(sink.received, [])
 
@@ -270,7 +270,7 @@ class TheRealOpener(unittest.TestCase):
                 "https_proxy": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "no_proxy": "", "NO_PROXY": ""}
         with _Vendor() as vendor, mock.patch.dict(os.environ, dead):
             vendor.script = [(200, _OK_BODY, {})]
-            status, _body = jev_runtime._urllib_opener(urllib.request.Request(vendor.url(), method="GET"), 2.0)
+            status, _body = jev_runtime._http_opener(urllib.request.Request(vendor.url(), method="GET"), 2.0)
             self.assertEqual(status, 200)
             self.assertEqual(len(vendor.received), 1)
 
@@ -297,7 +297,41 @@ class TheRealOpener(unittest.TestCase):
         try:
             started = _time.monotonic()
             with self.assertRaises(jev_runtime._Refused) as caught:
-                jev_runtime._urllib_opener(
+                jev_runtime._http_opener(
+                    urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/", method="GET"), 1.0,
+                )
+            elapsed = _time.monotonic() - started
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(caught.exception.reason, "deadline_exceeded")
+        self.assertLess(elapsed, 2.0)
+
+    def test_trickled_headers_are_cut_at_the_deadline(self) -> None:
+        # Headers arrive one by one inside the socket timeout; only the
+        # watchdog closing the socket ends the exchange (measured before: 16.1 s).
+        import socketserver
+        import time as _time
+
+        class HeaderTrickle(socketserver.StreamRequestHandler):
+            def handle(self) -> None:
+                self.rfile.readline()
+                self.wfile.write(b"HTTP/1.1 200 OK\r\n")
+                for index in range(40):
+                    try:
+                        self.wfile.write(f"X-Slow-{index}: 1\r\n".encode("ascii"))
+                        self.wfile.flush()
+                    except OSError:
+                        return
+                    _time.sleep(0.25)
+
+        server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), HeaderTrickle)
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        try:
+            started = _time.monotonic()
+            with self.assertRaises(jev_runtime._Refused) as caught:
+                jev_runtime._http_opener(
                     urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/", method="GET"), 1.0,
                 )
             elapsed = _time.monotonic() - started
@@ -311,7 +345,7 @@ class TheRealOpener(unittest.TestCase):
         with _Vendor() as vendor:
             vendor.script = [(200, b"x" * (jev_runtime.MAX_RESPONSE_BYTES + 1), {})]
             with self.assertRaises(jev_runtime._Refused) as caught:
-                jev_runtime._urllib_opener(urllib.request.Request(vendor.url(), method="GET"), 2.0)
+                jev_runtime._http_opener(urllib.request.Request(vendor.url(), method="GET"), 2.0)
         self.assertEqual(caught.exception.reason, "response_too_large")
 
 

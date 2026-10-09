@@ -14,9 +14,10 @@ repository code and finding/PR text may leave the host — never tenant data,
 logs, secrets or operator content. A caller therefore never passes TEXT: it
 passes REFERENCES (``StateRef``), and this module builds every state value
 itself from the bound repository — a commit's diff, message, file excerpt or
-symbol outline read with ``git`` at a 40-hex commit a PUBLIC remote ref
-(``origin/*``, fetched per ask) already holds, and a finding's title and rule
-read by id from the registry as ``origin/main`` holds it. A commit only in
+symbol outline read with ``git`` at a 40-hex commit a PUBLIC branch already
+holds (fetched per ask from the pinned public URL into ``refs/aria-public/``,
+never via the checkout's own remote configuration), and a finding's title
+and rule read by id from the registry as the public ``main`` holds it. A commit only in
 this checkout — unpushed work, a stash commit carrying ignored files — is
 refused: a question about an implementation branch is admissible once that
 branch is pushed, never before. A path is
@@ -56,10 +57,14 @@ from .tool_registry import bound_workspace_root, ensure_tools_dir, utc_now
 REGISTRY_RELPATH = ("aria-config", "system-one-questions.json")
 REGISTRY_SCHEMA = "aria/system-one-questions/v1"
 FINDING_REGISTRY_RELPATH = ("docs", "reviews", "_registry", "findings.jsonl")
-#: What "public" means here: the refs the remote ``origin`` publishes.
-PUBLIC_REMOTE = "origin"
-PUBLIC_REMOTE_REFS = f"refs/remotes/{PUBLIC_REMOTE}/"
-PUBLIC_REGISTRY_REF = f"refs/remotes/{PUBLIC_REMOTE}/main"
+#: What "public" means here: the branches the PUBLIC repository publishes,
+#: fetched from this pinned URL — never from `remote.origin.url` or its
+#: refspec, which the checkout's own config controls — into a namespace only
+#: this module writes, pruned on every fetch.
+PUBLIC_REPOSITORY_URL = "https://github.com/Okan-wqm/aquaculture_platform.git"
+PUBLIC_REFS = "refs/aria-public/"
+PUBLIC_REFSPEC = "+refs/heads/*:refs/aria-public/heads/*"
+PUBLIC_REGISTRY_REF = "refs/aria-public/heads/main"
 FINDING_REGISTRY_MAX_CHARS = 64 * 1024 * 1024
 CALLS_SURFACE = "system_one_calls"
 CALLS_RELPATH = ("system-one", "calls.jsonl")
@@ -263,19 +268,38 @@ def _git(workspace: Path, *args: str, max_chars: int = VALUE_MAX_CHARS) -> str:
     return text
 
 
-def _commit(workspace: Path, ref: StateRef) -> str:
-    """``ref.commit`` when a public remote ref already holds it; a refusal otherwise.
+def _fetch_public(workspace: Path) -> None:
+    """Refresh ``refs/aria-public/`` from the pinned public URL; a refusal when that is not what git would reach.
 
-    "Public repository code" is code the remote holds: a commit only in this
-    checkout (unpushed work, a stash commit, which can carry ignored files)
-    never leaves. ``_build_state`` fetches ``origin`` first, so a pushed
-    branch — an ARIA implementation branch under ``origin/aria-impl-*``
-    included — is admissible as soon as it is pushed.
+    A ``url.<x>.insteadOf`` rule can rewrite any URL, so the URL git WOULD
+    contact is read back first (``ls-remote --get-url``) and must be the
+    pinned one. The explicit refspec and ``--prune`` replace the namespace
+    with exactly the public branches: a ref planted there locally is removed.
+    """
+    resolved = _git(workspace, "ls-remote", "--get-url", PUBLIC_REPOSITORY_URL).strip()
+    if resolved != PUBLIC_REPOSITORY_URL:
+        raise _Refusal("public_remote_url_rewritten")
+    try:
+        _git(workspace, "fetch", "--quiet", "--prune", "--no-tags", "--no-recurse-submodules",
+             PUBLIC_REPOSITORY_URL, PUBLIC_REFSPEC)
+    except _Refusal as refusal:
+        raise _Refusal("public_remote_unavailable") from refusal
+
+
+def _commit(workspace: Path, ref: StateRef) -> str:
+    """``ref.commit`` when a public branch already holds it; a refusal otherwise.
+
+    "Public repository code" is code the public repository publishes: a
+    commit only in this checkout (unpushed work, a stash commit, which can
+    carry ignored files) never leaves. ``_build_state`` refreshes
+    ``refs/aria-public/`` from the pinned URL first, so a pushed branch — an
+    ARIA implementation branch ``aria-impl-*`` included — is admissible as
+    soon as it is pushed, and a local ref, however named, never is.
     """
     if not isinstance(ref.commit, str) or not _COMMIT_RE.match(ref.commit):
         raise _Refusal("commit_not_a_sha")
     _git(workspace, "cat-file", "-e", f"{ref.commit}^{{commit}}")
-    holders = _git(workspace, "for-each-ref", "--contains", ref.commit, "--format=%(refname)", PUBLIC_REMOTE_REFS)
+    holders = _git(workspace, "for-each-ref", "--contains", ref.commit, "--format=%(refname)", PUBLIC_REFS)
     if not holders.strip():
         raise _Refusal("commit_not_on_public_remote")
     return ref.commit
@@ -364,10 +388,7 @@ def _build_state(question: Question, refs: Any, workspace: Path) -> dict[str, An
         raise _Refusal("state_shape:not_a_reference")
     # One fetch per ask: admissibility is decided against what the remote
     # publishes NOW (a just-pushed branch counts; a deleted one does not).
-    try:
-        _git(workspace, "fetch", "--quiet", "--prune", PUBLIC_REMOTE)
-    except _Refusal as refusal:
-        raise _Refusal("public_remote_unavailable") from refusal
+    _fetch_public(workspace)
     state = {key: _BUILDERS[key](workspace, refs[key]) for key in question.state_keys}
     if any(not value for value in state.values()):
         raise _Refusal("state_value_empty")

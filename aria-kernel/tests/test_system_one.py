@@ -103,6 +103,10 @@ class _Store(unittest.TestCase):
         subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
         self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.origin)], check=False))
         self.git("remote", "add", "origin", str(self.origin))
+        # The module fetches only from its pinned public URL; here that URL is the bare origin.
+        pinned = mock.patch.object(system_one, "PUBLIC_REPOSITORY_URL", str(self.origin))
+        pinned.start()
+        self.addCleanup(pinned.stop)
         self.base = self.commit_file("src/x.ts", "repo.getRepository(X)\n", "base")
         self.fix = self.commit_file("src/x.ts", "repo.getScopedRepository(X)\n", "scope the repository")
         self.tools = ensure_tools_dir(self.root / "aria-tools")
@@ -263,6 +267,36 @@ class Refusals(_Store):
         self.git("push", "-q", "origin", f"{unpushed}:refs/heads/aria-impl-1")
         self.assertIsInstance(self.ask("J0", self.refs(commit=unpushed, path="src/local.ts"), _Transport(_noul(0.4))),
                               Answer)
+
+    def test_the_checkouts_own_remote_configuration_cannot_make_a_commit_public(self) -> None:
+        # Re-review bypasses: a narrowed refspec with a planted origin/x, the
+        # origin URL pointed at the checkout itself, and that URL plus a
+        # +refs/stash refspec. None of them is consulted.
+        unpushed = self.commit_file("src/local2.ts", "const tenant = 'local';\n", "local only", push=False)
+        self.git("config", "remote.origin.fetch", "+refs/heads/none:refs/remotes/origin/none")
+        self.git("update-ref", "refs/remotes/origin/x", unpushed)
+        self.git("update-ref", "refs/aria-public/heads/planted", unpushed)
+        transport = _Transport()
+        self.assert_refused(self.ask("J0", self.refs(commit=unpushed, path="src/local2.ts"), transport), transport,
+                            "commit_not_on_public_remote")
+        self.reset_rows()
+        self.assertEqual(self.git("for-each-ref", "refs/aria-public/heads/planted"), "")  # pruned
+        self.git("config", "remote.origin.url", str(self.root))
+        self.git("config", "remote.origin.fetch", "+refs/stash:refs/remotes/origin/stash")
+        (self.root / "ignored.local").write_text("tenant debt\n", encoding="utf-8")
+        (self.root / ".gitignore").write_text("aria-tools/\nignored.local\n", encoding="utf-8")
+        self.git("-c", "user.email=t@example.invalid", "-c", "user.name=t", "stash", "push", "-q", "--all")
+        stash_untracked = self.git("rev-parse", "stash@{0}^3")
+        self.git("fetch", "-q", "origin")  # url -> self, refspec -> the stash: origin/stash now "holds" it
+        self.assertNotEqual(self.git("for-each-ref", "--contains", stash_untracked, "refs/remotes/origin/"), "")
+        transport = _Transport()
+        self.assert_refused(self.ask("J0", self.refs(commit=stash_untracked, path="ignored.local"), transport),
+                            transport, "commit_not_on_public_remote")
+
+    def test_a_url_rewrite_of_the_pinned_repository_is_refused(self) -> None:
+        self.git("config", f"url.{self.root}.insteadOf", str(self.origin))
+        transport = _Transport()
+        self.assert_refused(self.ask("J0", self.refs(), transport), transport, "public_remote_url_rewritten")
 
     def test_the_finding_registry_is_read_as_origin_main_holds_it(self) -> None:
         registry = self.root / "docs" / "reviews" / "_registry" / "findings.jsonl"

@@ -421,8 +421,6 @@ export const BulkRecordTab: React.FC = () => {
             options={[
               { value: 'MANUAL', label: 'Manuel' },
               { value: 'LAB_ANALYSIS', label: 'Laboratuvar' },
-              { value: 'SENSOR_AUTOMATIC', label: 'Sensör (otomatik)' },
-              { value: 'SENSOR_TRIGGERED', label: 'Sensör (tetikli)' },
               { value: 'CALIBRATION', label: 'Kalibrasyon' },
             ]}
             value={source}

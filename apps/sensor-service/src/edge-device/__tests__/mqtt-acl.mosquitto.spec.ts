@@ -1,16 +1,15 @@
 import { createServer, type Server } from 'node:http';
-import { pbkdf2Sync, randomBytes } from 'node:crypto';
+import { pbkdf2Sync, randomBytes, randomUUID } from 'node:crypto';
 import { AddressInfo } from 'node:net';
 
 import { ConfigService } from '@nestjs/config';
-import type { DataSource, Repository } from 'typeorm';
 import mqtt from 'mqtt';
-import { collaborator, stubMember } from '@aquaculture/testing';
+import { collaborator } from '@aquaculture/testing';
 
 import { bootMosquittoContainer, type MqttHarness } from '@platform/mqtt-test-harness';
 
 import { DeviceDirectoryService } from '../device-directory.service';
-import { EdgeDevice } from '../entities/edge-device.entity';
+import { DeviceLifecycleState, EdgeDevice } from '../entities/edge-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
 import { SENSOR_SERVICE_SUBSCRIPTION_FILTERS } from '../../ingestion/mqtt-listener.service';
 
@@ -29,6 +28,10 @@ import { SENSOR_SERVICE_SUBSCRIPTION_FILTERS } from '../../ingestion/mqtt-listen
 const RUN = process.env['MQTT_ACL_E2E'] === '1';
 const SECRET = 'test-mosquitto-auth-secret';
 const SENSOR_SERVICE_PASSWORD = 'test-sensor-service-password';
+const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const GATEWAY_PASSWORD = 'test-gateway-password';
+const ACTIVE_GATEWAY = 'edge-aaaaaaaa-pond-01';
+const PENDING_GATEWAY = 'edge-aaaaaaaa-pond-02';
 
 function mosquittoHash(password: string): string {
   const salt = randomBytes(12);
@@ -36,36 +39,36 @@ function mosquittoHash(password: string): string {
   return `$7$101$${salt.toString('base64')}$${derivedKey.toString('base64')}`;
 }
 
+function gateway(mqttClientId: string, lifecycleState: DeviceLifecycleState): EdgeDevice {
+  const device = new EdgeDevice();
+  device.id = randomUUID();
+  device.tenantId = TENANT;
+  device.deviceCode = mqttClientId === ACTIVE_GATEWAY ? 'POND-01' : 'POND-02';
+  device.mqttClientId = mqttClientId;
+  device.mqttPasswordHash = mosquittoHash(GATEWAY_PASSWORD);
+  device.lifecycleState = lifecycleState;
+  return device;
+}
+
 function makeAuthService(): MqttAuthService {
-  const repo = collaborator<Repository<EdgeDevice>>(
-    {
-      findOne: jest.fn(),
-      find: jest.fn(),
-      save: jest.fn(),
-    },
-    'Repository<EdgeDevice>',
-  );
-  const ds = collaborator<DataSource>(
-    { query: stubMember<DataSource['query']>(jest.fn().mockResolvedValue([])) },
-    'DataSource',
-  );
   const cfg = new ConfigService({
     NODE_ENV: 'production',
     MQTT_AUTH_MODE: 'http',
     MQTT_SENSOR_SERVICE_HASH: mosquittoHash(SENSOR_SERVICE_PASSWORD),
     MQTT_AUTH_SECRET: SECRET,
   });
+  const gateways = new Map<string, EdgeDevice>([
+    [ACTIVE_GATEWAY, gateway(ACTIVE_GATEWAY, DeviceLifecycleState.ACTIVE)],
+    [PENDING_GATEWAY, gateway(PENDING_GATEWAY, DeviceLifecycleState.PENDING_APPROVAL)],
+  ]);
   const directory = {
-    lookupTenantId: jest.fn().mockResolvedValue(null),
-    backfill: jest.fn().mockResolvedValue(undefined),
-    upsert: jest.fn().mockResolvedValue(undefined),
-    remove: jest.fn().mockResolvedValue(undefined),
+    findDevice: jest.fn(async (_column: string, value: string) => gateways.get(value) ?? null),
   };
   const directoryCollaborator = collaborator<DeviceDirectoryService>(
     directory,
     'DeviceDirectoryService',
   );
-  return new MqttAuthService(cfg, repo, ds, directoryCollaborator);
+  return new MqttAuthService(cfg, directoryCollaborator);
 }
 
 /** Minimal stand-in for MqttAuthController's three go-auth endpoints. */
@@ -81,9 +84,9 @@ function startAuthBackend(service: MqttAuthService): Promise<{ server: Server; p
       };
       try {
         // Controller semantics (validateMosquittoSecret): a PRESENT header
-        // must match; an absent header is tolerated. go-auth 3.0.0 does not
-        // forward auth_opt_http_headers on the auth call, so absence is the
-        // normal production path too.
+        // must match; an absent header is tolerated. go-auth 3.0.0 parses no
+        // header option at all, so absence is the production path
+        // (SENSOR-MEDIUM-174).
         const header = req.headers['x-mosquitto-auth'];
         if (typeof header === 'string' && header !== SECRET) {
           res.writeHead(403);
@@ -95,6 +98,7 @@ function startAuthBackend(service: MqttAuthService): Promise<{ server: Server; p
             await service.verifyDeviceCredentials(
               String(body.username ?? ''),
               String(body.password ?? ''),
+              typeof body.clientid === 'string' ? body.clientid : undefined,
             ),
           );
         } else if (req.url === '/mqtt/superuser') {
@@ -188,6 +192,46 @@ function subscribeGrants(
     it('denies the broad tenants/+/devices/+/# wildcard (SEC-MEDIUM-130 preserved)', async () => {
       // mqtt.js v5 surfaces a SUBACK 0x80 as a rejected subscribe promise.
       await expect(subscribeGrants(client!, ['tenants/+/devices/+/#'])).rejects.toThrow();
+    });
+
+    it('refuses known-good gateway credentials under a foreign client ID right after a grant (no plugin auth cache)', async () => {
+      // go-auth keys its auth cache on username+password only. With the cache
+      // that production used to run (5 s), this second CONNECT was answered
+      // from the cache and the client-ID binding (SENSOR-HIGH-144) never ran.
+      const own = await mqtt.connectAsync(`mqtt://${harness!.host}:${harness!.port}`, {
+        username: ACTIVE_GATEWAY,
+        password: GATEWAY_PASSWORD,
+        clientId: `${ACTIVE_GATEWAY}-POND-01`,
+        clean: true,
+        connectTimeout: 10_000,
+        reconnectPeriod: 0,
+      });
+      expect(own.connected).toBe(true);
+      await own.endAsync();
+
+      await expect(
+        mqtt.connectAsync(`mqtt://${harness!.host}:${harness!.port}`, {
+          username: ACTIVE_GATEWAY,
+          password: GATEWAY_PASSWORD,
+          clientId: 'aqua-sensor-service-main',
+          clean: true,
+          connectTimeout: 10_000,
+          reconnectPeriod: 0,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('refuses a PENDING_APPROVAL gateway that holds a valid password', async () => {
+      await expect(
+        mqtt.connectAsync(`mqtt://${harness!.host}:${harness!.port}`, {
+          username: PENDING_GATEWAY,
+          password: GATEWAY_PASSWORD,
+          clientId: `${PENDING_GATEWAY}-POND-02`,
+          clean: true,
+          connectTimeout: 10_000,
+          reconnectPeriod: 0,
+        }),
+      ).rejects.toThrow();
     });
 
     it('delivers a published sensor message through sensors/# end-to-end', async () => {

@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { WidgetConfig } from '../components/dashboard/types';
+import { parseWidgetTimeRange, WidgetConfig } from '../components/dashboard/types';
 import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
 
 // API base URL
@@ -170,6 +170,21 @@ const SET_AS_DEFAULT_MUTATION = `
   }
 `;
 
+/**
+ * A layout as the page may use it. The widgets column is JSON; layouts stored
+ * before the save API checked ranges can carry a range no chart resolves, so
+ * each widget's range is parsed here, where the data enters the page.
+ */
+function withParsedTimeRanges(layout: DashboardLayout): DashboardLayout {
+  return {
+    ...layout,
+    widgets: (layout.widgets ?? []).map((widget) => ({
+      ...widget,
+      timeRange: parseWidgetTimeRange(widget.timeRange),
+    })),
+  };
+}
+
 // ============================================================================
 // GraphQL Fetch Helper
 // ============================================================================
@@ -221,7 +236,7 @@ export function useDashboardLayout() {
       const result = await graphqlFetch<{ dashboardLayouts: DashboardLayout[] }>(
         GET_LAYOUTS_QUERY
       );
-      setLayouts(result.dashboardLayouts || []);
+      setLayouts((result.dashboardLayouts || []).map(withParsedTimeRanges));
     } catch (err) {
       console.error('Failed to fetch layouts:', err);
       setLayouts([]);
@@ -241,7 +256,7 @@ export function useDashboardLayout() {
       );
 
       if (result.myDefaultLayout) {
-        setCurrentLayout(result.myDefaultLayout);
+        setCurrentLayout(withParsedTimeRanges(result.myDefaultLayout));
       } else {
         // No layout found - start with empty
         setCurrentLayout(null);
@@ -268,7 +283,7 @@ export function useDashboardLayout() {
       );
 
       if (result.dashboardLayout) {
-        setCurrentLayout(result.dashboardLayout);
+        setCurrentLayout(withParsedTimeRanges(result.dashboardLayout));
       }
     } catch (err) {
       setError((err as Error).message);
@@ -291,7 +306,7 @@ export function useDashboardLayout() {
       );
 
       const savedLayout = result.saveDashboardLayout;
-      setCurrentLayout(savedLayout);
+      setCurrentLayout(withParsedTimeRanges(savedLayout));
 
       // Refresh layouts list
       await fetchLayouts();

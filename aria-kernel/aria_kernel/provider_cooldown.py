@@ -32,15 +32,38 @@ cooldown that silently cooled nothing would re-admit an exhausted provider.
 `genesis_policy._AdaptiveRuntimePolicy.provider_cooldown_seconds` existed
 with no reader before this module; `provider_cooldown_seconds` is the one
 accessor for that duration.
+
+ARIA-HIGH-290 (2026-10-01, the weekly limit read as `claude_exit_1` on 27 of
+30 drained requests): a cooldown is written for a SIGNATURE from the closed
+table below — never for free text — with the reset the vendor's own message
+states when it states one (`stated_reset`), and ONCE per transition: while a
+provider's cooldown stands, a further exhaustion returns the standing row and
+writes nothing, so the ledger says when the provider went away, not how many
+requests noticed.
+
+ARIA-HIGH-366 (2026-10-07) — a cooldown is the probe BACK-OFF of an outage, not
+the outage: every cooldown written here also opens the ``(provider, kind)``
+outage in ``provider_outage_ledger`` (once per transition, one HUMAN_REQUIRED item),
+so no detection seam can cool a provider and leave the outage unrecorded. Two
+kinds join quota and auth: ``logged_out`` (the admission's
+``managed_session_logged_out`` / ``cli_reported_not_logged_in`` — 73 silent
+releases on 2026-09-18/19) and ``unreachable`` (HTTP 429, overload, network).
+While the outage stands the back-off doubles per re-probe up to
+``MAX_REPROBE_SECONDS``: a dead credential re-probed every 900 s wrote 96
+rows a day that said nothing new.
 """
 from __future__ import annotations
 
+import calendar
+import math
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .genesis_policy import _AdaptiveRuntimePolicy, _adaptive_runtime_policy
-from .ledger import load_jsonl
+from .ledger import load_jsonl, state_transaction
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, tools_dir
 
 PROVIDER_COOLDOWN_GOVERNANCE_KIND = "provider_quota_cooldown"
@@ -48,6 +71,45 @@ PROVIDER_COOLDOWN_GOVERNANCE_KIND = "provider_quota_cooldown"
 # `runtime_attempt_finished` row uses for the exhausted attempt itself.
 PROVIDER_COOLDOWN_REASON = "quota_unavailable"
 PROVIDER_COOLDOWN_SCHEMA_VERSION = 1
+
+# ARIA-HIGH-290 — the closed set of provider-exhaustion signatures: the
+# vendor wire shapes a runtime detector may name, the provider each is a fact
+# about, and whether it is a quota or a credential fact. The detectors live
+# with their transports (`claude_runtime.CLAUDE_EXHAUSTION_SIGNATURES`,
+# `zai_runtime.ZaiRunResult.exhaustion_signature`, `codex_runtime`); this
+# table is what a cooldown may be written for, so a detection that names no
+# member — or names another vendor's — is refused at the writer.
+EXHAUSTION_KIND_REASONS: dict[str, str] = {
+    "quota": PROVIDER_COOLDOWN_REASON, "auth": "auth_unavailable",
+    "logged_out": "logged_out", "unreachable": "provider_unreachable",
+}
+PROVIDER_EXHAUSTION_SIGNATURES: dict[str, tuple[str, str]] = {
+    "claude_usage_limit_notice": ("anthropic", "quota"),  # "You've hit your weekly limit · resets 6am (UTC)"
+    "claude_usage_credits_hint": ("anthropic", "quota"),  # "... Run /usage-credits ... switch models with /model"
+    "claude_credit_error": ("anthropic", "quota"),        # credit balance / quota exceeded on a failed run
+    "claude_auth_failure": ("anthropic", "auth"),         # expired OAuth session, "Please run /login"
+    "zai_quota_refusal": ("zai", "quota"),                # HTTP 429/402, vendor codes 1113/1302/1303/1305
+    "zai_auth_refusal": ("zai", "auth"),                  # HTTP 401/403, vendor codes 1000-1004
+    "codex_quota_marker": ("openai", "quota"),
+    "codex_auth_marker": ("openai", "auth"),
+    "claude_logged_out": ("anthropic", "logged_out"),    # `claude auth status`: loggedIn false
+    "codex_logged_out": ("openai", "logged_out"),        # `codex login status`: Not logged in
+    "claude_unreachable": ("anthropic", "unreachable"),  # API 429 / 529 overload / connection error
+    "zai_unreachable": ("zai", "unreachable"),           # HTTP transport timeout / DNS / connection
+}
+# The re-probe back-off ceiling while an outage stands (ARIA-HIGH-366): the
+# operator's fix is noticed within an hour, and a standing outage writes at
+# most 24 back-off rows a day instead of 96.
+MAX_REPROBE_SECONDS = 3600
+# The longest window a vendor states a reset for is the weekly limit. A
+# parsed reset further out, already past, or in a zone this host cannot name
+# is not a shape the table knows: the policy's declared duration applies.
+MAX_STATED_RESET_SECONDS = 7 * 24 * 3600
+_STATED_RESET_RX = re.compile(
+    r"\bresets\s+(?:(?P<month>[A-Za-z]{3})\s+(?P<day>\d{1,2}),\s*)?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?"
+    r"\s*(?P<meridiem>am|pm)\s*\((?P<zone>[A-Za-z0-9_/+\-]+)\)",
+    re.IGNORECASE,
+)
 
 # The row contract, as data: every non-empty string field a reader indexes
 # (`native_admission._native_runtime_admission`, `worker_dispatch_hook`), the
@@ -95,6 +157,47 @@ def provider_cooldown_seconds(repo_root: str | Path) -> int:
     return _AdaptiveRuntimePolicy.provider_cooldown_seconds
 
 
+def stated_reset(text: str, *, now: datetime) -> datetime | None:
+    """The instant a vendor's limit notice says the quota comes back, or None.
+
+    Reads ``resets 6am (UTC)`` (the next such hour in that zone) and
+    ``resets Aug 23, 10am (UTC)`` (that date, in the coming year when the
+    date is already past). None for no reset phrase, an unknown zone, an
+    impossible clock or date, or an instant outside ``(now, now +
+    MAX_STATED_RESET_SECONDS]`` — the caller then applies the declared default.
+    """
+    match = _STATED_RESET_RX.search(text)
+    if match is None:
+        return None
+    zone_name = match["zone"]
+    try:
+        zone = timezone.utc if zone_name.upper() == "UTC" else ZoneInfo(zone_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+    hour, minute = int(match["hour"]), int(match["minute"] or 0)
+    if not 1 <= hour <= 12 or minute > 59:
+        return None
+    hour = hour % 12 + (12 if match["meridiem"].lower() == "pm" else 0)
+    local_now = now.astimezone(zone)
+    try:
+        if match["month"]:
+            month = [name.lower() for name in calendar.month_abbr].index(match["month"].lower())
+            candidate = datetime(local_now.year, month, int(match["day"]), hour, minute, tzinfo=zone)
+            if candidate <= local_now:
+                candidate = candidate.replace(year=local_now.year + 1)
+        else:
+            candidate = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if candidate <= local_now:
+                candidate += timedelta(days=1)
+    except ValueError:
+        # "resets Feb 30, ..." or a month abbreviation calendar does not know.
+        return None
+    instant = candidate.astimezone(timezone.utc)
+    if not now < instant <= now + timedelta(seconds=MAX_STATED_RESET_SECONDS):
+        return None
+    return instant
+
+
 def record_provider_cooldown(
     base_dir: str | Path | None,
     *,
@@ -106,27 +209,77 @@ def record_provider_cooldown(
     detection: dict[str, Any],
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Append the cooldown row and return it (with its ledger envelope).
+    """Cool `provider` for the signature `detection` names; return the row that stands.
 
-    `detection` is the runtime's own credit-exhaustion record (which marker
-    matched, on which stream) — kept on the row so the operator can tune the
-    marker set from production evidence without a second ledger.
+    `detection` is the runtime's own record and must name a member of
+    `PROVIDER_EXHAUSTION_SIGNATURES` attributed to `provider`; it is kept on
+    the row so the operator tunes the table from production evidence. The
+    window ends at the reset the record's `reset_hint` states, else after
+    `cooldown_seconds` (`until_source` says which). Once per transition: the
+    read and the append share one ledger transaction, and while a cooldown
+    for `provider` stands its row is returned and nothing is written.
     """
     if cooldown_seconds <= 0:
         raise ValueError(f"provider_cooldown_seconds must be positive, got {cooldown_seconds!r}")
+    signature = detection.get("signature")
+    member = PROVIDER_EXHAUSTION_SIGNATURES.get(signature) if isinstance(signature, str) else None
+    if member is None or member[0] != provider:
+        raise GovernanceError(f"provider_cooldown_signature_unknown:{provider}:{signature!r}")
     started = now or _utc_now()
-    return append_tools_governance(ensure_tools_dir(base_dir), PROVIDER_COOLDOWN_GOVERNANCE_KIND, {
+    hint = detection.get("reset_hint")
+    reset = stated_reset(hint, now=started) if isinstance(hint, str) else None
+    until = reset or started + timedelta(seconds=int(cooldown_seconds))
+    root = ensure_tools_dir(base_dir)
+    governance = root / "governance.jsonl"
+    with state_transaction([governance]) as transaction:
+        rows = transaction.load_declared_jsonl(governance, expected_surface="tools_governance")
+        standing = [row for row in rows if row.get("kind") == PROVIDER_COOLDOWN_GOVERNANCE_KIND
+                    and _validated_cooldown(row)["provider"] == provider]
+        if standing and _parse_iso(standing[-1]["details"]["until"]) > started:
+            row = standing[-1]
+        else:
+            if reset is None:
+                until = started + timedelta(seconds=_reprobe_seconds(
+                    rows, standing, provider=provider, kind=member[1], base=int(cooldown_seconds)))
+            row = _append_cooldown(root, transaction, provider=provider, model=model, kind=member[1],
+                                   started=started, until=until, reset=reset, request_id=request_id,
+                                   claim_id=claim_id, detection=detection)
+    from .provider_outage_ledger import open_provider_outage
+
+    open_provider_outage(base_dir, provider=provider, kind=member[1], detection=detection,
+                         request_id=request_id, claim_id=claim_id, now=started)
+    return row
+
+
+def _reprobe_seconds(rows: list[dict[str, Any]], standing: list[dict[str, Any]], *, provider: str,
+                     kind: str, base: int) -> int:
+    """The policy window, doubled per back-off already written in the standing outage."""
+    from .provider_outage_ledger import _fold
+
+    opened = next((i.opened_at for i in _fold(rows)
+                   if i.provider == provider and i.kind == kind and i.closed_at is None), None)
+    if opened is None:
+        return base
+    written = sum(1 for row in standing if _parse_iso(row["details"]["recorded_at"]) >= opened)
+    return max(base, min(MAX_REPROBE_SECONDS, base * 2 ** written))
+
+
+def _append_cooldown(root: Path, transaction: Any, *, provider: str, model: str, kind: str,
+                     started: datetime, until: datetime, reset: datetime | None, request_id: str,
+                     claim_id: str, detection: dict[str, Any]) -> dict[str, Any]:
+    return append_tools_governance(root, PROVIDER_COOLDOWN_GOVERNANCE_KIND, {
         "schema_version": PROVIDER_COOLDOWN_SCHEMA_VERSION,
         "provider": provider,
         "model": model,
-        "reason": PROVIDER_COOLDOWN_REASON,
-        "cooldown_seconds": int(cooldown_seconds),
+        "reason": EXHAUSTION_KIND_REASONS[kind],
+        "cooldown_seconds": max(1, math.ceil((until - started).total_seconds())),
         "recorded_at": _iso(started),
-        "until": _iso(started + timedelta(seconds=int(cooldown_seconds))),
+        "until": _iso(until),
+        "until_source": "stated_reset" if reset is not None else "policy_default",
         "request_id": request_id,
         "claim_id": claim_id,
         "detection": detection,
-    })
+    }, transaction=transaction)
 
 
 def _malformed(row: dict[str, Any], field: str) -> GovernanceError:
@@ -146,7 +299,7 @@ def _validated_cooldown(row: dict[str, Any]) -> dict[str, Any]:
         value = details.get(field)
         if not isinstance(value, str) or not value:
             raise _malformed(row, field)
-    if details["reason"] != PROVIDER_COOLDOWN_REASON:
+    if details["reason"] not in EXHAUSTION_KIND_REASONS.values():
         raise _malformed(row, "reason")
     for field in ("recorded_at", "until"):
         if _parse_iso(details[field]) is None:
@@ -208,6 +361,10 @@ def provider_cooldown_for_claim(
 
 
 __all__ = [
+    "EXHAUSTION_KIND_REASONS",
+    "MAX_REPROBE_SECONDS",
+    "MAX_STATED_RESET_SECONDS",
+    "PROVIDER_EXHAUSTION_SIGNATURES",
     "PROVIDER_COOLDOWN_GOVERNANCE_KIND",
     "PROVIDER_COOLDOWN_REASON",
     "PROVIDER_COOLDOWN_SCHEMA_VERSION",
@@ -215,4 +372,5 @@ __all__ = [
     "provider_cooldown_for_claim",
     "provider_cooldown_seconds",
     "record_provider_cooldown",
+    "stated_reset",
 ]

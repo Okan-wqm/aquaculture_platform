@@ -49,7 +49,7 @@ from aria_kernel.pr_manager import PERIMETER_REFUSED_PREFIX, open_pr_for_action
 from aria_kernel.proposal import get_proposal
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
-from tests._helpers.git_fixtures import make_repo_with_initial_commit
+from tests._helpers.git_fixtures import implementer_identity_args, make_repo_with_initial_commit
 from tests.test_implementation_lifecycle_continuity import (
     converging_plan_content,
     drive_plan_to_converged,
@@ -130,7 +130,8 @@ class ImplementerMergeSeamTests(unittest.TestCase):
         (self.repo / SOURCE).write_text("export const sampleIntervalMs = 30000;\n", encoding="utf-8")
         self._git("add", SOURCE)
         message = subject + "\n\nWHY: the plan says so.\n" + (f"\n{trailer}\n" if trailer else "")
-        self._git("commit", "-q", "-m", message)
+        # The implementer's commit, as the hold's identity (ARIA-HIGH-387).
+        self._git(*implementer_identity_args(), "commit", "-q", "-m", message)
         with _fake_child_process(validation_module):
             gated = run_apply_gate(proposal_id=ids["proposal_id"], change_id=ids["change_id"],
                                    base_dir=self.tools, runner_identity="ci-executor:gha-test")
@@ -223,7 +224,7 @@ class ImplementerMergeSeamTests(unittest.TestCase):
             open_pr_for_action(proposal_id=proposal_id, workspace_root=self.repo, base_dir=self.tools, dry_run=True)
         # Rewrite the branch's one commit with the derived trailer: the same
         # diff, the trailer the contract printed, and the perimeter opens it.
-        self._git("commit", "-q", "--amend", "-m",
+        self._git(*implementer_identity_args(), "commit", "-q", "--amend", "--reset-author", "-m",
                   "fix(farm-service): halve the sample interval\n\nWHY: the plan says so.\n\n" + row["commit_contract"]["trailer"])
         with _fake_child_process(validation_module):
             run_apply_gate(proposal_id=proposal_id, change_id=row["implementation_ids"]["change_id"],

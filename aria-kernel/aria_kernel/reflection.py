@@ -5,8 +5,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .agent_eval import observe_agent_performance
 from .governance_reader import read_governance_rows
 from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
+from .provider_outage_ledger import render_outage_section
+from .request_admission_report import admission_cycle_summary, render_request_admission_section
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -62,6 +65,11 @@ def run_reflection(
     if base_dir is not None:
         base_dir = Path(base_dir).resolve()
     root = ensure_tools_dir(base_dir)
+    # ARIA-HIGH-285 — agent_eval's real mode on every cycle path: each finished
+    # drafter / implementer episode becomes a procedural `performance_observed`
+    # event; with no plan ledger the refusal is named in governance. It runs
+    # BEFORE the reads below so this row's summaries include what it wrote.
+    agent_performance = observe_agent_performance(base_dir=root, cycle_id=cycle_id)
     # Plan 026R §A.2 — hot-path consumers move from `load_jsonl` (silent
     # accept of tampered / hashless rows) to `load_jsonl_verified` which
     # raises `LedgerIntegrityError` on chain mismatch, missing
@@ -89,7 +97,16 @@ def run_reflection(
     beliefs = _latest_by_id(
         load_jsonl_verified(root / "memory" / "beliefs.jsonl"), "belief_id"
     )
-    top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
+    ranked_pressures = pressure_payload.get("pressures", []) if isinstance(pressure_payload.get("pressures"), list) else []
+    top_pressures = ranked_pressures[:3]
+    # ARIA-HIGH-384 review — the next cycle plans the top three pressures an
+    # agent can be handed evidence for; one with none (a PR, a ledger as its
+    # only origin) is passed over by name instead of taking a slot the drain
+    # can only consume as unevidenced. `top_pressures` stays the report's
+    # ranking, so the operator still sees it.
+    from .pressure_evidence import select_schedulable_pressures
+
+    planned_pressures, skipped_pressures = select_schedulable_pressures(ranked_pressures, slots=3)
     committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
     human_required = _human_required_summary(root)
     phase_digest_summary = _phase_digest_summary(root)
@@ -166,6 +183,10 @@ def run_reflection(
         # in agent-result-bridge-status.jsonl. This is that ledger's first
         # reader.
         "bridge_health": _compute_bridge_health(root),
+        # ARIA-HIGH-364 — what the request-admission door measured and
+        # decided this cycle (drain, budget, per-role admitted/throttled).
+        "request_admission": admission_cycle_summary(root, cycle_id),
+        "agent_performance": agent_performance,
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -176,8 +197,9 @@ def run_reflection(
                 # laundered the blocked state back into schedulable work.
                 "blocked_by": item.get("blocked_by", []),
             }
-            for item in top_pressures
+            for item in planned_pressures
         ],
+        "next_cycle_skipped": skipped_pressures,
     }
     if memory_learning_result is not None:
         reflection["memory_learning"] = memory_learning_result
@@ -193,6 +215,16 @@ def run_reflection(
     # writer side (queue-bloat protection — orchestrator drain is the
     # only sink). Pressure_id is the queue's idempotency key surface.
     from .next_cycle_queue import append_pending as _enqueue_next_cycle
+    from .tool_registry import append_tools_governance_once
+
+    # Every cycle's row carries `next_cycle_skipped`; governance names each
+    # standing skip once (ORPHAN-MEDIUM-730: a pressure passed over every
+    # night is one fact, not one row per night).
+    for skipped in skipped_pressures:
+        append_tools_governance_once(
+            root, "next_cycle_pressure_skipped", {"cycle_id": cycle_id, **skipped},
+            claim_keys=("pressure_id", "reason"),
+        )
     for item in reflection.get("next_cycle_plan", []):
         pressure_id = item.get("pressure_id")
         if not isinstance(pressure_id, str) or not pressure_id:
@@ -352,54 +384,30 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
                     tier = "escalated"
             item["sla_tier"] = tier
             tiers[tier] = tiers.get(tier, 0) + 1
-    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers}
+    # ARIA-HIGH-373 — the five-most-urgent cut above would hide a human-merge
+    # PR behind older escalations; those are listed in full, in their section.
+    from .human_required import HUMAN_MERGE_PR_KIND
+
+    human_merge = [item for item in items if (item.get("context") or {}).get("kind") == HUMAN_MERGE_PR_KIND]
+    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers,
+            "human_merge": human_merge}
 
 
-def _normalize_finding_status(row: dict[str, Any]) -> str | None:
-    """Plan ARIA-V3.1 §2b — schema normalization for finding rows.
+def _summarize_findings(repo_root: Path) -> dict[str, Any]:
+    """The report's findings summary, from the finding-event fold.
 
-    Pre-V3.1 the corpus carries TWO schema variants:
-      * F-001..F-007 use ``status: "OPEN" | "WITHDRAWN" | "RESOLVED"``
-      * F-008..F-009 use ``state: "OPEN" | "RESOLVED"``
-    Both encode the same state-machine vocabulary; the aggregator
-    must read whichever field is populated. The normalised value is
-    written back to ``row["status"]`` so downstream consumers see one
-    field regardless of source schema.
+    ARIA-MEDIUM-330 — the fold (``finding.fold_findings``) is the one
+    authority for which findings exist and what state each is in. This
+    reader used to glob ``F-*.json``: a file is frozen at mint and never
+    sees a status change, and the runner store also holds F-101/F-102,
+    which the pre-ORPHAN-702 seeder wrote beside the ledger, so the report
+    counted 18 findings over a ledger that emitted 16. The fold is read
+    strictly, as every ledger this report reads is: a ledger that cannot
+    be verified fails the report rather than shrinking it.
     """
-    status = row.get("status")
-    if status is None:
-        status = row.get("state")
-    if status is not None:
-        row["status"] = status
-    return status
+    from .finding import fold_findings
 
-
-def _scan_findings_filesystem(findings_dir: Path) -> dict[str, Any]:
-    """Plan ARIA-V3.1 §2b — single-SSoT filesystem scan.
-
-    The previous ``_index.json`` snapshot pattern accumulated drift
-    (F-008 + F-009 invisible to the daily report; DEBT-001 stuck at
-    OPEN seven days after retirement). V3.1 pivots: each ``F-*.json``
-    file IS the authoritative state; the aggregator re-derives the
-    summary on every reflection cycle. ``_index.json`` remains for
-    external-tool consumption but is NEVER on the critical path.
-    """
-    empty = {"total": 0, "open": 0, "recent": []}
-    if not findings_dir.exists() or not findings_dir.is_dir():
-        return dict(empty)
-    rows: list[dict[str, Any]] = []
-    for path in sorted(findings_dir.glob("F-*.json")):
-        # Plan ARIA-V3.1 §2b — _index.json is gitignored from the
-        # scan (its filename does not match F-*.json), so a
-        # mistakenly-named index file cannot pollute the corpus.
-        try:
-            row = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(row, dict):
-            continue
-        _normalize_finding_status(row)
-        rows.append(row)
+    rows = list((fold_findings(repo_root) or {}).values())
     # E15-b — findings grouped by microservice (operator direction:
     # reports and missions speak in service terms). Legacy docs derive
     # their dimension at read time through the same seam the mint uses.
@@ -487,11 +495,11 @@ def _committed_findings_and_debts(
     fresh-run daily report under-reported by 2 findings + showed
     a retired debt as still open).
 
-    V3.1 pivots: each ``F-*.json`` and ``DEBT-*.json`` file IS the
-    authoritative state. The aggregator re-derives the summary
-    from a filesystem scan on every reflection cycle. The cost is
-    O(file count) per cycle (≤30 files in practice); the gain is
-    a single SSoT with no index-sync debt.
+    V3.1 pivots: each ``DEBT-*.json`` file IS the authoritative state,
+    re-derived on every reflection cycle with no index-sync debt.
+    Findings come from the finding-event fold (ARIA-MEDIUM-330): an
+    ``F-*.json`` is frozen at mint, so the file scan V3.1 chose for them
+    never saw a status change and counted files no event emitted.
 
     ``repo_root_override`` lets a worktree-aware caller (e.g.
     cycle.py running on snowball when tools-dir was first bound by
@@ -510,9 +518,8 @@ def _committed_findings_and_debts(
     # so under a redirected state root the report said "no committed
     # findings yet" over a directory that existed somewhere else.
     from .debt import debts_dir
-    from .finding import findings_dir
 
-    findings_summary = _scan_findings_filesystem(findings_dir(repo_root))
+    findings_summary = _summarize_findings(repo_root)
     debts_summary = _scan_debts_filesystem(debts_dir(repo_root))
     return {"findings": findings_summary, "debts": debts_summary}
 
@@ -1432,6 +1439,12 @@ def _render_memory_learning_section(reflection: dict[str, Any]) -> list[str]:
     ]
 
 
+def _human_merge_lines(items: list[dict[str, Any]]) -> list[str]:
+    from .human_merge_surface import daily_report_lines
+
+    return daily_report_lines(items)
+
+
 def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Path | None = None) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
@@ -1475,8 +1488,14 @@ def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Pa
             ]
             or ["- (no operator-triage queue items)"]
         ),
+        # ARIA-HIGH-373 — the ARIA PRs waiting on a person's merge, each with
+        # its URL, CI state and why the merge lane cannot merge it.
+        *_human_merge_lines(hr.get("human_merge") or []),
         "",
         *_render_deadlines_section(root, repo_root),
+        # ARIA-HIGH-366 — every outage interval of the week, open or restored:
+        # the operator reads when ARIA paused and why, not a stall finding.
+        *render_outage_section(root),
         "## Coverage",
         "",
         f"- Git tracked: {file_counts.get('git_tracked', 0)}",
@@ -1508,6 +1527,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Pa
         *_render_experiment_night_section(reflection),
         *_render_watchdog_section(reflection),
         *_render_bridge_health_section(reflection),
+        *render_request_admission_section(reflection),
         "",
         "## Tool Health",
         "",

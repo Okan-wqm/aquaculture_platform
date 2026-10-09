@@ -1,15 +1,18 @@
 /**
  * Get System Water Quality Chart Query Handler — fail-closed tenant boundary.
- * Resolves the system's tanks then returns their measurements in the window.
+ * Resolves the system's tanks then returns their measurements in the window; a
+ * tank's measurements are matched by unit (measurementUnitMatchSql), so its
+ * batch-entered rows (filed as `equipmentId`) are charted too.
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { Between, DataSource, FindOptionsWhere, In } from 'typeorm';
+import { DataSource, FindOptionsWhere } from 'typeorm';
 
 import { WaterQualityMeasurement } from '../entities/water-quality-measurement.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { GetSystemWaterQualityChartQuery } from '../queries/get-system-water-quality-chart.query';
+import { measurementUnitMatchSql } from '../services/measurement-unit-reader';
 
 @QueryHandler(GetSystemWaterQualityChartQuery)
 export class GetSystemWaterQualityChartHandler
@@ -27,26 +30,30 @@ export class GetSystemWaterQualityChartHandler
         where: { tenantId, systemId } as FindOptionsWhere<Tank>,
         select: ['id'],
       });
-      const tankIds = tanks.map((t) => t.id);
-      if (tankIds.length === 0) return [];
+      const unitIds = tanks.map((t) => t.id);
+      if (unitIds.length === 0) return [];
 
-      return queryRunner.manager.find(WaterQualityMeasurement, {
-        where: { tenantId, tankId: In(tankIds), measuredAt: Between(fromDate, toDate) },
-        order: { measuredAt: 'ASC' },
-        select: [
-          'id',
-          'measuredAt',
-          'tankId',
-          'temperature',
-          'dissolvedOxygen',
-          'pH',
-          'ammonia',
-          'nitrite',
-          'overallStatus',
-          'parameters',
-        ],
-        relations: ['tank'],
-      });
+      return queryRunner.manager
+        .createQueryBuilder(WaterQualityMeasurement, 'wq')
+        .select([
+          'wq.id',
+          'wq.measuredAt',
+          'wq.tankId',
+          'wq.equipmentId',
+          'wq.temperature',
+          'wq.dissolvedOxygen',
+          'wq.pH',
+          'wq.ammonia',
+          'wq.nitrite',
+          'wq.overallStatus',
+          'wq.parameters',
+        ])
+        .leftJoinAndSelect('wq.tank', 'tank')
+        .where('wq.tenantId = :tenantId', { tenantId })
+        .andWhere(measurementUnitMatchSql('wq', 'IN (:...unitIds)'), { unitIds })
+        .andWhere('wq.measuredAt BETWEEN :fromDate AND :toDate', { fromDate, toDate })
+        .orderBy('wq.measuredAt', 'ASC')
+        .getMany();
     });
   }
 }

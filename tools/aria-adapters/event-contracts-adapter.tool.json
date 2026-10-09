@@ -26,6 +26,53 @@
     "tmp/**"
   ],
   "claim_types": ["event_contract"],
+  "rules": {
+    "event_id_brand_missing": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "EventId is a plain string, so inline event construction compiles.",
+      "premises": [
+        "BaseEvent's eventId is typed as an unbranded string in libs/event-contracts.",
+        "No other type-level construct in libs/event-contracts stops an event literal from assigning a plain string eventId."
+      ]
+    },
+    "create_base_event_missing": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "libs/event-contracts exposes no createBaseEvent factory, so event ids, timestamps, tenant ids and versions are minted inconsistently.",
+      "premises": [
+        "libs/event-contracts does not export a createBaseEvent function.",
+        "Producers construct BaseEvent fields by hand instead of through another exported factory."
+      ]
+    },
+    "base_event_field_missing": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "BaseEvent lacks a field every event must carry.",
+      "premises": [
+        "The BaseEvent interface in libs/event-contracts does not declare the named field.",
+        "The field is not supplied by an interface BaseEvent extends."
+      ]
+    },
+    "schema_catalog_empty": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A runtime event-schema catalog is empty, so runtime validation covers no event types.",
+      "premises": [
+        "The cited catalog contains no schema entries.",
+        "The runtime validator dispatches events through this catalog, not through another populated one."
+      ]
+    },
+    "schema_catalog_not_wired_to_validator": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An event-schema catalog is never consulted by the runtime validator, so its schemas validate nothing.",
+      "premises": [
+        "The runtime validator dispatcher does not reference the cited catalog, directly or through an import.",
+        "The catalog holds schemas for events that cross a trust boundary at runtime."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

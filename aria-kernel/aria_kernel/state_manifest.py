@@ -72,6 +72,7 @@ _PROFILE_SURFACE_BY_NAME: dict[str, str] = {
     "memory_contradictions": "observation",
     "memory_calibration": "observation",
     "memory_learning_events": "observation",
+    "memory_procedural": "observation",
     "goldset_proposals": "observation",
     "pressure_artifacts": "observation",
     "pressure_log": "observation",
@@ -296,6 +297,32 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
     ),
+    # ARIA-HIGH-275 — the monthly segments of the two ledgers above, which
+    # stay as frozen segment 0. Same lock group, so every segment append
+    # serialises with the family; `ledger.SEGMENTED_LEDGERS` binds them and
+    # `ledger.load_segments` is their one reader.
+    StateSurface(
+        name="agent_invocation_request_segments",
+        path_pattern="agent-invocations/requests/*.jsonl",
+        state_class="ledger",
+        lock_group="agent_invocations",
+        index_group="agent_invocations",
+        strict_read=True,
+        durability="append_fsync",
+        write_driving=True,
+        profile_surface="agent_claim",
+    ),
+    StateSurface(
+        name="agent_invocation_prompt_segments",
+        path_pattern="agent-invocations/prompts/*.jsonl",
+        state_class="ledger",
+        lock_group="agent_invocations",
+        index_group="agent_invocations",
+        strict_read=True,
+        durability="append_fsync",
+        write_driving=True,
+        profile_surface="agent_claim",
+    ),
     StateSurface(
         name="agent_result_bridge_status",
         path_pattern="agent-invocations/agent-result-bridge-status.jsonl",
@@ -377,6 +404,14 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("health", "health.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("cycles", "cycles.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("tools_governance", "governance.jsonl", "ledger", "governance", "tools", True, "append_fsync", True),
+    # ARIA-HIGH-278 — the verified evidence a counted ledger's prefix carries
+    # forward, so a publish consumes only the rows after it. The publish
+    # preamble appends; `autonomy_evidence` verifies each row once, on the
+    # commit that adds it. Same gate as the governance rows beside it.
+    StateSurface(
+        "evidence_checkpoints", "evidence-checkpoints.jsonl", "ledger", "governance", "tools", True,
+        "append_fsync", True, profile_surface="tool_governance",
+    ),
     StateSurface("tool_registry", "registry.json", "index", "registry", "tools", True, "rewrite_fsync", True),
     # `repo_identity.json` is deliberately ABSENT from this list, and the
     # reason is worth stating where someone would next think to add it (PLAN
@@ -443,6 +478,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # request's admitted turns FROM this ledger before deciding the next one, so losing it
     # resets the cap, not only the record.
     StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
+    # ARIA-HIGH-364 — the request-admission door's decisions and per-cycle
+    # drain snapshots (request_admission.admit_request); read by the door
+    # itself and by the daily report's Request Admission section.
+    StateSurface("agent_invocation_admissions", "agent-invocations/admissions.jsonl", "ledger", "request_admission", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
     StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
@@ -544,6 +583,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("memory_contradictions", "memory/contradictions.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("memory_calibration", "memory/calibration.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("memory_learning_events", "memory/learning-events.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
+    # ARIA-HIGH-285 — procedural memory (agent_eval `performance_observed`), declared exactly
+    # like the ledgers above; tests/test_agent_eval_real_mode.py pins the equality (K2 `memory`).
+    StateSurface("memory_procedural", "memory/procedural.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("goldset_proposals", "goldsets/proposals.jsonl", "ledger", "goldset", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("pressure_artifacts", "pressure/*.json", "artifact", "pressure", "runtime", True, "rewrite_fsync", True),
     StateSurface("pressure_log", "pressure/pressure-log.jsonl", "ledger", "pressure", "runtime", True, "append_fsync", True),
@@ -622,6 +664,12 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # ARIA-HIGH-370 — the bounded calibration actuator's ledger: every
+    # application with its evidence, and its held / reverted judgement.
+    # ARIA-HIGH-370 (second review of #1829, M5) — every half-open probe the
+    # admission breaker granted, so one probe is one probe.
+    StateSurface("admission_probes", "admission/probes.jsonl", "ledger", "admission", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_auto_applied", "calibration/auto-applied.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="tool_governance", observe_class="mutation"),
     StateSurface("capability_gaps", "capability-gaps/gaps.jsonl", "ledger", "capability_gaps", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("proactive_priorities", "proactive/priorities.jsonl", "ledger", "proactive", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("problem_clusters", "problem_clusters.jsonl", "ledger", "clustering", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
@@ -694,6 +742,13 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("reports_daily", "reports/daily/*.md", "artifact", "reports", "runtime", True, "rewrite_fsync", True),
     StateSurface("burn_in_reports", "burn-in/**/*.json", "artifact", "autonomy", "runtime", True, "rewrite_fsync", True),
     StateSurface("plan_convergence_events", "plans/*.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),
+    # ARIA-HIGH-204 — the decision-questioning fold ledger. The phase mints
+    # `verification` envelopes asking upheld/overturned/insufficient_evidence;
+    # an outcome ledger outside the manifest would be a decision surface the
+    # integrity chain never covers, and without ANY ledger the verdict an
+    # agent returned stayed readable in results.jsonl while recorded nowhere —
+    # the writer-with-no-reader defect this surface exists to close.
+    StateSurface("decision_questioning_outcomes", "decision-questioning/outcomes.jsonl", "ledger", "decision_questioning", "runtime", True, "append_fsync", True),
     StateSurface("mission_events", "missions/mission-events.jsonl", "ledger", "missions", "runtime", True, "append_fsync", True),
     StateSurface("mission_index", "missions/mission-index.json", "index", "missions", "runtime", True, "rewrite_fsync", True),
     StateSurface("cost_budget", "budget/*.jsonl", "ledger", "budget", "runtime", True, "append_fsync", True),

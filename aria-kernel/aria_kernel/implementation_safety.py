@@ -42,6 +42,7 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from collections.abc import Mapping, Sequence
@@ -49,6 +50,14 @@ from collections.abc import Mapping, Sequence
 from . import command_policy as _command_policy
 from typing import Any, Callable, Mapping
 
+from .dependency_tree import (
+    DEPENDENCY_TREE_DIRNAME,
+    TOOL_CACHE_DIRNAMES,
+    dependency_mounts,
+    installed_checkout,
+    prepare_dependency_mountpoints,
+)
+from .gh_token_factory import GitCommitIdentity
 from .git_containment import GitContainment
 from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
 from .mcp_broker import MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET
@@ -118,6 +127,25 @@ READONLY_PATHS: tuple[str, ...] = (
     # in its own tree and the next dispatch would obey. The trust boundary
     # of a policy is that the agent it governs cannot author it.
     "aria-config/",
+    # ADR-0023 / ARIA-LOW-267 — the operator's trust anchors and the
+    # decisions ARIA is held to. `docs/aria/policy/` sets the operator
+    # identity and request audience; `docs/recommendations/` holds the
+    # arbiter ADRs; `packs/`, `tools/aria-labels/`, `tools/runtime-truth/`
+    # and `libs/journey-pins/` hold operator-signed journeys, label seals
+    # and runtime truth (CJ-1, F-L2). The allowed-signers file, the
+    # namespace registry and the enrolment chain sit under `.github/`.
+    "docs/aria/policy/",
+    "docs/recommendations/",
+    "packs/",
+    "tools/aria-labels/",
+    "tools/runtime-truth/",
+    "libs/journey-pins/",
+    # ARIA-HIGH-260 — report_ingestion mints `report_ingestion:external_pr`
+    # findings, which the loop guards treat as NOT ARIA's own, from this
+    # registry. Its writers are the operator's sessions and the governed
+    # finding-state-sweep / finding-closure-reconcile workflows; an ARIA plan
+    # that could add a row would launder its own finding as external.
+    "docs/reviews/_registry/",
 )
 
 # Plan ARIA-V9.0-D — ALLOWED_BASH_COMMANDS regex allowlist (NOT
@@ -650,6 +678,28 @@ _SANDBOX_NETWORK_FILES: tuple[str, ...] = (
     "/etc/nsswitch.conf",
 )
 
+# ARIA-HIGH-361 — loopback names WITHOUT the network. `--unshare-net` leaves
+# the namespace its own loopback, but with no /etc/hosts `localhost` did not
+# resolve: vitest's startup died `getaddrinfo EAI_AGAIN localhost` inside
+# the validation sandbox, so no web test could run there. Naming loopback is
+# not a network permission. The kernel ships a hosts file that names only
+# loopback, and an nsswitch that consults only it, rather than the host's
+# files, which carry the host's own names and resolver.
+_SANDBOX_LOOPBACK_FILES: tuple[tuple[Path, str], ...] = tuple(
+    (Path(__file__).resolve().parent / "data" / "sandbox_etc" / name, f"/etc/{name}")
+    for name in ("hosts", "nsswitch.conf")
+)
+
+
+def _loopback_name_binds() -> list[str]:
+    """The no-network spawn's name files: the wrapper and the probe both use
+    this, so the probe cannot pass on a host where the wrapper would abort
+    on a missing bind source (ORPHAN-MEDIUM-452)."""
+    flags: list[str] = []
+    for source, target in _SANDBOX_LOOPBACK_FILES:
+        flags.extend(["--ro-bind", str(source), target])
+    return flags
+
 
 def _system_ro_binds() -> list[str]:
     """`--ro-bind` flags for the system paths that exist on THIS host.
@@ -705,6 +755,7 @@ def _bwrap_probe_argv() -> list[str]:
         "--proc", "/proc",
         "--dev", "/dev",
         *SANDBOX_TMP_MOUNT,
+        *_loopback_name_binds(),
         "--unshare-net",
         *VALIDATION_SANDBOX_CONTAINMENT_FLAGS,
         *(flag for flag in MANAGED_SPAWN_ISOLATION_FLAGS if flag not in VALIDATION_SANDBOX_CONTAINMENT_FLAGS),
@@ -939,7 +990,12 @@ def scope_directories(workspace: Path, write_scope: Sequence[str]) -> list[Path]
 # (`nx affected …`) could not start. The nearest ancestor `node_modules`
 # outside the workspace is bound read-only, so the walk inside answers what
 # the gate proved outside.
-DEPENDENCY_TREE_DIRNAME = "node_modules"
+#
+# ARIA-HIGH-361 — and mounted again INSIDE the workspace, root and nested
+# workspace trees at their own relative paths (`dependency_tree`): bound only
+# at the checkout's path, the workspace links resolved into the checkout's
+# hidden `libs/`/`tools/`, nested installs were missing, and
+# `<cwd>/node_modules/.bin/tsc` did not exist.
 
 
 def _is_socket(path: Path) -> bool:
@@ -977,11 +1033,20 @@ def kernel_root_ro_binds(workspace: Path) -> list[str]:
 
 
 def _dependency_tree_binds(workspace: Path) -> list[str]:
-    for ancestor in workspace.parents:
-        candidate = ancestor / DEPENDENCY_TREE_DIRNAME
-        if candidate.is_dir():
-            return ["--ro-bind", str(candidate), str(candidate)]
-    return []
+    checkout = installed_checkout(workspace)
+    if checkout is None:
+        return []
+    tree = checkout / DEPENDENCY_TREE_DIRNAME
+    flags = ["--ro-bind", str(tree), str(tree)]
+    try:
+        prepare_dependency_mountpoints(workspace)
+    except OSError as exc:
+        raise SandboxUnavailable(f"dependency_mountpoint_unavailable:{exc.filename}:{type(exc).__name__}") from exc
+    for mount in dependency_mounts(workspace):
+        flags.extend(["--ro-bind", str(mount.source), str(mount.mountpoint)])
+        for name in TOOL_CACHE_DIRNAMES:
+            flags.extend(["--tmpfs", str(mount.mountpoint / name)])
+    return flags
 
 
 def _workspace_binds(workspace: Path, write_scope: Sequence[str] | None) -> list[str]:
@@ -1191,6 +1256,7 @@ def _sandbox_argv(
             if Path(network_file).exists():
                 wrap.extend(["--ro-bind", network_file, network_file])
     else:
+        wrap.extend(_loopback_name_binds())
         wrap.append("--unshare-net")
     wrap.append("--")
     return wrap + list(argv)
@@ -1866,6 +1932,12 @@ class _PreMergeEvidence:
     # is the implementation base (where the head forked from it); main moves
     # ahead of it while the PR waits for the merge queue.
     live_base_sha: str | None = None
+    # ARIA-HIGH-374 — the pair GitHub MERGES: the live PR head and the base
+    # it forked from. It equals (head_sha, base_sha) unless ARIA's own pure
+    # branch updates sit between (`branch_update_lineage`, verified by the
+    # capture); None on evidence built before the field, read as equal.
+    merge_head_sha: str | None = None
+    merge_base_sha: str | None = None
     snapshot_hash: str | None = None
     scope_observed_at: str | None = None
     scope_ledger_tips: tuple[str, ...] = ()
@@ -1965,6 +2037,13 @@ class HardFailContext:
     # reports the check as not evaluable rather than as a refusal.
     commit_contract: dict[str, Any] | None = None
     branch_commits: tuple[dict[str, str], ...] | None = None
+    # ARIA-HIGH-387 — the identity every commit base..head must carry as
+    # author AND committer (``implementation_identity.
+    # IMPLEMENTER_COMMIT_IDENTITY`` for a machine-approved action, whose
+    # commits are the executor's implementer's), or None on a lane whose
+    # commits are a person's. Each ``branch_commits`` record then carries
+    # ``author`` / ``committer`` as git prints them (``<name> <<email>>``).
+    commit_identity: GitCommitIdentity | None = None
 
 
 @dataclass(frozen=True)
@@ -2113,10 +2192,12 @@ def _check_branch_tip_lock_and_recheck(context: HardFailContext) -> HardFailResu
     from .state_store import StateStoreError as _StateStoreError
     from .state_store import _git
 
+    merge_head = evidence.merge_head_sha if evidence.merge_head_sha is not None else evidence.head_sha
+    merge_base = evidence.merge_base_sha if evidence.merge_base_sha is not None else evidence.base_sha
     try:
-        for ref, expected in (("HEAD", evidence.head_sha),
-                              ("refs/heads/" + evidence.branch, evidence.head_sha),
-                              ("refs/heads/" + context.base_branch, evidence.base_sha)):
+        for ref, expected in (("HEAD", merge_head),
+                              ("refs/heads/" + evidence.branch, merge_head),
+                              ("refs/heads/" + context.base_branch, merge_base)):
             if _git(context.workspace_root, "rev-parse", "--verify", ref + "^{commit}").strip() != expected:
                 return _failed(name, "native_branch_tip_changed")
     except (OSError, _StateStoreError):
@@ -2330,6 +2411,15 @@ def _check_no_main_branch_write(context: HardFailContext) -> HardFailResult:
     return _passed(name)
 
 
+def _readonly_prefix(relative: str) -> str | None:
+    """The READONLY_PATHS entry a workspace-relative POSIX path falls under, or None."""
+    for readonly in READONLY_PATHS:
+        ro = readonly.rstrip("/")
+        if relative == ro or relative.startswith(ro + "/"):
+            return readonly
+    return None
+
+
 def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResult:
     name = "forbidden_scope_normalized"
     if context.workspace_root is None:
@@ -2344,11 +2434,52 @@ def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResul
             relative = resolved.relative_to(workspace).as_posix()
         except ValueError:
             return _failed(name, f"outside_workspace:{raw}")
-        for readonly in READONLY_PATHS:
-            ro = readonly.rstrip("/")
-            if relative == ro or relative.startswith(ro + "/"):
-                return _failed(name, f"readonly_path_write:{relative}")
+        if _readonly_prefix(relative) is not None:
+            return _failed(name, f"readonly_path_write:{relative}")
     return _passed(name)
+
+
+def _check_readonly_paths_untouched_at_merge(context: HardFailContext) -> HardFailResult:
+    """INFRA-MEDIUM-197 — ARIA's merge authority never merges a change to a READONLY path.
+
+    The PR-open gate refuses such a write; a branch can still change after
+    it opened, and the anchors ARIA verifies against (allowed signers,
+    registry, enrolments, operator policy, arbiter ADRs) must never reach
+    main through an ARIA-authored pull request. Judged on the PR's changed
+    paths as the native pre-merge capture records them.
+    """
+    name = "readonly_paths_untouched_at_merge"
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    for raw in context.affected_paths:
+        relative = os.path.normpath(str(raw)).replace(os.sep, "/")
+        if relative.startswith(("/", "../")) or relative == "..":
+            return _failed(name, f"path_escape:{raw}")
+        if _readonly_prefix(relative) is not None:
+            return _failed(name, f"readonly_path_change:{relative}")
+    return _passed(name, "no_changed_path_is_read_only")
+
+
+def _check_enrolments_unexpired_at_merge(context: HardFailContext) -> HardFailResult:
+    """ARIA-MEDIUM-282 — ADR-0023's enrolment expiry, judged with the merge authority's own clock.
+
+    The required check judges the rows a change appends when CI runs, and a
+    row valid then can be expired when the merge happens. The perimeter is
+    evaluated immediately before ARIA's merge call, so the clock read here is
+    the merge's. Same judgement as the CI check
+    (``operator_request_signature.pre_merge_enrolment_reason``), on the
+    implementation base and head the native capture bound.
+    """
+    name = "enrolments_unexpired_at_merge"
+    evidence = context.pre_merge_evidence
+    if (evidence is None or not _native_implementation_is_bound(context) or context.workspace_root is None
+            or not evidence.base_sha or not evidence.head_sha):
+        return _failed(name, "native_implementation_binding_unavailable")
+    from .operator_request_signature import pre_merge_enrolment_reason
+
+    reason = pre_merge_enrolment_reason(context.workspace_root, base=evidence.base_sha, head=evidence.head_sha,
+                                        now=datetime.now(timezone.utc))
+    return _failed(name, reason) if reason is not None else _passed(name, "no_appended_enrolment_expired_at_merge")
 
 
 # ORPHAN-CRITICAL-428 phase A — the five mechanical pre-PR-open checks.
@@ -2464,6 +2595,8 @@ def classify_declared_surface(raw: Any) -> str | None:
 
 def implementation_allowed_scope(
     affected_surface_paths: list[str],
+    *,
+    admission_scope: Mapping[str, Any] | None,
 ) -> tuple[list[str], list[dict[str, str]]]:
     """``(writable, refused)`` — the subtraction the implementation envelope needs.
 
@@ -2479,7 +2612,18 @@ def implementation_allowed_scope(
     Refusals are RETURNED rather than raised so the mint can name every
     dropped surface in one governance event: a plan that lands three files
     in ``aria-kernel/`` should tell its author all three, not the first.
+
+    ADR-0021 (ARIA-MEDIUM-261) — ``admission_scope`` is REQUIRED, so no
+    caller computes a scope without saying which bound applies: the plan's
+    recorded bound (``plan_origin.admission_scope_for_plan``), or None for a
+    plan with no finding origin. A declared path outside the bound is not
+    subtracted like a readonly one; the whole scope is refused
+    (``plan_origin.AdmissionScopeExceeded``, every offending path named), so
+    what this returns never exceeds the bound.
     """
+    from .plan_origin import require_within_admission_scope
+
+    require_within_admission_scope(admission_scope, list(affected_surface_paths))
     writable: list[str] = []
     refused: list[dict[str, str]] = []
     for raw in affected_surface_paths:
@@ -2653,6 +2797,32 @@ def _check_commit_contract_honoured(context: HardFailContext) -> HardFailResult:
     verdict = verify_commits_honour_contract(list(context.branch_commits), context.commit_contract)
     if not verdict.honoured:
         return _failed(name, "commit_contract_violated:" + ";".join(verdict.violations))
+    return _passed(name)
+
+
+def _check_commit_identity_is_the_kernels(context: HardFailContext) -> HardFailResult:
+    """ARIA-HIGH-387 — every commit base..head on a machine-approved branch
+    is authored AND committed by the kernel's implementer identity.
+
+    The identity mint makes that identity the worktree's default; it does
+    not make another one impossible. git's ``author.*``/``committer.*``
+    keys outrank ``user.*`` in any scope and ``GIT_AUTHOR_*`` outranks all
+    of them, the sandbox HOME is writable, and the agent runs code it wrote
+    — so the commits themselves are judged here, before the push, by the
+    one comparison the containment probe makes too
+    (``implementation_identity.foreign_commit_identities``). A lane whose
+    commits are a person's declares no identity and is not judged here.
+    """
+    from .implementation_identity import foreign_commit_identities
+
+    name = "commit_identity_is_the_kernels"
+    if context.commit_identity is None:
+        return _passed(name, "no_kernel_commit_identity:the_lane_commits_as_a_person")
+    if context.branch_commits is None:
+        return _failed(name, "branch_commits_absent")
+    foreign = foreign_commit_identities(context.branch_commits, expected=context.commit_identity)
+    if foreign:
+        return _failed(name, "commit_identity_foreign:" + ";".join(foreign)[:400])
     return _passed(name)
 
 
@@ -2934,6 +3104,18 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         check=_check_commit_contract_honoured,
         gate=GATE_PRE_PR_OPEN,
     ),
+    # ARIA-HIGH-387 — the 21st check. The implementer's commits carry the
+    # kernel's named identity, author and committer, every one of them.
+    HardFailCheck(
+        name="commit_identity_is_the_kernels",
+        description=(
+            "every commit base_sha..head on a machine-approved branch is authored "
+            "and committed by implementation_identity.IMPLEMENTER_COMMIT_IDENTITY"
+        ),
+        closes_findings=("ARIA-HIGH-387",),
+        check=_check_commit_identity_is_the_kernels,
+        gate=GATE_PRE_PR_OPEN,
+    ),
     HardFailCheck(
         name="bash_command_allowlist",
         description="verify_bash_command_allowed at runtime tool dispatch",
@@ -3012,6 +3194,20 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         ),
         closes_findings=("ai-HIGH-013", "perf-CRIT-001"),
         check=_check_cycle_and_turn_budget_cap,
+        gate=GATE_PRE_MERGE,
+    ),
+    HardFailCheck(
+        name="readonly_paths_untouched_at_merge",
+        description="the PR's changed paths, as the native capture records them, avoid every READONLY_PATHS entry",
+        closes_findings=("INFRA-MEDIUM-197",),
+        check=_check_readonly_paths_untouched_at_merge,
+        gate=GATE_PRE_MERGE,
+    ),
+    HardFailCheck(
+        name="enrolments_unexpired_at_merge",
+        description="every enrolment row the PR appends is unexpired at the merge authority's clock (ADR-0023)",
+        closes_findings=("ARIA-MEDIUM-282",),
+        check=_check_enrolments_unexpired_at_merge,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(

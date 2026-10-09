@@ -94,6 +94,8 @@ import ci_executor  # noqa: E402
 import ci_executor_drain as drain  # noqa: E402
 
 from aria_kernel.recovery import unresolved_intents as recovery_unresolved_intents  # noqa: E402
+from aria_kernel.request_admission import admit_request
+from tests._helpers.declared_fixtures import segmented_ledger_bytes  # noqa: E402
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit  # noqa: E402
 from tests._helpers.installation_credential import INSTALLATION_TOKEN  # noqa: E402
 from tests._helpers.production_shaped import production_staged_implementation_request  # noqa: E402
@@ -135,7 +137,7 @@ def _scripted_implementer(
     commit_shape: str = "plain", claimed_fingerprint: str | None = None,
     claimed_delivery: dict[str, object] | None = None, commit: bool = True,
     exit_after_start: int | None = None, kernel_shadow_marker: str | None = None,
-    validation_probe: str | None = None, evidence_line: int = 1,
+    validation_probe: str | None = None, evidence_line: int = 1, refusal: str | None = None,
 ) -> str:
     """The implementer as a script: the plan's file, one commit in its cwd
     (on the branch the kernel stood it on), then the envelope.
@@ -367,7 +369,11 @@ def _scripted_implementer(
         "        'gpg_format': config('gpg.format'), 'allowed_signers': config('gpg.ssh.allowedSignersFile'),\n"
         "        'sandbox': sandbox, 'policy': policy, 'mcp': mcp, 'head': head}}}\n"
         "message = json.dumps(response)\n"
-        "print(json.dumps({'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': message}]}}))\n"
+        # ARIA-HIGH-388 — `refusal`: the agent answers an `aria/agent-refusal/v1`
+        # record instead (the 2026-10-08 shape: work done, commit impossible).
+        + (f"message = json.dumps({{'$schema': 'aria/agent-refusal/v1', 'reason_class': {refusal!r}, "
+           f"'reason_summary': 'the worktree carries no git author identity'}})\n" if refusal else "")
+        + "print(json.dumps({'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': message}]}}))\n"
         "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': message,\n"
         "                  'usage': {'input_tokens': 900, 'output_tokens': 120}, 'session_id': 'fixture-session'}))\n"
     )
@@ -868,6 +874,24 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
     def _plan_state(self) -> str:
         return str(self._plan_fold()["state"])
 
+    def _assert_settled(self, stage: str, rejection_class: str, fault_domain: str) -> None:
+        """ARIA-HIGH-388 — a refused delivery ends the PLAN on its own ledger,
+        with the class and fault domain the kernel can verify from the refusal's
+        own reason (`implementation_rejections.settlement_for_delivery`).
+        Until then the plan stayed IMPLEMENTATION_REQUESTED for the orphan
+        reaper to relabel unattributable a day later."""
+        from aria_kernel.ledger import load_jsonl
+        from aria_kernel.plan_convergence import events_path
+
+        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REJECTED")
+        rejected = [row["payload"] for row in load_jsonl(events_path(self.tools))
+                    if row.get("event_type") == "implementation_rejected" and row.get("plan_id") == self.plan_id]
+        self.assertEqual(len(rejected), 1, rejected)
+        self.assertEqual(
+            (rejected[0]["rejection_class"], rejected[0]["stage"], rejected[0]["fault_domain"], rejected[0]["request_id"]),
+            (rejection_class, stage, fault_domain, self.request_id),
+        )
+
     def _plan_fold(self) -> dict:
         from aria_kernel.plan_convergence import fold_plan_state
 
@@ -957,6 +981,30 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
             [{"kind": row["kind"], "details": row.get("details")} for row in rows[-12:]], sort_keys=True,
         )[:6000]
 
+    def test_a_checkout_with_no_ambient_identity_commits_as_the_kernel(self) -> None:
+        """ARIA-HIGH-387 — the commit step, end to end, on a host with no
+        git identity anywhere: the fixture's `--local` one and the suite's
+        hermetic global one are removed, and git may not guess one from the
+        host name (`user.useConfigOnly`). On main the agent's plain `git
+        commit` inside the real sandbox exits 128 "Author identity unknown";
+        here the hold's mint wired `aria-implementer` into the request
+        worktree and the delivered commit carries it as author AND
+        committer."""
+        _git(["config", "--local", "--remove-section", "user"], cwd=self.repo)
+        no_identity = self.root / "no-identity.gitconfig"
+        no_identity.write_text("[user]\n\tuseConfigOnly = true\n[commit]\n\tgpgsign = false\n", encoding="utf-8")
+        self.environment["GIT_CONFIG_GLOBAL"] = str(no_identity)
+        self._install_implementer()
+        completed, _worktree = self._run_in_request_worktree()
+        self.assertEqual(completed.returncode, 0, self._diagnostic(completed))
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "ACCEPTED")
+        head = self._submitted_envelope()["details"]["implementation"]["branch_tip_sha"]
+        idents = _git(["log", "-1", "--format=%an <%ae>%n%cn <%ce>", head], cwd=self.repo).stdout.splitlines()
+        kernel = "aria-implementer <aria-implementer@users.noreply.github.com>"
+        self.assertEqual(idents, [kernel, kernel])
+        self.assertEqual(_git(["config", "--local", "--get-regexp", "^user\\.(name|email)$"], cwd=self.repo, check=False).stdout,
+                         "", "the revoke took the identity back out; the shared config never had it")
+
     def test_a_plain_commit_in_the_request_worktree_lands_the_impl_row(self) -> None:
         from aria_kernel.budget import read_cost_attribution
 
@@ -1026,7 +1074,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # the request ledger it could not reach is as the kernel wrote it.
         journal = [row for row in journal_rows_for(self.request_id, base_dir=self.tools) if row["tool_use_id"] == "toolu_e2e"]
         self.assertEqual([row["command_family"] for row in journal], ["git_read"])
-        self.assertNotIn("forged", (self.tools / "agent-invocations" / "requests.jsonl").read_text(encoding="utf-8"))
+        self.assertNotIn(b"forged", segmented_ledger_bytes(self.tools, "agent_invocation_requests"))
         # The planted locks stayed in the sandbox: the shared `main` is not
         # wedged and the worktree was removable (the fixture removed it).
         self.assertFalse((self.repo / ".git" / "refs" / "heads" / "main.lock").exists())
@@ -1341,7 +1389,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(_git(["show-ref", f"refs/heads/{self.ids['branch']}"], cwd=self.remote, check=False).returncode, 1, "nothing was pushed")
         self.assertEqual([row for row in self._external_effects() if row.get("request_id") == self.request_id], [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:branch_publication")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("branch_publication", "implementation_delivery_unclassified", "unclassified")
         self.assertFalse(Path(self.request["expected_output_path"]).exists() and "pr_url" in
                          json.loads(Path(self.request["expected_output_path"]).read_text(encoding="utf-8"))["details"]["implementation"])
 
@@ -1363,7 +1411,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._gh_calls(), [])
         self.assertEqual(_git(["show-ref", f"refs/heads/{self.ids['branch']}"], cwd=self.remote, check=False).returncode, 1, "nothing was pushed")
         self._assert_escalated_from_the_release("implementation_delivery_refused:apply_gate")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("apply_gate", "validation_failed", "request")
 
     def test_a_branch_the_repository_already_holds_is_refused_before_any_turn(self) -> None:
         # ARIA-HIGH-124 — an earlier attempt published the branch: the
@@ -1587,7 +1635,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(_git(["show-ref", f"refs/heads/{self.ids['branch']}"], cwd=self.remote, check=False).returncode, 1, "nothing was pushed")
         self.assertEqual([row for row in self._external_effects() if row.get("request_id") == self.request_id], [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:change_ledger")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("change_ledger", "forbidden_scope_violation", "request")
 
     def test_an_envelope_the_kernel_would_reject_spends_no_suite_no_push_and_no_pr(self) -> None:
         # ARIA-HIGH-124 (round 5) — the same plain, signed, in-scope commit
@@ -1628,7 +1676,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._governance("agent_result_accepted"), [])
         self.assertEqual(self._governance("agent_bridge_warning"), [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:result_admissible")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("result_admissible", "implementation_result_inadmissible", "request")
         # The identity was retired before the delivery here too, and the
         # published (unpushed) branch is the kernel's own commit.
         self.assertEqual(self._governance(ci_executor.IMPLEMENTATION_IDENTITY_RETIRED_EVENT)[0]["details"]["keys_dir_entries"], [])
@@ -1667,7 +1715,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._change_committed(), [])
         self.assertEqual(self._governance("implementation_delivered"), [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:apply_gate")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("apply_gate", "implementation_delivery_unclassified", "unclassified")
 
     def test_a_request_whose_implementation_ids_cannot_stand_a_sandbox_is_escalated_not_retried_forever(self) -> None:
         # ARIA-HIGH-124 (round 2) — the request row names a branch that is
@@ -1691,6 +1739,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
                 plan_id=plan.plan_id, cross_review_revision_id=plan.revision_id, cross_review_summary_text="{}",
                 proposal_id="proposal-unstaged", change_id="chg-unstaged", branch="feature/not-the-kernels",
                 base_sha=self.base_sha, cycle_id=CYCLE_ID, base_dir=self.tools,
+                admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
             )
         self.request_id = self.request["request_id"]
         self._install_implementer()
@@ -1734,7 +1783,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # decision the delivery already made.
         self.assertEqual(self._governance("agent_bridge_warning"), [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:commit_identity")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("commit_identity", "implementation_delivery_unclassified", "unclassified")
 
     def test_an_unsigned_commit_is_refused_by_name(self) -> None:
         self._install_implementer(commit_shape="unsigned")
@@ -1896,6 +1945,52 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._governance("implementation_signing_unavailable"), [])
         self.assertFalse(self.worktree_keys_dir_existed, "no key was ever minted for the refused attempt")
         self.assertEqual(self.worktree_config_after, self.worktree_config_before)
+
+
+    def test_a_host_caused_refusal_ends_the_plan_unclassified_and_cools_nothing_off(self) -> None:
+        # ARIA-HIGH-388 (adversarial review, HIGH-1) — the 2026-10-08 shape:
+        # the agent did the work and refused `safety` because the worktree had
+        # no git author identity. The kernel cannot verify an agent's refusal,
+        # so the plan ends `unclassified`: no finding cool-off, no blame.
+        from aria_kernel.agent_eval import _performance_episodes
+        from aria_kernel.failure_attribution import InvocationLedgersSource
+        from aria_kernel.ledger import load_jsonl
+        from aria_kernel.outage_attribution import failure_is_lane_fault
+        from aria_kernel.plan_convergence import events_path
+
+        self._install_implementer(commit=False, refusal="safety")
+        completed, _worktree = self._run_in_request_worktree()
+        self.assertEqual(completed.returncode, ci_executor.REFUSAL_EXIT_CODE, self._diagnostic(completed))
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "HUMAN_REQUIRED")
+        self._assert_settled("agent_refusal", "implementer_refused", "unclassified")
+        events = load_jsonl(events_path(self.tools))
+        rejected = [row for row in events if row.get("event_type") == "implementation_rejected"]
+        self.assertTrue(failure_is_lane_fault(rejected[-1], waited_since=None, at=None, clock=None))
+        implementer = [row for row in _performance_episodes(events, {}, InvocationLedgersSource(self.tools))
+                       if row["role"] == "implementer"]
+        self.assertEqual([(row["failure_mode"], row["attributable"]) for row in implementer],
+                         [("implementer_refused", False)])
+
+    def test_no_delivery_authority_mints_nothing_and_keeps_the_request(self) -> None:
+        # ARIA-HIGH-388 (adversarial review, HIGH-2) — under `standard` the
+        # request is released harness-class BEFORE the identity mint and the
+        # credential lease: no spawn, no key, the budget kept, the plan alive.
+        from aria_kernel.runtime_profile import set_profile
+
+        set_profile("standard", operator_approval_ref="test:narrow", base_dir=self.tools)
+        self._install_implementer()
+        completed, _worktree = self._run_in_request_worktree()
+        self.assertEqual(completed.returncode, ci_executor.REFUSAL_EXIT_CODE, self._diagnostic(completed))
+        self.assertIn("authority_absent:profile=standard", completed.stderr)
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "REQUEUED")
+        released = self._governance("agent_requeued")
+        self.assertEqual([(row["details"]["reason"], row["details"]["requeue_count"]) for row in released],
+                         [("implementation_delivery_unavailable", 0)])
+        self.assertFalse(Path(self.request["expected_output_path"]).exists(), "no agent turn was spent")
+        self.assertNotIn("implementation_identity_held", completed.stderr)
+        self.assertFalse(self.worktree_keys_dir_existed, "no key was minted")
+        self.assertEqual(self._governance("delivery_credential_admitted"), [], "no credential was leased")
+        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
 
 
 if __name__ == "__main__":

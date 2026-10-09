@@ -17,11 +17,13 @@ import type { MealWindowEntry } from '@platform/event-contracts';
 
 const runInTenantRead = jest.fn();
 
+// Only the tenant boundary is replaced; everything else (SENSOR_SOURCE_SCHEMA,
+// isValidUUID) is the real module, so the spec cannot drift from it.
 jest.mock('@aquaculture/backend-common/database', () => ({
+  ...jest.requireActual<typeof import('@aquaculture/backend-common/database')>(
+    '@aquaculture/backend-common/database',
+  ),
   runInTenantRead: (...args: unknown[]): unknown => runInTenantRead(...args),
-  isValidUUID: (value: unknown): boolean =>
-    typeof value === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
 }));
 
 import { FeedingWindowReadinessService } from '../feeding-window-readiness.service';

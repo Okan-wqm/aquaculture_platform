@@ -2,16 +2,14 @@ name: aria-agent-eval
 
 # Plan 020 Phase 6.D — weekly off-hours agent eval harness.
 #
-# Mock-mode is the only path running in CI today (Plan 020 Phase 5
-# left the OAuth contract closure as DEBT-2026-05-08-001, operator-
-# supervised). The workflow re-runs every committed fixture under
-# aria-tools/agent-evals/fixtures/*.json against the kernel's
-# run_agent_eval() in mock mode + asserts every run passes.
-#
-# Once the operator closes DEBT-006 and the OAuth contract surface is
-# verified, an additional matrix entry (mock_mode=false) will run the
-# real-mode evaluator. Until then the mock-mode counter
-# aria_agent_eval_mock_only_total is the only one that ticks.
+# ARIA-HIGH-285 — real mode only. This lane ran every committed fixture in
+# mock mode (the kernel's default), whose synthesized envelope copies the
+# fixture's expected verdict: all 30 rows it published passed and measured
+# nothing. The kernel has no mock mode now. The lane registers the fixtures
+# (real fixture runs bind to them), observes drafter and implementer
+# performance from the plan and self-revert ledgers it restores — the same
+# observation reflection runs every cycle, idempotent per episode — and
+# reports the learning KPIs and the real fixture-run windows.
 
 on:
   schedule:
@@ -33,6 +31,10 @@ permissions:
   # append a commit descending from that branch's tip, which is exactly what
   # publishing is.
   contents: write
+  # ARIA-HIGH-350 — the writer-lease acquire asks the Actions API whether a
+  # held gha: lease's run attempt has concluded (run-liveness reaping); the
+  # job token needs read access to runs to answer, and gives nothing else.
+  actions: read
 
 concurrency:
   # ORPHAN-MEDIUM-770 — this lane publishes the shared aria/state ledger
@@ -91,10 +93,10 @@ jobs:
               # credentials with different blast radii, and a reviewer has to
               # be able to see the git one. The eval itself still reaches no
               # third-party network — the fixtures remain local.
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
-                  "mock-mode eval uses local fixtures only; network reach is the "
-                  "aria/state fetch+push over the repository remote"
+                  "the observation reads the restored ledgers only; network reach "
+                  "is the aria/state fetch+push over the repository remote"
               ),
               # The truthful provenance: the eval job persists its ledger to
               # aria/state with `github.token` (PUBLISH_TOKEN below), and the
@@ -108,7 +110,7 @@ jobs:
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
-              audit_reason="run mock-mode agent eval fixtures against local ledgers",
+              audit_reason="observe agent performance from the restored aria/state ledgers",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-eval-preflight.json",
               external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
@@ -126,38 +128,40 @@ jobs:
         uses: ./.github/actions/restore-aria-state
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+          # ARIA-HIGH-342 — this job writes aria/state: the writer lease is
+          # taken before the checkout and held to the release step, so no
+          # other lane publishes in between. Expiry = this job's
+          # timeout-minutes plus the 80-minute leased-publish margin
+          # (GSEC-MEDIUM-003); past the wait the run yields by name, before it
+          # has restored anything.
+          writer-lease-ttl-minutes: '105'
+          writer-lease-wait-seconds: '600'
 
-      - name: Run all eval fixtures (mock mode)
-        id: run
+      - name: Register eval fixtures
+        if: steps.restore_state.outputs.writer-lease == 'held'
         run: |
           set -euo pipefail
-          mkdir -p /tmp/aria-tests /tmp/aria-workspaces
-          export ARIA_TEST_TMPDIR=/tmp/aria-tests
-          export ARIA_WORKSPACE_BASE=/tmp/aria-workspaces
-          fail_count=0
           for fixture_file in aria-tools/agent-evals/fixtures/*.json; do
-            fid=$(basename "${fixture_file}" .json)
-            echo "::group::eval ${fid}"
             PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval add-fixture \
               --fixture-file "${fixture_file}" \
               --tools-dir "$ARIA_TOOLS_DIR" >/dev/null
-            run_json=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval run \
-              --fixture-id "${fid}" \
-              --tools-dir "$ARIA_TOOLS_DIR")
-            echo "${run_json}" | jq .
-            passed=$(echo "${run_json}" | jq -r '.passed')
-            if [ "${passed}" != "true" ]; then
-              fail_count=$((fail_count + 1))
-            fi
-            echo "::endgroup::"
           done
-          echo "fail_count=${fail_count}" >> "$GITHUB_OUTPUT"
-          if [ "${fail_count}" -gt 0 ]; then
-            echo "::error::${fail_count} fixture(s) failed mock-mode eval"
-            exit 1
-          fi
 
-      - name: Aggregate eval metrics per agent
+      # Real mode: one performance_observed row per finished drafter or
+      # implementer episode on the restored plan ledger. A missing plan
+      # ledger is a named refusal and fails the step; there is no fallback.
+      - name: Observe agent performance (real mode)
+        if: steps.restore_state.outputs.writer-lease == 'held'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval observe \
+            --cycle-id "agent-eval-${GITHUB_RUN_ID}" \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq .
+          PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval kpis \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq .
+
+      - name: Aggregate real fixture-run metrics per agent
+        if: steps.restore_state.outputs.writer-lease == 'held'
         run: |
           set -euo pipefail
           for agent in aria-evidence-judge aria-adversarial-judge \
@@ -167,7 +171,7 @@ jobs:
             PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval aggregate \
               --target-agent "${agent}" \
               --window-days 30 \
-              --mock-mode true \
+              --mock-mode false \
               --tools-dir "$ARIA_TOOLS_DIR" | jq .
             echo "::endgroup::"
           done
@@ -190,7 +194,7 @@ jobs:
             PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval delta \
               --target-agent "${agent}" \
               --window-days 30 \
-              --mock-mode true \
+              --mock-mode false \
               --tools-dir "$ARIA_TOOLS_DIR" | jq .
             echo "::endgroup::"
           done
@@ -208,8 +212,8 @@ jobs:
           echo "::add-mask::${HEADER}"
           echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
 
-      # `always()` on purpose: a week where a fixture regressed is exactly the
-      # week whose rows the trend needs. Publishing only on success would make
+      # `always()` on purpose: a week whose observation or fixture run went
+      # wrong is exactly the week whose rows the trend needs. Publishing only on success would make
       # the ledger a record of good weeks, which is not a measurement.
       - name: Publish ARIA state to the aria/state branch
         if: always() && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
@@ -217,6 +221,9 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
           GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+          # ARIA-HIGH-342 — the writer-lease capability, as a masked step
+          # output into this step only (GSEC-LOW-002).
+          ARIA_STATE_WRITER_LEASE_TOKEN: ${{ steps.restore_state.outputs.writer-lease-token }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
@@ -226,6 +233,18 @@ jobs:
 
       # ADR-036 — upload the enterprise-preflight audit proof so the eval
       # job's governed-write decision is retained as CI evidence.
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.
+      # Unconditional (GSEC-LOW-001): release is idempotent, a no-op when this
+      # run yielded and holds none, and releases only by the token (kept on
+      # disk before the acquire's push; there is no release by identity). A
+      # runner that dies outright frees the branch at the expiry it set.
+      - name: Release the aria/state writer lease
+        if: always()
+        uses: ./.github/actions/release-aria-state-lease
+        with:
+          lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
+
       - name: Upload eval preflight proof
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

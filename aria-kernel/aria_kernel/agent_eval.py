@@ -1,4 +1,4 @@
-"""Plan 020 Phase 6 — agent eval harness (5 fixtures + mock/real metric segregation).
+"""Plan 020 Phase 6 — agent eval harness; ARIA-HIGH-285 — real performance observation.
 
 WHY this module exists
 ----------------------
@@ -12,26 +12,25 @@ eval harness:
 - Each fixture is a pinned (target_agent, input_envelope, expected_verdict
   _class, expected_evidence_refs) tuple stored under
   aria-tools/agent-evals/fixtures/*.json.
-- run_agent_eval(...) executes the agent (mock or real) against the fixture
-  and records the run row to aria-tools/agent-evals/runs.jsonl.
+- run_agent_eval(...) checks one response of the agent, recorded by a
+  ledger-bound invocation, against the fixture and records the run row to
+  aria-tools/agent-evals/runs.jsonl.
 - aggregate_eval_metrics(...) windows the runs over N days and computes the
   6-key summary (pass_rate, mean_rounds, false_positive_rate,
   false_negative_rate, mean_tokens, consistency_score).
 
-Mock vs real metric segregation (operator gap #5 — Plan 020 Phase 5/6 link)
-----------------------------------------------------------------------------
-Phase 5 left the OAuth contract closure as DEBT-2026-05-08-001
-(operator-supervised). Until that debt closes, real-mode eval cannot run in
-CI; mock-mode is the only available path. The kernel REFUSES to conflate
-the two:
+No mock mode (ARIA-HIGH-285)
+----------------------------
+``mock_mode=True`` was the default here and in the CLI, and the weekly lane
+never turned it off: every row on aria/state copied the fixture's expected
+verdict and passed. The kernel can no longer write such a row; a test that
+wants a fixture run builds a fake invocation ledger. Historical mock rows stay
+readable and segregated by their recorded ``mock_mode``.
 
-  mock_mode=True  → governance kind 'agent_eval_run_mock_only'    +
-                    counter aria_agent_eval_mock_only_total += 1.
-  mock_mode=False → governance kind 'agent_eval_run_real'         +
-                    counter aria_agent_eval_real_total      += 1.
-
-aggregate_eval_metrics filters by mock_mode so a future real-mode run does
-NOT retroactively inflate or deflate historical mock-mode statistics.
+``observe_agent_performance`` is the cycle's real mode (reflection runs it):
+one procedural ``performance_observed`` event per finished drafter / implementer
+episode on ``memory/procedural.jsonl``, no LLM call; the implementer's
+must-check and the doctor's ``learning`` organ read it.
 
 Plan 020 surface gate
 ---------------------
@@ -47,10 +46,18 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection
 
 from .artifact_safety import assert_real_mode_env_safe
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .failure_attribution import (
+    Attribution,
+    InvocationLedgersSource,
+    attribute_evaluation,
+    attribute_implementation_failure,
+    attribute_self_revert,
+)
+from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
+from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
@@ -246,30 +253,11 @@ def _append_fixture_ledger_row(root: Path, fixture: dict[str, Any]) -> dict[str,
     )
 
 
-def _mock_response_envelope(fixture: dict[str, Any]) -> dict[str, Any]:
-    """Synthesise a deterministic envelope matching the fixture's expected
-    verdict_class + evidence refs. Used by mock-mode eval runs so the
-    pipeline (validate, persist, aggregate) gets full coverage even when
-    the OAuth contract closure (DEBT-2026-05-08-001) is still operator-
-    blocked.
-    """
-    return {
-        "$schema": "aria/agent-response/v1",
-        "schema_version": 1,
-        "verdict_class": fixture["expected_verdict_class"],
-        "evidence_refs": list(fixture["expected_evidence_refs"]),
-        "rounds_used": min(1, int(fixture["max_rounds"])),
-        "tokens_used": min(1024, int(fixture["max_tokens"])),
-        "mock": True,
-    }
-
-
 def run_agent_eval(
     *,
     fixture_id: str,
     base_dir: str | Path | None = None,
     repo_root: str | Path | None = None,
-    mock_mode: bool = True,
     real_response_envelope: dict[str, Any] | None = None,
     # Real-mode provenance binding. Real-mode runs require invocation_id
     # and transcript_hash so the eval row joins back to declared claim,
@@ -288,19 +276,10 @@ def run_agent_eval(
     allow_legacy_envelope_feed: bool = False,
     operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Run an agent against a fixture; record pass/fail to runs.jsonl.
+    """Check one recorded agent response against a fixture; record pass/fail.
 
-    mock_mode True (default): synthesise a deterministic envelope matching
-    the fixture's expected verdict + evidence. Used for kernel pipeline
-    coverage when DEBT-2026-05-08-001 (OAuth contract closure) is open.
-
-    mock_mode False: caller MUST pass real_response_envelope (the response
-    captured from a real Claude Code OAuth invocation; produced by the
-    Phase 5 operator-supervised flow). Real-mode runs increment the
-    aria_agent_eval_real_total counter; mock-mode runs increment
-    aria_agent_eval_mock_only_total. The two streams stay segregated
-    forever — historical mock data does not contaminate real-mode
-    aggregates and vice versa.
+    The response must come from a ledger-bound invocation; every binding is
+    re-validated here. There is no synthesized response (ARIA-HIGH-285).
 
     Pass criteria (Plan v3.3 §Phase 6.A):
     - response.verdict_class == fixture.expected_verdict_class.
@@ -310,60 +289,45 @@ def run_agent_eval(
     fixture = _read_fixture(fixture_id=fixture_id, base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
 
-    if mock_mode:
-        envelope = _mock_response_envelope(fixture)
-        kind = "agent_eval_run_mock_only"
-    else:
-        # ORPHAN-HIGH-573 — the real-mode ENVIRONMENT precondition, first,
-        # because an unsafe debugger environment must be refused before this
-        # run starts reading ledgers and binding provenance to it.
-        #
-        # `assert_real_mode_env_safe` shipped with `artifact_safety` and was
-        # never called from anywhere. Its waiver was corrected on 2026-08-06
-        # after someone re-read this file: the original claimed the mode it
-        # protects is unreachable because `run_agent_eval` defaults to
-        # `mock_mode=True`, and that is false — `eval-run --no-mock-mode`
-        # plus `--real-envelope-file` reaches here today (cli.py:1103-1106,
-        # cli.py:3719). It was an unguarded LIVE path, not a dormant future
-        # one; bounded only because the flag is operator-typed rather than
-        # scheduled.
-        assert_real_mode_env_safe(dict(os.environ))
-        if real_response_envelope is None:
-            raise GovernanceError(
-                "mock_mode=False requires real_response_envelope from operator-"
-                "supervised CI executor; until DEBT-2026-05-08-001 closure, "
-                "real-mode runs are operator-only."
-            )
-        if allow_legacy_envelope_feed:
-            raise GovernanceError(
-                "real_eval_legacy_envelope_feed_removed: use a ledger-bound "
-                "invocation_id + transcript_hash recorded by submit_claim_result/"
-                "record_transcript"
-            )
-        if not invocation_id or not transcript_hash:
-            raise GovernanceError(
-                "real_eval_missing_provenance_fields: mock_mode=False requires "
-                "invocation_id and transcript_hash"
-            )
-        if not _is_sha256_digest(str(transcript_hash)):
-            raise GovernanceError("real_eval_transcript_hash_must_be_sha256")
-        _validate_real_eval_provenance(
-            root,
-            invocation_id=str(invocation_id),
-            transcript_hash=str(transcript_hash),
-            fixture_id=fixture_id,
-            target_agent=str(fixture["target_agent"]),
-            request_ledger_ref=request_ledger_ref,
-            claim_ledger_ref=claim_ledger_ref,
-            result_ledger_ref=result_ledger_ref,
-            fixture_ledger_ref=fixture_ledger_ref,
-            transcript_ledger_ref=transcript_ledger_ref,
-            operator_approval_ledger_ref=operator_approval_ledger_ref,
-            context_ledger_ref=context_ledger_ref,
-            prompt_ledger_ref=prompt_ledger_ref,
+    # ORPHAN-HIGH-573 — the real-mode ENVIRONMENT precondition, first,
+    # because an unsafe debugger environment must be refused before this
+    # run starts reading ledgers and binding provenance to it. Every run is
+    # real since ARIA-HIGH-285, so this guards every call.
+    assert_real_mode_env_safe(dict(os.environ))
+    if real_response_envelope is None:
+        raise GovernanceError(
+            "real_eval_missing_response_envelope: a fixture run checks the "
+            "real_response_envelope of a ledger-bound invocation"
         )
-        envelope = dict(real_response_envelope)
-        kind = "agent_eval_run_real"
+    if allow_legacy_envelope_feed:
+        raise GovernanceError(
+            "real_eval_legacy_envelope_feed_removed: use a ledger-bound "
+            "invocation_id + transcript_hash recorded by submit_claim_result/"
+            "record_transcript"
+        )
+    if not invocation_id or not transcript_hash:
+        raise GovernanceError(
+            "real_eval_missing_provenance_fields: a fixture run requires "
+            "invocation_id and transcript_hash"
+        )
+    if not _is_sha256_digest(str(transcript_hash)):
+        raise GovernanceError("real_eval_transcript_hash_must_be_sha256")
+    _validate_real_eval_provenance(
+        root,
+        invocation_id=str(invocation_id),
+        transcript_hash=str(transcript_hash),
+        fixture_id=fixture_id,
+        target_agent=str(fixture["target_agent"]),
+        request_ledger_ref=request_ledger_ref,
+        claim_ledger_ref=claim_ledger_ref,
+        result_ledger_ref=result_ledger_ref,
+        fixture_ledger_ref=fixture_ledger_ref,
+        transcript_ledger_ref=transcript_ledger_ref,
+        operator_approval_ledger_ref=operator_approval_ledger_ref,
+        context_ledger_ref=context_ledger_ref,
+        prompt_ledger_ref=prompt_ledger_ref,
+    )
+    envelope = dict(real_response_envelope)
 
     expected_refs = set(fixture["expected_evidence_refs"])
     actual_refs = set(envelope.get("evidence_refs", []))
@@ -378,7 +342,7 @@ def run_agent_eval(
         "fixture_id": fixture_id,
         "target_agent": fixture["target_agent"],
         "role": fixture["role"],
-        "mock_mode": mock_mode,
+        "mock_mode": False,
         "passed": passed,
         "verdict_match": verdict_match,
         "evidence_match": evidence_match,
@@ -390,8 +354,7 @@ def run_agent_eval(
         "tokens_used": int(envelope.get("tokens_used", 0)),
         "recorded_at": utc_now(),
         # Plan 023 v3 §A-8 — provenance fields binding the eval row
-        # to the upstream invocation. invocation_id None for mock-mode
-        # runs (the synthesized envelope has no lease).
+        # to the upstream invocation (None only on historical mock rows).
         "invocation_id": invocation_id,
         "transcript_hash": transcript_hash,
         "request_ledger_ref": request_ledger_ref,
@@ -402,10 +365,7 @@ def run_agent_eval(
         "operator_approval_ledger_ref": operator_approval_ledger_ref,
         "context_ledger_ref": context_ledger_ref,
         "prompt_ledger_ref": prompt_ledger_ref,
-        "provenance_mode": (
-            "mock" if mock_mode
-            else "real_invocation"
-        ),
+        "provenance_mode": "real_invocation",
         "operator_approval_ref": operator_approval_ref,
     }
 
@@ -417,7 +377,7 @@ def run_agent_eval(
     )
     append_tools_governance(
         root,
-        kind,
+        "agent_eval_run_real",
         {
             "fixture_id": fixture_id,
             "target_agent": fixture["target_agent"],
@@ -875,6 +835,319 @@ def count_eval_runs_by_mode(*, base_dir: str | Path | None = None) -> dict[str, 
     }
 
 
+# ---------------------------------------------------------------------------
+# ARIA-HIGH-285 — real mode for the cycle: drafter and implementer
+# performance, measured from outcomes the plan ledger already records.
+# ---------------------------------------------------------------------------
+
+PERFORMANCE_SURFACE = "memory_procedural"
+PERFORMANCE_OBSERVED_KIND = "performance_observed"
+#: The program plan's lesson trigger: a failure mode the next actor must check.
+LESSON_EPISODE_THRESHOLD = 3
+#: A round-one plan no agent revised is the kernel's own seed.
+PLAN_SYNTHESIZER_SUBJECT = "kernel:plan_synthesizer"
+# ARIA-HIGH-370 — which failures are the agent's is no longer a list of lane
+# tokens kept here: ``failure_attribution`` attributes a failure only when
+# its own evidence names the work (an allowlist of evidence), and every
+# other failure is recorded and kept off the scorecard.
+# ARIA-HIGH-375 — ``cross_review_self_agreement`` (a reviewer-independence
+# fault of the kernel's dispatch) is not on that allowlist, so it is never
+# the drafter's must-check lesson.
+#: The program plan's learning KPIs the recorded evidence cannot compute, and why.
+NOT_COMPUTABLE_KPIS: dict[str, str] = {
+    "repeat_failure_rate_by_class_key": "plans record no class_key (tool:rule); the live split is by failure_mode",
+    "memory_ablation": "no replay lane runs a request with memory on and off",
+    "precision_after_fp_label": "no signed false-positive label and no ARIA-authored detector precision series exist",
+    "impact_miss_rate": "no recorded row places a post-merge regression's paths against the plan's impact closure",
+    "implementer_scorecard_by_agent_version_hash": "implementation events record the agent name, not its version hash",
+}
+
+
+def _surface_file(root: Path, surface: str) -> Path:
+    from .state_manifest import resolve_surface_path, surface_by_name
+
+    return resolve_surface_path(root, surface_by_name(surface))
+
+
+def _performance_rows(root: Path) -> list[dict[str, Any]]:
+    path = _surface_file(root, PERFORMANCE_SURFACE)
+    return load_declared_jsonl(path, expected_surface=PERFORMANCE_SURFACE) if path.is_file() else []
+
+
+def _attributed_reverts(root: Path) -> dict[str, dict[str, Any]]:
+    """merge_sha → the first self-revert row that attributes a bad outcome to it."""
+    from .self_revert import DECISION_NOT_ATTRIBUTABLE, SELF_REVERTS_SURFACE
+
+    path = _surface_file(root, SELF_REVERTS_SURFACE)
+    rows = load_declared_jsonl(path, expected_surface=SELF_REVERTS_SURFACE) if path.is_file() else []
+    reverts: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row.get("decision") != DECISION_NOT_ATTRIBUTABLE:
+            reverts.setdefault(str(row["merge_sha"]), row)
+    return reverts
+
+
+def _episode(
+    role: str, subject: str, plan_id: str, source: dict[str, str], occurred_at: Any,
+    outcome: str, failure_mode: str | None, supersedes: str | None = None,
+    attribution: Attribution | None = None,
+) -> dict[str, Any]:
+    """One episode. ARIA-HIGH-370: a failure is ``attributable`` only when
+    ``failure_attribution`` names the work from the failure's own evidence;
+    the attribution's mode replaces the lane token the reason started with."""
+    from .attribution_void import void_for
+
+    canonical = json.dumps([role, plan_id, source], sort_keys=True).encode("utf-8")
+    episode_id = "sha256:" + hashlib.sha256(canonical).hexdigest()
+    # Review of #1829 (HIGH-2) — an attribution whose cause a kernel fix has
+    # since removed is recorded unattributed, naming the fix.
+    void = void_for(attribution.failure_mode, attribution.role, occurred_at) if attribution is not None else None
+    voided_by = void.fixed_by if void is not None else None
+    if void is not None:
+        attribution = None
+    mode = attribution.failure_mode if attribution is not None else failure_mode
+    evidence = [source, *(dict(ref) for ref in attribution.evidence)] if attribution is not None else [source]
+    return {
+        "schema_version": 1, "row_id": episode_id, "row_type": PERFORMANCE_OBSERVED_KIND,
+        "stream": "procedural", "kind": PERFORMANCE_OBSERVED_KIND, "episode_id": episode_id,
+        "role": role, "subject": subject, "plan_id": plan_id, "outcome": outcome,
+        "success": failure_mode is None, "failure_mode": mode,
+        "attributable": failure_mode is None or attribution is not None,
+        "attribution": attribution.as_row() if attribution is not None else None,
+        **({"voided_by": voided_by} if voided_by is not None else {}),
+        "occurred_at": occurred_at, "evidence": evidence, "supersedes": supersedes,
+    }
+
+
+def _performance_episodes(
+    events: list[dict[str, Any]], reverts: dict[str, dict[str, Any]], ledgers: InvocationLedgersSource,
+) -> list[dict[str, Any]]:
+    """Every finished episode in plan-ledger order: the drafter's at evaluation
+    or abandonment, the implementer's at merge or rejection (a request always
+    precedes it), an attributed self-revert superseding its merge."""
+    drafters: dict[str, str] = {}
+    implementers: dict[str, str] = {}
+    converged_episodes: dict[str, dict[str, Any]] = {}
+    episodes: list[dict[str, Any]] = []
+    for event in events:
+        plan_id, kind, payload = str(event["plan_id"]), event["event_type"], event["payload"]
+        source = {"surface": "plan_convergence_events", "id": str(event["event_id"])}
+        at = event["recorded_at"]
+        drafter = drafters.get(plan_id, PLAN_SYNTHESIZER_SUBJECT)
+        if kind == "revision_recorded":
+            drafters[plan_id] = str(payload.get("revised_by_agent") or "aria-primary-planner")
+        elif kind in ("implementation_requested", "implementation_started"):
+            implementers[plan_id] = str(payload["implementer_agent"])
+        elif kind == "plan_evaluated" and payload["terminal_state"] == "CONVERGED":
+            converged = _episode("drafter", drafter, plan_id, source, at, "converged", None)
+            converged_episodes[plan_id] = converged
+            episodes.append(converged)
+        elif kind == "plan_evaluated":
+            # HUMAN_REQUIRED (the validator's only other terminal): the first
+            # reason code, or the state itself when the evaluation named none.
+            reasons = [*payload["reason_codes"], "human_required"]
+            failure_mode = str(reasons[0]).split(":", 1)[0].strip()
+            attribution = attribute_evaluation(payload, plan_id=plan_id, drafter=drafter, ledgers=ledgers)
+            # ARIA-HIGH-375 — a convergence the independence migration later
+            # withdrew (CONVERGED -> HUMAN_REQUIRED, self-agreement) was never
+            # the drafter's success: its escalation supersedes the credit.
+            withdrawn = converged_episodes.pop(plan_id, None) if (
+                failure_mode == CROSS_REVIEW_SELF_AGREEMENT_REASON) else None
+            episodes.append(_episode("drafter", drafter, plan_id, source, at, "escalated", failure_mode,
+                                     supersedes=withdrawn["episode_id"] if withdrawn else None,
+                                     attribution=attribution))
+        elif kind == "plan_abandoned":
+            # The stall reaper is the abandon writer; an abandon names no work.
+            reason = str(payload["reason"]).split(":", 1)[0].strip()
+            episodes.append(_episode("drafter", drafter, plan_id, source, at, "abandoned", reason))
+        elif kind == "implementation_rejected":
+            rejection = str(payload["rejection_class"])
+            episodes.append(_episode(
+                "implementer", implementers[plan_id], plan_id, source, at, "rejected", rejection,
+                attribution=attribute_implementation_failure(rejection, implementer=implementers[plan_id]),
+            ))
+        elif kind == "implementation_merged":
+            merged = _episode("implementer", implementers[plan_id], plan_id, source, at, "merged", None)
+            episodes.append(merged)
+            revert = reverts.get(str(payload["merge_sha"]))
+            if revert is not None:
+                episodes.append(_episode(
+                    "implementer", merged["subject"], plan_id,
+                    {"surface": "enterprise_self_reverts", "id": str(revert["key"])}, revert["recorded_at"],
+                    "self_reverted", f"self_revert:{revert['trigger']}", supersedes=merged["episode_id"],
+                    attribution=attribute_self_revert(str(revert["trigger"]), implementer=merged["subject"]),
+                ))
+    return episodes
+
+
+def _judgement(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (row["failure_mode"], row["attributable"], json.dumps(row.get("attribution"), sort_keys=True),
+            row.get("voided_by"))
+
+
+def _unrecorded_episodes(root: Path) -> list[dict[str, Any]]:
+    """The episodes to append: each one no row records yet, and each one a
+    recorded row judged differently (ARIA-HIGH-370 — the 19 drafter episodes
+    recorded before attribution existed). A re-judged episode keeps its
+    lineage (the first row's id), takes a new id, and supersedes the row it
+    corrects, so the ledger stays append-only and the current view is one
+    row per episode."""
+    from .plan_convergence import events_file
+
+    rows = _performance_rows(root)
+    recorded = {str(row["episode_id"]) for row in rows}
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        latest[str(row.get("lineage_id") or row["episode_id"])] = row
+    events = load_declared_jsonl(events_file(root), expected_surface="plan_convergence_events")
+    pending: list[dict[str, Any]] = []
+    for episode in _performance_episodes(events, _attributed_reverts(root), InvocationLedgersSource(root)):
+        lineage = str(episode["episode_id"])
+        current = latest.get(lineage)
+        if current is None:
+            pending.append(episode)
+            continue
+        if _judgement(current) == _judgement(episode):
+            continue
+        # Review of #1829 (M) — the id names the TRANSITION (the row it
+        # supersedes and the new judgement): a verdict that flaps A→B→A→B
+        # gets a fresh row each time instead of colliding with the B already
+        # recorded and sticking on A.
+        transition = [lineage, str(current["episode_id"]), *_judgement(episode)]
+        digest = hashlib.sha256(json.dumps(transition).encode("utf-8")).hexdigest()
+        rejudged = {**episode, "episode_id": "sha256:" + digest, "row_id": "sha256:" + digest,
+                    "lineage_id": lineage, "supersedes": str(current["episode_id"])}
+        if rejudged["episode_id"] not in recorded:
+            pending.append(rejudged)
+    return pending
+
+
+def _refuse(root: Path, cycle_id: str, reason: str, detail: str = "") -> dict[str, Any]:
+    append_tools_governance(root, "agent_eval_real_refused", {"cycle_id": cycle_id, "reason": reason, "detail": detail})
+    return {"verdict": "refused", "reason": reason, "appended": 0}
+
+
+def observe_agent_performance(*, base_dir: str | Path | None = None, cycle_id: str) -> dict[str, Any]:
+    """Real mode: record each finished drafter / implementer episode once.
+
+    Reads the plan ledger and the self-revert ledger, appends one procedural
+    ``performance_observed`` event per episode not yet on the memory ledger,
+    and calls no LLM. With no plan ledger, or one that fails verification,
+    there is nothing to measure and no other source to fall back to: the
+    refusal is named in governance.
+    """
+    from .plan_convergence import events_file
+
+    root = ensure_tools_dir(base_dir)
+    if not events_file(root).is_file():
+        return _refuse(root, cycle_id, "agent_eval_inputs_missing:plan_convergence_events")
+    try:
+        pending = _unrecorded_episodes(root)
+    except LedgerIntegrityError as exc:
+        # A ledger the measurement reads failed verification: none of it is evidence.
+        return _refuse(root, cycle_id, "agent_eval_inputs_unverified", str(exc))
+    path = _surface_file(root, PERFORMANCE_SURFACE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    from .attribution_void import gate_epoch
+
+    for row in pending:
+        append_declared_jsonl(path, {**row, "cycle_id": cycle_id, "recorded_at": utc_now(), "gate_epoch": gate_epoch()},
+                              expected_surface=PERFORMANCE_SURFACE)
+    return {"verdict": "observed", "appended": len(pending)}
+
+
+def unobserved_episode_count(*, base_dir: str | Path | None = None) -> int:
+    """Finished episodes the plan ledger holds that no observation recorded."""
+    from .plan_convergence import events_file
+
+    root = ensure_tools_dir_readonly(base_dir)
+    if root is None or not events_file(root).is_file():
+        return 0
+    return len(_unrecorded_episodes(root))
+
+
+def list_performance_observations(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """The current episodes, oldest first: one row per episode id (a row two
+    racing lanes both appended counts once), minus every episode a later row
+    superseded."""
+    root = ensure_tools_dir_readonly(base_dir)
+    unique: dict[str, dict[str, Any]] = {}
+    for row in _performance_rows(root) if root is not None else []:
+        unique.setdefault(str(row["episode_id"]), row)
+    superseded = {row["supersedes"] for row in unique.values()}
+    current = [row for row in unique.values() if row["episode_id"] not in superseded]
+    return sorted(current, key=lambda row: str(row["occurred_at"]))
+
+
+def recurring_failure_modes(
+    *, base_dir: str | Path | None = None, role: str, subject: str | None,
+    plan_ids: Collection[str] | None = None, threshold: int = LESSON_EPISODE_THRESHOLD,
+) -> list[dict[str, Any]]:
+    """The attributable failure modes ``subject`` hit in ``threshold`` or more
+    current episodes of ``role`` — the input of the next actor's must-check.
+
+    ``subject=None`` counts every subject of the role (a plan's outcome is the
+    plan's, whoever drafted it); ``plan_ids`` limits the count to the episodes
+    of those plans (ARIA-HIGH-309, the planner's scope). ARIA-HIGH-370 — a
+    mode is counted per attributed role (``attributed_role``: the envelope
+    role whose work the evidence named, ``role`` itself for a row recorded
+    before attribution), so a challenger's refused output and the plan's own
+    refusal are two lessons for two envelopes."""
+    plans: dict[tuple[str, str], list[str]] = {}
+    for row in list_performance_observations(base_dir=base_dir):
+        if (row["role"] == role and (subject is None or row["subject"] == subject) and row["attributable"]
+                and not row["success"] and (plan_ids is None or row["plan_id"] in plan_ids)):
+            attributed = str((row.get("attribution") or {}).get("role") or role)
+            plans.setdefault((str(row["failure_mode"]), attributed), []).append(str(row["plan_id"]))
+    return [{"failure_mode": mode, "attributed_role": attributed, "episodes": len(ids), "plan_ids": sorted(ids)}
+            for (mode, attributed), ids in sorted(plans.items()) if len(ids) >= threshold]
+
+
+def _repeat_failures(episodes: list[dict[str, Any]], role: str) -> dict[str, Any]:
+    seen: dict[str, int] = {}
+    repeats = 0
+    for row in episodes:
+        if row["role"] == role and not row["success"]:
+            mode = str(row["failure_mode"])
+            repeats += 1 if mode in seen else 0
+            seen[mode] = seen.get(mode, 0) + 1
+    failures = sum(seen.values())
+    # A ratio over no episodes is not zero, it is unmeasured: None.
+    return {"failures": failures, "repeats": repeats, "rate": round(repeats / failures, 6) if failures else None,
+            "by_failure_mode": dict(sorted(seen.items()))}
+
+
+def _scorecard(episodes: list[dict[str, Any]], role: str) -> dict[str, dict[str, Any]]:
+    cards: dict[str, dict[str, Any]] = {}
+    for row in episodes:
+        if row["role"] != role:
+            continue
+        card = cards.setdefault(str(row["subject"]), {"episodes": 0, "attributable": 0, "succeeded": 0, "outcomes": {}})
+        card["episodes"] += 1
+        card["outcomes"][row["outcome"]] = card["outcomes"].get(row["outcome"], 0) + 1
+        card["attributable"] += 1 if row["attributable"] else 0
+        card["succeeded"] += 1 if row["attributable"] and row["success"] else 0
+    for card in cards.values():
+        card["success_rate"] = round(card["succeeded"] / card["attributable"], 6) if card["attributable"] else None
+    return cards
+
+
+def performance_kpis(*, base_dir: str | Path | None = None) -> dict[str, Any]:
+    """The learning KPIs the recorded episodes compute (K-10), and the ones
+    they cannot, each with the missing evidence named."""
+    episodes = list_performance_observations(base_dir=base_dir)
+    return {
+        "schema_version": 1,
+        "episodes": len(episodes),
+        "live": {
+            "repeat_failure_rate": {role: _repeat_failures(episodes, role) for role in ("drafter", "implementer")},
+            "drafter_scorecard": _scorecard(episodes, "drafter"),
+            "implementer_scorecard": _scorecard(episodes, "implementer"),
+        },
+        "not_computable": dict(NOT_COMPUTABLE_KPIS),
+    }
+
+
 # Plan 022 §H-5 — SHADOW raw findings sampling threshold (24-hour window).
 # When a SHADOW tool produces ≥ this many raw_findings in 24h, the
 # sampling CLI emits a shadow_findings_sampled governance event per
@@ -1027,4 +1300,13 @@ __all__ = [
     "MIN_RUNS_FOR_TREND",
     "count_eval_runs_by_mode",
     "sample_shadow_raw_findings",
+    "PERFORMANCE_SURFACE",
+    "PERFORMANCE_OBSERVED_KIND",
+    "LESSON_EPISODE_THRESHOLD",
+    "NOT_COMPUTABLE_KPIS",
+    "observe_agent_performance",
+    "unobserved_episode_count",
+    "list_performance_observations",
+    "recurring_failure_modes",
+    "performance_kpis",
 ]

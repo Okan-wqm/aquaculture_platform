@@ -10,20 +10,45 @@
 import * as crypto from 'crypto';
 
 import { NotFoundException } from '@nestjs/common';
+import { collaborator, stub, stubMember } from '@aquaculture/testing';
+import type { DataSource, Repository } from 'typeorm';
 
 import { ProvisioningService } from '../provisioning.service';
-import { TenantKeyService } from '../tenant-key.service';
+
+// Rows and their directory routes commit in one tenant transaction, and keys
+// resolve route → tenant boundary; the boundaries themselves are proven on real
+// Postgres (edge-mqtt-auth.rls.postgres.spec). Here they pass straight through.
+const mockTxManager = { insert: jest.fn() };
+jest.mock('@aquaculture/backend-common/database', () => ({
+  ...jest.requireActual('@aquaculture/backend-common/database'),
+  runInTenantTransaction: jest.fn(
+    (_ds: unknown, _schema: string, _tenantId: string, fn: (qr: { manager: object }) => unknown) =>
+      fn({ manager: mockTxManager }),
+  ),
+  runInSourceRead: jest.fn(),
+  runInTenantRead: jest.fn(),
+  tenantManagerRepo: jest.fn(),
+}));
+import {
+  runInSourceRead,
+  runInTenantRead,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
+
+import type { CreateTenantKeyInput } from '../dto/provisioning.dto';
+import { TenantProvisioningKeyDirectory } from '../entities/tenant-provisioning-key-directory.entity';
+import { InstallerScriptService } from '../installer-script.service';
+import { TenantProvisioningKey } from '../entities/tenant-provisioning-key.entity';
+import { provisioningKeyRouteHash, TenantKeyService } from '../tenant-key.service';
 import { DeviceModel } from '../entities/edge-device.entity';
 
-const sha256Hex = (v: string): string =>
-  crypto.createHash('sha256').update(v).digest('hex');
+const sha256Hex = (v: string): string => crypto.createHash('sha256').update(v).digest('hex');
 
 describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
   describe('ProvisioningService.createProvisionedDevice', () => {
     it('stores sha256(token) and returns the plaintext exactly once', async () => {
       const deviceRepository = {
         create: jest.fn((dto: Record<string, unknown>) => dto),
-        save: jest.fn(async (dto: Record<string, unknown>) => ({ id: 'device-1', ...dto })),
       };
       const installerScriptService = {
         buildInstallerUrl: jest.fn(async () => 'https://host/install/DEV-1'),
@@ -31,10 +56,15 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
       };
       const configService = { get: jest.fn((_k: string, fallback?: unknown) => fallback) };
 
-      const deviceDirectory = { upsert: jest.fn().mockResolvedValue(undefined) };
+      const deviceDirectory = {
+        saveNewDevice: jest.fn(async (dto: Record<string, unknown>) => ({
+          id: 'device-1',
+          ...dto,
+        })),
+      };
       const service = new ProvisioningService(
         deviceRepository as never,
-        {} as never, // dataSource — unused on this path
+        stub<DataSource>({}), // consumed only by the mocked runInTenantTransaction
         configService as never,
         {} as never, // mqttAuthService
         installerScriptService as never,
@@ -61,77 +91,93 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
   });
 
   describe('TenantKeyService', () => {
-    const buildKeyRow = (keyTokenHash: string): Record<string, unknown> => ({
-      id: 'key-1',
-      tenant_id: 'tenant-1',
-      key_token: keyTokenHash,
-      name: 'Fleet key',
-      is_active: true,
-      max_devices: null,
-      used_count: 0,
-      auto_approve: false,
-      default_site_id: null,
-      expires_at: null,
-      created_by: 'user-1',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-
-    it('createTenantKey persists sha256(key) and returns the plaintext once', async () => {
-      const tenantKeyRepository = {
-        create: jest.fn((dto: Record<string, unknown>) => dto),
+    it('createTenantKey persists sha256(key) and its route in the same transaction', async () => {
+      mockTxManager.insert.mockClear();
+      const create = jest.fn((dto: Partial<TenantProvisioningKey>) =>
+        Object.assign(new TenantProvisioningKey(), dto),
+      );
+      (tenantManagerRepo as jest.Mock).mockReturnValue({
         save: jest.fn(async (dto: Record<string, unknown>) => ({ id: 'key-1', ...dto })),
-      };
-      const installerScriptService = {
-        buildTenantInstallerUrl: jest.fn(async () => 'https://host/install/tenant'),
-        buildTenantInstallerCommand: jest.fn(async () => 'curl tenant | sudo bash'),
-      };
+      });
+      const installerScriptService = collaborator<InstallerScriptService>(
+        {
+          buildTenantInstallerUrl: jest.fn(async () => 'https://host/install/tenant'),
+          buildTenantInstallerCommand: jest.fn(async () => 'curl tenant | sudo bash'),
+        },
+        'InstallerScriptService',
+      );
 
       const service = new TenantKeyService(
-        tenantKeyRepository as never,
-        installerScriptService as never,
-        {} as never, // dataSource — unused on this path
+        collaborator<Repository<TenantProvisioningKey>>(
+          { create: stubMember<Repository<TenantProvisioningKey>['create']>(create) },
+          'TenantProvisioningKeyRepository',
+        ),
+        installerScriptService,
+        stub<DataSource>({}),
       );
 
       const response = await service.createTenantKey(
         'tenant-1',
-        { name: 'Fleet key' } as never,
+        stub<CreateTenantKeyInput>({ name: 'Fleet key' }),
         'user-1',
       );
 
       expect(response.keyToken).toMatch(/^[a-f0-9]{64}$/);
-      expect(tenantKeyRepository.create).toHaveBeenCalledTimes(1);
-      const persisted = tenantKeyRepository.create.mock.calls[0]![0] as { keyToken: string };
+      expect(create).toHaveBeenCalledTimes(1);
+      const persisted = create.mock.calls[0]![0];
       expect(persisted.keyToken).toBe(sha256Hex(response.keyToken));
       expect(persisted.keyToken).not.toBe(response.keyToken);
+
+      // SENSOR-HIGH-175: the route is a hash of the digest, never the digest.
+      const routeHash = provisioningKeyRouteHash(sha256Hex(response.keyToken));
+      expect(mockTxManager.insert).toHaveBeenCalledWith(TenantProvisioningKeyDirectory, {
+        routeHash,
+        keyId: 'key-1',
+        tenantId: 'tenant-1',
+      });
+      expect(routeHash).not.toBe(persisted.keyToken);
     });
 
-    it('validateAndGetKey resolves by digest and rejects a wrong token', async () => {
+    it('validateAndGetKey routes by hash, reads the key in that tenant, and rejects a miss', async () => {
       const rawToken = crypto.randomBytes(32).toString('hex');
-      const storedRow = buildKeyRow(sha256Hex(rawToken));
-
-      // dataSource.query: first call lists tenant schemas, second is the
-      // UNION-ALL lookup keyed by the digest.
-      const query = jest.fn(async (sql: string, params?: unknown[]) => {
-        if (sql.includes('information_schema.schemata')) {
-          return [{ schema_name: 'tenant_0123456789abcdef' }];
-        }
-        return params?.[0] === sha256Hex(rawToken) ? [storedRow] : [];
+      const digest = sha256Hex(rawToken);
+      const key = Object.assign(new TenantProvisioningKey(), {
+        id: 'key-1',
+        tenantId: 'tenant-1',
+        keyToken: digest,
+        isActive: true,
+        usedCount: 0,
+      });
+      const routeQuery = jest.fn(async (_sql: string, params: unknown[]) =>
+        params[0] === provisioningKeyRouteHash(digest) ? [{ tenant_id: 'tenant-1' }] : [],
+      );
+      (runInSourceRead as jest.Mock).mockImplementation((_ds, _schema, fn) =>
+        fn({ query: routeQuery }),
+      );
+      (runInTenantRead as jest.Mock).mockImplementation((_ds, _schema, _tenant, fn) =>
+        fn({ manager: {} }),
+      );
+      (tenantManagerRepo as jest.Mock).mockReturnValue({
+        findOne: jest.fn(async (options: { where: { keyToken: string } }) =>
+          options.where.keyToken === digest ? key : null,
+        ),
       });
 
       const service = new TenantKeyService(
-        {} as never,
-        {} as never,
-        { query } as never,
+        collaborator<Repository<TenantProvisioningKey>>({}, 'TenantProvisioningKeyRepository'),
+        collaborator<InstallerScriptService>({}, 'InstallerScriptService'),
+        stub<DataSource>({}),
       );
 
-      const key = await service.validateAndGetKey(rawToken);
-      expect(key.id).toBe('key-1');
-      expect(key.tenantId).toBe('tenant-1');
+      await expect(service.validateAndGetKey(rawToken)).resolves.toBe(key);
+      expect((runInTenantRead as jest.Mock).mock.calls[0]?.[2]).toBe('tenant-1');
 
+      (runInTenantRead as jest.Mock).mockClear();
       await expect(service.validateAndGetKey('deadbeef'.repeat(8))).rejects.toBeInstanceOf(
         NotFoundException,
       );
+      // A route miss never opens a tenant boundary.
+      expect(runInTenantRead).not.toHaveBeenCalled();
     });
   });
 });

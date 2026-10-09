@@ -40,8 +40,9 @@ from __future__ import annotations
 
 import re
 import subprocess
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 
 __all__ = [
@@ -60,6 +61,10 @@ __all__ = [
     # Plan ARIA-V3.1-A — candidate-to-envelope conversion (consumed
     # by V9PressureSourceProvider in cycle_phases/plan_source.py).
     "convert_candidate_to_plan_content",
+    # ORPHAN-HIGH-519 — what a conversion returns, and where its refs are judged.
+    "PlanCandidateConversion",
+    "PlanEvidenceGround",
+    "F_FINDING_UNSEEDED",
 ]
 
 
@@ -158,6 +163,22 @@ def synthesize_plan_content_from_cycle(
     )
     if not evidence_refs:
         # _validate_plan_content rejects empty evidence_refs.
+        return None
+    # ORPHAN-HIGH-519 — the same rule as every candidate source: a diff ref
+    # the challenger could not cite back (a dirty worktree line, a deleted
+    # file) is dropped, and a diff with none left mints no plan.
+    evidence_refs, refusal = _admit_plan_refs(evidence_refs, PlanEvidenceGround.of(workspace_root))
+    if not evidence_refs:
+        from .tool_registry import append_tools_governance
+
+        append_tools_governance(base_dir, "plan_candidate_conversion_skipped", {
+            "cycle_id": cycle_id,
+            "candidate_id": f"git-diff:{git_diff_base}",
+            "source_type": PlanCandidateSource.GIT_DIFF.value,
+            "reason": refusal.skip_reason,
+            "runner_fault": refusal.harness_fault,
+            "refused_evidence_refs": list(refusal.refused_evidence_refs),
+        })
         return None
 
     validation_commands = [
@@ -459,6 +480,7 @@ import json
 import time
 from datetime import datetime, timezone
 
+from .evidence_trust import parse_evidence_ref
 from .plan_candidate_source import PlanCandidateSource
 
 
@@ -503,6 +525,32 @@ _FAILING_CI_RUN_WINDOW: int = 200
 # clears a red workflow nor turns a green one red.
 _DECISIVE_RUN_CONCLUSIONS: frozenset[str] = frozenset({"success", "failure"})
 
+# ORPHAN-HIGH-519 — the wall clock one scan spends asking which jobs of its
+# red runs failed (one `gh run view` each). A run asked after it still cites
+# its workflow file; only the job and step lines are lost.
+_FAILING_CI_JOBS_LOOKUP_SECONDS: float = 60.0
+
+# ADR-0019 — FAILING_CI is the slot ARCH-HIGH-002 gives production breakage,
+# so only a red workflow whose verdict is about `main` or production fills it.
+# The role manifest says what each workflow judges; a red `pr_verdict` or
+# `observer` workflow is disclosed once per cycle and supplies no candidate.
+# A workflow the manifest does not name counts as `main_verdict`, so a new
+# workflow is never silently excluded. tests/invariants/workflow-roles.spec.ts
+# pins the manifest to the files under .github/workflows/.
+WORKFLOW_ROLES_MANIFEST_PATH = ".github/manifests/workflow-roles.json"
+WORKFLOW_ROLES: tuple[str, ...] = ("main_verdict", "pr_verdict", "observer")
+_MAIN_VERDICT_ROLE = "main_verdict"
+FAILING_CI_WORKFLOW_EXCLUDED_EVENT = "failing_ci_workflow_excluded"
+FAILING_CI_WORKFLOW_ROLES_UNAVAILABLE_EVENT = "failing_ci_workflow_roles_unavailable"
+# The cache holds every red workflow BEFORE the role filter, each with its run
+# id, so a manifest change applies on the next scan and every cycle discloses
+# its own exclusions. Each entry carries its repository grounding (ORPHAN-HIGH-
+# 519): the workflow file, and the failed jobs of a run the role filter kept.
+# Version 1 held the filtered candidates without a run id; version 2 held no
+# repository grounding, so a version-2 entry would reach the converter with
+# nothing in the repository to cite.
+_GH_RUN_LIST_CACHE_SCHEMA_VERSION: int = 3
+
 # Plan ARIA-V9.4 — per-source scan slowness threshold (perf HIGH-005).
 # When a single source > 2s, emit plan_source_scan_slow governance.
 _SOURCE_SCAN_SLOW_SECONDS: float = 2.0
@@ -531,7 +579,12 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
     text = path.read_text(encoding="utf-8", errors="replace")
     candidates: list[dict[str, Any]] = []
     matches = list(heading_re.finditer(text))
+    # ORPHAN-HIGH-519 — the heading's line is the register's citable anchor
+    # (`orphan-findings.md:<line>`); `#<id>` names no file the rule can read.
+    heading_line, counted_to = 1, 0
     for i, m in enumerate(matches):
+        heading_line += text.count("\n", counted_to, m.start())
+        counted_to = m.start()
         severity = m.group(1)
         finding_id = m.group(2)
         # Look at next ~500 chars for "Status: OPEN" — bounded scan.
@@ -547,6 +600,7 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
             "severity": severity,
             "severity_rank": severity_order[severity],
             "raw_id": finding_id,
+            "heading_line": heading_line,
             "title_hint": f"Address ORPHAN-{severity}-{finding_id}",
         })
     candidates.sort(key=lambda c: (c["severity_rank"], c["raw_id"]))
@@ -563,15 +617,16 @@ def _attach_orphan_registry_evidence(
 ) -> None:
     if not candidates:
         return
-    # Route the registry JSONL through the blessed strict reader (tolerant
-    # mode: a corrupt row is skipped WITH a ledger_row_corrupt diagnostic, not
-    # silently swallowed — the jsonl-silent-skip invariant bans a bare
-    # except:continue on a JSONL read). Non-existent path → empty iterator.
-    from .strict_jsonl_reader import read_strict_jsonl
-    registry = (Path(workspace_root) / "docs" / "reviews" / "_registry" / "findings.jsonl").resolve()
+    # The one registry view (ARIA-HIGH-279): evidence a merged delta row
+    # recorded is the finding's evidence. Tolerant mode: a corrupt or refused
+    # row is skipped WITH a ledger_row_corrupt diagnostic / malformed record,
+    # not silently swallowed. No registry in this checkout → nothing attached.
+    from .report_ingestion import REGISTRY_FINDINGS_RELPATH, read_registry_view
+    if not Path(workspace_root).joinpath(*REGISTRY_FINDINGS_RELPATH).is_file():
+        return
     wanted = {c["candidate_id"] for c in candidates}
     evidence_by_id: dict[str, list[str]] = {}
-    for row in read_strict_jsonl(registry, on_corruption="tolerant"):
+    for row in read_registry_view(workspace_root, strict=False).rows:
         rid = row.get("id")
         if rid in wanted and isinstance(row.get("evidence"), list):
             evidence_by_id[rid] = [e for e in row["evidence"] if isinstance(e, str)]
@@ -581,38 +636,43 @@ def _attach_orphan_registry_evidence(
             c["evidence"] = ev
 
 
-def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 source — F-* findings from ``aria-findings/*.json``.
+def scan_f_findings(findings: Mapping[str, Mapping[str, Any]] | None) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 source — the F findings the finding-event fold holds.
 
-    Aging scan uses ``Path.stat().st_mtime`` ONLY — JSON body parse
-    is invoked at candidate-selection time, not at scan time
-    (perf HIGH-006 lazy-parse contract). Returns candidates oldest-first
-    (older = higher priority).
+    ARIA-MEDIUM-330 — candidates come from the fold
+    (``finding.fold_findings``), the one authority for which findings
+    exist. This scan used to glob ``F-*.json`` and age each file by its
+    mtime, so F-101/F-102, which the pre-ORPHAN-702 seeder wrote beside the
+    ledger, became candidates that admission then refused as
+    ``finding_unknown``, and a store restore that reset every mtime reset
+    every age. Age is the record's ``created_at``; an undateable record is
+    as young as now. Returns candidates oldest-first.
+
+    ``findings`` is the fold the synthesis already read
+    (``finding_grounding.load_grounding_context``, ADR-0018 D5: one fold per
+    synthesis), not a second read: the slot policy
+    (``plan_slot_policy.order_for_slot``) judges status against that same
+    fold, so the view that names the candidates and the view that drops the
+    ones not OPEN cannot disagree. None — no ledger, or one the context
+    refused — yields no candidates. Status stays the slot policy's and
+    admission's question.
     """
-    # D3 — resolve through the writer's own accessor: under a redirected
-    # state root the hand-built `workspace_root / "aria-findings"` pointed
-    # at a directory the emitter never writes, so aging F-findings could
-    # never become plan candidates on the runner.
-    from .finding import findings_dir as _findings_dir_accessor
+    from .tool_registry import parse_utc_stamp
 
-    findings_dir = _findings_dir_accessor(workspace_root)
-    if not findings_dir.is_dir():
-        return []
+    now = time.time()
     candidates: list[dict[str, Any]] = []
-    for p in findings_dir.glob("F-*.json"):
-        try:
-            mtime = p.stat().st_mtime
-        except OSError:
-            continue
+    for finding_id, record in sorted((findings or {}).items()):
+        stamp = record.get("created_at")
+        created = parse_utc_stamp(stamp) if isinstance(stamp, str) else None
+        created_epoch = created.timestamp() if created is not None else now
         candidates.append({
             "source_type": PlanCandidateSource.F_FINDING.value,
-            "candidate_id": p.stem,
-            "mtime": mtime,
-            "path": str(p),
-            "age_seconds": time.time() - mtime,
-            "title_hint": f"Process aging F-finding {p.stem}",
+            "candidate_id": finding_id,
+            "created_at": stamp,
+            "age_seconds": now - created_epoch,
+            "title_hint": f"Process aging F-finding {finding_id}",
         })
-    candidates.sort(key=lambda c: c["mtime"])  # oldest first
+    candidates.sort(key=lambda c: -c["age_seconds"])  # oldest first
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
@@ -627,6 +687,8 @@ def _read_gh_run_list_cache(cache_path: Path) -> list[dict[str, Any]] | None:
         return None
     if not isinstance(cached, dict):
         return None
+    if cached.get("schema_version") != _GH_RUN_LIST_CACHE_SCHEMA_VERSION:
+        return None
     cached_at = cached.get("cached_at_epoch")
     if not isinstance(cached_at, (int, float)):
         return None
@@ -639,7 +701,7 @@ def _read_gh_run_list_cache(cache_path: Path) -> list[dict[str, Any]] | None:
 def _write_gh_run_list_cache(cache_path: Path, payload: list[dict[str, Any]]) -> None:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps({
-        "schema_version": 1,
+        "schema_version": _GH_RUN_LIST_CACHE_SCHEMA_VERSION,
         "cached_at_epoch": time.time(),
         "cached_at_utc": datetime.now(timezone.utc).isoformat(),
         "payload": payload,
@@ -675,6 +737,229 @@ def _newest_failures_of_red_workflows(rows: list[Any]) -> list[dict[str, Any]]:
     return failing
 
 
+def _failing_jobs(payload: Any) -> list[dict[str, Any]]:
+    """``[{name, failed_steps}]`` for the failed jobs of one ``gh run view --json jobs`` answer."""
+    jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    failed: list[dict[str, Any]] = []
+    for job in jobs if isinstance(jobs, list) else []:
+        if not isinstance(job, dict) or job.get("conclusion") != "failure" or not isinstance(job.get("name"), str):
+            continue
+        steps = job.get("steps") if isinstance(job.get("steps"), list) else []
+        failed.append({"name": job["name"], "failed_steps": [
+            step["name"] for step in steps
+            if isinstance(step, dict) and step.get("conclusion") == "failure" and isinstance(step.get("name"), str)
+        ]})
+    return failed
+
+
+def _gh_json_reader(*, gh_cli: str, gh_token: str | None) -> Callable[..., Any] | None:
+    """One read-only ``gh`` call, answering its parsed JSON (None when gh
+    times out, exits non-zero or prints no JSON); the reader itself is None
+    when GitHub must not be asked at all."""
+    import os as _os
+    import shutil
+
+    # Plan ARIA-V3.1-F-2 — ARIA_DRY_RUN system-wide gate (closes C-8).
+    # When set, short-circuit BEFORE the `gh run list` subprocess.
+    # Used by the V3.1-F smoke to exercise the autonomous cycle path
+    # without touching the real GitHub API. The autonomous profile's
+    # preflight gate (V3.1-E) catches misconfigured hosts; this gate
+    # is the per-call defense-in-depth.
+    if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
+        return None
+
+    if not shutil.which(gh_cli):
+        return None
+    # Plan ARIA-V3.1-D-4 — explicit env when scoped token supplied.
+    # When gh_token is None, fall through to subprocess's default
+    # parent-env inheritance (V8 backward-compat).
+    subprocess_env: dict[str, str] | None = None
+    if gh_token is not None:
+        subprocess_env = {
+            "GH_TOKEN": gh_token,
+            "PATH": _os.environ.get("PATH", "/usr/bin:/bin"),
+        }
+
+    def gh_json(*args: str) -> Any:
+        try:
+            proc = subprocess.run(
+                [gh_cli, *args], capture_output=True, text=True, timeout=15, env=subprocess_env,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return None
+        if proc.returncode != 0:
+            return None
+        try:
+            return json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return None
+    return gh_json
+
+
+def _red_workflow_runs(gh_json: Callable[..., Any], *, branch: str) -> list[dict[str, Any]] | None:
+    """The newest failed run of every workflow red on ``branch`` now, as
+    candidate dicts, before any role filter; None when GitHub did not answer.
+
+    ORPHAN-HIGH-519 — a plan cites the repository, never the run: each red
+    run is resolved to the workflow FILE GitHub ran (`gh run list` carries no
+    path; one `gh workflow list` maps the workflow id to it). The file is the
+    workflow's whatever its role, so it is resolved here; the failed jobs and
+    steps are asked per run only for the candidates the role filter keeps
+    (``_attach_failing_jobs``). An answer gh does not give leaves the field
+    empty and the candidate ungrounded.
+    """
+    rows = gh_json(
+        "run", "list", "--branch", branch, "--status", "completed",
+        "--limit", str(_FAILING_CI_RUN_WINDOW), "--json",
+        "databaseId,workflowDatabaseId,workflowName,headSha,conclusion,createdAt,event",
+    )
+    if not isinstance(rows, list):
+        return None
+    failing = _newest_failures_of_red_workflows(rows)
+    workflows = gh_json("workflow", "list", "--all", "--limit", "1000", "--json", "id,path") if failing else None
+    workflow_paths = {
+        w.get("id"): w.get("path") for w in (workflows if isinstance(workflows, list) else [])
+        if isinstance(w, dict)
+    }
+    red: list[dict[str, Any]] = []
+    for r in failing:
+        run_id = r.get("databaseId")
+        workflow = r.get("workflowName") or "unknown"
+        red.append({
+            "source_type": PlanCandidateSource.FAILING_CI.value,
+            "candidate_id": f"ci-run-{run_id}",
+            "run_id": run_id,
+            "workflow_name": workflow,
+            "workflow_path": workflow_paths.get(r["workflowDatabaseId"]),
+            "head_sha": r.get("headSha"),
+            "conclusion": r.get("conclusion"),
+            "created_at": r.get("createdAt"),
+            "title_hint": f"Fix failing CI workflow '{workflow}' (run #{run_id})",
+        })
+    return red
+
+
+def _attach_failing_jobs(
+    candidates: list[dict[str, Any]], red: list[dict[str, Any]], gh_json: Callable[..., Any],
+) -> None:
+    """ORPHAN-HIGH-519 — the jobs and steps that failed in each kept
+    candidate's run (one ``gh run view`` each, within
+    ``_FAILING_CI_JOBS_LOOKUP_SECONDS``), which the converter locates in the
+    workflow file. A red workflow the role filter excluded is never asked
+    about. The answer is recorded on the run's red entry too, so the cached
+    fetch carries it to every scan that reads the cache."""
+    red_by_run = {entry.get("run_id"): entry for entry in red}
+    deadline = time.monotonic() + _FAILING_CI_JOBS_LOOKUP_SECONDS
+    for candidate in candidates:
+        run_id = candidate.get("run_id")
+        jobs = gh_json("run", "view", str(run_id), "--json", "jobs") if time.monotonic() < deadline else None
+        candidate["failing_jobs"] = _failing_jobs(jobs)
+        if run_id in red_by_run:
+            red_by_run[run_id]["failing_jobs"] = list(candidate["failing_jobs"])
+
+
+def _parse_workflow_roles(raw: bytes) -> dict[str, str] | None:
+    """Role by the workflow name GitHub reports a run under, or None when
+    the manifest is not the schema the invariant pins (no partial reading:
+    a manifest the kernel cannot fully trust excludes nothing)."""
+    try:
+        manifest = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
+        return None
+    entries = manifest.get("workflows")
+    if not isinstance(entries, list):
+        return None
+    roles: dict[str, str] = {}
+    for entry in entries:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        role = entry.get("role") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name or name in roles or role not in WORKFLOW_ROLES:
+            return None
+        roles[name] = role
+    return roles
+
+
+def _read_workflow_roles(workspace: Path) -> tuple[dict[str, str] | None, dict[str, Any]]:
+    """The role manifest and where it was read from (ADR-0019).
+
+    Read the way the operator channel reads its allowed-signers file: as
+    committed at the checkout's commit once ``main_anchor`` proves that
+    commit is on ``main``, through the hardened git. A checkout that cannot
+    be anchored (no git, a commit not on main) is read from its working
+    tree, and the provenance names which one was read. None: no usable
+    manifest, so no workflow is excluded; the reason rides in the provenance.
+
+    Only a workspace that is itself a checkout root (``.git`` dir, or file
+    in a linked worktree) is anchored: git discovers a repository by walking
+    UP from ``-C``, so a workspace that is not one would be judged by the
+    manifest of whatever repository encloses it.
+    """
+    from .main_anchor import committed_blob, resolve_main_anchor
+
+    anchor = resolve_main_anchor(workspace) if (workspace / ".git").exists() else None
+    raw: bytes | None
+    if anchor is not None and anchor.commit is not None:
+        provenance: dict[str, Any] = {
+            "manifest_source": "main_anchor", "manifest_commit": anchor.commit,
+        }
+        blob = committed_blob(workspace, commit=anchor.commit, path=WORKFLOW_ROLES_MANIFEST_PATH)
+        raw = blob.content if blob is not None else None
+    else:
+        provenance = {
+            "manifest_source": "checkout", "manifest_commit": None,
+            "anchor_reason": anchor.reason if anchor is not None else "workspace_not_checkout_root",
+        }
+        try:
+            raw = (workspace / WORKFLOW_ROLES_MANIFEST_PATH).read_bytes()
+        except OSError:
+            raw = None
+    if raw is None:
+        return None, {**provenance, "reason": "manifest_unavailable"}
+    roles = _parse_workflow_roles(raw)
+    if roles is None:
+        return None, {**provenance, "reason": "manifest_malformed"}
+    return roles, provenance
+
+
+def _main_verdict_candidates(
+    red: list[dict[str, Any]], *, workspace: Path, tools_root: Path, cycle_id: str | None,
+) -> list[dict[str, Any]]:
+    """The red workflows whose verdict is about ``main`` (ADR-0019).
+
+    Every excluded red workflow is disclosed as ONE governance event per
+    cycle (workflow, role, run id), never dropped silently; without a usable
+    manifest every red stays a candidate and that is disclosed once per
+    cycle instead.
+    """
+    if not red:
+        return []
+    from .tool_registry import append_tools_governance_once
+
+    roles, provenance = _read_workflow_roles(workspace)
+    if roles is None:
+        append_tools_governance_once(tools_root, FAILING_CI_WORKFLOW_ROLES_UNAVAILABLE_EVENT, {
+            "cycle_id": cycle_id, "manifest_path": WORKFLOW_ROLES_MANIFEST_PATH,
+            "red_workflows": sorted({str(entry.get("workflow_name")) for entry in red}),
+            **provenance,
+        }, claim_keys=("cycle_id", "reason"))
+    candidates: list[dict[str, Any]] = []
+    for entry in red:
+        declared = roles.get(str(entry.get("workflow_name"))) if roles is not None else None
+        role = declared or _MAIN_VERDICT_ROLE
+        if role == _MAIN_VERDICT_ROLE:
+            candidates.append({
+                **entry, "workflow_role": role, "workflow_role_declared": declared is not None,
+            })
+            continue
+        append_tools_governance_once(tools_root, FAILING_CI_WORKFLOW_EXCLUDED_EVENT, {
+            "cycle_id": cycle_id, "workflow_name": entry.get("workflow_name"), "role": role,
+            "run_id": entry.get("run_id"), "head_sha": entry.get("head_sha"), **provenance,
+        }, claim_keys=("cycle_id", "workflow_name", "role", "run_id"))
+    return candidates
+
+
 def scan_failing_ci(
     workspace_root: str | Path,
     *,
@@ -682,16 +967,30 @@ def scan_failing_ci(
     gh_cli: str = "gh",
     branch: str = "main",
     gh_token: str | None = None,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 + V3.1-D-4 source — the workflows that are red on
-    ``main`` now: each workflow's newest decisive run (see
-    ``_DECISIVE_RUN_CONCLUSIONS``) among the newest
+    ``main`` now and whose verdict is about ``main``: each workflow's newest
+    decisive run (see ``_DECISIVE_RUN_CONCLUSIONS``) among the newest
     ``_FAILING_CI_RUN_WINDOW`` completed runs, kept when it failed. One
     candidate per red workflow, carrying that newest failed run
-    (ARIA-HIGH-250).
+    (ARIA-HIGH-250). Only a ``main_verdict`` workflow of the role manifest
+    (or one it does not name) supplies a candidate; each excluded red
+    workflow is disclosed once per ``cycle_id`` in the governance ledger of
+    ``base_dir`` (default ``<workspace>/aria-tools``) — ADR-0019.
+
+    ORPHAN-HIGH-519 — each candidate is grounded in the repository, not in
+    the run: ``workflow_path`` (the workflow file GitHub ran) and
+    ``failing_jobs`` (the jobs and steps that failed in that run, asked only
+    for the candidates the role filter keeps, within
+    ``_FAILING_CI_JOBS_LOOKUP_SECONDS``), which the converter locates in
+    that file.
 
     Cached at ``<workspace>/aria-tools/cache/gh-run-list.json`` with
-    10-min TTL (arb MED-003 + perf CRIT-003 rate-limit mitigation).
+    10-min TTL (arb MED-003 + perf CRIT-003 rate-limit mitigation). The
+    cache holds the red workflows before the role filter, with that
+    grounding.
 
     Plan ARIA-V3.1-D-4 (closes 6-validator audit H-6 token scope):
     `gh_token` kwarg accepts a scoped READ_ACTIONS_ONLY installation
@@ -709,76 +1008,34 @@ def scan_failing_ci(
     absence → empty list (degraded silently; orchestrator picks a
     different source).
     """
-    import os as _os
-    import shutil
     workspace = Path(workspace_root).resolve()
     if cache_dir is None:
         cache_path = workspace / "aria-tools" / "cache" / "gh-run-list.json"
     else:
         cache_path = Path(cache_dir) / "gh-run-list.json"
 
-    cached = _read_gh_run_list_cache(cache_path)
-    if cached is not None:
-        return cached[:_MAX_CANDIDATES_PER_SOURCE]
-
-    # Plan ARIA-V3.1-F-2 — ARIA_DRY_RUN system-wide gate (closes C-8).
-    # When set, short-circuit BEFORE the `gh run list` subprocess.
-    # Used by the V3.1-F smoke to exercise the autonomous cycle path
-    # without touching the real GitHub API. The autonomous profile's
-    # preflight gate (V3.1-E) catches misconfigured hosts; this gate
-    # is the per-call defense-in-depth.
-    if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
-        return []
-
-    if not shutil.which(gh_cli):
-        return []
-    # Plan ARIA-V3.1-D-4 — explicit env when scoped token supplied.
-    # When gh_token is None, fall through to subprocess's default
-    # parent-env inheritance (V8 backward-compat).
-    subprocess_env: dict[str, str] | None = None
-    if gh_token is not None:
-        subprocess_env = {
-            "GH_TOKEN": gh_token,
-            "PATH": _os.environ.get("PATH", "/usr/bin:/bin"),
-        }
-    try:
-        proc = subprocess.run(
-            [
-                gh_cli, "run", "list",
-                "--branch", branch,
-                "--status", "completed",
-                "--limit", str(_FAILING_CI_RUN_WINDOW),
-                "--json",
-                "databaseId,workflowDatabaseId,workflowName,headSha,conclusion,createdAt,event",
-            ],
-            capture_output=True, text=True, timeout=15,
-            env=subprocess_env,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return []
-    if proc.returncode != 0:
-        return []
-    try:
-        rows = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(rows, list):
-        return []
-    candidates: list[dict[str, Any]] = []
-    for r in _newest_failures_of_red_workflows(rows):
-        run_id = r.get("databaseId")
-        workflow = r.get("workflowName") or "unknown"
-        candidates.append({
-            "source_type": PlanCandidateSource.FAILING_CI.value,
-            "candidate_id": f"ci-run-{run_id}",
-            "workflow_name": workflow,
-            "head_sha": r.get("headSha"),
-            "conclusion": r.get("conclusion"),
-            "created_at": r.get("createdAt"),
-            "title_hint": f"Fix failing CI workflow '{workflow}' (run #{run_id})",
-        })
-    _write_gh_run_list_cache(cache_path, candidates)
-    return candidates[:_MAX_CANDIDATES_PER_SOURCE]
+    red = _read_gh_run_list_cache(cache_path)
+    gh_json: Callable[..., Any] | None = None
+    if red is None:
+        gh_json = _gh_json_reader(gh_cli=gh_cli, gh_token=gh_token)
+        red = _red_workflow_runs(gh_json, branch=branch) if gh_json is not None else None
+        if red is None:
+            return []
+    tools_root = Path(base_dir) if base_dir is not None else workspace / "aria-tools"
+    candidates = _main_verdict_candidates(
+        red, workspace=workspace, tools_root=tools_root, cycle_id=cycle_id,
+    )[:_MAX_CANDIDATES_PER_SOURCE]
+    if gh_json is not None:
+        # This scan asked GitHub: the kept candidates' failed jobs are asked
+        # now, and the fetch is cached with those answers on it.
+        _attach_failing_jobs(candidates, red, gh_json)
+        _write_gh_run_list_cache(cache_path, red)
+    for candidate in candidates:
+        # A cached red entry the fetch's role filter excluded was never asked
+        # about; once kept it still cites its workflow file, as a run asked
+        # past the lookup bound does.
+        candidate.setdefault("failing_jobs", [])
+    return candidates
 
 
 def scan_operator_feedback(
@@ -871,6 +1128,7 @@ def rank_candidate_sources(
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    findings: Mapping[str, Mapping[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 — scan all 5 sources + return ranked candidates.
 
@@ -881,10 +1139,16 @@ def rank_candidate_sources(
     Per-source scan timing emitted as ``plan_source_scan_slow``
     governance event when single source > 2s (perf HIGH-005).
 
-    ``base_dir`` / ``cycle_id`` reach only the operator-feedback scanner:
-    its ingestion row is written to the tools store and stamped with the
-    cycle so the provider can bind the synthesis it selects to that scan
-    (V9.5 check 12).
+    ``base_dir`` / ``cycle_id`` reach the operator-feedback scanner — its
+    ingestion row is written to the tools store and stamped with the cycle
+    so the provider can bind the synthesis it selects to that scan (V9.5
+    check 12) — and the failing-CI scanner, which discloses each red
+    workflow it excludes once per cycle in that store (ADR-0019).
+
+    ``findings`` is the caller's finding fold, which the F_FINDING source
+    reads instead of folding the ledger again (ARIA-MEDIUM-330; see
+    :func:`scan_f_findings`). It is required, so no caller can rank F
+    candidates from one view and judge them against another.
     """
     workspace = Path(workspace_root).resolve()
     all_candidates: list[dict[str, Any]] = []
@@ -893,11 +1157,17 @@ def rank_candidate_sources(
     def _scan_operator_feedback(root: Path) -> list[dict[str, Any]]:
         return scan_operator_feedback(root, base_dir=base_dir, cycle_id=cycle_id)
 
+    def _scan_failing_ci(root: Path) -> list[dict[str, Any]]:
+        return scan_failing_ci(root, base_dir=base_dir, cycle_id=cycle_id)
+
+    def _scan_f_findings(_root: Path) -> list[dict[str, Any]]:
+        return scan_f_findings(findings)
+
     for source_name, scanner in (
         (PlanCandidateSource.OPERATOR_FEEDBACK.value, _scan_operator_feedback),
-        (PlanCandidateSource.FAILING_CI.value, scan_failing_ci),
+        (PlanCandidateSource.FAILING_CI.value, _scan_failing_ci),
         (PlanCandidateSource.ORPHAN_FINDING.value, scan_orphan_findings),
-        (PlanCandidateSource.F_FINDING.value, scan_f_findings),
+        (PlanCandidateSource.F_FINDING.value, _scan_f_findings),
         (PlanCandidateSource.GITHUB_ISSUE.value, scan_github_issue_missions),
     ):
         t0 = time.monotonic()
@@ -939,43 +1209,162 @@ def rank_candidate_sources(
 _FINDING_EVIDENCE_CAP = 50
 
 
-def _finding_refs_and_surfaces(references: list[Any]) -> tuple[list[str], list[str]]:
-    """(evidence_refs, affected_surfaces) from an ORPHAN finding's registry references.
+@dataclass(frozen=True)
+class PlanEvidenceGround:
+    """Where a plan's evidence is judged: the checkout, at the commit its planning envelopes name.
 
-    An evidence ref may pin a line (``path:line``); a surface is the path the
-    fix touches, so the line is split off. F findings no longer come through
-    here: their refs are read from the finding-event fold and judged by
-    ``finding_grounding.admit_finding`` (ADR-0018 D5). ARIA-HIGH-211 — ORPHAN candidates once copied
-    ``docs/x.md:12`` into ``affected_surfaces``, a string no path and no risk
-    lane is written for.
+    ORPHAN-HIGH-519 — ``target_sha`` is resolved by the drainer's own resolver,
+    the value every challenger request carries, so a ref admitted here is
+    admitted again when the challenger cites it at the submit.
     """
+
+    repo_root: Path
+    target_sha: str | None
+
+    @classmethod
+    def of(cls, workspace_root: str | Path) -> "PlanEvidenceGround":
+        from .convergence_drainer import _resolve_workspace_head_sha
+
+        root = Path(workspace_root).resolve()
+        return cls(root, _resolve_workspace_head_sha(root))
+
+
+@dataclass(frozen=True)
+class PlanCandidateConversion:
+    """One candidate's conversion: the plan, or none and the named reason.
+
+    ``refused_evidence_refs`` names every ref the challenger's rule refused
+    (a plan that was minted carries it too); ``harness_fault`` is True when
+    the only refusals were the harness failing to verify.
+    """
+
+    envelope: "CyclePlanEnvelope | None"
+    skip_reason: str | None = None
+    refused_evidence_refs: tuple[dict[str, Any], ...] = ()
+    harness_fault: bool = False
+
+
+_NO_PLAN = PlanCandidateConversion(None)
+# ARIA-HIGH-369 — an F_FINDING candidate reached conversion without the seed
+# ``finding_seed.admit_and_seed`` re-grounds it into; no template plan stands in.
+F_FINDING_UNSEEDED = "f_finding_unseeded"
+
+
+def _admit_plan_refs(refs: list[str], ground: PlanEvidenceGround) -> tuple[list[str], PlanCandidateConversion]:
+    """(admitted refs, the no-plan conversion naming each refused ref), by the challenger's rule.
+
+    The rule is ``evidence_validator.admissible_agent_evidence_refs`` — the
+    function the submit path applies; there is no plan-side copy of it. A
+    refused ref is named the way governance names one (``_ref_label``).
+    """
+    from .evidence_validator import PLAN_EVIDENCE_INADMISSIBLE, admissible_agent_evidence_refs
+    from .finding_grounding import _ref_label
+
+    verdict = admissible_agent_evidence_refs(refs, workspace_root=ground.repo_root, target_sha=ground.target_sha)
+    refused = tuple({"ref": _ref_label(str(entry["ref"])), "codes": entry["codes"]} for entry in verdict.refused)
+    return list(verdict.admitted), PlanCandidateConversion(
+        None, PLAN_EVIDENCE_INADMISSIBLE, refused, verdict.harness_fault,
+    )
+
+
+def _finding_refs(references: list[Any]) -> list[str]:
+    """An ORPHAN finding's registry references that name a path inside the checkout."""
     evidence_refs: list[str] = []
-    affected: list[str] = []
     for ref in references:
         if not isinstance(ref, str) or not ref.strip():
             continue
         ref = ref.strip()
-        if _looks_unsafe_repo_path(ref):
+        if _looks_unsafe_repo_path(ref) or ref in evidence_refs:
             continue
-        path_part = ref.rsplit(":", 1)[0] if re.search(r":\d+$", ref) else ref
-        if ref not in evidence_refs:
-            evidence_refs.append(ref)
-        if path_part not in affected:
-            affected.append(path_part)
+        evidence_refs.append(ref)
         if len(evidence_refs) >= _FINDING_EVIDENCE_CAP:
             break
-    return evidence_refs, affected
+    return evidence_refs
 
 
 def _looks_unsafe_repo_path(value: str) -> bool:
     return value.startswith("/") or "\\" in value or value.startswith("../") or "/../" in value
 
 
+def _named_line(lines: list[str], name: str, start: int) -> int | None:
+    """1-based line at or after index ``start`` naming ``name``: a ``name:`` value or a mapping key.
+
+    GitHub reports a job by its ``name:`` or, without one, its key; a matrix
+    leg as ``job (a, b)``, so a trailing parenthesised group is dropped.
+    """
+    base = re.sub(r"\s*\([^()]*\)$", "", name).strip()
+    if not base:
+        return None
+    wanted = {f"name: {base}", f'name: "{base}"', f"name: '{base}'", f"{base}:"}
+    for index in range(start, len(lines)):
+        text = lines[index].strip()
+        if (text[2:].strip() if text.startswith("- ") else text) in wanted:
+            return index + 1
+    return None
+
+
+def _failing_signature(workflow_path: Any, failing_jobs: Any) -> dict[str, Any] | None:
+    """ARIA-HIGH-370 (review of #1829, HIGH-3) — what a red run is about: its
+    workflow file and the ``job::step`` pairs that failed. The run id is
+    provenance; two red runs failing the same steps are one candidate for
+    ``admission_lessons``, and a different failing step is another.
+
+    None when gh gave no job data (second review of #1829, M4): a
+    workflow-only key would merge every red run of the workflow, so the
+    identity is unknown and the attempt is not counted by the breaker."""
+    from .text_safety import sanitize_untrusted_text
+
+    failed: set[str] = set()
+    for job in failing_jobs if isinstance(failing_jobs, list) else []:
+        if not isinstance(job, dict):
+            continue
+        name = sanitize_untrusted_text(str(job.get("name") or ""), max_len=120)
+        steps = job.get("failed_steps") if isinstance(job.get("failed_steps"), list) else []
+        if not steps:
+            failed.add(f"{name}::")
+        for step in steps:
+            failed.add(f"{name}::{sanitize_untrusted_text(str(step), max_len=120)}")
+    return {"workflow_path": str(workflow_path), "failed": sorted(failed)} if failed else None
+
+
+def _workflow_evidence_refs(repo_root: Path, workflow_path: Any, failing_jobs: Any) -> list[str]:
+    """``<workflow>:<line>`` of each failing step, then of its job, then the file itself.
+
+    [] when ``workflow_path`` is not a workflow file of this checkout's shape
+    (gh answered no path, or a dynamic workflow such as code scanning).
+    """
+    from .finding_grounding import safe_repo_ref
+
+    if not (isinstance(workflow_path, str) and workflow_path.startswith(".github/workflows/")
+            and safe_repo_ref(workflow_path)):
+        return []
+    try:
+        lines = (repo_root / workflow_path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    jobs_at = next((i for i, line in enumerate(lines) if line.split("#", 1)[0].rstrip() == "jobs:"), None)
+    refs: list[str] = []
+    for job in failing_jobs if isinstance(failing_jobs, list) and jobs_at is not None else []:
+        if not (isinstance(job, dict) and isinstance(job.get("name"), str)):
+            continue
+        job_line = _named_line(lines, job["name"], jobs_at + 1)
+        if job_line is None:
+            continue
+        steps = job.get("failed_steps") if isinstance(job.get("failed_steps"), list) else []
+        step_lines = [_named_line(lines, step, job_line) for step in steps if isinstance(step, str)]
+        refs += [f"{workflow_path}:{line}" for line in step_lines if line is not None]
+        refs.append(f"{workflow_path}:{job_line}")
+    refs.append(workflow_path)
+    return list(dict.fromkeys(refs))
+
+
 def convert_candidate_to_plan_content(
     candidate: Mapping[str, Any],
     *,
     admission: "FindingAdmission | None" = None,
-) -> "CyclePlanEnvelope | None":
+    ground: PlanEvidenceGround,
+    seed: "FindingSeed | None" = None,
+) -> PlanCandidateConversion:
     """Plan ARIA-V3.1-A — convert one ranked candidate into a
     CyclePlanEnvelope (closes 6-validator audit C-5 + H-2 + H-8).
 
@@ -984,11 +1373,26 @@ def convert_candidate_to_plan_content(
     (``f_finding``, ``operator_feedback``) converts ONLY on an admitted
     verdict for that finding, and its evidence and surfaces are the
     admission's — grounded in tracked files of the cycle's checkout, never a
-    self-output path, never a readonly surface. Without one it returns None.
+    self-output path, never a readonly surface. Without one it converts to no plan.
 
-    Returns None when the candidate cannot be converted (caller
-    iterates to the next ranked candidate per V3.1-A-3 iterative
-    fallback). Returns CyclePlanEnvelope on success.
+    ORPHAN-HIGH-519 — every source's refs then pass the challenger's rule at
+    ``ground`` (``_admit_plan_refs``): refused refs are dropped and named,
+    and a candidate none of whose refs passes converts to no plan with
+    ``skip_reason`` ``plan_evidence_inadmissible``. Where a plan came from
+    (the operator's feedback row, the CI run) is ``provenance_refs``, never
+    evidence: no challenger can cite either.
+
+    ARIA-HIGH-369 — ``seed`` is ``finding_seed.seed_finding``'s re-grounding
+    of the same finding at the anchor. An F_FINDING plan is built ONLY from
+    it — its refs as they stand now, its subject's sides, its title, summary
+    and one key change per surface — and converts to no plan
+    (:data:`F_FINDING_UNSEEDED`) without one; there is no template F plan. An
+    operator request cites the seed's refs when there is one (a moved line
+    re-anchored) and the refs it signed otherwise.
+
+    The caller iterates to the next ranked candidate when no plan results
+    (V3.1-A-3 iterative fallback) and emits one
+    ``plan_candidate_conversion_skipped`` governance event per skip.
 
     Tier-1 anchors:
 
@@ -1002,34 +1406,27 @@ def convert_candidate_to_plan_content(
       strings cannot smuggle delimiter / bidi / control-char
       payloads into the convergence prompt).
 
-    Tier-3 (Detect):
-
-    * Returns None on missing/empty required fields rather than
-      raising. The caller emits a `plan_candidate_conversion_skipped`
-      governance event so the audit trail captures the skip without
-      blocking iterative fallback.
-
     Candidate shapes (per source_type):
 
     * `operator_feedback` — { candidate_id, finding_id, priority,
       request, authored_at, signer, row_ledger_hash,
       ingestion_ledger_hash, title_hint } (admitted by
       ``operator_feedback_ingestion``)
-    * `failing_ci` — { candidate_id, workflow_name, head_sha,
-      conclusion, created_at, title_hint }
-    * `orphan_finding` — { candidate_id, severity, raw_id,
-      title_hint }
-    * `f_finding` — { candidate_id, mtime, path, age_seconds,
+    * `failing_ci` — { candidate_id, workflow_name, workflow_path,
+      failing_jobs, head_sha, conclusion, created_at, title_hint }
+    * `orphan_finding` — { candidate_id, severity, raw_id, heading_line,
+      evidence, title_hint }
+    * `f_finding` — { candidate_id, created_at, age_seconds,
       title_hint }
     * `git_diff` — synthesized by V7GitDiffProvider, not by this
       function.
     """
     if not isinstance(candidate, Mapping):
-        return None
+        return _NO_PLAN
     source_type = candidate.get("source_type")
     candidate_id = candidate.get("candidate_id")
     if not isinstance(source_type, str) or not isinstance(candidate_id, str):
-        return None
+        return _NO_PLAN
     if source_type not in {
         PlanCandidateSource.OPERATOR_FEEDBACK.value,
         PlanCandidateSource.FAILING_CI.value,
@@ -1038,11 +1435,13 @@ def convert_candidate_to_plan_content(
     }:
         # GIT_DIFF goes through V7GitDiffProvider; unknown source
         # types skipped + caller falls back.
-        return None
+        return _NO_PLAN
     # Lazy imports — CyclePlanEnvelope + sanitizer live in modules
     # that import this module's helpers; avoid circular import at
     # module load.
     from .cycle_phases.plan_source import CyclePlanEnvelope
+    from .operator_feedback_ingestion import PROVENANCE_REF_PREFIX
+    from .plan_origin import ORPHAN_FINDINGS_DOCUMENT
     from .text_safety import sanitize_untrusted_text
     title_hint = sanitize_untrusted_text(
         candidate.get("title_hint") or f"Address {candidate_id}",
@@ -1053,7 +1452,11 @@ def convert_candidate_to_plan_content(
         PlanCandidateSource.F_FINDING.value,
     }
     if finding_sourced and (admission is None or not admission.admitted):
-        return None
+        return _NO_PLAN
+    provenance_refs: list[str] = []
+    failing_signature: dict[str, Any] | None = None
+    key_changes: list[dict[str, Any]] | None = None
+    signed_fallback: list[str] | None = None
     # Per-source content authoring. Each branch builds the same
     # canonical 7-field plan_content; only the textual hints differ.
     if source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
@@ -1064,10 +1467,10 @@ def convert_candidate_to_plan_content(
         # its prose is not the operator's instruction. The finding id comes
         # from the signed row, so the admission must be for that id.
         if admission.finding_id != candidate.get("finding_id"):
-            return None
+            return _NO_PLAN
         request = sanitize_untrusted_text(candidate.get("request") or "", max_len=1024)
         if not request:
-            return None
+            return _NO_PLAN
         priority = sanitize_untrusted_text(candidate.get("priority") or "", max_len=16)
         title_hint = sanitize_untrusted_text(
             f"Operator request {candidate_id}: remediate {admission.finding_id}", max_len=200,
@@ -1077,10 +1480,17 @@ def convert_candidate_to_plan_content(
             f"root-cause remediation of finding {admission.finding_id}. "
             f"Operator text: {request}"
         )
-        evidence_refs = [
-            *admission.evidence_refs,
-            f"aria-tools/operator-feedback.jsonl:{candidate_id}",
-        ]
+        # The signed grounding is the evidence; the feedback row is provenance.
+        # ARIA-HIGH-369 review M1 — a seed may only move a SIGNED ref to its
+        # current line (never add a ref or a surface the operator did not
+        # sign), and when the moved refs are refused the signed ones are
+        # judged instead, so a seed can never get the request spent.
+        evidence_refs = list(admission.evidence_refs)
+        if seed is not None and seed.finding_id == admission.finding_id:
+            moved_refs = list(seed.signed_refs_moved(admission.evidence_refs))
+            signed_fallback = evidence_refs if moved_refs != evidence_refs else None
+            evidence_refs = moved_refs
+        provenance_refs = [f"{PROVENANCE_REF_PREFIX}{candidate_id}"]
         affected_surfaces = list(admission.affected_surfaces)
     elif source_type == PlanCandidateSource.FAILING_CI.value:
         workflow = sanitize_untrusted_text(
@@ -1089,12 +1499,15 @@ def convert_candidate_to_plan_content(
         head_sha = sanitize_untrusted_text(
             candidate.get("head_sha") or "", max_len=64,
         )
+        workflow_path = candidate.get("workflow_path")
+        evidence_refs = _workflow_evidence_refs(ground.repo_root, workflow_path, candidate.get("failing_jobs"))
+        affected_surfaces = [str(workflow_path)] if evidence_refs else []
         summary = (
-            f"Failing CI workflow '{workflow}' on head {head_sha or 'unknown'}; "
-            "diagnose root cause + land architectural fix."
+            f"Failing CI workflow '{workflow}' ({', '.join(affected_surfaces)}) on head "
+            f"{head_sha or 'unknown'}; diagnose root cause + land architectural fix."
         )
-        evidence_refs = [f"gh-run-list:{candidate_id}"]
-        affected_surfaces = [".github/workflows/"]
+        provenance_refs = [f"gh-run-list:{candidate_id}"]
+        failing_signature = _failing_signature(workflow_path, candidate.get("failing_jobs"))
     elif source_type == PlanCandidateSource.ORPHAN_FINDING.value:
         severity = sanitize_untrusted_text(
             candidate.get("severity") or "MEDIUM", max_len=16,
@@ -1104,36 +1517,51 @@ def convert_candidate_to_plan_content(
         )
         summary = (
             f"Address ORPHAN-{severity}-{raw_id} from "
-            "docs/reviews/orphan-findings.md (architectural root-cause fix)."
+            f"{ORPHAN_FINDINGS_DOCUMENT} (architectural root-cause fix)."
         )
-        # ORPHAN-312 root fix — use the registry's real ``evidence`` file list
-        # (attached by scan_orphan_findings) so the plan points at the code the
-        # finding is about, not the orphan-findings.md doc. Doc anchor is the
-        # last-resort fallback when the registry carries no evidence.
+        # ORPHAN-312 root fix — the registry's real ``evidence`` file list
+        # (attached by scan_orphan_findings) points the plan at the code the
+        # finding is about; the finding's heading line in the register is
+        # cited after it, so the challenger can read the finding itself.
         registry_evidence = candidate.get("evidence")
-        evidence_refs, affected_surfaces = _finding_refs_and_surfaces(
-            registry_evidence if isinstance(registry_evidence, list) else [],
-        )
-        if not evidence_refs:
-            evidence_refs = [
-                f"docs/reviews/orphan-findings.md#ORPHAN-{severity}-{raw_id}",
-            ]
-            affected_surfaces = ["docs/reviews/orphan-findings.md"]
+        evidence_refs = _finding_refs(registry_evidence if isinstance(registry_evidence, list) else [])
+        heading = candidate.get("heading_line")
+        if isinstance(heading, int) and not isinstance(heading, bool) and heading > 0:
+            evidence_refs.append(f"{ORPHAN_FINDINGS_DOCUMENT}:{heading}")
+        affected_surfaces = []
     else:  # F_FINDING
         if admission.finding_id != candidate_id:
-            return None
-        summary = (
-            f"Process aging F-finding {candidate_id}; verify status + "
-            "land remediation if OPEN."
-        )
-        # ORPHAN-312 / ARIA-HIGH-181 — the plan is grounded in the finding's
-        # REAL code references, never the finding JSON (self-output,
-        # gitignored, unresolvable at any SHA). ADR-0018 D5 moved that
-        # judgement into the shared admission: OPEN in the event fold, refs
-        # that are tracked files of this checkout, at least one writable
-        # surface. A finding that fails it never reaches this branch.
-        evidence_refs = list(admission.evidence_refs)
-        affected_surfaces = list(admission.affected_surfaces)
+            return _NO_PLAN
+        if seed is None or seed.finding_id != candidate_id:
+            return PlanCandidateConversion(None, F_FINDING_UNSEEDED)
+        # ORPHAN-312 / ARIA-HIGH-181 — grounded in the finding's REAL code
+        # references, never the finding JSON. ARIA-HIGH-369 — and as they
+        # stand at the anchor (the seed re-read every cited line, or asked the
+        # finding's own detector), with the plan's text built from the seed's
+        # ids, paths and side names instead of a template.
+        title_hint, summary, key_changes = seed.plan_text()
+        title_hint = sanitize_untrusted_text(title_hint, max_len=200)
+        summary = sanitize_untrusted_text(summary, max_len=2048)
+        key_changes = [{**change, "description": sanitize_untrusted_text(change["description"], max_len=1024)}
+                       for change in key_changes]
+        evidence_refs = list(seed.evidence_refs)
+        affected_surfaces = list(seed.affected_surfaces)
+
+    evidence_refs, refusal = _admit_plan_refs(evidence_refs, ground)
+    if not evidence_refs and signed_fallback is not None:
+        moved_refusal = refusal
+        evidence_refs, refusal = _admit_plan_refs(signed_fallback, ground)
+        refusal = replace(refusal, refused_evidence_refs=moved_refusal.refused_evidence_refs
+                          + refusal.refused_evidence_refs)
+    if not evidence_refs:
+        return refusal
+    if source_type == PlanCandidateSource.ORPHAN_FINDING.value:
+        # ARIA-HIGH-211 — a surface is the path the fix touches (the line is
+        # not part of it); the register is the surface only when no code ref
+        # of the finding was admitted.
+        cited = [parsed[0] for parsed in map(parse_evidence_ref, evidence_refs) if parsed is not None]
+        affected_surfaces = [path for path in dict.fromkeys(cited) if path != ORPHAN_FINDINGS_DOCUMENT]
+        affected_surfaces = affected_surfaces or [ORPHAN_FINDINGS_DOCUMENT]
 
     content: dict[str, Any] = {
         # schema_version 2 — coverage-gated (see synthesize_plan_content_from_cycle).
@@ -1141,7 +1569,7 @@ def convert_candidate_to_plan_content(
         "title": title_hint,
         "summary": summary,
         "affected_surfaces": affected_surfaces,
-        "key_changes": [
+        "key_changes": key_changes if key_changes is not None else [
             {
                 "id": f"{candidate_id}-key-change-001",
                 "description": summary,
@@ -1162,6 +1590,10 @@ def convert_candidate_to_plan_content(
         ],
         "evidence_refs": evidence_refs,
     }
+    if provenance_refs:
+        content["provenance_refs"] = provenance_refs
+    if failing_signature is not None:
+        content["failing_signature"] = failing_signature
     # ARIA-HIGH-104 (4) — the plan's ORIGIN is a plan claim, recorded in the
     # body (hash-covered, revised and cross-reviewed like every other claim)
     # and not only in the sidecar metadata that never reaches the plan
@@ -1184,7 +1616,10 @@ def convert_candidate_to_plan_content(
         "_pressure_source_type": source_type,
         "_candidate_id": candidate_id,
     }
-    return CyclePlanEnvelope(content=content, metadata=metadata)
+    return PlanCandidateConversion(
+        CyclePlanEnvelope(content=content, metadata=metadata),
+        refused_evidence_refs=refusal.refused_evidence_refs,
+    )
 
 
 def _normalize_validation_commands(commands: list[dict[str, Any]]) -> tuple[str, ...]:

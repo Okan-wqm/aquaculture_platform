@@ -27,7 +27,7 @@ describe('offline queue synced operation invalidation', () => {
       ['tenant', 'tenant-1', 'dailyOpsCounts'],
       ['tenant', 'tenant-1', 'stockEventsSummary'],
       ['tenant', 'tenant-1', 'ai'],
-      ['tenant', 'tenant-1', 'equipment-params'],
+      ['tenant', 'tenant-1', 'unit-measurement-plan'],
       ['tenant', 'tenant-1', 'waterQuality'],
     ]);
   });

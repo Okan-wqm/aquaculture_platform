@@ -215,6 +215,15 @@ jobs:
       # deadline).
       - name: Specialist-review dry-run (Plan ARIA-V6 §3 V6.5)
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents
+      # ORPHAN-HIGH-573 (verify_workflow_registry) — the whole-inventory
+      # workflow contract verdict. preflight's per-contract check only ever
+      # visits workflows that already have a contract, so an ARIA workflow
+      # added with neither a contract nor an audited exclusion was invisible
+      # to every gate. Wiring it into verify_workflow_preflight was reverted
+      # for cause (synthetic workspaces legitimately lack the YAMLs); this
+      # lane step is the caller that always sees the real repo.
+      - name: Verify workflow registry (whole inventory)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel workflow verify-registry --workspace-root .
       - name: Reset CI-local ARIA state
         run: |
           rm -rf ./.aria-ci/tools ./.aria-ci/workspaces
@@ -336,7 +345,9 @@ jobs:
       # passed (a missing branch is refused, never created), and nothing
       # below publishes or pushes.
       - uses: ./.github/actions/restore-aria-state
+        id: restore_state
       - name: Compact surfaces and strip old artifacts (canonical CLI)
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
         env:
           RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}
         run: |
@@ -350,6 +361,7 @@ jobs:
           AFTER=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
           echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
       - name: Verify ARIA state integrity
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
         id: integrity
         run: |
           set -uo pipefail

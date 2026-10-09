@@ -47,6 +47,8 @@ from dataclasses import is_dataclass, fields
 from pathlib import Path
 from unittest.mock import patch
 
+from aria_kernel.plan_synthesizer import PlanCandidateConversion
+
 
 class CyclePlanEnvelopeShapeTests(unittest.TestCase):
     """Plan ARIA-V3.1-A — envelope/content split invariant."""
@@ -84,14 +86,21 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
         self.checkout.seed_finding("F-099", refs=[f"{GROUNDED_FILE}:346"])
 
     def _convert(self, candidate: dict):
-        from aria_kernel.finding_grounding import admit_candidate, admit_finding, load_grounding_context
-        from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
+        from aria_kernel.finding_grounding import admit_finding, load_grounding_context
+        from aria_kernel.finding_seed import SubjectProbe, admit_and_seed
+        from aria_kernel.plan_synthesizer import PlanEvidenceGround, convert_candidate_to_plan_content
 
-        context = load_grounding_context(self.checkout.repo)
+        # ARIA-HIGH-260 — the aging F source is judged against the store's loop history.
+        context = load_grounding_context(self.checkout.repo, tools_root=self.checkout.tools)
         if candidate["source_type"] == "operator_feedback":
             # The digest the operator signed over the grounding (ADR-0018 B2).
             candidate = dict(candidate, grounding_digest=admit_finding(context, "F-099").grounding_digest)
-        return convert_candidate_to_plan_content(candidate, admission=admit_candidate(candidate, context))
+        # ARIA-HIGH-369 — an F plan is built from the finding's re-grounded seed.
+        admission, seeded = admit_and_seed(candidate, context, SubjectProbe({}))
+        return convert_candidate_to_plan_content(
+            candidate, admission=admission, ground=PlanEvidenceGround.of(self.checkout.repo),
+            seed=seeded.seed if seeded is not None else None,
+        ).envelope
 
     def test_i_v31_a_02_handles_all_four_source_types(self) -> None:
         """Plan ARIA-V3.1-A-2 — every PlanCandidateSource except
@@ -113,6 +122,8 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
                 "source_type": PlanCandidateSource.FAILING_CI.value,
                 "candidate_id": "ci-run-12345",
                 "workflow_name": "ci-affected",
+                # ORPHAN-HIGH-519 — the workflow file the run resolved to.
+                "workflow_path": ".github/workflows/ci.yml",
                 "head_sha": "abc123def456",
                 "title_hint": "Fix failing CI workflow 'ci-affected'",
             },
@@ -121,6 +132,7 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
                 "candidate_id": "ORPHAN-HIGH-099",
                 "severity": "HIGH",
                 "raw_id": "099",
+                "evidence": ["apps/hr-service/src/leave/leave.service.ts:7"],
                 "title_hint": "Address ORPHAN-HIGH-099",
             },
             {
@@ -182,12 +194,12 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
         does NOT carry `_pressure_source_type` (closes H-8 content_hash
         pollution)."""
         from aria_kernel.plan_candidate_source import PlanCandidateSource
-        from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
-        env = convert_candidate_to_plan_content({
+        env = self._convert({
             "source_type": PlanCandidateSource.ORPHAN_FINDING.value,
             "candidate_id": "ORPHAN-HIGH-1",
             "severity": "HIGH",
             "raw_id": "1",
+            "evidence": ["apps/hr-service/src/leave/leave.service.ts:1"],
             "title_hint": "Test",
         })
         self.assertIsNotNone(env)
@@ -263,8 +275,8 @@ class V9PressureSourceProviderTests(unittest.TestCase):
         def fake_convert(candidate, **_admission):
             call_count[0] += 1
             if call_count[0] >= 3:
-                return valid_env
-            return None
+                return PlanCandidateConversion(valid_env)
+            return PlanCandidateConversion(None)
         with patch(
             "aria_kernel.plan_synthesizer.rank_candidate_sources",
             return_value=[
@@ -302,7 +314,7 @@ class V9PressureSourceProviderTests(unittest.TestCase):
             ],
         ), patch(
             "aria_kernel.plan_synthesizer.convert_candidate_to_plan_content",
-            return_value=None,
+            return_value=PlanCandidateConversion(None),
         ):
             with self.assertRaises(GovernanceError) as ctx:
                 provider.synthesize(
@@ -345,7 +357,7 @@ class V9PressureSourceProviderTests(unittest.TestCase):
                 return_value=[{"candidate_id": "a", "source_type": "orphan_finding"}],
             ), patch(
                 "aria_kernel.plan_synthesizer.convert_candidate_to_plan_content",
-                return_value=None,
+                return_value=PlanCandidateConversion(None),
             ), patch(
                 "aria_kernel.plan_synthesizer.synthesize_plan_content_from_cycle",
                 return_value={
@@ -434,7 +446,7 @@ class V9PressureSourceProviderTests(unittest.TestCase):
             ],
         ), patch(
             "aria_kernel.plan_synthesizer.convert_candidate_to_plan_content",
-            return_value=None,
+            return_value=PlanCandidateConversion(None),
         ):
             provider.synthesize(
                 cycle_id="cyc-skip",

@@ -345,7 +345,9 @@ class KnowledgeSignerWireTests(unittest.TestCase):
         idx_seam = src.find("with cycle_knowledge_signer(")
         idx_memory = src.find("memory_hook.record(")
         idx_replay = src.find("memory_hook.complete_pending_observations(")
-        idx_v9 = src.find("v9_implementation_runner.run(")
+        # ARIA-HIGH-362 — the runner is offered through the one delivery
+        # entry (`converged_delivery.deliver_converged_plan`).
+        idx_v9 = src.find('cycle_summary["v9_implementation"] = deliver_converged_plan(')
         for name, idx in (("seam", idx_seam), ("record", idx_memory),
                           ("replay", idx_replay), ("v9", idx_v9)):
             self.assertGreater(idx, 0, f"orchestrator missing the {name} call site")

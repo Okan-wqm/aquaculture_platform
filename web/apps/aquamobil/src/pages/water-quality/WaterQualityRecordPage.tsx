@@ -15,8 +15,8 @@ import { Card, DataState, EmptyState, Select } from '@/components/ui';
 import type {
   EquipmentListQuery,
   EquipmentListQueryVariables,
-  EquipmentParametersQuery,
-  EquipmentParametersQueryVariables,
+  UnitMeasurementPlanQuery,
+  UnitMeasurementPlanQueryVariables,
 } from '@/generated/graphql';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -24,6 +24,7 @@ import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { QueuedPayload } from '@/types';
 import { toLoadable } from '@/utils/loadable';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { UNIT_MEASUREMENT_PLAN_QUERY_KEY } from '@/utils/unit-measurement-plan-query-key';
 
 // ============================================================================
 // TYPES
@@ -65,30 +66,35 @@ const EQUIPMENT_LIST_QUERY: TypedDocumentNode<EquipmentListQuery, EquipmentListQ
     }
   `;
 
-const EQUIPMENT_PARAMS_QUERY: TypedDocumentNode<
-  EquipmentParametersQuery,
-  EquipmentParametersQueryVariables
+// The parameters to record at the unit: its plan, or every active parameter
+// when nobody mapped one, each marked as the server's validator requires it.
+const UNIT_MEASUREMENT_PLAN_QUERY: TypedDocumentNode<
+  UnitMeasurementPlanQuery,
+  UnitMeasurementPlanQueryVariables
 > = gql`
-  query EquipmentParameters($equipmentId: ID!) {
-    equipmentParameters(equipmentId: $equipmentId) {
-      parameterConfig {
-        id
-        code
-        name
-        unit
-        dataType
-        precision
-        group
-        optimalMin
-        optimalMax
-        warningMin
-        warningMax
-        criticalMin
-        criticalMax
-        enumValues
-        displayOrder
-        isRequired
-        chartColor
+  query UnitMeasurementPlan($unitId: ID!) {
+    unitMeasurementPlan(unitId: $unitId) {
+      planned
+      entries {
+        required
+        parameter {
+          id
+          code
+          name
+          unit
+          dataType
+          precision
+          group
+          optimalMin
+          optimalMax
+          warningMin
+          warningMax
+          criticalMin
+          criticalMax
+          enumValues
+          displayOrder
+          chartColor
+        }
       }
     }
   }
@@ -183,14 +189,18 @@ export function WaterQualityRecordPage(): JSX.Element {
 
   // -- Parameter configs for selected equipment ------------------------------
   const parametersQuery = useQuery<ParameterFieldConfig[]>({
-    queryKey: createTenantQueryKey(tenantId, 'equipment-params', selectedEquipmentId, tenantId),
+    queryKey: createTenantQueryKey(
+      tenantId,
+      UNIT_MEASUREMENT_PLAN_QUERY_KEY,
+      selectedEquipmentId,
+      tenantId,
+    ),
     queryFn: async () => {
-      const result = await graphqlRequest(EQUIPMENT_PARAMS_QUERY, {
-        equipmentId: selectedEquipmentId,
+      const result = await graphqlRequest(UNIT_MEASUREMENT_PLAN_QUERY, {
+        unitId: selectedEquipmentId,
       });
-      return (result.equipmentParameters ?? [])
-        .map((ep) => {
-          const pc = ep.parameterConfig;
+      return result.unitMeasurementPlan.entries
+        .map(({ parameter: pc, required }) => {
           return {
             code: pc.code,
             name: pc.name,
@@ -198,7 +208,7 @@ export function WaterQualityRecordPage(): JSX.Element {
             dataType: pc.dataType,
             precision: pc.precision,
             enumValues: pc.enumValues,
-            isRequired: pc.isRequired,
+            isRequired: required,
             group: pc.group,
             displayOrder: pc.displayOrder,
             chartColor: pc.chartColor,
@@ -343,9 +353,10 @@ export function WaterQualityRecordPage(): JSX.Element {
         </div>
       )}
 
-      {/* Dynamic Measurement Form — the parameter set is the equipment's own
-          ParameterFieldConfig, so it can be loading, absent, or unreadable, and
-          those are three different things. */}
+      {/* Dynamic Measurement Form — the parameter set is the unit's measurement
+          plan (required flags from the plan, not the parameter config), so it
+          can be loading, absent, or unreadable, and those are three different
+          things. */}
       {selectedEquipmentId && (
         <div className="px-4 mt-4 pb-safe-bottom pb-8">
           <DataState

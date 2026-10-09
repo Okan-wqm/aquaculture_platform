@@ -17,10 +17,14 @@ already dispatched is skipped.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .agent_invocations import create_agent_invocation_request
-from .ledger import load_declared_jsonl
+from .evidence_trust import forbidden_detector_scope
+from .ledger import load_segments
+from .must_satisfy import must_satisfy_item, product_defect_obligation, rule_premise_obligation
+from .request_admission import Admission, admit_request
+from .rule_contract import RuleContract, resolve_rule_contract
 from .tool_registry import ensure_tools_dir
 
 
@@ -70,16 +74,69 @@ def _group_id(item: dict[str, Any]) -> str:
     return f"judge:{item.get('tool_id')}:{_finding_key(item)}"
 
 
-def _render_prompt(item: dict[str, Any]) -> str:
+def _render_prompt(item: dict[str, Any], contract: RuleContract) -> str:
+    """ARIA-HIGH-324 — the question is the PRODUCT, not the rule: both
+    verdicts are defined and the rule's product claim is stated (see
+    rule_contract for why)."""
     return (
-        "Judge whether this adapter finding is a true_positive or false_positive.\n"
+        "Decide whether this adapter finding names a product defect.\n"
+        "true_positive: every premise obligation holds as a fact about the product at the "
+        "finding's location, AND a person must change product code or configuration to "
+        "resolve the defect claim below.\n"
+        "false_positive: at least one premise does not hold, or nothing in the product needs "
+        "to change.\n"
+        "Whether the rule fired is not the question: the detector reporting this finding is "
+        "given. Judge the product, never the rule's predicate.\n"
+        "Evidence for true_positive lies in this tool's declared scope "
+        f"({', '.join(contract.declared_scope)}); ARIA's detector source (forbidden_scope) "
+        "is never evidence about the product.\n"
         f"finding_id: {item.get('finding_id')}\n"
         f"rule: {item.get('rule')}\n"
         f"severity: {item.get('severity')}\n"
         f"path: {item.get('path')}\n"
         f"message: {item.get('message')}\n"
-        "Return verdict true_positive|false_positive with file:line evidence."
+        f"defect claim: {contract.defect_claim}\n"
+        "Return verdict true_positive|false_positive with file:line evidence, and answer every "
+        "must_satisfy obligation in satisfaction_matrix."
     )
+
+
+def _judge_obligations(contract: RuleContract) -> list[dict[str, Any]]:
+    """The rule's premises and its defect claim, as obligations the judge
+    answers; ``judgment_bridge`` refuses a true_positive that leaves one of
+    them short of ``satisfied``."""
+    obligations = [
+        rule_premise_obligation(index=index, rule=contract.rule, premise=premise)
+        for index, premise in enumerate(contract.premises, start=1)
+    ]
+    obligations.append(product_defect_obligation(
+        rule=contract.rule, claim_type=contract.claim_type, defect_claim=contract.defect_claim,
+    ))
+    obligations.append(must_satisfy_item(
+        id="verdict",
+        description=(
+            "Return true_positive only when every premise obligation and the defect obligation "
+            "are satisfied, false_positive otherwise, with file:line evidence about the product."
+        ),
+    ))
+    return obligations
+
+
+def judge_request_fields(item: dict[str, Any], contract: RuleContract) -> dict[str, Any]:
+    """The contract-bound part of a judge envelope for one finding: prompt,
+    obligations and scopes. The live fan-out and the gold-set replay
+    (judge_replay) both mint through it, so replay recall measures the same
+    question live judges answer."""
+    return {
+        "suggested_prompt": _render_prompt(item, contract),
+        "must_satisfy": _judge_obligations(contract),
+        # A false_positive may cite anything that refutes a premise, the
+        # detector's own source included; what a true_positive may stand on
+        # is bounded by forbidden_scope here and by the trust layer at
+        # consensus and promotion.
+        "allowed_scope": ["**"],
+        "forbidden_scope": forbidden_detector_scope(contract.declared_scope),
+    }
 
 
 def _evidence_refs(item: dict[str, Any]) -> list[str]:
@@ -99,10 +156,7 @@ def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:
     raised mid-loop last cycle — gets its missing judge minted next run instead
     of being skipped forever and starving consensus."""
     try:
-        rows = load_declared_jsonl(
-            root / "agent-invocations" / "requests.jsonl",
-            expected_surface="agent_invocation_requests",
-        )
+        rows = load_segments(root, "agent_invocation_requests")
     except Exception:
         return set()
     return {
@@ -112,7 +166,9 @@ def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:
     }
 
 
-def _judged_pairs(root: Path, tool_id: str) -> set[tuple[str, str]]:
+def _judged_pairs(
+    root: Path, tool_id: str, *, feedback: list[dict[str, Any]] | None = None,
+) -> set[tuple[str, str]]:
     """(finding_key, judge_id) pairs that already carry an ai_judge verdict.
 
     A finding a judge has ALREADY answered must not be re-minted by the
@@ -124,10 +180,13 @@ def _judged_pairs(root: Path, tool_id: str) -> set[tuple[str, str]]:
     from .feedback_store import load_feedback
 
     pairs: set[tuple[str, str]] = set()
-    try:
-        rows = load_feedback(tool_id=tool_id, base_dir=root)
-    except Exception:
-        return pairs
+    if feedback is not None:
+        rows = [row for row in feedback if row.get("tool_id") == tool_id]
+    else:
+        try:
+            rows = load_feedback(tool_id=tool_id, base_dir=root)
+        except Exception:
+            return pairs
     for row in rows:
         if row.get("source_type") != "ai_judge":
             continue
@@ -138,11 +197,19 @@ def _judged_pairs(root: Path, tool_id: str) -> set[tuple[str, str]]:
     return pairs
 
 
-def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int]:
+def pending_judge_counts(
+    *,
+    base_dir: str | Path | None = None,
+    states: Mapping[str, str] | None = None,
+    requests: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
     """Y2 (ORPHAN-704) — live (non-terminal) envelope count per judge role.
 
     Bounded to the anchor window: anything older is ANCHOR_STALE by
     definition, so deriving its state would only re-prove it dead.
+    ``states`` and ``requests`` are a caller's own ``derive_request_states``
+    result and request rows, so a sweep that already holds them does not
+    load the ledgers again.
     """
     from datetime import datetime, timedelta, timezone
 
@@ -154,8 +221,9 @@ def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int
     counts: dict[str, int] = {role: 0 for role, _ in JUDGE_FANOUT}
     # ORPHAN-HIGH-794 — one batch derivation instead of a per-row derive
     # (each of which reloaded all three ledgers — the OOM churn class).
-    states = derive_request_states(base_dir=root)
-    for row in list_agent_invocation_requests(base_dir=root):
+    if states is None:
+        states = derive_request_states(base_dir=root)
+    for row in requests if requests is not None else list_agent_invocation_requests(base_dir=root):
         role = str(row.get("role") or "")
         if role not in counts:
             continue
@@ -204,16 +272,54 @@ def dispatch_judges_for_sample(
     judged: dict[str, set[tuple[str, str]]] = {}
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    contracts: dict[tuple[str, str], RuleContract | None] = {}
+    # ARIA-HIGH-364 — a new judge pair is discretionary. A role the door
+    # refused stays refused for this cycle (one snapshot per cycle), and a
+    # pair is minted whole or not at all: a finding the sampler draws again
+    # later must not be left with one judge.
+    refused: dict[str, str] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
         group = _group_id(item)
-        prompt = _render_prompt(item)
         refs = _evidence_refs(item)
         tool_id = str(item.get("tool_id") or "")
+        rule = str(item.get("rule") or "")
+        if (tool_id, rule) not in contracts:
+            contracts[(tool_id, rule)] = resolve_rule_contract(tool_id=tool_id, rule=rule, base_dir=root)
+        contract = contracts[(tool_id, rule)]
+        if contract is None:
+            # ARIA-HIGH-324 — a rule that states no claim about the product
+            # cannot be judged for one: the judge would fall back to asking
+            # whether the rule fired. Refused visibly, per judge.
+            skipped.extend(
+                {"judgment_group_id": group, "target_agent": agent,
+                 "reason": "rule_contract_undeclared", "tool_id": tool_id, "rule": rule}
+                for _role, agent in JUDGE_FANOUT
+            )
+            continue
+        envelope = judge_request_fields(item, contract)
         if tool_id not in judged:
             judged[tool_id] = _judged_pairs(root, tool_id)
         finding_key = _finding_key(item)
+        admissions: dict[str, Admission] = {}
+        for role, agent in JUDGE_FANOUT:
+            if refused:
+                break
+            if (group, agent) in existing or (finding_key, agent) in judged[tool_id]:
+                continue
+            if max_pending_per_role is not None and pending.get(role, 0) >= max_pending_per_role:
+                continue
+            admission = admit_request("judge_fanout.sample", role, base_dir=root, cycle_id=sample.get("cycle_id"))
+            if not admission.admitted:
+                refused[role] = admission.refusal
+                break
+            admissions[role] = admission
+        throttled = next(iter(refused.values()), None)
+        if throttled is not None:
+            skipped.extend({"judgment_group_id": group, "target_agent": agent, "reason": throttled}
+                           for _role, agent in JUDGE_FANOUT)
+            continue
         for role, agent in JUDGE_FANOUT:
             if (group, agent) in existing:
                 skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_dispatched"})
@@ -232,9 +338,7 @@ def dispatch_judges_for_sample(
             req = create_agent_invocation_request(
                 target_agent=agent,
                 role=role,
-                suggested_prompt=prompt,
-                must_satisfy=[{"id": "verdict", "description": "Return true_positive or false_positive with file:line evidence"}],
-                allowed_scope=["**"],
+                **envelope,
                 evidence_refs=refs or None,
                 finding_id=str(item.get("finding_id") or ""),
                 # ORPHAN-HIGH-765 — thread the sampler's fingerprint onto the
@@ -248,6 +352,7 @@ def dispatch_judges_for_sample(
                 target_sha=target_sha,
                 base_dir=root,
                 context_repo_root=repo_root,
+                admission=admissions[role],
             )
             minted.append({
                 "request_id": req.get("request_id"),
@@ -264,6 +369,8 @@ def dispatch_judges_for_sample(
 def _judge_rows_by_group(
     tool_id: str,
     base_dir: str | Path | None,
+    *,
+    feedback: list[dict[str, Any]] | None = None,
 ) -> tuple[
     dict[tuple[str, str, str], dict[str, dict[str, Any]]],
     dict[tuple[str, str, str], int],
@@ -280,7 +387,10 @@ def _judge_rows_by_group(
     """
     from .feedback_store import consensus_judge_count, load_feedback
 
-    rows = load_feedback(tool_id=tool_id, base_dir=base_dir)
+    rows = (
+        [row for row in feedback if row.get("tool_id") == tool_id]
+        if feedback is not None else load_feedback(tool_id=tool_id, base_dir=base_dir)
+    )
     settled: dict[tuple[str, str, str], int] = {}
     grouped: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
     for row in rows:
@@ -399,10 +509,16 @@ def dispatch_arbiter_for_split_verdicts(
                 "reason": "already_dispatched",
             })
             continue
+        admission = _arbiter_admission(root, cycle_id)
+        if not admission.admitted:
+            skipped.append({"judgment_group_id": group, "target_agent": CONSENSUS_ARBITER_AGENT,
+                            "reason": admission.refusal})
+            break
         minted.append(_mint_arbiter(
             root,
             tool_id=tool_id,
             group=split,
+            admission=admission,
             prompt=_render_arbiter_prompt(split),
             criterion=(
                 "Aggregate the supplied judge verdicts and return "
@@ -416,10 +532,21 @@ def dispatch_arbiter_for_split_verdicts(
     return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}
 
 
+def _arbiter_admission(root: Path, cycle_id: str | None) -> Admission:
+    """ARIA-HIGH-364 — an arbiter starts a third judgment: discretionary.
+
+    A refused group is not lost: split and anchor groups are re-derived from
+    the feedback ledger every cycle, and the refusal holds for the rest of
+    the cycle (one snapshot per cycle), so the arm stops asking.
+    """
+    return admit_request("judge_fanout.arbitration", CONSENSUS_ARBITRATION_ROLE, base_dir=root, cycle_id=cycle_id)
+
+
 def _mint_arbiter(
     root: Path,
     *,
     tool_id: str,
+    admission: Admission,
     group: dict[str, Any],
     prompt: str,
     criterion: str,
@@ -448,6 +575,7 @@ def _mint_arbiter(
         cycle_id=cycle_id,
         target_sha=target_sha,
         base_dir=root,
+        admission=admission,
     )
     return {
         "request_id": req.get("request_id"),
@@ -609,10 +737,16 @@ def dispatch_arbiter_for_anchor_groups(
                 "reason": "already_dispatched",
             })
             continue
+        admission = _arbiter_admission(root, cycle_id)
+        if not admission.admitted:
+            skipped.append({"judgment_group_id": group, "target_agent": CONSENSUS_ARBITER_AGENT,
+                            "reason": admission.refusal})
+            break
         minted.append(_mint_arbiter(
             root,
             tool_id=tool_id,
             group=candidate,
+            admission=admission,
             prompt=_render_anchor_prompt(candidate),
             criterion=(
                 "Judge the finding independently and return details.consensus "
@@ -645,9 +779,12 @@ def pending_arbitration_group_ids(
     two authorities on one question, which is the duplicate the role hygiene
     pass exists to remove.
     """
-    from .agent_invocations import derive_request_state, list_agent_invocation_requests
+    from .agent_invocations import derive_request_states, list_agent_invocation_requests
     from .agent_surface import TERMINAL_REQUEST_STATES
 
+    # ARIA-HIGH-358 — one ledger load for every arbiter request, however
+    # many the role accumulates.
+    states = derive_request_states(base_dir=base_dir)
     pending: set[str] = set()
     for row in list_agent_invocation_requests(
         base_dir=base_dir, role=CONSENSUS_ARBITRATION_ROLE,
@@ -656,6 +793,6 @@ def pending_arbitration_group_ids(
         request_id = str(row.get("request_id") or "")
         if not group or not request_id:
             continue
-        if derive_request_state(request_id=request_id, base_dir=base_dir) not in TERMINAL_REQUEST_STATES:
+        if states[request_id] not in TERMINAL_REQUEST_STATES:
             pending.add(group)
     return pending

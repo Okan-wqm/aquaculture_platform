@@ -29,6 +29,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 
 
 ARIA_KERNEL = Path(__file__).resolve().parent.parent
@@ -50,6 +51,7 @@ class ReleaseClaimLeaseTokenTests(unittest.TestCase):
             allowed_scope=["docs/"],
             evidence_refs=["docs/a.md"],
             base_dir=self.base,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.base),
         )
         self.request_id = req["request_id"]
         result = claim_request(
@@ -112,6 +114,7 @@ class ReleaseClaimCliEnvVarTests(unittest.TestCase):
             allowed_scope=["docs/"],
             evidence_refs=["docs/a.md"],
             base_dir=self.base,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.base),
         )
         self.request_id = req["request_id"]
         result = claim_request(
@@ -182,12 +185,11 @@ class CiExecutorReleaseArgvShapeTests(unittest.TestCase):
         self.assertIn('"--agent-id"', src)
         self.assertIn('"--lease-token-from-env"', src)
         # Function signature now accepts agent_id kwarg.
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "ci_executor", ARIA_POC / "ci_executor.py",
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        # The one loader that registers the module before executing it; a
+        # private spec recipe fails at the executor's first @dataclass when no
+        # earlier test in the process happened to register it.
+        from tests._helpers.executor_module import load_ci_executor
+        mod = load_ci_executor()
         sig = inspect.signature(mod._release_claim)
         self.assertIn("agent_id", sig.parameters)
 

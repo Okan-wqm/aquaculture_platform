@@ -21,7 +21,7 @@ sys.path.insert(0, str(_ROOT / "aria-kernel"))
 
 def main() -> int:
     try:
-        from aria_kernel.cycle_guard import _open_finding_count
+        from aria_kernel.cycle_guard import backlog_census
         from aria_kernel.cycle_rhythm import evaluate_cycle_chain
         from aria_kernel.genesis_policy import rhythm_policy
 
@@ -30,7 +30,10 @@ def main() -> int:
         decision = evaluate_cycle_chain(
             last_cycle_started_at=os.environ.get("LAST_CYCLE_STARTED_AT") or None,
             now=datetime.now(timezone.utc),
-            open_findings=_open_finding_count(_ROOT),
+            # Wall #7 — the CLOSABLE backlog (plus what the runner could not
+            # judge), the same count the in-cycle opener gate reads: findings
+            # only an operator can close never stop the chain.
+            open_findings=int(backlog_census(_ROOT)["capped"]),
             backlog_cap=cap,
             drained=int(os.environ.get("DRAINED") or 0),
             # Plan 032 Faz 032a — the spacing brake is policy, not a literal.

@@ -1,0 +1,58 @@
+{
+  "tool_id": "dual-alias-adapter",
+  "kind": "adapter",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "declared_scope": ["**/tsconfig*.json", "tsconfig*.json", "**/jest.config.*", "jest.config.*"],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/dual-alias-adapter",
+  "health_thresholds": {
+    "precision_min": 0.85,
+    "non_critical_false_positives_30d": 3,
+    "critical_false_positives": 0,
+    "crash_rate_last_10": 0.2
+  },
+  "default_input": {
+    "cycle_id": "dual-alias-default"
+  },
+  "allowed_read_globs": [
+    "**/tsconfig*.json",
+    "tsconfig*.json",
+    "**/jest.config.*",
+    "jest.config.*"
+  ],
+  "forbidden_read_globs": [".git/**", "node_modules/**", "dist/**"],
+  "claim_types": ["dual_alias_drift"],
+  "owner": "platform",
+  "rules": {
+    "dual_alias_missing": {
+      "claim_type": "spine_drift",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A module-resolution surface maps one backend-common root alias and not the other.",
+      "premises": [
+        "The cited file is a module-resolution surface (tsconfig paths or jest moduleNameMapper) that a build, test or lint run uses.",
+        "The surface maps one backend-common root alias and has no mapping for the other."
+      ]
+    },
+    "dual_alias_target_drift": {
+      "claim_type": "spine_drift",
+      "severity_cap": "HIGH",
+      "defect_claim": "A module-resolution surface maps the two backend-common root aliases to different targets.",
+      "premises": [
+        "The cited file is a module-resolution surface that a build, test or lint run uses.",
+        "The two backend-common root aliases resolve to different files in it."
+      ]
+    }
+  },
+  "runner": {
+    "type": "subprocess",
+    "argv": ["python3", "dual_alias_adapter.py"],
+    "cwd": "tools/aria-poc",
+    "timeout_ms": 60000,
+    "stdin_json": true
+  },
+  "schema_version": 1
+}

@@ -12,6 +12,12 @@ so SHADOW runs against a non-empty staged diff produce real
 observations and the dashboard's adapter SHADOW evidence count moves
 from zero.
 
+ARIA-MEDIUM-378 — the adapter scans the whole tracked tree
+(``--mode=tree``) by default. Its former default, ``--mode=staged``, reads the
+git index, and a cycle's checkout has nothing staged: the scan could only
+ever say "clean". The pre-commit hook and the CI range check keep owning the
+diff-time gate; this adapter observes what is already on main.
+
 Runner contract (ARIA tool_runner.run_tool):
     stdin: JSON {cycle_id, ...}
     stdout: JSON {observations[], findings[], read_paths[],
@@ -32,6 +38,7 @@ REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 GATE_TS_NODE = Path("./node_modules/.bin/ts-node")
 GATE_TSCONFIG = Path("tools/gates/tsconfig.json")
 GATE_SCRIPT = Path("tools/gates/banned-phrase.ts")
+GATE_TIMEOUT_SECONDS = 60
 
 
 def _resolve_repo_root() -> Path:
@@ -46,20 +53,28 @@ def _resolve_repo_root() -> Path:
     return here
 
 
-def _invoke_banned_phrase_cli(repo_root: Path, mode: str = "staged") -> tuple[int, str]:
+DEFAULT_MODE = "tree"
+
+
+def _invoke_banned_phrase_cli(repo_root: Path, mode: str = DEFAULT_MODE) -> tuple[int, str]:
     """Invoke the Node banned-phrase gate. Return (exit_code, stdout+stderr_text)."""
     ts_node = repo_root / GATE_TS_NODE
     script = repo_root / GATE_SCRIPT
     tsconfig = repo_root / GATE_TSCONFIG
     if not ts_node.exists() or not script.exists():
         return 127, f"banned-phrase CLI unavailable at {ts_node} / {script}"
-    proc = subprocess.run(
-        [str(ts_node), "--project", str(tsconfig), str(script), f"--mode={mode}"],
-        cwd=str(repo_root),
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    try:
+        proc = subprocess.run(
+            [str(ts_node), "--project", str(tsconfig), str(script), f"--mode={mode}"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=GATE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        # A gate that did not finish has no verdict: reported as
+        # `unavailable` by main(), never as a clean scan or a crash.
+        return 124, f"banned-phrase CLI timed out after {GATE_TIMEOUT_SECONDS}s"
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
@@ -116,6 +131,19 @@ def _parse_violations(text: str) -> list[dict]:
     return violations
 
 
+def _finding(rule: str, severity: str, v: dict) -> dict:
+    """One violation in the kernel's evidence contract (``evidence_validator``)."""
+    return {
+        "id": f"{rule}:{v['source']}:{v['line']}:{v['column']}",
+        "rule": rule,
+        "severity": severity,
+        "path": v["source"],
+        "line": v["line"],
+        "message": f"banned phrase '{v['phrase']}': {v['context']}"[:300],
+        "evidence": [{"path": v["source"], "line": v["line"]}],
+    }
+
+
 def _violation_to_observation(v: dict, cycle_id: str, idx: int) -> dict:
     """Convert a parsed violation into an ARIA observation row."""
     fingerprint = hashlib.sha256(
@@ -141,7 +169,7 @@ def main() -> int:
     except json.JSONDecodeError:
         payload = {}
     cycle_id = payload.get("cycle_id", "unknown-cycle")
-    mode = payload.get("mode", "staged")
+    mode = payload.get("mode", DEFAULT_MODE)
 
     repo_root = _resolve_repo_root()
     exit_code, output_text = _invoke_banned_phrase_cli(repo_root, mode=mode)
@@ -178,14 +206,15 @@ def main() -> int:
             _violation_to_observation(v, cycle_id, idx)
             for idx, v in enumerate(violations)
         ],
-        # SHADOW emits observations only — never operator-facing findings.
-        # Promotion to findings happens through the operator-supervised
-        # gate_apply_action + suppression scanner pipeline.
-        "findings": [],
-        "read_paths": [str(v["source"]) for v in violations],
-        "evidence_sources": [
-            {"path": v["source"], "line": v["line"]} for v in violations
-        ],
+        # ARIA-MEDIUM-378 — every violation is a finding under the manifest's
+        # `banned_phrase` contract; the tool's lifecycle status (SHADOW, or
+        # the manifest's named quarantine) decides whether any of it reaches
+        # an operator, not a second policy hidden in the adapter.
+        "findings": [_finding("banned_phrase", "LOW", v) for v in violations],
+        # The evidence validator reads evidence_sources as plain repo paths
+        # and requires each one to be a declared read path.
+        "read_paths": sorted({str(v["source"]) for v in violations}),
+        "evidence_sources": sorted({str(v["source"]) for v in violations}),
         "cost_units": 1,
         "metadata": {
             "adapter": "banned-phrase-adapter",

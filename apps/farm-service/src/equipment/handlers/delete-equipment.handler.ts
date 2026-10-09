@@ -1,7 +1,7 @@
 /**
  * Delete Equipment Command Handler
  */
-import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { toEventIso,
@@ -20,6 +20,11 @@ import {
   UpdateResult,
 } from 'typeorm';
 
+import { runRetryingTenantTransaction } from '../../common/database/retrying-tenant-transaction';
+import {
+  closeSourcesAtPoints,
+  unitPoints,
+} from '../../water-quality/services/parameter-sources';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { Tank } from '../../tank/entities/tank.entity';
@@ -61,7 +66,7 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
       return this.tankEquipmentAdapter.deleteFromEquipment(equipmentId, tenantId, userId);
     }
 
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    await runRetryingTenantTransaction(this.dataSource, tenantId, async (queryRunner) => {
       const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
       const subEquipmentRepository = tenantManagerRepo(queryRunner.manager, SubEquipment, tenantId);
 
@@ -148,6 +153,9 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     equipment.isActive = false;
     equipment.updatedBy = userId;
     const saved = await equipmentRepository.save(equipment);
+    // A deleted unit is no longer a place a parameter is measured: its
+    // water-quality sources end with it, kept as history (FARM-HIGH-373, D12).
+    await closeSourcesAtPoints(queryRunner.manager, tenantId, unitPoints([saved.id]), userId, 'all');
 
     await this.auditLogService.logWithManager(queryRunner.manager, {
       tenantId,

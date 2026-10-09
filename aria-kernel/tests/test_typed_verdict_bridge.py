@@ -203,7 +203,7 @@ class TheResultNamesTheModelThatAnswered(unittest.TestCase):
         return cr.ClaudeRunResult(**base)
 
     def test_the_primary_rung_is_named(self) -> None:
-        result = cr.run_with_model_fallback(run=lambda model, effort: self._result(), model="opus", effort="high",
+        result = cr.run_with_model_fallback(run=lambda model, effort: self._result(), model="opus", failover="glm-5.3", effort="high",
                                             write_capable=False)
         self.assertEqual(result.model, "opus")
 
@@ -216,13 +216,13 @@ class TheResultNamesTheModelThatAnswered(unittest.TestCase):
                 return self._result(auth_failure={"marker": "logged_out", "remedy": "login"})
             return self._result()
 
-        result = cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+        result = cr.run_with_model_fallback(run=run, model="opus", failover="glm-5.3", effort="high", write_capable=False)
         self.assertEqual(calls, ["opus", "glm-5.3"])
         self.assertEqual(result.model, "glm-5.3")
 
     def test_a_runtime_that_named_its_own_model_keeps_it(self) -> None:
         result = cr.run_with_model_fallback(run=lambda model, effort: self._result(model="glm-5.3"),
-                                            model="opus", effort="high", write_capable=False)
+                                            model="opus", failover="glm-5.3", effort="high", write_capable=False)
         self.assertEqual(result.model, "glm-5.3")
 
 

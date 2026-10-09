@@ -86,7 +86,7 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
 
       expect(execute).toHaveBeenCalledWith(expect.any(GetTankWaterQualityStatisticsQuery));
       const query = execute.mock.calls[0][0] as GetTankWaterQualityStatisticsQuery;
-      expect(query).toMatchObject({ tenantId: TENANT, tankId: TANK, days: 7 });
+      expect(query).toMatchObject({ tenantId: TENANT, unitId: TANK, days: 7 });
       expect(reply).toMatchObject({
         ok: true,
         data: {

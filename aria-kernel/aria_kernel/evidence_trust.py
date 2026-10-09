@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import re
+import stat as _stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .canonical_path import resolve_repo_relpath
+from .canonical_path import matches_repo_glob, resolve_repo_relpath
 from .evidence_probe import BaselineResolution, GitProbeSession
 from .tool_registry import GovernanceError
 
@@ -24,6 +26,73 @@ SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
     "tmp/",
 )
 
+# ARIA-HIGH-324/325 — ARIA's detector source: the adapters, the PoC tools and
+# the kernel that judge the product. A file here describes how a finding was
+# DETECTED, never whether the product is wrong, so it is not evidence that a
+# finding of a product-scoped tool is a product defect. A tool whose declared
+# scope is ARIA itself (kernel-dead-wire-adapter, agent-harness-security-
+# adapter) is the exception, and the exception is read off its scope.
+ARIA_DETECTOR_SOURCE_PREFIXES: tuple[str, ...] = (
+    "tools/aria-adapters/",
+    "tools/aria-poc/",
+    "aria-kernel/",
+)
+
+
+def _glob_literal_prefix(glob: str) -> str:
+    """The literal leading part of a repo glob, up to its first wildcard."""
+    cut = min((glob.find(ch) for ch in "*?[{" if ch in glob), default=len(glob))
+    return glob[:cut]
+
+
+def forbidden_detector_scope(declared_scope: Any) -> list[str]:
+    """The detector-source globs a judge of a tool with this declared scope
+    may not cite as evidence of a product defect: every ARIA detector prefix
+    the scope does not reach into."""
+    reach = [_glob_literal_prefix(str(glob)) for glob in declared_scope or ()]
+    return [
+        f"{prefix}**"
+        for prefix in ARIA_DETECTOR_SOURCE_PREFIXES
+        if not any(lit.startswith(prefix) or prefix.startswith(lit) for lit in reach)
+    ]
+
+
+# The two refusal classes ``tool_evidence_refusal`` answers with.
+ARIA_DETECTOR_SOURCE_CLASS = "aria_detector_source"
+OUTSIDE_DECLARED_SCOPE_CLASS = "outside_declared_scope"
+
+
+def tool_evidence_refusal(ref: str, *, declared_scope: Any) -> str | None:
+    """Why ``ref`` cannot stand as evidence that a finding of a tool with
+    ``declared_scope`` is a product defect; ``None`` when it can.
+
+    ARIA-HIGH-325 — F-009/F-010/F-011 were promoted on nine refs into
+    ``tools/aria-adapters/``: the judges cited the rule's own code to show
+    the rule fired. A ref inside the producing tool's declared scope is
+    admissible, so a tool scoped to ARIA itself may cite ARIA. Outside it,
+    ARIA's detector source is ``aria_detector_source`` and any other path
+    ``outside_declared_scope``. Judged on the canonical path, so
+    ``web/../tools/aria-adapters/x.ts`` is detector source. With no scope (a
+    tool the registry does not know) only the class rule can be judged.
+    """
+    path_part, _line = _split_ref(str(ref).strip())
+    try:
+        canonical: str | None = resolve_repo_relpath(path_part)
+    except GovernanceError:
+        canonical = None
+    if canonical is not None and declared_scope is not None and any(
+        matches_repo_glob(canonical, str(glob)) for glob in declared_scope
+    ):
+        return None
+    if canonical is not None and any(
+        f"{canonical}/".startswith(prefix) for prefix in ARIA_DETECTOR_SOURCE_PREFIXES
+    ):
+        return ARIA_DETECTOR_SOURCE_CLASS
+    if declared_scope is None:
+        return None
+    return OUTSIDE_DECLARED_SCOPE_CLASS
+
+
 def is_self_output_ref(ref: str) -> bool:
     """True when ``ref`` names ARIA's own output (gitignored, unresolvable at
     any workspace SHA) — the same prefix rule the classifier uses.
@@ -39,6 +108,68 @@ def is_self_output_ref(ref: str) -> bool:
     except GovernanceError:
         return False
     return any(f"{canonical}/".startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES)
+
+
+# ARIA-HIGH-384 review — a stat that cannot answer is a verdict about the
+# PATH, never an exception out of the law. Python 3.12's ``Path.exists`` and
+# ``is_file`` ignore only ENOENT/ENOTDIR/EBADF/ELOOP; a component longer than
+# NAME_MAX (a 400-char SARIF URI, an uncapped runtime-signal code ref) raises
+# ENAMETOOLONG, which escaped the law, the autonomy drain and the whole
+# orchestrator run, and left the item to kill every later run.
+PATH_KIND_FILE = "file"
+PATH_KIND_DIR = "dir"
+PATH_KIND_ABSENT = "absent"
+PATH_KIND_UNRESOLVABLE = "unresolvable"
+_ABSENT_ERRNOS: frozenset[int] = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
+
+
+@dataclass(frozen=True)
+class PathStat:
+    """What one stat of an evidence path says: ``kind`` and, when it could not answer, why."""
+
+    kind: str
+    error: str | None = None
+
+
+def stat_evidence_path(absolute: Path) -> PathStat:
+    """The kind of ``absolute`` — file, dir, absent, or unresolvable (with the errno name).
+
+    THE stat of the evidence law: ``classify_evidence_ref``,
+    ``evidence_validator._check_agent_ref`` and the tool-output check all ask
+    it, so no ref reaches an ``OSError`` the law did not name. What
+    ``Path.exists`` treats as absence stays absence; any other ``OSError``
+    (ENAMETOOLONG, EACCES, EIO) is ``unresolvable``.
+
+    A path the OS cannot even be handed is ``unresolvable`` too: ``os.stat``
+    raises ``ValueError`` for an embedded NUL and ``UnicodeEncodeError`` (a
+    ``ValueError``) for a lone surrogate, both of which survive JSON decoding
+    of an MCP runtime signal's ``code_refs`` (``\\u0000``, ``\\ud800``).
+    ``Path.exists`` swallowed them; the stat must name them (re-review of
+    PR #1863: ``ValueError: embedded null byte`` wedged the drain again).
+    """
+    try:
+        mode = absolute.stat().st_mode
+    except ValueError:
+        return PathStat(
+            PATH_KIND_UNRESOLVABLE, "embedded_nul" if "\x00" in str(absolute) else "unencodable",
+        )
+    except OSError as exc:
+        if exc.errno in _ABSENT_ERRNOS:
+            return PathStat(PATH_KIND_ABSENT)
+        return PathStat(PATH_KIND_UNRESOLVABLE, errno.errorcode.get(exc.errno or 0, type(exc).__name__))
+    if _stat.S_ISREG(mode):
+        return PathStat(PATH_KIND_FILE)
+    if _stat.S_ISDIR(mode):
+        return PathStat(PATH_KIND_DIR)
+    return PathStat(PATH_KIND_ABSENT)
+
+
+def evidence_file_line_count(absolute: Path) -> int | None:
+    """Lines in the file at ``absolute``, or ``None`` when it cannot be read."""
+    try:
+        return len(absolute.read_text(encoding="utf-8", errors="replace").splitlines())
+    except OSError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -129,10 +260,16 @@ def classify_evidence_ref(
         if any(canonical_ref.startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES)
         else None
     )
-    is_file = absolute.exists() and absolute.is_file()
-    is_dir = absolute.exists() and absolute.is_dir()
+    path_stat = stat_evidence_path(absolute)
+    if path_stat.kind == PATH_KIND_UNRESOLVABLE:
+        validation_errors = (*validation_errors, f"path_unresolvable:{path_stat.error}")
+    is_file = path_stat.kind == PATH_KIND_FILE
+    is_dir = path_stat.kind == PATH_KIND_DIR
     exists = is_file or is_dir
     content_hash = _file_sha256(absolute) if is_file else None
+    if is_file and content_hash is None:
+        validation_errors = (*validation_errors, "path_unresolvable:unreadable")
+        is_file = exists = False
     # The baseline is resolved ONCE per decision (cached on the session):
     # `None` when the caller threaded no target at all, a readable commit,
     # or a resolution that says WHY the workspace cannot read it.
@@ -296,8 +433,12 @@ def _canonicalize(raw_path: str, root: Path) -> tuple[str, Path, tuple[str, ...]
     return canonical, absolute, ()
 
 
-def _file_sha256(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+def _file_sha256(path: Path) -> str | None:
+    """The file's content address, or ``None`` when its bytes cannot be read."""
+    try:
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
 
 
 def _resolve_baseline(
@@ -435,12 +576,24 @@ def _git_tree_exists(
 
 
 __all__ = [
+    "ARIA_DETECTOR_SOURCE_CLASS",
+    "ARIA_DETECTOR_SOURCE_PREFIXES",
+    "OUTSIDE_DECLARED_SCOPE_CLASS",
     "EvidenceEnvelope",
     "EvidencePolicy",
+    "PATH_KIND_ABSENT",
+    "PATH_KIND_DIR",
+    "PATH_KIND_FILE",
+    "PATH_KIND_UNRESOLVABLE",
+    "PathStat",
+    "evidence_file_line_count",
+    "stat_evidence_path",
     "GitProbeSession",
     "EVIDENCE_REF_RE",
     "SELF_OUTPUT_PREFIXES",
     "is_self_output_ref",
     "parse_evidence_ref",
     "classify_evidence_ref",
+    "tool_evidence_refusal",
+    "forbidden_detector_scope",
 ]

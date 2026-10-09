@@ -1,6 +1,10 @@
 # ADR-0001 — EXTERNAL_OUTAGE Lifecycle State
 
-**Status:** proposed
+**Status:** superseded by ARIA-HIGH-366 (2026-10-07). The `EXTERNAL_OUTAGE` state and
+`external_outage_reaper` were deleted: nothing ever wrote `api_backoff_exhausted`, and the
+reaper's 30-minute wall clock would have killed work in any outage over two hours. Provider
+outages are `aria_kernel/provider_outage_ledger.py` intervals read by `provider_clock`
+(`docs/reviews/claude/2026-10-07-aria-provider-outage-resume.md`).
 **Date:** 2026-05-20
 **Branch:** snowball
 **Resolves:** ARCH-CRIT-003 (V10.5 v2 architectural-arbiter audit)

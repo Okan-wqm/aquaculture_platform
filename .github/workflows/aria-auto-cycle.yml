@@ -363,7 +363,7 @@ jobs:
               # remote. Declared rather than folded into `github_artifact`,
               # because they are different credentials with different blast
               # radii and a reviewer must be able to see the git one.
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "state restore/publish limited to the aria/state branch over "
                   "the repository remote; artifact upload limited to the "
@@ -403,8 +403,18 @@ jobs:
         uses: ./.github/actions/restore-aria-state
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+          # ARIA-HIGH-342 — this job writes aria/state, so it takes the writer
+          # lease before the checkout and holds it to the release step at the
+          # end: no other lane can publish in between. The expiry is this
+          # job's own timeout-minutes plus the 80-minute leased-publish margin
+          # (GSEC-MEDIUM-003); the wait covers the hosted writers' whole
+          # bounds (at most 25 min) before the run yields by name.
+          writer-lease-ttl-minutes: '440'
+          writer-lease-wait-seconds: '1800'
       - name: Pre-flight - cross-host autonomous-loop lease check
         id: lease_check
+        env:
+          WRITER_LEASE: ${{ steps.restore_state.outputs.writer-lease }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 - <<'PY' 2>&1 | head -20
@@ -413,6 +423,16 @@ jobs:
           import sys
 
           from aria_kernel.autonomous_host_lease import lease_state
+
+          # ARIA-HIGH-342 — no writer lease, no store: the restore yielded
+          # (another lane is writing aria/state) and checked nothing out, so
+          # this run blocks here, before anything reads the tree.
+          if os.environ.get('WRITER_LEASE') != 'held':
+              print('::warning::aria/state writer lease not held; run yielded', file=sys.stderr)
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                  f.write('blocked=true\n')
+                  f.write('blocked_host=aria/state-writer-lease\n')
+              sys.exit(0)
 
           # os.environ[...] rather than a literal: the lease ledger lives in
           # the store, and a KeyError here is the correct outcome if the
@@ -461,6 +481,21 @@ jobs:
             --tools-dir "$ARIA_TOOLS_DIR" \
             --trigger session_start
 
+      - name: Fetch the composed supergraph for the drift scan
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # ARIA-HIGH-333 — the scan judges a UI option list against what the GraphQL transport carries, which it
+          # reads from the composed supergraph. This host does not compose one; the artifact CI composed for HEAD's
+          # exact schema is fetched instead. Without it the scan reports wire_unverifiable rather than guessing.
+          SG_DIR="${RUNNER_TEMP}/aria-supergraph"
+          if out="$(python3 tools/aria-poc/fetch_supergraph.py --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_REPOSITORY" --out-dir "$SG_DIR")"; then
+            echo "ARIA_SUPERGRAPH=${SG_DIR}/supergraph.graphql" >> "$GITHUB_ENV"
+          fi
+          echo "$out"
+
       - name: Seed drift findings from fresh scan
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         run: |
@@ -471,7 +506,7 @@ jobs:
           # kernel's own `repo_state_root`, so the seeds land in the store the
           # cycle_guard reads from — writing them to the checkout instead would
           # be a producer that stays green feeding a consumer that stays empty.
-          python3 tools/aria-poc/seed_drift_findings.py --repo-root "$GITHUB_WORKSPACE" | tail -12
+          python3 tools/aria-poc/seed_drift_findings.py --repo-root "$GITHUB_WORKSPACE" ${ARIA_SUPERGRAPH:+--supergraph "$ARIA_SUPERGRAPH"} | tail -12
 
       - name: Cycle guard (advisory)
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
@@ -508,6 +543,15 @@ jobs:
       - name: Ensure a verified sandbox backend
         if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
         uses: ./.github/actions/ensure-sandbox-backend
+
+      # ARIA-HIGH-383 — self-revert and branch-update validate in the same
+      # room as the executor's apply gate (`validation_sandbox_for`), and
+      # that room binds every toolchain the tree declares: the root
+      # Cargo.toml declares cargo + rustc. Without them the room is
+      # refused by name (`validation_toolchain_unresolvable:cargo`).
+      - name: Provision the Rust toolchain the tree declares
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        uses: ./.github/actions/setup-rust-workspace
 
       # The adapter manifests declare `npx ts-node …` runners, and the tool
       # runner refuses to execute them when the workspace has no repo-local
@@ -708,7 +752,7 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "state restore/publish limited to the aria/state branch over "
                   "the repository remote; artifact upload limited to the "
@@ -1034,6 +1078,9 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
           GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+          # ARIA-HIGH-342 — the writer-lease capability, as a masked step
+          # output into this step only (GSEC-LOW-002).
+          ARIA_STATE_WRITER_LEASE_TOKEN: ${{ steps.restore_state.outputs.writer-lease-token }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
@@ -1097,3 +1144,41 @@ jobs:
         run: |
           echo "::error::ARIA state failed integrity verification; captured as quarantine-evidence-${GITHUB_RUN_ID} and NOT published to the aria/state branch." >&2
           exit 1
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.
+      # Unconditional (GSEC-LOW-001): release is idempotent, a no-op when this
+      # run yielded and holds none, and releases only by the token (kept on
+      # disk before the acquire's push; there is no release by identity). A
+      # runner that dies outright frees the branch at the expiry it set.
+      - name: Release the aria/state writer lease
+        if: always()
+        uses: ./.github/actions/release-aria-state-lease
+        with:
+          lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
+
+  # ORPHAN-724 / ARIA-HIGH-386 — the drain follows the producer. The edge is
+  # an explicit dispatch, not a `workflow_run` trigger on the executor:
+  # GitHub creates no `workflow_run` event for a run started with the job
+  # token, and the executor's `chain-next-cycle` and the dataflow watchdog
+  # both start this workflow that way, so every chained cycle ended with no
+  # drain after it (cycle 37728223278, 2026-10-08). A workflow_dispatch is
+  # the one event the job token may create. The executor's run waits in the
+  # shared concurrency group until this run has finished, the same order the
+  # trigger gave. A cancelled cycle is an operator stop, so it chains
+  # nothing.
+  chain-executor:
+    needs: cycle
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the drain that follows this cycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh workflow run aria-agent-executor.yml --ref main --repo "${REPOSITORY}"
+          echo "::notice::chained the drain"

@@ -21,6 +21,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -203,8 +204,9 @@ def _check_habitat(workspace_root: Path) -> DoctorCheck:
 def _requests_are_live(tools_dir: Path) -> bool:
     """Producers have written: the store is past bootstrap, so a ledger the
     producers feed cannot be legitimately absent."""
-    requests = tools_dir / "agent-invocations" / "requests.jsonl"
-    return requests.is_file() and requests.stat().st_size > 0
+    from .ledger import segment_paths
+
+    return any(path.stat().st_size > 0 for path in segment_paths(tools_dir, "agent_invocation_requests"))
 
 
 def _plans_minted(tools_dir: Path) -> int:
@@ -291,10 +293,12 @@ def _check_plan_ledger(tools_dir: Path) -> DoctorCheck:
     ledger did not, and the drainer re-started the same plan every night.
     A write-driving ledger that vanished while its producers kept writing
     is a FAIL, not a bootstrap."""
+    from .ledger import segment_paths
+
     plans_dir = tools_dir / "plans"
     plan_ledgers = sorted(plans_dir.glob("*.jsonl")) if plans_dir.is_dir() else []
     detail = {
-        "requests_ledger_present": (tools_dir / "agent-invocations" / "requests.jsonl").is_file(),
+        "requests_ledger_present": bool(segment_paths(tools_dir, "agent_invocation_requests")),
         "plan_ledgers": [path.name for path in plan_ledgers],
     }
     if _requests_are_live(tools_dir) and not plan_ledgers:
@@ -510,6 +514,20 @@ def _check_economy(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("economy", "ok", "" if stats else "no_usage_rows", detail)
 
 
+def _check_learning(tools_dir: Path) -> DoctorCheck:
+    """ARIA-HIGH-285 — the learning KPIs the recorded episodes compute (and
+    the ones they cannot, named), with a WARN while finished episodes on the
+    plan ledger wait unobserved: the cycle's real-mode observation is not
+    running."""
+    from .agent_eval import performance_kpis, unobserved_episode_count
+
+    detail = performance_kpis(base_dir=tools_dir)
+    pending = unobserved_episode_count(base_dir=tools_dir)
+    if pending:
+        return DoctorCheck("learning", "warn", f"performance_unobserved:{pending}", detail)
+    return DoctorCheck("learning", "ok", "" if detail["episodes"] else "no_episodes", detail)
+
+
 CALIBRATION_GATE_DOWNGRADE_WARN_DAYS: int = 7
 
 
@@ -589,6 +607,26 @@ def _check_deadlines(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
     return DoctorCheck("deadlines", "ok", "", detail)
 
 
+def _check_finding_backlog(workspace_root: Path, *, now: datetime | None = None) -> DoctorCheck:
+    """Wall #7 — WARN names overdue operator-only findings with their age
+    (``F-012@19.4d``), a closable backlog at the cap and a breached closure
+    SLO; the detail is the whole census the cycle gates on."""
+    from .cycle_guard import backlog_census
+
+    census = backlog_census(workspace_root, now=now)
+    overdue = [row for row in census["operator_only"]
+               if row["age_days"] is not None and row["age_days"] >= census["operator_escalation_age_days"]]
+    slo = census["slo"]
+    warnings = [
+        *(["operator_only_overdue:" + ",".join(f"{r['finding_id']}@{r['age_days']}d" for r in overdue)] if overdue else []),
+        *([f"closable_backlog_at_cap:{census['capped']}>={census['backlog_cap']}"]
+          if census["capped"] >= census["backlog_cap"] else []),
+        *([f"closure_slo_breached:{slo['opened_closable']}>{slo['closed']}/{slo['window_days']}d"]
+          if slo["breached"] else []),
+    ]
+    return DoctorCheck("finding_backlog", "warn" if warnings else "ok", ";".join(warnings), census)
+
+
 def run_doctor(
     *,
     base_dir: str | Path | None = None,
@@ -629,9 +667,11 @@ def run_doctor(
         _guarded("gateway", lambda: _check_gateway(tools_dir)),
         _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
+        _guarded("learning", lambda: _check_learning(tools_dir)),
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),
         _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),
+        _guarded("finding_backlog", lambda: _check_finding_backlog(workspace)),
         _guarded("calibration_gate", lambda: _check_calibration_gate(tools_dir)),
     )
     return DoctorReport(

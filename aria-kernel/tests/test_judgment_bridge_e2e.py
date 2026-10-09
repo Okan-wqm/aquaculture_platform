@@ -15,6 +15,7 @@ from aria_kernel.judgment_bridge import (
     run_consensus,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import sha256_file
 
 
@@ -129,10 +130,11 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             target_sha=self.target_sha,
             finding_fingerprint=finding_fingerprint,
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", role, base_dir=self.tools),
         )
         # Inject the legacy request fields the bridge needs.
-        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl
-        path = self.tools / "agent-invocations" / "requests.jsonl"
+        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl, segment_paths
+        path = segment_paths(self.tools, "agent_invocation_requests")[-1]  # the request's segment
         rows = load_declared_jsonl(path, expected_surface="agent_invocation_requests")
         rows[-1]["tool_id"] = "demo-adapter"
         rows[-1]["run_id"] = "run-001"

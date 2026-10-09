@@ -123,6 +123,7 @@ def request_implementation_expert_reviews(
     """
     from .agent_invocations import create_agent_invocation_request
     from .implementation_safety import _native_implementation_is_bound
+    from .request_admission import admit_request
     import json
 
     required = {
@@ -187,6 +188,12 @@ def request_implementation_expert_reviews(
             context_source_paths=paths,
             cycle_id=cycle_id,
             base_dir=base_dir,
+            # ARIA-HIGH-364 — the pre-merge review of an accepted
+            # implementation: critical path, never throttled.
+            admission=admit_request(
+                "expert_review_gate.implementation", "specialist_domain_review",
+                base_dir=base_dir, cycle_id=cycle_id,
+            ),
         )
         request_ids.append(request["request_id"])
     return tuple(request_ids)

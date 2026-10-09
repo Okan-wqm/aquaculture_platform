@@ -30,14 +30,25 @@ only while nothing can force-push. Add a ruleset before there is
 anything to lose:
 
 - Repository → Settings → Rules → Rulesets → New branch ruleset
-- Target: `aria/state` and `aria/state-cold` (the content-addressed store
+- Target: `aria/state`, `aria/state-cold` (the content-addressed store
   every publish evicts old cycles into, ARIA-HIGH-274; the first eviction
-  creates it, so it must be covered before that publish)
-- Enable: **Restrict deletions**, **Block force pushes**
+  creates it, so it must be covered before that publish) and
+  `aria/state-lease` (the writer lease, ARIA-HIGH-342: every publish pushes a
+  fast-forward fence onto it atomically with the state, so a force-push there
+  would void the one-writer guarantee exactly as one on `aria/state` would)
+- Enable: **Restrict deletions**, **Block force pushes**; no bypass actors
 - Do NOT require a pull request — ARIA's lanes push directly, and the
   branch carries no code.
 
-Verify the ruleset is active before continuing. Doing this after the
+Verify the ruleset is active before continuing:
+
+```bash
+PYTHONPATH=aria-kernel python3 -m aria_kernel readiness probe-state-branch-protection \
+  --repo Okan-wqm/aquaculture_platform
+```
+
+Expected `"valid": true`; each uncovered branch is named as
+`state_branch_unprotected:<branch>:<rule>`. Doing this after the
 branch exists leaves a window in which a mistaken force-push silently
 discards published state, and a discarded publish is not recoverable
 from the artifact cache once it has expired.
@@ -45,11 +56,23 @@ from the artifact cache once it has expired.
 ## Step 2 — bootstrap
 
 From a checkout of the repository, on a machine whose `origin` points at
-the real remote:
+the real remote. aria/state has one writer at a time (ARIA-HIGH-342): the
+operator lane takes the writer lease BEFORE the checkout, presents its token
+to the publish, and gives it back afterwards — the same turn every workflow
+takes. `state publish` refuses without it (`state_writer_lease_required`).
 
 ```bash
 export ARIA_STATE_BOOTSTRAP_ACK="Okan-wqm/aquaculture_platform"
 
+# 1. Take the writer lease. Exit 3 means another writer holds it; the JSON
+#    names the holder, its run and its expiry. Do not work around it.
+PYTHONPATH=aria-kernel python3 -m aria_kernel state lease acquire \
+  --repo-root . --ttl-minutes 120 --token-file "$HOME/.aria-state-lease-token"
+
+# 2. Check the store out under that lease. The token stays in its file
+#    (created exclusively, mode 0600): it is a secret, it is never printed,
+#    lease.json stores only its SHA-256, and it is never exported into the
+#    shell — each command that needs it reads the file.
 PYTHONPATH=aria-kernel python3 -m aria_kernel state checkout --repo-root .
 ```
 
@@ -66,11 +89,24 @@ Then publish the first snapshot:
 PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
   --repo-root . \
   --snapshot-id "bootstrap-$(date -u +%Y%m%dT%H%M%SZ)" \
-  --cycle-id "operator-bootstrap"
+  --cycle-id "operator-bootstrap" \
+  --lease-token-file "$HOME/.aria-state-lease-token"
 ```
 
 Expected: `"published": true`, `"pushed": true`,
 `"continuity": {"status": "genesis"}`.
+
+Then give the lease back:
+
+```bash
+PYTHONPATH=aria-kernel python3 -m aria_kernel state lease release --repo-root . \
+  --token-file "$HOME/.aria-state-lease-token"
+rm -f "$HOME/.aria-state-lease-token"
+```
+
+A publish that finds the branch moved under its lease, or the lease taken over
+after its expiry, refuses as `state_writer_lease_lost` and keeps its rows in the
+store; it never replays them onto someone else's turn.
 
 **Unset `ARIA_STATE_BOOTSTRAP_ACK` afterwards.** It is not needed again,
 and leaving it exported in a shell profile or a workflow re-arms the
@@ -109,6 +145,21 @@ if you have confirmed there is nothing to recover. (Before the lane cutover
 this named the `aria-tools-state` artifact, which no longer exists; the
 retention window is the same 30 days, but you now pick the run rather than
 trusting "the latest".)
+
+## When the writer lease is wedged
+
+- **A holder died without releasing.** `state lease status --repo-root .` names
+  it. Its lease frees itself at the recorded expiry (job timeout plus the
+  80-minute publish margin). To free it sooner, after confirming its run is
+  gone:
+  `state lease release --repo-root . --force-foreign --reason "<run id> died at <time>"`.
+  The release is a commit on `aria/state-lease` that records who and why.
+- **The record cannot be parsed** (`state_writer_lease_record_invalid` or
+  `_record_missing` — every reader fails closed on it):
+  `state lease repair --repo-root . --reason "<what happened>"`. It pushes a
+  released record as a fast-forward child, so the broken one stays in history.
+  It refuses a valid, held lease; use the force-foreign release for that.
+- Never force-push or delete `aria/state-lease`; the ruleset forbids both.
 
 ## Exit codes
 

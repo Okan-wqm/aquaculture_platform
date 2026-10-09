@@ -12,6 +12,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { mappedCodesForUnit, measurementPlan } from './measurement-plan';
 import { ParameterConfigCacheService } from './parameter-config-cache.service';
 import { WaterQualityParamEquipment } from '../entities/water-quality-param-equipment.entity';
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
@@ -138,20 +139,11 @@ export class WaterQualityValidationService {
       configs.map(c => [c.code, c]),
     );
 
-    // If equipmentId provided, get mapped parameter codes
-    let mappedCodes: Set<string> | null = null;
-    if (equipmentId) {
-      const mappings = await this.mappingRepository.find({
-        where: { tenantId, equipmentId, isActive: true },
-        select: ['parameterConfigId'],
-        relations: ['parameterConfig'],
-      });
-      mappedCodes = new Set(
-        mappings
-          .map(m => m.parameterConfig?.code)
-          .filter((code): code is string => Boolean(code)),
-      );
-    }
+    // The unit's plan (parameters mapped to it), when a unit is given: it
+    // narrows which configured parameters are required.
+    const mappedCodes = equipmentId
+      ? await mappedCodesForUnit(this.mappingRepository.manager, tenantId, equipmentId)
+      : null;
 
     // Validate each submitted parameter
     for (const [code, value] of Object.entries(dynamicParameters)) {
@@ -167,22 +159,26 @@ export class WaterQualityValidationService {
         continue;
       }
 
-      // Not mapped to equipment (if equipmentId provided)
-      if (mappedCodes && !mappedCodes.has(code)) {
-        errors.push({
-          field: code,
-          code: 'NOT_MAPPED',
-          message: `Parameter '${code}' is not mapped to this equipment`,
-        });
-        continue;
-      }
+      // A configured parameter outside the unit's plan is accepted: the plan
+      // drives the default form and which parameters are required, but ad-hoc
+      // lab and vet samples are routine, and an empty plan (any unit nobody
+      // mapped) used to reject every value submitted for it.
 
       // Data type validation
       this.validateDataType(config, code, value, errors);
     }
 
-    // Check required parameters
-    this.validateRequiredParameters(configs, dynamicParameters, mappedCodes, errors);
+    // Required parameters come from the unit's measurement plan — the same rule
+    // the entry forms read (measurement-plan.ts).
+    for (const entry of measurementPlan(configs, mappedCodes).entries) {
+      if (entry.required && !(entry.config.code in dynamicParameters)) {
+        errors.push({
+          field: entry.config.code,
+          code: 'REQUIRED',
+          message: `Parameter '${entry.config.name}' is required`,
+        });
+      }
+    }
 
     if (errors.length > 0) {
       this.logger.warn(
@@ -238,22 +234,4 @@ export class WaterQualityValidationService {
     }
   }
 
-  private validateRequiredParameters(
-    configs: WaterQualityParameterConfig[],
-    dynamicParameters: Record<string, number | string | boolean>,
-    mappedCodes: Set<string> | null,
-    errors: ValidationError[],
-  ): void {
-    for (const config of configs) {
-      if (config.isRequired && !(config.code in dynamicParameters)) {
-        if (!mappedCodes || mappedCodes.has(config.code)) {
-          errors.push({
-            field: config.code,
-            code: 'REQUIRED',
-            message: `Parameter '${config.name}' is required`,
-          });
-        }
-      }
-    }
-  }
 }

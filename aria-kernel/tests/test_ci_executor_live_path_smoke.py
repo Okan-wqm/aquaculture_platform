@@ -46,6 +46,8 @@ if str(_KERNEL_DIR) not in sys.path:
 
 import ci_executor  # noqa: E402
 from aria_kernel.agent_invocations import render_invocation_prompt  # noqa: E402
+from aria_kernel.request_admission import admit_request
+from tests._helpers.declared_fixtures import native_invocation_bytes  # noqa: E402
 
 
 def _make_fake_run_sequence(*responses):
@@ -505,6 +507,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-native-admission", cycle_id="s4-native-admission",
             target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         rows = ai.list_agent_invocation_requests(base_dir=self.tools)
         self.assertEqual(len(rows), 1)
@@ -519,10 +522,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(self.request["prompt_hash"], "sha256:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest())
         self.assertEqual(binding["context"]["ledger_hash"], self.request["context_ledger_hash"])
         self.assertEqual(binding["prompt"]["ledger_hash"], self.request["prompt_ledger_hash"])
-        self.native_bytes = {
-            name: (self.tools / "agent-invocations" / name).read_bytes()
-            for name in ("requests.jsonl", "contexts.jsonl", "prompts.jsonl")
-        }
+        self.native_bytes = native_invocation_bytes(self.tools)
         self.governance_before = (self.tools / "governance.jsonl").read_bytes()
         self.assertEqual(ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools), "PENDING")
 
@@ -577,8 +577,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         from aria_kernel.ledger import load_declared_jsonl
 
         self.assertEqual(self.ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools), "PENDING")
-        for name, original in self.native_bytes.items():
-            self.assertEqual((self.tools / "agent-invocations" / name).read_bytes(), original)
+        self.assertEqual(native_invocation_bytes(self.tools), self.native_bytes)
         for name, surface in (("claims.jsonl", "agent_invocation_claims"),
                               ("results.jsonl", "agent_invocation_results")):
             self.assertEqual(load_declared_jsonl(self.tools / "agent-invocations" / name,
@@ -642,8 +641,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         with self.assertRaises(GovernanceError):
             reserve(claim["agent_id"], claim["lease_token"])
         self.assertEqual(governance.read_bytes(), before)
-        for name, original in self.native_bytes.items():
-            self.assertEqual((self.tools / "agent-invocations" / name).read_bytes(), original)
+        self.assertEqual(native_invocation_bytes(self.tools), self.native_bytes)
 
     def test_native_runtime_reservation_accepts_heartbeat_owner_without_nominal_cap(self) -> None:
         from aria_kernel.budget import _reserve_native_runtime_attempt, price_tokens
@@ -686,8 +684,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(self.ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools), "RUNNING")
         self.assertEqual(load_declared_jsonl(self.tools / "agent-invocations/results.jsonl",
                                             expected_surface="agent_invocation_results"), [])
-        for name, original in self.native_bytes.items():
-            self.assertEqual((self.tools / "agent-invocations" / name).read_bytes(), original)
+        self.assertEqual(native_invocation_bytes(self.tools), self.native_bytes)
 
     def test_native_planner_hook_uses_a_worktree_under_the_bound_task_root_and_exact_prompt_projection(self) -> None:
         import subprocess
@@ -709,6 +706,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-hook-root", cycle_id="s4-hook-root", target_sha=target_sha,
             context_repo_root=self.repo, context_source_paths=["src/model_fleet.py"], base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
         binding = self.ai.verify_invocation_context_binding(
             request_id=request["request_id"], context_hash=request["context_hash"],
@@ -826,8 +824,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertFalse(any(row["kind"] == "runtime_attempt_started" for row in rows))
         self.assertEqual(load_declared_jsonl(self.tools / "agent-invocations/results.jsonl",
                                             expected_surface="agent_invocation_results"), [])
-        for name, original in self.native_bytes.items():
-            self.assertEqual((self.tools / "agent-invocations" / name).read_bytes(), original)
+        self.assertEqual(native_invocation_bytes(self.tools), self.native_bytes)
 
     def test_adaptive_native_entry_refuses_changed_task_target_before_admission(self) -> None:
         import shutil
@@ -938,13 +935,11 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
                 plan_id=plan.plan_id, cross_review_revision_id=plan.revision_id, cross_review_summary_text="{}",
                 proposal_id="proposal-144", change_id="chg-144", branch="aria-impl-0144014401440144",
                 base_sha=base_sha, cycle_id="s4-native-admission", base_dir=self.tools,
+                admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
             )
         self.assertIsNone(self.request.get("target_sha"))
         self.assertEqual(self.request["implementation_ids"]["base_sha"], base_sha)
-        self.native_bytes = {
-            name: (self.tools / "agent-invocations" / name).read_bytes()
-            for name in ("requests.jsonl", "contexts.jsonl", "prompts.jsonl")
-        }
+        self.native_bytes = native_invocation_bytes(self.tools)
         self.governance_before = (self.tools / "governance.jsonl").read_bytes()
         return base_sha
 
@@ -1036,12 +1031,10 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-unanchored", cycle_id="s4-unanchored",
             context_repo_root=self.repo, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         self.assertIsNone(self.ai.request_anchor_sha(self.request))
-        self.native_bytes = {
-            name: (self.tools / "agent-invocations" / name).read_bytes()
-            for name in ("requests.jsonl", "contexts.jsonl", "prompts.jsonl")
-        }
+        self.native_bytes = native_invocation_bytes(self.tools)
         self.governance_before = (self.tools / "governance.jsonl").read_bytes()
         head = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
 
@@ -1486,11 +1479,9 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-native-verification", cycle_id="s4-native-verification",
             target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "verification", base_dir=self.tools),
         )
-        native_before = {
-            name: (self.tools / "agent-invocations" / name).read_bytes()
-            for name in ("requests.jsonl", "contexts.jsonl", "prompts.jsonl")
-        }
+        native_before = native_invocation_bytes(self.tools)
         binding = self.ai.verify_invocation_context_binding(
             request_id=request["request_id"], context_hash=request["context_hash"],
             prompt_hash=request["prompt_hash"], base_dir=self.tools,
@@ -1602,8 +1593,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(session_marker.read_bytes(), original_session_bytes)
         self.assertEqual(sorted(p.name for p in managed_home.iterdir()), ["auth.json", session_marker.name])
         self.assertEqual(policy_path.read_bytes(), policy_bytes)
-        for name, original in native_before.items():
-            self.assertEqual((self.tools / "agent-invocations" / name).read_bytes(), original)
+        self.assertEqual(native_invocation_bytes(self.tools), native_before)
         claims = [row for row in load_declared_jsonl(self.tools / "agent-invocations/claims.jsonl", expected_surface="agent_invocation_claims")
                   if row.get("request_id") == request["request_id"] and row.get("event") == "claimed"]
         results = [row for row in load_declared_jsonl(self.tools / "agent-invocations/results.jsonl", expected_surface="agent_invocation_results")

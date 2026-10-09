@@ -30,6 +30,7 @@ import { MealPlanGeneratorService } from '../services/meal-plan-generator.servic
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { ProtocolResolutionService } from '../services/protocol-resolution.service';
 import { FeedingClockService } from '../services/feeding-clock.service';
+import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import {
@@ -217,8 +218,10 @@ function buildHarness(fixture: Fixture): {
     // W5: takvim/saat çözümü tek serviste (D-B4) — servisin kendi
     // `timezoneFor` kopyası silindi.
     stub<FeedingClockService>({
-      siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
       resolve: jest.fn().mockResolvedValue(FeedingClockService.clockIn('UTC')),
+    }),
+    stub<SiteTimeZoneService>({
+      siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
     }),
   );
   return { service, computeDayPlan, persistDayPlan, recalcForUnit, enqueue, managerSave };

@@ -65,6 +65,7 @@ from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthFailure,
     ClaudeCreditExhausted,
+    ClaudeProviderUnreachable,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
@@ -72,6 +73,7 @@ from claude_runtime import (
     ClaudeUsageUnavailable,
     UsageRecording,
     extract_final_message,
+    failure_cause_text,
     extract_usage,
     is_mock_mode as _claude_is_mock_mode,
     parse_claude_jsonl,
@@ -149,6 +151,9 @@ try:
         STATE_STORE_CHECKOUT_ARC_SECONDS as _STATE_STORE_CHECKOUT_ARC_SECONDS,
         STATE_STORE_LIFECYCLE_LIVENESS_SECONDS as _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
     )
+    from aria_kernel.state_writer_lease import (
+        PUBLISH_PREAMBLE_SECONDS as _STATE_PUBLISH_PREAMBLE_SECONDS,
+    )
     # What the kernel's `human-required record` can legitimately wait
     # (its governance append, then the notification's channels and outbox
     # row): the executor runs it as a child on the refusal exits and sizes
@@ -203,6 +208,9 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
         # narrower copy is invisible, so the no-drift test is what makes the
         # duplication legitimate rather than latent.
         "verification",
+        # ARIA-HIGH-344 — the autonomy planner's queue and self-change role,
+        # minted and drained long before either set named it.
+        "maintenance_utility",
     })
     _render_invocation_prompt = None
     _fuse_prompt_envelope = None
@@ -227,7 +235,8 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
     _GIT_PROBE_WORST_CASE_SECONDS = 93.0
     _GIT_TIMEOUT_SECONDS = 300
     _STATE_STORE_CHECKOUT_ARC_SECONDS = 2700.0
-    _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS = 5400.0
+    _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS = 2700.0  # ARIA-HIGH-342: the leased publish no longer replays
+    _STATE_PUBLISH_PREAMBLE_SECONDS = 4500  # ARIA-HIGH-342: cold staging + the fence's lease reads and renewal
     _HUMAN_REQUIRED_RECORD_WAIT_SECONDS = 2280.0
     # 4 canonical commands x 2700 s + 4 git calls x 300 s + 10 s commit
     # verification + 300 s result decision (the evidence probe clock) +
@@ -687,6 +696,28 @@ class HumanRequiredRecordUnavailable(RuntimeError):
     must say so (`_release_unescalated`), never release as if it did."""
 
 
+def _hand_over_after_delivery(*, tools_dir: Path, request_id: str, delivered: Any, cause: str) -> None:
+    """ARIA-HIGH-389 — a refusal after THIS run's delivery opened the PR.
+
+    ``delivered`` is the kernel's ``ImplementationDelivery`` (None when this
+    run delivered nothing: every other role, and an implementation refused
+    before its push, which ARIA-HIGH-388 settles at its own site). Called
+    after the claim's release, so the settlement's request closure finds the
+    request unheld. The plan ends with the PR on its event and the PR goes to
+    a person (``implementation_settlement.hand_over_delivered_implementation``).
+    """
+    if delivered is None:
+        return
+    from aria_kernel.implementation_settlement import hand_over_delivered_implementation
+
+    outcome = hand_over_delivered_implementation(
+        request_id=request_id, cause=cause, pr_number=delivered.pr_number, pr_url=delivered.pr_url,
+        branch=delivered.branch, branch_tip_sha=delivered.branch_tip_sha, base_dir=tools_dir,
+    )
+    _stage(f"implementation_handed_over status={outcome['status']} class={outcome['rejection_class']} "
+           f"pr={delivered.pr_number} record={outcome.get('handed_over')}")
+
+
 def _record_human_required(
     *, tools_dir: Path, request_id: str, severity: str, reason: str, context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1100,8 +1131,14 @@ def _pre_submit_validate_envelope(
         # judge one truth.
         from aria_kernel.judgment_bridge import validate_judge_response
 
+        # ARIA-HIGH-324 — the premise obligations a true_positive must
+        # satisfy are read off the request's `must_satisfy`, so the gate
+        # reads them from the same row as well.
         gate_request = dict(request or {})
-        if not (gate_request.get("tool_id") and gate_request.get("run_id") and gate_request.get("finding_id")):
+        if not (
+            gate_request.get("tool_id") and gate_request.get("run_id")
+            and gate_request.get("finding_id") and gate_request.get("must_satisfy")
+        ):
             request_id = str(gate_request.get("request_id") or envelope.get("request_id") or "")
             tools_dir_raw = os.environ.get("ARIA_TOOLS_DIR")
             if request_id and tools_dir_raw:
@@ -1113,7 +1150,7 @@ def _pre_submit_validate_envelope(
                 except Exception:
                     full_row = None
                 if full_row:
-                    for key in ("tool_id", "run_id", "finding_id", "judgment_group_id"):
+                    for key in ("tool_id", "run_id", "finding_id", "judgment_group_id", "must_satisfy"):
                         if not gate_request.get(key) and full_row.get(key):
                             gate_request[key] = full_row[key]
         return validate_judge_response(
@@ -1378,6 +1415,10 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 STDERR_TAIL_MAX_CHARS = 2000
+# ARIA-HIGH-290 — the runtimes the spawn lane's `_dispatch_attempt` can run:
+# the managed Claude CLI and the Z.ai transport (`_run_zai_as_claude_result`).
+# A routing rung on any other runtime is skipped by `routed_models` there.
+_SPAWN_LANE_RUNTIMES: tuple[str, ...] = ("claude", "zai")
 
 
 def _bounded_stderr_tail(stderr: str | None) -> str | None:
@@ -1872,6 +1913,11 @@ def invoke_claude_cli(
     # class, detail code and the bounded stderr tail. The int return stays
     # the exit code every other caller branches on.
     on_outcome: Callable[[dict[str, Any]], None] | None = None,
+    # ARIA-HIGH-290 — the model the native admission ADMITTED for this
+    # request (its route), or None on the spawn lane, which reads the role's
+    # ladder from the routing table instead. Never the profile's own model:
+    # a role routed off its profile's vendor runs the route's model.
+    route_model: str | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -2120,6 +2166,29 @@ def invoke_claude_cli(
     if claim_id:
         spawn_extra_env["ARIA_CLAIM_ID"] = str(claim_id)
     try:
+        # ARIA-HIGH-290 — the models this spawn may run come from the ONE
+        # routing table: the native lane's admitted route (its admission owns
+        # failover, so there is no second rung here), else the role's ladder
+        # as the spawn lane's wrapper can run it — first rung, then ONE auth
+        # failover on the next.
+        if route_model is not None:
+            _models: tuple[str, ...] = (route_model,)
+        else:
+            from aria_kernel.runtime_profiles import routed_models
+
+            _models = routed_models(role, subagent_type, profile_model=agent_profile.model,
+                                    write_capable=agent_profile.write_capable, environ=os.environ,
+                                    runtimes=_SPAWN_LANE_RUNTIMES)
+        if not _models:
+            # Every rung of the role's ladder is suspended or cannot host
+            # this profile: nothing may run, and the summary says so.
+            _emit_dispatch_summary(
+                outcome="failed",
+                failure=DispatchFailure(failure_class="policy_violation", retryable=False,
+                                        detail_code="provider_routing_no_rung", phase="preflight", exit_code=1),
+                exit_code=1,
+            )
+            return 1
         # Model dispatch through the claude_runtime SSoT helper: a credit
         # exhaustion is terminal for the attempt (ClaudeCreditExhausted,
         # handled by main()'s requeue arm), a refusal rides the result and is
@@ -2243,7 +2312,7 @@ def invoke_claude_cli(
             # 82 requests, 0 results, 2026-09-04. The ledger prices through
             # budget's alias map; the reservation now takes the same road,
             # so the gate cannot price a model the ledger prices differently.
-            _reservation = price_spawn_reservation(model=agent_profile.model)
+            _reservation = price_spawn_reservation(model=_models[0])
             if _reservation.source == PRICING_SOURCE_UNKNOWN and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
                 # A typed failure, not a string: the summary writer reads
                 # .failure_class, and a str here crashed the refusal path.
@@ -2280,7 +2349,8 @@ def invoke_claude_cli(
         _effort = effective_effort(agent_profile.effort, target_agent=subagent_type, role=role, base_dir=tools_dir, request_id=request_id)
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
-            model=agent_profile.model,
+            model=_models[0],
+            failover=_models[1] if len(_models) > 1 else None,
             effort=_effort,
             # The role condition of the auth failover, from the profile SSoT:
             # a write-scope profile is never handed to a read-only runtime.
@@ -2291,7 +2361,8 @@ def invoke_claude_cli(
             _unresolved_payload = {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
-                "model": agent_profile.model,
+                # The rung that answered (stamped by run_with_model_fallback).
+                "model": completed.model,
                 "refusal": completed.refusal,
             }
             if tools_dir is not None:
@@ -2315,7 +2386,7 @@ def invoke_claude_cli(
                         tools_dir=tools_dir, request_id=request_id, severity="HIGH",
                         reason=f"model_safety_refusal:{_hr_category}: the model refused the request",
                         context={"code": f"model_safety_refusal:{_hr_category}", "stage": "model_refusal",
-                                 "claim_id": claim_id, "category": _hr_category, "model": agent_profile.model},
+                                 "claim_id": claim_id, "category": _hr_category, "model": completed.model},
                     )
                 except HumanRequiredRecordUnavailable as _hr_exc:
                     sys.stderr.write(
@@ -2329,7 +2400,7 @@ def invoke_claude_cli(
             )
             raise ClaudeCliUnavailable(
                 "model_safety_refusal_unresolved: request "
-                f"{request_id} refused by {agent_profile.model} "
+                f"{request_id} refused by {completed.model} "
                 f"(category={completed.refusal.get('category')!r}); "
                 "escalated to HUMAN_REQUIRED"
             )
@@ -2340,6 +2411,7 @@ def invoke_claude_cli(
         ClaudeUsageUnavailable,
         ClaudeAuthFailure,
         ClaudeCreditExhausted,
+        ClaudeProviderUnreachable,
         subprocess.TimeoutExpired,
     ) as exc:
         # ARIA-HIGH-002 — every terminal perimeter path writes exactly one
@@ -2358,6 +2430,15 @@ def invoke_claude_cli(
             contract = "tools/aria-poc/ci_executor_contract_proven.md"
             raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
         raise
+    if completed.returncode == 0 and tools_dir is not None:
+        # ARIA-HIGH-366 — the vendor served this attempt: positive evidence
+        # that ends any outage of its provider (and resolves the item). The
+        # model that ANSWERED names the provider (ARIA-MEDIUM-171), not the
+        # profile's frontmatter, so a cross-vendor rung restores its vendor.
+        from aria_kernel.provider_outage_ledger import record_provider_restored
+
+        record_provider_restored(tools_dir, provider=_provider_for_model(completed.model), seam="spawn",
+                                 request_id=request_id)
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events
@@ -2424,7 +2505,10 @@ def invoke_claude_cli(
     # no cause is the operator reading four ledgers to learn that the
     # limiter could not reach a bus. They go to the job log AND, through
     # the summary seam, to the caller that records the attempt.
-    _stderr_tail = _bounded_stderr_tail(completed.stderr) if completed.returncode != 0 else None
+    # ARIA-HIGH-290 — cut from the cause-ordered text, not raw stderr: the
+    # CLI's start-up notices must not push the result event's cause out.
+    _stderr_tail = (_bounded_stderr_tail(failure_cause_text(stderr=completed.stderr, events=completed.events))
+                    if completed.returncode != 0 else None)
     _emit_dispatch_summary(
         outcome="succeeded" if completed.returncode == 0 else "failed",
         failure=classify_dispatch_failure(result=completed, phase="runtime"),
@@ -2626,16 +2710,21 @@ def _agent_refusal_block(parsed: Any) -> dict[str, Any] | None:
     4 003-character replies whose refusal JSON sat past the cut. The builder
     now records what it parsed and the detector reads that record.
     """
-    from aria_kernel.agent_contract import REFUSAL_SCHEMA
+    from aria_kernel.agent_contract import REFUSAL_SCHEMA, REASON_CLASSES
 
     if not isinstance(parsed, dict) or REFUSAL_SCHEMA not in (
         parsed.get("$schema"), parsed.get("envelope"), parsed.get("schema"),
     ):
         return None
     summary = str(parsed.get("reason_summary") or parsed.get("reason") or "agent refused without summary")
+    # ARIA-HIGH-370 (review of #1829, M) — the class becomes the release
+    # reason (`agent_refused:<class>`) and from there a learning mode; an
+    # agent-written class outside the contract's closed set is `unspecified`,
+    # never free text on the ledger.
+    raw_class = str(parsed.get("reason_class") or "")
     return {
         "$schema": REFUSAL_SCHEMA,
-        "reason_class": str(parsed.get("reason_class") or "unspecified")[:64],
+        "reason_class": raw_class if raw_class in REASON_CLASSES else "unspecified",
         "reason_summary": _safe_agent_text_excerpt(summary, limit=AGENT_REFUSAL_SUMMARY_MAX_CHARS),
     }
 
@@ -3073,12 +3162,11 @@ def _on_disk_anchors(
 ) -> tuple[str | None, str | None]:
     """Read the on-disk ledger_hash for the named claim + request rows."""
     claims_path = tools_dir / "agent-invocations" / "claims.jsonl"
-    requests_path = tools_dir / "agent-invocations" / "requests.jsonl"
     claim_hash: str | None = None
     request_hash: str | None = None
     # Late import keeps standalone/mock executor startup behavior unchanged.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
-    from aria_kernel.ledger import load_declared_jsonl
+    from aria_kernel.ledger import load_declared_jsonl, load_segments
 
     if claims_path.exists():
         for row in load_declared_jsonl(
@@ -3090,13 +3178,9 @@ def _on_disk_anchors(
                 and row.get("event") == "claimed"
             ):
                 claim_hash = row.get("ledger_hash")
-    if requests_path.exists():
-        for row in load_declared_jsonl(
-            requests_path,
-            expected_surface="agent_invocation_requests",
-        ):
-            if row.get("request_id") == request_id:
-                request_hash = row.get("ledger_hash")
+    for row in load_segments(tools_dir, "agent_invocation_requests"):
+        if row.get("request_id") == request_id:
+            request_hash = row.get("ledger_hash")
     return claim_hash, request_hash
 
 
@@ -3167,12 +3251,17 @@ def _run_zai_as_claude_result(
             max_tokens=resolve_zai_max_tokens(dict(os.environ)),
         )
     except ZaiTransportUnavailable as exc:
-        raise ClaudeCliUnavailable(f"zai_transport_unavailable: {exc}") from exc
+        # ARIA-HIGH-366 — the same `unreachable` fact on the spawn lane's rung.
+        raise ClaudeProviderUnreachable(
+            f"zai_transport_unavailable: {exc}", provider=_provider_for_model(model), model=model,
+            detail={"signature": "zai_unreachable", "marker": str(exc)},
+        ) from exc
     auth_failure = None
     credit_exhaustion = None
     failure_class = None
     if completed.auth_failure is not None:
         auth_failure = {
+            "signature": completed.exhaustion_signature,
             "marker": completed.auth_failure, "matched_marker": completed.auth_failure,
             "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
             "remedy": f"re-provision the Z.ai subscription key at its boundary ({context.credential.location})",
@@ -3180,6 +3269,7 @@ def _run_zai_as_claude_result(
         failure_class = "auth_failed"
     elif completed.credit_exhaustion is not None:
         credit_exhaustion = {
+            "signature": completed.exhaustion_signature,
             "marker": completed.credit_exhaustion, "matched_marker": completed.credit_exhaustion,
             "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
         }
@@ -3294,7 +3384,8 @@ def _invoke_native_codex(
         transcript_path.write_text(completed.stdout, encoding="utf-8")
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
-            raise ClaudeAuthFailure("Codex managed authentication unavailable")
+            raise ClaudeAuthFailure("Codex managed authentication unavailable", provider=route["provider"],
+                                    model=route["model"], detail=dict(completed.auth_failure))
         if completed.credit_exhaustion is not None:
             result_admission = "quota_unavailable"
             raise ClaudeCreditExhausted(
@@ -3417,13 +3508,18 @@ def _invoke_native_zai(
         transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
-            raise ClaudeAuthFailure("Z.ai subscription authentication unavailable")
+            raise ClaudeAuthFailure(
+                "Z.ai subscription authentication unavailable", provider=route["provider"], model=route["model"],
+                detail={"signature": completed.exhaustion_signature, "marker": completed.auth_failure,
+                        "vendor_error_code": completed.error_code, "http_status": completed.http_status},
+            )
         if completed.credit_exhaustion is not None:
             result_admission = "quota_unavailable"
             raise ClaudeCreditExhausted(
                 "Z.ai subscription capacity unavailable", provider=route["provider"],
                 model=route["model"],
-                detail={"marker": completed.credit_exhaustion, "vendor_error_code": completed.error_code,
+                detail={"signature": completed.exhaustion_signature, "marker": completed.credit_exhaustion,
+                        "vendor_error_code": completed.error_code,
                         "vendor_error_message": completed.error_message, "http_status": completed.http_status},
             )
         if completed.returncode != 0:
@@ -3461,8 +3557,14 @@ def _invoke_native_zai(
         result_admission = "pending_native_submit"
         return 0
     except ZaiTransportUnavailable as exc:
+        # ARIA-HIGH-366 — the vendor was not reached (timeout, DNS, connection):
+        # an `unreachable` outage of Z.ai, cooled and released by name like a
+        # Claude 429, not the anonymous host failure it was.
         result_admission = "transport_unavailable"
-        raise ClaudeCliUnavailable("zai_native_execution_unavailable:" + str(exc)) from exc
+        raise ClaudeProviderUnreachable(
+            "zai_native_execution_unavailable:" + str(exc), provider=route["provider"], model=route["model"],
+            detail={"signature": "zai_unreachable", "marker": str(exc)},
+        ) from exc
     except (OSError, GovernanceError) as exc:
         result_admission = "control_or_transport_unavailable"
         # The kernel's own refusal text is a named reason, never vendor or
@@ -3486,6 +3588,28 @@ def _invoke_native_zai(
 _NATIVE_CLAUDE_ADMISSION_UNNAMED = "execution_unavailable"
 
 
+def _cool_provider(
+    *, tools_dir: Path, native_runtime: Any, exc: ClaudeAuthFailure | ClaudeCreditExhausted | ClaudeProviderUnreachable,
+    request_id: str, claim_id: str,
+) -> None:
+    """Record one provider detection on EITHER lane (ARIA-HIGH-366).
+
+    The cooldown is the native admission's back-off and the outage it opens
+    is what pauses every waiting timer. It used to be written on the native
+    lane only, so a spawn-lane exhaustion paused nothing; the window is the
+    native policy's when one is bound, else the same policy default the
+    worker lane reads (`provider_cooldown_seconds`).
+    """
+    from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+    record_provider_cooldown(
+        tools_dir, provider=exc.provider, model=exc.model,
+        cooldown_seconds=(native_runtime.policy.provider_cooldown_seconds if native_runtime is not None
+                          else provider_cooldown_seconds(_REPO_ROOT)),
+        request_id=request_id, claim_id=claim_id, detection=exc.detail,
+    )
+
+
 def _result_admission_for(exc: BaseException, current: str) -> str:
     """The attempt row's ``result_admission`` after ``exc`` ended the run.
 
@@ -3500,7 +3624,7 @@ def _result_admission_for(exc: BaseException, current: str) -> str:
         return current
     return {
         ClaudeAuthFailure: "auth_unavailable", ClaudeCreditExhausted: "quota_unavailable",
-        subprocess.TimeoutExpired: "timeout",
+        ClaudeProviderUnreachable: "provider_unreachable", subprocess.TimeoutExpired: "timeout",
     }.get(type(exc), "control_or_transport_unavailable")
 
 
@@ -3555,6 +3679,7 @@ def _invoke_native_claude(
             role=request["role"], must_satisfy=request.get("must_satisfy") or [],
             request_envelope=request, tools_dir=tools_dir, spawn_control=spawn_control,
             signer_key_fp=signer_key_fp, git_containment=git_containment,
+            route_model=native_runtime.route["model"],
         )
         if cli_exit != 0:
             result_admission = "provider_nonzero"
@@ -3597,6 +3722,29 @@ def _invoke_native_claude(
         })
 
 
+def _native_request_evidence_refusal(request: dict[str, Any], accepted: dict[str, Any]) -> str | None:
+    """None when ``accepted`` carries exactly ``request``'s evidence, else the
+    refusal code.
+
+    ARIA-HIGH-346 — the comparison is against the kernel's projection
+    (``accepted_result_request_binding``), the same function the accepted-row
+    constructor writes through, never against the raw request fields. The
+    raw comparison read an unanchored request's ``target_sha`` as ``None``
+    and the row's as ``""`` (the kernel's spelling of "no anchor"), so every
+    accepted HUMAN_REQUIRED adjudication seat — the role minted with no
+    anchor by design — was refused here after the kernel had accepted it
+    (executor runs 37205463513, 37221168808: harness_failed=1, job red).
+    Exact for every field: an anchored request still needs its SHA, and an
+    unanchored one still needs a row bound to no anchor.
+    """
+    from aria_kernel.agent_invocations import accepted_result_request_binding
+
+    expected = accepted_result_request_binding(request)
+    if any(accepted.get(name) != value for name, value in expected.items()):
+        return "native_runtime_result_request_evidence_unavailable"
+    return None
+
+
 def _accepted_native_runtime_result(
     *, tools_dir: Path, request_id: str, claim_id: str, agent_id: str,
     session_id: str, policy_digest: str,
@@ -3615,8 +3763,9 @@ def _accepted_native_runtime_result(
     )
     if accepted is None or accepted.get("claim_id") != claim_id or accepted.get("agent_id") != agent_id:
         raise GovernanceError("native_runtime_result_acceptance_unavailable")
-    if any(accepted.get(name) != request.get(name) for name in ("target_sha", "context_hash", "prompt_hash")):
-        raise GovernanceError("native_runtime_result_request_evidence_unavailable")
+    refusal = _native_request_evidence_refusal(request, accepted)
+    if refusal is not None:
+        raise GovernanceError(refusal)
     sealed_path = invocations.resolve_output_artifact_path(tools_dir, accepted["output_path"])
     invocations._assert_submission_artifact_path_safe(tools_dir, sealed_path)
     content = invocations._read_stable_submission_artifact(sealed_path)
@@ -4025,12 +4174,19 @@ def _admit_native_route(
     from aria_kernel.provider_cooldown import active_provider_cooldowns
 
     admission = _native_runtime_admission(
-        repo_root=policy_root, profile=profile, policy=policy, environ=environment,
+        repo_root=policy_root, profile=profile, role=request["role"], policy=policy, environ=environment,
         observe_status=observe_status,
         # The exhausted-provider memory: a provider cooled by a previous
         # attempt's ClaudeCreditExhausted is refused here without a probe.
         cooled_providers=active_provider_cooldowns(tools_dir),
     )
+    # ARIA-HIGH-366 — the admission is a detection seam too: a logged-out
+    # session (2026-09-18/19: 73 silent `native_runtime_admission_unavailable`
+    # releases) opens its outage here, and a session found logged in closes it.
+    from aria_kernel.provider_outage_seams import observe_native_admission
+
+    observe_native_admission(tools_dir, observations=admission.candidate_observations, request_id=request_id,
+                             cooldown_seconds=policy.provider_cooldown_seconds)
     return admission, contexts
 
 
@@ -4109,7 +4265,7 @@ def _adaptive_pre_claim_admission(
         results_path = tools_dir / "agent-invocations/results.jsonl"
         with state_transaction([request_path, claims_path, results_path]) as transaction:
             invocations._validate_claim_dispatch_authority(
-                requests=transaction.load_declared_jsonl(request_path, expected_surface="agent_invocation_requests"),
+                requests=transaction.load_segments(tools_dir, "agent_invocation_requests"),
                 claims=transaction.load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims"),
                 results=transaction.load_declared_jsonl(results_path, expected_surface="agent_invocation_results"),
                 request_id=request_id, request_ledger_hash=_inherited_claim["request_ledger_hash"],
@@ -4792,6 +4948,27 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # identity a pre-spawn refusal left held.
     _identity_stack = _runtime_stack.enter_context(_ExitStack())
     if request_envelope["role"] == "implementation":
+        # ARIA-HIGH-388 — the same question the queue's selection asks before
+        # any claim (`implementation_dispatch`), asked again here for a
+        # targeted dispatch, BEFORE the signing identity is minted and the
+        # delivery credential leased: no authority, or a plan that already
+        # ended, spends nothing. Harness-class, the budget kept.
+        from aria_kernel.implementation_dispatch import implementation_dispatch_refusal
+
+        _undispatchable = implementation_dispatch_refusal(request=request_envelope, base_dir=tools_dir)
+        if _undispatchable is not None:
+            sys.stderr.write(f"{DELIVERY_WINDOW_REFUSAL.release_reason}: {_undispatchable} (before the identity)\n")
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+            )
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+                failure_class=DELIVERY_WINDOW_REFUSAL.failure_class,
+                retryable=DELIVERY_WINDOW_REFUSAL.retryable,
+            )
         from aria_kernel.gh_token_factory import signing_keys_dir as _signing_keys_dir
         from aria_kernel.implementation_identity import (
             ImplementationIdentityRefusal,
@@ -4941,7 +5118,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                         else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.release_reason if _request_invalid
                         else IMPLEMENTATION_IDENTITY_REFUSAL.release_reason),
             )
-            return _refuse_dispatch(
+            _refused = _refuse_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 reason=_branch_refusal_reason,
                 failure_class=(IMPLEMENTATION_BRANCH_COLLISION_REFUSAL.failure_class if _collision
@@ -4951,6 +5128,16 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                            else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.retryable if _request_invalid
                            else IMPLEMENTATION_IDENTITY_REFUSAL.retryable),
             )
+            if _collision or _request_invalid:
+                # ARIA-HIGH-388 — both end the request for good (escalated
+                # above), so they end its plan too
+                # (`implementation_rejections.PRE_SPAWN_SETTLEMENT`).
+                from aria_kernel.implementation_settlement import settle_pre_spawn_refusal
+
+                _settled = settle_pre_spawn_refusal(request_id=request_id, release_reason=_branch_refusal_reason,
+                                                    base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+            return _refused
         _stage(f"implementation_branch_prepared branch={_implementation_ids.get('branch')} base_sha={_implementation_ids.get('base_sha')}")
         # ARIA-HIGH-124 (round 3) — the window: the job's remaining wall
         # clock must hold the CLI at its cap AND everything this child runs
@@ -5129,8 +5316,19 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # calibration → gold-corpus chain stayed empty, because no signal named
         # the cause. The `::error::` is deliberate: this is the one failure a
         # human must clear, and the remedy travels with it.
+        # ARIA-HIGH-290 — a dead credential is a provider fact, answered like
+        # an exhausted quota: the provider is cooled (once per transition)
+        # and the next admission routes past it.
+        _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
+                       request_id=request_id, claim_id=claim_id)
+        from aria_kernel.provider_outage_ledger import outage_opened_by_claim
+
+        # ARIA-HIGH-366 — said once per outage: a re-probe that meets the
+        # standing outage was an `::error::` every 900 s; the open
+        # HUMAN_REQUIRED item carries the remedy until it is resolved.
         sys.stderr.write(
-            "::error::aria executor cannot authenticate the agent runtime: "
+            ("::error::" if outage_opened_by_claim(tools_dir, provider=exc.provider, claim_id=claim_id) else "")
+            + "aria executor cannot authenticate the agent runtime: "
             + _redact_lease_in_message(str(exc), lease_token)
             + ". No agent ran, so no result was submitted.\n"
         )
@@ -5156,18 +5354,26 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # exists at all: a raise with no handler left the claim CLAIMED for
         # the full lease window.
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
-        if native_runtime is not None:
-            from aria_kernel.provider_cooldown import record_provider_cooldown
-
-            record_provider_cooldown(
-                tools_dir, provider=exc.provider, model=exc.model,
-                cooldown_seconds=native_runtime.policy.provider_cooldown_seconds,
-                request_id=request_id, claim_id=claim_id, detection=exc.detail,
-            )
+        _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
+                       request_id=request_id, claim_id=claim_id)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason=f"provider_quota_unavailable:{exc.provider}",
+        )
+        return 1
+    except ClaudeProviderUnreachable as exc:
+        # ARIA-HIGH-366 — the vendor did not serve (429/529/network). Same
+        # three moves as a quota exhaustion: cool the provider (opening the
+        # `unreachable` outage once, which pauses every waiting timer), release
+        # harness-class under a reason that names it, submit nothing.
+        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
+                       request_id=request_id, claim_id=claim_id)
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=f"provider_unreachable:{exc.provider}",
         )
         return 1
     except ClaudeCliUnavailable as exc:
@@ -5237,6 +5443,14 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         return 1
 
     _stage(f"claude_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
+    if native_runtime is not None and native_runtime.route["runtime"] != "claude":
+        # ARIA-HIGH-366 — the Codex/Z.ai vendor served this attempt (a Claude
+        # spawn restores inside `invoke_claude_cli`, where the answering
+        # model is known): its open outages end here.
+        from aria_kernel.provider_outage_ledger import record_provider_restored
+
+        record_provider_restored(tools_dir, provider=native_runtime.route["provider"], seam="spawn",
+                                 request_id=request_id)
     if _publication_window_refusal is not None:
         # (round 3) the quarantine was discarded above: no branch exists,
         # the retry stands on it again. Released harness-class, the
@@ -5327,10 +5541,26 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             # agent-supplied class stays out of the summary (it is sanitized
             # by construction); the release reason and the HUMAN_REQUIRED
             # row carry it.
-            return _refuse_dispatch(
+            _refused = _refuse_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 reason="agent_refused",
             )
+            if request_envelope.get("role") == "implementation":
+                # ARIA-HIGH-388 — the refusal ends the PLAN too, on its own
+                # ledger, `unclassified` (the agent's word is not a verified
+                # cause: the 2026-10-08 `safety` refusal was the host's missing
+                # git identity), so the finding is never cooled off by it.
+                # After the dispatch's own refusal: a settlement fault can
+                # never skip it.
+                from aria_kernel.implementation_settlement import settle_agent_refusal
+
+                _settled = settle_agent_refusal(request_id=request_id, reason_class=_reason_class, base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+            return _refused
+    # ARIA-HIGH-389 — what THIS run's delivery opened, from the kernel's own
+    # delivery result (never the agent's envelope): set only once the push
+    # and the PR succeeded, and read by every refusal after it.
+    _delivered = None
     if isinstance(_envelope_for_validation, dict):
         # Plan ARIA-V8.4 — auto-fill missing canonical plan_content
         # fields from compatible sources within the envelope before
@@ -5464,10 +5694,21 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                     agent_id=agent_id, lease_token=lease_token,
                     reason=f"implementation_delivery_refused:{exc.stage}",
                 )
-                return _refuse_dispatch(
+                _refused = _refuse_dispatch(
                     request=request_envelope, request_id=request_id, target_agent=subagent_type,
                     reason="implementation_delivery_refused",
                 )
+                # ARIA-HIGH-388 — the plan ends with the class and fault domain
+                # the kernel can VERIFY from the refusal's own reason
+                # (`implementation_rejections.settlement_for_delivery`); an
+                # unverifiable cause is `unclassified` and cools nothing off.
+                from aria_kernel.implementation_settlement import settle_delivery_refusal
+
+                _settled = settle_delivery_refusal(request_id=request_id, stage=exc.stage, reason=exc.reason,
+                                                   base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+                return _refused
+            _delivered = _delivery
             _mutated_delivery = stamp_implementation_delivery(
                 _envelope_for_validation, delivery=_delivery, request_id=request_id, claim_id=claim_id,
                 base_dir=tools_dir,
@@ -5550,10 +5791,13 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             # this later terminal supersedes it with the refusal, named by
             # the same code family as the release reason (the field-level
             # errors are in the stage line above, not in the summary).
-            return _refuse_dispatch(
+            _refused = _refuse_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 reason=_release_reason.split(":", 1)[0],
             )
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="pre_submit_invalid")
+            return _refused
         _stage("pre_submit_validation_passed")
 
     _stage("submit_step_begin claim=" + claim_id)
@@ -5600,10 +5844,13 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             agent_id=agent_id, lease_token=lease_token,
             reason=f"submit_timeout_{SUBMIT_RESULT_TIMEOUT_SECONDS}s",
         )
-        return _fail_submit_dispatch(
+        _failed = _fail_submit_dispatch(
             request=request_envelope, request_id=request_id, target_agent=subagent_type,
             failure_class="timeout", retryable=True, detail_code="submit_timeout",
         )
+        _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                  cause="submit_timeout")
+        return _failed
     _stage(f"submit_step_done rc={submit_proc.returncode}")
     if submit_proc.returncode != 0:
         # STDOUT as well as stderr, and this is the whole point: the kernel CLI
@@ -5647,33 +5894,44 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 agent_id=agent_id, lease_token=lease_token,
                 reason="evidence_verification_unavailable",
             )
-            return _fail_submit_dispatch(
+            _failed = _fail_submit_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 failure_class="harness_unavailable", retryable=True, detail_code="evidence_verification_unavailable",
             )
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="evidence_verification_unavailable")
+            return _failed
         if _rejected_result_recorded(submit_proc.stdout):
             _stage("submit_rejected_recorded: the kernel appended the rejected result row; "
                    "the claim is terminal and the request derives REJECTED")
-            return _fail_submit_dispatch(
+            _failed = _fail_submit_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 failure_class="response_schema_rejected", retryable=False, detail_code="agent_result_rejected",
             )
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="agent_result_rejected")
+            return _failed
         else:
             _release_claim(
                 tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                 agent_id=agent_id, lease_token=lease_token,
                 reason="submit_rejected",
             )
-            return _fail_submit_dispatch(
+            _failed = _fail_submit_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 failure_class="response_schema_rejected", retryable=False, detail_code="submit_rejected",
             )
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="submit_rejected")
+            return _failed
     if native_runtime is not None:
         if not _reconcile_native_result(
             tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
             session_id=_session_id, policy_digest=native_runtime.policy.policy_digest,
             request_envelope=request_envelope,
         ):
+            _hand_over_after_delivery(tools_dir=tools_dir, request_id=request_id, delivered=_delivered,
+                                      cause="native_result_unreconciled")
             return 1
         # ARIA-HIGH-182 — the native paths' one success summary. The Claude
         # CLI path emits its `succeeded` summary inside invoke_claude_cli;

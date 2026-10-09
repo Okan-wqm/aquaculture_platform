@@ -12,12 +12,15 @@
  *   - Non-GraphQL hosts re-throw the original exception so the HTTP
  *     exception chain is not short-circuited.
  */
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { GqlContextType } from '@nestjs/graphql';
 import { GraphQLError } from 'graphql';
 
 import {
   BackdateBlockedError,
+  ChannelBindingRefusedError,
+  ParameterSourceError,
   BatchWithdrawalBlockedError,
   HarvestPlanRequiredError,
   RestoreUniquenessConflictError,
@@ -153,6 +156,54 @@ describe('FarmAppError subclasses', () => {
 });
 
 describe('FarmAppErrorFilter', () => {
+  it('gives the parameter-source refusals a stable code the binding UI branches on', () => {
+    const filter = new FarmAppErrorFilter();
+    const conflict = filter.catch(
+      new ParameterSourceError(
+        PARAMETER_SOURCE_ERROR.SOURCE_CONFLICT,
+        HttpStatus.CONFLICT,
+        'The parameter already has a primary source here',
+        { key: ['parameterConfigId', 'pointKey', 'priority', 'tenantId'] },
+      ),
+      makeGqlHost({}),
+    );
+    expect(conflict.extensions).toEqual(
+      expect.objectContaining({
+        code: 'SOURCE_CONFLICT',
+        statusCode: HttpStatus.CONFLICT,
+        retryable: false,
+        context: { key: ['parameterConfigId', 'pointKey', 'priority', 'tenantId'] },
+      }),
+    );
+    const unavailable = filter.catch(
+      new ParameterSourceError(
+        PARAMETER_SOURCE_ERROR.SENSOR_DIRECTORY_UNAVAILABLE,
+        HttpStatus.SERVICE_UNAVAILABLE,
+        'The sensor service cannot describe channels right now',
+      ),
+      makeGqlHost({}),
+    );
+    expect(unavailable.extensions).toEqual(
+      expect.objectContaining({
+        code: 'SENSOR_DIRECTORY_UNAVAILABLE',
+        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+        retryable: true,
+      }),
+    );
+  });
+
+  it('carries a refused channel binding’s problem codes to the GraphQL extensions', () => {
+    const out = new FarmAppErrorFilter().catch(
+      new ChannelBindingRefusedError(['QUANTITY_MISMATCH', 'NOT_AT_POINT']),
+      makeGqlHost({}),
+    );
+    expect(out.extensions?.['code']).toBe('CHANNEL_BINDING_REFUSED');
+    expect(out.extensions?.['statusCode']).toBe(HttpStatus.BAD_REQUEST);
+    expect(out.extensions?.['context']).toEqual({
+      problems: ['QUANTITY_MISMATCH', 'NOT_AT_POINT'],
+    });
+  });
+
   it('produces a GraphQLError with the documented extensions envelope', () => {
     const filter = new FarmAppErrorFilter();
     const err = new BatchWithdrawalBlockedError({

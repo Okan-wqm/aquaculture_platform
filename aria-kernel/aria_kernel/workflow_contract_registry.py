@@ -70,6 +70,11 @@ class WorkflowAbortGate:
     # holds the lease, which is ORPHAN-CRITICAL-469 restored with the
     # contract gate still green.
     announce_step: str = ""
+    # ARIA-HIGH-342 / GSEC-LOW-001 — idempotent cleanup that must run even
+    # while blocked: the aria/state writer-lease release. Exempt by NAME, and
+    # only with exactly `if: always()` and only as the release action, so the
+    # exemption cannot be borrowed by a worker step.
+    cleanup_steps: tuple[str, ...] = ()
 
     @property
     def guard_expression(self) -> str:
@@ -322,7 +327,8 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # under ARIA_REQUIRE_MODE_A (Mode B refused), pinned by
                 # tests/test_delivery_identity_lanes.py.
                 token_source="github_actions_artifact_token",
-                network_policy=("github_artifact", "github_git"),
+                # ARIA-HIGH-350 — `github_api`: the writer-lease acquire's run-liveness read.
+                network_policy=("github_api", "github_artifact", "github_git"),
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
@@ -343,9 +349,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # margin). 500 → 510 (round 6): the window grew to 21000 s so
                 # an implementation child has 657 s of start window, not 57 —
                 # the first `next-pending` alone took over 40 s under load.
-                # The YAML is the pin; this must move with it
+                # 510 → 570 (ARIA-HIGH-342, PR #1779 re-review R-3): the
+                # post-drain reserve now prices the leased publish's preamble
+                # outside the lock (cold staging, the fence's lease reads and
+                # renewal: 4500 s). The YAML is the pin; this must move with it
                 # (`_verify_job_timeout_minutes`).
-                job_timeout_minutes=510,
+                job_timeout_minutes=570,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
@@ -383,6 +392,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     gate_step=_EXECUTOR_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
                     announce_step="Skip autonomous loop when local lease is fresh",
+                    cleanup_steps=("Release the aria/state writer lease",),
                 ),
             ),
         ),
@@ -464,7 +474,8 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # under ARIA_REQUIRE_MODE_A (Mode B refused), pinned by
                 # tests/test_delivery_identity_lanes.py.
                 token_source="github_actions_artifact_token",
-                network_policy=("github_artifact", "github_git"),
+                # ARIA-HIGH-350 — `github_api`: the writer-lease acquire's run-liveness read.
+                network_policy=("github_api", "github_artifact", "github_git"),
                 dlp_artifact="aria-auto-cycle-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
@@ -505,6 +516,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     gate_step=_CYCLE_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
                     announce_step="Skip when local lease is fresh",
+                    cleanup_steps=("Release the aria/state writer lease",),
                 ),
             ),
         ),
@@ -537,13 +549,16 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # only append a commit descending from the aria/state tip —
                 # which is what publishing is — and the branch is the only
                 # thing it may touch.
-                required_permissions=(("contents", "write"),),
+                # ARIA-HIGH-350 — actions:read so the writer-lease acquire
+                # can ask whether a held gha: lease's run has concluded.
+                required_permissions=(("contents", "write"), ("actions", "read")),
                 token_source="github_actions_artifact_token",
                 # The eval still reaches no third-party network; the fixtures
                 # are local. `github_git` is the state branch fetch and push,
                 # declared separately from artifact access because they are
-                # different credentials with different blast radii.
-                network_policy=("github_artifact", "github_git"),
+                # different credentials with different blast radii;
+                # `github_api` is the lease's run-liveness read (ARIA-HIGH-350).
+                network_policy=("github_api", "github_artifact", "github_git"),
                 dlp_artifact="aria-agent-eval-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),

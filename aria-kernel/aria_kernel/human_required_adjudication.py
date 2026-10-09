@@ -57,6 +57,7 @@ from .agent_invocations import (
     derive_request_state,
 )
 from .agent_surface import allowed_targets_for_role
+from .request_admission import RequestAdmissionThrottled, admit_request, inherits_critical_path
 from .belief_escalation import BELIEF_ESCALATION_KIND
 from .human_required import (
     OUTCOME_REFUSED,
@@ -78,6 +79,11 @@ from .tool_registry import GovernanceError, append_tools_governance, ensure_tool
 
 
 ADJUDICATION_ROLE: str = "human_required_adjudication"
+
+# The pointer a panel envelope carries to the escalation it adjudicates, in
+# both its scope and its evidence refs. One spelling: the mint below writes it
+# and `adjudication_envelope_is_moot` reads it back.
+ESCALATION_REF_PREFIX: str = "human-required:"
 
 # A three-member panel with a two-vote quorum: one dissent blocks nothing
 # on its own, but one "cannot tell" does (see module docstring).
@@ -128,11 +134,13 @@ PANEL_DISPOSITIONS: frozenset[str] = frozenset({
     DISPOSITION_ESCALATE_OPERATOR,
 })
 # The kinds whose escalations describe QUEUE MECHANICS, not judgment: a
-# lease that expired three times, an anchor that aged out unclaimed. These
-# are the records a panel disposition can act on.
+# lease that expired three times. These are the records a panel disposition
+# can act on. ARIA-HIGH-360 — `anchor_stale` left this set: an expiry is
+# disposed of by the kernel's rule (`anchor_stale`), never by a panel, and a
+# replayed fold of a historical anchor_stale panel must not act on a record
+# the kernel already decided.
 OPERATIONAL_DISPOSITION_KINDS: frozenset[str] = frozenset({
     "lease_lifecycle",
-    "anchor_stale",
 })
 # Successor budget for the dead WORK request — deliberately NOT shared with
 # MAX_PANEL_REOPENS: that counts dead PANELS (queue faults on adjudication
@@ -157,11 +165,12 @@ ADJUDICABLE_CONTEXT_KINDS: frozenset[str] = frozenset({
     "consensus_escalation",
     "lease_lifecycle",
     "maintenance_utility",
-    # Y7 (ORPHAN-708) — admitted TOGETHER with its producer (the lease
-    # sweep's anchor-stale pass in human_required.py), per İ2: a kind with
-    # no producer is dead vocabulary, a producer with no admitted kind
-    # parks on the operator forever.
-    "anchor_stale",
+    # `anchor_stale` (Y7, ORPHAN-708) is NOT here since ARIA-HIGH-360. Its
+    # panel was three new requests per expired request, on the queue that
+    # had just failed to reach the first one: 693 of 1,866 requests, 3,023
+    # folds, none decided. The kernel disposes of an expiry by rule
+    # (`anchor_stale.dispose_anchor_stale_requests`); records of the kind
+    # stay readable, and an unadmitted kind can never open a panel.
     # Y8 (ORPHAN-709) — admitted together with ITS producer
     # (agent_genesis.sweep_candidate_gaps_for_adjudication): a parked
     # capability gap becomes a panel question instead of an operator queue
@@ -409,6 +418,7 @@ def open_adjudication(
     panel_size: int = DEFAULT_PANEL_SIZE,
     reopen_of: str | None = None,
     attempt: int = 1,
+    cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Mint one adjudication envelope per distinct panel target.
 
@@ -438,6 +448,19 @@ def open_adjudication(
             f"{len(distinct_targets)}<{panel_size}"
         )
     panel = distinct_targets[:panel_size]
+    # ARIA-HIGH-364 — a panel is admitted whole (``count`` is the panel, so
+    # no half-panel is ever minted), under the class of the request whose
+    # death it adjudicates (`_panel_producer`): discretionary for ordinary
+    # work (about 18 envelopes a cycle into a 630-request backlog on 10-06),
+    # critical path when the dead request was admitted as critical. A refusal
+    # raises before any envelope or ledger row; the escalation keeps no panel
+    # row and the next sweep lists it again.
+    admission = admit_request(
+        _panel_producer(root, escalation_request_id), ADJUDICATION_ROLE,
+        base_dir=root, cycle_id=cycle_id, count=len(panel),
+    )
+    if not admission.admitted:
+        raise RequestAdmissionThrottled(admission.refusal)
     request_ids: list[str] = []
     for target in panel:
         request = create_agent_invocation_request(
@@ -468,9 +491,10 @@ def open_adjudication(
             }],
             # Z2 — the SAME spelling as evidence_refs: one pointer form
             # everywhere (the slash form matched no ref and no file).
-            allowed_scope=[f"human-required:{escalation_request_id}"],
-            evidence_refs=[f"human-required:{escalation_request_id}"],
+            allowed_scope=[f"{ESCALATION_REF_PREFIX}{escalation_request_id}"],
+            evidence_refs=[f"{ESCALATION_REF_PREFIX}{escalation_request_id}"],
             base_dir=root,
+            admission=admission,
         )
         request_ids.append(str(request["request_id"]))
     row = {
@@ -721,6 +745,53 @@ def _load_escalation_record(root: Path, request_id: str) -> dict[str, Any] | Non
     return record if isinstance(record, dict) else None
 
 
+def panel_skip_reason(record: Mapping[str, Any]) -> str | None:
+    """Why the adjudication sweep would neither open nor fold a panel for ``record``.
+
+    None when the sweep acts on it. The one statement of that rule, read by
+    the sweep below and by ``adjudication_envelope_is_moot``: an envelope is
+    worth claiming only while the sweep would still read its answer.
+    """
+    if record.get("status") == "resolved":
+        return "resolved"
+    # Y7 — a record the panel already handed to the operator is the
+    # operator's; re-panelling it would put two authorities on one
+    # question. The SLA tier ladder keeps it visible.
+    if record.get("panel_disposition") == DISPOSITION_ESCALATE_OPERATOR:
+        return "panel_escalated_to_operator"
+    adjudicability = escalation_adjudicability(record)
+    if not adjudicability:
+        return adjudicability.reason
+    return None
+
+
+def adjudication_envelope_is_moot(root: Path, request: Mapping[str, Any]) -> bool:
+    """True when ``request`` is a panel envelope whose answer no sweep would read.
+
+    ARIA-HIGH-360. The adjudication sweep folds a record only while
+    ``panel_skip_reason`` is None: the record is open, not handed to the
+    operator, and of a kind a panel may decide. An envelope of any other
+    record is a question that no longer exists. On 2026-10-06 the runner
+    store held 372 PENDING envelopes of panels opened for ``anchor_stale``
+    records, a kind no panel may decide since this finding. The selection
+    boundary (``agent_invocations.next_pending_request``) skips a moot
+    envelope, and it ages out with its anchor window. Mootness is read, not
+    stored: a record that is open and adjudicable again (a promotion whose
+    execution failed) makes its envelopes claimable again. A missing record
+    is not proof of anything, so its envelope is not moot.
+
+    ``root`` is the resolved tools dir; this runs on the poll path and
+    writes nothing (ARIA-HIGH-153).
+    """
+    if str(request.get("role") or "") != ADJUDICATION_ROLE:
+        return False
+    for ref in request.get("evidence_refs") or []:
+        if isinstance(ref, str) and ref.startswith(ESCALATION_REF_PREFIX):
+            record = _load_escalation_record(root, ref[len(ESCALATION_REF_PREFIX):])
+            return record is not None and panel_skip_reason(record) is not None
+    return False
+
+
 def _remint_lineage_depth(root: Path, request_id: str) -> int:
     """How many remint_of ancestors this request already has (ledger-derived,
     never asserted — same rule as _gap_key_batch_count)."""
@@ -753,12 +824,40 @@ def _stamp_escalated_to_operator(
     )
 
 
+def _panel_producer(root: Path, escalation_request_id: str) -> str:
+    """ARIA-HIGH-364 (re-review of #1833, MEDIUM-C) — the class a panel opens under.
+
+    The class of the request whose death it adjudicates, as recorded at its
+    mint. An escalation that names no request (a belief, a genesis
+    candidate, a promotion) or a row minted before the door is discretionary.
+    """
+    from .agent_invocations import _find_request_by_id
+
+    dead = _find_request_by_id(root, escalation_request_id)
+    critical = dead is not None and inherits_critical_path(dead)
+    return "human_required_panel.open_critical" if critical else "human_required_panel.open"
+
+
+def _remint_producer(dead: Mapping[str, Any]) -> str:
+    """ARIA-HIGH-364 (review of #1833, MEDIUM-2) — the class a successor inherits.
+
+    The mint records on every request the producer and class it was admitted
+    under (``request_admission``). A dead request first minted as critical
+    path (a plan step, a Gate-B review, an authoring step) re-mints as
+    critical; anything else, and a row minted before the door recorded a
+    class, re-mints as discretionary: bounded, and re-offered next sweep.
+    """
+    critical = inherits_critical_path(dead)
+    return "human_required_panel.remint_critical" if critical else "human_required_panel.remint"
+
+
 def _execute_panel_disposition(
     *,
     root: Path,
     record: dict[str, Any],
     verdict: PanelVerdict,
     adjudication_ref: str | None = None,
+    cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Y7 (ORPHAN-708) — give a clearing verdict its effect on an
     operational death. Returns {"action": ..., ...}; the CALLER decides
@@ -800,6 +899,31 @@ def _execute_panel_disposition(
         )
         _stamp_escalated_to_operator(root, request_id, record, reason="remint_budget_exhausted")
         return {"action": "escalated", "reason": "remint_budget_exhausted"}
+    # ARIA-HIGH-364 — the successor takes the class its dead predecessor was
+    # admitted under (`_remint_producer`), on the judge path and the generic
+    # one alike. A refusal raises before anything is written: the record
+    # stays OPEN and the sweep reports it `throttled_retry`; the next sweep
+    # folds the panel again and re-applies the disposition.
+    admission = admit_request(
+        _remint_producer(dead), str(dead.get("role") or ""), base_dir=root, cycle_id=cycle_id,
+    )
+    if not admission.admitted:
+        raise RequestAdmissionThrottled(admission.refusal)
+    # ARIA-HIGH-360 (review of PR #1825) — a judge is re-asked only the way
+    # the fan-out asks today: obligations rebuilt from the current rule
+    # contract, its forbidden_scope and fingerprint kept. A rule with no
+    # declared contract is not the panel's to ask about: the record goes to
+    # the operator, as the fan-out refuses the same question.
+    from .judge_fanout import JUDGE_FANOUT
+
+    if str(dead.get("role") or "") in {role for role, _agent in JUDGE_FANOUT}:
+        from .judge_remint import remint_judge_for_panel
+
+        rebuilt = remint_judge_for_panel(root, dead, adjudication_ref=adjudication_ref, admission=admission)
+        if isinstance(rebuilt, str):
+            _stamp_escalated_to_operator(root, request_id, record, reason=f"judge_{rebuilt}")
+            return {"action": "escalated", "reason": f"judge_{rebuilt}"}
+        return {"action": "reminted", "successor": rebuilt.get("request_id"), "existing": False}
     # ARIA-HIGH-104 (5) — the dead row's obligations were sealed under the
     # shape of their day (``{id, criterion}`` before ``must_satisfy`` owned
     # the shape); the successor is a FRESH mint and is held to the one
@@ -837,6 +961,7 @@ def _execute_panel_disposition(
         target_sha=dead.get("target_sha"),
         remint_of=request_id,
         base_dir=root,
+        admission=admission,
     )
     return {"action": "reminted", "successor": successor.get("request_id"), "existing": False}
 
@@ -845,6 +970,7 @@ def adjudicate_human_required(
     *,
     escalation_request_id: str,
     base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
 ) -> PanelVerdict:
     """Fold the panel and, only on a clearing verdict, resolve the record.
 
@@ -1091,7 +1217,7 @@ def adjudicate_human_required(
     disposition_note = ""
     if operational and record:
         execution = _execute_panel_disposition(
-            root=root, record=record, verdict=verdict,
+            root=root, record=record, verdict=verdict, cycle_id=cycle_id,
         )
         if execution.get("action") == "escalated":
             # The record stays OPEN — a resolve vote with no actionable
@@ -1177,7 +1303,7 @@ def _panel_is_terminally_dead(
 
 
 def sweep_human_required_adjudications(
-    *, base_dir: str | Path | None = None,
+    *, base_dir: str | Path | None = None, cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Open or fold an agent panel for every adjudicable open escalation.
 
@@ -1212,6 +1338,8 @@ def sweep_human_required_adjudications(
     reopened: list[str] = []
     reopen_exhausted: list[str] = []
     skipped: list[dict[str, str]] = []
+    panel_refusal: str | None = None
+    throttled_retry: list[dict[str, str]] = []
 
     try:
         escalations = list_human_required(base_dir=root)
@@ -1229,21 +1357,23 @@ def sweep_human_required_adjudications(
         request_id = str(record.get("request_id") or "")
         if not request_id:
             continue
-        # Y7 — a record the panel already handed to the operator is the
-        # operator's; re-panelling it would put two authorities on one
-        # question. The SLA tier ladder keeps it visible.
-        if record.get("panel_disposition") == DISPOSITION_ESCALATE_OPERATOR:
-            skipped.append({"request_id": request_id, "reason": "panel_escalated_to_operator"})
-            continue
-        adjudicability = escalation_adjudicability(record)
-        if not adjudicability:
-            skipped.append({"request_id": request_id, "reason": adjudicability.reason})
+        skip = panel_skip_reason(record)
+        if skip is not None:
+            skipped.append({"request_id": request_id, "reason": skip})
             continue
         try:
             if request_id in existing:
-                verdict = adjudicate_human_required(
-                    escalation_request_id=request_id, base_dir=root,
-                )
+                try:
+                    verdict = adjudicate_human_required(
+                        escalation_request_id=request_id, base_dir=root, cycle_id=cycle_id,
+                    )
+                except RequestAdmissionThrottled as refusal:
+                    # ARIA-HIGH-364 (review of #1833, MEDIUM-3) — the panel
+                    # cleared it but the door refused the successor: not
+                    # resolved (the record stays open) and not the
+                    # operator's. Retried by the next sweep.
+                    throttled_retry.append({"request_id": request_id, "reason": str(refusal)})
+                    continue
                 folded.append(request_id)
                 if verdict.clears_escalation:
                     resolved.append(request_id)
@@ -1260,13 +1390,16 @@ def sweep_human_required_adjudications(
                     # reason — at that point a human genuinely must act.
                     prior_rows = _panel_rows_for(root, request_id)
                     attempt = len(prior_rows) + 1
-                    if attempt - 1 <= MAX_PANEL_REOPENS:
+                    if panel_refusal is not None:
+                        skipped.append({"request_id": request_id, "reason": panel_refusal})
+                    elif attempt - 1 <= MAX_PANEL_REOPENS:
                         latest = prior_rows[-1]
                         open_adjudication(
                             escalation_request_id=request_id, record=record,
                             base_dir=root,
                             reopen_of=str(latest.get("ledger_hash") or ""),
                             attempt=attempt,
+                            cycle_id=cycle_id,
                         )
                         reopened.append(request_id)
                     else:
@@ -1279,9 +1412,19 @@ def sweep_human_required_adjudications(
                             },
                         )
                         reopen_exhausted.append(request_id)
+            elif panel_refusal is not None:
+                skipped.append({"request_id": request_id, "reason": panel_refusal})
             else:
-                open_adjudication(escalation_request_id=request_id, record=record, base_dir=root)
+                open_adjudication(escalation_request_id=request_id, record=record, base_dir=root,
+                                  cycle_id=cycle_id)
                 opened.append(request_id)
+        except RequestAdmissionThrottled as refusal:
+            # ARIA-HIGH-364 — the door's refusal holds for the cycle (one
+            # snapshot per cycle); the remaining escalations are not asked
+            # again and are listed by the next sweep. Folding answered
+            # panels continues: that drains, it does not mint.
+            panel_refusal = str(refusal)
+            skipped.append({"request_id": request_id, "reason": panel_refusal})
         except Exception as exc:
             skipped.append({"request_id": request_id, "reason": str(exc)[:200]})
 
@@ -1292,6 +1435,7 @@ def sweep_human_required_adjudications(
         "resolved": resolved,
         "reopened": reopened,
         "reopen_exhausted": reopen_exhausted,
+        "throttled_retry": throttled_retry,
         "skipped": skipped,
         "escalations_seen": len(escalations),
     }
@@ -1309,6 +1453,7 @@ __all__ = [
     "DISPOSITION_DROP",
     "DISPOSITION_ESCALATE_OPERATOR",
     "DISPOSITION_RE_MINT",
+    "ESCALATION_REF_PREFIX",
     "INSUFFICIENT_VERDICT",
     "IRREDUCIBLE_CONTEXT_KINDS",
     "IRREDUCIBLE_RISK_LANES",
@@ -1326,9 +1471,11 @@ __all__ = [
     "PanelVerdict",
     "adjudicate_human_required",
     "adjudication_contract_errors",
+    "adjudication_envelope_is_moot",
     "escalation_adjudicability",
     "fold_adjudication",
     "open_adjudication",
+    "panel_skip_reason",
     "read_adjudication",
     "sweep_human_required_adjudications",
     "validate_adjudication_response",

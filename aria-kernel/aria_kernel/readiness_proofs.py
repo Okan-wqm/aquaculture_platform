@@ -567,6 +567,64 @@ def _probe_branch_rules(
 
 
 # --------------------------------------------------------------------------
+# ARIA-HIGH-342 / GSEC-HIGH-002 — the three aria/state branches are protected.
+#
+# Every compare-and-swap the state store relies on is git's fast-forward rule:
+# `publish_state` on aria/state, the cold union on aria/state-cold, the writer
+# lease and its atomic fence on aria/state-lease. A force-push or a deletion on
+# ANY of the three silently voids that guarantee, so the ruleset must name all
+# three. This is the measurement; `readiness probe-state-branch-protection`
+# runs it and exits non-zero on any uncovered branch.
+STATE_BRANCHES: tuple[str, ...] = ("aria/state", "aria/state-cold", "aria/state-lease")
+REQUIRED_STATE_BRANCH_RULES: tuple[str, ...] = ("deletion", "non_fast_forward")
+
+
+def state_branch_protection_reasons(rules_for: Any) -> list[str]:
+    """Every missing rule, as ``state_branch_unprotected:<branch>:<rule>``.
+
+    ``rules_for(branch)`` returns GitHub's ``rules/branches/<branch>`` listing
+    (the ACTIVE rules that apply to the branch, from every ruleset).
+    """
+    reasons: list[str] = []
+    for branch in STATE_BRANCHES:
+        listing = rules_for(branch)
+        present = {
+            rule.get("type") for rule in (listing if isinstance(listing, list) else [])
+            if isinstance(rule, dict)
+        }
+        reasons.extend(
+            f"state_branch_unprotected:{branch}:{rule}"
+            for rule in REQUIRED_STATE_BRANCH_RULES
+            if rule not in present
+        )
+    return reasons
+
+
+def probe_state_branch_protection(*, repo: str, gh_cli: str = "gh") -> dict[str, Any]:
+    """Measure the three state branches' active rules through the gh API."""
+    import json
+    import subprocess
+
+    def rules_for(branch: str) -> list[Any]:
+        proc = subprocess.run(
+            [gh_cli, "api", f"repos/{repo}/rules/branches/{branch}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            raise GovernanceError(
+                f"state_branch_rules_probe_failed:{branch}: "
+                f"{proc.stderr.strip().splitlines()[0][:200] if proc.stderr else '<empty>'}"
+            )
+        listing = json.loads(proc.stdout)
+        if not isinstance(listing, list):
+            raise GovernanceError(f"state_branch_rules_probe_failed:{branch}: listing is not a list")
+        return listing
+
+    reasons = state_branch_protection_reasons(rules_for)
+    return {"repo": repo, "branches": list(STATE_BRANCHES), "valid": not reasons, "reasons": reasons}
+
+
+# --------------------------------------------------------------------------
 # F5-d (ORPHAN-694) — remote-CAS lease proof producer.
 #
 # WHY: `acquire_remote_cas_lease` implemented full CAS semantics (epoch
@@ -1374,6 +1432,46 @@ def _recorded_claim(root: Path, readiness_claim_id: str) -> dict[str, Any] | Non
     )
 
 
+def build_readiness_claim(
+    *,
+    readiness_claim_id: str,
+    binding: dict[str, Any],
+    workflow_run_ids: set[str],
+    artifact_ref: dict[str, Any],
+    rollback_proof: Any,
+    retention_proof: Any,
+    open_expired_waivers: list[str],
+    waiver_ref: Any,
+    branch_protection_proof: Any,
+    dlp_proof: Any,
+    token_proof: Any,
+) -> dict[str, Any]:
+    """The one constructor of a readiness claim: the enterprise_readiness
+    proof row, whose meaning its schema_version declares (pinned by producer
+    fixture in test_capability_semantic_equivalence)."""
+    from .enterprise_readiness import READINESS_SCHEMA
+
+    return {
+        "$schema": READINESS_SCHEMA,
+        "schema_version": 2,
+        "claim_row_id": f"claim-row:{readiness_claim_id}",
+        "readiness_claim_id": readiness_claim_id,
+        **binding,
+        "evidence_bundle": {"path": f"enterprise/claims/{readiness_claim_id}.json"},
+        "workflow_run_ids": sorted(workflow_run_ids),
+        "artifact_refs": [dict(artifact_ref)],
+        "rollback_proof": rollback_proof,
+        "retention_proof": retention_proof,
+        "waiver_ledger": {
+            "open_expired_waivers": open_expired_waivers,
+            "source_ledger_ref": waiver_ref,
+        },
+        "branch_protection_proof": branch_protection_proof,
+        "dlp_proof": dlp_proof,
+        "token_proof": token_proof,
+    }
+
+
 def produce_readiness_claim(
     *,
     pr_number: int,
@@ -1554,30 +1652,21 @@ def produce_readiness_claim(
         row=sweep_row,
     )
 
-    from .enterprise_readiness import (
-        READINESS_SCHEMA,
-        record_enterprise_readiness_claim,
-    )
+    from .enterprise_readiness import record_enterprise_readiness_claim
 
-    claim = {
-        "$schema": READINESS_SCHEMA,
-        "schema_version": 2,
-        "claim_row_id": f"claim-row:{readiness_claim_id}",
-        "readiness_claim_id": readiness_claim_id,
-        **binding,
-        "evidence_bundle": {"path": f"enterprise/claims/{readiness_claim_id}.json"},
-        "workflow_run_ids": sorted(run_ids),
-        "artifact_refs": [dict(artifact_ref_row)],
-        "rollback_proof": rollback_report["rollback_proof"],
-        "retention_proof": rollback_report["retention_proof"],
-        "waiver_ledger": {
-            "open_expired_waivers": open_expired,
-            "source_ledger_ref": waiver_ref,
-        },
-        "branch_protection_proof": bp_report["proof"],
-        "dlp_proof": dlp_report["proof"],
-        "token_proof": token_proof,
-    }
+    claim = build_readiness_claim(
+        readiness_claim_id=readiness_claim_id,
+        binding=binding,
+        workflow_run_ids=run_ids,
+        artifact_ref=artifact_ref_row,
+        rollback_proof=rollback_report["rollback_proof"],
+        retention_proof=rollback_report["retention_proof"],
+        open_expired_waivers=open_expired,
+        waiver_ref=waiver_ref,
+        branch_protection_proof=bp_report["proof"],
+        dlp_proof=dlp_report["proof"],
+        token_proof=token_proof,
+    )
     recorded = record_enterprise_readiness_claim(claim, base_dir=root)
     return {
         "readiness_claim_id": readiness_claim_id,

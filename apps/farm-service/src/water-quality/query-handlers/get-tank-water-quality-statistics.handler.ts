@@ -1,7 +1,9 @@
 /**
- * Get Tank Water Quality Statistics Query Handler — fail-closed tenant boundary.
- * Aggregate averages/counts over the trailing window + the latest measurement,
- * both read on the same tenant-asserted connection.
+ * Get Water Quality Statistics (one unit) Query Handler — fail-closed tenant
+ * boundary. Aggregate averages/counts over the trailing window + the latest
+ * measurement, both read on the same tenant-asserted connection. The unit is
+ * matched by measurementUnitMatchSql (a tank's batch-entered rows, a
+ * water-equipment unit's rows).
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -13,6 +15,7 @@ import {
   WaterQualityStatus,
 } from '../entities/water-quality-measurement.entity';
 import { GetTankWaterQualityStatisticsQuery } from '../queries/get-tank-water-quality-statistics.query';
+import { measurementUnitMatchSql } from '../services/measurement-unit-reader';
 import { WaterQualityStatsResult } from './water-quality-stats.result';
 
 @QueryHandler(GetTankWaterQualityStatisticsQuery)
@@ -25,7 +28,7 @@ export class GetTankWaterQualityStatisticsHandler
   ) {}
 
   async execute(query: GetTankWaterQualityStatisticsQuery): Promise<WaterQualityStatsResult> {
-    const { tenantId, tankId, days } = query;
+    const { tenantId, unitId, days } = query;
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - days);
 
@@ -47,7 +50,7 @@ export class GetTankWaterQualityStatisticsHandler
           'warningCount',
         )
         .where('wq.tenantId = :tenantId', { tenantId })
-        .andWhere('wq.tankId = :tankId', { tankId })
+        .andWhere(measurementUnitMatchSql('wq', '= :unitId'), { unitId })
         .andWhere('wq.measuredAt >= :fromDate', { fromDate })
         .setParameters({
           criticalStatus: WaterQualityStatus.CRITICAL,
@@ -55,10 +58,12 @@ export class GetTankWaterQualityStatisticsHandler
         })
         .getRawOne();
 
-      const lastMeasurement = await queryRunner.manager.findOne(WaterQualityMeasurement, {
-        where: { tenantId, tankId },
-        order: { measuredAt: 'DESC' },
-      });
+      const lastMeasurement = await queryRunner.manager
+        .createQueryBuilder(WaterQualityMeasurement, 'wq')
+        .where('wq.tenantId = :tenantId', { tenantId })
+        .andWhere(measurementUnitMatchSql('wq', '= :unitId'), { unitId })
+        .orderBy('wq.measuredAt', 'DESC')
+        .getOne();
 
       return {
         avgTemperature: stats.avgTemperature ? parseFloat(stats.avgTemperature) : null,

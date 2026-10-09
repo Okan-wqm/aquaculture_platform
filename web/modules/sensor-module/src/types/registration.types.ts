@@ -1,3 +1,8 @@
+import type {
+  RegisterChildSensorInput,
+  RegisterParentDeviceInput,
+} from '@platform/shared-ui/generated/graphql-types';
+
 // Protocol types
 export enum ProtocolCategory {
   INDUSTRIAL = 'industrial',
@@ -118,7 +123,12 @@ export interface UIGroup {
   fields: string[];
 }
 
-// Sensor types - use lowercase to match backend
+// Sensor types — the GraphQL WIRE values. A registered GraphQL enum is
+// serialized by member NAME ('TEMPERATURE'), not by the backend's TypeScript
+// value ('temperature'): sending the lowercase value fails variable coercion
+// and rejects the whole registration (SENSOR-HIGH-140). Each value therefore
+// equals its member name; tests/invariants/sensor-enum-fe-be-parity.spec.ts
+// enforces it.
 // SENSOR-HIGH-028: this enum MUST stay a subset of the backend SensorType
 // (apps/sensor-service/src/database/entities/sensor.entity.ts). It is a real
 // GraphQL enum, so a value the backend does not define makes registerSensor /
@@ -127,21 +137,33 @@ export interface UIGroup {
 // column) does not define them; unknown/pressure channels now fall back to
 // MULTI_PARAMETER. A parity invariant enforces the subset relationship.
 export enum SensorType {
-  TEMPERATURE = 'temperature',
-  PH = 'ph',
-  DISSOLVED_OXYGEN = 'dissolved_oxygen',
-  AMMONIA = 'ammonia',
-  NITRITE = 'nitrite',
-  NITRATE = 'nitrate',
-  SALINITY = 'salinity',
-  TURBIDITY = 'turbidity',
-  WATER_LEVEL = 'water_level',
-  FLOW_RATE = 'flow_rate',
-  CONDUCTIVITY = 'conductivity',
-  ORP = 'orp',
-  CO2 = 'co2',
-  CHLORINE = 'chlorine',
-  MULTI_PARAMETER = 'multi_parameter',
+  TEMPERATURE = 'TEMPERATURE',
+  PH = 'PH',
+  DISSOLVED_OXYGEN = 'DISSOLVED_OXYGEN',
+  AMMONIA = 'AMMONIA',
+  NITRITE = 'NITRITE',
+  NITRATE = 'NITRATE',
+  SALINITY = 'SALINITY',
+  TURBIDITY = 'TURBIDITY',
+  WATER_LEVEL = 'WATER_LEVEL',
+  FLOW_RATE = 'FLOW_RATE',
+  CONDUCTIVITY = 'CONDUCTIVITY',
+  ORP = 'ORP',
+  CO2 = 'CO2',
+  CHLORINE = 'CHLORINE',
+  MULTI_PARAMETER = 'MULTI_PARAMETER',
+}
+
+/**
+ * Map a lowercase domain key (a type definition's `typeKey`, a catalog key such
+ * as 'dissolved_oxygen') to the SensorType wire value; anything the enum does
+ * not define becomes MULTI_PARAMETER, the backend's catch-all.
+ */
+export function sensorTypeFromKey(key: string | null | undefined): SensorType {
+  const candidate = (key ?? '').trim().toUpperCase();
+  return (Object.values(SensorType) as string[]).includes(candidate)
+    ? (candidate as SensorType)
+    : SensorType.MULTI_PARAMETER;
 }
 
 // Sensor status enum
@@ -430,11 +452,13 @@ export interface ParentDeviceInfo {
   // Legacy location fields (deprecated)
   farmId?: string;
   pondId?: string;
-  tankId?: string;
-  // New location hierarchy fields
+  // Location hierarchy. The placement unit is exactly one of tankId (a tank,
+  // pond or cage — its tanks.id) or equipmentId (non-tank water equipment);
+  // see steps/devicePlacement.ts.
   siteId?: string;
   departmentId?: string;
   systemId?: string;
+  tankId?: string;
   equipmentId?: string;
   location?: string;
   metadata?: Record<string, unknown>;
@@ -480,55 +504,80 @@ export interface ChildSensorConfig {
 }
 
 /**
- * Input for registering a parent device
+ * Registration mutation inputs — the codegen output of the composed schema, so
+ * a field the backend input does not declare (e.g. a channel's `precision` or
+ * `hysteresis`) is a compile error here instead of a GRAPHQL_VALIDATION_FAILED
+ * at submit (SENSOR-HIGH-140).
  */
-export interface RegisterParentDeviceInput {
-  name: string;
-  protocolCode: string;
-  protocolConfiguration: Record<string, unknown>;
-  manufacturer?: string;
-  model?: string;
-  serialNumber?: string;
-  description?: string;
-  // Legacy location fields (deprecated)
-  farmId?: string;
-  pondId?: string;
-  tankId?: string;
-  // New location hierarchy fields
-  siteId?: string;
-  departmentId?: string;
-  systemId?: string;
-  equipmentId?: string;
-  location?: string;
-  metadata?: Record<string, unknown>;
+export type {
+  RegisterChildSensorInput,
+  RegisterParentDeviceInput,
+  RegisterParentWithChildrenInput,
+} from '@platform/shared-ui/generated/graphql-types';
+
+/**
+ * Build the wire input for one wizard child. Fields are picked explicitly: the
+ * form state also carries UI-only keys (sampleValue, selected, isConfigured)
+ * and channel-shaped settings, which the registration input names differently
+ * — the form's `precision` is the input's `decimalPlaces`.
+ */
+export function toRegisterChildInput(child: ChildSensorConfig): RegisterChildSensorInput {
+  const bounds = (value: AlertThresholdValue | undefined) =>
+    value ? { low: value.low ?? null, high: value.high ?? null } : undefined;
+  return {
+    name: child.name,
+    type: child.type,
+    typeDefinitionId: child.typeDefinitionId,
+    dataPath: child.dataPath,
+    unit: child.unit,
+    minValue: child.minValue,
+    maxValue: child.maxValue,
+    calibrationEnabled: child.calibrationEnabled,
+    calibrationMultiplier: child.calibrationMultiplier,
+    calibrationOffset: child.calibrationOffset,
+    alertThresholds: child.alertThresholds
+      ? {
+          warning: bounds(child.alertThresholds.warning),
+          critical: bounds(child.alertThresholds.critical),
+        }
+      : undefined,
+    displaySettings: child.displaySettings
+      ? {
+          showOnDashboard: child.displaySettings.showOnDashboard,
+          widgetType: child.displaySettings.widgetType,
+          color: child.displaySettings.color,
+          decimalPlaces: child.displaySettings.precision,
+        }
+      : undefined,
+  };
 }
 
 /**
- * Input for registering a child sensor
+ * Build the wire input for the wizard's parent device. The location hierarchy
+ * is sent as collected (SENSOR-HIGH-024), the placement unit as the one key
+ * devicePlacement chose: a tank's id as tankId, other water equipment as
+ * equipmentId (SENSOR-MEDIUM-172).
  */
-export interface RegisterChildSensorInput {
-  name: string;
-  type: SensorType;
-  // SENSOR-MEDIUM-071: optional per-child custom type-definition.
-  typeDefinitionId?: string;
-  dataPath: string;
-  unit?: string;
-  minValue?: number;
-  maxValue?: number;
-  calibrationEnabled?: boolean;
-  calibrationMultiplier?: number;
-  calibrationOffset?: number;
-  alertThresholds?: AlertThresholds;
-  displaySettings?: ChannelDisplaySettings;
-}
-
-/**
- * Input for registering parent with all children
- */
-export interface RegisterParentWithChildrenInput {
-  parent: RegisterParentDeviceInput;
-  children: RegisterChildSensorInput[];
-  skipConnectionTest?: boolean;
+export function toRegisterParentInput(
+  info: ParentDeviceInfo,
+  protocolCode: string,
+  protocolConfiguration: Record<string, unknown>,
+): RegisterParentDeviceInput {
+  return {
+    name: info.name,
+    protocolCode,
+    protocolConfiguration,
+    manufacturer: info.manufacturer,
+    model: info.model,
+    serialNumber: info.serialNumber,
+    description: info.description,
+    siteId: info.siteId,
+    departmentId: info.departmentId,
+    systemId: info.systemId,
+    tankId: info.tankId,
+    equipmentId: info.equipmentId,
+    location: info.location,
+  };
 }
 
 /**
@@ -548,11 +597,11 @@ export interface RegisteredParentDevice {
   // Legacy location fields (deprecated)
   farmId?: string;
   pondId?: string;
-  tankId?: string;
-  // New location hierarchy fields
+  // Location hierarchy; the placement unit is tankId or equipmentId, never both.
   siteId?: string;
   departmentId?: string;
   systemId?: string;
+  tankId?: string;
   equipmentId?: string;
   location?: string;
   childSensors?: RegisteredChildSensor[];

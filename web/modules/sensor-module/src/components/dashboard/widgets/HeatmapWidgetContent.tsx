@@ -7,6 +7,7 @@
  * Color scale: blue (low) → green (normal) → red (high)
  */
 
+import { presetDurationMs } from '@aquaculture/shared-contracts';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { WidgetConfig, TimeRange } from '../types';
 import { useWidgetData, HistoryPoint } from '../../../hooks/useWidgetData';
@@ -60,29 +61,23 @@ function colorFromScale(t: number, scale: ColorScale): string {
 // Time range helpers
 // ============================================================================
 
-function getTimeRangeMs(timeRange: TimeRange): number {
-  const ranges: Record<TimeRange, number> = {
-    live: 5 * 60 * 1000,
-    '1h': 60 * 60 * 1000,
-    '6h': 6 * 60 * 60 * 1000,
-    '24h': 24 * 60 * 60 * 1000,
-    '7d': 7 * 24 * 60 * 60 * 1000,
-    '30d': 30 * 24 * 60 * 60 * 1000,
-  };
-  return ranges[timeRange] || ranges['1h'];
-}
-
 /** Choose a sensible number of time buckets based on the time range. */
 function getBucketCount(timeRange: TimeRange): number {
+  // Cells across the range — a heatmap layout choice, not a duration; every
+  // preset has one, so there is no fallback.
   const counts: Record<TimeRange, number> = {
     live: 10,
     '1h': 12,
     '6h': 18,
+    '8h': 16,
     '24h': 24,
+    '3d': 24,
     '7d': 28,
     '30d': 30,
+    '90d': 30,
+    '365d': 52,
   };
-  return counts[timeRange] || 12;
+  return counts[timeRange];
 }
 
 // ============================================================================
@@ -107,7 +102,7 @@ interface HeatmapGrid {
 
 function buildGrid(history: HistoryPoint[], timeRange: TimeRange): HeatmapGrid {
   const now = new Date();
-  const rangeMs = getTimeRangeMs(timeRange);
+  const rangeMs = presetDurationMs(timeRange);
   const startTime = new Date(now.getTime() - rangeMs);
   const bucketCount = getBucketCount(timeRange);
   const bucketMs = rangeMs / bucketCount;

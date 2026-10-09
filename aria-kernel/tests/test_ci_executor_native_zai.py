@@ -43,6 +43,7 @@ for _path in (_POC_DIR, _KERNEL_DIR):
 # Module reference, not a class import: unittest would otherwise collect the
 # fixture class's own tests a second time under this module.
 from tests import test_ci_executor_live_path_smoke as _smoke  # noqa: E402
+from aria_kernel.request_admission import admit_request
 
 SECRET = "zai-fixture-secret-9f3c1e2a-not-a-real-key"
 
@@ -263,6 +264,7 @@ class NativeZaiLane(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id=None, cycle_id="cyc-orphan-judge",
             target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         self.assertIsNone(orphan.get("convergence_id"))
         self.request = orphan

@@ -25,8 +25,13 @@ from unittest import mock
 from aria_kernel import finding_grounding as fg
 from aria_kernel import operator_feedback_ingestion as ingestion
 from aria_kernel.cycle_phases.plan_source import V9PressureSourceProvider
+from aria_kernel.finding_seed import SubjectProbe, seed_finding
 from aria_kernel.ledger import load_declared_jsonl
-from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content, scan_operator_feedback
+from aria_kernel.plan_synthesizer import (
+    PlanEvidenceGround,
+    convert_candidate_to_plan_content,
+    scan_operator_feedback,
+)
 from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
 
 _OPERATOR_REF = "aria-tools/operator-feedback.jsonl:"
@@ -62,7 +67,18 @@ class _Fixture(unittest.TestCase):
         self.fx = OperatorRequestFixture(Path(self.tmp.name))
 
     def context(self) -> fg.GroundingContext:
-        return fg.load_grounding_context(self.fx.repo)
+        # ARIA-HIGH-260 — the store's loop history, which the aging F source is judged against.
+        return fg.load_grounding_context(self.fx.repo, tools_root=self.fx.tools)
+
+    def convert(self, candidate: dict, admission: fg.FindingAdmission | None = None):
+        """The converter at this checkout's HEAD, with the seed the provider would build; the plan, or None."""
+        seed = None
+        if admission is not None and admission.admitted:
+            # ARIA-HIGH-369 — an F plan is built from the finding's re-grounded seed, never a template.
+            seed = seed_finding(self.context(), admission, probe=SubjectProbe({})).seed
+        return convert_candidate_to_plan_content(
+            candidate, admission=admission, ground=PlanEvidenceGround.of(self.fx.repo), seed=seed,
+        ).envelope
 
     def _candidate(self, finding_id: str, request_id: str, **record) -> dict:
         self.fx.record(finding_id=finding_id, request_id=request_id, **record)
@@ -88,13 +104,14 @@ class GroundedRequestConvertsTests(_Fixture):
         self.assertEqual(candidate["finding_id"], "F-007")
         admission = fg.admit_candidate(candidate, self.context())
         self.assertTrue(admission.admitted, admission.reason)
-        envelope = convert_candidate_to_plan_content(candidate, admission=admission)
+        envelope = self.convert(candidate, admission)
         self.assertIsNotNone(envelope)
         content = envelope.content
         self.assertEqual(content["finding_id"], "F-007")
-        self.assertEqual(content["evidence_refs"], [
-            f"{GROUNDED_FILE}:12", ".github/workflows/ci.yml:3", f"{_OPERATOR_REF}OP-ground",
-        ])
+        # ORPHAN-HIGH-519 — the signed grounding is the evidence; the
+        # feedback row the plan consumed is its provenance.
+        self.assertEqual(content["evidence_refs"], [f"{GROUNDED_FILE}:12", ".github/workflows/ci.yml:3"])
+        self.assertEqual(content["provenance_refs"], [f"{_OPERATOR_REF}OP-ground"])
         self.assertEqual(content["affected_surfaces"], [GROUNDED_FILE])
         self.assertEqual(content["key_changes"][0]["paths"], [GROUNDED_FILE])
         # The readonly surface and the self-output ref are named, not dropped silently.
@@ -113,9 +130,7 @@ class GroundedRequestConvertsTests(_Fixture):
              "grounding_digest": aging.grounding_digest}, context,
         )
         self.assertEqual(operator, aging)
-        envelope = convert_candidate_to_plan_content(
-            {"source_type": "f_finding", "candidate_id": "F-007", "title_hint": "x"}, admission=aging,
-        )
+        envelope = self.convert({"source_type": "f_finding", "candidate_id": "F-007", "title_hint": "x"}, aging)
         self.assertEqual(envelope.content["evidence_refs"], [f"{GROUNDED_FILE}:12"])
         self.assertIsNone(fg.admit_candidate({"source_type": "failing_ci", "candidate_id": "ci-1"}, context))
 
@@ -164,8 +179,8 @@ class UngroundedRequestNeverConvertsTests(_Fixture):
                 admission = fg.admit_candidate(candidate, context)
                 self.assertEqual(admission.reason, reason)
                 self.assertFalse(admission.runner_fault)
-                self.assertIsNone(convert_candidate_to_plan_content(candidate, admission=admission))
-                self.assertIsNone(convert_candidate_to_plan_content(candidate))
+                self.assertIsNone(self.convert(candidate, admission))
+                self.assertIsNone(self.convert(candidate))
         missing = fg.admit_candidate({"source_type": "operator_feedback", "candidate_id": "OP-x"}, context)
         self.assertEqual(missing.reason, fg.FINDING_ID_MISSING)
 
@@ -236,7 +251,7 @@ class FindingBodyNeverReachesThePlanTests(_Fixture):
                 },
             }
             for branch, candidate in branches.items():
-                envelope = convert_candidate_to_plan_content(candidate, admission=fg.admit_candidate(candidate, context))
+                envelope = self.convert(candidate, fg.admit_candidate(candidate, context))
                 self.assertIsNotNone(envelope, (name, branch))
                 for field, value in self._plan_fields(envelope.content).items():
                     with self.subTest(fixture=name, branch=branch, field=field):
@@ -250,8 +265,10 @@ class FindingBodyNeverReachesThePlanTests(_Fixture):
 
 
 class ProviderTests(_Fixture):
-    def _failing_ci(self, _workspace) -> list[dict]:
+    def _failing_ci(self, _workspace, *, base_dir=None, cycle_id=None) -> list[dict]:
+        # ORPHAN-HIGH-519 — a red run the scanner resolved to its workflow file.
         return [{"source_type": "failing_ci", "candidate_id": "ci-run-1", "workflow_name": "CI",
+                 "workflow_path": ".github/workflows/ci.yml",
                  "head_sha": "a" * 40, "created_at": "2026-10-02T00:00:00Z", "title_hint": "Fix CI"}]
 
     def _synthesize(self, cycle_id: str):

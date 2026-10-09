@@ -110,7 +110,9 @@ const CONTRACT_PAIRS: readonly ContractPair[] = [
  * Every hand-written input interface in sensor-module that no pair covers.
  * Lower this by adding pairs. It must never rise.
  */
-const MAX_UNVERIFIED_FE_INPUTS = 41;
+// 41 → 38 (SENSOR-HIGH-140): the three registration inputs are now the codegen
+// types re-exported from @platform/shared-ui/generated, not hand-written.
+const MAX_UNVERIFIED_FE_INPUTS = 38;
 
 function read(rel: string): string {
   return readFileSync(path.join(REPO_ROOT, rel), 'utf8');

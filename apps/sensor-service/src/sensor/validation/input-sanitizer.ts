@@ -4,23 +4,19 @@
  * Prevents SQL injection, pattern injection, and other attacks
  */
 
+import {
+  AGGREGATION_INTERVAL_SQL,
+  type AggregationIntervalSql,
+} from '@aquaculture/shared-contracts';
 import { BadRequestException } from '@nestjs/common';
 
 /**
- * Aggregation interval whitelist
- * Only these values are allowed for TimescaleDB time_bucket
+ * Aggregation interval whitelist — only these values reach TimescaleDB
+ * time_bucket. Owned by the sensor-reading tier policy.
  */
-export const ALLOWED_AGGREGATION_INTERVALS = [
-  '1 minute',
-  '5 minutes',
-  '15 minutes',
-  '1 hour',
-  '4 hours',
-  '1 day',
-  '1 week',
-] as const;
+export const ALLOWED_AGGREGATION_INTERVALS = AGGREGATION_INTERVAL_SQL;
 
-export type SafeAggregationInterval = (typeof ALLOWED_AGGREGATION_INTERVALS)[number];
+export type SafeAggregationInterval = AggregationIntervalSql;
 
 /**
  * Maximum allowed depth for JSON path parsing
@@ -88,6 +84,30 @@ export function validateTenantId(tenantId: string): string {
  */
 export function validateSensorId(sensorId: string): string {
   return validateUUID(sensorId, 'sensorId');
+}
+
+/** The most channels a series request may name (a sensor rarely has more). */
+export const MAX_SERIES_CHANNEL_KEYS = 50;
+
+/**
+ * Validate the channel keys a series request narrows to: at most
+ * MAX_SERIES_CHANNEL_KEYS non-empty keys of a channel_key's length (varchar
+ * 100), duplicates dropped. An empty list is a request for no channel.
+ * @throws BadRequestException when a key is empty or too long, or too many are named
+ */
+export function validateChannelKeys(channelKeys: readonly string[]): string[] {
+  const keys = [...new Set(channelKeys)];
+  if (keys.length > MAX_SERIES_CHANNEL_KEYS) {
+    throw new BadRequestException(
+      `At most ${MAX_SERIES_CHANNEL_KEYS} channel keys may be named, got ${keys.length}`,
+    );
+  }
+  for (const key of keys) {
+    if (key.length === 0 || key.length > 100) {
+      throw new BadRequestException(`Invalid channel key: '${key}' (1-100 characters)`);
+    }
+  }
+  return keys;
 }
 
 /**

@@ -47,6 +47,7 @@ one read the prompt renderer makes.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -66,6 +67,19 @@ WAIVER_ADJUDICATION_KIND = "waiver_adjudication"
 COVERAGE_GAP_KIND = "coverage_gap"
 ARCHITECTURE_SPINE_KIND = "architecture_spine_regression"
 PLAN_CONTRACT_VIOLATION_KIND = "plan_contract_violation"
+# ARIA-HIGH-285 — the implementer's must-check: a failure mode procedural
+# memory recorded for this implementer in enough episodes to be a lesson.
+OBSERVED_FAILURE_KIND = "observed_failure_mode"
+# ARIA-HIGH-309 — the planner's must-check: a failure mode plans of the same
+# origin class on overlapping surfaces ended in, often enough to be a lesson.
+OBSERVED_PLAN_FAILURE_KIND = "observed_plan_failure_mode"
+# ARIA-HIGH-324 — a judge's obligations for one adapter finding, minted from
+# its rule's manifest contract (rule_contract): one per premise, and one for
+# the product defect the rule claims. A true_positive must satisfy every one
+# of them; the judge bridge refuses it otherwise.
+RULE_PREMISE_KIND = "rule_premise"
+PRODUCT_DEFECT_KIND = "product_defect"
+TRUE_POSITIVE_PREMISE_KINDS: tuple[str, ...] = (RULE_PREMISE_KIND, PRODUCT_DEFECT_KIND)
 # A plan-contract reason code is a token of the kernel's own vocabulary
 # (``plan_contract.PLAN_CONTRACT_REASONS`` and the gate's ``plan_body_unavailable``),
 # never prose: the constructor holds the parameter to that shape so the one
@@ -237,6 +251,95 @@ def plan_contract_obligation(
     )
 
 
+def rule_premise_obligation(*, index: int, rule: str, premise: str, **data: Any) -> dict[str, Any]:
+    """The obligation that premise ``index`` of ``rule`` holds in the product.
+
+    The premise is manifest-authored text about the product, so it rides as
+    data (``premise``) under a kernel-composed description.
+    """
+    return must_satisfy_item(
+        id=f"premise:{index}",
+        kind=RULE_PREMISE_KIND,
+        description=(
+            f"Premise {index} of this finding's rule holds as a fact about the product at the "
+            "finding's location: verify the statement under this obligation's `premise` in the "
+            "repository's product code or config, never in the detector's own source. Answer "
+            "`satisfied` only when it holds; otherwise `contradicted` with the evidence."
+        ),
+        **{"rule": rule, "premise": premise},
+        **data,
+    )
+
+
+def product_defect_obligation(*, rule: str, claim_type: str, defect_claim: str, **data: Any) -> dict[str, Any]:
+    """The obligation that a person must change the product to resolve the finding."""
+    return must_satisfy_item(
+        id="defect",
+        kind=PRODUCT_DEFECT_KIND,
+        description=(
+            "A person must change product code or configuration at this finding's location to "
+            "resolve the defect stated under this obligation's `defect_claim`. A rule that fired "
+            "on product code that is already correct is a false_positive, not a satisfied defect."
+        ),
+        **{"rule": rule, "claim_type": claim_type, "defect_claim": defect_claim},
+        **data,
+    )
+
+
+def observed_failure_obligation(
+    *, failure_mode: str, episodes: int, plan_ids: list[str], **data: Any,
+) -> dict[str, Any]:
+    """The obligation for one failure mode the implementer's recorded episodes
+    repeat (``agent_eval.recurring_failure_modes``). The mode, its count and
+    the plans it ended ride as data; the description is the kernel's."""
+    return must_satisfy_item(
+        id="observed_failure:" + failure_mode,
+        kind=OBSERVED_FAILURE_KIND,
+        description=(
+            "Your recorded implementation episodes ended `episodes` times in the failure mode "
+            "named by this obligation's `failure_mode`; state in the satisfaction matrix what in "
+            "this change prevents that outcome, and run the check that would have caught it."
+        ),
+        **{"failure_mode": failure_mode, "episodes": episodes, "plan_ids": list(plan_ids)},
+        **data,
+    )
+
+
+def observed_plan_failure_obligation(
+    *, failure_mode: str, episodes: int, plan_ids: list[str], attributed_role: str = "drafter", **data: Any,
+) -> dict[str, Any]:
+    """The obligation for one failure mode recorded plans in the planner's
+    scope repeat (``planner_lessons.planner_lesson_obligations``).
+
+    A recorded mode is derived from a reason the plan ledger holds, and an
+    abandon reason is free text any caller wrote. A mode in the kernel's
+    token shape rides as data; any other is carried by its hash alone, so no
+    sentence reaches a binding obligation (attack report R9). The
+    description is the kernel's, the same for every mode. ARIA-HIGH-370 — a
+    lesson attributed to an envelope role (not the plan itself) names that
+    role in its id, so one mode recurring for the plan and for the role is
+    two obligations, never a duplicate id.
+    """
+    digest = hashlib.sha256(failure_mode.encode("utf-8")).hexdigest()
+    token = len(failure_mode) <= 64 and _REASON_CODE_RE.match(failure_mode) is not None
+    role_part = "" if attributed_role == "drafter" else attributed_role + ":"
+    return must_satisfy_item(
+        id="observed_plan_failure:" + role_part + (failure_mode if token else "sha256:" + digest[:16]),
+        kind=OBSERVED_PLAN_FAILURE_KIND,
+        description=(
+            "Recorded plans of this plan's origin class on overlapping affected surfaces ended "
+            "`episodes` times in the failure mode this obligation identifies (`failure_mode`, or "
+            "`failure_mode_sha256` alone when the recorded mode is not a kernel token), attributed "
+            "to the work of `attributed_role`; state in the satisfaction matrix what in this plan "
+            "prevents that outcome."
+        ),
+        **({"failure_mode": failure_mode} if token else {}),
+        **{"failure_mode_sha256": "sha256:" + digest, "episodes": episodes, "plan_ids": list(plan_ids),
+           "attributed_role": attributed_role},
+        **data,
+    )
+
+
 def upcast_sealed_items(items: Any, *, field: str = "must_satisfy") -> list[dict[str, Any]]:
     """The obligations of a SEALED row in the canonical shape, for a re-mint.
 
@@ -329,16 +432,25 @@ __all__ = [
     "MUST_SATISFY_ID_FIELD",
     "MUST_SATISFY_KIND_FIELD",
     "MUST_SATISFY_TEXT_FIELD",
+    "OBSERVED_FAILURE_KIND",
+    "OBSERVED_PLAN_FAILURE_KIND",
     "PLAN_CONTRACT_VIOLATION_KIND",
     "PLAN_TEXT_FIELD",
+    "PRODUCT_DEFECT_KIND",
+    "RULE_PREMISE_KIND",
     "SEALED_LEGACY_TEXT_FIELD",
+    "TRUE_POSITIVE_PREMISE_KINDS",
     "WAIVER_ADJUDICATION_KIND",
     "architecture_spine_obligation",
     "coverage_gap_obligation",
     "key_change_obligation",
     "must_satisfy_item",
     "must_satisfy_text",
+    "observed_failure_obligation",
+    "observed_plan_failure_obligation",
     "plan_contract_obligation",
+    "product_defect_obligation",
+    "rule_premise_obligation",
     "upcast_sealed_items",
     "validate_must_satisfy",
     "waiver_adjudication_obligation",

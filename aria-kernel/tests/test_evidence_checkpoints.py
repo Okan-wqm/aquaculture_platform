@@ -1,0 +1,562 @@
+"""ARIA-HIGH-278 — what a publish consumes as evidence stays bounded at any age.
+
+Every aria/state publish verifies its own commit against the evidence-input
+budget (`autonomy_evidence._MAX_EVIDENCE_INPUT_BYTES`). It used to consume
+every counted ledger in full, every segment of a rolled-over family included,
+so ledger age alone would refuse publishing. A carried ledger's published
+prefix is now carried by a checkpoint row (`evidence_checkpoints`) that the
+commit adding it verifies, and a publish consumes only the rows after it:
+sealed segments cost nothing however many there are, the counters equal a
+full re-read, a rewritten prefix or a forged checkpoint refuses, and the
+budget still refuses what the unconsumed rows alone exceed.
+
+ARIA-HIGH-286 — a fold-version bump, or a store with no checkpoints, used to
+make the next publish fold every carried ledger from row 0 inside the same
+budget. The rebuild now runs one bounded slice per publish: every publish
+folds at most `_evidence_slice_bytes()` of carried rows, a claim the slice
+cannot reach is withheld under a named rebuild blocker, the counters equal a
+full re-read once it is done, and a forged or rewritten rebuild checkpoint
+refuses.
+
+The fold version a checkpoint is recorded under is pinned by what the fold
+makes of a frozen corpus, never by the source of the fold functions
+(tests/invariants/test_capability_semantic_equivalence.py, pins.json
+``folds``): a refactor that keeps the output keeps the version, so it no
+longer resets every capability's evidence.
+"""
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from unittest import mock
+
+from aria_kernel import autonomy_evidence as evidence
+from aria_kernel import ledger, state_store
+from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl, rewrite_declared_jsonl
+from aria_kernel.state_store import (
+    BOOTSTRAP_ACK_ENV,
+    StateStoreRefusal,
+    checkout_state_store,
+    publish_with_contention_replay,
+    tools_root,
+)
+from aria_kernel.tool_registry import append_tools_governance
+from tests.test_state_store import REPO_HASH, _EnvPatch, _git as _git_raw
+from tests._helpers.writer_lease import leased_publish
+
+OCT = datetime(2026, 10, 15, 12, tzinfo=timezone.utc)
+REQUESTS = "agent_invocation_requests"
+SEGMENTS = "agent_invocation_request_segments"
+SEGMENT_BYTES = 32 * 1024
+PAD = "x" * 6000
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return _git_raw(cwd, *args).strip()
+
+
+def _request(number: int) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "row_type": "request",
+        "row_id": f"request:{number:06d}",
+        "request_id": f"AIR-{number:06d}",
+        "role": "judge",
+        "evidence_refs": [PAD],
+    }
+
+
+class EvidenceCheckpointTests(unittest.TestCase):
+    maxDiff = None
+
+    def setUp(self) -> None:
+        # Every published prefix is checkpointed by the next publish.
+        for patcher in (
+            mock.patch.object(evidence, "EVIDENCE_CHECKPOINT_STRIDE_BYTES", 1),
+            mock.patch.object(ledger, "SEGMENT_ROLLOVER_BYTES", SEGMENT_BYTES),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.published = 0
+        self.requests = 0
+
+    # -- a bound aria/state store, as the restore action leaves every lane's --
+
+    def _store(self) -> Any:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        remote, repo = base / "remote.git", base / "work"
+        remote.mkdir()
+        repo.mkdir()
+        _git(remote, "init", "--bare", "--initial-branch=main", ".")
+        _git(repo, "init", "--initial-branch=main", ".")
+        for key, value in (("user.email", "aria@example.invalid"), ("user.name", "ARIA Test"), ("commit.gpgsign", "false")):
+            _git(repo, "config", key, value)
+        _git(repo, "remote", "add", "origin", str(remote))
+        (repo / "README.md").write_text("seed\n", encoding="utf-8")
+        _git(repo, "add", "README.md")
+        _git(repo, "commit", "-m", "seed")
+        _git(repo, "push", "origin", "main")
+        self.repo, self.target = repo, _git(repo, "rev-parse", "HEAD")
+        with _EnvPatch({BOOTSTRAP_ACK_ENV: state_store._repository_identity(repo)}):
+            store = checkout_state_store(repo, store_dir=base / "store")
+            from aria_kernel.tools_binding import bind_tools_root
+
+            with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
+                bind_tools_root(tools_dir=str(tools_root(store)), workspace_root=str(repo), reason="bind for test")
+        return store
+
+    def _publish(self, store: Any) -> dict[str, Any]:
+        self.published += 1
+        with _EnvPatch({BOOTSTRAP_ACK_ENV: state_store._repository_identity(self.repo)}):
+            return leased_publish(
+                store,
+                snapshot_id=f"snap-{self.published}",
+                cycle_id=f"cycle-{self.published}",
+                lane="test",
+                repo_hash=REPO_HASH,
+            )
+
+    def _verify(self, store: Any, ref: str = "HEAD") -> Any:
+        commit = _git(store.root, "rev-parse", ref)
+        return evidence._verify_snapshot_and_collect_evidence(
+            store=store,
+            repo_identity=REPO_HASH,
+            state_commit=commit,
+            expected_snapshot_object_id=_git(store.root, "rev-parse", f"{commit}:snapshot.json"),
+        )
+
+    def _claims(self, store: Any) -> dict[str, dict[str, Any]]:
+        return json.loads(_git(store.root, "show", "HEAD:snapshot.json"))["surfaces"]
+
+    # -- rows on every carried ledger, and on one that is not carried --
+
+    def _append_requests(self, store: Any, count: int) -> None:
+        for _ in range(count):
+            self.requests += 1
+            ledger.append_segment_rows(
+                tools_root(store), [_request(self.requests)],
+                expected_surface=REQUESTS, now=OCT, bypass_profile_gate=True,
+            )
+
+    def _seal(self, store: Any, sealed: int) -> None:
+        """Append requests until ``sealed`` monthly segments are sealed."""
+        directory = tools_root(store) / "agent-invocations" / "requests"
+        while len(list(directory.glob("*.jsonl")) if directory.is_dir() else []) < sealed + 1:
+            self._append_requests(store, 1)
+
+    def _append_other_evidence(self, store: Any, round_number: int) -> None:
+        tools = tools_root(store)
+        append_tools_governance(
+            tools, "executor_drain_completed", {"attempted": 2, "succeeded": round_number, "failed": 1},
+        )
+        rows = {
+            ("autonomy_state.jsonl", "autonomy_state"): {
+                "schema_version": 1, "phase": "cycle_completed", "status": "ok",
+                "cycle_id": f"c-{round_number}", "planner_claims_delta": 1,
+            },
+            ("fixture-runs.jsonl", "agent_eval_fixture_runs"): {
+                "schema_version": 1, "$schema": "aria/agent-eval-fixture-run/v1",
+                "row_type": "fixture_run_suite", "execution_run_id": f"run-{round_number}",
+                "passed": round_number % 2 == 0, "actual_status": "pass",
+            },
+            ("auto-merge-decisions.jsonl", "auto_merge_decisions"): {
+                "schema_version": 1, "decision": "blocked", "stage": "pre_merge",
+            },
+            ("cycles.jsonl", "cycles"): {
+                "schema_version": 3, "cycle_id": f"cycle-row-{round_number}", "event": "completed",
+                "status": "completed", "git_head_sha_at_cycle": self.target,
+            },
+        }
+        for (path, surface), row in rows.items():
+            append_declared_jsonl(tools / path, row, expected_surface=surface, bypass_profile_gate=True)
+
+    def _carried_world(self, sealed: int) -> Any:
+        """Publish ``sealed`` sealed segments, then carry them by checkpoint.
+
+        P1 publishes them, P2 records their checkpoints (verified on P2), P3
+        adds one open-segment row: P3's parent trusts every checkpoint.
+        """
+        store = self._store()
+        self._seal(store, sealed)
+        self._append_other_evidence(store, 1)
+        self.assertTrue(self._publish(store)["published"])
+        self._append_other_evidence(store, 2)
+        self.assertTrue(self._publish(store)["published"])
+        self._append_requests(store, 1)
+        self.assertTrue(self._publish(store)["published"])
+        return store
+
+    @staticmethod
+    def _sealed_bytes(claims: dict[str, dict[str, Any]]) -> int:
+        segments = sorted(key for key in claims if key.startswith(f"{SEGMENTS}:"))
+        return sum(claims[key]["size_bytes"] for key in segments[:-1])
+
+    @staticmethod
+    def _counted_bytes(claims: dict[str, dict[str, Any]]) -> int:
+        counted = {name for spec in evidence.CAPABILITY_SPECS.values() for name in spec.count_surfaces}
+        return sum(
+            claim["size_bytes"] for key, claim in claims.items()
+            if ledger.segment_family(key.split(":", 1)[0]) in counted
+        )
+
+    # -- the four properties --
+
+    def test_sealed_segments_cost_nothing_however_many_there_are(self) -> None:
+        consumed: dict[int, int] = {}
+        for sealed in (1, 4):
+            with self.subTest(sealed=sealed):
+                store = self._carried_world(sealed)
+                claims = self._claims(store)
+                checkpoint_bytes = claims[evidence.EVIDENCE_CHECKPOINT_SURFACE]["size_bytes"]
+                # The commit consumes the open row, not the sealed history: a
+                # budget below what the old full read charged still admits it.
+                budget = self._counted_bytes(claims) - self._sealed_bytes(claims) + checkpoint_bytes
+                self.assertGreater(self._sealed_bytes(claims), checkpoint_bytes)
+                with mock.patch.object(evidence, "_MAX_EVIDENCE_INPUT_BYTES", budget):
+                    accumulator = self._verify(store)
+                consumed[sealed] = accumulator.evidence_input_bytes - checkpoint_bytes
+        self.assertEqual(consumed[1], consumed[4], "ledger input must not grow with sealed segments")
+
+    def test_counters_equal_a_full_re_read(self) -> None:
+        for sealed in (0, 2, 3):
+            with self.subTest(sealed=sealed):
+                self.requests = 0
+                store = self._store()
+                commits: list[str] = []
+                for round_number in range(1, 5):
+                    self._seal(store, sealed + round_number // 3)
+                    self._append_requests(store, 1)
+                    self._append_other_evidence(store, round_number)
+                    self.assertTrue(self._publish(store)["published"])
+                    commits.append(_git(store.root, "rev-parse", "HEAD"))
+                self.assertGreater(
+                    len(load_declared_jsonl(
+                        tools_root(store) / "evidence-checkpoints.jsonl",
+                        expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE,
+                    )),
+                    sealed,
+                )
+                for commit in commits:
+                    accumulator = self._verify(store, commit)
+                    with mock.patch.object(evidence, "_carried_claim_cursors", lambda **_: ({}, 0)):
+                        full = self._projection(self._verify(store, commit))
+                    self.assertEqual(self._projection(accumulator), full, commit)
+                # The last commit really started from trusted checkpoints.
+                self.assertLess(accumulator.evidence_input_bytes, self._counted_bytes(self._claims(store)))
+
+    def test_a_rewritten_sealed_segment_refuses_the_publish(self) -> None:
+        store = self._carried_world(2)
+        sealed = sorted((tools_root(store) / "agent-invocations" / "requests").glob("*.jsonl"))[0]
+        rows = load_declared_jsonl(sealed, expected_surface=SEGMENTS)
+        stripped = [
+            {key: value for key, value in row.items() if key not in {"ledger_hash", "previous_ledger_hash"}}
+            for row in rows
+        ]
+        stripped[1]["role"] = "planner"
+        rewrite_declared_jsonl(
+            sealed, stripped, expected_surface=SEGMENTS, migration_id="tamper", bypass_profile_gate=True,
+        )
+        self._append_requests(store, 1)
+        with self.assertRaises(StateStoreRefusal) as refused:
+            self._publish(store)
+        self.assertIn(
+            f"state_commit_evidence_checkpoint_mismatch:{SEGMENTS}:"
+            f"agent-invocations/requests/{sealed.name}",
+            str(refused.exception),
+        )
+
+    def test_budget_refuses_exactly_when_the_unconsumed_rows_exceed_it(self) -> None:
+        store = self._carried_world(3)
+        open_segment = sorted((tools_root(store) / "agent-invocations" / "requests").glob("*.jsonl"))[-1]
+        before = open_segment.stat().st_size
+        self._append_requests(store, 3)
+        unconsumed = open_segment.stat().st_size - before
+        self.assertTrue(self._publish(store)["published"])
+        claims = self._claims(store)
+        carried_budget = (
+            self._counted_bytes(claims) - self._sealed_bytes(claims)
+            + claims[evidence.EVIDENCE_CHECKPOINT_SURFACE]["size_bytes"]
+        )
+        with mock.patch.object(evidence, "_MAX_EVIDENCE_INPUT_BYTES", carried_budget):
+            self._verify(store)
+        with mock.patch.object(evidence, "_MAX_EVIDENCE_INPUT_BYTES", unconsumed - 1):
+            with self.assertRaisesRegex(RuntimeError, "^state_commit_evidence_budget_exceeded$"):
+                self._verify(store)
+
+    def test_a_forged_checkpoint_refuses_the_publish(self) -> None:
+        store = self._carried_world(1)
+        recorded = load_declared_jsonl(
+            tools_root(store) / "evidence-checkpoints.jsonl", expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE,
+        )
+        forged = {
+            key: value for key, value in recorded[-1].items() if key not in {"ledger_hash", "previous_ledger_hash"}
+        }
+        forged["row_id"] += ":forged"
+        forged["evidence"]["ordinal"] += 1
+        append_declared_jsonl(
+            tools_root(store) / "evidence-checkpoints.jsonl", forged,
+            expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE, bypass_profile_gate=True,
+        )
+        with self.assertRaises(StateStoreRefusal) as refused:
+            self._publish(store)
+        self.assertIn(f"state_commit_evidence_checkpoint_mismatch:{forged['surface_key']}", str(refused.exception))
+
+    def test_rewritten_checkpoint_history_refuses_the_publish(self) -> None:
+        store = self._carried_world(1)
+        path = tools_root(store) / "evidence-checkpoints.jsonl"
+        kept = [
+            {key: value for key, value in row.items() if key not in {"ledger_hash", "previous_ledger_hash"}}
+            for row in load_declared_jsonl(path, expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE)[1:]
+        ]
+        rewrite_declared_jsonl(
+            path, kept, expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE,
+            migration_id="drop", bypass_profile_gate=True,
+        )
+        self._append_requests(store, 1)
+        with self.assertRaises(StateStoreRefusal) as refused:
+            self._publish(store)
+        self.assertIn("state_commit_evidence_checkpoints_rewritten", str(refused.exception))
+
+    # -- ARIA-HIGH-295: the witness ledgers are carried, windows included --
+
+    def _append_witnesses(self, store: Any, round_number: int) -> None:
+        """Two new proof targets per round on cycles and on results; round 4
+        re-witnesses a cycle target long evicted and a result target still in
+        the window."""
+        tools = tools_root(store)
+        shas = [f"{round_number * 10 + offset:040x}" for offset in (1, 2)]
+        cycle_shas = shas + ([f"{11:040x}"] if round_number == 4 else [])
+        result_shas = shas + ([f"{32:040x}"] if round_number == 4 else [])
+        for index, sha in enumerate(cycle_shas):
+            append_declared_jsonl(tools / "cycles.jsonl", {
+                "schema_version": 3, "cycle_id": f"witness-{round_number}-{index}", "event": "completed",
+                "status": "completed", "git_head_sha_at_cycle": sha,
+            }, expected_surface="cycles", bypass_profile_gate=True)
+        for index, sha in enumerate(result_shas):
+            append_declared_jsonl(tools / "agent-invocations" / "results.jsonl", {
+                "$schema": "aria/agent-claim-result/v1", "schema_version": 1, "row_type": "result",
+                "row_id": f"result:witness-{round_number}-{index}", "status": "accepted", "target_sha": sha,
+            }, expected_surface="agent_invocation_results", bypass_profile_gate=True)
+
+    def test_witness_windows_carried_by_checkpoints_equal_a_full_re_read(self) -> None:
+        with mock.patch.object(evidence, "_WITNESS_WINDOW", 3):
+            store = self._store()
+            commits: list[str] = []
+            for round_number in range(1, 6):
+                self._append_witnesses(store, round_number)
+                self._append_requests(store, 1)
+                self.assertTrue(self._publish(store)["published"])
+                commits.append(_git(store.root, "rev-parse", "HEAD"))
+            carried = {row["surface_key"] for row in self._checkpoint_rows(store)}
+            self.assertLessEqual({"cycles", "agent_invocation_results"}, carried)
+            for commit in commits:
+                accumulator = self._verify(store, commit)
+                with mock.patch.object(evidence, "_carried_claim_cursors", lambda **_: ({}, 0)):
+                    full = self._projection(self._verify(store, commit))
+                self.assertEqual(self._projection(accumulator), full, commit)
+            # The last commit folded its witness ledgers from checkpoints, and
+            # its windows hold the three most recently witnessed targets of each.
+            claims = self._claims(store)
+            self.assertLess(
+                accumulator.evidence_input_bytes,
+                self._counted_bytes(claims) + claims[evidence.EVIDENCE_CHECKPOINT_SURFACE]["size_bytes"],
+            )
+            windows = {
+                capability: [
+                    (target.candidate.evidence_target_sha, target.admissible_count)
+                    for targets in summary.targets_by_contract.values() for target in targets
+                ]
+                for capability, summary in accumulator.native_summaries().items()
+                if capability in {"cycle_runtime", "executor"}
+            }
+            self.assertEqual(windows, {
+                # 11 was evicted in round 2 and witnessed again in round 4.
+                "cycle_runtime": [(f"{11:040x}", 1), (f"{51:040x}", 1), (f"{52:040x}", 1)],
+                # 32 was witnessed again in round 4 while still in the window.
+                "executor": [(f"{32:040x}", 2), (f"{51:040x}", 1), (f"{52:040x}", 1)],
+            })
+
+    # -- ARIA-HIGH-286: rebuilding checkpoints never needs more than a slice --
+
+    @staticmethod
+    def _carried_bytes(claims: dict[str, dict[str, Any]]) -> int:
+        return sum(
+            claim["size_bytes"] for key, claim in claims.items()
+            if ledger.segment_family(key.split(":", 1)[0]) in evidence._CARRIED_COUNT_SURFACES
+        )
+
+    def _folded_carried_bytes(self, accumulator: Any, claims: dict[str, dict[str, Any]]) -> int:
+        """What the verifier folded of carried ledgers: its input less the
+        checkpoint ledger (absent until a first checkpoint is recorded) and
+        the ledgers that are never carried."""
+        uncarried = self._counted_bytes(claims) - self._carried_bytes(claims)
+        checkpoints = claims.get(evidence.EVIDENCE_CHECKPOINT_SURFACE, {"size_bytes": 0})["size_bytes"]
+        return accumulator.evidence_input_bytes - checkpoints - uncarried
+
+    def _rebuild(self, store: Any, budget: int) -> tuple[list[tuple[int, int]], list[dict[str, tuple[str, ...]]]]:
+        """Publish under ``budget`` until no claim is rebuilding.
+
+        Returns, per publish, (carried bytes folded, carried bytes claimed)
+        and the capability blockers its evidence projects.
+        """
+        rounds: list[tuple[int, int]] = []
+        blockers: list[dict[str, tuple[str, ...]]] = []
+        with mock.patch.object(evidence, "_MAX_EVIDENCE_INPUT_BYTES", budget):
+            while not blockers or any(
+                blocker.startswith(evidence.EVIDENCE_REBUILD_BLOCKER)
+                for named in blockers[-1].values() for blocker in named
+            ):
+                self.assertLess(len(rounds), 40, "the rebuild never converged")
+                self._append_requests(store, 1)
+                self.assertTrue(self._publish(store)["published"])
+                accumulator, claims = self._verify(store), self._claims(store)
+                rounds.append((self._folded_carried_bytes(accumulator, claims), self._carried_bytes(claims)))
+                blockers.append(accumulator.capability_counts(repo_root=self.repo, target_sha=self.target)[1])
+        return rounds, blockers
+
+    def _assert_rebuilt_within_the_slice(self, store: Any, budget: int) -> None:
+        rounds, blockers = self._rebuild(store, budget)
+        slice_bytes = budget * 2 // 5
+        self.assertGreater(rounds[0][1], budget, "the carried ledgers must outgrow the budget")
+        self.assertGreater(len(rounds), 2, "a rebuild larger than the slice spans publishes")
+        for folded, _carried in rounds:
+            self.assertLessEqual(folded, slice_bytes)
+        # While rebuilding, the withheld families are named on each capability counting them.
+        self.assertIn(
+            f"{evidence.EVIDENCE_REBUILD_BLOCKER}:{REQUESTS}", blockers[0]["executor"], blockers[0],
+        )
+        # Once rebuilt, the evidence is a full re-read's, from the slice alone.
+        accumulator = self._verify(store)
+        with mock.patch.object(evidence, "_carried_claim_cursors", lambda **_: ({}, 0)):
+            full = self._projection(self._verify(store))
+        self.assertEqual(self._projection(accumulator), full)
+        self.assertEqual(accumulator.rebuilding, set())
+        self.assertLessEqual(self._folded_carried_bytes(accumulator, self._claims(store)), slice_bytes)
+
+    def _bumped(self) -> Any:
+        return mock.patch.object(
+            evidence, "EVIDENCE_CHECKPOINT_FOLD_VERSION", evidence.EVIDENCE_CHECKPOINT_FOLD_VERSION + 1,
+        )
+
+    def _checkpoint_rows(self, store: Any) -> list[dict[str, Any]]:
+        return load_declared_jsonl(
+            tools_root(store) / "evidence-checkpoints.jsonl", expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE,
+        )
+
+    def test_a_fold_version_bump_rebuilds_one_slice_per_publish(self) -> None:
+        store = self._carried_world(8)
+        budget = self._carried_bytes(self._claims(store)) * 3 // 4
+        with self._bumped():
+            self._assert_rebuilt_within_the_slice(store, budget)
+            # The rebuild recorded prefixes of claims, not only their ends.
+            claims = self._claims(store)
+            rebuilt = [
+                row for row in self._checkpoint_rows(store)
+                if row["fold_version"] == evidence.EVIDENCE_CHECKPOINT_FOLD_VERSION
+            ]
+            self.assertTrue(any(row["row_count"] < claims[row["surface_key"]]["row_count"] for row in rebuilt))
+
+    def test_a_store_without_checkpoints_bootstraps_one_slice_per_publish(self) -> None:
+        store = self._store()
+        self._seal(store, 8)
+        self._append_other_evidence(store, 1)
+        self.assertFalse((tools_root(store) / "evidence-checkpoints.jsonl").exists())
+        self._assert_rebuilt_within_the_slice(store, 8 * SEGMENT_BYTES * 3 // 4)
+
+    def _position(self, store: Any, key: str, row_count: int) -> tuple[int, str]:
+        """Where row ``row_count`` of a claim ends, and its ledger hash."""
+        data = (tools_root(store) / self._claims(store)[key]["path"]).read_bytes()
+        lines = data.splitlines(keepends=True)[:row_count]
+        return sum(len(line) for line in lines), json.loads(lines[-1])["ledger_hash"]
+
+    def test_a_forged_or_rewritten_rebuild_checkpoint_refuses_the_publish(self) -> None:
+        for tamper in ("evidence", "position", "history"):
+            with self.subTest(tamper=tamper):
+                self.requests = 0
+                store = self._carried_world(8)
+                budget = self._carried_bytes(self._claims(store)) * 3 // 4
+                with self._bumped(), mock.patch.object(evidence, "_MAX_EVIDENCE_INPUT_BYTES", budget):
+                    self._append_requests(store, 1)
+                    self.assertTrue(self._publish(store)["published"])
+                    claims = self._claims(store)
+                    rows = self._checkpoint_rows(store)
+                    prefix = next(
+                        row for row in rows
+                        if row["fold_version"] == evidence.EVIDENCE_CHECKPOINT_FOLD_VERSION
+                        and row["row_count"] + 1 < claims[row["surface_key"]]["row_count"]
+                    )
+                    key = prefix["surface_key"]
+                    path = tools_root(store) / "evidence-checkpoints.jsonl"
+                    if tamper == "history":
+                        kept = [
+                            {name: value for name, value in row.items() if name not in {"ledger_hash", "previous_ledger_hash"}}
+                            for row in rows if row is not prefix
+                        ]
+                        rewrite_declared_jsonl(
+                            path, kept, expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE,
+                            migration_id="drop", bypass_profile_gate=True,
+                        )
+                    else:
+                        forged = {
+                            name: value for name, value in prefix.items()
+                            if name not in {"ledger_hash", "previous_ledger_hash"}
+                        }
+                        forged["row_id"] += ":forged"
+                        forged["row_count"] += 1
+                        if tamper == "evidence":
+                            # Its true position, carrying more rebuilt evidence than the rows fold to.
+                            forged["size_bytes"], forged["tail_ledger_hash"] = self._position(store, key, forged["row_count"])
+                            forged["evidence"]["ordinal"] += 2
+                        append_declared_jsonl(
+                            path, forged, expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE, bypass_profile_gate=True,
+                        )
+                    self._append_requests(store, 1)
+                    with self.assertRaises(StateStoreRefusal) as refused:
+                        self._publish(store)
+                expected = (
+                    "state_commit_evidence_checkpoints_rewritten" if tamper == "history"
+                    else f"state_commit_evidence_checkpoint_mismatch:{key}"
+                )
+                self.assertIn(expected, str(refused.exception))
+
+    def _projection(self, accumulator: Any) -> str:
+        counts, blockers = accumulator.capability_counts(repo_root=self.repo, target_sha=self.target)
+        native = {
+            capability: {
+                "counts": dict(summary.counts),
+                "blockers": list(summary.blockers),
+                "targets": {
+                    contract.surface: [
+                        [
+                            target.candidate.row_id, target.candidate.row_hash,
+                            target.candidate.evidence_target_sha, target.admissible_count,
+                            sorted(target.admissible_by_schema.items()), target.ordinal,
+                        ]
+                        for target in targets
+                    ]
+                    for contract, targets in summary.targets_by_contract.items()
+                },
+            }
+            for capability, summary in accumulator.native_summaries().items()
+        }
+        return json.dumps({
+            "counts": counts,
+            "blockers": blockers,
+            "native": native,
+            "surface_counts": {name: value for name, value in accumulator.surface_counts.items() if value},
+            "metrics": {name: value for name, value in accumulator.metrics.items() if value},
+            "ordinal": accumulator.ordinal,
+            "autonomy_state": asdict(accumulator.autonomy_state),
+            "count_rejected": sorted(accumulator.count_rejected),
+        }, sort_keys=True)
+
+
+if __name__ == "__main__":
+    unittest.main()

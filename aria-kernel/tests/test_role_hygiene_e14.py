@@ -55,6 +55,7 @@ from aria_kernel.pr_tracking import (
     ingest_merged_pr_lifecycle,
 )
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 
 
 REMOVED_ROLES = (
@@ -63,6 +64,15 @@ REMOVED_ROLES = (
     "auth_security_review",
     "access_boundary_review",
     "tenant_isolation_review",
+    # Removed after E14, same shape: no kernel path ever minted `gap_finding`
+    # (the acceptance-lane gap hunt is an operator-driven dispatch outside the
+    # kernel). Program rev3.1 deletes it; blind enumeration (K42) re-adds a
+    # role only when its evidence trigger fires.
+    "gap_finding",
+    # Its executor twin, same shape (ORPHAN-MEDIUM-836): `gap_closure` was
+    # budgeted beside `implementation` and never minted; the acceptance-lane
+    # gap closer is an operator-driven dispatch outside the kernel.
+    "gap_closure",
 )
 
 
@@ -135,6 +145,72 @@ class GoldsetCurationMinterTest(_ToolsDirTest):
         self.assertEqual(requests[0]["role"], GOLDSET_CURATION_ROLE)
         self.assertEqual(requests[0]["target_agent"], GOLDSET_CURATOR_AGENT)
         self.assertEqual(requests[0]["target_sha"], "a" * 40)
+
+    def test_the_curator_is_handed_the_corpus_and_its_repo_evidence_never_the_ledger(self) -> None:
+        # ARIA-HIGH-354 — the envelope cited the state-store proposals ledger,
+        # which the curator's checkout does not hold and the submit law refuses.
+        for index, verdict in ((1, "true_positive"), (2, "false_positive")):
+            record_operator_feedback(
+                tool_id="tool-a", run_id=f"run-{index}", finding_id=f"F-{index}", verdict=verdict,
+                severity="medium", note=f"operator label {index}",
+                evidence_refs=[f"apps/hr-service/src/leave/leave.service.ts:{index}"], base_dir=self.tools,
+            )
+        propose_goldsets_for_labelled_tools(
+            cycle_id="cyc-1", base_dir=self.tools, target_true_positives=1,
+            target_known_false_positives=1, target_sha="a" * 40,
+        )
+        [request] = self._requests(GOLDSET_CURATION_ROLE)
+        self.assertEqual(request["evidence_refs"][1:], [
+            "apps/hr-service/src/leave/leave.service.ts:1",
+            "apps/hr-service/src/leave/leave.service.ts:2",
+        ])
+        self.assertFalse([ref for ref in request["evidence_refs"] if "goldsets/" in ref])
+        self.assertIn('"finding_id": "F-1"', request["suggested_prompt"])
+        self.assertIn('"verdict": "false_positive"', request["suggested_prompt"])
+
+    def test_an_item_citing_a_recorded_artifact_keeps_it_as_data_not_as_a_citation(self) -> None:
+        # A judge's gold item may cite the artifact it judged, a store record:
+        # the mint would refuse it as a citation, and the curation would block.
+        artifact = self.tools / "agent-invocations" / "outputs" / "judge.json"
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text("{}", encoding="utf-8")
+        store_ref = f"{self.tools.name}/agent-invocations/outputs/judge.json"
+        for index, verdict in ((1, "true_positive"), (2, "false_positive")):
+            record_operator_feedback(
+                tool_id="tool-a", run_id=f"run-{index}", finding_id=f"F-{index}", verdict=verdict,
+                severity="medium", note=f"operator label {index}",
+                evidence_refs=[f"apps/hr-service/src/leave/leave.service.ts:{index}", store_ref],
+                base_dir=self.tools,
+            )
+        propose_goldsets_for_labelled_tools(
+            cycle_id="cyc-1", base_dir=self.tools, target_true_positives=1,
+            target_known_false_positives=1, target_sha="a" * 40,
+        )
+        [request] = self._requests(GOLDSET_CURATION_ROLE)
+        self.assertNotIn(store_ref, request["evidence_refs"])
+        self.assertIn(store_ref, request["suggested_prompt"])
+        self.assertIn('<derived_context section="goldset_corpus">', request["suggested_prompt"])
+
+    def test_re_requesting_a_sealed_row_returns_it_even_if_it_cites_the_store(self) -> None:
+        # The mint guard judges a NEW identity; a sealed row is returned as sealed.
+        from unittest import mock
+
+        from aria_kernel.agent_invocations import create_agent_invocation_request
+
+        record = self.tools / "goldsets" / "proposals.jsonl"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text("", encoding="utf-8")
+        kwargs = dict(target_agent=GOLDSET_CURATOR_AGENT, role=GOLDSET_CURATION_ROLE, suggested_prompt="draft",
+                      must_satisfy=[{"id": "corpus-draft", "description": "d"}], allowed_scope=["**"],
+                      evidence_refs=["goldset-proposal:tool-a:t", f"{self.tools.name}/goldsets/proposals.jsonl"],
+                      tool_id="tool-a", target_sha="a" * 40, base_dir=self.tools,
+                      admission=admit_request("operator_cli.request", GOLDSET_CURATION_ROLE, base_dir=self.tools))
+        with self.assertRaisesRegex(Exception, "request_evidence_state_store_record"):
+            create_agent_invocation_request(**kwargs)
+        # Seal the row the way a pre-guard kernel did, then ask for it again.
+        with mock.patch("aria_kernel.evidence_validator.state_store_record_refs", return_value=[]):
+            sealed = create_agent_invocation_request(**kwargs)
+        self.assertEqual(create_agent_invocation_request(**kwargs)["request_id"], sealed["request_id"])
 
     def test_a_blocked_proposal_mints_nothing(self) -> None:
         # A curator asked to draft from a corpus that is still short can only
@@ -367,6 +443,10 @@ class RemovedRolesTest(_ToolsDirTest):
                         must_satisfy=[{"id": "MS-1", "description": "review"}],
                         allowed_scope=["**"],
                         base_dir=self.tools,
+                        # A removed role has no class at the door either; the
+                        # admission is any valid one so the mint's own refusal
+                        # is what this pins.
+                        admission=admit_request("operator_cli.request", "verification", base_dir=self.tools),
                     )
 
     def test_the_envelope_validator_refuses_them(self) -> None:
@@ -408,6 +488,7 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
             evidence_refs=["merged-pr:1:abc"],
             cycle_id="cyc-1",
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools),
         )
         second = create_agent_invocation_request(
             target_agent=CHANGE_INTELLIGENCE_AGENT,
@@ -418,6 +499,7 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
             evidence_refs=["merged-pr:1:abc"],
             cycle_id="cyc-2",
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools),
         )
 
         self.assertNotEqual(first["request_id"], second["request_id"])
@@ -452,13 +534,25 @@ class DispatchableRolesTest(unittest.TestCase):
 
     def test_every_role_with_a_new_producer_can_be_claimed(self) -> None:
         from aria_kernel.agent_surface import DISPATCHABLE_ROLES
+        from aria_kernel.self_change_bridge import SELF_CHANGE_ROLE
 
         for role in (
             GOLDSET_CURATION_ROLE,
             CHANGE_INTELLIGENCE_ROLE,
             CONSENSUS_ARBITRATION_ROLE,
+            # ARIA-HIGH-344 — minted by autonomy_orchestrator and
+            # self_change_bridge, drained by the quota round, and absent
+            # here until every drained request of it died unrouted.
+            SELF_CHANGE_ROLE,
         ):
             self.assertIn(role, DISPATCHABLE_ROLES, role)
+
+    def test_every_mintable_role_can_be_claimed(self) -> None:
+        # The general form of the rule above: a role a request envelope may
+        # name and no executor may claim is a request that waits forever.
+        from aria_kernel.agent_surface import DISPATCHABLE_ROLES
+
+        self.assertEqual(sorted(set(REQUEST_ROLES) - DISPATCHABLE_ROLES), [])
 
     def test_the_executor_standalone_fallback_does_not_drift(self) -> None:
         # The fallback literal in ci_executor is only used when the kernel

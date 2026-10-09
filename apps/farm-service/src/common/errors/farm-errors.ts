@@ -8,6 +8,11 @@
  *
  * Phase 6.4 of the "Farm modülü kalan kör noktalar" plan.
  */
+import {
+  PARAMETER_SOURCE_ERROR,
+  type ChannelBindingProblem,
+  type ParameterSourceErrorCode,
+} from '@aquaculture/shared-contracts';
 import { HttpStatus } from '@nestjs/common';
 
 import { FarmAppError } from './farm-app-error';
@@ -159,6 +164,53 @@ export class HarvestPlanRequiredError extends FarmAppError {
         thresholdBiomassKg: params.thresholdBiomassKg,
         thresholdQuantity: params.thresholdQuantity,
       },
+    });
+  }
+}
+
+/**
+ * Raised when a sensor channel cannot feed a water-quality parameter at a
+ * measurement point (FARM-HIGH-373). `context.problems` carries the
+ * shared-contracts problem codes (CHANNEL_BINDING_PROBLEM) the binding UI
+ * keys its messages on — the same codes checkParameterChannelBinding returns.
+ */
+export class ChannelBindingRefusedError extends FarmAppError {
+  readonly problems: readonly ChannelBindingProblem[];
+
+  constructor(problems: readonly ChannelBindingProblem[]) {
+    super({
+      code: PARAMETER_SOURCE_ERROR.CHANNEL_BINDING_REFUSED,
+      status: HttpStatus.BAD_REQUEST,
+      userMessage: `The channel cannot feed this parameter here: ${problems.join(', ')}`,
+      retryable: false,
+      context: { problems: [...problems] },
+    });
+    this.problems = problems;
+  }
+}
+
+/**
+ * A refusal of the parameter-source API (bind, unbind, replace, declare,
+ * clear, the config writers) with a stable code from PARAMETER_SOURCE_ERROR,
+ * which the binding UI branches on. The status says how: 409 for a state that
+ * changed or is taken, 400 for a request that cannot hold, 503 when the sensor
+ * service cannot answer.
+ */
+export class ParameterSourceError extends FarmAppError {
+  constructor(
+    code: ParameterSourceErrorCode,
+    status: HttpStatus,
+    userMessage: string,
+    context?: Record<string, unknown>,
+  ) {
+    super({
+      code,
+      status,
+      userMessage,
+      retryable:
+        code === PARAMETER_SOURCE_ERROR.CONCURRENT_WRITE ||
+        code === PARAMETER_SOURCE_ERROR.SENSOR_DIRECTORY_UNAVAILABLE,
+      context,
     });
   }
 }

@@ -28,6 +28,8 @@ from aria_kernel.genesis_policy import (
 from aria_kernel.judge_fanout import dispatch_judges_for_sample
 from aria_kernel.tool_registry import ensure_tools_dir
 
+from tests._helpers.rule_contracts import register_contracted_tool
+
 
 def _item(i: int, run: str = "r1") -> dict:
     return {
@@ -43,6 +45,7 @@ class MintDisciplineTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
+        register_contracted_tool(self.tools, "tool-x")
 
     def tearDown(self) -> None:
         self._tmp.cleanup()

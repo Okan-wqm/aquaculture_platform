@@ -21,7 +21,6 @@ import AlertRulesPage from './pages/AlertRulesPage';
 import EscalationPoliciesPage from './pages/EscalationPoliciesPage';
 import ThresholdsPage from './pages/ThresholdsPage';
 import CalibrationPage from './pages/CalibrationPage';
-import SensorAnalyticsPage from './pages/SensorAnalyticsPage';
 import WidgetDashboardPage from './pages/WidgetDashboardPage';
 import { Spinner } from '@aquaculture/shared-ui';
 
@@ -116,7 +115,6 @@ const SensorModule: React.FC = () => {
         <Route path="calibration" element={<CalibrationPage />} />
 
         {/* Analytics */}
-        <Route path="analytics" element={<SensorAnalyticsPage />} />
 
         {/* Process Editor. The Unified editor is now the default for creating
             and editing processes (all list/entry links point at unified-editor,

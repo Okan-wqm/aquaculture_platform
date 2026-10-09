@@ -33,6 +33,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import sha256_file
 
 # A liveness guard for the race and crash fixtures — the bound after which a
@@ -203,6 +204,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             convergence_id=f"conv-001{nonce}",
             target_sha=self.target_sha,
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         claim = claim_request(
             request_id=request["request_id"],
@@ -2173,11 +2175,12 @@ class SubmitResultE2ETests(unittest.TestCase):
             allowed_scope=["aria-kernel/**"],
             convergence_id="conv-002",
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.tools),
         )
         # Patch the request row so separation_of_duties forbids judge-worker-001.
         # (Direct edit is fine for the test; in production the planner sets it.)
-        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl
-        req_path = self.tools / "agent-invocations" / "requests.jsonl"
+        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl, segment_paths
+        req_path = segment_paths(self.tools, "agent_invocation_requests")[-1]  # the request's segment
         rows = load_declared_jsonl(req_path, expected_surface="agent_invocation_requests")
         rows[-1]["separation_of_duties"] = {"forbidden_agent_ids": ["judge-worker-001"]}
         rewrite_declared_jsonl(
@@ -2248,6 +2251,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             target_sha=self.target_sha,
             base_dir=self.tools,
             plan_contract=render_plan_contract(self.tools),
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
         claim = claim_request(
             request_id=request["request_id"], agent_id="planner-worker-001", base_dir=self.tools,

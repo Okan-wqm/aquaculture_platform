@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import re
+
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .evidence_probe import GitProbeSession
-from .evidence_trust import EVIDENCE_REF_RE, EvidencePolicy, classify_evidence_ref, parse_evidence_ref
+from .evidence_trust import (
+    EVIDENCE_REF_RE,
+    PATH_KIND_FILE,
+    PATH_KIND_UNRESOLVABLE,
+    EvidencePolicy,
+    classify_evidence_ref,
+    evidence_file_line_count,
+    parse_evidence_ref,
+    stat_evidence_path,
+)
 from .canonical_path import lexical_repo_path
 from .tool_health import SELF_OUTPUT_MARKERS, find_scope_violations
 from .tool_registry import GovernanceError
@@ -280,7 +292,13 @@ def validate_evidence_path(
     if scope_violations:
         errors.append({"code": "evidence_scope_violation", "path": rel_str})
         return envelope
-    if not absolute.exists() or not absolute.is_file():
+    path_stat = stat_evidence_path(absolute)
+    if path_stat.kind == PATH_KIND_UNRESOLVABLE:
+        # ARIA-HIGH-384 review — a stat that cannot answer is a named
+        # refusal, never an OSError out of the validator.
+        errors.append({"code": "evidence_path_unresolvable", "path": raw_path_str, "error": path_stat.error})
+        return envelope
+    if path_stat.kind != PATH_KIND_FILE:
         errors.append({"code": "evidence_path_missing", "path": raw_path_str})
         return envelope
     if require_repo_verified and target_sha is None:
@@ -306,8 +324,10 @@ def validate_evidence_path(
     if not isinstance(line, int) or line <= 0:
         errors.append({"code": "evidence_line_invalid", "path": path, "line": line})
         return envelope
-    line_count = len(absolute.read_text(encoding="utf-8", errors="replace").splitlines())
-    if line > line_count:
+    line_count = evidence_file_line_count(absolute)
+    if line_count is None:
+        errors.append({"code": "evidence_path_unresolvable", "path": path, "error": "unreadable"})
+    elif line > line_count:
         errors.append({"code": "evidence_line_missing", "path": path, "line": line})
     return envelope
 
@@ -327,13 +347,42 @@ def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
 from .canonical_path import _canonical_evidence_path  # noqa: F401
 
 
+# ARIA-HIGH-354 — the closure manifest a coverage round writes lives in the
+# state store (`<tools>/coverage/<plan>-r<N>.json`), and the kernel handed it
+# to the completeness critic as a repo-shaped evidence ref. The critic cited
+# it, the repo law found no such file, the result was refused and the F-007
+# plan went HUMAN_REQUIRED (`convergence_envelope_dead:completeness_critique`,
+# 2026-10-05). The manifest is a kernel record bound by the hash the coverage
+# event carries, so the kernel names it to agents with this pointer, and an
+# agent may cite it only when the envelope it answers carries it.
+COVERAGE_MANIFEST_POINTER_PREFIX = "coverage-manifest:"
+_COVERAGE_MANIFEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*-r[1-9][0-9]*\.json$")
+
+
+def coverage_manifest_pointer(closure_manifest_path: str) -> str:
+    """The agent-citable name of a coverage round's closure manifest."""
+    name = Path(str(closure_manifest_path)).name
+    if not _COVERAGE_MANIFEST_NAME_RE.match(name):
+        raise GovernanceError(f"coverage_manifest_name_invalid: {name!r}")
+    return f"{COVERAGE_MANIFEST_POINTER_PREFIX}{name}"
+
+
+def _is_coverage_manifest_pointer(ref: str) -> bool:
+    return ref.startswith(COVERAGE_MANIFEST_POINTER_PREFIX) and bool(
+        _COVERAGE_MANIFEST_NAME_RE.match(ref[len(COVERAGE_MANIFEST_POINTER_PREFIX):])
+    )
+
+
 def _is_ledger_pointer_ref(ref: str) -> bool:
     """Z2 (ORPHAN-708 follow-through) — THE single definition of a kernel
     ledger pointer. First live panel drain showed three law layers each
     discovering the pointer separately: malformed passed (Z0 fix), then
     repo-verified and allowed-scope each rejected the same ref. Every
     layer now asks this one question; the load-bearing verification of
-    what the pointer NAMES stays at fold time."""
+    what the pointer NAMES stays at fold time (a human-required record) or
+    at the envelope that minted it (a coverage manifest, ARIA-HIGH-354)."""
+    if _is_coverage_manifest_pointer(ref):
+        return True
     return ref.startswith("human-required:") and len(ref) > len("human-required:")
 
 
@@ -353,6 +402,38 @@ ARBITRATION_ROLES: frozenset[str] = frozenset({
     "consensus_arbitration",
     "human_required_adjudication",
 })
+
+
+def state_store_record_refs(refs: Iterable[Any], *, store_root: str | Path) -> list[str]:
+    """The refs among ``refs`` that name a file inside the state store.
+
+    ARIA-HIGH-354 — the mint-side half of the agent evidence law. An agent
+    answers with the refs its envelope hands it, and the submit law judges
+    each one against the repository (or, for ``ARBITRATION_ROLES``, against
+    the results ledger). A store record handed out as a path can only be
+    refused at the submit, after the paid run: the closure manifest was, and
+    the F-007 plan died on it. Store-relative refs are spelled from the
+    store root's parent (``<tools>/coverage/<plan>-r1.json``), so that is
+    where they resolve.
+    """
+    store = Path(store_root).resolve()
+    named: list[str] = []
+    for ref in refs:
+        if not isinstance(ref, str) or _is_ledger_pointer_ref(ref):
+            continue
+        parsed = _parse_agent_ref(ref)
+        if parsed is None:
+            continue
+        candidate = Path(parsed[0])
+        if not candidate.is_absolute():
+            candidate = store.parent / candidate
+        try:
+            resolved = candidate.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if resolved.is_file() and store in resolved.parents:
+            named.append(ref)
+    return named
 
 
 def _artifact_results_ledger(artifact: Path) -> Path | None:
@@ -493,7 +574,13 @@ def _check_agent_ref(
     if not allow_self_output and rel_str.startswith(SELF_OUTPUT_MARKERS):
         errors.append({"code": "agent_evidence_self_output", "path": rel_str})
         return
-    if not absolute.exists() or not absolute.is_file():
+    path_stat = stat_evidence_path(absolute)
+    if path_stat.kind == PATH_KIND_UNRESOLVABLE:
+        # ARIA-HIGH-384 review — ENAMETOOLONG (a 400-char SARIF URI) used to
+        # raise out of here, through the autonomy drain and the whole run.
+        errors.append({"code": "agent_evidence_path_unresolvable", "path": path, "error": path_stat.error})
+        return
+    if path_stat.kind != PATH_KIND_FILE:
         errors.append({"code": "agent_evidence_path_missing", "path": path})
         return
     checked.append(rel_str)
@@ -502,9 +589,170 @@ def _check_agent_ref(
     if line <= 0:
         errors.append({"code": "agent_evidence_line_invalid", "path": path, "line": line})
         return
-    line_count = len(absolute.read_text(encoding="utf-8", errors="replace").splitlines())
+    line_count = evidence_file_line_count(absolute)
+    if line_count is None:
+        errors.append({"code": "agent_evidence_path_unresolvable", "path": path, "error": "unreadable"})
+        return
     if line > line_count:
         errors.append({"code": "agent_evidence_line_missing", "path": path, "line": line, "line_count": line_count})
+
+
+# NAME_MAX of every file system a checkout lives on here (ext4, xfs, btrfs,
+# overlayfs): a ref with a longer component names no file any tree can hold.
+MAX_PATH_COMPONENT_BYTES = 255
+
+
+def _nameable_path(path: str) -> bool:
+    """False when ``path`` holds a C0/C1 control character or cannot be encoded as UTF-8."""
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in path):
+        return False
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def agent_ref_shape_refusal(ref: Any) -> str | None:
+    """The rejection code the agent evidence law gives ``ref`` before it opens a checkout; ``None`` when the shape passes.
+
+    ARIA-HIGH-384 — the half of :func:`_check_agent_ref` that needs no
+    repository: a ledger pointer passes; a ref outside the ``path[:line]``
+    grammar is ``agent_evidence_ref_malformed``; a path that is absolute or
+    leaves the root is ``agent_evidence_path_escapes_workspace``; a path with a
+    control character, a lone surrogate, or a component longer than
+    ``MAX_PATH_COMPONENT_BYTES`` is ``agent_evidence_path_unresolvable``; ARIA's own output is
+    ``agent_evidence_self_output``. Every ref this refuses, the
+    submit law refuses with the same code, so a kernel producer or mint that
+    asks this function can never hand an agent a ref its answer will be
+    rejected for citing. (An absolute path is refused here even when it would
+    resolve inside a checkout: the kernel names repo files repo-relatively,
+    and an absolute spelling names a host, not the tree at ``target_sha``.)
+    Existence and the blob at ``target_sha`` stay with
+    :func:`admissible_agent_evidence_refs`, which needs the checkout.
+    """
+    from .canonical_path import resolve_repo_relpath
+    from .evidence_trust import is_self_output_ref
+
+    if not isinstance(ref, str) or not ref.strip():
+        return "agent_evidence_ref_not_string"
+    if _is_ledger_pointer_ref(ref):
+        return None
+    parsed = _parse_agent_ref(ref)
+    if parsed is None:
+        return "agent_evidence_ref_malformed"
+    try:
+        canonical = resolve_repo_relpath(parsed[0])
+    except GovernanceError:
+        return "agent_evidence_path_escapes_workspace"
+    if not _nameable_path(canonical):
+        # A control character (NUL above all) or a lone surrogate names no
+        # file: the OS refuses the path outright, and the submit law's stat
+        # refuses it under the same code.
+        return "agent_evidence_path_unresolvable"
+    if any(len(part.encode("utf-8")) > MAX_PATH_COMPONENT_BYTES for part in canonical.split("/")):
+        # No checkout can hold such a name; the submit law's stat refuses it
+        # under the same code (ENAMETOOLONG).
+        return "agent_evidence_path_unresolvable"
+    if is_self_output_ref(parsed[0]):
+        return "agent_evidence_self_output"
+    return None
+
+
+def _judge_agent_ref(
+    ref: str,
+    *,
+    root: Path,
+    target_sha: str | None,
+    probe_session: GitProbeSession,
+    allow_kernel_artifacts: bool,
+    errors: list[dict[str, Any]],
+    checked: list[str],
+    evidence_envelopes: list[dict[str, Any]],
+) -> None:
+    """THE rule for one agent evidence ref: grammar, repo path, line, committed at ``target_sha``.
+
+    ORPHAN-HIGH-519 — the submit path and plan synthesis ask this one function,
+    so a plan the kernel mints cites only refs its challenger can cite back.
+    """
+    _check_agent_ref(
+        ref, root=root, errors=errors, checked=checked,
+        allow_kernel_artifacts=allow_kernel_artifacts,
+    )
+    if _is_ledger_pointer_ref(ref):
+        return  # Z2 — a ledger pointer has no repo classification
+    if allow_kernel_artifacts and _kernel_artifact_verdict(ref, root)[0]:
+        # Verified by content hash against the results ledger — the repo
+        # classification below cannot describe it (the artifact is
+        # state-store-owned and was never meant to be committed).
+        return
+    envelope = classify_evidence_ref(
+        ref,
+        workspace_root=root,
+        source_hint="agent_output",
+        target_sha=target_sha,
+        probe_session=probe_session,
+    )
+    evidence_envelopes.append(envelope.to_dict())
+    try:
+        EvidencePolicy.require_repo_verified(envelope)
+    except GovernanceError as exc:
+        errors.append({
+            "code": _unverified_evidence_code("agent", envelope.trust_grade),
+            "ref": ref,
+            "reason": str(exc),
+        })
+
+
+# ORPHAN-HIGH-519 — why a plan candidate is not minted: it offered no ref
+# the challenger's rule admits. Spends an operator request unless every
+# refusal is the harness's (``AgentEvidenceAdmission.harness_fault``).
+PLAN_EVIDENCE_INADMISSIBLE = "plan_evidence_inadmissible"
+_HARNESS_EVIDENCE_CODES: frozenset[str] = frozenset(
+    _unverified_evidence_code("agent", grade) for grade in _UNVERIFIED_GRADE_CODE_SUFFIX
+)
+
+
+@dataclass(frozen=True)
+class AgentEvidenceAdmission:
+    """Refs the agent rule admits, and each refused ref with its rejection codes."""
+
+    admitted: tuple[str, ...]
+    refused: tuple[dict[str, Any], ...]
+
+    @property
+    def harness_fault(self) -> bool:
+        """Nothing admitted and every refusal says the harness could not verify."""
+        codes = {code for entry in self.refused for code in entry["codes"]}
+        return not self.admitted and bool(codes) and codes <= _HARNESS_EVIDENCE_CODES
+
+
+def admissible_agent_evidence_refs(
+    refs: Iterable[Any], *, workspace_root: str | Path, target_sha: str | None,
+) -> AgentEvidenceAdmission:
+    """Each ref judged by :func:`_judge_agent_ref` at ``target_sha``, one probe session for all.
+
+    ``target_sha`` is the commit the planning envelope will name (the drainer
+    threads the checkout HEAD), so admitted here means admitted at the submit.
+    """
+    root = Path(workspace_root).resolve()
+    session = GitProbeSession()
+    admitted: list[str] = []
+    refused: list[dict[str, Any]] = []
+    for ref in refs:
+        errors: list[dict[str, Any]] = []
+        if not isinstance(ref, str) or not ref.strip():
+            errors.append({"code": "agent_evidence_ref_not_string"})
+        else:
+            _judge_agent_ref(
+                ref, root=root, target_sha=target_sha, probe_session=session,
+                allow_kernel_artifacts=False, errors=errors, checked=[], evidence_envelopes=[],
+            )
+        if errors:
+            refused.append({"ref": ref, "codes": [str(error["code"]) for error in errors]})
+        else:
+            admitted.append(ref)
+    return AgentEvidenceAdmission(tuple(admitted), tuple(refused))
 
 
 def validate_agent_response_evidence(
@@ -549,6 +797,14 @@ def validate_agent_response_evidence(
     # and every ref grades `verification_unavailable` rather than being
     # compared against an anchor the submitter did not cite.
     probe_session = probe_session if probe_session is not None else GitProbeSession()
+    target_sha = _request_target_sha(request)
+
+    def judge(ref: str) -> None:
+        _judge_agent_ref(
+            ref, root=root, target_sha=target_sha, probe_session=probe_session,
+            allow_kernel_artifacts=allow_kernel_artifacts, errors=errors,
+            checked=checked, evidence_envelopes=evidence_envelopes,
+        )
 
     response_refs = response.get("evidence_refs") or []
     if not isinstance(response_refs, list):
@@ -558,33 +814,7 @@ def validate_agent_response_evidence(
         if not isinstance(ref, str) or not ref.strip():
             errors.append({"code": "agent_evidence_ref_not_string"})
             continue
-        _check_agent_ref(
-            ref, root=root, errors=errors, checked=checked,
-            allow_kernel_artifacts=allow_kernel_artifacts,
-        )
-        if _is_ledger_pointer_ref(ref):
-            continue  # Z2 — a ledger pointer has no repo classification
-        if allow_kernel_artifacts and _kernel_artifact_verdict(ref, root)[0]:
-            # Verified by content hash against the results ledger — the
-            # repo classification below cannot describe it (the artifact
-            # is state-store-owned and was never meant to be committed).
-            continue
-        envelope = classify_evidence_ref(
-            ref,
-            workspace_root=root,
-            source_hint="agent_output",
-            target_sha=_request_target_sha(request),
-            probe_session=probe_session,
-        )
-        evidence_envelopes.append(envelope.to_dict())
-        try:
-            EvidencePolicy.require_repo_verified(envelope)
-        except GovernanceError as exc:
-            errors.append({
-                "code": _unverified_evidence_code("agent", envelope.trust_grade),
-                "ref": ref,
-                "reason": str(exc),
-            })
+        judge(ref)
 
     # Plan 024 §B-2 — satisfaction_matrix non-empty enforcement.
     # Pre-fix an agent response with `satisfaction_matrix: []` passed
@@ -612,30 +842,7 @@ def validate_agent_response_evidence(
                         {"code": "agent_matrix_evidence_ref_not_string", "id": entry.get("id")}
                     )
                     continue
-                _check_agent_ref(
-                    ref, root=root, errors=errors, checked=checked,
-                    allow_kernel_artifacts=allow_kernel_artifacts,
-                )
-                if _is_ledger_pointer_ref(ref):
-                    continue  # Z2 — same single definition as above
-                if allow_kernel_artifacts and _kernel_artifact_verdict(ref, root)[0]:
-                    continue  # ORPHAN-734 — same single definition as above
-                envelope = classify_evidence_ref(
-                    ref,
-                    workspace_root=root,
-                    source_hint="agent_output",
-                    target_sha=_request_target_sha(request),
-                    probe_session=probe_session,
-                )
-                evidence_envelopes.append(envelope.to_dict())
-                try:
-                    EvidencePolicy.require_repo_verified(envelope)
-                except GovernanceError as exc:
-                    errors.append({
-                        "code": _unverified_evidence_code("agent", envelope.trust_grade),
-                        "ref": ref,
-                        "reason": str(exc),
-                    })
+                judge(ref)
 
     # Cross-check: when a request is provided, every ref the agent
     # claims must either live inside `allowed_scope` OR be one of the
@@ -654,13 +861,22 @@ def validate_agent_response_evidence(
         if "allowed_scope" not in request:
             errors.append({"code": "evidence_request_missing_allowed_scope"})
         else:
-            allowed_globs = list(request.get("allowed_scope") or [])
+            # ARIA-HIGH-357 — a planning-round envelope's read-only evidence
+            # scope (ADR-0021 D9) is citable, never writable.
+            allowed_globs = [*(request.get("allowed_scope") or []), *(request.get("evidence_scope") or [])]
             allowed_request_refs = {
                 (_parse_agent_ref(r) or ("", None))[0]
                 for r in (request.get("evidence_refs") or [])
                 if isinstance(r, str)
             }
+            request_refs = {r for r in (request.get("evidence_refs") or []) if isinstance(r, str)}
             for path in checked:
+                if _is_coverage_manifest_pointer(path) and path not in request_refs:
+                    # ARIA-HIGH-354 — the manifest's bytes are bound by the
+                    # envelope that names it; a pointer the envelope does not
+                    # carry names a manifest nobody handed this agent.
+                    errors.append({"code": "agent_evidence_pointer_unbound", "ref": path})
+                    continue
                 if _is_ledger_pointer_ref(path):
                     continue  # Z2 — pointer identity is bound at mint, not by glob
                 if allow_kernel_artifacts and _kernel_artifact_verdict(path, root)[0]:

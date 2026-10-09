@@ -9,7 +9,9 @@ Closes:
   * arb MED-004 (explicit source priority order)
   * ai HIGH-010 (operator-feedback signature verification)
   * perf HIGH-005 (per-source slow-source detection)
-  * perf HIGH-006 (F-finding aging stat-only)
+  * perf HIGH-006 (F-finding aging stat-only; superseded by ARIA-MEDIUM-330:
+    the scan reads the finding-event fold, the one authority for which
+    findings exist)
   * perf HIGH-008 (pattern_signature cardinality guard)
 """
 from __future__ import annotations
@@ -25,6 +27,7 @@ from unittest import mock
 from . import _helpers  # noqa: F401
 
 from aria_kernel import plan_synthesizer as _ps
+from aria_kernel.finding import fold_findings
 from aria_kernel.plan_candidate_source import PlanCandidateSource
 
 
@@ -87,33 +90,42 @@ class TestV9FFindingScanner(unittest.TestCase):
 
     def test_scan_missing_dir_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(_ps.scan_f_findings(tmp), [])
-
-    def test_scan_uses_stat_only_no_json_parse(self):
-        """perf HIGH-006 — JSON body NOT parsed until candidate
-        selected. Verify by creating a malformed JSON file; scan
-        MUST succeed (only stat is used)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            findings = Path(tmp) / "aria-findings"
-            findings.mkdir()
-            bad = findings / "F-999.json"
-            bad.write_text("this is not valid json at all >>> }}}")
-            results = _ps.scan_f_findings(tmp)
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]["candidate_id"], "F-999")
+            self.assertEqual(_ps.scan_f_findings(fold_findings(tmp)), [])
 
     def test_scan_orders_oldest_first(self):
+        """Age is the folded record's created_at (ARIA-MEDIUM-330), not a file mtime."""
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
         with tempfile.TemporaryDirectory() as tmp:
             findings = Path(tmp) / "aria-findings"
             findings.mkdir()
-            a = findings / "F-001.json"
-            a.write_text("{}")
-            time.sleep(0.05)
-            b = findings / "F-002.json"
-            b.write_text("{}")
-            os.utime(a, (time.time() - 1000, time.time() - 1000))  # older
-            results = _ps.scan_f_findings(tmp)
-            self.assertEqual(results[0]["candidate_id"], "F-001")
+            for finding_id, created_at in (("F-002", "2026-09-02T00:00:00Z"),
+                                           ("F-001", "2026-09-01T00:00:00Z")):
+                append_declared_fixture(findings / "finding-events.jsonl", {
+                    "schema_version": 1, "event": "finding_emitted",
+                    "event_id": f"finding:{finding_id}:emitted", "finding_id": finding_id,
+                    "record": {"finding_id": finding_id, "status": "OPEN", "created_at": created_at},
+                }, expected_surface="repo_finding_events")
+            results = _ps.scan_f_findings(fold_findings(tmp))
+            self.assertEqual([c["candidate_id"] for c in results], ["F-001", "F-002"])
+            self.assertGreater(results[0]["age_seconds"], results[1]["age_seconds"])
+
+    def test_scan_ignores_a_finding_file_the_ledger_never_emitted(self):
+        """ARIA-MEDIUM-330 — the fold, not the directory, says which findings exist."""
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = Path(tmp) / "aria-findings"
+            findings.mkdir()
+            record = {"finding_id": "F-001", "status": "OPEN", "created_at": "2026-09-01T00:00:00Z"}
+            append_declared_fixture(findings / "finding-events.jsonl", {
+                "schema_version": 1, "event": "finding_emitted", "event_id": "finding:F-001:emitted",
+                "finding_id": "F-001", "record": record,
+            }, expected_surface="repo_finding_events")
+            (findings / "F-001.json").write_text(json.dumps(record))
+            (findings / "F-101.json").write_text(json.dumps({"id": "F-101", "status": "OPEN"}))
+            results = _ps.scan_f_findings(fold_findings(tmp))
+            self.assertEqual([c["candidate_id"] for c in results], ["F-001"])
 
 
 class TestV9OperatorFeedbackSignature(unittest.TestCase):
@@ -414,13 +426,17 @@ class TestV9FailingCiIsCurrentlyRed(unittest.TestCase):
 
     def _scan(self, rows):
         calls = []
+        # ORPHAN-HIGH-519 — after the run list, the scanner asks for the
+        # workflow paths and each red run's jobs; this suite pins the verdict,
+        # so those answer nothing.
+        answers = {("run", "list"): rows, ("workflow", "list"): [], ("run", "view"): {"jobs": []}}
 
         def fake_run(argv, **kwargs):
             calls.append(argv)
 
             class _Result:
                 returncode = 0
-                stdout = json.dumps(rows)
+                stdout = json.dumps(answers[(argv[1], argv[2])])
                 stderr = ""
             return _Result()
 
@@ -429,7 +445,7 @@ class TestV9FailingCiIsCurrentlyRed(unittest.TestCase):
                 with mock.patch("shutil.which", return_value="/usr/bin/gh"):
                     with mock.patch.dict(os.environ, {"ARIA_DRY_RUN": ""}):
                         result = _ps.scan_failing_ci(tmp, cache_dir=tmp)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual([argv[1:3] for argv in calls].count(["run", "list"]), 1)
         return result, calls[0]
 
     def test_workflow_that_went_green_supplies_no_candidate(self):

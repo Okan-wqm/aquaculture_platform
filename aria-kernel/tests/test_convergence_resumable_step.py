@@ -24,7 +24,8 @@ from pathlib import Path
 from unittest import mock
 
 from aria_kernel import convergence_drainer as cd
-from aria_kernel.ledger import load_jsonl
+from aria_kernel.ledger import load_jsonl, load_segments
+from tests._helpers.declared_fixtures import native_invocation_bytes
 from aria_kernel.plan_convergence import (
     content_hash,
     events_path,
@@ -35,8 +36,6 @@ from aria_kernel.plan_convergence import (
     start_plan,
     submit_challenger_plan,
 )
-
-_MS = [{"id": "MS-1", "kind": "obligation", "description": "do x", "source": "test"}]
 
 
 class _StepCase(unittest.TestCase):
@@ -78,17 +77,11 @@ class _StepCase(unittest.TestCase):
             workspace_root=self.root,
             plan_id="plan-1",
             plan_seed=self.plan(),
-            must_satisfy=list(_MS),
-            evidence_refs=["docs/aria/SPEC.md"],
-            allowed_scope=["aria-kernel/**"],
             max_rounds=4,
         )
 
     def requests(self) -> list[dict]:
-        path = self.tools / "agent-invocations" / "requests.jsonl"
-        if not path.exists():
-            return []
-        return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        return load_segments(self.tools, "agent_invocation_requests")
 
     def _cross_task(self, task_id: str, reviewer: str, direction: str, rev: str, h: str) -> dict:
         from datetime import datetime, timedelta, timezone
@@ -181,6 +174,17 @@ class PlannerTwinContextTests(_StepCase):
         body["affected_surfaces"] = [{"paths": ["aria-kernel/aria_kernel/knowledge_graph.py", "web/non-authorizing-hint.ts"]}]
         return body
 
+    def started_scope(self) -> list[str]:
+        """ARIA-HIGH-345 — a round envelope's scope is the paths the plan STARTED with.
+
+        Never a caller's value and never a later revision's surfaces: the
+        revised and reviewed bodies below name other files, and the scope
+        still reads the start record.
+        """
+        from aria_kernel.plan_origin import body_paths
+        started = fold_plan_state(plan_id="plan-1", base_dir=self.tools)["plan_started"]["plan_content"]
+        return list(dict.fromkeys(body_paths(started)))
+
     def _assert_native_current_body(self, role: str, body: dict, *, cycle_id="cyc-step", scope=None,
                                     expected_feature="knowledge_graph.conventions_for_paths") -> dict:
         rows = [row for row in self.requests() if row["role"] == role]
@@ -194,7 +198,7 @@ class PlannerTwinContextTests(_StepCase):
         from aria_kernel import agent_invocations as ai
         self.assertEqual(request["evidence_refs"], body["evidence_refs"])
         self.assertEqual(request["plan_revision_hash"], content_hash(body))
-        self.assertEqual(request["allowed_scope"], scope or ["aria-kernel/**"])
+        self.assertEqual(request["allowed_scope"], scope or self.started_scope())
         self.assertEqual(request["cycle_id"], cycle_id)
         native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],
                                                      prompt_hash=request["prompt_hash"], base_dir=self.tools)
@@ -222,17 +226,14 @@ class PlannerTwinContextTests(_StepCase):
         result = self.step()  # The ordinary resumed caller still supplies the old seed/refs.
         self.assertEqual(result["arbiter_verdict"], "in_progress")
         self._assert_native_current_body("challenger_plan", body)
-        before = {name: (self.tools / f"agent-invocations/{name}.jsonl").read_bytes()
-                  for name in ("requests", "contexts", "prompts")}
+        before = native_invocation_bytes(self.tools)
         self.step()
-        for name, data in before.items():
-            self.assertEqual((self.tools / f"agent-invocations/{name}.jsonl").read_bytes(), data)
+        self.assertEqual(native_invocation_bytes(self.tools), before)
 
     def test_initial_step_uses_the_body_actually_recorded_before_mint(self) -> None:
         body = self._prepare_named_planner_source()
         result = cd.run_convergence_drainer(cycle_id="cyc-step", base_dir=self.tools, workspace_root=self.root,
-                                           plan_id="plan-1", plan_seed=body, must_satisfy=list(_MS),
-                                           evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-kernel/**"])
+                                           plan_id="plan-1", plan_seed=body)
         self.assertEqual(result["arbiter_verdict"], "in_progress")
         state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
         self.assertEqual(state["plan_started"]["plan_content"], body)
@@ -244,8 +245,7 @@ class PlannerTwinContextTests(_StepCase):
         start_plan(plan_id="plan-1", initial_revision_id="rev-0", plan_content=body, base_dir=self.tools)
         result = advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)
         self.assertEqual(result["status"], "challenger_request_opened")
-        self._assert_native_current_body("challenger_plan", body, cycle_id=None,
-                                         scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
+        self._assert_native_current_body("challenger_plan", body, cycle_id=None)
 
     def test_real_cli_advance_rounds_delivers_explicit_source_root(self) -> None:
         import io
@@ -261,8 +261,7 @@ class PlannerTwinContextTests(_StepCase):
                 code = exc.code
         self.assertEqual(code, 0, stderr.getvalue())
         self.assertEqual(json.loads(stdout.getvalue())["status"], "challenger_request_opened")
-        self._assert_native_current_body("challenger_plan", body, cycle_id=None,
-                                         scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
+        self._assert_native_current_body("challenger_plan", body, cycle_id=None)
 
     def test_controller_without_source_root_keeps_legacy_optional_context(self) -> None:
         from aria_kernel.plan_round_controller import advance_plan_rounds
@@ -272,7 +271,7 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(advance_plan_rounds(plan_id="plan-1", base_dir=self.tools)["status"], "challenger_request_opened")
         request = next(row for row in self.requests() if row["role"] == "challenger_plan")
         self.assertEqual(request["evidence_refs"], body["evidence_refs"])
-        self.assertEqual(request["allowed_scope"], ["aria-kernel/**", "aria-tools/**", ".claude/**"])
+        self.assertEqual(request["allowed_scope"], self.started_scope())
         self.assertIsNone(request["target_sha"])
         self.assertNotIn("self_features", request["repository_map"])
         native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],
@@ -292,7 +291,7 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(result["arbiter_verdict"], "in_progress")
         request = next(row for row in self.requests() if row["role"] == "challenger_plan")
         self.assertEqual(request["evidence_refs"], ["cycle:cyc-step"])
-        self.assertEqual(request["allowed_scope"], ["aria-kernel/**"])
+        self.assertEqual(request["allowed_scope"], ["aria-kernel/aria_kernel/knowledge_graph.py"])
         self.assertEqual(request["plan_revision_hash"], content_hash(body))
         self.assertIn("aria-kernel/aria_kernel/knowledge_graph.py",
                       {entry["file"] for entry in request["repository_map"]["files"]},
@@ -316,14 +315,19 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(self.step()["arbiter_verdict"], "in_progress")
         request = next(row for row in self.requests() if row["role"] == "challenger_plan")
         self.assertEqual(request["evidence_refs"], ["cycle:cyc-step"])
-        self.assertEqual(request["allowed_scope"], ["aria-kernel/**"])
+        self.assertEqual(request["allowed_scope"], [literal, "aria-kernel/**", long_path])
         self.assertEqual(request["context_source_paths"], [literal])
         self.assertEqual(request["context_source_paths_status"], {
             "status": "partial", "reason": "unsupported_literal_hints", "supplied_count": 3,
             "accepted_count": 1, "omitted_count": 2,
         })
         prompt = ai.render_invocation_prompt(request)
-        self.assertNotIn(long_path, prompt)
+        # ARIA-HIGH-345 — the long path is one of the plan's own surfaces, so
+        # the Allowed scope section names it; no source-context section
+        # expands it.
+        scope_section = prompt.split("## Allowed scope\n\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn(long_path, scope_section)
+        self.assertNotIn(long_path, prompt.replace(scope_section, ""))
         self.assertIn("unsupported_literal_hints", prompt)
         self.assertIn("knowledge_graph.conventions_for_paths", prompt)
         self.assertEqual(ai.render_invocation_prompt(ai.fuse_prompt_envelope(request)), prompt)
@@ -398,7 +402,6 @@ class PlannerTwinContextTests(_StepCase):
         result = advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)
         self.assertEqual(result["status"], "challenger_request_opened")
         self._assert_native_current_body("challenger_plan", revised, cycle_id=None,
-                                         scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
                                          expected_feature="runtime_artifacts.autonomy_output_summary")
 
     def test_cross_review_drainer_preserves_current_source_context_and_both_proposals(self) -> None:
@@ -434,14 +437,11 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual({json.loads(row["suggested_prompt"])["task"]["review_direction"] for row in requests},
                          {"primary_to_challenger", "challenger_to_primary"})
         for request in requests:
-            self._assert_native_body_request(request, body, cycle_id=None,
-                                             scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
+            self._assert_native_body_request(request, body, cycle_id=None)
             self.assertEqual(request["context_source_paths"], ["aria-kernel/aria_kernel/knowledge_graph.py", "web/non-authorizing-hint.ts"])
-        before = {name: (self.tools / f"agent-invocations/{name}.jsonl").read_bytes()
-                  for name in ("requests", "contexts", "prompts")}
+        before = native_invocation_bytes(self.tools)
         self.assertEqual(advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)["status"], "waiting_for_reviews")
-        for name, data in before.items():
-            self.assertEqual((self.tools / f"agent-invocations/{name}.jsonl").read_bytes(), data)
+        self.assertEqual(native_invocation_bytes(self.tools), before)
 
     def test_later_primary_controller_forwards_current_body_and_explicit_root(self) -> None:
         from aria_kernel.plan_round_controller import advance_plan_rounds
@@ -452,8 +452,7 @@ class PlannerTwinContextTests(_StepCase):
         result = advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)
         self.assertEqual(result["status"], "primary_revision_requested")
         self.assertEqual(result["state"], "CROSS_REVIEWED")
-        request = self._assert_native_current_body("primary_plan", body, cycle_id=None,
-                                                  scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
+        request = self._assert_native_current_body("primary_plan", body, cycle_id=None)
         self.assertEqual(request["round_number"], 2)
         self.assertEqual(request["context_source_paths"], ["aria-kernel/aria_kernel/knowledge_graph.py", "web/non-authorizing-hint.ts"])
 
@@ -494,7 +493,9 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(primary_text, prose)
         self.assertNotIn("PRIMARY_PROPOSAL_ONLY", request["suggested_prompt"])
         self.assertIn("ordinary independent challenger proposal", request["suggested_prompt"])
-        self.assertEqual(request["evidence_refs"], ["docs/aria/SPEC.md"])
+        # ARIA-HIGH-345 — with no structured current body, the refs fall back
+        # to the plan's own start record, never to a caller's value.
+        self.assertEqual(request["evidence_refs"], body["evidence_refs"])
         self.assertIsNone(request["plan_revision_hash"])
         self.assertNotIn("context_source_paths", request)
         native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],
@@ -505,7 +506,6 @@ class PlannerTwinContextTests(_StepCase):
     def test_real_discovery_twin_reaches_challenger_context(self) -> None:
         from aria_kernel import agent_invocations as ai
         from aria_kernel.cycle import _phase_discovery, _phase_twin_refresh, build_phase_context
-        from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import _git
 
@@ -536,8 +536,7 @@ class PlannerTwinContextTests(_StepCase):
                    plan_content=self.plan(), base_dir=self.tools)
         result = self.step()
         self.assertEqual(result["arbiter_verdict"], "in_progress")
-        requests_path = self.tools / "agent-invocations/requests.jsonl"
-        requests = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests")
+        requests = load_segments(self.tools, "agent_invocation_requests")
         challengers = [row for row in requests if row["role"] == "challenger_plan"]
         self.assertEqual(len(challengers), 1)
         request = challengers[0]
@@ -553,12 +552,10 @@ class PlannerTwinContextTests(_StepCase):
             {"repo_root": binding["context"]["repo_root"], "cycle_id": request["cycle_id"]},
             {"repo_root": str(self.root.resolve()), "cycle_id": "cyc-step"},
         )
-        before = {name: (self.tools / f"agent-invocations/{name}.jsonl").read_bytes()
-                  for name in ("requests", "contexts", "prompts")}
+        before = native_invocation_bytes(self.tools)
         repeated = self.step()
         self.assertEqual(repeated["arbiter_verdict"], "in_progress")
-        for name, content in before.items():
-            self.assertEqual((self.tools / f"agent-invocations/{name}.jsonl").read_bytes(), content)
+        self.assertEqual(native_invocation_bytes(self.tools), before)
 
 
 class NoStepEverSleeps(_StepCase):
@@ -655,13 +652,13 @@ class CrossCycleConvergence(_StepCase):
             plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "CROSS_REVIEWED",
         )
         # Cycle 3: CROSS_REVIEWED → evaluate → terminal (schema v1: no
-        # coverage gate; zero risks converge). Independence may honestly
-        # downgrade (the kernel-native folds carry no claim trail), so the
-        # pin is: a TERMINAL verdict with zero polling governance rows.
-        third = self.step()
-        self.assertIn(
-            third["arbiter_verdict"], {"converged", "cross_review_self_agreement"},
-        )
+        # coverage gate; zero risks converge). The kernel-native folds carry
+        # no claim trail, so the independence gate (ARIA-HIGH-375, its own
+        # tests in test_converged_independence_gate.py) is answered here: the
+        # pin is a CONVERGED plan reached with zero polling governance rows.
+        with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):
+            third = self.step()
+        self.assertEqual(third["arbiter_verdict"], "converged")
         self.assertEqual(
             plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "CONVERGED",
         )
@@ -740,29 +737,65 @@ class PlanContractCarriedToThePrimary(_StepCase):
 
 
 class DeadEnvelope(_StepCase):
-    def test_dead_envelope_forces_honest_terminal_not_an_orbit(self) -> None:
-        # Retry budgeting lives at the request layer (Y1) and bridge
-        # mints are idempotent, so a dead envelope cannot be re-minted —
-        # the step must escalate to a TERMINAL HUMAN_REQUIRED instead of
-        # returning in_progress forever.
+    """ARIA-HIGH-355 — a dead step envelope gets bounded successors, then a terminal.
+
+    The drainer used to escalate on the first non-live request. That buried
+    plans for queue mechanics (an anchor older than three days) and for an
+    answer the evidence law refused. The step now mints a successor with
+    `remint_of` lineage, within `MAX_STEP_REQUEST_REMINTS`, then escalates.
+    It never returns in_progress forever.
+    """
+
+    def _start(self) -> None:
         start_plan(
             plan_id="plan-1", initial_revision_id="rev-0",
             plan_content=self.plan(), base_dir=self.tools,
         )
-        first = self.step()
-        self.assertEqual(first["arbiter_verdict"], "in_progress")
-        with mock.patch.object(cd, "_live_request_id", return_value=None):
-            second = self.step()
-        self.assertNotEqual(second["arbiter_verdict"], "in_progress")
-        self.assertEqual(
-            plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "HUMAN_REQUIRED",
-        )
+        self.assertEqual(self.step()["arbiter_verdict"], "in_progress")
+
+    def _step_with_every_request(self, state: str) -> dict:
+        from aria_kernel import agent_invocations as ai
+
+        with mock.patch.object(ai, "derive_request_state", return_value=state):
+            return self.step()
+
+    def challengers(self) -> list[dict]:
+        return [row for row in self.requests() if row["role"] == "challenger_plan"]
+
+    def test_a_dead_envelope_is_succeeded_then_escalated_never_orbited(self) -> None:
+        from aria_kernel.step_request import MAX_STEP_REQUEST_REMINTS
+
+        self._start()
+        for successor in range(1, MAX_STEP_REQUEST_REMINTS + 1):
+            result = self._step_with_every_request("ANCHOR_STALE")
+            self.assertEqual(result["arbiter_verdict"], "in_progress")
+            rows = self.challengers()
+            self.assertEqual(len(rows), successor + 1)
+            self.assertEqual(rows[-1]["remint_of"], rows[-2]["request_id"])
+        exhausted = self._step_with_every_request("ANCHOR_STALE")
+        self.assertNotEqual(exhausted["arbiter_verdict"], "in_progress")
+        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "HUMAN_REQUIRED")
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
-        self.assertIn("convergence_envelope_dead", gov)
+        self.assertEqual(gov.count('"kind":"convergence_envelope_reminted"'), MAX_STEP_REQUEST_REMINTS)
+        self.assertIn('"disposition":"exhausted"', gov)
         # Next cycle: terminal plan short-circuits — fresh plans are the
         # adopter's business, not this one's.
-        final = self.step()
-        self.assertNotEqual(final["arbiter_verdict"], "in_progress")
+        self.assertNotEqual(self.step()["arbiter_verdict"], "in_progress")
+
+    def test_a_refused_planner_answer_is_succeeded(self) -> None:
+        self._start()
+        self.assertEqual(self._step_with_every_request("REJECTED")["arbiter_verdict"], "in_progress")
+        rows = self.challengers()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["remint_of"], rows[0]["request_id"])
+
+    def test_an_outcome_no_successor_can_change_escalates_at_once(self) -> None:
+        self._start()
+        result = self._step_with_every_request("ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL")
+        self.assertNotEqual(result["arbiter_verdict"], "in_progress")
+        self.assertEqual(len(self.challengers()), 1)
+        gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"disposition":"outcome"', gov)
 
 
 if __name__ == "__main__":

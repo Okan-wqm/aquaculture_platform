@@ -4,7 +4,7 @@ Deliberate-break of the whole C4 arc: C4-a minted operator approvals,
 C4-b derived sandbox evidence, C4-c recorded the prefix chain up to
 DRAFT — yet `_target_is_shadow` had never once flipped TRUE through a
 production-shaped path, because nothing joined a completed invocation's
-ledger rows to `run_agent_eval(mock_mode=False)` and the two
+ledger rows to `run_agent_eval` and the two
 REAL_SANDBOX/SHADOW transitions. These tests prove the bridge closes
 that gap end-to-end, and that a tampered transcript hash or a missing
 operator-provenance row still refuses.
@@ -31,6 +31,7 @@ from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.operator_provenance import record_operator_approval
 from aria_kernel.shadow_eval_bridge import bridge_shadow_eval_from_invocation
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 from tests._helpers.operator_acts import operator_set_profile
 
 AGENT = "aria-bridge-candidate"
@@ -256,6 +257,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
                 must_satisfy=[{"id": "m1", "predicate": "pass"}],
                 allowed_scope=["libs/example/**"],
                 base_dir=self.tools,
+                admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.tools),
             )
 
     # -- refusals --------------------------------------------------------

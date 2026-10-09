@@ -18,7 +18,7 @@ from aria_kernel.convergent_planning_bridge import (
     issue_challenger_envelope,
     start_convergent_plan_drafted_by_primary,
 )
-from aria_kernel.ledger import load_jsonl
+from aria_kernel.ledger import load_segments
 from aria_kernel.skill_genesis import (
     draft_skill,
     list_skill_genesis,
@@ -26,6 +26,7 @@ from aria_kernel.skill_genesis import (
     sandbox_skill,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 def _seed_tools() -> Path:
@@ -71,10 +72,8 @@ class ConvergentPlanBridgeTests(unittest.TestCase):
         self.assertNotIn("primary_request", result,
                          "V8: round-1 has NO primary envelope (cycle_runner's plan_content IS the primary draft)")
         # No envelope rows in the requests ledger yet
-        requests_path = self.tools / "agent-invocations" / "requests.jsonl"
-        if requests_path.exists():
-            rows = load_jsonl(requests_path)
-            self.assertEqual(len(rows), 0, "V8: no envelopes minted at plan-start")
+        self.assertEqual(load_segments(self.tools, "agent_invocation_requests"), [],
+                         "V8: no envelopes minted at plan-start")
 
     def test_empty_plan_content_rejected(self) -> None:
         args = self._good_plan_args()
@@ -93,11 +92,12 @@ class ConvergentPlanBridgeTests(unittest.TestCase):
             allowed_scope=["aria-kernel/**"],
             evidence_refs=["docs/aria/SPEC.md:53"],
             base_dir=self.tools,
+            admission=admit_request("convergence_drainer.plan_step", "challenger_plan", base_dir=self.tools),
         )
         self.assertEqual(challenger["target_agent"], "aria-challenger-planner")
         self.assertEqual(challenger["role"], "challenger_plan")
         self.assertEqual(challenger["round_number"], 1)
-        rows = load_jsonl(self.tools / "agent-invocations" / "requests.jsonl")
+        rows = load_segments(self.tools, "agent_invocation_requests")
         # Round-1 envelopes minted so far: just challenger (cross_review
         # mints later in the drainer flow)
         self.assertEqual(len(rows), 1)

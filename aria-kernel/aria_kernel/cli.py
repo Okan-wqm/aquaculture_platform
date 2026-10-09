@@ -70,6 +70,7 @@ from aria_kernel.mission import (
     transition_mission,
 )
 from aria_kernel.plan_round_controller import advance_plan_rounds
+from aria_kernel.request_admission import admit_request
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
 from aria_kernel.state_store import STATE_BRANCH
 from aria_kernel.plan_convergence import (
@@ -518,6 +519,8 @@ def _handle_state_command(args: argparse.Namespace) -> int:
     # argument.
     if args.state_command in {"compact", "checkout", "publish", "verify-store"}:
         return _handle_state_store_command(args)
+    if args.state_command == "lease":
+        return _handle_state_lease_command(args)
 
     # The tail is verify-snapshot's, and says so. Falling through to it was
     # what turned a missing route into a crash in an unrelated command; an
@@ -630,8 +633,16 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         # and its rows died with the runner — a lost merge decision blinds
         # self-revert; the orchestrator rebuilds them onto the winner and
         # pushes again, and commits nothing when no row changed.
+        # ARIA-HIGH-342 — one writer at a time: the orchestrator refuses
+        # without the writer-lease capability ($ARIA_STATE_WRITER_LEASE_TOKEN)
+        # and pushes the lease fence atomically with the state.
         result = publish_with_contention_replay(
             store,
+            writer_lease_token=(
+                _read_lease_token_file(args.lease_token_file)
+                if getattr(args, "lease_token_file", None)
+                else None
+            ),
             snapshot_id=args.snapshot_id,
             cycle_id=args.cycle_id,
             # Derived from the entry point, never from an argument — the
@@ -652,6 +663,131 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
+
+
+def _handle_state_lease_command(args: argparse.Namespace) -> int:
+    """ARIA-HIGH-342 — the aria/state writer lease (``state_writer_lease``).
+
+    Exit codes: 0 done; 3 ONLY when another writer holds the lease (the
+    verdict names the holder, and the caller yields); 4 for every other
+    refusal — an unreadable or missing record, a repair of a valid lease —
+    which is an error naming `state lease repair`, never a yield (PR #1779
+    re-review R-1: one bad record must not make every writer go quietly
+    green). A transport failure raises. The capability token is written to
+    ``--token-file`` (created exclusively, 0600, never through a symlink) and
+    never printed.
+    """
+    from .state_store import StateStoreRefusal
+    from .state_writer_lease import (
+        WRITER_LEASE_TOKEN_ENV,
+        StateWriterLeaseBlocked,
+        acquire_writer_lease,
+        read_writer_lease,
+        release_writer_lease,
+        repair_writer_lease,
+    )
+
+    branch = args.branch or STATE_BRANCH
+    if args.lease_command == "status":
+        view = read_writer_lease(args.repo_root, remote=args.remote, state_branch=branch)
+        print(json.dumps({"held": view.is_held(), **view.as_json()}, indent=2, sort_keys=True))
+        return 0
+    if args.lease_command == "release":
+        if args.force_foreign and not (args.reason or "").strip():
+            raise SystemExit("state lease release --force-foreign requires --reason")
+        token = (
+            _read_lease_token_file(args.token_file)
+            if args.token_file
+            else os.environ.get(WRITER_LEASE_TOKEN_ENV, "").strip() or None
+        )
+        result = release_writer_lease(
+            args.repo_root,
+            token=None if args.force_foreign else token,
+            force_foreign_reason=args.reason.strip() if args.force_foreign else None,
+            remote=args.remote,
+            state_branch=branch,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.lease_command == "repair":
+        try:
+            result = repair_writer_lease(
+                args.repo_root, reason=args.reason, remote=args.remote, state_branch=branch,
+            )
+        except StateStoreRefusal as refusal:
+            print(json.dumps({"repaired": False, "error": str(refusal)}, indent=2, sort_keys=True))
+            return 4
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    # The capability goes to a file only its owner can read; stdout is a log.
+    # The file is created BEFORE the lease is taken, exclusively and never
+    # through a symlink (R-4): a token that cannot be kept must not leave a
+    # lease behind that nobody can release by capability.
+    descriptor = os.open(
+        args.token_file,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    os.fchmod(descriptor, 0o600)
+
+    def keep_token(token: str) -> None:
+        # On disk BEFORE the push that makes it the lease's: a process that
+        # dies after its push still leaves the capability for its release.
+        os.ftruncate(descriptor, 0)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.write(descriptor, (token + "\n").encode("utf-8"))
+        os.fsync(descriptor)
+
+    try:
+        held = acquire_writer_lease(
+            args.repo_root,
+            ttl_minutes=args.ttl_minutes,
+            wait_seconds=args.wait_seconds,
+            poll_seconds=args.poll_seconds,
+            remote=args.remote,
+            state_branch=branch,
+            persist_token=keep_token,
+        )
+    except BaseException as failure:
+        os.close(descriptor)
+        if not isinstance(failure, (StateWriterLeaseBlocked, StateStoreRefusal)):
+            # The push may have landed: keep the token for the release step.
+            raise
+        # A verdict: no token of ours is the lease's (a token minted for a
+        # push that lost its race is worthless), so none is kept.
+        os.unlink(args.token_file)
+        if isinstance(failure, StateWriterLeaseBlocked):
+            print(json.dumps({
+                "held": False,
+                "refusal": str(failure),
+                "holder": failure.view.as_json(),
+                "waited_seconds": round(failure.waited_seconds, 3),
+            }, indent=2, sort_keys=True))
+            return 3
+        if isinstance(failure, StateStoreRefusal):
+            print(json.dumps({
+                "held": False,
+                "error": (
+                    f"{failure}; this is not another writer's turn — inspect with "
+                    "`state lease status` and replace a broken record with "
+                    "`state lease repair --reason`"
+                ),
+            }, indent=2, sort_keys=True))
+            return 4
+        raise
+    os.close(descriptor)
+    print(json.dumps(held.as_json(), indent=2, sort_keys=True))
+    return 0
+
+
+def _read_lease_token_file(path: str) -> str:
+    """The capability, read from the file `state lease acquire` wrote."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+        token = handle.read().strip()
+    if not token:
+        raise GovernanceError(f"state_writer_lease_token_file_empty:{path}")
+    return token
 
 
 def _record_launch_failure(argv: list[str] | None) -> None:
@@ -782,11 +918,27 @@ def build_parser() -> argparse.ArgumentParser:
                             help="Operator ed25519 private key (or its .pub with the key in ssh-agent); never stored")
     fb_request.add_argument("--signer-principal", required=True,
                             help="Principal the committed .github/manifests/aria-operator-signers names for that key")
+    fb_request.add_argument("--actor-class", required=True, choices=["T0", "T1"],
+                            help="ADR-0023 signed declaration: T0 the operator at a terminal, T1 a root session for the operator")
     fb_request.add_argument("--repo-root", default=".",
                             help="Checkout on main whose commit holds the allowed-signers file and the tracked evidence")
     fb_request.add_argument("--expires-in-hours", type=int, default=None,
                             help="Signed expiry (default and maximum: the operator-act lifetime, 168h)")
     fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
+    # ARIA-HIGH-381 — the signed write boundary; a cited file outside every
+    # root is read-only evidence for the plan. Omitted: the finding's own fix
+    # target (a drift's copy side and its module) decides.
+    fb_request.add_argument("--write-root", action="append", default=None, dest="write_roots",
+                            help="Repository root the plan may change (repeatable)")
+    # ADR-0023 — the only way the allowed-signers file or the namespace
+    # registry changes: the operator signs the edited pair as the child of
+    # the pair committed on main, with a key that parent enrols.
+    fb_enrol = add_subparser(feedback_sub, "enrol")
+    fb_enrol.add_argument("--actor-class", required=True, choices=["T0"])
+    for flag in ("--signing-key", "--signer-principal"):  # the key may be a .pub whose private half is in ssh-agent
+        fb_enrol.add_argument(flag, required=True)
+    fb_enrol.add_argument("--repo-root", default=".")
+    fb_enrol.add_argument("--expires-in-hours", type=int, default=168)
     fb_rotate = add_subparser(feedback_sub, "rotate-signing-key")
     fb_rotate.add_argument("--reason", required=True, type=_validate_reason)
 
@@ -927,10 +1079,54 @@ def build_parser() -> argparse.ArgumentParser:
             store_parser.add_argument("--snapshot-id", required=True)
             store_parser.add_argument("--cycle-id", required=True)
             store_parser.add_argument("--parent-commit", default=None)
+            # ARIA-HIGH-342 — the writer-lease capability, read from the file
+            # `state lease acquire --token-file` wrote; without it the token
+            # comes from $ARIA_STATE_WRITER_LEASE_TOKEN (a lane's step env).
+            store_parser.add_argument("--lease-token-file", default=None,
+                                      help="File holding the writer-lease token (operator lane).")
             # No --no-push. A "rehearsal" that commits without pushing
             # manufactures the exact state the re-checkout guard exists to
             # refuse — a local commit the remote does not have — and it had
             # no caller. Publishing is one indivisible act here.
+
+    # ARIA-HIGH-342 — the aria/state writer lease: one writer at a time,
+    # taken before `state checkout`, released after the last `state publish`.
+    state_lease = add_subparser(
+        state_sub, "lease",
+        help="Acquire, release or inspect the aria/state writer lease (aria/state-lease).",
+    )
+    lease_sub = state_lease.add_subparsers(dest="lease_command", required=True)
+    for lease_name, lease_help in (
+        ("acquire", "Take the writer lease, waiting at most --wait-seconds; exit 3 when it stays held."),
+        ("release", "Give back the writer lease held by $ARIA_STATE_WRITER_LEASE_TOKEN (or this run)."),
+        ("repair", "Replace a malformed or missing lease record with a released one (audited)."),
+        ("status", "Print the writer lease as the remote holds it."),
+    ):
+        lease_parser = add_subparser(lease_sub, lease_name, help=lease_help)
+        lease_parser.add_argument("--repo-root", required=True)
+        lease_parser.add_argument("--remote", default="origin")
+        lease_parser.add_argument("--branch", default=None,
+                                  help=f"State branch whose lease is meant (default {STATE_BRANCH}).")
+        if lease_name == "acquire":
+            lease_parser.add_argument("--ttl-minutes", type=int, required=True,
+                                      help="Lease expiry: the holder's own job bound.")
+            lease_parser.add_argument("--wait-seconds", type=int, default=0,
+                                      help="How long to wait for another holder before yielding.")
+            lease_parser.add_argument("--poll-seconds", type=int, default=15)
+            # No --owner: a holder is named by its run or checkout, never by
+            # a flag (GSEC-MEDIUM-001); the capability is the token.
+            lease_parser.add_argument("--token-file", required=True,
+                                      help="Write the lease's capability token here (mode 0600); never printed.")
+        if lease_name == "release":
+            lease_parser.add_argument("--token-file", default=None,
+                                      help="File holding the token; else $ARIA_STATE_WRITER_LEASE_TOKEN.")
+            lease_parser.add_argument("--force-foreign", action="store_true",
+                                      help="Release the current lease although this caller does not hold it.")
+            lease_parser.add_argument("--reason", default=None,
+                                      help="Why; required with --force-foreign, recorded on the lease branch.")
+        if lease_name == "repair":
+            lease_parser.add_argument("--reason", required=True,
+                                      help="Why the record is replaced; recorded on the lease branch.")
 
     # Wave 3 Twin-lite — the repository map (twin.py). `context` is the
     # operator/agent consumer: a compact slice read INSTEAD of a repo walk.
@@ -1217,6 +1413,28 @@ def build_parser() -> argparse.ArgumentParser:
     comp_list.add_argument("--rejected-only", action="store_true")
     comp_list.add_argument("--limit", type=int, default=None)
 
+    # ORPHAN-HIGH-573 — whole-inventory workflow registry verdict verb.
+    # The caller that always sees the real repo (preflight legitimately
+    # runs against synthetic workspaces, so the inventory verdict cannot
+    # live there; the aria-kernel.yml lane step invokes this verb).
+    workflow_parser = add_subparser(sub, "workflow")
+    workflow_sub = workflow_parser.add_subparsers(dest="workflow_command", required=True)
+    workflow_verify_registry = add_subparser(workflow_sub, "verify-registry")
+    workflow_verify_registry.add_argument("--workspace-root", default=".")
+
+    # ORPHAN-HIGH-573 — file-level narrative-prompt validator verb.
+    narrative_parser = add_subparser(sub, "narrative-prompt")
+    narrative_sub = narrative_parser.add_subparsers(
+        dest="narrative_prompt_command", required=True
+    )
+    narrative_validate = add_subparser(narrative_sub, "validate")
+    narrative_validate.add_argument("--file", required=True)
+    narrative_validate.add_argument(
+        "--registry",
+        default=None,
+        help="Pedagogy registry JSON (default: .claude/agents/_pedagogy-registry.json).",
+    )
+
     # Plan 020 Phase 6.C — agent eval harness CLI.
     eval_parser = add_subparser(sub, "agent-eval")
     eval_sub = eval_parser.add_subparsers(dest="agent_eval_command", required=True)
@@ -1225,12 +1443,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to JSON fixture file conforming to aria/agent-eval-fixture/v1.")
     eval_run = add_subparser(eval_sub, "run")
     eval_run.add_argument("--fixture-id", required=True)
-    eval_run.add_argument("--mock-mode", action="store_true", default=True,
-        help="Run mock-mode (default; produces deterministic envelope).")
-    eval_run.add_argument("--real-envelope-file", default=None,
-        help="JSON file with real_response_envelope (required when --mock-mode is unset).")
-    eval_run.add_argument("--no-mock-mode", action="store_true",
-        help="Disable mock mode; requires --real-envelope-file.")
+    # ARIA-HIGH-285 — no mock flag: a run checks a recorded real response.
+    eval_run.add_argument("--real-envelope-file", required=True,
+        help="JSON file with the real_response_envelope of a ledger-bound invocation.")
     eval_run.add_argument("--invocation-id", default=None,
         help="Required in real mode: upstream invocation/lease id.")
     eval_run.add_argument("--transcript-hash", default=None,
@@ -1253,6 +1468,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional real mode: SourceLedgerRef JSON or JSON file for context row.")
     eval_run.add_argument("--prompt-ledger-ref", default=None,
         help="Optional real mode: SourceLedgerRef JSON or JSON file for prompt row.")
+    eval_observe = add_subparser(eval_sub, "observe")
+    eval_observe.add_argument("--cycle-id", required=True,
+        help="Lane or cycle the performance_observed rows are recorded under.")
+    add_subparser(eval_sub, "kpis")
     eval_aggregate = add_subparser(eval_sub, "aggregate")
     eval_aggregate.add_argument("--target-agent", required=True)
     eval_aggregate.add_argument("--window-days", type=int, default=30)
@@ -1675,6 +1894,8 @@ def build_parser() -> argparse.ArgumentParser:
     plan_start.add_argument("--plan-id", required=True)
     plan_start.add_argument("--initial-revision-id", required=True)
     plan_start.add_argument("--plan-file", required=True)
+    # ADR-0021 — the checkout a finding-origin plan's admission bound is computed in.
+    plan_start.add_argument("--workspace-root", default=".")
     plan_challenger = add_subparser(plan_sub, "submit-challenger")
     plan_challenger.add_argument("--plan-id", required=True)
     plan_challenger.add_argument("--challenger-file", required=True)
@@ -1717,6 +1938,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan_force.add_argument("--plan-id", required=True)
     plan_force.add_argument("--round-number", type=int, required=True)
     plan_force.add_argument("--reason-code", action="append", required=True)
+    # ARIA-HIGH-362 (review M3) — the guarded transition refuses a terminal or
+    # implementation-phase plan unless the caller names the state it expects.
+    # The operator names it here (e.g. withdrawing a CONVERGED plan it will
+    # not have implemented); the check still runs inside the plan lock.
+    plan_force.add_argument("--from-state", action="append", default=None)
     plan_status_parser = add_subparser(plan_sub, "status")
     plan_status_parser.add_argument("--plan-id", required=True)
 
@@ -1845,6 +2071,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     readiness_probe_bp.add_argument("--repo", required=True)
     readiness_probe_bp.add_argument("--branch", default="main")
+    # ARIA-HIGH-342 / GSEC-HIGH-002 — aria/state, aria/state-cold and
+    # aria/state-lease must all be covered by deletion + non-fast-forward.
+    readiness_probe_state = add_subparser(
+        readiness_sub,
+        "probe-state-branch-protection",
+        help="Check that the ruleset blocks deletion and force-push on all three aria/state* branches.",
+    )
+    readiness_probe_state.add_argument("--repo", required=True)
     # ARIA-HIGH-209 — the SHADOW -> ACTIVE gate's blockers, visible to the
     # operator before a promotion is attempted.
     readiness_adapter = add_subparser(
@@ -1921,6 +2155,18 @@ def build_parser() -> argparse.ArgumentParser:
     rollback_build.add_argument("--head-sha", required=True)
     rollback_build.add_argument("--workspace-root", required=True)
     rollback_build.add_argument("--output-dir", required=True)
+    # The DLP `diff` surface, built from the workspace's own object store so
+    # the scanned text and produce_dlp_proof's touched-file scope check share
+    # one source (aria_kernel/readiness_diff_surface.py).
+    diff_surface = add_subparser(
+        readiness_sub,
+        "build-diff-surface",
+        help="Write a PR's unified diff (base...head) as the claim's DLP diff surface.",
+    )
+    diff_surface.add_argument("--workspace-root", required=True)
+    diff_surface.add_argument("--base-sha", required=True)
+    diff_surface.add_argument("--head-sha", required=True)
+    diff_surface.add_argument("--output", required=True)
     artifact_fetch = add_subparser(
         readiness_sub,
         "fetch-artifact",
@@ -2119,10 +2365,11 @@ def build_parser() -> argparse.ArgumentParser:
         # E13-C11 — the backfill-window-metadata subcommand is gone: freshness
         # metadata is manifest-owned and derived by validate_tool_definition,
         # so there is nothing left to patch at runtime.
-        help="Plan 016 Faz F1 — MVP adapter registration + status.",
+        # ARIA-MEDIUM-378 — `register-mvp` is gone: it wrote stub-runner rows
+        # no workflow ever invoked; manifests are the only declaration.
+        help="Plan 016 Faz F1 — MVP adapter status.",
     )
     adapter_sub = adapter_parser.add_subparsers(dest="adapter_portfolio_command", required=True)
-    ap_register = add_subparser(adapter_sub, "register-mvp")
     ap_status = add_subparser(adapter_sub, "status")
     review_parser = add_subparser(sub, 
         "review",
@@ -2292,9 +2539,12 @@ def build_parser() -> argparse.ArgumentParser:
     cp_start.add_argument("--plan-id", required=True)
     cp_start.add_argument("--initial-revision-id", required=True)
     cp_start.add_argument("--plan-content-file", required=True)
-    cp_start.add_argument("--must-satisfy-file", required=True)
-    cp_start.add_argument("--evidence-ref", action="append", required=True)
-    cp_start.add_argument("--allowed-scope", action="append", required=True)
+    # ARIA-MEDIUM-376 — the operator's obligations, ADDED to the ones the
+    # plan's own record derives. Round-1 scope and evidence are not flags:
+    # they come from `plan_started` (ARIA-HIGH-345), as in the drainer.
+    cp_start.add_argument("--must-satisfy-file", default=None)
+    cp_start.add_argument("--workspace-root", default=".",
+                          help="Checkout the plan's admission bound and head SHA are read from")
     cp_challenger = add_subparser(cp_sub, "issue-challenger")
     cp_challenger.add_argument("--plan-id", required=True)
     cp_challenger.add_argument("--round-number", type=int, required=True)
@@ -2557,8 +2807,11 @@ def build_parser() -> argparse.ArgumentParser:
     # timeout: the resumable drainer waits on nothing). Default
     # numerics come from convergence_drainer.run_convergence_drainer
     # signature + budget.DEFAULT_MAX_BUDGET_USD_PER_RUN.
+    from .convergence_drainer import AUTONOMY_CYCLE_MAX_ROUNDS
+
     auto_run.add_argument(
-        "--max-rounds", type=int, default=2,
+        # ARIA-HIGH-368 — the executor's in-run advance reads the same cap.
+        "--max-rounds", type=int, default=AUTONOMY_CYCLE_MAX_ROUNDS,
         help="Max convergence rounds per plan (default 2 for "
              "autonomous cycles). Reduced from V5.1 default 4 because "
              "V8 P+C+CR multiplies LLM cost per round.",
@@ -3049,6 +3302,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the full report as JSON instead of the one-line-per-check text.",
     )
 
+    # ADR-0023 / ARIA-HIGH-281 — the T2 boundary probe the hourly host timer
+    # (scripts/aria/runner-habitat/systemd/aria-t2-probe.timer) runs as gharunner.
+    habitat_parser = add_subparser(sub, "habitat")
+    habitat_sub = habitat_parser.add_subparsers(dest="habitat_command", required=True)
+    t2_probe = add_subparser(habitat_sub, "t2-probe")
+    t2_probe.add_argument("--workspace-root", required=True,
+                          help="The runner's checkout: its origin/main holds the allowed-signers file judged")
+    t2_probe.add_argument("--runner-env", required=True, help="The runner .env (values are never printed)")
+    t2_probe.add_argument("--key-dir", action="append", default=[],
+                          help="A directory whose keys the runner account holds (repeatable)")
+    t2_probe.add_argument("--textfile", default=None, help="Write the verdict here in Prometheus text format")
+
     # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
     # the hook payload on stdin and prints the protocol's decision JSON.
     # ARIA-HIGH-123 — this is the KERNEL-side entry (an operator replaying a
@@ -3181,6 +3446,16 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_serve = add_subparser(mcp_sub, "serve")
     mcp_serve.add_argument("--workspace-root", default=".")
     mcp_serve.add_argument("--allow-writes", action="store_true", help="operator only: expose human_required_resolve / runtime_signal_ingest")
+    # ARIA-HIGH-270 — the operator signs one write's exact arguments; the
+    # printed approval is the call's `operator_approval` argument.
+    mcp_approve = add_subparser(mcp_sub, "approve")
+    mcp_approve.add_argument("--tool", required=True, choices=["human_required_resolve", "runtime_signal_ingest"])
+    mcp_approve.add_argument("--arguments", required=True, help="The write's arguments as JSON, without operator_approval")
+    mcp_approve.add_argument("--actor-class", required=True, choices=["T0", "T1"])
+    for flag in ("--signing-key", "--signer-principal"):  # the key may be a .pub whose private half is in ssh-agent
+        mcp_approve.add_argument(flag, required=True)
+    mcp_approve.add_argument("--expires-in-hours", type=int, default=1)
+    mcp_approve.add_argument("--workspace-root", default=".")
     add_subparser(mcp_sub, "registry")
     mcp_health = add_subparser(mcp_sub, "health")
     mcp_health.add_argument("--server", default=None)
@@ -3420,10 +3695,22 @@ def _main(argv: list[str] | None = None) -> int:
             finding_id=args.finding_id,
             signing_key=args.signing_key,
             signer_principal=args.signer_principal,
+            actor_class=args.actor_class,
             request_id=args.request_id,
             expires_in_hours=args.expires_in_hours,
             base_dir=args.tools_dir,
             repo_root=args.repo_root,
+            write_roots=args.write_roots,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "enrol":
+        from aria_kernel.operator_request_signature import record_enrolment
+
+        print(json.dumps(record_enrolment(
+            repo_root=args.repo_root, base_dir=args.tools_dir, signing_key=args.signing_key,
+            signer_principal=args.signer_principal,
+            actor_class=args.actor_class, expires_in_hours=args.expires_in_hours, subject_stream=sys.stderr,
         ), indent=2, sort_keys=True))
         return 0
 
@@ -3653,6 +3940,17 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "readiness" and args.readiness_command == "probe-state-branch-protection":
+        from .readiness_proofs import probe_state_branch_protection
+
+        try:
+            verdict = probe_state_branch_protection(repo=args.repo)
+        except GovernanceError as exc:
+            print(json.dumps({"valid": False, "repo": args.repo, "reasons": [str(exc)]}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(verdict, indent=2, sort_keys=True))
+        return 0 if verdict["valid"] else 1
+
     if args.command == "readiness" and args.readiness_command == "probe-branch-protection":
         from .readiness_proofs import probe_branch_protection_on_demand
 
@@ -3704,6 +4002,18 @@ def _main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir,
         )
         print(json.dumps(built, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "build-diff-surface":
+        from .readiness_diff_surface import build_diff_surface
+
+        surface = build_diff_surface(
+            workspace_root=args.workspace_root,
+            base_sha=args.base_sha,
+            head_sha=args.head_sha,
+            output_path=args.output,
+        )
+        print(json.dumps(surface, indent=2, sort_keys=True))
         return 0
 
     if args.command == "readiness" and args.readiness_command == "fetch-artifact":
@@ -4088,6 +4398,52 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(rows, indent=2, sort_keys=True))
         return 0
 
+    # ORPHAN-HIGH-573 — whole-inventory workflow registry verdict verb.
+    if args.command == "workflow" and args.workflow_command == "verify-registry":
+        from .workflow_contracts import verify_workflow_registry
+
+        verdict = verify_workflow_registry(workspace_root=args.workspace_root)
+        payload = {
+            "valid": verdict.valid,
+            "registered_count": verdict.registered_count,
+            "audited_exclusion_count": verdict.audited_exclusion_count,
+            "failed_contracts": {
+                workflow_id: list(reasons)
+                for workflow_id, reasons in verdict.failed_contracts.items()
+            },
+            "uncovered_workflows": list(verdict.uncovered_workflows),
+            "failure_classes": list(verdict.failure_classes),
+            "reasons": list(verdict.reasons),
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if verdict.valid else 1
+
+    # ORPHAN-HIGH-573 — file-level narrative-prompt validator verb.
+    if args.command == "narrative-prompt" and args.narrative_prompt_command == "validate":
+        from .narrative_prompt_validator import load_registry, validate_file
+
+        registry_path = (
+            Path(args.registry)
+            if args.registry
+            else Path(".claude") / "agents" / "_pedagogy-registry.json"
+        )
+        result = validate_file(
+            Path(args.file), pedagogy_registry=load_registry(registry_path)
+        )
+        payload = {
+            "file": str(result.path),
+            "agent_name": result.agent_name,
+            "pedagogy_tier": result.pedagogy_tier,
+            "approx_tokens": result.approx_tokens,
+            "violation_count": len(result.violations),
+            "violations": result.violations,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        # The validator is pure; the verb is the invariant's caller, so a
+        # non-empty violations list FAILS here (exit 1), mirroring `tool run`.
+        return 1 if result.violations else 0
+        return 0
+
     # Plan 020 Phase 6.C — agent eval CLI dispatch.
     if args.command == "agent-eval" and args.agent_eval_command == "add-fixture":
         fixture = json.loads(Path(args.fixture_file).read_text(encoding="utf-8"))
@@ -4095,12 +4451,7 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "agent-eval" and args.agent_eval_command == "run":
-        mock_mode = not args.no_mock_mode
-        envelope = None
-        if not mock_mode:
-            if not args.real_envelope_file:
-                parser.error("--no-mock-mode requires --real-envelope-file")
-            envelope = json.loads(Path(args.real_envelope_file).read_text(encoding="utf-8"))
+        envelope = json.loads(Path(args.real_envelope_file).read_text(encoding="utf-8"))
 
         def _source_ref_arg(value: str | None) -> dict[str, Any] | None:
             if value is None:
@@ -4113,7 +4464,6 @@ def _main(argv: list[str] | None = None) -> int:
         run = run_agent_eval(
             fixture_id=args.fixture_id,
             base_dir=args.tools_dir,
-            mock_mode=mock_mode,
             real_response_envelope=envelope,
             invocation_id=args.invocation_id,
             transcript_hash=args.transcript_hash,
@@ -4128,6 +4478,16 @@ def _main(argv: list[str] | None = None) -> int:
             prompt_ledger_ref=_source_ref_arg(args.prompt_ledger_ref),
         )
         print(json.dumps(run, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "observe":
+        from .agent_eval import observe_agent_performance
+        result = observe_agent_performance(base_dir=args.tools_dir, cycle_id=args.cycle_id)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A refusal is named in governance; it must not read as success either.
+        return 1 if result["verdict"] == "refused" else 0
+    if args.command == "agent-eval" and args.agent_eval_command == "kpis":
+        from .agent_eval import performance_kpis
+        print(json.dumps(performance_kpis(base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
     if args.command == "agent-eval" and args.agent_eval_command == "aggregate":
         mock_filter: Any = None
@@ -4783,7 +5143,7 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "plan":
         if args.plan_command == "start":
             payload = json.loads(Path(args.plan_file).read_text(encoding="utf-8"))
-            result = start_plan(plan_id=args.plan_id, initial_revision_id=args.initial_revision_id, plan_content=payload, base_dir=args.tools_dir)
+            result = start_plan(plan_id=args.plan_id, initial_revision_id=args.initial_revision_id, plan_content=payload, base_dir=args.tools_dir, workspace_root=args.workspace_root)
         elif args.plan_command == "submit-challenger":
             result = submit_challenger_plan(plan_id=args.plan_id, challenger=json.loads(Path(args.challenger_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
         elif args.plan_command == "request-cross-review":
@@ -4831,7 +5191,13 @@ def _main(argv: list[str] | None = None) -> int:
                 mission_id=args.mission_id,
             )
         elif args.plan_command == "force-human-required":
-            result = force_plan_human_required(plan_id=args.plan_id, round_number=args.round_number, reason_codes=args.reason_code, base_dir=args.tools_dir)
+            result = force_plan_human_required(
+                plan_id=args.plan_id,
+                round_number=args.round_number,
+                reason_codes=args.reason_code,
+                from_states=frozenset(args.from_state) if args.from_state else None,
+                base_dir=args.tools_dir,
+            )
         elif args.plan_command == "status":
             result = plan_status(plan_id=args.plan_id, base_dir=args.tools_dir)
         else:
@@ -4934,6 +5300,9 @@ def _main(argv: list[str] | None = None) -> int:
                 round_number=args.round_number,
                 expected_output_path=args.expected_output_path,
                 base_dir=args.tools_dir,
+                # ARIA-HIGH-364 — an operator's mint: critical path, recorded.
+                # A role the table does not classify is refused by name here.
+                admission=admit_request("operator_cli.request", args.role, base_dir=args.tools_dir),
             )
         # Plan 024 §B-1 — `submit-result` dispatch removed alongside the
         # subparser. Operators use `agent submit-result` (strict path) or,
@@ -5111,15 +5480,8 @@ def _main(argv: list[str] | None = None) -> int:
         parser.error("unknown budget command")
 
     if args.command == "adapter-portfolio":
-        from aria_kernel.adapter_portfolio import (
-            list_mvp_status,
-            register_mvp_adapters,
-        )
+        from aria_kernel.adapter_portfolio import list_mvp_status
 
-        if args.adapter_portfolio_command == "register-mvp":
-            result = register_mvp_adapters(base_dir=args.tools_dir)
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 0
         if args.adapter_portfolio_command == "status":
             result = list_mvp_status(base_dir=args.tools_dir)
             print(json.dumps(result, indent=2, sort_keys=True))
@@ -5389,22 +5751,30 @@ def _main(argv: list[str] | None = None) -> int:
         parser.error("unknown critical-observation command")
 
     if args.command == "convergent-plan":
+        # ARIA-MEDIUM-376 — this import named a function V8 deleted, so the
+        # whole subcommand died before argument dispatch.
         from aria_kernel.convergent_planning_bridge import (
             issue_challenger_envelope,
-            start_convergent_plan_with_envelope,
+            start_convergent_plan_with_challenger,
         )
 
         if args.convergent_plan_command == "start":
             content = json.loads(Path(args.plan_content_file).read_text(encoding="utf-8"))
-            must_satisfy = json.loads(Path(args.must_satisfy_file).read_text(encoding="utf-8"))
-            result = start_convergent_plan_with_envelope(
+            operator_must_satisfy = (
+                json.loads(Path(args.must_satisfy_file).read_text(encoding="utf-8"))
+                if args.must_satisfy_file else []
+            )
+            result = start_convergent_plan_with_challenger(
                 plan_id=args.plan_id,
                 plan_content=content,
                 initial_revision_id=args.initial_revision_id,
-                must_satisfy=must_satisfy,
-                evidence_refs=args.evidence_ref,
-                allowed_scope=args.allowed_scope,
+                operator_must_satisfy=operator_must_satisfy,
                 base_dir=args.tools_dir,
+                workspace_root=Path(args.workspace_root).resolve(),
+                # An operator starting a plan: critical path, recorded.
+                admission=admit_request(
+                    "operator_cli.convergent_plan", "challenger_plan", base_dir=args.tools_dir,
+                ),
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
@@ -5423,6 +5793,10 @@ def _main(argv: list[str] | None = None) -> int:
                 evidence_refs=args.evidence_ref,
                 allowed_scope=args.allowed_scope,
                 base_dir=args.tools_dir,
+                # ARIA-HIGH-364 — an operator's mint: critical path, recorded.
+                admission=admit_request(
+                    "operator_cli.convergent_plan", "challenger_plan", base_dir=args.tools_dir,
+                ),
             )
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
@@ -6560,11 +6934,10 @@ def _main(argv: list[str] | None = None) -> int:
 
         request: dict[str, Any] = {"request_id": args.request_id, "suggested_prompt": args.query or ""}
         if args.request_id:
-            from .ledger import load_declared_jsonl
+            from .ledger import load_segments
             from .tool_registry import ensure_tools_dir
 
-            requests_path = ensure_tools_dir(args.tools_dir) / "agent-invocations" / "requests.jsonl"
-            rows = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests") if requests_path.exists() else []
+            rows = load_segments(ensure_tools_dir(args.tools_dir), "agent_invocation_requests")
             request = next((r for r in rows if r.get("request_id") == args.request_id), request)
         kwargs = {"budget_tokens": args.budget_tokens} if args.budget_tokens else {}
         print(json.dumps(compile_context(request=request, base_dir=args.tools_dir, record=False, **kwargs).to_dict(), indent=2, sort_keys=True))
@@ -6763,6 +7136,15 @@ def _main(argv: list[str] | None = None) -> int:
             from .mcp_server import AriaMcpServer
 
             return AriaMcpServer(base_dir=args.tools_dir, workspace_root=args.workspace_root, allow_writes=args.allow_writes).serve()
+        if args.mcp_command == "approve":
+            from .mcp_server import sign_mcp_write_approval
+
+            print(json.dumps(sign_mcp_write_approval(
+                args.tool, json.loads(args.arguments), signing_key=args.signing_key, signer_principal=args.signer_principal,
+                actor_class=args.actor_class, expires_in_hours=args.expires_in_hours, workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+            ), indent=2, sort_keys=True))
+            return 0
         if args.mcp_command == "registry":
             registry = mcp_client.load_mcp_registry()
             print(json.dumps({name: spec.__dict__ for name, spec in registry.servers.items()}, indent=2, sort_keys=True, default=list))
@@ -6910,6 +7292,25 @@ def _main(argv: list[str] | None = None) -> int:
         hits = search(args.query, workspace_root=args.workspace_root, kinds=args.kinds, limit=args.limit)
         print(json.dumps([h.__dict__ for h in hits], indent=2, sort_keys=True))
         return 0
+
+    if args.command == "habitat" and args.habitat_command == "t2-probe":
+        from .habitat import probe_t2_boundary, t2_boundary_textfile
+        from .main_anchor import committed_blob, main_tip
+        from .operator_request_signature import ALLOWED_SIGNERS_PATH, runner_key_blobs
+
+        workspace = Path(args.workspace_root).resolve()
+        tip = main_tip(workspace)
+        signers = committed_blob(workspace, commit=tip, path=ALLOWED_SIGNERS_PATH) if tip else None
+        boundary = probe_t2_boundary(
+            allowed_signers=signers.content if signers else None,
+            registered_keys=runner_key_blobs(workspace_root=workspace, base_dir=args.tools_dir),
+            key_dirs=[Path(directory) for directory in args.key_dir], runner_env=Path(args.runner_env),
+        )
+        if args.textfile:
+            Path(args.textfile).write_text(t2_boundary_textfile(boundary, probed_at=time.time()), encoding="utf-8")
+        print(json.dumps({"identity": boundary.identity, "held": boundary.held, "allowed_signers_commit": tip,
+                          "violations": list(boundary.violations)}, indent=2, sort_keys=True))
+        return 0 if boundary.held else 3
 
     if args.command == "doctor":
         from .doctor import render_doctor_text, run_doctor

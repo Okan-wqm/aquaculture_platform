@@ -1863,13 +1863,12 @@ The doctor's `tools` organ reads the same streak: FAIL at the streak line, WARN 
 shorter streak (`<tool>=<class>x<n>`, quarantined included) or a QUARANTINED tool with no cycle behind
 it yet. A streak is a live fact only for a tool with standing
 (`tool_degradation.DEGRADATION_STANDING_STATUSES`: the roster `cycle._phase_tools` dispatches — ACTIVE
-/ SHADOW / CALIBRATE — and QUARANTINED, the tools awaiting release): a DRAFT or SANDBOX tool was never
-dispatched and an ARCHIVED tool never runs again, so archiving — the exit the escalation reason itself
-names — retires the tool from the organ and from the sat-out roster at once, while the HUMAN_REQUIRED
-record the escalation opened stays with the operator to resolve; without that rule the organ stayed
-FAIL forever after the operator had done what the record asked (the scheduler paging
-`doctor_unhealthy` every tick, `self_improvement` opening a mission). `orchestrator_exit_history` does
-not list a degraded cycle among the causes of a `cycle_failed` exit.
+/ SHADOW / CALIBRATE — and QUARANTINED, the tools awaiting release), which is every status a tool can
+hold. DRAFT, SANDBOX and ARCHIVED were removed from the lifecycle (ORPHAN-MEDIUM-839): nothing ever
+produced them, and the archive exit the quarantine escalation once offered had no command. The
+escalation names the one exit the kernel has, release (`unquarantine_tool`); the HUMAN_REQUIRED record
+it opened stays with the operator to resolve, and the organ clears when the streak ends.
+`orchestrator_exit_history` does not list a degraded cycle among the causes of a `cycle_failed` exit.
 
 The adapter side of the same finding: every registered adapter carries a fixture-backed evidence
 contract. `aria-kernel/aria_kernel/adapter_fixture_contract.py` refuses, at the manifest-sync door
@@ -2054,7 +2053,7 @@ Before committing to months of kernel work, the operator runs this PoC to answer
 need ARIA?"**
 
 This PoC is **implemented** at `tools/aria-poc/poc.py` with stdlib tests at
-`tools/aria-poc/test_poc.py` (no LLM, no API). All other content in this document remains
+`tools/aria-poc/invariants/test_poc.py` (no LLM, no API). All other content in this document remains
 unimplemented contracts.
 
 ### How to run
@@ -2158,7 +2157,7 @@ Phase 0 ships: Memory + redactor + budget observer + kill switch + integrity has
 ### Files committed
 
 - `tools/aria-poc/poc.py` — implementation
-- `tools/aria-poc/test_poc.py` — stdlib unit tests
+- `tools/aria-poc/invariants/test_poc.py` — stdlib unit tests
 - `tools/aria-poc/README.md` — how-to
 - `.claude/commands/aria-poc.md` — Claude Code slash command wrapper
 - `.gitignore` — adds `.aria-poc/` exclusion

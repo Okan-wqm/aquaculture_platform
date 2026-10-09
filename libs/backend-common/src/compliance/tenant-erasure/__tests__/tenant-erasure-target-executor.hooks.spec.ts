@@ -102,6 +102,14 @@ function makeManager(calls: string[], storedProof?: Record<string, unknown>): En
   const manager = new EntityManager(dataSource);
   jest.spyOn(manager, 'query').mockImplementation((sql, params) => {
     const norm = sql.replace(/\s+/g, ' ').trim();
+    // bindTenantRlsContext: the two GUC writes, then the read-back.
+    if (norm.startsWith('SELECT set_config(')) {
+      calls.push('rls-bind');
+      return Promise.resolve([]);
+    }
+    if (norm.startsWith('SELECT current_setting($1, true) AS tenant')) {
+      return Promise.resolve([{ tenant: TENANT, bypass: 'off' }]);
+    }
     if (norm.includes('pg_advisory_xact_lock')) {
       return Promise.resolve([]);
     }
@@ -143,7 +151,7 @@ function makeHook(name: string, calls: string[], failWith?: Error): TenantErasur
     hookName: name,
     onTenantErased: jest.fn(() => {
       calls.push(`hook:${name}`);
-      return failWith ? Promise.reject(failWith) : Promise.resolve();
+      return failWith ? Promise.reject(failWith) : Promise.resolve(2);
     }),
   };
 }
@@ -194,6 +202,32 @@ function makeHarness(
     logger,
   };
 }
+
+describe('TenantErasureTargetExecutor RLS binding', () => {
+  it('binds the erased tenant before anything else runs in the erasure transaction', async () => {
+    const calls: string[] = [];
+    const { executor } = makeHarness(calls, [makeHook('shred-a', calls)]);
+
+    await executor.eraseFromRequest(makeRequest());
+
+    // Pre-check read, then the erasure transaction: each opens with the bind.
+    const firstDelete = calls.findIndex((call) => call.startsWith('table-delete:'));
+    expect(calls[0]).toBe('rls-bind');
+    expect(firstDelete).toBeGreaterThan(0);
+    expect(
+      calls.slice(0, firstDelete).filter((call) => call === 'rls-bind').length,
+    ).toBeGreaterThanOrEqual(4);
+  });
+
+  it("folds each hook's affected count into the proof and logs it", async () => {
+    const calls: string[] = [];
+    const { executor, logger } = makeHarness(calls, [makeHook('shred-a', calls)]);
+
+    await executor.eraseFromRequest(makeRequest());
+
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('hook=shred-a affected=2'));
+  });
+});
 
 describe('TenantErasureTargetExecutor post-erasure hooks', () => {
   it('invokes hooks after table erasure and before the proof is recorded and enqueued', async () => {

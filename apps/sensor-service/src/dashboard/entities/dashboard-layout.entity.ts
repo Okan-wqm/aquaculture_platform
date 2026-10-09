@@ -1,3 +1,4 @@
+import type { RelativePresetKey } from '@aquaculture/shared-contracts';
 import {
   ObjectType,
   Field,
@@ -47,7 +48,8 @@ export interface WidgetConfig {
   // Legacy fields for backward compatibility
   sensorIds?: string[];
   metric?: string;
-  timeRange: string; // 'live' | '1h' | '6h' | '24h' | '7d' | '30d'
+  /** A preset of the shared sensor-reading time range; validated on save. */
+  timeRange: RelativePresetKey;
   refreshInterval: number; // ms
   gridPosition: GridPosition;
   settings?: {

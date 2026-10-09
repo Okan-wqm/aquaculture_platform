@@ -1,7 +1,14 @@
 /**
  * List Critical Water Quality Tanks Query Handler (life-safety surface) —
  * fail-closed tenant boundary (FARM-HIGH-076 / FARM-HIGH-060). Returns the
- * latest measurement per tank whose overall status is CRITICAL or WARNING.
+ * latest measurement per unit (a tank or water equipment, named by
+ * measurementUnitIdSql) whose overall status is CRITICAL or WARNING.
+ *
+ * Keyed on the unit, not on `tankId`: a biofilter's or sump's row has no
+ * `tankId`, and a tank entered through the batch form was filed only as
+ * `equipmentId` — a tank-keyed list dropped both from the life-safety view.
+ * The subquery's columns are quoted: Postgres folds an unquoted
+ * `latest.maxDate` to `latest.maxdate`, which the subquery does not have.
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -13,6 +20,7 @@ import {
   WaterQualityStatus,
 } from '../entities/water-quality-measurement.entity';
 import { ListCriticalWaterQualityQuery } from '../queries/list-critical-water-quality.query';
+import { measurementUnitIdSql } from '../services/measurement-unit-reader';
 
 @QueryHandler(ListCriticalWaterQualityQuery)
 export class ListCriticalWaterQualityHandler
@@ -26,20 +34,22 @@ export class ListCriticalWaterQualityHandler
   async execute(query: ListCriticalWaterQualityQuery): Promise<WaterQualityMeasurement[]> {
     const { tenantId } = query;
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const unitId = measurementUnitIdSql('wq');
       const subQuery = queryRunner.manager
         .createQueryBuilder(WaterQualityMeasurement, 'wq')
         .select('MAX(wq.measuredAt)', 'maxDate')
-        .addSelect('wq.tankId', 'tankId')
+        .addSelect(unitId, 'unitId')
         .where('wq.tenantId = :tenantId', { tenantId })
-        .andWhere('wq.tankId IS NOT NULL')
-        .groupBy('wq.tankId');
+        .andWhere(`${unitId} IS NOT NULL`)
+        .groupBy(unitId);
 
       return queryRunner.manager
         .createQueryBuilder(WaterQualityMeasurement, 'measurement')
         .innerJoin(
           `(${subQuery.getQuery()})`,
           'latest',
-          'measurement.tankId = latest.tankId AND measurement.measuredAt = latest.maxDate',
+          `${measurementUnitIdSql('measurement')} = "latest"."unitId" ` +
+            'AND measurement.measuredAt = "latest"."maxDate"',
         )
         .setParameters(subQuery.getParameters())
         .where('measurement.tenantId = :tenantId', { tenantId })

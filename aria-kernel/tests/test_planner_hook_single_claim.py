@@ -48,6 +48,7 @@ from aria_kernel.planner_dispatch_hook import (  # noqa: E402
 )
 from aria_kernel.runtime_profile import set_profile  # noqa: E402
 from aria_kernel.tool_registry import GovernanceError  # noqa: E402
+from aria_kernel.request_admission import admit_request
 
 
 class _SingleClaimBase(unittest.TestCase):
@@ -84,6 +85,7 @@ class _SingleClaimBase(unittest.TestCase):
             must_satisfy=[{"id": "S1", "description": "test"}],
             allowed_scope=["aria-kernel/**"], evidence_refs=["aria-kernel/src"],
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         # Pre-bind the prompt path the executor expects.
         prompt_for_req = (

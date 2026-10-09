@@ -222,6 +222,9 @@ class OrchestratorTests(unittest.TestCase):
         )
 
         v9_runner = Mock()
+        # ARIA-HIGH-362 — a fixture runner that cannot deliver: its offer is
+        # uncounted, so the plan's attempt ledger is not consulted.
+        v9_runner.delivers_implementation = False
         v9_runner.run.return_value = Mock(
             terminal_state="IMPLEMENTATION_SKIPPED", pr_url=None,
             rejection_class="fixture_v9_runner", specialist_review_signal=None,
@@ -399,21 +402,10 @@ class FullCycleTests(unittest.TestCase):
         )
         self.assertEqual(again["escalated"][0]["consecutive_cycles"], TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK + 1)
         self.assertEqual(len(list_human_required(base_dir=self.tools_dir)), 1)
-        # The exit the escalation names: the operator archives the tool. A
-        # tool the cycle will never dispatch again has no standing in the
-        # organ (the doctor clears; the scheduler stops paging), while the
-        # record the escalation opened stays with the operator to resolve.
-        from aria_kernel.tool_degradation import degradation_report
-        from aria_kernel.tool_registry import transition_tool
-
-        transition_tool("crashing-tool", "ARCHIVED", reason="retired after the streak",
-                        base_dir=self.tools_dir)
-        self.assertEqual(degradation_report(self.tools_dir)["degraded"], [])
-        self.assertEqual(_check_tools(self.tools_dir).status, "ok")
-        self.assertEqual([row["request_id"] for row in list_human_required(base_dir=self.tools_dir)],
-                         [f"tool-degraded:crashing-tool:{cycle_ids[0]}"])
-        again = record_cycle_degradation(cycle_id="cyc-098-after-archive", base_dir=self.tools_dir, degraded=[])
-        self.assertEqual(again, {"recorded": [], "escalated": []}, "an archived tool is not a sat-out tool")
+        # ORPHAN-MEDIUM-839 — this test used to end by retiring the tool
+        # through ARCHIVED, an exit no kernel command ever took; the status
+        # left the lifecycle. The quarantine case below ends its streak by
+        # the exit the kernel has: the operator's release.
 
     def test_a_quarantined_tool_sitting_out_cycles_reaches_an_operator(self) -> None:
         # The trial-eleven class itself: an evidence_error run quarantines the
@@ -483,6 +475,9 @@ class FullCycleTests(unittest.TestCase):
         self.assertEqual(record["context"]["cycle_ids"], ["cyc-098-q3", "cyc-098-q2", "cyc-098-q1"])
         self.assertIn("self-output evidence", record["context"]["quarantine_reason"])
         self.assertIn("unquarantine_tool", record["reason"])
+        # ORPHAN-MEDIUM-839 — the record names only the exit the kernel can
+        # take; it once also offered archiving, which no command performed.
+        self.assertNotIn("archiv", record["reason"])
         self.assertEqual(_check_tools(self.tools_dir).status, "fail")
         governance = [row for row in load_jsonl(self.tools_dir / "governance.jsonl") if row.get("kind") == "tool_run_degraded"]
         self.assertEqual([row["details"]["consecutive_cycles"] for row in governance], [1, 2, 3])

@@ -92,6 +92,8 @@ export * from './upcasters';
 export * from './auth-user-queries';
 export * from './auth-credential-queries';
 export * from './farm-site-access-queries';
+export * from './farm-time-zone-queries';
+export * from './sensor-channel-queries';
 export * from './farm-ai-queries';
 export * from './schemas';
 

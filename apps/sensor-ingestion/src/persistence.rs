@@ -52,7 +52,7 @@ use tokio_postgres::types::{ToSql, Type as PgType};
 use tracing::instrument;
 
 use crate::payload::SensorReading;
-use tenant_context::TenantId;
+use tenant_context::{RLS_BYPASS_GUC, RLS_TENANT_GUC, TenantId};
 
 /// Errors raised by [`BatchSink`] implementations.
 #[derive(Debug, Error)]
@@ -101,6 +101,11 @@ pub enum SinkError {
     /// A postgres query / COPY frame / transaction step failed.
     #[error("postgres operation failed")]
     Postgres(#[source] tokio_postgres::Error),
+
+    /// The transaction did not read back the tenant it was bound to, so the
+    /// batch is refused before any row reaches a FORCE-RLS table.
+    #[error("tenant RLS binding did not take effect on the write transaction")]
+    TenantBinding,
 }
 
 /// Persistence sink. Implementations: [`LoggingSink`] for the
@@ -323,11 +328,13 @@ impl BatchSink for PostgresSink {
 
 impl PostgresSink {
     async fn write_tenant_batch(&self, readings: Vec<SensorReading>) -> Result<(), SinkError> {
-        if readings.is_empty() {
+        let Some(first) = readings.first() else {
             return Ok(());
-        }
+        };
+        let tenant = first.tenant_id;
         let mut conn = self.pool.get().await.map_err(SinkError::PoolGet)?;
         let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
+        bind_tenant_rls(&tx, tenant).await?;
 
         // Private per-transaction staging table (ON COMMIT DROP) — see module docs.
         tx.batch_execute(STAGE_DDL)
@@ -396,10 +403,7 @@ impl PostgresSink {
         // Task 3: the upsert targets the reading's OWN tenant schema via
         // the validated SchemaName newtype (16-hex platform SSoT,
         // golden-vector parity with the TS side).
-        let Some(first) = readings.first() else {
-            return Ok(());
-        };
-        let schema = tenant_context::SchemaName::from_tenant_id(first.tenant_id);
+        let schema = tenant_context::SchemaName::from_tenant_id(tenant);
         let upsert_sql = build_upsert_sql(schema.as_str());
         tx.batch_execute(&upsert_sql)
             .await
@@ -438,6 +442,48 @@ impl PostgresSink {
         tx.commit().await.map_err(SinkError::Postgres)?;
         Ok(())
     }
+}
+
+/// Bind the write transaction to `tenant` for row security, and read it back.
+///
+/// db-migrate arms FORCE RLS on every uncompressed tenant `sensor_metrics`;
+/// the platform policy admits a row only when `app.current_tenant` names its
+/// tenant and `app.bypass_rls` is off (SENSOR-HIGH-145 — without this the
+/// upsert is refused for every freshly provisioned tenant). Both settings are
+/// transaction-local, so a pooled connection carries neither into the next
+/// batch. `set_config` returns the value it set; a mismatch means the binding
+/// did not take and the batch is refused rather than written unbound.
+async fn bind_tenant_rls(
+    tx: &deadpool_postgres::Transaction<'_>,
+    tenant: TenantId,
+) -> Result<(), SinkError> {
+    let tenant_text = tenant.as_uuid().to_string();
+    let row = tx
+        .query_one(
+            BIND_TENANT_RLS_SQL,
+            &[&RLS_TENANT_GUC, &tenant_text, &RLS_BYPASS_GUC],
+        )
+        .await
+        .map_err(SinkError::Postgres)?;
+    let bound: String = row.try_get(0).map_err(SinkError::Postgres)?;
+    let bypass: String = row.try_get(1).map_err(SinkError::Postgres)?;
+    if binding_took(&tenant_text, &bound, &bypass) {
+        Ok(())
+    } else {
+        Err(SinkError::TenantBinding)
+    }
+}
+
+/// Binds `$1 := $2` (the tenant) and `$3 := off` (bypass), transaction-local,
+/// returning the values as set. Mirrors the TypeScript `bindTenantRlsContext`.
+const BIND_TENANT_RLS_SQL: &str =
+    "SELECT set_config($1, $2, true) AS tenant, set_config($3, 'off', true) AS bypass";
+
+/// The binding rule shared with the TypeScript boundary: the tenant setting
+/// names the batch's tenant (uuid text, case-insensitive like the policy's
+/// uuid cast) and bypass is exactly `off`.
+fn binding_took(tenant: &str, bound: &str, bypass: &str) -> bool {
+    bound.eq_ignore_ascii_case(tenant) && bypass == "off"
 }
 
 /// Tiny helper trait so `&Uuid` can be passed to `tokio_postgres`
@@ -667,6 +713,46 @@ mod tests {
         // the env var; a real run wires up a full schema + asserts
         // the row count after write. Lands together with the CI
         // service-container job in a follow-on commit.
+    }
+
+    #[test]
+    fn tenant_binding_takes_only_for_the_batch_tenant_with_bypass_off() {
+        let tenant = "7f6b08ab-90e2-46d3-8a1b-000000000001";
+        assert!(super::binding_took(tenant, tenant, "off"));
+        assert!(super::binding_took(tenant, &tenant.to_uppercase(), "off"));
+        assert!(!super::binding_took(tenant, "", "off"));
+        assert!(!super::binding_took(
+            tenant,
+            "7f6b08ab-90e2-46d3-8a1b-000000000002",
+            "off"
+        ));
+        assert!(!super::binding_took(tenant, tenant, "on"));
+        assert!(!super::binding_took(tenant, tenant, ""));
+    }
+
+    #[test]
+    fn tenant_binding_sql_sets_both_settings_transaction_locally() {
+        let sql = super::BIND_TENANT_RLS_SQL;
+        assert!(sql.contains("set_config($1, $2, true)"));
+        assert!(sql.contains("set_config($3, 'off', true)"));
+    }
+
+    /// SENSOR-HIGH-145: the tenant must be bound before the first statement
+    /// that can touch a FORCE-RLS table, or every row is refused.
+    #[test]
+    fn write_tenant_batch_binds_the_tenant_before_any_write() {
+        let source = include_str!("persistence.rs");
+        let body_start = source
+            .find("async fn write_tenant_batch(")
+            .unwrap_or(usize::MAX);
+        let bind = source
+            .find("bind_tenant_rls(&tx, tenant).await?;")
+            .unwrap_or(usize::MAX);
+        let first_write = source.find("tx.batch_execute(STAGE_DDL)").unwrap_or(0);
+        assert!(
+            body_start < bind && bind < first_write,
+            "binding must precede the stage DDL"
+        );
     }
 
     #[tokio::test]

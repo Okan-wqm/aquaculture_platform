@@ -190,12 +190,12 @@ def sat_out_record(tool: dict[str, Any], base_dir: str | Path | None = None) -> 
 
 # The lifecycle statuses whose degradation is a live fact: the roster the
 # cycle dispatches (``cycle._phase_tools``: ACTIVE / SHADOW / CALIBRATE) and
-# the tools waiting for an operator's release. A DRAFT or SANDBOX tool has
-# not been dispatched; an ARCHIVED tool never runs again — archiving is the
-# exit the escalation reason itself names, and a standing that outlived it
-# kept the doctor's tools organ FAIL forever (the scheduler notifying
-# ``doctor_unhealthy`` every tick, ``self_improvement`` opening a mission)
-# after the operator had done exactly what the record asked.
+# the tools waiting for an operator's release — today every status a tool can
+# hold. DRAFT, SANDBOX and ARCHIVED, the statuses this set once left out, were
+# removed from the lifecycle (ORPHAN-MEDIUM-839): nothing ever produced them,
+# and archiving, which the quarantine escalation used to offer, had no
+# command. The set stays the predicate the organ and the escalation read, so
+# a status added later is judged here, not by default.
 DEGRADATION_STANDING_STATUSES: frozenset[str] = frozenset({"ACTIVE", "SHADOW", "CALIBRATE", QUARANTINED_STATUS})
 
 
@@ -211,7 +211,7 @@ def _escalation_reason(record: dict[str, Any], streak: list[str], cycle_id: str)
             f"tool {tool_id} has been QUARANTINED ({record.get('quarantine_reason')}) for "
             f"{len(streak)} consecutive cycles since {streak[-1]}, latest {cycle_id}; it runs "
             "again only after an operator releases it (unquarantine_tool: QUARANTINED -> "
-            "CALIBRATE with a root-cause note and a fixture update) or archives it"
+            "CALIBRATE with a root-cause note and a fixture update)"
         )
     return (
         f"tool {tool_id} degraded ({record.get('degradation_class')}) in "
@@ -299,11 +299,11 @@ def record_cycle_degradation(
 def degradation_report(base_dir: str | Path | None = None) -> dict[str, Any]:
     """Every tool with standing, for the doctor: degraded streaks and quarantines.
 
-    A tool the cycle would not dispatch and that awaits no release
-    (DRAFT, SANDBOX, ARCHIVED — ``has_degradation_standing``) is not
+    A tool without standing (``has_degradation_standing``) is not
     reported: its last verdict is history, not a standing. The
     HUMAN_REQUIRED record an escalation opened stays with the operator to
-    resolve; the organ clears when the tool is retired or released.
+    resolve; the organ clears when the streak ends — an ok run, or the
+    operator's release of a quarantined tool.
     """
     root = ensure_tools_dir(base_dir)
     degraded: list[dict[str, Any]] = []

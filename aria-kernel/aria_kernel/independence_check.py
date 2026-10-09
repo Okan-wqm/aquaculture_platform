@@ -63,8 +63,16 @@ from .ledger import (
     LedgerReadLimitError,
     load_declared_jsonl,
     load_jsonl,
+    load_segments,
+    segment_paths,
 )
 from .model_fleet import dispatching_provider_for_model
+
+# ARIA-HIGH-375 — the reason code a round that failed this module's checks is
+# escalated with (`plan_convergence.evaluate_plan`'s independence gate), and
+# the failure mode `agent_eval` keeps off the drafter's scorecard. Defined here,
+# with the checks it names, so both readers import one spelling.
+CROSS_REVIEW_SELF_AGREEMENT_REASON = "cross_review_self_agreement"
 from .tool_registry import GovernanceError
 
 
@@ -137,9 +145,10 @@ class Principal:
     * two seats SHARE A MIND when they share the route — the question a
       decision that clears something must also answer
       (:func:`verify_route_distinctness`). It is not a disjointness rule for
-      every panel: the convergence roles (planner, planner, judge_opus) all
-      run opus, so a route rule there would refuse every convergence rather
-      than measure one.
+      every panel: the convergence seats share a vendor whenever one of the
+      two routed vendors is out (`runtime_profiles.INDEPENDENCE_PAIRS`,
+      ARIA-HIGH-290), so a route rule there would refuse every convergence
+      run under a cooldown rather than measure one.
     """
 
     agent: str
@@ -329,8 +338,7 @@ def _bind_seats(
     claims_path = root / "agent-invocations" / "claims.jsonl"
     if not claims_path.exists():
         return [], ["claims_jsonl_missing"]
-    requests_path = root / "agent-invocations" / "requests.jsonl"
-    if not requests_path.exists():
+    if not segment_paths(root, "agent_invocation_requests"):
         return [], ["requests_jsonl_missing"]
     by_request: dict[str, list[dict[str, Any]]] = {}
     for row in load_jsonl(claims_path):
@@ -338,7 +346,7 @@ def _bind_seats(
         if rid:
             by_request.setdefault(str(rid), []).append(row)
     request_rows: dict[str, dict[str, Any]] = {}
-    for row in load_jsonl(requests_path):
+    for row in load_segments(root, "agent_invocation_requests"):
         rid = row.get("request_id")
         if rid and row.get("target_agent"):
             request_rows[str(rid)] = row

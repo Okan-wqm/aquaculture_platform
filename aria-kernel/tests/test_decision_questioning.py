@@ -16,14 +16,23 @@ programme has actually shipped:
 * the minted role is DISPATCHABLE — a `verification` envelope no executor can
   claim would be a writer with no reader, which is the exact defect class the
   E9 change set exists to close.
+
+ARIA-HIGH-204 adds the fourth, the one the finding names: the answer is READ.
+A phase that asks and never loads the answer back spends judge budget on
+questions that cannot matter, so the fold suite pins that every accepted
+verdict reaches the outcome ledger, that an overturn escalates, that a
+re-fold appends nothing, that an unreadable verdict is recorded as unparsed
+rather than dropped, and that an unanswered envelope is left to its executor.
 """
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from aria_kernel.agent_invocations import list_agent_invocation_requests
 from aria_kernel.agent_surface import (
@@ -31,12 +40,16 @@ from aria_kernel.agent_surface import (
     REQUEST_ROLES,
     allowed_targets_for_role,
 )
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.human_required import list_human_required
+from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.decision_questioning import (
     CLOSED_DECISION_STATES,
+    OUTCOMES_SURFACE,
     QUESTIONING_ROLE,
     already_questioned,
     closed_decisions,
+    fold_questioning_results,
     open_decision_questioning,
     sample_decisions,
 )
@@ -52,7 +65,15 @@ from aria_kernel.plan_convergence import (
 REVIEWER = "farm-expert"
 
 
-class DecisionQuestioningTests(unittest.TestCase):
+class _QuestioningFixture(unittest.TestCase):
+    """Shared fixture: a workspace, a tools dir, and the REAL convergence gate.
+
+    The convergence is driven through `start_plan` → `request_critics` →
+    `record_critique` → `evaluate_plan` rather than a hand-written terminal
+    row, so the fold tests read answers to decisions the pipeline actually
+    made — the same discipline the mint tests above are built on.
+    """
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name) / "workspace"
@@ -144,6 +165,86 @@ class DecisionQuestioningTests(unittest.TestCase):
             CLOSED_DECISION_STATES,
         )
 
+    # -------------------------------------------- questioning-answer helpers
+
+    def _mint_question(self, plan_id: str) -> str:
+        """Mint the plan's verification envelope and return its request id."""
+        result = open_decision_questioning(base_dir=self.tools_dir)
+        self.assertIn(plan_id, result["questioned"])
+        requests = list_agent_invocation_requests(
+            base_dir=self.tools_dir, convergence_id=plan_id, role=QUESTIONING_ROLE
+        )
+        self.assertEqual(len(requests), 1)
+        return str(requests[0]["request_id"])
+
+    def _envelope(
+        self,
+        request_id: str,
+        plan_id: str,
+        *,
+        details: dict | None = None,
+        rationale: str | None = None,
+    ) -> dict:
+        """The sealed response envelope, as the executor bridge persists it."""
+        payload = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": request_id,
+            "claim_id": f"claim-{request_id}",
+            "agent_id": "ci-executor:fixture",
+            "role": QUESTIONING_ROLE,
+            "status": "accepted",
+            "satisfaction_matrix": [
+                {"id": f"question-decision-{plan_id}", "verdict": "satisfied"}
+            ],
+        }
+        if details is not None:
+            payload["details"] = details
+        if rationale is not None:
+            payload["rationale"] = rationale
+        return payload
+
+    def _answer(self, request_id: str, payload: dict) -> None:
+        """The accepted result row + its output artifact, as production writes them."""
+        output = self.tools_dir / "agent-invocations" / "outputs" / f"{request_id}.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload), encoding="utf-8")
+        append_declared_jsonl(
+            self.tools_dir / "agent-invocations" / "results.jsonl",
+            {
+                "schema_version": 1,
+                "row_type": "result",
+                "row_id": f"result:claim-{request_id}",
+                "claim_id": f"claim-{request_id}",
+                "invocation_id": f"claim-{request_id}",
+                "request_id": request_id,
+                "agent_id": "ci-executor:fixture",
+                "role": QUESTIONING_ROLE,
+                "status": "accepted",
+                "output_path": output.relative_to(self.tools_dir).as_posix(),
+            },
+            expected_surface="agent_invocation_results",
+        )
+
+    def _outcomes(self) -> list[dict]:
+        return load_declared_jsonl(
+            self.tools_dir / "decision-questioning" / "outcomes.jsonl",
+            expected_surface=OUTCOMES_SURFACE,
+        )
+
+    def _governance_kinds(self) -> list[str]:
+        return [
+            str(row.get("kind"))
+            for row in load_declared_jsonl(
+                self.tools_dir / "governance.jsonl",
+                expected_surface="tools_governance",
+            )
+        ]
+
+    def _fold(self) -> dict:
+        return fold_questioning_results(base_dir=self.tools_dir)
+
+
+class DecisionQuestioningTests(_QuestioningFixture):
     # ------------------------------------------------------------------ tests
 
     def test_the_role_this_phase_mints_can_actually_be_claimed(self) -> None:
@@ -190,6 +291,18 @@ class DecisionQuestioningTests(unittest.TestCase):
         # "review" re-runs the convergence gate that already passed.
         self.assertIn("shared blind spot", prompt)
         self.assertIn("insufficient_evidence", prompt)
+        # ARIA-HIGH-204 re-review, P1-2: the prompt NAMES where the answer
+        # goes. A contract enforced by a reader the writer has never been
+        # told about is a contract production answers cannot keep — the
+        # response envelope's required fields do not include `details`, so
+        # nothing but the prompt tells the agent the verdict belongs in
+        # `details.questioning`.
+        self.assertIn("details.questioning", prompt)
+        self.assertIn("attacks_attempted", prompt)
+        obligation = requests[0]["must_satisfy"][0]
+        self.assertEqual(obligation["id"], "question-decision-plan-closed")
+        self.assertIn("details.questioning.verdict", obligation["description"])
+        self.assertIn("details.questioning.attacks_attempted", obligation["description"])
 
     def test_the_same_decision_is_never_questioned_twice(self) -> None:
         self._converge("plan-closed")
@@ -229,6 +342,434 @@ class DecisionQuestioningTests(unittest.TestCase):
         result = open_decision_questioning(base_dir=self.tools_dir, sample_size=1)
         self.assertEqual(len(result["questioned"]), 1)
         self.assertEqual(result["unquestioned_decisions_seen"], 3)
+
+
+class AnOverturnedAnswerEscalates(_QuestioningFixture):
+    """ARIA-HIGH-204 — the one verdict with an effect gets its effect."""
+
+    def test_overturned_writes_an_outcome_row_and_a_human_required_record(self) -> None:
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                details={
+                    "questioning": {
+                        "verdict": "overturned",
+                        "rationale": "evidence_ref docs/aria/SPEC.md no longer resolves.",
+                        "attacks_attempted": [
+                            "shared blind spot", "the evidence", "the outcome",
+                        ],
+                    }
+                },
+            ),
+        )
+
+        summary = self._fold()
+
+        self.assertEqual(summary["outcomes_written"], 1)
+        self.assertEqual(summary["verdicts"]["overturned"], ["plan-closed"])
+        self.assertEqual(summary["escalated"], ["plan-closed"])
+
+        rows = self._outcomes()
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["$schema"], "aria/decision-questioning-outcome/v1")
+        self.assertEqual(row["plan_id"], "plan-closed")
+        self.assertEqual(row["request_id"], request_id)
+        self.assertEqual(row["result_row_id"], f"result:claim-{request_id}")
+        self.assertEqual(row["verdict"], "overturned")
+        self.assertEqual(
+            row["attacks_attempted"],
+            ["shared blind spot", "the evidence", "the outcome"],
+        )
+
+        # The escalation, keyed by the questioning envelope: an operator, not
+        # a panel, reopens the decision (the context kind is unadmitted).
+        records = list_human_required(base_dir=self.tools_dir)
+        self.assertEqual([r["request_id"] for r in records], [request_id])
+        record = records[0]
+        self.assertEqual(record["severity"], "MEDIUM")
+        self.assertTrue(
+            record["reason"].startswith("decision_questioning_overturned:plan-closed"),
+            msg=f"unexpected reason: {record['reason']!r}",
+        )
+        self.assertEqual(record["context"]["kind"], "decision_questioning")
+        self.assertEqual(record["context"]["plan_id"], "plan-closed")
+
+        # Both halves are on the audit chain: the fold and the escalation.
+        kinds = self._governance_kinds()
+        self.assertIn("decision_questioning_folded", kinds)
+        self.assertIn("human_required_recorded", kinds)
+
+    def test_a_second_fold_appends_nothing_and_re_escalates_nothing(self) -> None:
+        # Idempotency is the result row, not the wall clock: a re-fold of the
+        # same accepted answer is a no-op on the ledger and on the escalation
+        # surface alike.
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                details={"questioning": {"verdict": "overturned"}},
+            ),
+        )
+        first = self._fold()
+        self.assertEqual(first["outcomes_written"], 1)
+
+        second = self._fold()
+
+        self.assertEqual(second["outcomes_written"], 0)
+        self.assertEqual(second["escalated"], [])
+        self.assertEqual(len(self._outcomes()), 1)
+        # record_human_required is idempotent on the file: still one record.
+        self.assertEqual(
+            [r["request_id"] for r in list_human_required(base_dir=self.tools_dir)],
+            [request_id],
+        )
+
+
+class AnUpheldAnswerIsRecordedWithoutEscalation(_QuestioningFixture):
+    def test_upheld_writes_an_outcome_row_and_no_human_required(self) -> None:
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                details={"questioning": {"verdict": "upheld"}},
+            ),
+        )
+
+        summary = self._fold()
+
+        self.assertEqual(summary["outcomes_written"], 1)
+        self.assertEqual(summary["verdicts"]["upheld"], ["plan-closed"])
+        self.assertEqual(summary["escalated"], [])
+        rows = self._outcomes()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["verdict"], "upheld")
+        self.assertIn("decision_questioning_folded", self._governance_kinds())
+        # The decision survived re-review: nobody needs to look at it.
+        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+
+    def test_insufficient_evidence_is_recorded_without_escalation(self) -> None:
+        # "Cannot tell" is an honest answer the contract asks for, not a
+        # defect: it is folded like any other verdict and escalates nothing.
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                details={"questioning": {"verdict": "insufficient_evidence"}},
+            ),
+        )
+
+        summary = self._fold()
+
+        self.assertEqual(summary["verdicts"]["insufficient_evidence"], ["plan-closed"])
+        self.assertEqual(summary["escalated"], [])
+        self.assertEqual(
+            [row["verdict"] for row in self._outcomes()], ["insufficient_evidence"],
+        )
+        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+
+
+class AnUnreadableVerdictIsRecordedNotDropped(_QuestioningFixture):
+    """The silent-skip ban: an answer that cannot be parsed is still an answer."""
+
+    def test_a_verdict_outside_the_closed_set_is_recorded_as_unparsed(self) -> None:
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                details={"questioning": {"verdict": "maybe"}},
+                rationale="cannot establish either way",
+            ),
+        )
+
+        summary = self._fold()
+
+        self.assertEqual(summary["verdicts"]["unparsed"], ["plan-closed"])
+        rows = self._outcomes()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["verdict"], "unparsed")
+        self.assertTrue(
+            str(rows[0].get("unparsed_reason") or ""),
+            msg="an unparsed verdict must carry why it could not be read",
+        )
+        # Its own event name, so unparsed answers are countable as a class.
+        self.assertIn("decision_questioning_verdict_unparsed", self._governance_kinds())
+        self.assertNotIn("decision_questioning_folded", self._governance_kinds())
+        # Unreadable is not overturned: no escalation.
+        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+
+    def test_a_missing_output_artifact_is_unparsed_not_skipped(self) -> None:
+        # The accepted row points at an artifact that is not there. Dropping
+        # the row would hide a delivery integrity fault; recording it makes
+        # the fold honest about what it could not read.
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        append_declared_jsonl(
+            self.tools_dir / "agent-invocations" / "results.jsonl",
+            {
+                "schema_version": 1,
+                "row_type": "result",
+                "row_id": f"result:claim-{request_id}",
+                "claim_id": f"claim-{request_id}",
+                "request_id": request_id,
+                "agent_id": "ci-executor:fixture",
+                "role": QUESTIONING_ROLE,
+                "status": "accepted",
+                "output_path": "agent-invocations/outputs/gone.json",
+            },
+            expected_surface="agent_invocation_results",
+        )
+
+        summary = self._fold()
+
+        self.assertEqual(summary["verdicts"]["unparsed"], ["plan-closed"])
+        rows = self._outcomes()
+        self.assertEqual(rows[0]["unparsed_reason"], "output_artifact_missing")
+
+
+class AnUnansweredEnvelopeIsLeftToItsExecutor(_QuestioningFixture):
+    def test_a_request_with_no_accepted_result_folds_nothing_and_raises_nothing(self) -> None:
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        # No result row: the envelope is still owed an answer.
+
+        summary = self._fold()
+
+        self.assertEqual(summary["unanswered"], [request_id])
+        self.assertEqual(summary["outcomes_written"], 0)
+        self.assertEqual(summary["verdicts"]["upheld"], [])
+        self.assertEqual(self._outcomes(), [])
+        self.assertNotIn("decision_questioning_folded", self._governance_kinds())
+
+
+class AVerificationEnvelopeFromAnotherLaneIsNotFolded(_QuestioningFixture):
+    def test_a_foreign_verification_result_never_reaches_the_outcome_ledger(self) -> None:
+        # The role is shared vocabulary; the questioning mint_satisfy prefix
+        # is the lane's identity. A future sibling producer of
+        # `verification` envelopes gets its own reader — its answers must not
+        # be folded as decision-questioning outcomes (or escalate on their
+        # behalf).
+        from aria_kernel.agent_invocations import create_agent_invocation_request
+        from aria_kernel.request_admission import admit_request
+
+        self._converge("plan-closed")
+        foreign = create_agent_invocation_request(
+            target_agent="aria-adversarial-judge",
+            role=QUESTIONING_ROLE,
+            suggested_prompt="some other lane's verification question",
+            must_satisfy=[{
+                "id": "verify-something-else",
+                "description": "a different lane's obligation",
+            }],
+            allowed_scope=["docs/**"],
+            base_dir=self.tools_dir,
+            admission=admit_request(
+                "operator_cli.request", QUESTIONING_ROLE, base_dir=self.tools_dir,
+            ),
+        )
+        self._answer(
+            str(foreign["request_id"]),
+            self._envelope(
+                str(foreign["request_id"]),
+                "plan-closed",
+                details={"questioning": {"verdict": "overturned"}},
+            ),
+        )
+
+        summary = self._fold()
+
+        self.assertEqual(summary["requests_seen"], 0)
+        self.assertEqual(summary["outcomes_written"], 0)
+        self.assertEqual(self._outcomes(), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+
+
+class VerdictExtractionOrder(_QuestioningFixture):
+    """WHERE the verdict is read from, strongest location first."""
+
+    def test_the_declared_questioning_block_beats_prose(self) -> None:
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                details={"questioning": {"verdict": "upheld"}},
+                # Prose that names a different verdict: the declared field
+                # is the contract; a scanner must not outvote it.
+                rationale="the claim that the decision was overturned does not hold",
+            ),
+        )
+        self._fold()
+        self.assertEqual([row["verdict"] for row in self._outcomes()], ["upheld"])
+
+    def test_details_verdict_is_the_second_location(self) -> None:
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id, "plan-closed",
+                details={"verdict": "insufficient_evidence"},
+            ),
+        )
+        self._fold()
+        self.assertEqual(
+            [row["verdict"] for row in self._outcomes()], ["insufficient_evidence"],
+        )
+
+    def test_the_verdict_directive_in_prose_is_read(self) -> None:
+        # Tier 3 keeps exactly one prose form: the explicit machine
+        # directive. Envelopes minted before the answer location was named
+        # still fold instead of rotting.
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                rationale=(
+                    "verdict=overturned: evidence_ref docs/aria/SPEC.md no "
+                    "longer resolves, so the decision rests on a tree that "
+                    "no longer exists"
+                ),
+            ),
+        )
+        self._fold()
+        self.assertEqual([row["verdict"] for row in self._outcomes()], ["overturned"])
+
+    def test_an_upheld_directive_in_prose_is_read(self) -> None:
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                rationale=(
+                    "all three attacks attempted and nothing found: "
+                    "verdict=upheld"
+                ),
+            ),
+        )
+        self._fold()
+        self.assertEqual([row["verdict"] for row in self._outcomes()], ["upheld"])
+
+    def test_negated_prose_is_never_a_verdict(self) -> None:
+        # ARIA-HIGH-204 re-review, P1-1: the refuter's probe. A bare
+        # closed-set token can be the verdict an answer REFUSES, so a
+        # substring scan turned "should NOT be overturned" into
+        # verdict=overturned — a false MEDIUM escalation on an answer that
+        # upheld the decision. Bare tokens are not scanned; this answer is
+        # unparsed, and nothing escalates.
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                rationale="After re-review, the decision should NOT be overturned.",
+            ),
+        )
+
+        summary = self._fold()
+
+        self.assertEqual(summary["verdicts"]["overturned"], [])
+        self.assertEqual(summary["verdicts"]["unparsed"], ["plan-closed"])
+        self.assertEqual(summary["escalated"], [])
+        rows = self._outcomes()
+        self.assertEqual(rows[0]["verdict"], "unparsed")
+        self.assertEqual(rows[0]["unparsed_reason"], "verdict_absent")
+        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+
+    def test_a_refusal_of_the_claim_name_stays_unparsed(self) -> None:
+        # The refuter's second probe, same defect: prose DISCUSSING a
+        # verdict is not prose ASSERTING one.
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                rationale="the claim that the decision was overturned does not hold",
+            ),
+        )
+        self._fold()
+        rows = self._outcomes()
+        self.assertEqual(rows[0]["verdict"], "unparsed")
+        self.assertEqual(rows[0]["unparsed_reason"], "verdict_absent")
+        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+
+    def test_two_different_directives_is_unparsed_not_the_scanners_pick(self) -> None:
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                rationale=(
+                    "the draft said verdict=overturned, but on re-resolution "
+                    "of every evidence_ref the final answer is verdict=upheld"
+                ),
+            ),
+        )
+        self._fold()
+        rows = self._outcomes()
+        self.assertEqual(rows[0]["verdict"], "unparsed")
+        self.assertTrue(
+            str(rows[0]["unparsed_reason"]).startswith("verdict_tokens_ambiguous"),
+        )
+
+
+class AFrozenKernelCannotFold(_QuestioningFixture):
+    """The outcome ledger joined PLAN_020 — frozen must stop the fold cold."""
+
+    def test_frozen_profile_refuses_the_fold_and_writes_nothing(self) -> None:
+        # Behavioral, not symbolic: the refuter probed this. The refusal
+        # must come from the profile gate, and NOTHING may reach disk —
+        # no outcome row, no escalation record — so a frozen kernel cannot
+        # half-fold a verdict.
+        from tests._helpers.operator_acts import operator_set_profile
+
+        self._converge("plan-closed")
+        request_id = self._mint_question("plan-closed")
+        self._answer(
+            request_id,
+            self._envelope(
+                request_id,
+                "plan-closed",
+                details={"questioning": {"verdict": "overturned"}},
+            ),
+        )
+        operator_set_profile("frozen", base_dir=self.tools_dir)
+
+        with self.assertRaises(GovernanceError) as raised:
+            self._fold()
+
+        self.assertIn("profile_violation", str(raised.exception))
+        self.assertEqual(self._outcomes(), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
 
 
 class DecisionQuestioningIsACyclePhaseTest(unittest.TestCase):
@@ -290,6 +831,184 @@ class DecisionQuestioningIsACyclePhaseTest(unittest.TestCase):
         # phase every early cycle has to special-case.
         self.assertEqual(result["$schema"], "aria/decision-questioning/v1")
         self.assertEqual(result["questioned"], [])
+
+    def test_the_phase_folds_what_previous_cycles_answered(self) -> None:
+        """ARIA-HIGH-204 — the phase must not stop at asking.
+
+        The minter has a production caller; the fold is its reader twin, and
+        a fold only reachable from tests would be the finding again. Pinned
+        by invocation (the RC-7 lesson): patch where the phase looks the
+        names up, run the real runner, and require the fold to run AFTER the
+        mint — folding first would read an answer the same phase had not yet
+        had the chance to ask for.
+        """
+        from datetime import datetime as _datetime
+
+        from aria_kernel.cycle import PhaseContext
+        from aria_kernel.workspace import workspace_paths
+
+        calls: list[str] = []
+        open_summary = {
+            "$schema": "aria/decision-questioning/v1",
+            "schema_version": 1,
+            "unquestioned_decisions_seen": 0,
+            "questioned": [],
+            "request_ids": [],
+            "request_admission_throttled": None,
+            "target_agent": "aria-adversarial-judge",
+            "sample_size": 2,
+        }
+        fold_summary = {
+            "$schema": "aria/decision-questioning-fold/v1",
+            "schema_version": 1,
+            "cycle_id": None,
+            "requests_seen": 0,
+            "outcomes_written": 0,
+            "unanswered": [],
+            "verdicts": {},
+            "escalated": [],
+        }
+
+        def _record_open(**_kwargs):
+            calls.append("open")
+            return dict(open_summary)
+
+        def _record_fold(**_kwargs):
+            calls.append("fold")
+            return dict(fold_summary)
+
+        phase = self._phase()
+        with tempfile.TemporaryDirectory() as workspace:
+            repo_root = Path(workspace)
+            tools_dir = ensure_tools_dir(str(repo_root / "tools"))
+            context = PhaseContext(
+                cycle_id="cycle-decision-questioning-fold",
+                workspace_root=repo_root,
+                base_dir=tools_dir,
+                workspace=workspace_paths(repo_root, repo_root / "workspace"),
+                plan_id=None,
+                shadow_only=False,
+                defer_reflection=False,
+                snapshot_mode="none",
+                profile="observe",
+                cycle_started_at=_datetime.now(timezone.utc),
+                started_monotonic=0.0,
+                results={},
+                outcomes={},
+            )
+            with patch(
+                "aria_kernel.decision_questioning.open_decision_questioning",
+                side_effect=_record_open,
+            ), patch(
+                "aria_kernel.decision_questioning.fold_questioning_results",
+                side_effect=_record_fold,
+            ):
+                result = phase.runner(context)
+
+        self.assertEqual(calls, ["open", "fold"])
+        # The fold summary rides the phase outcome, so the cycle state a
+        # report reads carries the answers' fate, not just the asks.
+        self.assertEqual(result["fold"]["$schema"], "aria/decision-questioning-fold/v1")
+
+    def test_a_fold_crash_never_fails_the_phase(self) -> None:
+        """ARIA-HIGH-204 re-review, A-3: separate error surfaces.
+
+        A fold that dies must not fail the PHASE: the generic phase handler
+        would mark it failed, and every later ``halt_sequence`` phase would
+        skip on ``upstream_failure`` — a verdict reader's crash costing the
+        night its calibration and reflection organs. The mint half stands;
+        the fold half is recorded as failed, on governance and in the
+        outcome, never swallowed.
+        """
+        from datetime import datetime as _datetime
+
+        from aria_kernel.cycle import PhaseContext
+        from aria_kernel.ledger import LedgerIntegrityError
+        from aria_kernel.workspace import workspace_paths
+
+        phase = self._phase()
+        with tempfile.TemporaryDirectory() as workspace:
+            repo_root = Path(workspace)
+            tools_dir = ensure_tools_dir(str(repo_root / "tools"))
+            context = PhaseContext(
+                cycle_id="cycle-decision-questioning-crash",
+                workspace_root=repo_root,
+                base_dir=tools_dir,
+                workspace=workspace_paths(repo_root, repo_root / "workspace"),
+                plan_id=None,
+                shadow_only=False,
+                defer_reflection=False,
+                snapshot_mode="none",
+                profile="observe",
+                cycle_started_at=_datetime.now(timezone.utc),
+                started_monotonic=0.0,
+                results={},
+                outcomes={},
+            )
+            with patch(
+                "aria_kernel.decision_questioning.fold_questioning_results",
+                side_effect=LedgerIntegrityError("outcomes chain mismatch (probe)"),
+            ):
+                result = phase.runner(context)
+            governance_kinds = [
+                str(row.get("kind"))
+                for row in load_declared_jsonl(
+                    tools_dir / "governance.jsonl",
+                    expected_surface="tools_governance",
+                )
+            ]
+
+        # The mint half ran for real and the phase returned its summary.
+        self.assertEqual(result["$schema"], "aria/decision-questioning/v1")
+        self.assertEqual(result["questioned"], [])
+        # The fold half failed loudly, in both records.
+        self.assertEqual(result["fold"]["status"], "failed")
+        self.assertIn("outcomes chain mismatch", str(result["fold"]["error"]))
+        self.assertIn("decision_questioning_fold_failed", governance_kinds)
+
+    def test_a_fold_crash_records_itself_even_when_governance_is_down(self) -> None:
+        """The last recorder standing is the phase outcome.
+
+        If even the governance append refuses (the audit ledger is part of
+        what is broken), the failure still reaches the record the cycle
+        runner persists — nothing disappears.
+        """
+        from datetime import datetime as _datetime
+
+        from aria_kernel.cycle import PhaseContext
+        from aria_kernel.workspace import workspace_paths
+
+        phase = self._phase()
+        with tempfile.TemporaryDirectory() as workspace:
+            repo_root = Path(workspace)
+            tools_dir = ensure_tools_dir(str(repo_root / "tools"))
+            context = PhaseContext(
+                cycle_id="cycle-decision-questioning-crash-nogov",
+                workspace_root=repo_root,
+                base_dir=tools_dir,
+                workspace=workspace_paths(repo_root, repo_root / "workspace"),
+                plan_id=None,
+                shadow_only=False,
+                defer_reflection=False,
+                snapshot_mode="none",
+                profile="observe",
+                cycle_started_at=_datetime.now(timezone.utc),
+                started_monotonic=0.0,
+                results={},
+                outcomes={},
+            )
+            with patch(
+                "aria_kernel.decision_questioning.fold_questioning_results",
+                side_effect=RuntimeError("fold probe"),
+            ), patch(
+                "aria_kernel.cycle.append_tools_governance",
+                side_effect=OSError("governance ledger probe"),
+            ):
+                result = phase.runner(context)
+
+        self.assertEqual(result["fold"]["status"], "failed")
+        self.assertIn("fold probe", str(result["fold"]["error"]))
+        self.assertIn("governance ledger probe", str(result["fold"]["governance_error"]))
 
 
 if __name__ == "__main__":

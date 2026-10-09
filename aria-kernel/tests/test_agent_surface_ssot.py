@@ -36,7 +36,8 @@ class AgentSurfaceSsotTests(unittest.TestCase):
     def test_lifecycle_states_are_aliases_to_agent_surface(self) -> None:
         self.assertIs(agent_invocations.DERIVED_STATES, DERIVED_REQUEST_STATES)
         self.assertIn("ACCEPTED_PENDING_BRIDGE", DERIVED_REQUEST_STATES)
-        self.assertIn("EXTERNAL_OUTAGE", DERIVED_REQUEST_STATES)
+        # ARIA-HIGH-366 — retired with its dead reaper: no producer wrote it.
+        self.assertNotIn("EXTERNAL_OUTAGE", DERIVED_REQUEST_STATES)
 
 
 if __name__ == "__main__":

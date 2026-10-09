@@ -145,6 +145,7 @@ import {
   ParameterGroup,
   WaterQualityParameterConfig,
 } from '../../water-quality/entities/water-quality-parameter-config.entity';
+import { WaterQualityParamEquipment } from '../../water-quality/entities/water-quality-param-equipment.entity';
 import { CreateParameterConfigHandler } from '../../water-quality/handlers/create-parameter-config.handler';
 import { DeleteParameterConfigHandler } from '../../water-quality/handlers/delete-parameter-config.handler';
 import { UpdateParameterConfigHandler } from '../../water-quality/handlers/update-parameter-config.handler';
@@ -292,6 +293,8 @@ describe('Site tenant isolation on real Postgres', () => {
         Supplier,
         SupplierSite,
         WaterQualityParameterConfig,
+        // The config writers check a parameter's live channel sources (FARM-HIGH-373).
+        WaterQualityParamEquipment,
         AuditLog,
         CodeSequence,
         FarmOutbox,
@@ -459,20 +462,11 @@ describe('Site tenant isolation on real Postgres', () => {
       updateFeed: new UpdateFeedHandler(dataSource),
       deleteFeed: new DeleteFeedHandler(dataSource),
       parameterConfigCache,
-      createParameterConfig: new CreateParameterConfigHandler(
-        parameterConfigRepository,
-        parameterConfigCache,
-      ),
+      createParameterConfig: new CreateParameterConfigHandler(dataSource, parameterConfigCache),
       getParameterConfig: new GetParameterConfigHandler(dataSource),
       listParameterConfigs: new ListParameterConfigsHandler(dataSource),
-      updateParameterConfig: new UpdateParameterConfigHandler(
-        parameterConfigRepository,
-        parameterConfigCache,
-      ),
-      deleteParameterConfig: new DeleteParameterConfigHandler(
-        parameterConfigRepository,
-        parameterConfigCache,
-      ),
+      updateParameterConfig: new UpdateParameterConfigHandler(dataSource, parameterConfigCache),
+      deleteParameterConfig: new DeleteParameterConfigHandler(dataSource, parameterConfigCache),
       setSupplierApprovedSites: new SetSupplierApprovedSitesHandler(
         dataSource,
         new OutboxPublisher(FarmOutbox),

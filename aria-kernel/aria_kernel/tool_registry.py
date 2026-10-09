@@ -28,23 +28,28 @@ from .implementation_safety import verify_bash_command_allowed
 # in place on first bind under v3. Operators on v2 trees must run
 # ``aria-kernel integrity migrate-tools-bootstrap`` once after pull.
 SCHEMA_VERSION = 3
+# ORPHAN-MEDIUM-839 — DRAFT, SANDBOX and ARCHIVED were declared here and no
+# production path ever produced one: every registration lands at SHADOW (the
+# MVP portfolio, the manifest sync, and the authoring loop's materialised
+# manifests — its sandbox is a phase before registration), and no command
+# ever transitioned a tool into ARCHIVED. No registry row or governance row
+# ever held any of them, so they were removed rather than kept as statuses a
+# validator accepts and nothing reaches. A status comes back with its writer.
+# Pinned by tests/test_register_tool_first_register_status_guard.py.
 TOOL_STATUSES = (
-    "DRAFT",
-    "SANDBOX",
     "SHADOW",
     "ACTIVE",
     "CALIBRATE",
     "QUARANTINED",
-    "ARCHIVED",
 )
 TOOL_KINDS = ("adapter", "skill", "llm_amplified_skill")
 # Plan 023 v3 §C-3 — initial-lifecycle states permitted on first
-# register_tool call. ACTIVE / CALIBRATE / QUARANTINED / ARCHIVED on
-# first registration is rejected so the only path to those states is
+# register_tool call. ACTIVE / CALIBRATE / QUARANTINED on first
+# registration is rejected so the only path to those states is
 # transition_tool() (which enforces precision + evidence_chains_valid +
 # operator_approval). This closes the new-tool-direct-ACTIVE bypass.
-INITIAL_LIFECYCLE_STATES = ("DRAFT", "SANDBOX", "SHADOW")
-RUNNER_REQUIRED_STATUSES = ("SANDBOX", "SHADOW", "ACTIVE", "CALIBRATE")
+INITIAL_LIFECYCLE_STATES = ("SHADOW",)
+RUNNER_REQUIRED_STATUSES = ("SHADOW", "ACTIVE", "CALIBRATE")
 RUNNER_TYPES = ("subprocess",)
 REQUIRED_TOOL_FIELDS = (
     "tool_id",
@@ -877,6 +882,13 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("claim_types must be a non-empty array")
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
+    if "rules" in candidate:
+        # ARIA-HIGH-324 — the per-rule judgment contract (rule_contract) is
+        # checked at the one gate every registry row passes, so a contract
+        # the judge fan-out or the promotion could not use never registers.
+        from .rule_contract import validate_rule_contracts
+
+        candidate["rules"] = validate_rule_contracts(candidate["rules"], tool_id=str(candidate["tool_id"]))
 
     # E13-C11 — freshness metadata (see DEFAULT_FRESHNESS_WINDOW_HOURS
     # comment for the full WHY). Optional in the manifest; defaulted when
@@ -913,6 +925,14 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError(f"{candidate['status']} tool requires runner configuration")
     if "runner" in candidate:
         candidate["runner"] = validate_runner_definition(candidate["runner"])
+    if "quarantine" in candidate:
+        # ARIA-MEDIUM-378 — a named quarantine is refused at the one write
+        # gate unless it names a registry finding and a reason.
+        from .adapter_quarantine import validate_manifest_quarantine
+
+        candidate["quarantine"] = validate_manifest_quarantine(
+            candidate["quarantine"], tool_id=str(candidate["tool_id"]),
+        )
     candidate.setdefault("created_at", utc_now())
     candidate["updated_at"] = utc_now()
     return candidate
@@ -968,12 +988,11 @@ def register_tool(
     - QUARANTINED on disk + any non-QUARANTINED in candidate -> reject.
       Use unquarantine_tool() (which delegates through transition_tool)
       to legitimately move a quarantined tool back into circulation.
-    - ACTIVE/CALIBRATE on disk + SHADOW/SANDBOX/DRAFT in candidate ->
-      reject. Use transition_tool(target_status='SHADOW', ...) for an
-      explicit demotion with reason audit trail.
+    - ACTIVE/CALIBRATE on disk + SHADOW in candidate -> reject. Use
+      transition_tool(target_status='SHADOW', ...) for an explicit
+      demotion with reason audit trail.
     - Same status (manifest hash drift) -> allow. Parser/runner update
       path; transition matrix preserved.
-    - Forward progression (DRAFT -> SANDBOX/SHADOW) -> allow.
     """
     candidate = validate_tool_definition(tool)
     registry = load_registry(base_dir)
@@ -994,15 +1013,15 @@ def register_tool(
         # Promotions through SHADOW -> ACTIVE require precision/evidence
         # validation that only transition_tool() performs. Block bare
         # re-registration that tries to skip the matrix.
-        if existing_status in {"DRAFT", "SANDBOX", "SHADOW", "CALIBRATE"} and candidate_status == "ACTIVE":
+        if existing_status in {"SHADOW", "CALIBRATE"} and candidate_status == "ACTIVE":
             raise GovernanceError(
                 f"register_tool blocked: tool_id={candidate['tool_id']!r} promotion "
                 f"{existing_status!r} -> 'ACTIVE' must route through transition_tool() "
                 f"with precision + evidence_chains_valid + operator_approval."
             )
-        # Demotions from ACTIVE/CALIBRATE down to early-lifecycle states
-        # similarly require an explicit reason audit trail.
-        if existing_status in {"ACTIVE", "CALIBRATE"} and candidate_status in {"SHADOW", "SANDBOX", "DRAFT"}:
+        # Demotions from ACTIVE/CALIBRATE down to the initial-lifecycle
+        # state similarly require an explicit reason audit trail.
+        if existing_status in {"ACTIVE", "CALIBRATE"} and candidate_status in INITIAL_LIFECYCLE_STATES:
             raise GovernanceError(
                 f"register_tool blocked: tool_id={candidate['tool_id']!r} demotion "
                 f"{existing_status!r} -> {candidate_status!r} must route through "
@@ -1013,12 +1032,12 @@ def register_tool(
         ]
     else:
         # Plan 023 v3 §C-3 — first-time registration MUST land in an
-        # initial-lifecycle state (DRAFT / SANDBOX / SHADOW). Pre-fix
+        # initial-lifecycle state (SHADOW, ORPHAN-MEDIUM-839). Pre-fix
         # this branch silently appended the candidate at any status,
         # letting `register_tool({status: 'ACTIVE'})` skip the
         # transition_tool() promotion matrix. The only path to ACTIVE /
-        # CALIBRATE / QUARANTINED / ARCHIVED is now an explicit
-        # transition after a prior initial registration.
+        # CALIBRATE / QUARANTINED is now an explicit transition after a
+        # prior initial registration.
         candidate_status = candidate.get("status")
         if candidate_status not in INITIAL_LIFECYCLE_STATES:
             raise GovernanceError(
@@ -1324,9 +1343,11 @@ def update_tool(
 # Lifecycle invariant: a tool can only reach ACTIVE via the documented
 # SHADOW -> ACTIVE promotion path (with precision threshold + operator
 # approval). Pre-§E.10 the kernel only checked CALIBRATE explicitly;
-# every other source state silently succeeded.
+# every other source state silently succeeded. DRAFT, SANDBOX and ARCHIVED
+# left this set with the lifecycle (ORPHAN-MEDIUM-839): a tool cannot hold
+# them, and transition_tool refuses them as unknown before this set is read.
 _FORBIDDEN_ACTIVE_SOURCES: frozenset[str] = frozenset({
-    "DRAFT", "SANDBOX", "ARCHIVED", "QUARANTINED", "CALIBRATE",
+    "QUARANTINED", "CALIBRATE",
 })
 
 
@@ -1546,8 +1567,10 @@ def transition_tool(
 
 
 # ARIA-CRITICAL-216 — a QUARANTINED tool leaving for anything but these
-# widens what runs; these two only narrow, so they need no operator act.
-_QUARANTINE_EXITS_WITHOUT_APPROVAL: frozenset[str] = frozenset({"QUARANTINED", "ARCHIVED"})
+# widens what runs; these only narrow, so they need no operator act. ARCHIVED
+# was the other narrowing exit until it left the lifecycle (ORPHAN-MEDIUM-839):
+# no command ever took it, so release (QUARANTINED -> CALIBRATE) is the exit.
+_QUARANTINE_EXITS_WITHOUT_APPROVAL: frozenset[str] = frozenset({"QUARANTINED"})
 
 
 def resolve_transition_approval(

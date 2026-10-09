@@ -32,6 +32,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 from aria_kernel import state_compact, state_store
@@ -98,32 +99,54 @@ def _memory_surface_file(root: Path, surface) -> Path:
 
     A glob ledger (``plan_convergence_events`` is ``plans/*.jsonl``) is the
     surface, not a single path, so the seed picks one deterministic file of
-    the family — the gates protect each file of the family the same way.
+    the family — the gates protect each file of the family the same way. A
+    monthly-segment surface (ARIA-HIGH-275) lives in the segment the
+    rollover's own append path wrote (it opens the segment with its marker);
+    call ``_seed_memory`` before asking for it.
     """
+    from aria_kernel.ledger import segment_family, segment_paths
+
+    family = segment_family(surface.name)
+    if family != surface.name:
+        return segment_paths(root, family)[-1]
     if "*" in surface.path_pattern:
         return root / surface.path_pattern.replace("*", "memory-seed")
     return resolve_surface_path(root, surface)
 
 
+def _memory_row(version: int) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "belief_id": "b-0",
+        "event": "learned",
+        "recorded_at": _old_ts(30 - version),
+        "version": version,
+    }
+
+
 def _seed_memory(root: Path) -> dict[str, str]:
     """Every memory surface with rows the retired compactors would have cut:
     old timestamps and one id recorded three times."""
+    from aria_kernel import ledger
+    from aria_kernel.ledger import segment_family, segment_paths
+
     digests: dict[str, str] = {}
     for surface in memory_surfaces():
-        path = _memory_surface_file(root, surface)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        for version in range(3):
-            append_declared_fixture(
-                path,
-                {
-                    "schema_version": 1,
-                    "belief_id": "b-0",
-                    "event": "learned",
-                    "recorded_at": _old_ts(30 - version),
-                    "version": version,
-                },
-                expected_surface=surface.name,
-            )
+        family = segment_family(surface.name)
+        if family != surface.name:
+            for version in range(3):
+                ledger.append_segment_rows(
+                    root, [_memory_row(version)],
+                    expected_surface=family, bypass_profile_gate=True,
+                )
+            path = segment_paths(root, family)[-1]
+        else:
+            path = _memory_surface_file(root, surface)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            for version in range(3):
+                append_declared_fixture(
+                    path, _memory_row(version), expected_surface=surface.name,
+                )
         digests[surface.name] = _sha(path)
     return digests
 

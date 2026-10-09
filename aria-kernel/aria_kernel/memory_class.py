@@ -80,7 +80,7 @@ def refuse_history_rewrite(path: Path, rows: list[dict[str, Any]]) -> None:
         if _content(before) != _content(after):
             raise LedgerIntegrityError(
                 f"{REWRITE_REFUSAL}: surface={match[0].name!r} row {position} "
-                "would change; memory is append-only"
+                "would change (an edit or a reorder); memory is append-only"
             )
 
 

@@ -309,7 +309,13 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # ARIA-HIGH-275 — the monthly segments of the two ledgers above, which
     # stay as frozen segment 0. Same lock group, so every segment append
     # serialises with the family; `ledger.SEGMENTED_LEDGERS` binds them and
-    # `ledger.load_segments` is their one reader.
+    # `ledger.load_segments` is their one reader. Memory (2026-10-10
+    # memory-laws finding, refutation round): the monthly segments are where
+    # the actual rows LIVE — the frozen anchors above are only segment 0, so
+    # a law that flagged the anchors alone left every past month prunable
+    # (a segment prune was accepted, 4 rows -> 1). Segments append via
+    # `append_segment_rows` (`_append_rows_locked_body`), which never
+    # rewrites, so the memory flag costs rollover nothing.
     StateSurface(
         name="agent_invocation_request_segments",
         path_pattern="agent-invocations/requests/*.jsonl",
@@ -320,6 +326,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
         profile_surface="agent_claim",
+        memory=True,
     ),
     StateSurface(
         name="agent_invocation_prompt_segments",
@@ -331,6 +338,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
         profile_surface="agent_claim",
+        memory=True,
     ),
     StateSurface(
         name="agent_result_bridge_status",
@@ -836,14 +844,29 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("enterprise_self_merge_freeze", "enterprise/self-merge-freeze.jsonl", "ledger", "enterprise_policy", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_self_reverts", "enterprise/self-reverts.jsonl", "ledger", "enterprise_policy", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("capability_resolution_decisions", "capability-resolution/decisions.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, profile_surface="agent_genesis", observe_class="action"),
-    StateSurface("workspace_memory_unknowns", "aria-memory/unknowns.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace"),
-    StateSurface("workspace_memory_missed_signals", "aria-memory/missed_signals.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace"),
-    StateSurface("workspace_memory_external_feedback", "aria-memory/external_feedback.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace"),
-    StateSurface("workspace_memory_pressure", "aria-memory/pressure.jsonl", "ledger", "pressure", "workspace", True, "append_fsync", True, "workspace"),
-    StateSurface("workspace_memory_pressure_state", "aria-memory/pressure_state.jsonl", "ledger", "pressure", "workspace", True, "append_fsync", True, "workspace"),
-    StateSurface("workspace_memory_vocabulary_rejections", "aria-memory/vocabulary_rejections.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace"),
-    StateSurface("workspace_memory_since_migration_events", "aria-memory/since_migration_events.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace"),
-    StateSurface("workspace_memory_governance", "aria-memory/governance.jsonl", "ledger", "governance", "workspace", True, "append_fsync", True, "workspace"),
+    # Memory (2026-10-10 memory-laws finding, refutation round). The
+    # workspace's own memory ledgers carried "memory" in their names and
+    # lock groups while staying outside the law — a truncate was accepted
+    # (3 rows -> 1). Evidence per ledger (live workspace 00cc2f30056cf43a,
+    # writers grep'd): missed_signals (63 rows, what ARIA failed to catch),
+    # pressure (63 rows, what drove investigation), governance (1,416 rows,
+    # the audit trail of actions on the workspace — history denial is the
+    # 01f37e939 class of loss), unknowns / external_feedback /
+    # pressure_state / vocabulary_rejections / since_migration_events
+    # (append-only writers, empty on that workspace). Every writer appends
+    # (feedback.append_jsonl, pressure.append_pressure_state_event,
+    # workspace.record_workspace_governance); no test rewrites any of them.
+    # These are workspace-root, so the publish gates never see them — the
+    # writer's law is the only gate they can have, which is why they carry
+    # the flag here rather than as a documented exclusion.
+    StateSurface("workspace_memory_unknowns", "aria-memory/unknowns.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace", memory=True),
+    StateSurface("workspace_memory_missed_signals", "aria-memory/missed_signals.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace", memory=True),
+    StateSurface("workspace_memory_external_feedback", "aria-memory/external_feedback.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace", memory=True),
+    StateSurface("workspace_memory_pressure", "aria-memory/pressure.jsonl", "ledger", "pressure", "workspace", True, "append_fsync", True, "workspace", memory=True),
+    StateSurface("workspace_memory_pressure_state", "aria-memory/pressure_state.jsonl", "ledger", "pressure", "workspace", True, "append_fsync", True, "workspace", memory=True),
+    StateSurface("workspace_memory_vocabulary_rejections", "aria-memory/vocabulary_rejections.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace", memory=True),
+    StateSurface("workspace_memory_since_migration_events", "aria-memory/since_migration_events.jsonl", "ledger", "memory", "workspace", True, "append_fsync", True, "workspace", memory=True),
+    StateSurface("workspace_memory_governance", "aria-memory/governance.jsonl", "ledger", "governance", "workspace", True, "append_fsync", True, "workspace", memory=True),
     StateSurface("workspace_integrity_index", "aria-state/integrity_index.json", "index", "memory", "workspace", True, "rewrite_fsync", True, "workspace"),
     StateSurface("workspace_ingested_findings_snapshot", "aria-state/ingested_findings.json", "index", "report_ingestion", "workspace", True, "rewrite_fsync", False, "workspace"),
     StateSurface("repo_finding_events", "aria-findings/finding-events.jsonl", "ledger", "findings", "repo", True, "append_fsync", True, "repo"),

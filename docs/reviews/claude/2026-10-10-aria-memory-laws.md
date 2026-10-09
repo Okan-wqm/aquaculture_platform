@@ -60,16 +60,39 @@ only that; no copy of the list exists anywhere else.
 Main's gate mechanics are the authority and are NOT duplicated here; B1a adds exactly the two
 halves main lacks:
 
-1. **Surface migration (declared once).** The 32 self-learning ledgers gained `memory=True` in
+1. **Surface migration (declared once).** The self-learning ledgers gained `memory=True` in
    `state_manifest.STATE_SURFACES`. Single derivation: `memory_surfaces()` and every gate reading it
    (compaction refusal, snapshot shrink check + prefix witness, publish continuity verdict, and the
-   new write-time refusal) extend at once. The union is 47 surfaces: the 15 main already flagged
-   (6 `memory/*` + `memory_procedural`, 4 kg, `context_usage`, `kg_signers`, `reflections`) plus
-   the 32 added. Two surfaces stay out ON PURPOSE because tests fake legacy rows in them by
-   rewriting history (`test_compaction_attestation`, `test_state_publish_maintenance`,
-   `test_judgment_bridge_e2e`, `test_agent_submit_result_e2e`): `tools_governance` and
-   `agent_invocation_requests`. No literal surface set is carried anywhere — the abandoned
-   half-implementation's `MEMORY_CLASS_SURFACES` frozenset is not reproduced; the flag is the set.
+   new write-time refusal) extend at once. The union is 57 surfaces: the 15 main already flagged
+   (6 `memory/*` + `memory_procedural`, 4 kg, `context_usage`, `kg_signers`, `reflections`), the 32
+   tools-root ledgers of the first cut, the two MONTHLY invocation segment families, and the eight
+   workspace `aria-memory/*` ledgers of the refutation round (both below). Two surfaces stay out ON
+   PURPOSE because tests fake legacy rows in them by rewriting history
+   (`test_compaction_attestation`, `test_state_publish_maintenance`, `test_judgment_bridge_e2e`,
+   `test_agent_submit_result_e2e`): `tools_governance` and `agent_invocation_requests` (the frozen
+   anchor; its monthly segments ARE flagged). No literal surface set is carried anywhere — the
+   abandoned half-implementation's `MEMORY_CLASS_SURFACES` frozenset is not reproduced; the flag is
+   the set.
+   - **Monthly segments (refutation round, P1).** `agent_invocation_request_segments` and
+     `agent_invocation_prompt_segments` are where the actual rows live; the frozen anchors are only
+     segment 0. Flagging the anchors alone left every past month prunable — a live probe accepted
+     `rewrite_declared_jsonl(prompts/2026-XX.jsonl, rows[:1], "prune")`, 4 rows → 1 on disk. Both
+     segment families carry the flag now; the rollover's append path
+     (`append_segment_rows` → `_append_rows_locked_body`) never rewrites, so it costs nothing
+     (pinned by `test_a_monthly_segment_is_memory_and_cannot_be_pruned_or_emptied`).
+   - **Workspace memory (refutation round, P1).** The eight `aria-memory/*` ledgers carried
+     "memory" in their names and lock groups while staying outside the law — a live probe accepted
+     a truncate of `workspace_memory_unknowns`, 3 rows → 1. Evidence per ledger (live workspace
+     `00cc2f30056cf43a`, writers grep'd): `missed_signals` (63 rows, capability gaps ARIA failed to
+     catch), `pressure` (63 rows, what drove investigation), `governance` (1,416 rows, the audit
+     trail of actions on the workspace — history denial is the 01f37e939 class of loss), and
+     `unknowns`/`external_feedback`/`pressure_state`/`vocabulary_rejections`/`since_migration_events`
+     (append-only writers, empty on that workspace). Every writer appends
+     (`feedback.append_jsonl`, `pressure.append_pressure_state_event`,
+     `workspace.record_workspace_governance`); no test rewrites any of them. They are
+     workspace-root, so the publish/snapshot gates never see them — the writer's law is the only
+     gate they CAN have, which is why they carry the flag rather than a documented exclusion.
+     `workspace_integrity_index` stays out: it is derived index data, rebuildable by definition.
 2. **Write-time refusal (tier 1 — make it impossible).** New `aria_kernel/memory_class.py`:
    `refuse_history_rewrite(path, rows)` called from `ledger._rewrite_jsonl_unlocked` under the
    caller's locks, before a byte is written. A rewrite of a flagged surface must keep the content
@@ -87,23 +110,33 @@ and the real losses (01f37e939, f5bcb194d) arrived as manual commits, never kern
 
 ## Fix
 
-- `aria-kernel/aria_kernel/state_manifest.py` — `memory=True` on the 32 self-learning ledgers;
-  `memory_surfaces()` docstring now names the write-time refusal and the two load-bearing
+- `aria-kernel/aria_kernel/state_manifest.py` — `memory=True` on the 32 self-learning ledgers, the
+  two monthly invocation segment families and the eight workspace `aria-memory/*` ledgers (57 in
+  all); `memory_surfaces()` docstring names the write-time refusal and the two load-bearing
   exclusions.
 - `aria-kernel/aria_kernel/memory_class.py` (new) — the write-time law; derives the set from the
-  manifest flag, no restated list.
+  manifest flag, no restated list. The position-mismatch refusal names both shapes ("an edit or a
+  reorder"), so the equal-count reorder — the backfill-launder shape no row-counting layer can
+  see — says what it is.
 - `aria-kernel/aria_kernel/ledger.py` — `_rewrite_jsonl_unlocked` calls `refuse_history_rewrite`
   first (local import: memory_class reads this module's hash/torn-tail primitives).
 - `aria-kernel/tests/_helpers/declared_fixtures.py` — `rewrite_declared_out_of_band` for
-  loss-simulation fixtures.
+  loss-simulation fixtures (also the shape the two e2e segment legacy-fakes now use).
 - `aria-kernel/tests/test_memory_not_compactable.py` — the four loss fakes moved out of band; the
   seed helper resolves glob ledgers (`plan_convergence_events` is `plans/*.jsonl`) to one
-  deterministic family file.
-- `aria-kernel/tests/test_memory_retention.py` (new) — pins the B1a contract: the surface set
-  (47, all tools-root ledgers, the two exclusions), the refusal (drop/edit/truncate/empty RED,
-  restamp+append GREEN, refused rewrite writes nothing, glob family per-file, judgment-samples as
-  a non-`memory/*` member), the unchained-legacy backlink pass, and monthly prompts segment
-  rollover untouched.
+  deterministic family file, and seeds the monthly-segment surfaces through the rollover's own
+  `append_segment_rows` path (a bare append to a month file without its opener marker is refused by
+  design).
+- `aria-kernel/tests/test_judgment_bridge_e2e.py`,
+  `aria-kernel/tests/test_agent_submit_result_e2e.py` — the request-segment legacy fakes moved out
+  of band: the segments are memory now, and editing a recorded row is exactly what the writer
+  refuses.
+- `aria-kernel/tests/test_memory_retention.py` (new) — pins the B1a contract: the surface set (57,
+  all declared ledgers, tools- or workspace-root, the two exclusions), the refusal (drop/edit/
+  truncate/empty/reorder RED — including a monthly segment prune and a workspace-memory truncate,
+  both the refutation round's live probes — restamp+append GREEN, refused rewrite writes nothing,
+  glob family per-file, judgment-samples as a non-`memory/*` member), the unchained-legacy
+  backlink pass, and monthly prompts segment rollover untouched.
 
 ## Not done
 
@@ -111,15 +144,22 @@ and the real losses (01f37e939, f5bcb194d) arrived as manual commits, never kern
   `memory_loci`, the `memory_loci_index` surface, reflection/burn-in whole-log counts): tracked as
   the next slice of the same campaign; the abandoned half-implementation's versions of those
   modules are the starting material.
-- **`tools_governance` and `agent_invocation_requests` cannot join the flag yet** — the tests that
-  fake legacy rows in them by rewriting history must first write the legacy shape at append time.
-  Until they do, a manual reset of those two ledgers passes the writer (the snapshot gates also do
-  not see them: they are unflagged). Pinned by
+- **`tools_governance` and `agent_invocation_requests` (the frozen anchors) cannot join the flag
+  yet** — the tests that fake legacy rows in them by rewriting history must first write the legacy
+  shape at append time. Until they do, a manual reset of those two ledgers passes the writer (the
+  snapshot gates also do not see them: they are unflagged; their monthly SEGMENTS are flagged and
+  protected). Pinned by
   `test_the_self_learning_record_is_memory_and_the_two_exceptions_stay_out`.
-- **Workspace memory** (`aria-memory/*`, workspace-root) is not flagged: the finding's scope is the
-  tools-root record; the workspace reset is an audited, backup-required operator action.
 - **Out-of-band tampering is still possible by definition** — the writer's law binds only calls
   through the kernel's writer. The snapshot/publish gates (ARIA-HIGH-263) remain the backstop for
   bytes that changed outside; a tampered-then-backfilled memory file re-chains with its tampered
   content and passes the write gate (the backfill compares content, not history) — only the
   publish-time prefix witness against the published tip catches it.
+- **Tampering before the FIRST publish is verified by no layer.** The prefix witness compares
+  against the tip's prior claim; before the first snapshot exists there is no claim to compare
+  against, and the writer's law binds only kernel-writer calls — so out-of-band edits to a memory
+  ledger in a store that has never published are invisible to every gate (the write gate sees a
+  plain rewrite of the file only if it flows through the writer; raw disk edits never do). The
+  recovery source for that window is the state branch's git history, not a runtime check. Closing
+  it would need a chain anchor established at bootstrap — tracked for B1b's archive reader, which
+  is where reconstructed history first meets the log.

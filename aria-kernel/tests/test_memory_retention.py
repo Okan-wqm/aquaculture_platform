@@ -11,9 +11,10 @@ HERE is the two halves that landed on top of it:
 
 - the memory set is the manifest's ``memory`` flag, and it now covers the
   whole self-learning record — judgment, calibration, evals, fitness,
-  genesis, change and invocation ledgers — not only ``memory/*``; every
-  member is a declared tools-root ledger, and the two surfaces tests fake
-  legacy rows in by rewriting history stay out;
+  genesis, change and invocation ledgers, the MONTHLY invocation segments
+  (where the rows actually live), and the workspace's aria-memory ledgers —
+  not only ``memory/*``; every member is a declared ledger, and the two
+  surfaces tests fake legacy rows in by rewriting history stay out;
 - the single rewrite writer (``ledger._rewrite_jsonl_unlocked``) refuses a
   rewrite of a memory ledger that drops or changes a recorded row
   (``memory_history_rewrite_refused``) before a byte is written, while
@@ -51,12 +52,19 @@ LEARNING = "memory_learning_events"
 PROMPTS = "agent_invocation_prompts"
 
 # The self-learning ledgers the memory flag gained in this change (the 2026
-# -10-10 memory-laws finding): every one is a tools-root ledger whose rows
-# ARIA or its agents recorded about their own work. tools_governance and
-# agent_invocation_requests are deliberately absent — tests fake legacy
-# rows in them by rewriting history (test_compaction_attestation,
-# test_state_publish_maintenance, test_judgment_bridge_e2e,
-# test_agent_submit_result_e2e).
+# -10-10 memory-laws finding): every one is a ledger whose rows ARIA or its
+# agents recorded about their own work. The monthly agent-invocation
+# segments are included — they are where the actual rows live; the frozen
+# anchors alone left every past month prunable (refutation round: a segment
+# prune was accepted, 4 rows -> 1). The workspace's aria-memory ledgers are
+# included on live evidence (workspace 00cc2f30056cf43a: missed_signals 63
+# rows, pressure 63, governance 1,416; every writer appends; no test
+# rewrites them) — they are workspace-root, so the publish gates never see
+# them and the writer's law is the only gate they can have.
+# tools_governance and agent_invocation_requests (the frozen anchors) are
+# deliberately absent — tests fake legacy rows in them by rewriting history
+# (test_compaction_attestation, test_state_publish_maintenance,
+# test_judgment_bridge_e2e, test_agent_submit_result_e2e).
 SELF_LEARNING_MEMORY = {
     "judgment_samples",
     "operator_feedback",
@@ -90,6 +98,16 @@ SELF_LEARNING_MEMORY = {
     "agent_invocation_transcripts",
     "agent_invocation_contexts",
     "agent_invocation_prompts",
+    "agent_invocation_request_segments",
+    "agent_invocation_prompt_segments",
+    "workspace_memory_unknowns",
+    "workspace_memory_missed_signals",
+    "workspace_memory_external_feedback",
+    "workspace_memory_pressure",
+    "workspace_memory_pressure_state",
+    "workspace_memory_vocabulary_rejections",
+    "workspace_memory_since_migration_events",
+    "workspace_memory_governance",
 }
 
 
@@ -232,12 +250,12 @@ class MemoryRewriteRefused(MemoryStoreTestCase):
 
 
 class MemorySurfaceSet(unittest.TestCase):
-    def test_every_memory_surface_is_a_declared_tools_ledger(self) -> None:
+    def test_every_memory_surface_is_a_declared_ledger(self) -> None:
         surfaces = memory_surfaces()
         self.assertTrue(surfaces)
         for surface in surfaces:
             self.assertEqual(surface.state_class, "ledger", surface.name)
-            self.assertEqual(surface.root_kind, "tools", surface.name)
+            self.assertIn(surface.root_kind, ("tools", "workspace"), surface.name)
             self.assertIs(surface_by_name(surface.name), surface)
 
     def test_the_self_learning_record_is_memory_and_the_two_exceptions_stay_out(self) -> None:
@@ -275,15 +293,96 @@ class SegmentAppendsAreNotRewrites(MemoryStoreTestCase):
 
         self.assertEqual(frozen.read_bytes(), frozen_bytes, "segment zero is frozen")
         month = datetime.now(timezone.utc).strftime("%Y-%m")
-        segment = load_declared_jsonl(
-            self.tools / "agent-invocations" / "prompts" / f"{month}.jsonl", expected_surface=PROMPTS
-        )
-        self.assertEqual([row["request_id"] for row in segment if row.get("row_type") == "prompt"], ["AIR-1"])
+        segment = self.tools / "agent-invocations" / "prompts" / f"{month}.jsonl"
+        rows = load_declared_jsonl(segment, expected_surface=PROMPTS)
+        self.assertEqual([row["request_id"] for row in rows if row.get("row_type") == "prompt"], ["AIR-1"])
 
-        rows = load_declared_jsonl(frozen, expected_surface=PROMPTS)
+        frozen_rows = load_declared_jsonl(frozen, expected_surface=PROMPTS)
         with self.assertRaises(LedgerIntegrityError) as refused:
-            rewrite_declared_jsonl(frozen, rows[:0], expected_surface=PROMPTS, migration_id="empty")
+            rewrite_declared_jsonl(frozen, frozen_rows[:0], expected_surface=PROMPTS, migration_id="empty")
         self.assertIn("memory_history_rewrite_refused", str(refused.exception))
+
+    def test_a_monthly_segment_is_memory_and_cannot_be_pruned_or_emptied(self) -> None:
+        """The refutation round's probe: the monthly segments are where the
+        actual rows LIVE — a law on the frozen anchors alone accepted a
+        segment prune (4 rows -> 1) and a segment empty. The segments carry
+        the flag, so both are refused at the writer."""
+        from aria_kernel import ledger
+
+        frozen = self.tools / "agent-invocations" / "prompts.jsonl"
+        append_declared_fixture(frozen, _prompt_row("AIR-0"), expected_surface=PROMPTS)
+        for index in (1, 2, 3):
+            ledger.append_segment_rows(
+                self.tools, [_prompt_row(f"AIR-{index}")], expected_surface=PROMPTS, bypass_profile_gate=True,
+            )
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        segment = self.tools / "agent-invocations" / "prompts" / f"{month}.jsonl"
+        rows = load_declared_jsonl(segment, expected_surface=PROMPTS)
+        self.assertGreater(len(rows), 2)
+        before = _sha(segment)
+
+        with self.assertRaises(LedgerIntegrityError) as pruned:
+            rewrite_declared_jsonl(
+                segment, rows[:1], expected_surface="agent_invocation_prompt_segments", migration_id="prune",
+            )
+        self.assertIn("memory_history_rewrite_refused", str(pruned.exception))
+        self.assertIn("would drop", str(pruned.exception))
+        with self.assertRaises(LedgerIntegrityError) as emptied:
+            rewrite_declared_jsonl(
+                segment, [], expected_surface="agent_invocation_prompt_segments", migration_id="empty",
+            )
+        self.assertIn("memory_history_rewrite_refused", str(emptied.exception))
+        self.assertEqual(_sha(segment), before, "a refused rewrite writes nothing")
+        # The append path the rollover actually uses still works.
+        ledger.append_segment_rows(
+            self.tools, [_prompt_row("AIR-9")], expected_surface=PROMPTS, bypass_profile_gate=True,
+        )
+        self.assertEqual(len(load_declared_jsonl(segment, expected_surface=PROMPTS)), len(rows) + 1)
+
+
+class ReorderedRowsAreARewrite(MemoryStoreTestCase):
+    def test_an_equal_count_rewrite_that_reorders_rows_is_refused(self) -> None:
+        """The backfill-launder shape: SAME row count, so no layer that only
+        counts rows can see it, and a different tail hash — the writer must
+        refuse it from the bytes, or the publish witness stands alone."""
+        self._append(self.beliefs, BELIEFS, [_belief("b-0", 3), _belief("b-1", 2), _belief("b-2", 1)])
+        rows = load_declared_jsonl(self.beliefs, expected_surface=BELIEFS)
+        before = _sha(self.beliefs)
+        reordered = [rows[1], rows[2], rows[0]]
+
+        with self.assertRaises(LedgerIntegrityError) as refused:
+            rewrite_declared_jsonl(self.beliefs, reordered, expected_surface=BELIEFS, migration_id="reorder")
+        self.assertIn("memory_history_rewrite_refused", str(refused.exception))
+        self.assertIn("edit or a reorder", str(refused.exception))
+        self.assertEqual(_sha(self.beliefs), before, "a refused rewrite writes nothing")
+
+
+class WorkspaceMemoryIsMemory(MemoryStoreTestCase):
+    def test_the_workspace_memory_ledgers_cannot_be_truncated(self) -> None:
+        """The refutation round's probe: a truncate of a workspace memory
+        ledger (3 rows -> 1) was accepted. These are workspace-root, so no
+        publish gate ever sees them — the writer's law is the only gate."""
+        path = self.tools / "aria-memory" / "unknowns.jsonl"
+        for index in range(3):
+            append_declared_fixture(
+                path, {"schema_version": 1, "unknown": f"u-{index}"},
+                expected_surface="workspace_memory_unknowns",
+            )
+        rows = load_declared_jsonl(path, expected_surface="workspace_memory_unknowns")
+        before = _sha(path)
+
+        with self.assertRaises(LedgerIntegrityError) as truncated:
+            rewrite_declared_jsonl(
+                path, rows[:1], expected_surface="workspace_memory_unknowns", migration_id="truncate",
+            )
+        self.assertIn("memory_history_rewrite_refused", str(truncated.exception))
+        self.assertIn("workspace_memory_unknowns", str(truncated.exception))
+        self.assertEqual(_sha(path), before, "a refused rewrite writes nothing")
+        # Appending — what every workspace writer does — is untouched.
+        append_declared_fixture(
+            path, {"schema_version": 1, "unknown": "u-3"}, expected_surface="workspace_memory_unknowns",
+        )
+        self.assertEqual(len(load_declared_jsonl(path, expected_surface="workspace_memory_unknowns")), 4)
 
 
 if __name__ == "__main__":

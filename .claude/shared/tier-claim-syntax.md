@@ -7,8 +7,8 @@
 | Tier | Name | Example (TypeScript) | Example (Rust) |
 |------|------|----------------------|----------------|
 | 1 | Make it impossible | Branded type, DB constraint, exhaustive `switch (state: never)` | newtype, exhaustive `match`, `#[non_exhaustive]` on cross-boundary enums |
-| 2 | Make it automatic | Runtime guard, generated code, default-safe API shape | crate clippy `deny` wall (`unwrap_used`, `indexing_slicing`, `unsafe_code`) |
-| 3 | Make it detectable | ESLint rule, CI invariant test, schema-drift validator | clippy/rustc lint id, Rust CI invariant (`tools/gates/clippy-affected.ts`) |
+| 2 | Make it automatic | Runtime guard, generated code, default-safe API shape | crate clippy `deny` wall, named by lint id (`clippy::unwrap_used`, `clippy::indexing_slicing`) |
+| 3 | Make it detectable | ESLint rule, CI invariant test, schema-drift validator | named lint id (`clippy::<lint>`), Rust CI invariant (`tools/gates/clippy-affected.ts`) |
 | 4 | Documented only | Comment, runbook, ADR — REVIEWER attention required | same — REVIEWER attention required |
 
 **Rule:** always pick the highest tier that applies. Tier-4 is a last resort, acceptable only when Tiers 1-3 are genuinely impossible or when the change is a narrowly-scoped boundary.

@@ -46,8 +46,8 @@ For every `// tier-N:` inline claim AND every `tier-N-begin/-end` block claim in
 
 - Auditor re-derives the actual achieved tier by inspecting the code:
   - **Tier 1** requires a branded type, a CHECK/UNIQUE/NOT-NULL DB constraint, an exhaustive `switch (x: never)`, or similar make-impossible mechanism. In Rust: a newtype, an exhaustive `match`, or `#[non_exhaustive]` on a cross-boundary enum.
-  - **Tier 2** requires a default-safe API shape, a runtime guard injected by framework, or generated code produced by a documented generator. In Rust: a crate-level clippy `deny` wall.
-  - **Tier 3** requires an ESLint rule ID, an invariant test file path, or a schema-drift validator hook that actually runs in CI. In Rust: a clippy/rustc lint id or a Rust CI invariant that actually runs.
+  - **Tier 2** requires a default-safe API shape, a runtime guard injected by framework, or generated code produced by a documented generator. In Rust: a crate-level clippy `deny` wall, cited by lint id (`clippy::unwrap_used`).
+  - **Tier 3** requires an ESLint rule ID, an invariant test file path, or a schema-drift validator hook that actually runs in CI. In Rust: a named lint id (`clippy::<lint>`) or a Rust CI invariant that actually runs. The bare word "clippy" is not a mechanism.
   - **Tier 4** is the only tier that may rest on prose only (ADR / runbook / comment).
 - If the author claimed Tier-1/2/3 but auditor can find no mechanism satisfying that tier → `AUDIT-HIGH-NNN (OVER_CLAIMED)`. If the author claimed the highest-applicable tier correctly → silent pass (no finding).
 - If the claim is on a domain path that MATCHES `.claude/allowlists/boundary-files.yaml` with explicit `reason` + `owner` + `expires` → the Tier-4 allowance is consumed from the boundary entry; no finding.

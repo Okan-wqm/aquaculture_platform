@@ -57,10 +57,16 @@ const ALLOWLIST_PATH = resolve(
 /**
  * Well-formed tier-claim patterns. Case-sensitive on the `tier` prefix
  * so we don't false-positive on non-canonical capitalisations elsewhere.
+ *
+ * `//[/!]?` admits the Rust doc-comment forms beside the plain line
+ * comment: `///` (outer doc) already matched by accident of the
+ * unanchored search, but `//!` (inner doc, the module-level claim
+ * position in Rust) did not, so a module-level Rust claim escaped every
+ * rule. Both doc forms are now matched explicitly.
  */
-const INLINE_RE = /\/\/\s*tier-([0-9]+)\s*:\s*(.*)$/;
-const BEGIN_RE = /\/\/\s*tier-([0-9]+)-begin\s*:\s*(.*)$/;
-const END_RE = /\/\/\s*tier-([0-9]+)-end\s*$/;
+const INLINE_RE = /\/\/[/!]?\s*tier-([0-9]+)\s*:\s*(.*)$/;
+const BEGIN_RE = /\/\/[/!]?\s*tier-([0-9]+)-begin\s*:\s*(.*)$/;
+const END_RE = /\/\/[/!]?\s*tier-([0-9]+)-end\s*$/;
 
 /**
  * "Mechanism" hints — a non-vague tier claim must mention AT LEAST ONE.
@@ -83,7 +89,13 @@ const MECHANISM_HINTS: readonly RegExp[] = [
   /\b@Column\b/i,
   /\b@Entity\b/i,
   /\bADR-\d+\b/i,
-  /\bnever\b/i, // `switch (state: never)`
+  // The TypeScript never-TYPE form only (`state: never`, `x as never`).
+  // A bare `\bnever\b` also matched prose: a tier-1 claim reading
+  // "careful code, never panics" passed R7 once .rs files were admitted
+  // (fixture tier-claim-rust/claim-vague-never.rs), and prose is exactly
+  // what R7 exists to refuse.
+  /:\s*never\b/,
+  /\bas\s+never\b/,
   /\brepository\s+boundary\b/i,
   /\bRuntime\s+guard\b/i,
   /\bzod\b/i,
@@ -96,7 +108,9 @@ const MECHANISM_HINTS: readonly RegExp[] = [
   /\bnewtype\b/i,
   /\bexhaustive\s+match\b/i,
   /#\[non_exhaustive\]/,
-  /\bclippy\b/i,
+  // A clippy lint is a mechanism only when it is NAMED: `clippy::unwrap_used`
+  // is checkable, the bare word "clippy" is not.
+  /\bclippy::[a-z_]+\b/,
 ];
 
 type RuleId =
@@ -310,12 +324,16 @@ function run(cmd: string): string {
   }
 }
 
-// Staged/range selection is the PRODUCT surface: test data under tests/
-// deliberately contains claims that violate rules (the fixtures that pin
-// this gate), so it is excluded from product scanning. --mode=file remains
-// the explicit operator surface and scans any path given, fixtures included.
+// Staged/range selection is the PRODUCT surface: the fixtures under
+// tests/**/fixtures/ deliberately contain claims that violate rules (they
+// pin this gate), so only they are excluded. Every other file under tests/
+// — specs and helpers — is code a claim can sit in, and stays scanned.
+// --mode=file remains the explicit operator surface and scans any path
+// given, fixtures included.
+const TEST_FIXTURE_RE = /^tests\/(?:[^/]+\/)*fixtures\//;
+
 function isProductCode(relPath: string): boolean {
-  return !relPath.startsWith('tests/') && /\.(ts|tsx|rs)$/.test(relPath);
+  return !TEST_FIXTURE_RE.test(relPath) && /\.(ts|tsx|rs)$/.test(relPath);
 }
 
 function stagedFiles(): string[] {

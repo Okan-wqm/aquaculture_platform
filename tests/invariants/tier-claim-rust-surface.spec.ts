@@ -24,10 +24,20 @@ describe('ARIA-MEDIUM-392 — Rust tier-claim surface', () => {
     'utf8',
   );
 
-  it('staged and range file selection admits .rs files and excludes test data', () => {
+  it('staged and range file selection admits .rs files and excludes only test fixtures', () => {
     const selection = lintSource.match(/function isProductCode[\s\S]*?\n}/)?.[0] ?? '';
     expect(selection).toContain('(ts|tsx|rs)');
-    expect(selection).toContain("startsWith('tests/')");
+    expect(selection).toContain('TEST_FIXTURE_RE');
+    // The exclusion is the fixtures tree, not all of tests/: specs and
+    // helpers under tests/ are code a claim can sit in and stay scanned.
+    const literal = lintSource.match(/const TEST_FIXTURE_RE = \/(.*)\/;$/m)?.[1] ?? '';
+    expect(literal).not.toBe('');
+    const fixtureRe = new RegExp(literal);
+    expect(fixtureRe.test('tests/invariants/fixtures/tier-claim-rust/claim-vague.rs')).toBe(true);
+    expect(fixtureRe.test('tests/fixtures/x.ts')).toBe(true);
+    expect(fixtureRe.test('tests/invariants/tier-claim-rust-surface.spec.ts')).toBe(false);
+    expect(fixtureRe.test('tests/e2e/helpers/login.ts')).toBe(false);
+    expect(fixtureRe.test('apps/x/src/fixtures/seed.ts')).toBe(false);
     const stagedFn = lintSource.match(/function stagedFiles\(\)[\s\S]*?\n}/)?.[0] ?? '';
     const rangeFn = lintSource.match(/function rangeFiles\([\s\S]*?\n}/)?.[0] ?? '';
     expect(stagedFn).toContain('isProductCode');
@@ -46,7 +56,18 @@ describe('ARIA-MEDIUM-392 — Rust tier-claim surface', () => {
     expect(hints).toContain('newtype');
     expect(hints).toContain('exhaustive\\s+match');
     expect(hints).toContain('non_exhaustive');
-    expect(hints).toContain('clippy');
+    // A named lint id, not the bare word.
+    expect(hints).toContain('clippy::');
+    expect(hints).not.toContain('/\\bclippy\\b/i');
+    // The never-TYPE form only; a bare word-boundary `never` admits prose.
+    expect(hints).not.toContain('/\\bnever\\b/i');
+  });
+
+  it('inline, begin and end claim patterns admit the Rust doc-comment forms', () => {
+    for (const name of ['INLINE_RE', 'BEGIN_RE', 'END_RE']) {
+      const decl = lintSource.match(new RegExp(`const ${name} = .*$`, 'm'))?.[0] ?? '';
+      expect(decl).toContain('[/!]?');
+    }
   });
 
   it('the SSoT table carries Rust examples per tier', () => {
@@ -90,6 +111,30 @@ describe('ARIA-MEDIUM-392 — Rust tier-claim surface', () => {
 
     it('flags a Rust tier claim that names no mechanism (R7)', () => {
       const result = runGate('tests/invariants/fixtures/tier-claim-rust/claim-vague.rs');
+      expect(result.status).toBe(1);
+      expect(result.out).toMatch(/R7-vague-claim/);
+    });
+
+    it('flags prose that only contains the word "never" (R7)', () => {
+      const result = runGate('tests/invariants/fixtures/tier-claim-rust/claim-vague-never.rs');
+      expect(result.status).toBe(1);
+      expect(result.out).toMatch(/R7-vague-claim/);
+    });
+
+    it('flags a bare "clippy" that names no lint (R7)', () => {
+      const result = runGate('tests/invariants/fixtures/tier-claim-rust/claim-bare-clippy.rs');
+      expect(result.status).toBe(1);
+      expect(result.out).toMatch(/R7-vague-claim/);
+    });
+
+    it('accepts a claim naming clippy lint ids', () => {
+      const result = runGate('tests/invariants/fixtures/tier-claim-rust/claim-named-clippy.rs');
+      expect(result.status).toBe(0);
+      expect(result.out).toMatch(/passed/i);
+    });
+
+    it('scans a //! inner-doc module claim and flags it when vague (R7)', () => {
+      const result = runGate('tests/invariants/fixtures/tier-claim-rust/claim-inner-doc-vague.rs');
       expect(result.status).toBe(1);
       expect(result.out).toMatch(/R7-vague-claim/);
     });

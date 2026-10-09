@@ -31,6 +31,106 @@ RUNTIME_SIGNAL_SOURCES = {"sentry", "incident", "prod_log", "telemetry", "operat
 RUNTIME_SEVERITIES = {"low", "medium", "high", "critical"}
 RUNTIME_TRUST_GRADE = "runtime_unverified"
 
+# The record is written from text an outside party can author: Sentry accepts
+# events from anyone holding the public DSN, and a log line carries whatever a
+# request put in it. These bounds hold at THE door every producer uses — the
+# CLI verb, the MCP tool, the SARIF and pack ingesters, the gateway and the
+# importer all call ingest_runtime_signal — so no producer can skip them.
+MAX_SERVICE_CHARS = 128
+MAX_SUMMARY_CHARS = 2000
+MAX_CODE_REFS = 32
+MAX_CODE_REF_CHARS = 1024
+
+# Sources whose CONTENT an outside party writes. Their reported severity is a
+# claim by that party, so it is capped: a forged Sentry `fatal` must not
+# become a `critical` lead that outranks every repo-verified pressure. The
+# reported value is kept on the record beside the bounded one.
+UNTRUSTED_CONTENT_SOURCES = frozenset({"sentry", "prod_log"})
+UNTRUSTED_SEVERITY_CEILING = "high"
+_SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+# A glob metacharacter names no file in this repository (no tracked path holds
+# one) and turns a ref into a pattern for every matcher that reads it — one
+# `*/*` frame would touch every belief. Refused at the door.
+_GLOB_METACHARACTERS = frozenset("*?[")
+
+# Bidirectional override and isolate controls (U+202A..U+202E, U+2066..U+2069)
+# reorder what an operator SEES without changing what is stored — the
+# Trojan-Source class. Refused wherever a control character is.
+_BIDI_CONTROLS = frozenset(chr(code) for code in (*range(0x202A, 0x202F), *range(0x2066, 0x206A)))
+
+
+def _holds_control(text: str, allowed: frozenset[str] = frozenset()) -> bool:
+    """True when ``text`` holds a C0/C1 control or a bidi control other than ``allowed``."""
+    return any(
+        ((ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F) or char in _BIDI_CONTROLS)
+        and char not in allowed
+        for char in text
+    )
+
+
+def canonical_runtime_signal_ref(ref: Any) -> str:
+    """The stored form of one runtime-signal code ref, or a GovernanceError naming why it is refused.
+
+    The ref's PATH shape is decided by the one agent evidence law,
+    :func:`evidence_validator.agent_ref_shape_refusal` — absolute paths, ``..``
+    escapes, control characters, over-long components and ARIA's own output are
+    refused under the codes that law gives them, and an accepted path is stored
+    in its canonical repo-relative spelling with its ``:line`` kept. A ref the
+    law finds malformed is not a path at all (``alert:HighCpu``,
+    ``sarif:semgrep``): it is kept verbatim, and pressure routes it to the
+    provenance channel no agent cites (``pressure_evidence.split_citable_refs``).
+    What no ref may carry whatever its shape: a control or bidi-override
+    character, whitespace (prose is not a reference), a glob metacharacter,
+    and a ``..`` segment or a leading ``/`` or ``~`` hidden behind a token
+    prefix (``alert:/etc/passwd``).
+    """
+    from .canonical_path import resolve_repo_relpath
+    from .evidence_trust import parse_evidence_ref
+    from .evidence_validator import _is_ledger_pointer_ref, _nameable_path, agent_ref_shape_refusal
+
+    if not isinstance(ref, str) or not ref.strip():
+        raise GovernanceError("runtime_signal_ref_not_string: a code ref is a non-empty string")
+    if len(ref) > MAX_CODE_REF_CHARS:
+        raise GovernanceError(f"runtime_signal_ref_too_long: {ref[:80]!r}... exceeds {MAX_CODE_REF_CHARS} chars")
+    if not _nameable_path(ref) or _holds_control(ref):
+        raise GovernanceError(
+            f"agent_evidence_path_unresolvable: {ref[:120]!r} holds a control or bidi-override character"
+        )
+    if any(char.isspace() for char in ref):
+        raise GovernanceError(f"runtime_signal_ref_whitespace: {ref[:120]!r} is prose, not a reference")
+    if _GLOB_METACHARACTERS.intersection(ref):
+        raise GovernanceError(f"runtime_signal_ref_glob: {ref[:120]!r} is a pattern, not a reference")
+    # Every colon-separated part is checked, so `alert:/etc/passwd` and
+    # `sarif:~/x` are refused like a bare `/etc/passwd`.
+    if any(part.startswith(("/", "~")) for part in ref.split(":")) or ".." in ref.replace(":", "/").split("/"):
+        raise GovernanceError(f"agent_evidence_path_escapes_workspace: {ref[:120]!r}")
+    if _is_ledger_pointer_ref(ref):
+        raise GovernanceError(f"runtime_signal_ref_ledger_pointer: {ref[:120]!r} names a kernel record, not a code area")
+    refusal = agent_ref_shape_refusal(ref)
+    if refusal == "agent_evidence_ref_malformed":
+        return ref
+    if refusal is not None:
+        raise GovernanceError(f"{refusal}: {ref[:120]!r}")
+    parsed = parse_evidence_ref(ref)
+    if parsed is None:  # unreachable: the law accepted the grammar above
+        raise GovernanceError(f"agent_evidence_ref_malformed: {ref[:120]!r}")
+    path, line = parsed
+    canonical = resolve_repo_relpath(path)
+    return canonical if line is None else f"{canonical}:{line}"
+
+
+def _bounded_text(field: str, value: Any, limit: int, *, allow_newlines: bool) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise GovernanceError(f"{field} is required")
+    text = value.strip()
+    if len(text) > limit:
+        raise GovernanceError(f"runtime_signal_{field}_too_long: {len(text)} chars exceeds {limit}")
+    allowed = frozenset({"\n", "\r", "\t"}) if allow_newlines else frozenset()
+    if _holds_control(text, allowed):
+        raise GovernanceError(f"runtime_signal_{field}_control_character: {text[:80]!r}")
+    return text
+
 
 def _signals_dir(tools_root: Path) -> Path:
     return tools_root / "runtime-signals"
@@ -66,15 +166,27 @@ def ingest_runtime_signal(
         raise GovernanceError(f"unknown runtime signal source: {source!r}")
     if severity not in RUNTIME_SEVERITIES:
         raise GovernanceError(f"unknown severity: {severity!r}")
-    if not isinstance(service, str) or not service.strip():
-        raise GovernanceError("service is required")
-    if not isinstance(summary, str) or not summary.strip():
-        raise GovernanceError("summary is required")
-    if not isinstance(code_refs, list) or not code_refs or not all(isinstance(r, str) and r.strip() for r in code_refs):
+    service = _bounded_text("service", service, MAX_SERVICE_CHARS, allow_newlines=False)
+    summary = _bounded_text("summary", summary, MAX_SUMMARY_CHARS, allow_newlines=True)
+    if not isinstance(code_refs, list) or not code_refs:
         raise GovernanceError("code_refs must be a non-empty list of strings (the lead's referenced code area)")
+    if len(code_refs) > MAX_CODE_REFS:
+        raise GovernanceError(f"runtime_signal_too_many_refs: {len(code_refs)} exceeds {MAX_CODE_REFS}")
+    canonical_refs: list[str] = []
+    for ref in code_refs:
+        canonical = canonical_runtime_signal_ref(ref)
+        if canonical not in canonical_refs:
+            canonical_refs.append(canonical)
+    code_refs = canonical_refs
+    reported_severity = severity
+    if (
+        source in UNTRUSTED_CONTENT_SOURCES
+        and _SEVERITY_RANK[severity] > _SEVERITY_RANK[UNTRUSTED_SEVERITY_CEILING]
+    ):
+        severity = UNTRUSTED_SEVERITY_CEILING
 
     root = ensure_tools_dir(base_dir)
-    signal_id = _derive_signal_id(source, service.strip(), summary.strip(), code_refs)
+    signal_id = _derive_signal_id(source, service, summary, code_refs)
     path = _signal_path(root, signal_id)
     if path.exists():
         try:
@@ -88,8 +200,8 @@ def ingest_runtime_signal(
         "schema_version": 1,
         "signal_id": signal_id,
         "source": source,
-        "service": service.strip(),
-        "summary": summary.strip(),
+        "service": service,
+        "summary": summary,
         "code_refs": code_refs,
         "severity": severity,
         # NOT evidence. An explicit, non-repo_verified grade so no downstream
@@ -98,12 +210,14 @@ def ingest_runtime_signal(
         "status": "open",
         "recorded_at": ts,
     }
+    if reported_severity != severity:
+        record["reported_severity"] = reported_severity
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     append_tools_governance(
         root,
         "runtime_signal_ingested",
-        {"signal_id": signal_id, "source": source, "service": service.strip(), "severity": severity},
+        {"signal_id": signal_id, "source": source, "service": service, "severity": severity},
     )
     return record
 

@@ -70,6 +70,26 @@ class SarifIngest(unittest.TestCase):
             gov = (tools / "governance.jsonl").read_text(encoding="utf-8")
             self.assertIn("security_sarif_quarantined", gov)
 
+    def test_I_V13_SARIF_05_lead_refused_by_the_bridge_is_reported_not_fatal(self) -> None:
+        # ARIA-MEDIUM-394 review — the runtime-signal bridge refuses a glob
+        # location; that lead is counted refused (governance-recorded) and the
+        # document's other leads still land. A tool name with a space becomes a
+        # token, never prose.
+        doc = {"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "Trivy Scanner", "rules": []}}, "results": [
+            {"ruleId": "G", "message": {"text": "m"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "apps/*.ts"}}}]},
+            {"ruleId": "N", "message": {"text": "m"}},
+        ]}]}
+        with tempfile.TemporaryDirectory() as t:
+            tools = ensure_tools_dir(Path(t) / "tools")
+            out = si.ingest_sarif(doc, service="farm-service", base_dir=tools, tool_hint="trivy scanner")
+            self.assertEqual((out["ingested"], out["refused"]), (1, 1))
+            gov = (tools / "governance.jsonl").read_text(encoding="utf-8")
+            self.assertIn("security_sarif_lead_refused", gov)
+            self.assertIn("runtime_signal_ref_glob", gov)
+            from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
+            [signal] = load_open_runtime_signals(base_dir=tools)
+            self.assertEqual(signal["code_refs"], ["sarif:trivy-scanner"])
+
 
 if __name__ == "__main__":
     unittest.main()

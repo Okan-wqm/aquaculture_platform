@@ -163,10 +163,14 @@ def _route(event: NormalizedEvent, *, base_dir: str | Path | None, workspace_roo
         from ..runtime_signal_bridge import ingest_runtime_signal
 
         workflow = subject.get("workflow") or subject.get("app") or "ci"
+        # The code area is the workflow FILE (GitHub's workflow_run.path), a
+        # repo path the evidence law can cite; a check suite names no file, so
+        # it points at the workflows directory. The display name stays in the
+        # summary: names carry spaces, and a ref is never prose.
         row = ingest_runtime_signal(
             source="telemetry", service=str(subject.get("repo") or "repo"),
             summary=f"{workflow} {subject.get('conclusion')} on {subject.get('head_branch')} @ {str(subject.get('head_sha') or '')[:12]}",
-            code_refs=[f".github/workflows:{workflow}"], severity="high", base_dir=root,
+            code_refs=[str(subject.get("workflow_path") or ".github/workflows")], severity="high", base_dir=root,
         )
         return RouteOutcome("runtime_signal", {"signal_id": row.get("signal_id") or row.get("id"), "workflow": workflow})
     if kind == "alertmanager.firing":

@@ -4433,9 +4433,18 @@ def _main(argv: list[str] | None = None) -> int:
         recall = score_judges(
             base_dir=args.tools_dir, judgment_group_prefix=recall_prefix,
         )
-        payload = {"status": "completed", "replayed": replayed, "replay_recall": recall}
+        # Every tool blocked — refused outright, or throttled before a single
+        # judge was admitted — is a failed replay, and the exit code says so
+        # for operator scripts; a partial replay reports per tool and exits 0.
+        blocked = [
+            row for row in replayed
+            if row.get("status") == "blocked"
+            or (row.get("request_admission_throttled") and not row.get("minted"))
+        ]
+        status = "blocked" if replayed and len(blocked) == len(replayed) else "completed"
+        payload = {"status": status, "replayed": replayed, "replay_recall": recall}
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
-        return 0
+        return 1 if status == "blocked" else 0
 
     # ORPHAN-HIGH-573 — file-level narrative-prompt validator verb.
     if args.command == "narrative-prompt" and args.narrative_prompt_command == "validate":

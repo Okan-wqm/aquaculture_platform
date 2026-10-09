@@ -113,5 +113,70 @@ class JudgeReplayVerbTests(unittest.TestCase):
         self.assertEqual(first["replayed_items"], 0)
 
 
+    def _refuse_every_admission(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        refused = SimpleNamespace(admitted=False, refusal="request_admission_throttled:test_refusal")
+        return mock.patch("aria_kernel.judge_replay.admit_request", return_value=refused)
+
+    def test_verb_exits_non_zero_when_every_tool_is_blocked(self) -> None:
+        with self._refuse_every_admission():
+            code, out = _run(["--tools-dir", str(self.tools), "judge", "replay", "--tool-id", "tool-x"])
+        self.assertEqual(code, 1, out)
+        self.assertEqual(json.loads(out)["status"], "blocked")
+
+    def test_no_anchor_is_seeded_when_no_judge_was_admitted(self) -> None:
+        from aria_kernel.feedback_store import load_feedback
+
+        with self._refuse_every_admission():
+            _run(["--tools-dir", str(self.tools), "judge", "replay", "--tool-id", "tool-x"])
+        seeds = [r for r in load_feedback(base_dir=self.tools) if r.get("judge_id") == "goldset-replay"]
+        self.assertEqual(seeds, [])
+        # Once a judge is admitted the anchor lands with it.
+        code, out = _run(["--tools-dir", str(self.tools), "judge", "replay", "--tool-id", "tool-x"])
+        self.assertEqual(code, 0, out)
+        seeds = [r for r in load_feedback(base_dir=self.tools) if r.get("judge_id") == "goldset-replay"]
+        self.assertEqual(len(seeds), 3)
+
+    def test_a_replay_never_moves_the_actuators_labels(self) -> None:
+        """Review of #1896 (HIGH): one replay moved the actuator's fresh labels
+        from {0, 0} to {tp 2, fp 1}. Neither the replay's seeded anchors nor
+        its judges' verdicts are evidence about the tool."""
+        from aria_kernel.calibration_actuator import _labels
+        from aria_kernel.feedback_store import load_feedback, record_operator_feedback
+
+        before = _labels(load_feedback(base_dir=self.tools), "tool-x", None)
+        _run(["--tools-dir", str(self.tools), "judge", "replay", "--tool-id", "tool-x"])
+        # The judges answer under the replay group, as ai_judge rows.
+        record_operator_feedback(
+            tool_id="tool-x", run_id="rtp0", finding_id="ftp0", verdict="true_positive",
+            severity="medium", note="judge verdict", source_type="ai_judge",
+            judge_id="aria-evidence-judge", judgment_group_id="replay:tool-x:rtp0:ftp0",
+            base_dir=self.tools,
+        )
+        after = _labels(load_feedback(base_dir=self.tools), "tool-x", None)
+        self.assertEqual((before["tp"], before["fp"]), (after["tp"], after["fp"]))
+        self.assertEqual(after["labels"], before["labels"])
+
+    def test_a_gold_item_without_source_type_fails_closed(self) -> None:
+        from aria_kernel.feedback_store import load_feedback
+        from aria_kernel.judge_replay import replay_judges_on_goldset
+
+        item = _gi(self.tools, "rns0", "fns0", "true_positive")
+        del item["source_type"]
+        promote_goldset_proposal(tool_id="tool-x", curator="okan", base_dir=self.tools, proposal={
+            "status": "ready", "recorded_at": utc_now(), "tool_id": "tool-x",
+            "true_positive_count": 1, "known_false_positive_count": 0,
+            "true_positive_items": [item], "known_false_positive_items": [],
+        })
+        result = replay_judges_on_goldset(tool_id="tool-x", base_dir=self.tools)
+        self.assertEqual(result["seeded"], [])
+        self.assertEqual(result["minted"], [])
+        self.assertEqual(result["unprovable_provenance"][0]["reason"], "source_type_not_ground_truth:''")
+        self.assertFalse([r for r in load_feedback(base_dir=self.tools) if r.get("source_type") == "human"
+                          and r.get("judge_id") == "goldset-replay"])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

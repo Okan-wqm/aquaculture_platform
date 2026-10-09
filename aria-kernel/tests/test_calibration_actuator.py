@@ -88,6 +88,39 @@ class TheProducerNamesARealDialTests(_Store):
         self.assertEqual(self.recommend("cyc-1")["pressure_weight_recommendations"], [])
 
 
+class OnlyGroundTruthMovesAnAutoAppliedDialTests(unittest.TestCase):
+    """Review of #1896 (HIGH) — the actuator counts ground truth only:
+    human labels and anchored ai_consensus. A replay row, a lone ai_judge
+    verdict and an unanchored consensus are never fresh labels."""
+
+    def count(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
+        from aria_kernel.calibration_actuator import _labels
+
+        out = _labels(rows, TOOL, None)
+        return out["tp"], out["fp"]
+
+    def test_human_and_legacy_unlabelled_rows_count(self) -> None:
+        base = {"tool_id": TOOL, "recorded_at": T0.isoformat(), "finding_id": "x"}
+        rows = [{**base, "verdict": "true_positive", "source_type": "human"},
+                {**base, "verdict": "false_positive"}]
+        self.assertEqual(self.count(rows), (1, 1))
+
+    def test_ai_judge_rows_never_move_a_dial(self) -> None:
+        base = {"tool_id": TOOL, "recorded_at": T0.isoformat(), "finding_id": "x", "source_type": "ai_judge"}
+        self.assertEqual(self.count([{**base, "verdict": "false_positive"}] * 20), (0, 0))
+
+    def test_an_unanchored_consensus_never_moves_a_dial(self) -> None:
+        base = {"tool_id": TOOL, "recorded_at": T0.isoformat(), "finding_id": "x",
+                "source_type": "ai_consensus", "judge_count": 2, "judges_voted": 2}
+        self.assertEqual(self.count([{**base, "verdict": "false_positive"}] * 20), (0, 0))
+
+    def test_replay_rows_never_move_a_dial_even_as_human(self) -> None:
+        base = {"tool_id": TOOL, "recorded_at": T0.isoformat(), "finding_id": "x", "source_type": "human"}
+        rows = [{**base, "verdict": "true_positive", "judgment_group_id": f"replay:{TOOL}:r:f"},
+                {**base, "verdict": "false_positive", "judge_id": "goldset-replay"}]
+        self.assertEqual(self.count(rows), (0, 0))
+
+
 class StepsNeedFreshSupportingLabelsTests(_Store):
     def test_an_in_bounds_supported_cut_is_applied_with_its_evidence(self) -> None:
         recommendation = self.recommend("cyc-1")

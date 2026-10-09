@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
+from .calibration_dials import GOLDSET_REPLAY_JUDGE_ID
 from .feedback_store import (
     FEEDBACK_SEVERITIES,
     FEEDBACK_VERDICTS,
@@ -58,7 +59,7 @@ def replay_judges_on_goldset(
     existing_seeds = {
         (str(r.get("run_id")), str(r.get("finding_id")), str(r.get("judgment_group_id")))
         for r in load_feedback(base_dir=root)
-        if r.get("judge_id") == "goldset-replay"
+        if r.get("judge_id") == GOLDSET_REPLAY_JUDGE_ID
     }
     minted: list[dict[str, Any]] = []
     seeded: list[str] = []
@@ -121,8 +122,11 @@ def replay_judges_on_goldset(
         # an item whose provenance cannot be proved is SKIPPED, loudly, and
         # its judges are not sat down in front of a question no answer can be
         # scored against. A curated label is not an operator verdict.
-        if (run_id, finding_id, group) not in existing_seeds:
-            seed_source = str(gi.get("source_type") or "human")
+        needs_seed = (run_id, finding_id, group) not in existing_seeds
+        if needs_seed:
+            # A gold item with no source_type proves no provenance: it fails
+            # closed as unprovable rather than defaulting to `human`.
+            seed_source = str(gi.get("source_type") or "")
             seed_judge_count = gi.get("judge_count")
             seed_judges_voted = gi.get("judges_voted")
             if seed_source not in GROUND_TRUTH_SOURCE_TYPES:
@@ -142,16 +146,6 @@ def replay_judges_on_goldset(
                     "reason": "ai_consensus_item_without_anchor_counts",
                 })
                 continue
-            record_operator_feedback(
-                tool_id=tool_id, run_id=run_id, finding_id=finding_id, verdict=verdict,
-                severity=severity, note="goldset_replay_ground_truth",
-                source_type=seed_source, judge_id="goldset-replay",
-                judgment_group_id=group, judge_count=seed_judge_count,
-                judges_voted=seed_judges_voted,
-                base_dir=root,
-            )
-            existing_seeds.add((run_id, finding_id, group))
-            seeded.append(group)
         item = {
             "tool_id": tool_id, "run_id": run_id, "finding_id": finding_id,
             "rule": contract.rule, "severity": severity,
@@ -172,6 +166,21 @@ def replay_judges_on_goldset(
             )
             existing.add((group, agent))
             minted.append({"request_id": req.get("request_id"), "role": role, "judgment_group_id": group})
+        # The ground-truth anchor is seeded only once a judge for this group
+        # was admitted (now or on an earlier run). A refused admission used to
+        # leave a seeded anchor with no judge to score against it — a row of
+        # "ground truth" no replay ever asked about.
+        if needs_seed and any((group, agent) in existing for _, agent in JUDGE_FANOUT):
+            record_operator_feedback(
+                tool_id=tool_id, run_id=run_id, finding_id=finding_id, verdict=verdict,
+                severity=severity, note="goldset_replay_ground_truth",
+                source_type=seed_source, judge_id=GOLDSET_REPLAY_JUDGE_ID,
+                judgment_group_id=group, judge_count=seed_judge_count,
+                judges_voted=seed_judges_voted,
+                base_dir=root,
+            )
+            existing_seeds.add((run_id, finding_id, group))
+            seeded.append(group)
     return {
         "schema_version": 1, "status": "dispatched", "replayed_items": len(seeded),
         "minted": minted, "seeded": seeded,

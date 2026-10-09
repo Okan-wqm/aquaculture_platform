@@ -1,0 +1,7 @@
+command: node tools/quality/quality.mjs format check-changed
+argv: ['node', 'tools/quality/quality.mjs', 'format', 'check-changed']
+--- stdout ---
+format check-changed: no managed files changed since 85ac088843cc6492d4043d86957477bd0d3e8cdb
+
+--- stderr ---
+

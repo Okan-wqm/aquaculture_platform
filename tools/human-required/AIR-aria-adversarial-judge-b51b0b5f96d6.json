@@ -1,0 +1,23 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "kind": "anchor_stale",
+    "request_id": "AIR-aria-adversarial-judge-b51b0b5f96d6",
+    "role": "adversarial_judgment",
+    "target_agent": "aria-adversarial-judge"
+  },
+  "kernel_disposition": {
+    "disposition": "expired_operator_required",
+    "expiry_fault_class": "unclassified",
+    "expiry_reason": "anchor_expired",
+    "reason": "producer_unverified:anchor_stale",
+    "role": "adversarial_judgment"
+  },
+  "reason": "request 'AIR-aria-adversarial-judge-b51b0b5f96d6' expired ANCHOR_STALE unclaimed; kernel disposition expired_operator_required: producer_unverified:anchor_stale",
+  "recorded_at": "2026-10-09T21:31:15Z",
+  "request_id": "AIR-aria-adversarial-judge-b51b0b5f96d6",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-12T21:31:15Z",
+  "status": "open"
+}

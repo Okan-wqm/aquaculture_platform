@@ -6,15 +6,23 @@
     "ci": {
       "checks": 34,
       "pending": [],
-      "red": [],
-      "state": "green"
+      "red": [
+        "build-status",
+        "install",
+        "merge-gate",
+        "pre-flight",
+        "sens-enterprise-summary"
+      ],
+      "state": "red"
     },
-    "head_sha": "1ac2048c2a7adf14f0e62505caeacb68447d68a9",
+    "head_sha": "7b80bb99bb2e83d009387cf3e5dbfce08b427ce5",
     "kind": "human_merge_pr",
-    "merge_state": "BEHIND",
+    "merge_state": "BLOCKED",
     "not_self_mergeable_because": [
       "merge_route_human:lane=blocked:risk_mixed_lanes",
-      "merge_authority:merge_lane_not_granted: lane 'blocked' under profile 'strict' (grant in force: None)"
+      "merge_authority:merge_lane_not_granted: lane 'blocked' under profile 'strict' (grant in force: None)",
+      "head_is_not_the_delivered_commit:head=7b80bb99bb2e:delivered=1ac2048c2a7a:unrecorded_commit:7b80bb99bb2e:no_update_recorded_for_pr",
+      "blocked_by_branch_protection"
     ],
     "pr_number": 1906,
     "pr_url": "https://github.com/Okan-wqm/aquaculture_platform/pull/1906",

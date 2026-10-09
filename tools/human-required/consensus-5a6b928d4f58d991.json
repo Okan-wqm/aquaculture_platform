@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "migration-without-test:apps/auth-service/src/migrations/1800200000000-CreateActionTokens.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:098b6f2ec03d5ca4848ca4544d0392f95cc4ef321ea207f8a1de1fc8a766335d",
+    "kind": "consensus_escalation",
+    "run_id": "545fbe50-c2a0-4962-b697-4f840558eadf",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'migration-without-test:apps/auth-service/src/migrations/1800200000000-CreateActionTokens.ts' (tool 'test-gap-adapter', run '545fbe50-c2a0-4962-b697-4f840558eadf'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-09T21:30:57Z",
+  "request_id": "consensus-5a6b928d4f58d991",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-16T21:30:57Z",
+  "status": "open"
+}

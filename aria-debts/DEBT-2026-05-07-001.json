@@ -1,7 +1,7 @@
 {
   "$schema": "aria/architectural-debt/v1",
   "auto_close_forbidden": true,
-  "current_status": "OPEN",
+  "current_status": "RESOLVED",
   "debt_id": "DEBT-2026-05-07-001",
   "due_date": "2026-07-06T07:37:04Z",
   "escalation_history": [],
@@ -22,8 +22,16 @@
       "at": "2026-05-07T07:37:04Z",
       "by": "manual:operator",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-10-08T22:30:00Z",
+      "by": "commit:claude/aria-addcolumnwith-index",
+      "status": "RESOLVED"
     }
   ],
   "verification_status": "VERIFIED",
-  "withdrawn_reason": null
+  "withdrawn_reason": null,
+  "resolved_at": "2026-10-08T22:30:00+00:00",
+  "resolved_by_commit": "claude/aria-addcolumnwith-index (addColumnWithIndex + migration-column-index-pair invariant)",
+  "resolution_summary": "addColumnWithIndex (+ dropColumnWithIndex) landed in libs/backend-common/src/database/migration-helpers.ts: both halves guarded, identifiers validated through validateSqlIdentifier, unqualified DDL by default (tenant search_path routing) with an explicit schema for MODULE_SCHEMAS infrastructure tables. Shipped migrations are immutable and stay untouched; the new invariant tests/invariants/migration-column-index-pair.spec.ts bans FUTURE same-table inlined pairs (comment-stripped, up()-body-scoped, per-table correlation) with an in-spec grandfather allowlist of the 4 sensor-service instances and a stale-exemption test. Honesty note: the original short_term_action_taken referenced aria-findings/F-001.json as a regression marker, but aria-findings/ is empty on this tree — the dangling reference is recorded here rather than papered over; the pair invariant is the enforcement that replaces it."
 }

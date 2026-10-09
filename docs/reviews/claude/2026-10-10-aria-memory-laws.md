@@ -2,6 +2,9 @@
 
 Owner: claude (implementation), okan (review). Plan document:
 `docs/reviews/claude/2026-10-02-aria-memory-retention.md` (measured evidence; two refutation
+
+## ARIA-HIGH-401 — the writer never refused a memory rewrite, and 36 self-learning ledgers were unprotected
+
 rounds distilled the hybrid design). This slice is B1a of the campaign.
 
 ## Context

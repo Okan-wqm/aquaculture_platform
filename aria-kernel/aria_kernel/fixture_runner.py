@@ -319,32 +319,58 @@ def refresh_fixture_suite(
     }
 
 
+def _git(workspace_root: str | os.PathLike[str], *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    """git in ``workspace_root`` with no caller-controlled GIT_* environment and no fsmonitor.
+
+    The pinned-checkout check must see the tree as it is: GIT_DIR, GIT_WORK_TREE
+    or GIT_INDEX_FILE from the caller's environment, or an fsmonitor hook from
+    the repository config, would let a caller decide what `git status` reports.
+    """
+    hermetic = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    return subprocess.run(
+        ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+         "-C", str(workspace_root), *args],
+        capture_output=True, text=True, timeout=timeout, check=False, env=hermetic,
+    )
+
+
 def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
     """The checkout's HEAD commit, or None when it is not a git checkout."""
     try:
-        completed = subprocess.run(
-            ["git", "-C", str(workspace_root), "rev-parse", "--verify", "HEAD^{commit}"],
-            capture_output=True, text=True, timeout=30, check=False,
-        )
+        completed = _git(workspace_root, "rev-parse", "--verify", "HEAD^{commit}", timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return None
     head = completed.stdout.strip()
     return head if completed.returncode == 0 and len(head) == 40 else None
 
 
+#: The branch an operator-run refresh may certify: its HEAD must already be
+#: reachable from it, so a clean feature branch cannot certify unmerged code.
+FIXTURE_REFRESH_PINNED_REMOTE = "origin"
+FIXTURE_REFRESH_PINNED_BRANCH = "main"
+
+
 def require_pinned_fixture_workspace(
     workspace_root: str | os.PathLike[str],
     *,
     base_dir: str | os.PathLike[str] | None = None,
-) -> str:
-    """HEAD of ``workspace_root`` when it is the store's own checkout and clean; a GovernanceError otherwise.
+) -> tuple[Path, str]:
+    """``(resolved checkout, HEAD)`` when ``workspace_root`` may be certified; a GovernanceError otherwise.
 
     Review of #1898 (F1) — an operator-run refresh writes promotion evidence
-    (SHADOW to ACTIVE readiness reads it), so it may run only against the
-    checkout the store serves, at a committed tree: a dirty or foreign
-    checkout would certify code that is not the repository's. The tools
-    store itself, when it lives inside the checkout, is excluded from the
-    cleanliness check — it is state, not code.
+    (SHADOW to ACTIVE readiness reads it), so it runs only:
+
+    * in the checkout the store serves (``_repo_root_for_path_guard``);
+    * at a committed tree: no tracked change and no untracked file outside
+      the tools store, with no index flag (``assume-unchanged`` or
+      ``skip-worktree``) hiding a modified file from that check;
+    * at a commit already on ``origin/main`` (fetched first): a clean
+      feature branch would certify code nobody merged.
+
+    The RESOLVED path is returned and is the only path the caller may hand
+    on, so a symlink swapped after the check cannot redirect the run.
+    Residuals that only binding the proof row to script hashes closes are
+    recorded on ARIA-MEDIUM-400.
     """
     requested = Path(workspace_root).resolve()
     bound = _repo_root_for_path_guard(base_dir)
@@ -356,20 +382,32 @@ def require_pinned_fixture_workspace(
     head = workspace_head_sha(requested)
     if head is None:
         raise GovernanceError(f"fixture_refresh_workspace_has_no_head: {requested.as_posix()}")
+    flagged = _git(requested, "ls-files", "-v")
+    if flagged.returncode != 0:
+        raise GovernanceError(f"fixture_refresh_workspace_unreadable: {flagged.stderr.strip()[:200]}")
+    hidden = [line[2:] for line in flagged.stdout.splitlines() if line[:1].islower() or line[:1] == "S"]
+    if hidden:
+        raise GovernanceError(f"fixture_refresh_workspace_index_flags_hide_changes: {hidden[:5]}")
     pathspec = ["."]
     tools_root = ensure_tools_dir(base_dir).resolve()
     try:
         pathspec.append(f":(exclude){tools_root.relative_to(requested).as_posix()}")
     except ValueError:
         pass
-    status = subprocess.run(
-        ["git", "-C", str(requested), "status", "--porcelain", "--untracked-files=normal", "--", *pathspec],
-        capture_output=True, text=True, timeout=60, check=False,
-    )
+    status = _git(requested, "status", "--porcelain", "--untracked-files=normal", "--", *pathspec)
     if status.returncode != 0 or status.stdout.strip():
         changed = status.stdout.strip().splitlines()[:5] if status.returncode == 0 else [status.stderr.strip()[:200]]
         raise GovernanceError(f"fixture_refresh_workspace_dirty: {changed}")
-    return head
+    remote, branch = FIXTURE_REFRESH_PINNED_REMOTE, FIXTURE_REFRESH_PINNED_BRANCH
+    fetched = _git(requested, "fetch", "--quiet", remote, branch, timeout=120)
+    if fetched.returncode != 0:
+        raise GovernanceError(f"fixture_refresh_origin_unavailable: {fetched.stderr.strip()[:200]}")
+    on_main = _git(requested, "merge-base", "--is-ancestor", head, f"{remote}/{branch}")
+    if on_main.returncode != 0:
+        raise GovernanceError(
+            f"fixture_refresh_head_not_on_{remote}_{branch}: {head} is not reachable from {remote}/{branch}"
+        )
+    return requested, head
 
 
 def refresh_fixture_suites(

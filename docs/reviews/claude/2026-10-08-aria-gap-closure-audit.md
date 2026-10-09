@@ -54,3 +54,17 @@ lane (owner claude, deadline 2026-10-20). It covers:
    recorded in the same PR. This is an accepted reset of that capability's
    evidence.
 3. No parallel provenance ledger: a run's facts have one owner.
+
+Residuals the clean-checkout check cannot close. Only binding the row to the
+script bytes, or to the inputs the scripts load, closes them:
+
+- **Gitignored runtime inputs.** `node_modules` runner binaries and `.pyc`
+  caches are not part of "clean". A modified ignored dependency runs
+  unseen.
+- **Repo-root override.** The `ARIA_REPO_ROOT` environment override
+  redefines which checkout the store counts as bound.
+- **Git environment and configuration.** These can change what `git status`
+  reports. The check strips caller `GIT_*` variables and disables
+  `core.fsmonitor` and the untracked cache. Other repository configuration
+  (for example a `core.worktree` or attribute filters) is still read as
+  configured.

@@ -4248,9 +4248,11 @@ def _main(argv: list[str] | None = None) -> int:
         from .fixture_runner import refresh_fixture_suites, require_pinned_fixture_workspace
 
         try:
-            head = require_pinned_fixture_workspace(args.workspace_root, base_dir=args.tools_dir)
+            # The RESOLVED checkout from the check is the only path handed on,
+            # so a symlink swapped after the check cannot redirect the run.
+            workspace, head = require_pinned_fixture_workspace(args.workspace_root, base_dir=args.tools_dir)
             payload = refresh_fixture_suites(
-                workspace_root=args.workspace_root,
+                workspace_root=workspace,
                 cycle_id=args.cycle_id,
                 base_dir=args.tools_dir,
                 tool_ids=[args.tool_id] if args.tool_id else None,

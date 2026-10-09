@@ -84,8 +84,13 @@ class ToolFixtureRefreshVerbTests(unittest.TestCase):
         (self.root / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
         # Review of #1898 (F1) — the verb runs only against the store's own
         # checkout at a clean, committed HEAD.
-        self._git("init", "-q")
+        self._git("init", "-q", "-b", "main")
         self._commit("fixture workspace")
+        # The verb certifies only a HEAD already on origin/main.
+        self.origin = Path(self._tmp.name) / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
+        self._git("remote", "add", "origin", str(self.origin))
+        self._git("push", "-q", "origin", "HEAD:main")
         self.tools_dir = Path(self._tmp.name) / "aria-tools"
         ensure_tools_binding(self.tools_dir, workspace_root=self.root)
         fixture_root = self.tools_dir / "fixtures" / "learning-adapter" / "cases"
@@ -184,6 +189,44 @@ class ToolFixtureRefreshVerbTests(unittest.TestCase):
         self.assertIn("fixture_refresh_workspace_dirty", json.loads(out)["reason"])
         self.assertFalse((self.tools_dir / "fixture-runs.jsonl").exists()
                          and (self.tools_dir / "fixture-runs.jsonl").read_text(encoding="utf-8").strip())
+
+    def test_index_flags_cannot_hide_a_modified_file(self) -> None:
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        for flag in ("--assume-unchanged", "--skip-worktree"):
+            with self.subTest(flag=flag):
+                (self.root / "src" / "app.ts").write_text("export const app = 'changed';\n", encoding="utf-8")
+                self._git("update-index", flag, "src/app.ts")
+                self.assertEqual(self._git("status", "--porcelain"), "")  # git status alone is fooled
+                code, out = _run(self._argv("--tool-id", "learning-adapter"))
+                self.assertEqual(code, 1, out)
+                self.assertIn("fixture_refresh_workspace_index_flags_hide_changes", json.loads(out)["reason"])
+                self._git("update-index", flag.replace("--", "--no-"), "src/app.ts")
+                self._git("checkout", "--", "src/app.ts")
+
+    def test_a_clean_branch_not_on_origin_main_is_refused(self) -> None:
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        self._git("checkout", "-q", "-b", "feature")
+        (self.root / "src" / "app.ts").write_text("export const app = 'unmerged';\n", encoding="utf-8")
+        self._commit("unmerged change")
+        code, out = _run(self._argv("--tool-id", "learning-adapter"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("fixture_refresh_head_not_on_origin_main", json.loads(out)["reason"])
+
+    def test_an_unreachable_origin_is_refused(self) -> None:
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        self._git("remote", "remove", "origin")
+        code, out = _run(self._argv("--tool-id", "learning-adapter"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("fixture_refresh_origin_unavailable", json.loads(out)["reason"])
+
+    def test_the_check_hands_on_the_resolved_checkout(self) -> None:
+        from aria_kernel.fixture_runner import require_pinned_fixture_workspace
+
+        link = Path(self._tmp.name) / "link-to-workspace"
+        link.symlink_to(self.root)
+        resolved, head = require_pinned_fixture_workspace(link, base_dir=self.tools_dir)
+        self.assertEqual(resolved, self.root.resolve())
+        self.assertEqual(head, self._git("rev-parse", "HEAD"))
 
     def test_a_checkout_the_store_is_not_bound_to_is_refused(self) -> None:
         register_tool(tool_definition(), base_dir=self.tools_dir)

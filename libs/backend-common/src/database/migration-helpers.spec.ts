@@ -21,10 +21,17 @@ import { addColumnWithIndex, dropColumnWithIndex } from './migration-helpers';
  *      is preserved.
  *   4. The down counterpart mirrors the pair (DROP INDEX IF EXISTS +
  *      DROP COLUMN IF EXISTS) with the same qualification rules.
+ *   5. columnType is a closed vocabulary (or a validated enum name), so
+ *      the added column is always NULLABLE — no NOT NULL / DEFAULT /
+ *      REFERENCES / `;` can ride in.
+ *   6. A per-tenant table may not be pinned to a tenant-aware source
+ *      schema; only MODULE_SCHEMAS infrastructureTables take one.
+ *   7. CONCURRENTLY is refused inside an open transaction.
  */
 
 class RecordingQueryRunner {
   readonly statements: string[] = [];
+  constructor(readonly isTransactionActive = false) {}
   readonly parameters: unknown[][] = [];
 
   query(statement: string, parameters?: unknown[]): Promise<unknown[]> {
@@ -36,10 +43,11 @@ class RecordingQueryRunner {
   }
 }
 
-function runner(): RecordingQueryRunner {
-  // The helpers take Pick<QueryRunner, 'query'>, so the recorder
-  // satisfies them structurally — no cast, per the banned-construct gate.
-  return new RecordingQueryRunner();
+function runner(isTransactionActive = false): RecordingQueryRunner {
+  // The helpers take SqlStatementRunner (query + isTransactionActive), so
+  // the recorder satisfies it structurally — no cast, per the
+  // banned-construct gate.
+  return new RecordingQueryRunner(isTransactionActive);
 }
 
 describe('addColumnWithIndex', () => {
@@ -98,6 +106,132 @@ describe('addColumnWithIndex', () => {
         indexName: 'IDX_t_c',
       }),
     ).rejects.toThrow();
+    expect(qr.statements).toEqual([]);
+  });
+});
+
+describe('addColumnWithIndex column type vocabulary', () => {
+  const base = { table: 't', column: 'c', indexName: 'IDX_t_c' };
+
+  it.each([
+    'uuid',
+    'text',
+    'boolean',
+    'smallint',
+    'integer',
+    'bigint',
+    'date',
+    'timestamptz',
+    'jsonb',
+    'numeric(12,3)',
+    'numeric(12, 3)',
+    'character varying(255)',
+    'char(2)',
+    'uuid[]',
+    'text[]',
+  ])('accepts %s', async (columnType) => {
+    const qr = runner();
+    await addColumnWithIndex(qr, { ...base, columnType });
+    expect(qr.statements[0]).toBe(`ALTER TABLE "t" ADD COLUMN IF NOT EXISTS "c" ${columnType}`);
+  });
+
+  it.each([
+    'uuid NOT NULL',
+    "text DEFAULT 'x'",
+    'uuid REFERENCES "users"("id")',
+    'text; DROP TABLE users',
+    'integer NOT NULL DEFAULT 0',
+    'serial',
+    'TEXT',
+    'varchar',
+    'numeric',
+    '',
+  ])('refuses %j before issuing any SQL', async (columnType) => {
+    const qr = runner();
+    await expect(addColumnWithIndex(qr, { ...base, columnType })).rejects.toThrow(/vocabulary/);
+    expect(qr.statements).toEqual([]);
+  });
+
+  it('takes an enum type by validated, quoted, unqualified name', async () => {
+    const qr = runner();
+    await addColumnWithIndex(qr, { ...base, columnType: { enumType: 'labor_category_enum' } });
+    expect(qr.statements[0]).toBe(
+      'ALTER TABLE "t" ADD COLUMN IF NOT EXISTS "c" "labor_category_enum"',
+    );
+  });
+
+  it('refuses a hostile enum name before issuing any SQL', async () => {
+    const qr = runner();
+    await expect(
+      addColumnWithIndex(qr, { ...base, columnType: { enumType: 'e" NOT NULL; --' } }),
+    ).rejects.toThrow();
+    expect(qr.statements).toEqual([]);
+  });
+});
+
+describe('addColumnWithIndex schema placement', () => {
+  it('refuses to pin a per-tenant table to its tenant-aware source schema', async () => {
+    const qr = runner();
+    await expect(
+      addColumnWithIndex(qr, {
+        table: 'equipment',
+        column: 'temperatureSensorId',
+        columnType: 'uuid',
+        indexName: 'IDX_equipment_temperatureSensorId',
+        schema: 'farm',
+      }),
+    ).rejects.toThrow(/per-tenant table/);
+    expect(qr.statements).toEqual([]);
+  });
+
+  it('qualifies a cross-tenant infrastructure table of a tenant-aware schema', async () => {
+    const qr = runner();
+    await addColumnWithIndex(qr, {
+      table: 'farm_outbox',
+      column: 'claimedAt',
+      columnType: 'timestamptz',
+      indexName: 'IDX_farm_outbox_claimedAt',
+      schema: 'farm',
+    });
+    expect(qr.statements[0]).toBe(
+      'ALTER TABLE "farm"."farm_outbox" ADD COLUMN IF NOT EXISTS "claimedAt" timestamptz',
+    );
+  });
+
+  it('refuses the same per-tenant pin on the drop side', async () => {
+    const qr = runner();
+    await expect(
+      dropColumnWithIndex(qr, {
+        table: 'equipment',
+        column: 'temperatureSensorId',
+        indexName: 'IDX_equipment_temperatureSensorId',
+        schema: 'farm',
+      }),
+    ).rejects.toThrow(/per-tenant table/);
+    expect(qr.statements).toEqual([]);
+  });
+});
+
+describe('addColumnWithIndex concurrently', () => {
+  const options = {
+    table: 'sensor_readings',
+    column: 'qualityFlag',
+    columnType: 'smallint',
+    indexName: 'IDX_sensor_readings_qualityFlag',
+    concurrently: true,
+  };
+
+  it('builds the index CONCURRENTLY outside a transaction', async () => {
+    const qr = runner(false);
+    await addColumnWithIndex(qr, options);
+    expect(qr.statements[1]).toBe(
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS "IDX_sensor_readings_qualityFlag" ON "sensor_readings" ("qualityFlag")',
+    );
+  });
+
+  it('refuses CONCURRENTLY inside an open transaction before issuing any SQL', async () => {
+    const qr = runner(true);
+    await expect(addColumnWithIndex(qr, options)).rejects.toThrow(/transaction/);
     expect(qr.statements).toEqual([]);
   });
 });

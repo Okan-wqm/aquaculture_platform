@@ -118,6 +118,12 @@ export {
   dropColumnWithIndex,
   tableExists,
 } from './migration-helpers';
+export type {
+  AddColumnWithIndexOptions,
+  DropColumnWithIndexOptions,
+  MigrationColumnType,
+  SqlStatementRunner,
+} from './migration-helpers';
 
 // Transactional outbox DDL — one SQL shape for every service-local
 // outbox table that backs @platform/outbox. Migrations pass only schema,

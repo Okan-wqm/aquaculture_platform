@@ -34,6 +34,7 @@ from .memory import (
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import budget_projection, read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
+from .runtime_signal_bridge import quarantine_refused_runtime_signals
 from .genesis_policy import load_policy
 from .reflection import run_reflection
 from .human_required import (
@@ -1457,6 +1458,11 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
     # with no local diff: an OPEN runtime signal referencing a belief's
     # evidence re-opens the belief through the same transition, so
     # run_pressure surfaces it this cycle.
+    # The readers of runtime signals are pure; moving a record the current
+    # ref law refuses (one written before the bridge enforced it) out of the
+    # open set is a profile-gated write, and this phase — the signals'
+    # consumer — owns it.
+    runtime_signal_quarantine = quarantine_refused_runtime_signals(base_dir=context.base_dir)
     runtime_signal = decay_beliefs_by_runtime_signals(
         cycle_id=context.cycle_id, base_dir=context.base_dir,
     )
@@ -1475,6 +1481,7 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
     return {
         **age,
         "head_distance_decay": head_distance,
+        "runtime_signal_quarantine": runtime_signal_quarantine,
         "runtime_signal_decay": runtime_signal,
         "belief_escalation": escalation,
     }

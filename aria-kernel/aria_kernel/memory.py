@@ -836,103 +836,175 @@ def decay_stale_beliefs_by_age(
     }
 
 
-def _normalize_ref(raw: str) -> str:
-    """Normalize an evidence/code ref for matching: strip a ``:line``
-    suffix, backslashes to slashes, drop leading ``./``."""
-    ref = str(raw).split(":", 1)[0].replace("\\", "/")
+# ARIA-MEDIUM-393 review — runtime-signal decay is driven by outside-authored
+# leads, so its reach is bounded: a signal older than the TTL no longer
+# decays anything, one signal moves at most MAX_DECAYS_PER_SIGNAL beliefs per
+# cycle, and one cycle moves at most MAX_RUNTIME_SIGNAL_DECAYS_PER_CYCLE. What
+# a cap holds back stays `supported` and is reported, so the next cycle picks
+# it up; nothing is silently dropped.
+RUNTIME_SIGNAL_DECAY_TTL_DAYS = 14
+MAX_DECAYS_PER_SIGNAL = 20
+MAX_RUNTIME_SIGNAL_DECAYS_PER_CYCLE = 100
+
+_GLOB_METACHARACTERS = ("*", "?", "[")
+
+
+def _match_path(raw: Any) -> str:
+    """The path a ref names, for matching: a trailing ``:line`` dropped, backslashes to slashes, leading ``./`` dropped.
+
+    Only a NUMERIC suffix is a line; ``alert:X`` keeps its colon, so a
+    non-path token never collapses to a bare word every other token shares.
+    """
+    ref = str(raw).strip().replace("\\", "/")
+    head, sep, tail = ref.rpartition(":")
+    if sep and head and tail.isdigit():
+        ref = head
     while ref.startswith("./"):
         ref = ref[2:]
     return ref
-
-
-_GLOB_METACHARACTERS = ("*", "?", "[")
 
 
 def _is_glob(ref: str) -> bool:
     return any(ch in ref for ch in _GLOB_METACHARACTERS)
 
 
-def _refs_touch(signal_ref: str, evidence_ref: str) -> bool:
-    """Does a runtime signal's normalized ref touch a belief's normalized evidence ref?
+def _bounded_glob(pattern: str) -> bool:
+    """A belief-side glob may name a class of files only under a literal directory.
 
-    The signal side is outside-authored, so it is only ever a CONCRETE ref:
-    a glob there is never treated as a pattern (one `*/*` would touch every
-    belief). The bridge already refuses glob refs at ingest and quarantines
-    pre-law records on read; this refusal is the matcher's own, so the
-    amplifier cannot come back through any other writer. The belief side is
-    kernel-authored and may name a CLASS of files with a glob; the concrete
-    signal ref is matched against it.
+    ``src/adapters/*.ts`` is bounded; ``*``, ``*/*`` and ``**/x`` are not —
+    one such adapter-emitted belief would be touched by every signal.
+    """
+    first, sep, _ = pattern.partition("/")
+    return bool(sep) and bool(first) and not _is_glob(first)
+
+
+def _refs_touch(signal_ref: str, evidence_ref: str) -> bool:
+    """Does a runtime signal's match path touch a belief's evidence match path?
+
+    The signal side is outside-authored, so it is only ever a CONCRETE ref: a
+    glob there is never a pattern (one `*/*` would touch every belief). The
+    bridge refuses glob refs at ingest and the reader withholds pre-law
+    records; this refusal is the matcher's own, so the amplifier cannot come
+    back through any other writer. The belief side is ADAPTER-emitted
+    (``update_memory`` records each candidate's ``evidence_refs``), so its glob
+    is matched only when bounded under a literal directory.
     """
     if _is_glob(signal_ref):
         return False
     if _is_glob(evidence_ref):
-        return fnmatch.fnmatchcase(signal_ref, evidence_ref)
+        return _bounded_glob(evidence_ref) and fnmatch.fnmatchcase(signal_ref, evidence_ref)
     return signal_ref == evidence_ref
+
+
+def _signal_age_days(signal: dict[str, Any], now: datetime) -> float | None:
+    try:
+        recorded = datetime.strptime(str(signal.get("recorded_at")), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return (now - recorded).total_seconds() / 86400.0
 
 
 def decay_beliefs_by_runtime_signals(
     *,
     cycle_id: str,
     base_dir: str | Path | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """ARIA-MEDIUM-393 (Plan 028 §D's event trigger) — an OPEN runtime
     signal referencing a belief's evidence re-opens the belief.
 
     Age decay covers time and head-distance decay covers other people's
-    commits; neither covers the world moving with no local diff. A
-    runtime signal (Sentry error, incident lead, log anomaly — ingested
-    through runtime_signal_bridge as an UNVERIFIED external lead) whose
-    code_refs touch a supported belief's evidence_refs moves that belief
-    to ``needs_revalidation`` through the same in-row transition the
-    other decay paths use, so run_pressure surfaces it with zero new
-    plumbing.
+    commits; neither covers the world moving with no local diff. A runtime
+    signal (Sentry error, incident lead, log anomaly — ingested through
+    runtime_signal_bridge as an UNVERIFIED external lead) whose path refs
+    touch a supported belief's evidence_refs moves that belief to
+    ``needs_revalidation`` through the same in-row transition the other decay
+    paths use, so run_pressure surfaces it with zero new plumbing.
 
-    Matching reuses the evidence normalization (``:line`` suffix,
-    backslash, ``./``). A belief's evidence ref may be a glob naming a class
-    of files; a signal's ref never is (``_refs_touch``). Refs
-    that match nothing are REPORTED (``unmatched_refs``), never silent:
-    a signal nobody's beliefs speak to is an observation gap, not a
-    zero. Only OPEN signals decay; resolution is the signal lane's own
-    lifecycle.
+    Only PATH refs match (a ref the agent evidence law accepts); non-path
+    tokens such as ``alert:X`` are reported, never matched. A belief's evidence
+    ref may be a bounded glob naming a class of files; a signal's ref never
+    is (``_refs_touch``). Signals the reader withholds (pre-law records),
+    signals past ``RUNTIME_SIGNAL_DECAY_TTL_DAYS``, and decays held back by
+    the per-signal and per-cycle caps are each REPORTED, as are refs that
+    match nothing: a signal nobody's beliefs speak to is an observation gap,
+    not a zero. Only OPEN signals decay; resolution is the signal lane's own
+    lifecycle. The matched (signal ref, evidence ref) pair is recorded in the
+    belief's ``stale_reason``.
     """
-    from .runtime_signal_bridge import load_open_runtime_signals
+    from .evidence_validator import agent_ref_shape_refusal
+    from .runtime_signal_bridge import scan_open_runtime_signals
 
     root = ensure_tools_dir(base_dir)
-    signals = load_open_runtime_signals(base_dir=root)
-    if not signals:
-        return {
-            "schema_version": 1, "cycle_id": cycle_id,
-            "signal_count": 0, "decayed_count": 0, "decayed": [],
-            "unmatched_refs": [], "refused_glob_refs": [],
-        }
-    normalized_signals = [
-        {
-            "signal_id": str(s.get("signal_id") or ""),
-            "source": str(s.get("source") or ""),
-            "refs": [_normalize_ref(r) for r in (s.get("code_refs") or []) if str(r).strip()],
-        }
-        for s in signals
-    ]
+    moment = now or datetime.now(timezone.utc)
+    scan = scan_open_runtime_signals(base_dir=root)
+    report: dict[str, Any] = {
+        "schema_version": 1, "cycle_id": cycle_id,
+        "signal_count": 0, "decayed_count": 0, "decayed": [],
+        "unmatched_refs": [], "refused_glob_refs": [], "non_path_refs": [],
+        "withheld_signals": [row["signal_id"] for row in scan["refused"]],
+        "aged_out_signals": [], "unbounded_belief_globs": [],
+        "held_by_signal_cap": {}, "held_by_cycle_cap": 0,
+    }
+    live: list[dict[str, Any]] = []
+    non_path: set[str] = set()
+    glob_refs: set[str] = set()
+    for signal in scan["open"]:
+        signal_id = str(signal.get("signal_id") or "")
+        age = _signal_age_days(signal, moment)
+        if age is None or age > RUNTIME_SIGNAL_DECAY_TTL_DAYS:
+            report["aged_out_signals"].append(signal_id)
+            continue
+        refs: list[str] = []
+        for raw in signal.get("code_refs") or []:
+            if agent_ref_shape_refusal(raw) is not None:
+                non_path.add(str(raw))
+                continue
+            ref = _match_path(raw)
+            if _is_glob(ref):
+                glob_refs.add(ref)
+                continue
+            refs.append(ref)
+        live.append({"signal_id": signal_id, "source": str(signal.get("source") or ""), "refs": refs})
+    report["signal_count"] = len(live)
+    report["non_path_refs"] = sorted(non_path)
+    report["refused_glob_refs"] = sorted(glob_refs)
+    if not live:
+        return report
+
     matched_refs: set[str] = set()
+    unbounded: set[str] = set()
+    per_signal: dict[str, int] = {}
     decayed: list[dict[str, Any]] = []
     repo_state = _repo_state(root, cycle_id)
     for belief in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl")):
         if belief.get("status") != "supported":
             continue
-        evidence = belief.get("evidence_refs") or []
+        evidence = [_match_path(e) for e in (belief.get("evidence_refs") or []) if str(e).strip()]
         if not evidence:
             continue
-        hit = None
-        for signal in normalized_signals:
+        unbounded.update(e for e in evidence if _is_glob(e) and not _bounded_glob(e))
+        hit: tuple[dict[str, Any], str, str] | None = None
+        for signal in live:
             for ref in signal["refs"]:
-                if any(_refs_touch(ref, _normalize_ref(e)) for e in evidence):
-                    hit = signal
+                touched = next((e for e in evidence if _refs_touch(ref, e)), None)
+                if touched is not None:
+                    hit = (signal, ref, touched)
                     matched_refs.add(ref)
                     break
             if hit is not None:
                 break
         if hit is None:
             continue
+        signal, signal_ref, evidence_ref = hit
+        if per_signal.get(signal["signal_id"], 0) >= MAX_DECAYS_PER_SIGNAL:
+            held = report["held_by_signal_cap"]
+            held[signal["signal_id"]] = held.get(signal["signal_id"], 0) + 1
+            continue
+        if len(decayed) >= MAX_RUNTIME_SIGNAL_DECAYS_PER_CYCLE:
+            report["held_by_cycle_cap"] += 1
+            continue
+        per_signal[signal["signal_id"]] = per_signal.get(signal["signal_id"], 0) + 1
         revalidation_cycles = int(belief.get("needs_revalidation_cycles", 0)) + 1
         status = "stale" if revalidation_cycles >= STALE_AFTER_REVALIDATION_CYCLES else "needs_revalidation"
         row = dict(belief)
@@ -943,8 +1015,9 @@ def decay_beliefs_by_runtime_signals(
                 "needs_revalidation_cycles": revalidation_cycles,
                 "stale_reason": (
                     f"open runtime signal references belief evidence "
-                    f"(runtime-signal decay, source={hit['source']}, "
-                    f"signal={hit['signal_id']})"
+                    f"(runtime-signal decay, source={signal['source']}, "
+                    f"signal={signal['signal_id']}, signal_ref={signal_ref}, "
+                    f"evidence_ref={evidence_ref})"
                 ),
                 "verification_status": "needs_revalidation",
             },
@@ -959,27 +1032,19 @@ def decay_beliefs_by_runtime_signals(
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
         decayed.append({
             "belief_id": belief.get("belief_id"),
-            "signal_id": hit["signal_id"],
-            "source": hit["source"],
+            "signal_id": signal["signal_id"],
+            "source": signal["source"],
+            "signal_ref": signal_ref,
+            "evidence_ref": evidence_ref,
             "status": status,
         })
-    refused = sorted({ref for signal in normalized_signals for ref in signal["refs"] if _is_glob(ref)})
-    unmatched = sorted({
-        ref
-        for signal in normalized_signals
-        for ref in signal["refs"]
-        if ref not in matched_refs and not _is_glob(ref)
+    report["decayed"] = decayed
+    report["decayed_count"] = len(decayed)
+    report["unbounded_belief_globs"] = sorted(unbounded)
+    report["unmatched_refs"] = sorted({
+        ref for signal in live for ref in signal["refs"] if ref not in matched_refs
     })
-    return {
-        "schema_version": 1,
-        "cycle_id": cycle_id,
-        "signal_count": len(normalized_signals),
-        "decayed_count": len(decayed),
-        "decayed": decayed,
-        "unmatched_refs": unmatched,
-        # Glob refs a signal carried: refused as patterns, reported.
-        "refused_glob_refs": refused,
-    }
+    return report
 
 
 def _changed_files_since(repo_root: Path, base_sha: str) -> list[str] | None:

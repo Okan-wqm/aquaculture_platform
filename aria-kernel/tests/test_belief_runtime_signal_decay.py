@@ -161,43 +161,95 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         }), encoding="utf-8")
         return path
 
-    def test_a_pre_law_glob_record_is_quarantined_and_decays_nothing(self) -> None:
+    def test_a_pre_law_glob_record_is_withheld_by_a_pure_read(self) -> None:
         # ARIA-MEDIUM-393 review — one `*/*` frame stored before the bridge
-        # refused globs would have marked every belief stale.
-        import json
-
+        # refused globs would have marked every belief stale. The reader
+        # withholds it and WRITES NOTHING: decay, pressure and the list verb
+        # stay readers under every profile.
         from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
 
         for belief_id in ("b-1", "b-2", "b-3"):
             self._seed(belief_id, [f"src/{belief_id}.ts:1"])
         path = self._write_pre_law_signal("runtime-00000000000000aa", ["*/*"])
+        before = path.read_bytes()
         result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools)
         self.assertEqual(result["decayed_count"], 0)
+        self.assertEqual(result["withheld_signals"], ["runtime-00000000000000aa"])
         for belief_id in ("b-1", "b-2", "b-3"):
             self.assertEqual(self._row(belief_id).get("status"), "supported")
-        record = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(record["status"], "quarantined")
-        self.assertTrue(record["quarantine_reason"].startswith("runtime_signal_ref_glob"))
-        governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
-        self.assertEqual(governance.count("runtime_signal_quarantined"), 1)
-        # Quarantine is written once: a later read neither returns the record
-        # nor records it again.
         self.assertEqual(load_open_runtime_signals(base_dir=self.tools), [])
-        governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
-        self.assertEqual(governance.count("runtime_signal_quarantined"), 1)
+        self.assertEqual(path.read_bytes(), before)
+        governance = self.tools / "governance.jsonl"
+        self.assertNotIn("runtime_signal_quarantined", governance.read_text(encoding="utf-8") if governance.exists() else "")
 
-    def test_pre_law_escape_and_control_records_are_quarantined(self) -> None:
+    def test_the_reader_never_writes_under_a_frozen_profile(self) -> None:
+        from aria_kernel.runtime_profile import set_profile
         from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
 
-        self._write_pre_law_signal("runtime-00000000000000bb", ["../../../../etc/passwd"])
-        self._write_pre_law_signal("runtime-00000000000000cc", ["src/a.ts\x00"])
-        self._write_pre_law_signal("runtime-00000000000000dd", ["a prose ref"])
+        self._write_pre_law_signal("runtime-00000000000000a1", ["*/*"])
+        set_profile("frozen", operator_approval_ref="op:freeze", base_dir=self.tools)
         self.assertEqual(load_open_runtime_signals(base_dir=self.tools), [])
+        self.assertEqual(decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools)["decayed_count"], 0)
+
+    def test_quarantine_moves_a_refused_record_once_governance_first(self) -> None:
+        import json
+
+        from aria_kernel.runtime_signal_bridge import quarantine_refused_runtime_signals
+
+        path = self._write_pre_law_signal("runtime-00000000000000bb", ["../../../../etc/passwd"])
+        first = quarantine_refused_runtime_signals(base_dir=self.tools)
+        self.assertEqual([q["signal_id"] for q in first["quarantined"]], ["runtime-00000000000000bb"])
+        record = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(record["status"], "quarantined")
+        self.assertTrue(record["quarantine_reason"].startswith("agent_evidence_path_escapes_workspace"))
+        second = quarantine_refused_runtime_signals(base_dir=self.tools)
+        self.assertEqual(second["quarantined"], [])
+        governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(governance.count("runtime_signal_quarantined"), 1)
+
+    def test_quarantine_is_refused_whole_under_a_frozen_profile(self) -> None:
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.runtime_signal_bridge import quarantine_refused_runtime_signals
+        from aria_kernel.tool_registry import GovernanceError
+
+        path = self._write_pre_law_signal("runtime-00000000000000cc", ["*/*"])
+        before = path.read_bytes()
+        set_profile("frozen", operator_approval_ref="op:freeze", base_dir=self.tools)
+        with self.assertRaisesRegex(GovernanceError, "profile_violation"):
+            quarantine_refused_runtime_signals(base_dir=self.tools)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_a_resolved_record_is_never_quarantined(self) -> None:
+        import json
+
+        from aria_kernel.runtime_signal_bridge import quarantine_refused_runtime_signals, resolve_runtime_signal
+
+        path = self._write_pre_law_signal("runtime-00000000000000dd", ["*/*"])
+        resolve_runtime_signal(signal_id="runtime-00000000000000dd", resolution_note="handled", base_dir=self.tools)
+        self.assertEqual(quarantine_refused_runtime_signals(base_dir=self.tools)["quarantined"], [])
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["status"], "resolved")
+
+    def test_resolve_refuses_a_signal_id_that_is_not_a_minted_id(self) -> None:
+        from aria_kernel.runtime_signal_bridge import resolve_runtime_signal
+        from aria_kernel.tool_registry import GovernanceError
+
+        with self.assertRaisesRegex(GovernanceError, "runtime_signal_id_invalid"):
+            resolve_runtime_signal(signal_id="../../governance", resolution_note="x", base_dir=self.tools)
+
+    def test_a_torn_record_is_reported_not_silently_skipped(self) -> None:
+        from aria_kernel.runtime_signal_bridge import scan_open_runtime_signals
+
+        path = self.tools / "runtime-signals" / "runtime-00000000000000ee.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"status": "op', encoding="utf-8")
+        refused = scan_open_runtime_signals(base_dir=self.tools)["refused"]
+        self.assertEqual(refused[0]["signal_id"], "runtime-00000000000000ee")
+        self.assertTrue(refused[0]["reason"].startswith("runtime_signal_unreadable"))
 
     def test_a_valid_pre_law_record_is_returned_canonical(self) -> None:
         from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
 
-        self._write_pre_law_signal("runtime-00000000000000ee", ["./src//a.ts:3"])
+        self._write_pre_law_signal("runtime-00000000000000ef", ["./src//a.ts:3"])
         [signal] = load_open_runtime_signals(base_dir=self.tools)
         self.assertEqual(signal["code_refs"], ["src/a.ts:3"])
 
@@ -207,10 +259,74 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         self.assertFalse(_refs_touch("*/*", "src/a.ts"))
         self.assertFalse(_refs_touch("src/[ab].ts", "src/a.ts"))
         self.assertFalse(_refs_touch("src/?.ts", "src/a.ts"))
-        # The kernel-authored belief side may still name a class of files.
+        # The adapter-emitted belief side may name a class of files, only
+        # under a literal directory.
         self.assertTrue(_refs_touch("src/adapters/pdf.ts", "src/adapters/*.ts"))
+        self.assertFalse(_refs_touch("src/a.ts", "*"))
+        self.assertFalse(_refs_touch("src/a.ts", "*/a.ts"))
         self.assertTrue(_refs_touch("src/a.ts", "src/a.ts"))
 
+    def test_non_path_tokens_never_match_and_are_reported(self) -> None:
+        # `alert:X` used to normalize to `alert`, so every alert was equal and
+        # a `*` belief decayed on any of them.
+        self._seed("b-star", ["*"])
+        self._seed("b-alert", ["alert"])
+        ingest_runtime_signal(source="incident", service="platform", summary="cpu",
+                              code_refs=["alert:HighCpu"], base_dir=self.tools)
+        result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools)
+        self.assertEqual(result["decayed_count"], 0)
+        self.assertEqual(result["non_path_refs"], ["alert:HighCpu"])
+        self.assertEqual(result["unbounded_belief_globs"], ["*"])
+        self.assertEqual(self._row("b-star").get("status"), "supported")
+
+    def test_an_unbounded_belief_glob_is_reported_and_never_matched(self) -> None:
+        self._seed("b-wild", ["*/*.ts"])
+        ingest_runtime_signal(source="incident", service="s", summary="x",
+                              code_refs=["src/a.ts"], base_dir=self.tools)
+        result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools)
+        self.assertEqual(result["decayed_count"], 0)
+        self.assertEqual(result["unbounded_belief_globs"], ["*/*.ts"])
+
+    def test_the_matched_pair_is_recorded_on_the_belief(self) -> None:
+        self._seed("b-pair", ["src/adapters/*.ts"])
+        ingest_runtime_signal(source="incident", service="s", summary="x",
+                              code_refs=["src/adapters/pdf.ts:9"], base_dir=self.tools)
+        decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools)
+        reason = str(self._row("b-pair").get("stale_reason"))
+        self.assertIn("signal_ref=src/adapters/pdf.ts", reason)
+        self.assertIn("evidence_ref=src/adapters/*.ts", reason)
+
+    def test_a_signal_past_the_ttl_decays_nothing(self) -> None:
+        from datetime import timedelta
+
+        from aria_kernel import memory
+
+        self._seed("b-old", ["src/a.ts"])
+        record = ingest_runtime_signal(source="incident", service="s", summary="old",
+                                       code_refs=["src/a.ts"], base_dir=self.tools,
+                                       now=self.now - timedelta(days=memory.RUNTIME_SIGNAL_DECAY_TTL_DAYS + 1))
+        result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools, now=self.now)
+        self.assertEqual(result["decayed_count"], 0)
+        self.assertEqual(result["aged_out_signals"], [record["signal_id"]])
+
+    def test_per_signal_and_per_cycle_caps_hold_back_and_report(self) -> None:
+        from unittest import mock
+
+        from aria_kernel import memory
+
+        for index in range(5):
+            self._seed(f"b-{index}", [f"src/mod{index}/a.ts"])
+        wide = ingest_runtime_signal(source="incident", service="s", summary="wide",
+                                     code_refs=[f"src/mod{index}/a.ts" for index in range(5)],
+                                     base_dir=self.tools, now=self.now)
+        with mock.patch.object(memory, "MAX_DECAYS_PER_SIGNAL", 2):
+            result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools, now=self.now)
+        self.assertEqual(result["decayed_count"], 2)
+        self.assertEqual(result["held_by_signal_cap"], {wide["signal_id"]: 3})
+        with mock.patch.object(memory, "MAX_RUNTIME_SIGNAL_DECAYS_PER_CYCLE", 1):
+            result = decay_beliefs_by_runtime_signals(cycle_id="c2", base_dir=self.tools, now=self.now)
+        self.assertEqual(result["decayed_count"], 1)
+        self.assertEqual(result["held_by_cycle_cap"], 2)
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

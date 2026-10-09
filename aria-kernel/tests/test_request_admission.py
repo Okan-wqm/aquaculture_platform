@@ -29,7 +29,7 @@ from unittest.mock import patch
 from aria_kernel import agent_invocations as invocations
 from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.ledger import load_declared_jsonl, load_jsonl
-from aria_kernel.auto_merge import record_pr_lifecycle
+from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
 from aria_kernel.pr_tracking import dispatch_change_intelligence, ingest_merged_pr_lifecycle
 from aria_kernel.request_admission import (
     GOVERNANCE_KIND,
@@ -299,10 +299,11 @@ class AThrottledProducerIsAdmittedOnceTheDrainCatchesUp(_Store):
     """Integration: the change-intelligence producer, one merge, two cycles."""
 
     def test_refused_this_cycle_minted_the_next(self) -> None:
-        record_pr_lifecycle(
-            {"number": 1822, "head_sha": "b" * 40, "base_branch": "main",
-             "changed_files": ["aria-kernel/aria_kernel/cycle.py"]},
-            event="merged", base_dir=self.tools,
+        # ARIA-HIGH-390 — the merged row has one writer.
+        record_merge(
+            pr={"number": 1822, "head_sha": "b" * 40, "base_branch": "main",
+                "changed_files": ["aria-kernel/aria_kernel/cycle.py"]},
+            merged_by=MERGED_BY_MERGE_LANE, base_dir=self.tools,
         )
         ingest_merged_pr_lifecycle(base_dir=self.tools)
         behind = _ledgers(40, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))

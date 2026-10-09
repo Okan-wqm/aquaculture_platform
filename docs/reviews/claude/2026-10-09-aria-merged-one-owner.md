@@ -88,7 +88,8 @@ plan's own merge, with no GitHub read. That covers #1906 if it merges before thi
     `implementation_merged` event type handed to a writer, and a direct `pr_lifecycle` append. It
     self-tests on a forged module.
 - **F6, closed:** `agent_eval`'s merged episode supersedes the rejected one when the merge
-  followed a rejection. `finding_grounding` drops `failed_at` and `unverified_failed_at` once the plan merged.
+  followed a rejection. `finding_grounding` drops `failed_at` and `unverified_failed_at` once the
+  plan merged.
 - **F7, closed:** a PR GitHub reports CLOSED unmerged, or whose merge was refused once, gets a
   `closed_unmerged` or `merge_unproven` lifecycle row and is not asked about again. Every opened row
   of the plan's change is asked about, so a later one no longer shadows the first.

@@ -1,7 +1,8 @@
 """System One transport — one bounded HTTPS call to TypeSafe Jev (ARIA-LOW-252).
 
-PRIVATE to ``system_one``: no other module may import this one
-(``tests/test_jev_runtime.py`` pins it), because ``system_one`` is where the
+PRIVATE to ``system_one``: no other module may import or name this one, and
+``system_one`` binds the call under a private alias only
+(``tests/test_jev_runtime.py`` pins both), because ``system_one`` is where the
 egress law lives — what may be sent, built from references, and checked as
 the exact bytes that leave. This module only moves those bytes:
 
@@ -11,7 +12,8 @@ the exact bytes that leave. This module only moves those bytes:
   ignored, and TLS is verified with the default context — the bearer key
   can reach no other host;
 * one monotonic deadline (``TIMEOUT_CEILING_SECONDS``) bounds both attempts
-  together; the response is capped by Content-Length and by the read;
+  together, the body is read in chunks against it, and a reply completing
+  after it is refused; the response is capped by Content-Length and by the read;
 * the key comes ONLY from the file ``ARIA_JEV_API_KEY_FILE`` names, opened
   without following a symlink and accepted only as a regular file owned by
   this euid with no group/other bits, of a fixed charset — so it can never
@@ -142,16 +144,38 @@ def _pinned_opener() -> urllib.request.OpenerDirector:
     )
 
 
+READ_CHUNK_BYTES = 4096
+
+
 def _urllib_opener(request: urllib.request.Request, timeout_seconds: float) -> tuple[int, bytes]:
+    """One request on the pinned opener, its body read in chunks against ``timeout_seconds`` as a DEADLINE.
+
+    A socket timeout bounds each read, not the whole body: a server that
+    trickles a chunk just inside it keeps the call alive indefinitely
+    (measured: a 1 s timeout took 14.1 s). The clock is checked between
+    chunks and a body still arriving at the deadline is refused.
+    """
+    deadline = time.monotonic() + timeout_seconds
     try:
         with _pinned_opener().open(request, timeout=timeout_seconds) as response:
             declared = response.headers.get("Content-Length")
             if declared is not None and (not declared.strip().isdigit() or int(declared) > MAX_RESPONSE_BYTES):
                 raise _Refused("response_too_large")
-            body = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(body) > MAX_RESPONSE_BYTES:
-                raise _Refused("response_too_large")
-            return int(response.status), body
+            chunks: list[bytes] = []
+            received = 0
+            while True:
+                if time.monotonic() > deadline:
+                    raise _Refused("deadline_exceeded")
+                # read1: what has arrived, up to the chunk size — read(n) on a
+                # buffered response blocks until n bytes or the end.
+                chunk = response.read1(READ_CHUNK_BYTES)
+                if not chunk:
+                    break
+                received += len(chunk)
+                if received > MAX_RESPONSE_BYTES:
+                    raise _Refused("response_too_large")
+                chunks.append(chunk)
+            return int(response.status), b"".join(chunks)
     except urllib.error.HTTPError as exc:  # 3xx (not followed), 4xx and 5xx all land here
         return int(exc.code), b""
     except (OSError, http.client.HTTPException) as exc:  # URLError names its cause in .reason
@@ -227,6 +251,9 @@ def _post(
             return JevUnavailable("deadline_exceeded")
         try:
             reply = _attempt(key, body, timeout=remaining, opener=opener or _urllib_opener)
+            if clock() > deadline:
+                # A reply that completed after the deadline is not accepted.
+                raise _Refused("deadline_exceeded")
         except _Refused as refused:
             if refused.retryable and attempt < MAX_ATTEMPTS and deadline - clock() > RETRY_BACKOFF_SECONDS:
                 attempt += 1

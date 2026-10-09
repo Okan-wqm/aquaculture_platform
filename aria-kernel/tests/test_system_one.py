@@ -92,11 +92,17 @@ class _Store(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
-        self.git("init", "-q")
+        self.git("init", "-q", "-b", "main")
         (self.root / ".gitignore").write_text("aria-tools/\n", encoding="utf-8")
         registry = self.root / "docs" / "reviews" / "_registry" / "findings.jsonl"
         registry.parent.mkdir(parents=True)
         registry.write_text(json.dumps(_FINDING) + "\n", encoding="utf-8")
+        # "Public" is what the remote origin publishes: commits are pushed to a
+        # bare origin, and the finding registry is read as origin/main holds it.
+        self.origin = Path(self._tmp.name + "-origin.git")
+        subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.origin)], check=False))
+        self.git("remote", "add", "origin", str(self.origin))
         self.base = self.commit_file("src/x.ts", "repo.getRepository(X)\n", "base")
         self.fix = self.commit_file("src/x.ts", "repo.getScopedRepository(X)\n", "scope the repository")
         self.tools = ensure_tools_dir(self.root / "aria-tools")
@@ -109,13 +115,15 @@ class _Store(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True,
                               text=True).stdout.strip()
 
-    def commit_file(self, path: str, content: str, message: str) -> str:
+    def commit_file(self, path: str, content: str, message: str, *, push: bool = True) -> str:
         target = self.root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         self.git("add", "-A")
         self.git("-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false",
                  "commit", "-q", "-m", message)
+        if push:
+            self.git("push", "-q", "origin", "HEAD:main")
         return self.git("rev-parse", "HEAD")
 
     def refs(self, commit: str | None = None, path: str = "src/x.ts") -> dict[str, StateRef]:
@@ -217,6 +225,12 @@ class Refusals(_Store):
             (self.refs(path="aria-tools/runs.jsonl"), "path_refused"),
             (self.refs(path="config/.env.production"), "path_credential_shaped"),
             (self.refs(path="deploy/id_rsa"), "path_credential_shaped"),
+            (self.refs(path="gcp/credentials.json"), "path_credential_shaped"),
+            (self.refs(path="infra/prod.tfvars"), "path_credential_shaped"),
+            (self.refs(path="ops/kubeconfig"), "path_credential_shaped"),
+            (self.refs(path="home/.netrc"), "path_credential_shaped"),
+            (self.refs(path="keys/AuthKey_ABC.p8"), "path_credential_shaped"),
+            (self.refs(path="gcp/service-account-prod.json"), "path_credential_shaped"),
             (self.refs(commit="HEAD"), "commit_not_a_sha"),
             (self.refs(commit="0" * 40), "reference_not_in_repository"),
             ({"finding": StateRef(finding_id="ARIA-HIGH-999"), "diff": StateRef(commit=self.fix, path="src/x.ts")},
@@ -228,6 +242,35 @@ class Refusals(_Store):
                 transport = _Transport()
                 self.assert_refused(self.ask("J0", refs, transport), transport, reason)
                 self.reset_rows()
+
+    def test_only_commits_a_public_remote_holds_are_admissible(self) -> None:
+        # Review (a): cat-file -e admitted unpushed work and stash commits,
+        # whose third parent carries ignored files.
+        unpushed = self.commit_file("src/local.ts", "const customer = 'Jane Roe, +47 99 99 99 99';\n",
+                                    "local only", push=False)
+        transport = _Transport()
+        self.assert_refused(self.ask("J0", self.refs(commit=unpushed, path="src/local.ts"), transport), transport,
+                            "commit_not_on_public_remote")
+        self.reset_rows()
+        (self.root / "notes.local").write_text("tenant debt 120000 NOK\n", encoding="utf-8")
+        (self.root / ".gitignore").write_text("aria-tools/\nnotes.local\n", encoding="utf-8")
+        self.git("-c", "user.email=t@example.invalid", "-c", "user.name=t", "stash", "push", "-q", "--all")
+        stash_untracked = self.git("rev-parse", "stash@{0}^3")
+        transport = _Transport()
+        self.assert_refused(self.ask("J0", self.refs(commit=stash_untracked, path="notes.local"), transport),
+                            transport, "commit_not_on_public_remote")
+        self.reset_rows()
+        self.git("push", "-q", "origin", f"{unpushed}:refs/heads/aria-impl-1")
+        self.assertIsInstance(self.ask("J0", self.refs(commit=unpushed, path="src/local.ts"), _Transport(_noul(0.4))),
+                              Answer)
+
+    def test_the_finding_registry_is_read_as_origin_main_holds_it(self) -> None:
+        registry = self.root / "docs" / "reviews" / "_registry" / "findings.jsonl"
+        registry.write_text(registry.read_text(encoding="utf-8") + json.dumps(
+            {"id": "ARIA-HIGH-777", "title": "Local only", "rule_violated": "r"}) + "\n", encoding="utf-8")
+        transport = _Transport()
+        refs = {"finding": StateRef(finding_id="ARIA-HIGH-777"), "diff": StateRef(commit=self.fix, path="src/x.ts")}
+        self.assert_refused(self.ask("J0", refs, transport), transport, "finding_not_registered")
 
     def test_repository_content_with_a_credential_shape_is_refused(self) -> None:
         leaks = (

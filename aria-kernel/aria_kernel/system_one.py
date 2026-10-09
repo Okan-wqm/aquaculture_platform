@@ -14,8 +14,12 @@ repository code and finding/PR text may leave the host — never tenant data,
 logs, secrets or operator content. A caller therefore never passes TEXT: it
 passes REFERENCES (``StateRef``), and this module builds every state value
 itself from the bound repository — a commit's diff, message, file excerpt or
-symbol outline read with ``git`` at a 40-hex commit the repository holds, and
-a finding's title and rule read from the finding registry by id. A path is
+symbol outline read with ``git`` at a 40-hex commit a PUBLIC remote ref
+(``origin/*``, fetched per ask) already holds, and a finding's title and rule
+read by id from the registry as ``origin/main`` holds it. A commit only in
+this checkout — unpushed work, a stash commit carrying ignored files — is
+refused: a question about an implementation branch is admissible once that
+branch is pushed, never before. A path is
 held to the agent evidence law (no absolute path, no ``..`` escape, no
 control character, never ARIA's own output) and refused when it names a
 credential-shaped file. The deny scan stays as a BACKSTOP over every string
@@ -40,7 +44,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .jev_runtime import JevReply, JevUnavailable, post_systemone
+# Bound under a private name: system_one is the only egress path, so the
+# transport is never re-exported from it (tests/test_jev_runtime.py pins that
+# nothing else names it).
+from .jev_runtime import JevReply, JevUnavailable
+from .jev_runtime import post_systemone as _transport
 from .ledger import append_declared_jsonl
 from .secret_scrub import scrub_text_with_count
 from .tool_registry import bound_workspace_root, ensure_tools_dir, utc_now
@@ -48,6 +56,11 @@ from .tool_registry import bound_workspace_root, ensure_tools_dir, utc_now
 REGISTRY_RELPATH = ("aria-config", "system-one-questions.json")
 REGISTRY_SCHEMA = "aria/system-one-questions/v1"
 FINDING_REGISTRY_RELPATH = ("docs", "reviews", "_registry", "findings.jsonl")
+#: What "public" means here: the refs the remote ``origin`` publishes.
+PUBLIC_REMOTE = "origin"
+PUBLIC_REMOTE_REFS = f"refs/remotes/{PUBLIC_REMOTE}/"
+PUBLIC_REGISTRY_REF = f"refs/remotes/{PUBLIC_REMOTE}/main"
+FINDING_REGISTRY_MAX_CHARS = 64 * 1024 * 1024
 CALLS_SURFACE = "system_one_calls"
 CALLS_RELPATH = ("system-one", "calls.jsonl")
 PAYLOAD_MAX_BYTES = 110_000  # ~25k tokens of state under the vendor's 32k budget, plus the question
@@ -60,8 +73,10 @@ _FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}$")
 # The ledger's subject names WHAT was asked about, never what was said about it.
 _SUBJECT_RE = re.compile(r"^(?:[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}|PR#[0-9]{1,7}|[0-9a-f]{40})$")
 _SENSITIVE_PATH = re.compile(
-    r"(?:^|/)(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.netrc|id_[a-z0-9]+|[^/]*\.(?:pem|key|p12|pfx|jks|kdbx|asc))$"
-    r"|(?:^|/)(?:secrets?|credentials?|\.ssh|\.gnupg)/",
+    r"(?:^|/)(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.netrc|_netrc|kubeconfig(?:\..*)?|id_[a-z0-9]+"
+    r"|[^/]*credentials?[^/]*\.json|service[-_]?account[^/]*\.json"
+    r"|[^/]*\.(?:pem|key|p12|p8|pfx|jks|kdbx|asc|tfvars|tfstate))$"
+    r"|(?:^|/)(?:secrets?|credentials?|\.ssh|\.gnupg|\.kube|\.aws|\.docker)/",
     re.IGNORECASE,
 )
 _OUTLINE_LINE = re.compile(
@@ -227,7 +242,7 @@ class _Refusal(Exception):
         self.reason = reason
 
 
-def _git(workspace: Path, *args: str) -> str:
+def _git(workspace: Path, *args: str, max_chars: int = VALUE_MAX_CHARS) -> str:
     """git in the bound workspace, with no caller GIT_* environment; bounded output; a refusal on failure."""
     hermetic = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     try:
@@ -243,15 +258,26 @@ def _git(workspace: Path, *args: str) -> str:
         text = completed.stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise _Refusal("reference_not_text") from exc
-    if len(text) > VALUE_MAX_CHARS:
+    if len(text) > max_chars:
         raise _Refusal("reference_too_large")
     return text
 
 
 def _commit(workspace: Path, ref: StateRef) -> str:
+    """``ref.commit`` when a public remote ref already holds it; a refusal otherwise.
+
+    "Public repository code" is code the remote holds: a commit only in this
+    checkout (unpushed work, a stash commit, which can carry ignored files)
+    never leaves. ``_build_state`` fetches ``origin`` first, so a pushed
+    branch — an ARIA implementation branch under ``origin/aria-impl-*``
+    included — is admissible as soon as it is pushed.
+    """
     if not isinstance(ref.commit, str) or not _COMMIT_RE.match(ref.commit):
         raise _Refusal("commit_not_a_sha")
     _git(workspace, "cat-file", "-e", f"{ref.commit}^{{commit}}")
+    holders = _git(workspace, "for-each-ref", "--contains", ref.commit, "--format=%(refname)", PUBLIC_REMOTE_REFS)
+    if not holders.strip():
+        raise _Refusal("commit_not_on_public_remote")
     return ref.commit
 
 
@@ -274,16 +300,18 @@ def _finding(workspace: Path, ref: StateRef) -> dict[str, str]:
     """``{finding: title, rule: rule_violated}`` of the registry row ``ref.finding_id`` names."""
     if not isinstance(ref.finding_id, str) or not _FINDING_ID_RE.match(ref.finding_id):
         raise _Refusal("finding_id_malformed")
+    # The registry as the public remote holds it — never the working-tree file.
+    ledger = _git(workspace, "show", f"{PUBLIC_REGISTRY_REF}:{'/'.join(FINDING_REGISTRY_RELPATH)}",
+                  max_chars=FINDING_REGISTRY_MAX_CHARS)
     row: dict[str, Any] | None = None
-    try:
-        with workspace.joinpath(*FINDING_REGISTRY_RELPATH).open(encoding="utf-8") as handle:
-            for line in handle:
-                if ref.finding_id in line:
-                    candidate = json.loads(line)
-                    if isinstance(candidate, dict) and candidate.get("id") == ref.finding_id:
-                        row = candidate
-    except (OSError, ValueError) as exc:
-        raise _Refusal("finding_registry_unreadable") from exc
+    for line in ledger.splitlines():
+        if ref.finding_id in line:
+            try:
+                candidate = json.loads(line)
+            except ValueError as exc:
+                raise _Refusal("finding_registry_unreadable") from exc
+            if isinstance(candidate, dict) and candidate.get("id") == ref.finding_id:
+                row = candidate
     if row is None:
         raise _Refusal("finding_not_registered")
     title, rule = row.get("title"), row.get("rule_violated")
@@ -334,6 +362,12 @@ def _build_state(question: Question, refs: Any, workspace: Path) -> dict[str, An
         raise _Refusal("state_shape:keys")
     if not all(isinstance(ref, StateRef) for ref in refs.values()):
         raise _Refusal("state_shape:not_a_reference")
+    # One fetch per ask: admissibility is decided against what the remote
+    # publishes NOW (a just-pushed branch counts; a deleted one does not).
+    try:
+        _git(workspace, "fetch", "--quiet", "--prune", PUBLIC_REMOTE)
+    except _Refusal as refusal:
+        raise _Refusal("public_remote_unavailable") from refusal
     state = {key: _BUILDERS[key](workspace, refs[key]) for key in question.state_keys}
     if any(not value for value in state.values()):
         raise _Refusal("state_value_empty")
@@ -477,7 +511,7 @@ def _ask_built(
         return Unavailable(question.id, "refused", refusal)
     started = time.monotonic()
     try:
-        reply = (transport or post_systemone)(payload)
+        reply = (transport or _transport)(payload)
     except Exception as exc:  # noqa: BLE001 — the reflex never breaks the protocol; the class is recorded
         reply = JevUnavailable(f"transport_raised:{type(exc).__name__}")
     row["latency_ms"] = int((time.monotonic() - started) * 1000)

@@ -144,10 +144,16 @@ class _KeyFile(unittest.TestCase):
 
 
 class PrivateAndPinned(_KeyFile):
-    def test_only_system_one_imports_the_transport(self) -> None:
+    def test_nothing_but_system_one_names_the_transport(self) -> None:
+        """Not an import, not a name, not an attribute, not a string handed to an import call."""
         import ast
 
-        importers = []
+        def import_call(node: ast.Call) -> bool:
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+            return "import" in name
+
+        offenders = []
         for root in (_REPO_ROOT / "aria-kernel" / "aria_kernel", _REPO_ROOT / "tools"):
             for path in root.rglob("*.py"):
                 if path.name in ("jev_runtime.py", "system_one.py"):
@@ -157,14 +163,26 @@ class PrivateAndPinned(_KeyFile):
                 except (SyntaxError, UnicodeDecodeError):
                     continue
                 for node in ast.walk(tree):
-                    names = (
-                        [alias.name for alias in node.names] if isinstance(node, ast.Import)
-                        else [node.module or ""] + [alias.name for alias in node.names] if isinstance(node, ast.ImportFrom)
-                        else []
-                    )
-                    if any(name.split(".")[-1] == "jev_runtime" for name in names):
-                        importers.append(path.relative_to(_REPO_ROOT).as_posix())
-        self.assertEqual(importers, [])
+                    named: list[str] = []
+                    if isinstance(node, ast.Import):
+                        named = [alias.name for alias in node.names] + [alias.asname or "" for alias in node.names]
+                    elif isinstance(node, ast.ImportFrom):
+                        named = [node.module or ""] + [alias.name for alias in node.names]
+                    elif isinstance(node, ast.Name):
+                        named = [node.id]
+                    elif isinstance(node, ast.Attribute):
+                        named = [node.attr]
+                    elif isinstance(node, ast.Call) and import_call(node):
+                        named = [arg.value for arg in node.args if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
+                    if any("jev_runtime" in name or "post_systemone" in name for name in named):
+                        offenders.append(f"{path.relative_to(_REPO_ROOT).as_posix()}:{getattr(node, 'lineno', 0)}")
+        self.assertEqual(offenders, [])
+
+    def test_system_one_does_not_re_export_the_transport(self) -> None:
+        from aria_kernel import system_one
+
+        self.assertFalse(hasattr(system_one, "post_systemone"))
+        self.assertFalse(hasattr(system_one, "jev_runtime"))
 
     def test_an_endpoint_that_is_not_the_pinned_host_never_sends(self) -> None:
         sent: list[object] = []
@@ -256,6 +274,39 @@ class TheRealOpener(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(len(vendor.received), 1)
 
+    def test_a_trickled_body_is_refused_at_the_deadline(self) -> None:
+        # Each chunk arrives inside the socket timeout, so only the
+        # between-chunk deadline check can stop it (measured before: 14.1 s).
+        import time as _time
+
+        class Trickle(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 — http.server API
+                self.send_response(200)
+                self.send_header("Content-Length", str(40 * 100))
+                self.end_headers()
+                for _ in range(40):
+                    self.wfile.write(b"x" * 100)
+                    self.wfile.flush()
+                    _time.sleep(0.25)
+
+            def log_message(self, *_args: object) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Trickle)
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        try:
+            started = _time.monotonic()
+            with self.assertRaises(jev_runtime._Refused) as caught:
+                jev_runtime._urllib_opener(
+                    urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/", method="GET"), 1.0,
+                )
+            elapsed = _time.monotonic() - started
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(caught.exception.reason, "deadline_exceeded")
+        self.assertLess(elapsed, 2.0)
+
     def test_an_oversized_response_is_refused(self) -> None:
         with _Vendor() as vendor:
             vendor.script = [(200, b"x" * (jev_runtime.MAX_RESPONSE_BYTES + 1), {})]
@@ -337,6 +388,17 @@ class BoundedCall(_KeyFile):
                                 sleep=lambda _s: None, clock=lambda: now[0])
         self.assertEqual(result, JevUnavailable("vendor_error_http_503"))
         self.assertEqual(len(calls), 1)
+
+    def test_a_reply_completing_after_the_deadline_is_refused(self) -> None:
+        now = [0.0]
+
+        def opener(request: object, timeout: float) -> tuple[int, bytes]:
+            now[0] += timeout + 1.0
+            return 200, json.dumps(_OK_BODY).encode("utf-8")
+
+        result = post_systemone(_PAYLOAD, environ=self.environ, opener=opener, breaker=CircuitBreaker(),
+                                sleep=lambda _s: None, clock=lambda: now[0])
+        self.assertEqual(result, JevUnavailable("deadline_exceeded"))
 
     def test_unreachable_vendor_is_a_transport_reason_not_a_raise(self) -> None:
         with _Vendor() as vendor:

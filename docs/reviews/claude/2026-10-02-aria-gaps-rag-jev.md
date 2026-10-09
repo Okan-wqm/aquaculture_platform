@@ -105,6 +105,23 @@ calls are logged without content. The review found and #1756 fixed:
 - **The ledger stores an id-shaped subject and the validated answer fields only.**
 - **`system_one.py`, `jev_runtime.py` and `secret_scrub.py` are authority surfaces.**
 
+Re-review, the same day:
+
+- **"Public" now means what the remote `origin` publishes.** A commit is admissible only when an
+  `origin/*` ref contains it after a fetch done per ask. Finding text is read from
+  `origin/main:docs/reviews/_registry/findings.jsonl`, never the working tree. By design there is
+  no second admissible source:
+  - unpushed work is refused;
+  - a stash commit carrying ignored files is refused;
+  - an ARIA implementation branch becomes askable once it is pushed (`origin/aria-impl-*`), so a
+    `pre_pr_open` question about an unpushed commit is refused.
+- **The response deadline holds.** The body is read in chunks against the deadline, and a reply
+  completing after it is refused.
+- **The transport stays private.** `system_one` binds it under a private alias. The invariant
+  test flags any name, attribute, import or importlib string naming it outside the two modules.
+- **More credential-shaped paths are refused:** `credentials*.json`, `service-account*.json`,
+  `*.tfvars`, `*.tfstate`, `kubeconfig`, `.netrc`, `*.p8`, and `.kube/`, `.aws/` and `.docker/`.
+
 Open for the operator: `aria-config/` has no CODEOWNERS entry. The question registry is READONLY
 to ARIA's implementer and an authority surface. No human review rule is attached to it on GitHub,
 and this PR does not change CODEOWNERS.

@@ -67,9 +67,8 @@ An independent infra review of e237adbe3 blocked it. Each item and its fix:
 - **MEDIUM-006** — the unit runs the script from the deploy checkout (deployed SHA) and skips
   with a message, without failing, until a deploy carries it.
 - **MEDIUM-007** — `HOME=/root` for the gh credential helper; every pass writes a node-exporter
-  textfile (`aqua_worktree_gc_last_exit_code`, last run time, outcomes). No alert rule yet: a
-  rule's `runbook_url` must point under `docs/runbooks/monitoring/`, and this runbook lives
-  under `maintenance/`.
+  textfile (`aqua_worktree_gc_last_exit_code`, last run time, outcomes). Alert rules followed
+  in the re-review round (MEDIUM-011).
 - **MEDIUM-008** — prune re-lists the worktrees first and is skipped while a missing worktree
   lies outside the roots; a spec proves a vanished scratchpad worktree keeps its record.
 - **LOW** — fake `/proc` cases for cwd and maps; a `core.bare=true` main checkout; other
@@ -78,14 +77,40 @@ An independent infra review of e237adbe3 blocked it. Each item and its fix:
 
 Each new case was mutation-checked: reverting the rule it pins fails its test.
 
-The first unarmed pass on the droplet after these fixes (2026-10-09) removes nothing: the 15
-worktrees that were removable before now all hold `aria-findings/`, `.aria-ci/` or
-`aria-tools/*.jsonl`. Whether any of those are regenerable is the owner's call; until one is
-added to the allow-list deliberately, they keep their worktrees.
+The first unarmed pass after these fixes removed nothing: the 15 previously removable
+worktrees all held `aria-findings/`, `.aria-ci/` or `aria-tools/*.jsonl`. The ARIA owner then
+decided (2026-10-09) that inside `<repo>/.worktrees` those three are disposable byproducts of
+local runs and that canonical ARIA state lives elsewhere. They joined the allow-list for
+`.worktrees` only, with two guards: `/root/aria-8b`, `/var/lib/aria*`, `/home/gharunner/**` and
+any `.aria-state-store` path are hard exclusions, and an `aria-tools/` holding `state.git` or
+`.aria-state-store`, or over 50 MB, keeps its worktree (`aria_store`).
+
+### Infra re-review → fixes
+
+A re-review of 8f7e46f7e blocked it again:
+
+- **HIGH-009** — a refused removal was finished with `--force` on the next pass, and `du` ran
+  between the final `/proc` scan and the move, so a session entering during `du` could lose its
+  work. `du` now runs before the final re-check. When git refuses (not a timeout), the tree is
+  moved back to its original path and kept (`remove_refused`, exit 3). A quarantine leftover
+  gets `--force` only while its status shows nothing but ` D` lines and allow-listed caches and
+  its HEAD, operation, refs and reflog checks pass; any other change keeps it.
+- **MEDIUM-010** — a leftover whose `.git` file git had already deleted read as `missing` and
+  waited for a global prune that this host skips. It is now `quarantine_stranded`: the
+  collector deletes the directory (no symlink following, real path checked to be inside the
+  quarantine) and removes git's admin directory for it by id.
+- **MEDIUM-011** — `infrastructure/monitoring/droplet/rules/65-host-maintenance.yml` alerts on
+  a non-zero exit for two passes, any exit 3, no completed pass in 3 h, and 7 days unarmed;
+  `docs/runbooks/monitoring/worktree-gc.md` is their runbook. Every pass writes the textfile,
+  including a bad-config pass (exit 1) and a pass the unit skips because the deployed checkout
+  lacks the script (exit 4, written by the `ExecCondition`).
+
+With the ARIA allow-list and these fixes, an unarmed pass on 2026-10-09 marks 6 worktrees
+removable, about 1.3 GB.
 
 ### Not done here
 
 - The units are not installed on the droplet; installation is the runbook's first dry-run
   pass, an operator step.
-- Dirty, ignored-content and unmerged worktrees (24, 15 and 70 in the post-review dry run)
-  are reported, not resolved. They are owned work.
+- Dirty, ignored-content and unmerged worktrees are reported, not resolved. They are owned
+  work.

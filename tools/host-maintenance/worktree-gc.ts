@@ -29,10 +29,14 @@
  *   worktree's symlinks point into it.
  * - Every check runs twice: once to report, and again for each candidate
  *   immediately before it is touched.
- * - A candidate is first moved into <root>/.gc-quarantine/ and then removed
- *   with `git worktree remove` (no --force). A removal killed half-way leaves
- *   a tree that is visibly ours: the next pass finishes it with --force
- *   instead of mistaking a half-deleted tree for somebody's dirty work.
+ * - A candidate is measured (du) first, then re-checked, then moved into
+ *   <root>/.gc-quarantine/ and removed with `git worktree remove` (no
+ *   --force). If git refuses, the tree is moved back and kept
+ *   (remove_refused). A removal that timed out or was killed is finished by
+ *   a later pass with --force, but only while its status shows nothing but
+ *   deleted tracked files and allow-listed caches and its reflog, refs and
+ *   operation checks still pass. A tree whose .git file git already deleted
+ *   is cleared directly (gc-quarantine.ts).
  * - Branches are never deleted, local or remote.
  * - A pass stops starting removals near its time budget and after a capped
  *   number, so the unit's own timeout never lands mid-removal.
@@ -42,15 +46,32 @@
  * One JSON line per worktree, then one summary line (last, for `tail -1`),
  * each far below journald's 48 KiB line limit. A Prometheus textfile carries
  * the pass result for alerting. Exit 0 when the pass completed, 3 when some
- * removal or the prune failed (a result, not a crash; the unit lists it in
+ * removal was refused or failed, or the prune failed (a result, not a crash; the unit lists it in
  * SuccessExitStatus), 1 when the pass could not run at all (not a repository,
  * fetch failed, bad configuration) - nothing is removed in that case.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { mkdirSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import {
+  ConfigError,
+  HOUR_MS,
+  classifyLocation,
+  readConfig,
+  textfilePathFrom,
+  type GcConfig,
+} from './gc-config.ts';
+import { firstLine, git, type GitResult } from './gc-git.ts';
+import { writeTextfile } from './gc-metrics.ts';
+import {
+  clearStranded,
+  isStranded,
+  quarantineDirs,
+  quarantineOf,
+  quarantineTarget,
+} from './gc-quarantine.ts';
 import { heldWorktrees, scanProcessPaths } from './proc-scan.ts';
 import {
   WORKTREE_LIST_ARGS,
@@ -59,6 +80,7 @@ import {
   type WorktreeRecord,
 } from './worktree-list.ts';
 import {
+  ariaStoreEvidence,
   canonical,
   isRebuildableCache,
   isStrictlyWithin,
@@ -86,13 +108,16 @@ export type Reason =
   | 'ignored_content'
   | 'status_failed'
   | 'unreachable_reflog'
+  | 'aria_store'
   | 'process_held'
   | 'proc_unreadable'
   | 'symlink_target'
   | 'pass_budget'
   | 'pass_cap'
+  | 'remove_refused'
   | 'quarantine_orphan'
   | 'quarantine_leftover'
+  | 'quarantine_stranded'
   | 'eligible';
 
 export type Decision = 'kept' | 'would_remove' | 'removed' | 'remove_failed';
@@ -107,36 +132,19 @@ export interface WorktreeReport {
   bytes?: number | null;
 }
 
-export interface GcConfig {
-  repo: string;
-  roots: string[];
-  protectedPaths: string[];
-  graceMs: number;
-  /** Only an armed pass removes anything. */
-  armed: boolean;
-  dryRun: boolean;
-  sizeBudgetMs: number;
-  passBudgetMs: number;
-  maxRemovals: number;
-  procRoot: string;
-  /** The git executable. Tests point it at a wrapper that makes one subcommand misbehave. */
-  gitBin: string;
-  textfilePath: string | null;
-}
-
-/** The deploy checkout and its rollback worktrees. Not configurable away. */
-export const BUILTIN_PROTECTED = ['/var/lib/aqua/deploy'];
-export const QUARANTINE_DIR = '.gc-quarantine';
 const BASE_REF = 'refs/remotes/origin/main';
-const GIT_TIMEOUT_MS = 120_000;
 const FETCH_TIMEOUT_MS = 300_000;
 const REMOVE_TIMEOUT_MS = 600_000;
 /** No removal starts with less than this left in the pass budget. */
 const MIN_REMAINING_MS = 60_000;
 /** Reflog entries examined per worktree; a longer reflog keeps the worktree. */
 const REFLOG_CAP = 2000;
-const HOUR_MS = 60 * 60 * 1000;
-const DEFAULT_TEXTFILE = '/var/lib/node_exporter/textfile/aqua_worktree_gc.prom';
+/** Reasons a worktree may be acted on in the final phase. */
+const ACTIONABLE: ReadonlySet<Reason> = new Set<Reason>([
+  'eligible',
+  'quarantine_leftover',
+  'quarantine_stranded',
+]);
 /** Kept reasons that are the normal state of a busy host, left out of the summary's attention list. */
 const ROUTINE_REASONS: ReadonlySet<Reason> = new Set<Reason>([
   'main_checkout',
@@ -146,125 +154,6 @@ const ROUTINE_REASONS: ReadonlySet<Reason> = new Set<Reason>([
   'recently_active',
   'locked',
 ]);
-/** Variables a git hook or a parent git process may export; any of them would redirect our git calls. */
-const GIT_ENV_BLOCKLIST = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_COMMON_DIR',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_NAMESPACE',
-];
-
-class ConfigError extends Error {}
-
-function splitPaths(value: string | undefined): string[] {
-  return (value ?? '')
-    .split(':')
-    .map((p) => p.trim())
-    .filter(Boolean);
-}
-
-function numberEnv(env: NodeJS.ProcessEnv, key: string, fallback: number, min: number): number {
-  const value = Number(env[key] ?? String(fallback));
-  if (!Number.isFinite(value) || value < min) {
-    throw new ConfigError(`${key}=${env[key]} must be a number >= ${min}`);
-  }
-  return value;
-}
-
-export function readConfig(argv: string[], env: NodeJS.ProcessEnv): GcConfig {
-  for (const arg of argv) {
-    if (arg !== '--dry-run') {
-      throw new ConfigError(`unknown argument ${arg}; the only flag is --dry-run`);
-    }
-  }
-  const repo = env.AQUA_REPO ?? '/var/aqua-saas';
-  const roots = env.WORKTREE_GC_ROOTS
-    ? splitPaths(env.WORKTREE_GC_ROOTS)
-    : [join(repo, '.worktrees'), '/root/wt'];
-  const extraProtected = splitPaths(env.WORKTREE_GC_EXTRA_PROTECTED);
-  for (const p of [repo, ...roots, ...extraProtected]) {
-    if (!isAbsolute(p)) throw new ConfigError(`path ${p} is not absolute`);
-  }
-  if (roots.some((r) => resolve(r) === '/')) throw new ConfigError('"/" cannot be a worktree root');
-  // Below an hour the grace stops covering a paused agent turn; refuse rather than guess.
-  const graceHours = numberEnv(env, 'WORKTREE_GC_GRACE_HOURS', 6, 1);
-  const maxRemovals = numberEnv(env, 'WORKTREE_GC_MAX_REMOVALS', 20, 1);
-  if (!Number.isInteger(maxRemovals))
-    throw new ConfigError('WORKTREE_GC_MAX_REMOVALS must be an integer');
-  const armed = env.WORKTREE_GC_ARMED === '1';
-  const textfile = env.WORKTREE_GC_TEXTFILE_PATH ?? DEFAULT_TEXTFILE;
-  return {
-    repo: resolve(repo),
-    roots: roots.map((r) => resolve(r)),
-    protectedPaths: [...BUILTIN_PROTECTED, ...extraProtected.map((p) => resolve(p))],
-    graceMs: graceHours * HOUR_MS,
-    armed,
-    dryRun: !armed || argv.includes('--dry-run'),
-    sizeBudgetMs: numberEnv(env, 'WORKTREE_GC_SIZE_BUDGET_SECONDS', 120, 0) * 1000,
-    passBudgetMs: numberEnv(env, 'WORKTREE_GC_PASS_BUDGET_SECONDS', 1200, 0) * 1000,
-    maxRemovals,
-    procRoot: env.WORKTREE_GC_PROC_ROOT ?? '/proc',
-    gitBin: env.AQUA_GIT_BIN ?? 'git',
-    textfilePath: textfile === '' ? null : textfile,
-  };
-}
-
-interface GitResult {
-  ok: boolean;
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
-
-function gitEnv(): NodeJS.ProcessEnv {
-  const inherited = Object.entries(process.env).filter(([key]) => !GIT_ENV_BLOCKLIST.includes(key));
-  return { ...Object.fromEntries(inherited), GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
-}
-
-function git(bin: string, args: string[], timeout: number = GIT_TIMEOUT_MS): GitResult {
-  const r = spawnSync(bin, args, {
-    encoding: 'utf8',
-    timeout,
-    env: gitEnv(),
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  const timedOut = r.error !== undefined && 'code' in r.error && r.error.code === 'ETIMEDOUT';
-  const stderr =
-    `${r.stderr ?? ''}${timedOut ? ` timed out after ${timeout} ms` : r.error ? ` ${r.error.message}` : ''}`.trim();
-  return { ok: r.status === 0 && !r.error, code: r.status, stdout: r.stdout ?? '', stderr };
-}
-
-function firstLine(text: string): string {
-  return text.split('\n')[0]?.slice(0, 300) ?? '';
-}
-
-/** Location rules only: no git and no filesystem reads beyond resolving the paths given. */
-export function classifyLocation(
-  path: string,
-  canonicalPath: string | null,
-  roots: string[],
-  protectedPaths: string[],
-): Reason | null {
-  const forms = [path, canonicalPath].filter((p): p is string => p !== null);
-  const isProtected = protectedPaths.some((guard) => {
-    const guards = [guard, canonical(guard)].filter((g): g is string => g !== null);
-    return forms.some((f) => guards.some((g) => f === g || isStrictlyWithin(f, g)));
-  });
-  if (isProtected) return 'protected_path';
-  const target = canonicalPath ?? path;
-  const canonicalRoots = roots.map((r) => canonical(r)).filter((r): r is string => r !== null);
-  if (!canonicalRoots.some((root) => isStrictlyWithin(target, root))) return 'outside_roots';
-  return null;
-}
-
-function quarantineDirs(config: GcConfig): string[] {
-  return config.roots
-    .map((r) => canonical(r))
-    .filter((r): r is string => r !== null)
-    .map((r) => join(r, QUARANTINE_DIR));
-}
 
 interface Verdict {
   reason: Reason;
@@ -279,6 +168,75 @@ interface Pass {
 
 function gitIn(pass: Pass, cwd: string, args: string[]): GitResult {
   return git(pass.config.gitBin, ['-C', cwd, ...args]);
+}
+
+function headVerdict(pass: Pass, real: string): Verdict | null {
+  const head = gitIn(pass, real, ['rev-parse', '--verify', 'HEAD^{commit}']);
+  if (!head.ok) return { reason: 'merge_check_failed', detail: firstLine(head.stderr) };
+  const sha = head.stdout.trim();
+  const ancestor = gitIn(pass, pass.config.repo, ['merge-base', '--is-ancestor', sha, pass.base]);
+  if (ancestor.code === 1) return { reason: 'unmerged' };
+  if (!ancestor.ok) return { reason: 'merge_check_failed', detail: firstLine(ancestor.stderr) };
+  return null;
+}
+
+/** A half-done rebase/merge/cherry-pick/revert/bisect, or refs of its own. */
+function refsVerdict(pass: Pass, real: string, gitDir: string): Verdict | null {
+  const operation = operationInProgress(gitDir);
+  if (operation) return { reason: 'operation_in_progress', detail: operation };
+  const refs = gitIn(pass, real, [
+    'for-each-ref',
+    '--count=1',
+    '--format=%(refname)',
+    'refs/worktree/',
+    'refs/bisect/',
+  ]);
+  if (!refs.ok) return { reason: 'ref_check_failed', detail: firstLine(refs.stderr) };
+  if (refs.stdout.trim()) return { reason: 'worktree_refs', detail: refs.stdout.trim() };
+  return null;
+}
+
+/**
+ * What `git status` shows. `allowDeleted` accepts ` D` (tracked file deleted
+ * from the tree): that is what an interrupted `git worktree remove` leaves,
+ * and is accepted only for a tree in quarantine.
+ */
+function contentVerdict(pass: Pass, real: string, allowDeleted: boolean): Verdict | null {
+  const status = gitIn(pass, real, [
+    '--no-optional-locks',
+    'status',
+    '--porcelain',
+    '--ignored=matching',
+    '--untracked-files=all',
+  ]);
+  if (!status.ok) return { reason: 'status_failed', detail: firstLine(status.stderr) };
+  const lines = status.stdout.split('\n').filter(Boolean);
+  const changes = lines.filter(
+    (l) => !l.startsWith('!! ') && !(allowDeleted && l.startsWith(' D ')),
+  );
+  if (changes.length > 0) {
+    return {
+      reason: 'merged_but_dirty',
+      detail: `${changes.length} uncommitted or untracked path(s): ${changes.slice(0, 3).join(', ')}`,
+    };
+  }
+  const store = ariaStoreEvidence(real);
+  if (store) return { reason: 'aria_store', detail: store };
+  // ARIA byproducts are disposable only in agent worktrees (owner decision
+  // 2026-10-09, see worktree-state.ts).
+  const worktrees = join(pass.config.repo, '.worktrees');
+  const ariaByproducts = isStrictlyWithin(real, canonical(worktrees) ?? worktrees);
+  const keep = lines
+    .filter((l) => l.startsWith('!! '))
+    .map((l) => l.slice(3))
+    .filter((p) => !isRebuildableCache(p, ariaByproducts));
+  if (keep.length > 0) {
+    return {
+      reason: 'ignored_content',
+      detail: `${keep.length} ignored non-cache path(s): ${keep.slice(0, 3).join(', ')}`,
+    };
+  }
+  return null;
 }
 
 /** Commits the HEAD reflog reaches that no branch, tag or remote-tracking ref does. */
@@ -307,6 +265,24 @@ function reflogOnlyCommit(pass: Pass, real: string): Verdict | null {
     : null;
 }
 
+/**
+ * A tree the collector moved into quarantine and did not finish removing.
+ * It is finished with --force only if nothing but the removal touched it:
+ * same merged HEAD, no operation or refs, no change except deleted tracked
+ * files and allow-listed caches, no reflog-only commit. Anything else is
+ * somebody's work and keeps it.
+ */
+function classifyLeftover(pass: Pass, real: string): Verdict {
+  const gitDir = worktreeGitDir(real);
+  if (!gitDir) return { reason: 'activity_unknown', detail: 'no readable .git file' };
+  return (
+    headVerdict(pass, real) ??
+    refsVerdict(pass, real, gitDir) ??
+    contentVerdict(pass, real, true) ??
+    reflogOnlyCommit(pass, real) ?? { reason: 'quarantine_leftover' }
+  );
+}
+
 /** Every check except the process scan and symlink dependents. Re-run before each removal. */
 function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
   const { config } = pass;
@@ -314,28 +290,19 @@ function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
   const location = classifyLocation(record.path, real, config.roots, config.protectedPaths);
   if (location) return { reason: location };
   if (record.locked) return { reason: 'locked' };
+  if (quarantineOf(record.path, config.roots)) {
+    if (real === null || isStranded(real)) return { reason: 'quarantine_stranded' };
+    return classifyLeftover(pass, real);
+  }
   if (record.prunable || real === null) return { reason: 'missing' };
   const nested = pass.records.find(
     (other) => other !== record && isStrictlyWithin(canonical(other.path) ?? other.path, real),
   );
   if (nested) return { reason: 'contains_worktree', detail: nested.path };
-  // Only this tool moves trees into quarantine, and only after every check
-  // below passed. Whatever is left there is a removal that did not finish.
-  if (quarantineDirs(config).some((q) => isStrictlyWithin(real, q))) {
-    return { reason: 'quarantine_leftover' };
-  }
   const gitDir = worktreeGitDir(real);
   if (!gitDir) return { reason: 'activity_unknown', detail: 'no readable .git file' };
-  const head = gitIn(pass, real, ['rev-parse', '--verify', 'HEAD^{commit}']);
-  if (!head.ok) return { reason: 'merge_check_failed', detail: firstLine(head.stderr) };
-  const ancestor = gitIn(pass, config.repo, [
-    'merge-base',
-    '--is-ancestor',
-    head.stdout.trim(),
-    pass.base,
-  ]);
-  if (ancestor.code === 1) return { reason: 'unmerged' };
-  if (!ancestor.ok) return { reason: 'merge_check_failed', detail: firstLine(ancestor.stderr) };
+  const head = headVerdict(pass, real);
+  if (head) return head;
   const activity = lastActivityMs(gitDir);
   if (activity === null) return { reason: 'activity_unknown' };
   if (now - activity < config.graceMs) {
@@ -344,41 +311,11 @@ function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
       detail: `last activity ${new Date(activity).toISOString()}`,
     };
   }
-  const operation = operationInProgress(gitDir);
-  if (operation) return { reason: 'operation_in_progress', detail: operation };
-  const refs = gitIn(pass, real, [
-    'for-each-ref',
-    '--count=1',
-    '--format=%(refname)',
-    'refs/worktree/',
-    'refs/bisect/',
-  ]);
-  if (!refs.ok) return { reason: 'ref_check_failed', detail: firstLine(refs.stderr) };
-  if (refs.stdout.trim()) return { reason: 'worktree_refs', detail: refs.stdout.trim() };
-  const status = gitIn(pass, real, [
-    '--no-optional-locks',
-    'status',
-    '--porcelain',
-    '--ignored=matching',
-    '--untracked-files=all',
-  ]);
-  if (!status.ok) return { reason: 'status_failed', detail: firstLine(status.stderr) };
-  const lines = status.stdout.split('\n').filter(Boolean);
-  const changes = lines.filter((l) => !l.startsWith('!! '));
-  if (changes.length > 0) {
-    return {
-      reason: 'merged_but_dirty',
-      detail: `${changes.length} uncommitted or untracked path(s)`,
-    };
-  }
-  const keep = lines.map((l) => l.slice(3)).filter((p) => !isRebuildableCache(p));
-  if (keep.length > 0) {
-    return {
-      reason: 'ignored_content',
-      detail: `${keep.length} ignored non-cache path(s): ${keep.slice(0, 3).join(', ')}`,
-    };
-  }
-  return reflogOnlyCommit(pass, real) ?? { reason: 'eligible' };
+  return (
+    refsVerdict(pass, real, gitDir) ??
+    contentVerdict(pass, real, false) ??
+    reflogOnlyCommit(pass, real) ?? { reason: 'eligible' }
+  );
 }
 
 /** Another worktree whose symlinks resolve into the candidate, if any. */
@@ -394,6 +331,15 @@ function symlinkDependent(candidate: string, pass: Pass): string | null {
   return null;
 }
 
+/** Why a live process or another worktree still needs `real`, or null. */
+function inUse(real: string, pass: Pass): Verdict | null {
+  const scan = scanProcessPaths(pass.config.procRoot);
+  if (!scan.ok) return { reason: 'proc_unreadable', detail: scan.detail };
+  if (heldWorktrees(scan.paths, [real]).size > 0) return { reason: 'process_held' };
+  const dependent = symlinkDependent(real, pass);
+  return dependent ? { reason: 'symlink_target', detail: dependent } : null;
+}
+
 function measureBytes(path: string, budgetMs: number): number | null {
   if (budgetMs <= 0) return null;
   const r = spawnSync('du', ['-s', '-x', '-B1', '--', path], {
@@ -403,13 +349,6 @@ function measureBytes(path: string, budgetMs: number): number | null {
   if (r.status !== 0 || r.error) return null;
   const bytes = Number(r.stdout.split('\t')[0]);
   return Number.isFinite(bytes) ? bytes : null;
-}
-
-function quarantineTarget(real: string, config: GcConfig, now: number): string | null {
-  const dir = quarantineDirs(config).find((q) => isStrictlyWithin(real, dirname(q)));
-  if (!dir) return null;
-  const stamp = new Date(now).toISOString().replace(/[:.]/g, '-');
-  return join(dir, `${stamp}-${basename(real)}`);
 }
 
 export interface Summary {
@@ -459,19 +398,26 @@ function fatal(summary: Summary, kind: string, detail: string): PassResult {
   return { summary, reports: [], exitCode: 1 };
 }
 
-/** Quarantine entries git has no record of: a move that died between rename and bookkeeping. */
+/**
+ * Quarantine entries git has no record of. Without a .git file the move
+ * finished and the removal was killed after git forgot the tree: cleared
+ * directly. With one, the move itself was killed between the rename and
+ * git's bookkeeping: `git worktree repair` relinks it, and the next pass
+ * judges it as an ordinary leftover.
+ */
 function quarantineOrphans(pass: Pass): WorktreeReport[] {
+  const { config } = pass;
   const known = new Set(pass.records.map((r) => canonical(r.path) ?? r.path));
   const orphans: WorktreeReport[] = [];
-  for (const dir of quarantineDirs(pass.config)) {
+  for (const quarantine of quarantineDirs(config.roots)) {
     let entries: string[] = [];
     try {
-      entries = readdirSync(dir);
+      entries = readdirSync(quarantine);
     } catch {
       continue;
     }
     for (const entry of entries) {
-      const path = join(dir, entry);
+      const path = join(quarantine, entry);
       if (known.has(canonical(path) ?? path)) continue;
       const report: WorktreeReport = {
         path,
@@ -480,29 +426,81 @@ function quarantineOrphans(pass: Pass): WorktreeReport[] {
         decision: 'kept',
         reason: 'quarantine_orphan',
       };
-      if (pass.config.dryRun) {
-        report.detail = 'armed pass runs git worktree repair; the pass after removes it';
-      } else {
-        // Repair only rewrites git's link to the moved directory. The next
-        // pass then sees an ordinary quarantine leftover and finishes it.
-        const repair = git(pass.config.gitBin, [
-          '-C',
-          pass.config.repo,
-          'worktree',
-          'repair',
-          path,
-        ]);
-        report.detail = repair.ok
-          ? 'repaired; removed on the next pass'
-          : `repair failed: ${firstLine(repair.stderr)}`;
-      }
       orphans.push(report);
+      if (isStranded(path)) {
+        report.reason = 'quarantine_stranded';
+        const busy = inUse(canonical(path) ?? path, pass);
+        if (busy) Object.assign(report, busy);
+        else if (config.dryRun) report.decision = 'would_remove';
+        else {
+          const error = clearStranded(null, path, quarantine, config.repo, config.gitBin);
+          report.decision = error ? 'remove_failed' : 'removed';
+          if (error) report.detail = error;
+        }
+        continue;
+      }
+      if (config.dryRun) {
+        report.detail = 'an armed pass runs git worktree repair; the pass after judges it';
+        continue;
+      }
+      const repair = git(config.gitBin, ['-C', config.repo, 'worktree', 'repair', path]);
+      report.detail = repair.ok
+        ? 'repaired; judged on the next pass'
+        : `repair failed: ${firstLine(repair.stderr)}`;
     }
   }
   return orphans;
 }
 
-/** Final re-check and removal of one candidate. Returns true when a removal was attempted. */
+/** Removes a fresh candidate through the quarantine; a refusal moves it back. */
+function removeViaQuarantine(
+  report: WorktreeReport,
+  record: WorktreeRecord,
+  real: string,
+  pass: Pass,
+  timeoutMs: number,
+): void {
+  const { config } = pass;
+  const quarantine = quarantineTarget(real, config.roots, Date.now());
+  if (!quarantine) {
+    report.decision = 'remove_failed';
+    report.detail = 'no quarantine directory under any root';
+    return;
+  }
+  mkdirSync(dirname(quarantine), { recursive: true });
+  const move = git(config.gitBin, ['-C', config.repo, 'worktree', 'move', record.path, quarantine]);
+  if (!move.ok) {
+    report.decision = 'remove_failed';
+    report.detail = `move to quarantine failed: ${firstLine(move.stderr)}`;
+    return;
+  }
+  const removal = git(
+    config.gitBin,
+    ['-C', config.repo, 'worktree', 'remove', quarantine],
+    timeoutMs,
+  );
+  if (removal.ok) {
+    report.decision = 'removed';
+    return;
+  }
+  if (removal.timedOut) {
+    report.decision = 'remove_failed';
+    report.detail = `${firstLine(removal.stderr)}; left in ${quarantine} for the next pass`;
+    return;
+  }
+  // git refused: something changed after the re-check. That is somebody's
+  // work; put the tree back where its owner left it.
+  const back = git(config.gitBin, ['-C', config.repo, 'worktree', 'move', quarantine, record.path]);
+  if (back.ok) {
+    report.reason = 'remove_refused';
+    report.detail = firstLine(removal.stderr);
+    return;
+  }
+  report.decision = 'remove_failed';
+  report.detail = `refused (${firstLine(removal.stderr)}) and could not move back from ${quarantine}: ${firstLine(back.stderr)}`;
+}
+
+/** Final measurement, re-check and action for one candidate. Returns true when it counted toward the cap. */
 function act(
   report: WorktreeReport,
   record: WorktreeRecord,
@@ -511,77 +509,58 @@ function act(
   sizeBudget: { ms: number },
 ): boolean {
   const { config } = pass;
+  const before = canonical(record.path);
+  // Measured first: everything between the final checks and the move must
+  // be as short as possible, and du on a large tree is not.
+  const measureStart = Date.now();
+  const left = config.passBudgetMs - (Date.now() - started);
+  report.bytes =
+    before === null ? 0 : measureBytes(before, Math.min(sizeBudget.ms, left - MIN_REMAINING_MS));
+  sizeBudget.ms -= Date.now() - measureStart;
+
   const verdict = classify(record, pass, Date.now());
   report.reason = verdict.reason;
   report.detail = verdict.detail;
-  if (verdict.reason !== 'eligible' && verdict.reason !== 'quarantine_leftover') return false;
-  const leftover = verdict.reason === 'quarantine_leftover';
+  if (!ACTIONABLE.has(verdict.reason)) return false;
   const real = canonical(record.path);
-  if (real === null) {
-    report.reason = 'missing';
-    return false;
+  if (real !== null) {
+    const busy = inUse(real, pass);
+    if (busy) {
+      report.reason = busy.reason;
+      report.detail = busy.detail;
+      return false;
+    }
   }
-  const scan = scanProcessPaths(config.procRoot);
-  if (!scan.ok) {
-    report.reason = 'proc_unreadable';
-    report.detail = scan.detail;
-    return false;
-  }
-  if (heldWorktrees(scan.paths, [real]).size > 0) {
-    report.reason = 'process_held';
-    return false;
-  }
-  const dependent = symlinkDependent(real, pass);
-  if (dependent) {
-    report.reason = 'symlink_target';
-    report.detail = dependent;
-    return false;
-  }
-  const remaining = config.passBudgetMs - (Date.now() - started);
-  const measureStart = Date.now();
-  report.bytes = measureBytes(real, Math.min(sizeBudget.ms, remaining - MIN_REMAINING_MS));
-  sizeBudget.ms -= Date.now() - measureStart;
   if (config.dryRun) {
     report.decision = 'would_remove';
     return true;
   }
-  let target = real;
-  if (!leftover) {
-    const quarantine = quarantineTarget(real, config, Date.now());
-    if (!quarantine) {
-      report.decision = 'remove_failed';
-      report.detail = 'no quarantine directory under any root';
-      return true;
-    }
-    mkdirSync(dirname(quarantine), { recursive: true });
-    const move = git(config.gitBin, [
-      '-C',
-      config.repo,
-      'worktree',
-      'move',
-      record.path,
-      quarantine,
-    ]);
-    if (!move.ok) {
-      report.decision = 'remove_failed';
-      report.detail = `move to quarantine failed: ${firstLine(move.stderr)}`;
-      return true;
-    }
-    target = quarantine;
+  const timeoutMs = Math.max(
+    1000,
+    Math.min(REMOVE_TIMEOUT_MS, config.passBudgetMs - (Date.now() - started)),
+  );
+  if (verdict.reason === 'quarantine_stranded') {
+    const quarantine = quarantineOf(record.path, config.roots);
+    const error = quarantine
+      ? clearStranded(record.path, real ?? record.path, quarantine, config.repo, config.gitBin)
+      : 'not in a quarantine directory';
+    report.decision = error ? 'remove_failed' : 'removed';
+    report.detail = error ?? 'cleared a removal git had half done';
+    return true;
   }
-  // A leftover is a tree this tool already judged and began deleting; --force
-  // finishes it. A fresh candidate gets no --force, so git refuses anything
-  // that turned dirty after the re-check.
-  const args = ['-C', config.repo, 'worktree', 'remove', ...(leftover ? ['--force'] : []), target];
-  const left = config.passBudgetMs - (Date.now() - started);
-  const removal = git(config.gitBin, args, Math.max(1000, Math.min(REMOVE_TIMEOUT_MS, left)));
-  if (removal.ok) {
-    report.decision = 'removed';
-    if (leftover) report.detail = 'finished an interrupted removal';
-  } else {
-    report.decision = 'remove_failed';
-    report.detail = `${firstLine(removal.stderr)}${target !== real ? `; left in ${target}, finished next pass` : ''}`;
+  if (verdict.reason === 'quarantine_leftover' && real !== null) {
+    // Judged above to hold nothing but what the interrupted removal left.
+    const removal = git(
+      config.gitBin,
+      ['-C', config.repo, 'worktree', 'remove', '--force', real],
+      timeoutMs,
+    );
+    report.decision = removal.ok ? 'removed' : 'remove_failed';
+    report.detail = removal.ok ? 'finished an interrupted removal' : firstLine(removal.stderr);
+    return true;
   }
+  if (real === null) return false;
+  removeViaQuarantine(report, record, real, pass, timeoutMs);
   return true;
 }
 
@@ -641,14 +620,11 @@ export function run(config: GcConfig, now: number = Date.now()): PassResult {
   });
   const reports = [...entries.map((e) => e.report), ...quarantineOrphans(pass)];
 
-  // Leftovers first: they are space this tool already committed to freeing.
+  // Quarantine first: that is space this tool already committed to freeing.
+  const fresh = (e: { report: WorktreeReport }): number => Number(e.report.reason === 'eligible');
   const candidates = entries
-    .filter((e) => e.report.reason === 'quarantine_leftover' || e.report.reason === 'eligible')
-    .sort(
-      (a, b) =>
-        Number(b.report.reason === 'quarantine_leftover') -
-        Number(a.report.reason === 'quarantine_leftover'),
-    );
+    .filter((e) => ACTIONABLE.has(e.report.reason))
+    .sort((a, b) => fresh(a) - fresh(b));
   let attempts = 0;
   const sizeBudget = { ms: config.sizeBudgetMs };
   for (const { report, record } of candidates) {
@@ -671,8 +647,8 @@ export function run(config: GcConfig, now: number = Date.now()): PassResult {
     // Re-listed: removals above changed the set, and a worktree outside our
     // roots that now reads as missing may sit on a mount this process cannot
     // see. Pruning would destroy its record; that is not this tool's call.
-    const fresh = git(config.gitBin, ['-C', config.repo, ...WORKTREE_LIST_ARGS]);
-    if (!fresh.ok || prunableOutsideRoots(parseWorktreeList(fresh.stdout), config)) {
+    const relist = git(config.gitBin, ['-C', config.repo, ...WORKTREE_LIST_ARGS]);
+    if (!relist.ok || prunableOutsideRoots(parseWorktreeList(relist.stdout), config)) {
       summary.prune = 'skipped_prunable_outside_roots';
     } else {
       const prune = git(config.gitBin, ['-C', config.repo, 'worktree', 'prune']);
@@ -702,41 +678,23 @@ export function run(config: GcConfig, now: number = Date.now()): PassResult {
     counts[key] = (counts[key] ?? 0) + 1;
   }
   summary.counts = counts;
-  const failed = reports.some((r) => r.decision === 'remove_failed') || summary.prune === 'failed';
-  return { summary, reports, exitCode: failed ? 3 : 0 };
+  const partial =
+    reports.some((r) => r.decision === 'remove_failed' || r.reason === 'remove_refused') ||
+    summary.prune === 'failed';
+  return { summary, reports, exitCode: partial ? 3 : 0 };
 }
 
-function writeTextfile(path: string | null, result: PassResult, armed: boolean): void {
-  if (path === null) return;
-  const counts = result.summary.counts;
-  const lines = [
-    '# HELP aqua_worktree_gc_last_run_timestamp_seconds Unix time of the last worktree-gc pass',
-    '# TYPE aqua_worktree_gc_last_run_timestamp_seconds gauge',
-    `aqua_worktree_gc_last_run_timestamp_seconds ${Math.floor(Date.now() / 1000)}`,
-    '# HELP aqua_worktree_gc_last_exit_code 0 ok, 3 a removal or the prune failed, 1 the pass could not run',
-    '# TYPE aqua_worktree_gc_last_exit_code gauge',
-    `aqua_worktree_gc_last_exit_code ${result.exitCode}`,
-    '# HELP aqua_worktree_gc_armed 1 when the pass may remove worktrees',
-    '# TYPE aqua_worktree_gc_armed gauge',
-    `aqua_worktree_gc_armed ${armed ? 1 : 0}`,
-    '# HELP aqua_worktree_gc_worktrees Worktrees on the last pass, by outcome',
-    '# TYPE aqua_worktree_gc_worktrees gauge',
-    `aqua_worktree_gc_worktrees{outcome="removed"} ${counts.removed ?? 0}`,
-    `aqua_worktree_gc_worktrees{outcome="would_remove"} ${counts.would_remove ?? 0}`,
-    `aqua_worktree_gc_worktrees{outcome="remove_failed"} ${counts.remove_failed ?? 0}`,
-    `aqua_worktree_gc_worktrees{outcome="attention"} ${result.summary.attention.length}`,
-    '# HELP aqua_worktree_gc_bytes_reclaimed_estimate Bytes removed (or removable) on the last pass; -1 unmeasured',
-    '# TYPE aqua_worktree_gc_bytes_reclaimed_estimate gauge',
-    `aqua_worktree_gc_bytes_reclaimed_estimate ${result.summary.bytes_reclaimed_estimate ?? -1}`,
-  ];
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(`${path}.tmp`, `${lines.join('\n')}\n`, 'utf8');
-    renameSync(`${path}.tmp`, path);
-  } catch {
-    // The journal line still carries everything; a missing textfile
-    // directory must not turn a completed pass into a failure.
-  }
+function outcomes(
+  result: PassResult,
+): Record<'removed' | 'would_remove' | 'remove_failed' | 'remove_refused' | 'attention', number> {
+  const c = result.summary.counts;
+  return {
+    removed: c.removed ?? 0,
+    would_remove: c.would_remove ?? 0,
+    remove_failed: c.remove_failed ?? 0,
+    remove_refused: c.kept_remove_refused ?? 0,
+    attention: result.summary.attention.length,
+  };
 }
 
 function main(): number {
@@ -744,10 +702,16 @@ function main(): number {
   try {
     config = readConfig(process.argv.slice(2), process.env);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    if (!(error instanceof ConfigError)) throw error;
     process.stdout.write(
-      `${JSON.stringify({ schema: 'aqua/worktree-gc/v1', fatal: { kind: 'bad_config', detail } })}\n`,
+      `${JSON.stringify({ schema: 'aqua/worktree-gc/v1', fatal: { kind: 'bad_config', detail: error.message } })}\n`,
     );
+    writeTextfile(textfilePathFrom(process.env), {
+      exitCode: 1,
+      armed: process.env.WORKTREE_GC_ARMED === '1',
+      outcomes: { removed: 0, would_remove: 0, remove_failed: 0, remove_refused: 0, attention: 0 },
+      bytesReclaimed: null,
+    });
     return 1;
   }
   const result = run(config);
@@ -759,7 +723,12 @@ function main(): number {
     );
   }
   process.stdout.write(`${JSON.stringify(result.summary)}\n`);
-  writeTextfile(config.textfilePath, result, config.armed);
+  writeTextfile(config.textfilePath, {
+    exitCode: result.exitCode,
+    armed: config.armed,
+    outcomes: outcomes(result),
+    bytesReclaimed: result.summary.bytes_reclaimed_estimate,
+  });
   return result.exitCode;
 }
 

@@ -1,0 +1,63 @@
+# Host-maintenance rules for the DROPLET Prometheus: the git-worktree collector
+# (tools/host-maintenance/worktree-gc.ts, INFRA-HIGH-208). Merged agent
+# worktrees filled the root filesystem on 2026-10-09 and the deploy capacity
+# preflight refused to deploy; these rules make a collector that stopped,
+# failed, or was never armed visible before the disk says so.
+#
+# Series come from the collector's node-exporter textfile
+# (/var/lib/node_exporter/textfile/aqua_worktree_gc.prom), written on every
+# pass - including one that could not run (exit 1) and one the unit skipped
+# because the deployed checkout does not carry the script yet (exit 4).
+groups:
+  - name: aquaculture.host-maintenance
+    rules:
+      - alert: WorktreeGcFailing
+        # Any non-zero result that persists across two hourly passes: 1 the
+        # pass could not run, 3 a removal was refused or failed, 4 the script
+        # is not deployed.
+        expr: max(aqua_worktree_gc_last_exit_code) != 0
+        for: 2h
+        labels:
+          severity: warning
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Worktree collector has not completed cleanly for two passes'
+          description: 'aqua_worktree_gc_last_exit_code is {{ $value }} (1 cannot run, 3 partial, 4 not deployed). Merged worktrees accumulate until it is fixed.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/worktree-gc.md'
+
+      - alert: WorktreeGcPartial
+        # A single pass with exit 3: git refused a removal (somebody's work
+        # appeared mid-removal; the tree was moved back) or a removal failed.
+        expr: max(aqua_worktree_gc_last_exit_code) == 3
+        labels:
+          severity: warning
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Worktree collector had a refused or failed removal'
+          description: 'The last pass exited 3. The journal line with decision remove_failed or reason remove_refused names the worktree.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/worktree-gc.md'
+
+      - alert: WorktreeGcStale
+        # The timer fires hourly; three hours without a completed pass means
+        # the collector is gone or every pass dies before finishing.
+        expr: time() - max(aqua_worktree_gc_last_success_timestamp_seconds) > 3 * 3600
+        for: 15m
+        labels:
+          severity: warning
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Worktree collector has not completed a pass in 3 hours'
+          description: 'No pass has finished since {{ $value | humanizeDuration }} ago. Check aqua-worktree-gc.timer and the journal.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/worktree-gc.md'
+
+      - alert: WorktreeGcUnarmed
+        # Unarmed passes only report. Seven days of that means installation
+        # was finished but the arming decision was never taken.
+        expr: time() - max(aqua_worktree_gc_unarmed_since_timestamp_seconds) > 7 * 86400
+        labels:
+          severity: warning
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Worktree collector has been unarmed for more than 7 days'
+          description: 'Every pass for a week has been a dry run, so nothing is being reclaimed. Arm it (WORKTREE_GC_ARMED=1) or uninstall it.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/worktree-gc.md'

@@ -26,7 +26,9 @@ A worktree is removed only when every one of these holds:
 
 1. It lies strictly under an allow-listed root (default `<repo>/.worktrees` and `/root/wt`).
 2. It is not the main checkout, not under `/var/lib/aqua/deploy` (deploy checkout and rollback
-   worktrees; this guard cannot be configured away), and not `locked`.
+   worktrees), not canonical ARIA state (`/root/aria-8b`, `/var/lib/aria*`,
+   `/home/gharunner/**`, or any path through a `.aria-state-store` directory), and not
+   `locked`. The deploy and ARIA guards are hard-coded; no root setting widens past them.
 3. It contains no other worktree.
 4. Its HEAD is an ancestor of `origin/main`, after a `git fetch origin --prune` that succeeded.
 5. Its HEAD reflog and its index have not changed for the grace period (default 6 h).
@@ -36,8 +38,14 @@ A worktree is removed only when every one of these holds:
    no untracked file, and every ignored path is a rebuildable cache: a path through
    `node_modules`, `.nx`, `dist`, `out-tsc`, `coverage`, `target`, `__pycache__`,
    `.pytest_cache`, `.mypy_cache`, `.ruff_cache` or `.turbo`, or a `*.pyc`, `*.tsbuildinfo` or
-   `.eslintcache` file. Any other ignored content — review state, ARIA ledgers, local evidence,
-   keys — is somebody's data and keeps the worktree.
+   `.eslintcache` file. Inside `<repo>/.worktrees` only, `aria-findings/`, `.aria-ci/` and
+   `aria-tools/**` also count: the ARIA owner decided on 2026-10-09 that there they are
+   byproducts of local kernel, hook and test runs, never canonical state. Any other ignored
+   content — review state, local evidence, keys, and those ARIA paths anywhere else — is
+   somebody's data and keeps the worktree.
+   An `aria-tools/` that was used as a real store keeps the worktree even inside `.worktrees`
+   (`aria_store`): one holding a `state.git` or `.aria-state-store`, one over 50 MB, or a
+   top-level `.aria-state-store`.
 8. Its HEAD reflog reaches no commit that no branch, tag or remote-tracking ref holds (work
    that was committed and then reset away). Reflogs longer than 2000 entries keep the worktree.
 9. No process has its cwd, an open file, or a mapped file inside it (`/proc/*/cwd`, `fd`,
@@ -45,8 +53,11 @@ A worktree is removed only when every one of these holds:
 10. No other worktree's top-level symlinks or npm-workspace `node_modules` links point into it.
 
 Every check runs once for the report and again for each candidate immediately before it is
-touched. A candidate is then moved with `git worktree move` into
+touched. Its size is measured (`du`) before that final re-check, so nothing slow sits between
+the re-check and the move. The candidate is then moved with `git worktree move` into
 `<root>/.gc-quarantine/<time>-<name>` and removed with `git worktree remove` (no `--force`).
+If git refuses — something appeared in the tree after the re-check — the tree is moved back to
+its original path and kept (`remove_refused`, exit 3).
 Branches are never deleted, local or remote: a removed worktree can be re-created from its
 branch with `git worktree add <path> <branch>`.
 
@@ -56,41 +67,51 @@ A pass starts at most `WORKTREE_GC_MAX_REMOVALS` removals (default 20) and start
 less than 60 s left of `WORKTREE_GC_PASS_BUDGET_SECONDS` (default 1200, under the unit's
 30 min timeout). Each `git worktree remove` has its own timeout.
 
-Whatever a pass leaves in `.gc-quarantine` — a removal that was refused, timed out or killed —
-is finished by the next pass with `git worktree remove --force`. Only this tool moves trees
-there, and only after every check passed, so a half-deleted tree in quarantine is never
-mistaken for somebody's dirty work. A tree in quarantine that git has no record of (a move
-killed between the rename and git's bookkeeping) is reported `quarantine_orphan`; an armed pass
-runs `git worktree repair` on it and the pass after removes it.
+A tree a pass leaves in `.gc-quarantine` — a removal that timed out or was killed — is judged
+again by the next pass. It is finished with `git worktree remove --force` only while its HEAD is
+still merged, no operation or per-worktree ref appeared, `git status` shows nothing but deleted
+tracked files (` D`, what an interrupted removal leaves) and allow-listed caches, and no
+reflog-only commit exists. Anything else — an untracked file, an edit, a new commit — keeps it
+as somebody's work.
+
+A tree in quarantine without its `.git` file (git deleted it before the removal was killed) is
+`quarantine_stranded`: git can no longer remove it, and the global prune is often skipped on
+this host, so the collector deletes the directory itself — without following symlinks, and only
+when its real path is inside the quarantine — and removes git's record of it by id. A tree
+that git has no record of but that still has its `.git` file (a move killed between the rename
+and git's bookkeeping) is `quarantine_orphan`: an armed pass runs `git worktree repair` and the
+next pass judges it as above.
 
 ## What it keeps, and why
 
 Every check that cannot be answered keeps the worktree. Each worktree's line names the reason.
 
-| Reason                  | Meaning                                                             |
-| ----------------------- | ------------------------------------------------------------------- |
-| `merged_but_dirty`      | Merged, but holds uncommitted or untracked files: someone's work.   |
-| `ignored_content`       | Ignored files that are not rebuildable caches; `detail` names them. |
-| `unreachable_reflog`    | The reflog holds a commit nothing else does.                        |
-| `operation_in_progress` | A rebase, merge, cherry-pick, revert or bisect is unfinished.       |
-| `worktree_refs`         | It has refs of its own under `refs/worktree/` or `refs/bisect/`.    |
-| `symlink_target`        | Another worktree links into it (shared `node_modules`).             |
-| `unmerged`              | HEAD is not in `origin/main` (open PR, abandoned or squashed).      |
-| `recently_active`       | HEAD reflog or index changed inside the grace period.               |
-| `process_held`          | A live process has its cwd or a file inside it.                     |
-| `proc_unreadable`       | `/proc` could not be read in full; nothing is removed.              |
-| `locked`                | `git worktree lock` was used on it.                                 |
-| `outside_roots`         | Not under an allow-listed root (`/tmp` scratchpads, `/var/...`).    |
-| `protected_path`        | Under `/var/lib/aqua/deploy` or `WORKTREE_GC_EXTRA_PROTECTED`.      |
-| `contains_worktree`     | Another worktree lives inside it; collected on a later pass.        |
-| `missing`               | git records it but the directory is gone (prune cleans it).         |
-| `pass_cap`              | Eligible, but this pass reached its removal cap.                    |
-| `pass_budget`           | Eligible, but this pass had too little time left.                   |
-| `quarantine_orphan`     | An interrupted move; repaired now, removed on the next pass.        |
-| `activity_unknown`      | Neither the reflog nor the index could be read.                     |
-| `status_failed`         | `git status` failed (for example a dubious-ownership refusal).      |
-| `merge_check_failed`    | HEAD could not be read or `git merge-base --is-ancestor` errored.   |
-| `ref_check_failed`      | The reflog or per-worktree refs could not be read.                  |
+| Reason                  | Meaning                                                               |
+| ----------------------- | --------------------------------------------------------------------- |
+| `merged_but_dirty`      | Merged, but holds uncommitted or untracked files: someone's work.     |
+| `ignored_content`       | Ignored files that are not rebuildable caches; `detail` names them.   |
+| `aria_store`            | `aria-tools/` or the tree was used as a real ARIA store.              |
+| `unreachable_reflog`    | The reflog holds a commit nothing else does.                          |
+| `operation_in_progress` | A rebase, merge, cherry-pick, revert or bisect is unfinished.         |
+| `worktree_refs`         | It has refs of its own under `refs/worktree/` or `refs/bisect/`.      |
+| `symlink_target`        | Another worktree links into it (shared `node_modules`).               |
+| `unmerged`              | HEAD is not in `origin/main` (open PR, abandoned or squashed).        |
+| `recently_active`       | HEAD reflog or index changed inside the grace period.                 |
+| `process_held`          | A live process has its cwd or a file inside it.                       |
+| `proc_unreadable`       | `/proc` could not be read in full; nothing is removed.                |
+| `locked`                | `git worktree lock` was used on it.                                   |
+| `outside_roots`         | Not under an allow-listed root (`/tmp` scratchpads, `/var/...`).      |
+| `protected_path`        | Deploy state, canonical ARIA state, or `WORKTREE_GC_EXTRA_PROTECTED`. |
+| `contains_worktree`     | Another worktree lives inside it; collected on a later pass.          |
+| `missing`               | git records it but the directory is gone (prune cleans it).           |
+| `pass_cap`              | Eligible, but this pass reached its removal cap.                      |
+| `pass_budget`           | Eligible, but this pass had too little time left.                     |
+| `remove_refused`        | git refused the removal; moved back to its original path.             |
+| `quarantine_orphan`     | An interrupted move; repaired now, judged on the next pass.           |
+| `activity_unknown`      | Neither the reflog nor the index could be read.                       |
+| `status_failed`         | `git status` failed (for example a dubious-ownership refusal).        |
+| `merge_check_failed`    | HEAD could not be read or `git merge-base --is-ancestor` errored.     |
+| `ref_check_failed`      | The reflog or per-worktree refs could not be read.                    |
 
 The collector never resolves these. A `merged_but_dirty` or `ignored_content` worktree needs
 its owner: commit, move or delete the files, then the next pass collects it.
@@ -105,19 +126,22 @@ reason is not routine (routine: main checkout, outside roots, protected, unmerge
 active, locked). Every line stays far below journald's 48 KiB line limit.
 
 - **0** — the pass completed.
-- **3** — the pass completed but a removal or the prune failed. The worktree carries
-  `decision: remove_failed` and git's message. The unit lists 3 in `SuccessExitStatus`, so a
-  real result does not also look like a broken timer.
+- **3** — the pass completed but a removal was refused (`remove_refused`) or failed
+  (`decision: remove_failed`), or the prune failed; the line carries git's message. The unit
+  lists 3 in `SuccessExitStatus`, so a real result does not also look like a broken timer.
 - **1** — the pass could not run (`fatal.kind`: `fetch_failed`, `not_a_repo`, `no_base`,
   `worktree_list_failed`, `bad_config`). Nothing was removed. The unit fails and shows in
   `systemctl --failed`.
 
-Each pass also writes `/var/lib/node_exporter/textfile/aqua_worktree_gc.prom`
-(`aqua_worktree_gc_last_run_timestamp_seconds`, `_last_exit_code`, `_armed`,
-`aqua_worktree_gc_worktrees{outcome=...}`, `_bytes_reclaimed_estimate`), which the droplet's
-node exporter already collects. No alert rule reads it yet. The useful expressions are
-`aqua_worktree_gc_last_exit_code != 0` and
-`time() - aqua_worktree_gc_last_run_timestamp_seconds > 3 * 3600`.
+Every pass — armed, unarmed, or refused for bad configuration — writes
+`/var/lib/node_exporter/textfile/aqua_worktree_gc.prom`: `_last_run_timestamp_seconds`,
+`_last_exit_code`, `_armed`, `aqua_worktree_gc_worktrees{outcome=...}`,
+`_bytes_reclaimed_estimate`, `_last_success_timestamp_seconds` (carried from pass to pass) and,
+while unarmed, `_unarmed_since_timestamp_seconds`. When the deployed checkout lacks the
+script, the unit's `ExecCondition` writes exit code 4. The droplet's node exporter collects the
+file; `infrastructure/monitoring/droplet/rules/65-host-maintenance.yml` alerts on it
+(`WorktreeGcFailing`, `WorktreeGcPartial`, `WorktreeGcStale`, `WorktreeGcUnarmed`), with the
+response in [the alert runbook](../monitoring/worktree-gc.md).
 
 `bytes_reclaimed_estimate` is `du` of each removed worktree, measured before removal within a
 time budget (`WORKTREE_GC_SIZE_BUDGET_SECONDS`, default 120). When the budget runs out the
@@ -204,8 +228,11 @@ removal killed after git deleted the directory.
 **`fetch_failed`** — the host could not reach `origin`. Nothing is removed until it can.
 `git -C /var/aqua-saas fetch origin` by hand shows why.
 
-**`remove_failed`** — git refused or timed out. The tree is in `.gc-quarantine`; read
-`detail`, and the next pass finishes it.
+**`remove_refused`** — git found new content at the last moment; the tree is back where it
+was. Nothing to do unless it repeats.
+
+**`remove_failed`** — read `detail`. A tree left in `.gc-quarantine` is judged again on the
+next pass.
 
 **Disk still tight after a pass** — read `attention`. Dirty, ignored-content and unmerged
 worktrees are owned work and need their owners; the collector will not decide that for them.

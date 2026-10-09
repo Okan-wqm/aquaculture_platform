@@ -33,9 +33,11 @@ EnvironmentFile=-/etc/default/aqua-worktree-gc
 # agent session left there (on 2026-10-09 it was configured core.bare=true);
 # a tool that deletes directories must run reviewed, deployed code. The
 # collector never touches /var/lib/aqua/deploy itself (built-in protection).
-# Until a deploy carries the script, the pass is skipped with this message
-# instead of failing the unit.
-ExecCondition=/bin/sh -c 'test -f /var/lib/aqua/deploy/checkout/tools/host-maintenance/worktree-gc.ts || { echo "aqua-worktree-gc: tools/host-maintenance/worktree-gc.ts is not in the deployed checkout /var/lib/aqua/deploy/checkout; skipping until a deploy carries it"; exit 1; }'
+# Until a deploy carries the script, the pass is skipped (not failed) with
+# this message, and the textfile records exit code 4 so the
+# WorktreeGcFailing alert sees a collector that is installed but not running.
+# ($$ and %% are systemd's escapes for a literal $ and %.)
+ExecCondition=/bin/sh -c 'test -f /var/lib/aqua/deploy/checkout/tools/host-maintenance/worktree-gc.ts && exit 0; echo "aqua-worktree-gc: tools/host-maintenance/worktree-gc.ts is not in the deployed checkout /var/lib/aqua/deploy/checkout; skipping until a deploy carries it"; t="$${WORKTREE_GC_TEXTFILE_PATH-/var/lib/node_exporter/textfile/aqua_worktree_gc.prom}"; if [ -n "$$t" ]; then mkdir -p "$$(dirname "$$t")" && printf "aqua_worktree_gc_last_run_timestamp_seconds %%s\naqua_worktree_gc_last_exit_code 4\n" "$$(date +%%s)" > "$$t.tmp" && mv "$$t.tmp" "$$t"; fi; exit 1'
 ExecStart=/usr/bin/env node --experimental-strip-types /var/lib/aqua/deploy/checkout/tools/host-maintenance/worktree-gc.ts
 # Exit 3: the pass ran, but a removal or the prune failed - a result, with
 # the worktree named in the journal. Exit 1 (fetch failed, not a repository,

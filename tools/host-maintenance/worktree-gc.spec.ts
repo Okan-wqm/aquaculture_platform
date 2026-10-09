@@ -22,6 +22,8 @@ import {
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { BUILTIN_PROTECTED, classifyLocation, readConfig } from './gc-config.ts';
+import { QUARANTINE_DIR } from './gc-quarantine.ts';
 import {
   addWorktree,
   fakeProcess,
@@ -32,7 +34,6 @@ import {
   runGc,
   wrappedGit,
 } from './gc-test-fixture.ts';
-import { BUILTIN_PROTECTED, QUARANTINE_DIR, classifyLocation, readConfig } from './worktree-gc.ts';
 
 void test('removes a merged, clean, idle worktree and keeps its branch and the main checkout', () => {
   const fx = fixture();
@@ -214,6 +215,14 @@ void test('removes nothing and exits 1 when the fetch fails', () => {
   assert.match(readFileSync(fx.textfile, 'utf8'), /^aqua_worktree_gc_last_exit_code 1$/m);
 });
 
+void test('a pass refused for bad configuration still writes the textfile', () => {
+  const fx = fixture();
+  const run = runGc(fx, [], { WORKTREE_GC_GRACE_HOURS: '0' });
+  assert.equal(run.exitCode, 1);
+  assert.equal(run.summary.fatal?.kind, 'bad_config');
+  assert.match(readFileSync(fx.textfile, 'utf8'), /^aqua_worktree_gc_last_exit_code 1$/m);
+});
+
 void test('exits 1 on a path that is not a repository', () => {
   const fx = fixture();
   const run = runGc(fx, [], { AQUA_REPO: join(fx.tmp, 'wt') });
@@ -228,6 +237,10 @@ void test('an unarmed pass and a --dry-run pass report the same decisions and re
   writeFileSync(join(dirty, 'README.md'), 'edit\n');
 
   const unarmed = runGc(fx, [], { WORKTREE_GC_ARMED: null });
+  assert.match(
+    readFileSync(fx.textfile, 'utf8'),
+    /^aqua_worktree_gc_unarmed_since_timestamp_seconds \d+$/m,
+  );
   // If the first pass's `git status` had refreshed the index, the second
   // would see the worktree as recently active.
   const dryRun = runGc(fx, ['--dry-run']);
@@ -244,35 +257,55 @@ void test('an unarmed pass and a --dry-run pass report the same decisions and re
   assert.ok(existsSync(dirty));
 });
 
-void test('a refused removal exits 3 and the next pass finishes it from quarantine', () => {
+void test('a removal git refuses is moved back, kept, and the pass exits 3', () => {
   const fx = fixture();
   const wt = addWorktree(fx, 'refused');
-  const refusing = wrappedGit(
+  // Somebody starts working after the final re-check: a file appears in the
+  // tree between the move and the removal, and the real git refuses.
+  const intruding = wrappedGit(
     fx,
-    'refusing-git',
+    'intruding-git',
     '*"worktree remove"*',
-    'echo "fatal: simulated refusal" >&2; exit 128',
+    'for last; do :; done; echo work > "$last/notes.txt"',
   );
 
-  const first = runGc(fx, [], { AQUA_GIT_BIN: refusing });
+  const run = runGc(fx, [], { AQUA_GIT_BIN: intruding });
 
-  assert.equal(first.exitCode, 3);
-  assert.equal(reportFor(first, wt).decision, 'remove_failed');
-  assert.match(String(reportFor(first, wt).detail), /simulated refusal/);
-  assert.equal(first.summary.counts.remove_failed, 1);
-  assert.equal(first.summary.fatal, null);
-  const [left] = readdirSync(join(fx.roots, QUARANTINE_DIR));
-  assert.ok(left);
-  const leftover = join(fx.roots, QUARANTINE_DIR, left);
+  assert.equal(run.exitCode, 3);
+  const report = reportFor(run, wt);
+  assert.equal(report.decision, 'kept');
+  assert.equal(report.reason, 'remove_refused');
+  assert.equal(run.summary.counts.kept_remove_refused, 1);
+  assert.equal(readFileSync(join(wt, 'notes.txt'), 'utf8'), 'work\n');
+  assert.deepEqual(readdirSync(join(fx.roots, QUARANTINE_DIR)), []);
+  assert.match(
+    git(['-C', fx.repo, 'worktree', 'list', '--porcelain']),
+    new RegExp(`worktree ${wt}\n`),
+  );
+  assert.match(readFileSync(fx.textfile, 'utf8'), /^aqua_worktree_gc_last_exit_code 3$/m);
+});
 
-  // A removal killed half-way: tracked files already gone. That must read
-  // as ours to finish, never as somebody's dirty work.
-  rmSync(join(leftover, 'README.md'));
-  const second = runGc(fx);
+void test('an interrupted removal is finished only while nothing but the removal touched it', () => {
+  const fx = fixture();
+  const quarantine = join(fx.roots, QUARANTINE_DIR);
+  mkdirSync(quarantine);
+  const half = addWorktree(fx, 'half');
+  const halfMoved = join(quarantine, 'half');
+  git(['-C', fx.repo, 'worktree', 'move', half, halfMoved]);
+  rmSync(join(halfMoved, 'README.md'));
+  mkdirSync(join(halfMoved, 'node_modules'));
+  const touched = addWorktree(fx, 'touched');
+  const touchedMoved = join(quarantine, 'touched');
+  git(['-C', fx.repo, 'worktree', 'move', touched, touchedMoved]);
+  rmSync(join(touchedMoved, 'README.md'));
+  writeFileSync(join(touchedMoved, 'notes.txt'), 'somebody worked here\n');
 
-  assert.equal(second.exitCode, 0);
-  assert.equal(reportFor(second, leftover).decision, 'removed');
-  assert.equal(existsSync(leftover), false);
+  const run = runGc(fx);
+
+  assert.equal(reportFor(run, halfMoved).decision, 'removed');
+  assert.equal(existsSync(halfMoved), false);
+  assert.equal(reportFor(run, touchedMoved).reason, 'merged_but_dirty');
+  assert.ok(existsSync(join(touchedMoved, 'notes.txt')));
 });
 
 void test('configuration that would widen the blast radius is refused', () => {

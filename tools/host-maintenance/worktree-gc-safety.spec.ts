@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync }
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { QUARANTINE_DIR } from './gc-quarantine.ts';
 import {
   addWorktree,
   backdate,
@@ -24,7 +25,6 @@ import {
   runGc,
   wrappedGit,
 } from './gc-test-fixture.ts';
-import { QUARANTINE_DIR } from './worktree-gc.ts';
 import { isRebuildableCache } from './worktree-state.ts';
 
 void test('keeps a worktree whose ignored files are not rebuildable caches', () => {
@@ -226,4 +226,54 @@ void test('journal output: one short line per worktree, routine keeps left out o
     run.summary.attention.map((a) => a.reason),
     ['merged_but_dirty'],
   );
+});
+
+void test('a tree whose .git file git already deleted is cleared from quarantine', () => {
+  const fx = fixture();
+  const quarantine = join(fx.roots, QUARANTINE_DIR);
+  mkdirSync(quarantine);
+  const wt = addWorktree(fx, 'stranded');
+  const moved = join(quarantine, 'stranded');
+  git(['-C', fx.repo, 'worktree', 'move', wt, moved]);
+  rmSync(join(moved, '.git'));
+  rmSync(join(moved, 'README.md'));
+  // A stale record outside the roots blocks the global prune, as /tmp
+  // scratchpads do on the droplet; the stranded tree must not depend on it.
+  const scratch = join(fx.tmp, 'scratchpad');
+  mkdirSync(scratch);
+  rmSync(addWorktree(fx, 'other-session', { under: scratch }), { recursive: true, force: true });
+  // An unregistered stranded entry, with a symlink that points outside.
+  const outside = join(fx.tmp, 'precious');
+  mkdirSync(outside);
+  writeFileSync(join(outside, 'keep.txt'), 'not ours\n');
+  const orphan = join(quarantine, 'orphan');
+  mkdirSync(orphan);
+  symlinkSync(outside, join(orphan, 'link'));
+
+  const run = runGc(fx);
+
+  assert.equal(run.summary.prune, 'skipped_prunable_outside_roots');
+  assert.equal(reportFor(run, moved).decision, 'removed');
+  assert.equal(existsSync(moved), false);
+  assert.doesNotMatch(git(['-C', fx.repo, 'worktree', 'list', '--porcelain']), /stranded/);
+  assert.equal(reportFor(run, orphan).decision, 'removed');
+  assert.equal(existsSync(orphan), false);
+  assert.equal(existsSync(join(outside, 'keep.txt')), true);
+});
+
+void test('a quarantine entry that resolves outside the quarantine is not deleted', () => {
+  const fx = fixture();
+  const quarantine = join(fx.roots, QUARANTINE_DIR);
+  mkdirSync(quarantine);
+  const outside = join(fx.tmp, 'precious');
+  mkdirSync(outside);
+  writeFileSync(join(outside, 'keep.txt'), 'not ours\n');
+  const planted = join(quarantine, 'planted');
+  symlinkSync(outside, planted);
+
+  const run = runGc(fx);
+
+  assert.equal(reportFor(run, planted).decision, 'remove_failed');
+  assert.match(String(reportFor(run, planted).detail), /outside the quarantine/);
+  assert.equal(existsSync(join(outside, 'keep.txt')), true);
 });

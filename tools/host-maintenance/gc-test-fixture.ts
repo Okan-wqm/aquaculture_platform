@@ -97,7 +97,7 @@ export function fixture(opts: { bareMain?: boolean } = {}): Fixture {
   writeFileSync(join(seed, 'README.md'), 'seed\n');
   writeFileSync(
     join(seed, '.gitignore'),
-    'node_modules\n.state/\n.full-review/\ndist\n__pycache__/\n',
+    'node_modules\n.state/\n.full-review/\ndist\n__pycache__/\naria-findings/\n.aria-ci/\naria-tools/\n.aria-state-store/\n',
   );
   git(['-C', seed, 'add', '.']);
   git(['-C', seed, 'commit', '--quiet', '-m', 'seed'], OLD_ENV);

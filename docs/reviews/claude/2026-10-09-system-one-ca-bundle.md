@@ -2,7 +2,7 @@
 
 Owner: claude (implementation), okan (review).
 
-## ARIA-MEDIUM-417
+## ARIA-MEDIUM-402
 
 `system_one._public_transport_config` resolved the TLS trust bundle solely from
 `ssl.get_default_verify_paths().openssl_cafile` and refused with

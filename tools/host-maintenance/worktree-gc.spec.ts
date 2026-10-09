@@ -2,187 +2,37 @@
 /**
  * The collector deletes directories on the production host, so every
  * decision it makes to KEEP something is pinned here against real git
- * repositories: a bare "origin", a clone acting as the main checkout, and
- * worktrees in each state the droplet actually has. The script is run as a
- * child process exactly as systemd runs it, so argument and env handling,
- * exit codes and the JSON line are exercised too.
- *
- * "Old" worktrees are made old the way git would see them: the reflog entry
- * is written under a backdated GIT_COMMITTER_DATE and the index mtime is set
- * back. Nothing in the tool is told to pretend.
+ * repositories (see gc-test-fixture.ts). This file covers the core keep and
+ * remove rules; worktree-gc-safety.spec.ts covers the hardening an
+ * independent review asked for.
  *
  * Run: npm run tools:test
  */
 import { strict as assert } from 'node:assert';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
-  realpathSync,
+  readdirSync,
+  rmSync,
   symlinkSync,
-  utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 
 import {
-  BUILTIN_PROTECTED,
-  classifyLocation,
-  heldWorktrees,
-  readConfig,
-  type WorktreeReport,
-} from './worktree-gc.ts';
-
-const TOOL = join(dirname(fileURLToPath(import.meta.url)), 'worktree-gc.ts');
-const OLD_SECONDS = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
-const HOOK_GIT_VARS = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_COMMON_DIR',
-  'GIT_OBJECT_DIRECTORY',
-];
-
-interface Fixture {
-  tmp: string;
-  repo: string;
-  roots: string;
-  procRoot: string;
-}
-
-interface Summary {
-  fatal: { kind: string } | null;
-  prune: string;
-  counts: Record<string, number>;
-  bytes_reclaimed_estimate: number | null;
-  worktrees: WorktreeReport[];
-}
-
-function baseEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  // The suite also runs from git hooks, which export GIT_DIR and friends.
-  const inherited = Object.entries(process.env).filter(([key]) => !HOOK_GIT_VARS.includes(key));
-  return {
-    ...Object.fromEntries(inherited),
-    GIT_AUTHOR_NAME: 'gc-test',
-    GIT_AUTHOR_EMAIL: 'gc-test@example.invalid',
-    GIT_COMMITTER_NAME: 'gc-test',
-    GIT_COMMITTER_EMAIL: 'gc-test@example.invalid',
-    GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: '/dev/null',
-    ...extra,
-  };
-}
-
-function git(args: string[], extra: Record<string, string> = {}): string {
-  return execFileSync('git', args, {
-    encoding: 'utf8',
-    env: baseEnv(extra),
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-}
-
-const OLD_ENV = {
-  GIT_COMMITTER_DATE: `@${OLD_SECONDS} +0000`,
-  GIT_AUTHOR_DATE: `@${OLD_SECONDS} +0000`,
-};
-
-function fixture(): Fixture {
-  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'wtgc-')));
-  const origin = join(tmp, 'origin.git');
-  const seed = join(tmp, 'seed');
-  const repo = join(tmp, 'repo');
-  git(['init', '--quiet', '--bare', '-b', 'main', origin]);
-  git(['clone', '--quiet', origin, seed]);
-  writeFileSync(join(seed, 'README.md'), 'seed\n');
-  writeFileSync(join(seed, '.gitignore'), 'node_modules\n.state/\n');
-  git(['-C', seed, 'add', '.']);
-  git(['-C', seed, 'commit', '--quiet', '-m', 'seed'], OLD_ENV);
-  git(['-C', seed, 'push', '--quiet', 'origin', 'HEAD:main']);
-  git(['clone', '--quiet', origin, repo]);
-
-  const roots = join(tmp, 'wt');
-  mkdirSync(roots);
-  // A fake /proc with one process whose cwd is "/" and nothing open: a
-  // readable process table that holds none of the fixture's worktrees.
-  const procRoot = join(tmp, 'proc');
-  mkdirSync(join(procRoot, '1', 'fd'), { recursive: true });
-  symlinkSync('/', join(procRoot, '1', 'cwd'));
-  writeFileSync(join(procRoot, '1', 'maps'), '');
-  return { tmp, repo, roots, procRoot };
-}
-
-function gitDirOf(worktree: string): string {
-  const match = /^gitdir: (.+)$/m.exec(readFileSync(join(worktree, '.git'), 'utf8'));
-  assert.ok(match?.[1]);
-  return resolve(worktree, match[1].trim());
-}
-
-function backdate(worktree: string): void {
-  utimesSync(join(gitDirOf(worktree), 'index'), OLD_SECONDS, OLD_SECONDS);
-}
-
-function addWorktree(
-  fx: Fixture,
-  name: string,
-  opts: { old?: boolean; under?: string } = {},
-): string {
-  const path = join(opts.under ?? fx.roots, name);
-  const old = opts.old ?? true;
-  git(
-    ['-C', fx.repo, 'worktree', 'add', '--quiet', '-b', name, path, 'origin/main'],
-    old ? OLD_ENV : {},
-  );
-  if (old) backdate(path);
-  return path;
-}
-
-function runGc(
-  fx: Fixture,
-  args: string[] = [],
-  env: Record<string, string | null> = {},
-): { summary: Summary; exitCode: number } {
-  const merged: Record<string, string | null> = {
-    AQUA_REPO: fx.repo,
-    WORKTREE_GC_ROOTS: fx.roots,
-    WORKTREE_GC_PROC_ROOT: fx.procRoot,
-    ...env,
-  };
-  const unset = new Set(Object.keys(merged).filter((key) => merged[key] === null));
-  const childEnv: NodeJS.ProcessEnv = Object.fromEntries(
-    Object.entries({ ...baseEnv(), ...merged }).filter(
-      (entry): entry is [string, string] => !unset.has(entry[0]) && typeof entry[1] === 'string',
-    ),
-  );
-  let stdout = '';
-  let exitCode = 0;
-  try {
-    stdout = execFileSync(process.execPath, ['--experimental-strip-types', TOOL, ...args], {
-      encoding: 'utf8',
-      env: childEnv,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (error) {
-    const failure = error as { status?: number; stdout?: string };
-    exitCode = failure.status ?? 1;
-    stdout = failure.stdout ?? '';
-  }
-  return { summary: JSON.parse(stdout) as Summary, exitCode };
-}
-
-function reportFor(summary: Summary, path: string): WorktreeReport {
-  const report = summary.worktrees.find((w) => w.path === path);
-  assert.ok(report, `no report for ${path}`);
-  return report;
-}
-
-function isRoot(): boolean {
-  return typeof process.geteuid === 'function' && process.geteuid() === 0;
-}
+  addWorktree,
+  fakeProcess,
+  fixture,
+  git,
+  isRoot,
+  reportFor,
+  runGc,
+  wrappedGit,
+} from './gc-test-fixture.ts';
+import { BUILTIN_PROTECTED, QUARANTINE_DIR, classifyLocation, readConfig } from './worktree-gc.ts';
 
 void test('removes a merged, clean, idle worktree and keeps its branch and the main checkout', () => {
   const fx = fixture();
@@ -194,17 +44,19 @@ void test('removes a merged, clean, idle worktree and keeps its branch and the m
   writeFileSync(join(shared, 'keep.txt'), 'not ours\n');
   symlinkSync(shared, join(wt, 'node_modules'));
 
-  const { summary, exitCode } = runGc(fx);
+  const run = runGc(fx);
 
-  assert.equal(exitCode, 0);
-  assert.equal(reportFor(summary, wt).decision, 'removed');
+  assert.equal(run.exitCode, 0);
+  assert.equal(reportFor(run, wt).decision, 'removed');
   assert.equal(existsSync(wt), false);
   assert.equal(existsSync(join(shared, 'keep.txt')), true);
-  assert.equal(reportFor(summary, fx.repo).reason, 'main_checkout');
+  assert.deepEqual(readdirSync(join(fx.roots, QUARANTINE_DIR)), []);
+  assert.equal(reportFor(run, fx.repo).reason, 'main_checkout');
   assert.ok(existsSync(join(fx.repo, 'README.md')));
   git(['-C', fx.repo, 'rev-parse', '--verify', '--quiet', 'refs/heads/merged-clean']);
-  assert.equal(summary.prune, 'ok');
-  assert.equal(typeof summary.bytes_reclaimed_estimate, 'number');
+  assert.equal(run.summary.prune, 'ok');
+  assert.equal(typeof run.summary.bytes_reclaimed_estimate, 'number');
+  assert.match(readFileSync(fx.textfile, 'utf8'), /^aqua_worktree_gc_last_exit_code 0$/m);
 });
 
 void test('keeps merged worktrees that carry uncommitted or untracked work', () => {
@@ -214,15 +66,13 @@ void test('keeps merged worktrees that carry uncommitted or untracked work', () 
   const untracked = addWorktree(fx, 'dirty-untracked');
   writeFileSync(join(untracked, 'notes.txt'), 'scratch\n');
 
-  const { summary, exitCode } = runGc(fx);
+  const run = runGc(fx);
 
-  assert.equal(exitCode, 0);
   for (const wt of [tracked, untracked]) {
-    assert.equal(reportFor(summary, wt).decision, 'kept');
-    assert.equal(reportFor(summary, wt).reason, 'merged_but_dirty');
+    assert.equal(reportFor(run, wt).reason, 'merged_but_dirty');
     assert.ok(existsSync(wt));
   }
-  assert.equal(summary.counts.kept_merged_but_dirty, 2);
+  assert.equal(run.summary.counts.kept_merged_but_dirty, 2);
 });
 
 void test('keeps a worktree whose HEAD is not in origin/main', () => {
@@ -230,12 +80,9 @@ void test('keeps a worktree whose HEAD is not in origin/main', () => {
   const wt = addWorktree(fx, 'unmerged');
   writeFileSync(join(wt, 'feature.txt'), 'work\n');
   git(['-C', wt, 'add', 'feature.txt']);
-  git(['-C', wt, 'commit', '--quiet', '-m', 'feature'], OLD_ENV);
-  backdate(wt);
+  git(['-C', wt, 'commit', '--quiet', '-m', 'feature']);
 
-  const { summary } = runGc(fx);
-
-  assert.equal(reportFor(summary, wt).reason, 'unmerged');
+  assert.equal(reportFor(runGc(fx), wt).reason, 'unmerged');
   assert.ok(existsSync(wt));
 });
 
@@ -243,9 +90,7 @@ void test('keeps a merged, clean worktree inside the grace period', () => {
   const fx = fixture();
   const wt = addWorktree(fx, 'fresh', { old: false });
 
-  const { summary } = runGc(fx);
-
-  assert.equal(reportFor(summary, wt).reason, 'recently_active');
+  assert.equal(reportFor(runGc(fx), wt).reason, 'recently_active');
   assert.ok(existsSync(wt));
 });
 
@@ -254,13 +99,11 @@ void test('keeps a locked worktree', () => {
   const wt = addWorktree(fx, 'locked');
   git(['-C', fx.repo, 'worktree', 'lock', wt]);
 
-  const { summary } = runGc(fx);
-
-  assert.equal(reportFor(summary, wt).reason, 'locked');
+  assert.equal(reportFor(runGc(fx), wt).reason, 'locked');
   assert.ok(existsSync(wt));
 });
 
-void test('keeps a worktree a live process has as its cwd', () => {
+void test('keeps a worktree a live process has as its cwd (real /proc)', () => {
   const fx = fixture();
   const wt = addWorktree(fx, 'in-use');
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
@@ -268,9 +111,7 @@ void test('keeps a worktree a live process has as its cwd', () => {
     stdio: 'ignore',
   });
   try {
-    // Real /proc: the process table the unit will read on the droplet.
-    const { summary } = runGc(fx, [], { WORKTREE_GC_PROC_ROOT: null });
-    const report = reportFor(summary, wt);
+    const report = reportFor(runGc(fx, [], { WORKTREE_GC_PROC_ROOT: null }), wt);
     assert.equal(report.decision, 'kept');
     // As non-root (CI runner) other users' processes are unreadable, and an
     // unreadable process table keeps everything. Both are "kept".
@@ -282,19 +123,29 @@ void test('keeps a worktree a live process has as its cwd', () => {
   }
 });
 
-void test('keeps a worktree a process holds a file open in, and keeps all when /proc is unreadable', () => {
+void test('keeps a worktree held through a cwd, an open fd, or a mapped file', () => {
+  const holds: Array<[string, (wt: string) => { cwd?: string; fds?: string[]; maps?: string[] }]> =
+    [
+      ['cwd', (wt) => ({ cwd: join(wt, '.') })],
+      ['fd', (wt) => ({ fds: [join(wt, 'README.md')] })],
+      ['maps', (wt) => ({ maps: [join(wt, 'node_modules', 'addon.node')] })],
+    ];
+  for (const [kind, hold] of holds) {
+    const fx = fixture();
+    const wt = addWorktree(fx, `held-${kind}`);
+    fakeProcess(fx, 4242, hold(wt));
+    assert.equal(reportFor(runGc(fx), wt).reason, 'process_held', kind);
+    assert.ok(existsSync(wt), kind);
+  }
+});
+
+void test('keeps everything when /proc cannot be read', () => {
   const fx = fixture();
-  const wt = addWorktree(fx, 'open-file');
-  mkdirSync(join(fx.procRoot, '4242', 'fd'), { recursive: true });
-  symlinkSync('/', join(fx.procRoot, '4242', 'cwd'));
-  symlinkSync(join(wt, 'README.md'), join(fx.procRoot, '4242', 'fd', '3'));
-  writeFileSync(join(fx.procRoot, '4242', 'maps'), '');
+  const wt = addWorktree(fx, 'blind');
 
-  const held = runGc(fx);
-  assert.equal(reportFor(held.summary, wt).reason, 'process_held');
+  const run = runGc(fx, [], { WORKTREE_GC_PROC_ROOT: join(fx.tmp, 'no-such-proc') });
 
-  const blind = runGc(fx, [], { WORKTREE_GC_PROC_ROOT: join(fx.tmp, 'no-such-proc') });
-  assert.equal(reportFor(blind.summary, wt).reason, 'proc_unreadable');
+  assert.equal(reportFor(run, wt).reason, 'proc_unreadable');
   assert.ok(existsSync(wt));
 });
 
@@ -307,10 +158,10 @@ void test('keeps worktrees outside the allow-listed roots and under protected pa
   mkdirSync(deployDir);
   const rollback = addWorktree(fx, 'rollback-abc', { under: deployDir });
 
-  const { summary } = runGc(fx, [], { WORKTREE_GC_EXTRA_PROTECTED: deployDir });
+  const run = runGc(fx, [], { WORKTREE_GC_EXTRA_PROTECTED: deployDir });
 
-  assert.equal(reportFor(summary, outside).reason, 'outside_roots');
-  assert.equal(reportFor(summary, rollback).reason, 'protected_path');
+  assert.equal(reportFor(run, outside).reason, 'outside_roots');
+  assert.equal(reportFor(run, rollback).reason, 'protected_path');
   assert.ok(existsSync(outside));
   assert.ok(existsSync(rollback));
 });
@@ -341,45 +192,12 @@ void test('keeps a worktree that contains another worktree', () => {
   const fx = fixture();
   const outer = addWorktree(fx, 'outer');
   const inner = addWorktree(fx, 'inner', { under: join(outer, '.state') });
-  backdate(outer);
 
-  const { summary } = runGc(fx);
+  const run = runGc(fx);
 
-  assert.equal(reportFor(summary, outer).reason, 'contains_worktree');
-  assert.equal(reportFor(summary, inner).decision, 'removed');
+  assert.equal(reportFor(run, outer).reason, 'contains_worktree');
+  assert.equal(reportFor(run, inner).decision, 'removed');
   assert.ok(existsSync(join(outer, 'README.md')));
-});
-
-void test('keeps a worktree git refuses to remove, records it, and exits 3', () => {
-  const fx = fixture();
-  const refused = addWorktree(fx, 'refused');
-  // A git that refuses every `worktree remove` and is the real git otherwise:
-  // the removal fails after every check passed, which is the only way exit 3
-  // happens on a host (a worktree turning dirty in the gap, a submodule).
-  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-  const wrapper = join(fx.tmp, 'refusing-git');
-  writeFileSync(
-    wrapper,
-    [
-      '#!/bin/sh',
-      'if [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then',
-      '  echo "fatal: simulated refusal" >&2',
-      '  exit 128',
-      'fi',
-      `exec ${realGit} "$@"`,
-    ].join('\n') + '\n',
-    { mode: 0o755 },
-  );
-
-  const { summary, exitCode } = runGc(fx, [], { AQUA_GIT_BIN: wrapper });
-
-  assert.equal(exitCode, 3);
-  const report = reportFor(summary, refused);
-  assert.equal(report.decision, 'remove_failed');
-  assert.match(String(report.detail), /simulated refusal/);
-  assert.equal(summary.counts.remove_failed, 1);
-  assert.equal(summary.fatal, null);
-  assert.ok(existsSync(refused));
 });
 
 void test('removes nothing and exits 1 when the fetch fails', () => {
@@ -387,57 +205,87 @@ void test('removes nothing and exits 1 when the fetch fails', () => {
   const wt = addWorktree(fx, 'would-go');
   git(['-C', fx.repo, 'remote', 'set-url', 'origin', join(fx.tmp, 'gone.git')]);
 
-  const { summary, exitCode } = runGc(fx);
+  const run = runGc(fx);
 
-  assert.equal(exitCode, 1);
-  assert.equal(summary.fatal?.kind, 'fetch_failed');
-  assert.deepEqual(summary.worktrees, []);
+  assert.equal(run.exitCode, 1);
+  assert.equal(run.summary.fatal?.kind, 'fetch_failed');
+  assert.deepEqual(run.worktrees, []);
   assert.ok(existsSync(wt));
+  assert.match(readFileSync(fx.textfile, 'utf8'), /^aqua_worktree_gc_last_exit_code 1$/m);
 });
 
 void test('exits 1 on a path that is not a repository', () => {
   const fx = fixture();
-  const { summary, exitCode } = runGc(fx, [], { AQUA_REPO: join(fx.tmp, 'wt') });
-  assert.equal(exitCode, 1);
-  assert.equal(summary.fatal?.kind, 'not_a_repo');
+  const run = runGc(fx, [], { AQUA_REPO: join(fx.tmp, 'wt') });
+  assert.equal(run.exitCode, 1);
+  assert.equal(run.summary.fatal?.kind, 'not_a_repo');
 });
 
-void test('dry run reports the same decision, removes nothing, and does not make the worktree look active', () => {
+void test('an unarmed pass and a --dry-run pass report the same decisions and remove nothing', () => {
   const fx = fixture();
   const wt = addWorktree(fx, 'dry');
   const dirty = addWorktree(fx, 'dry-dirty');
   writeFileSync(join(dirty, 'README.md'), 'edit\n');
 
-  const first = runGc(fx, ['--dry-run']);
-  // Second pass via the env switch. If the first pass's `git status` had
-  // refreshed the index, the worktree would now read as recently active.
-  const second = runGc(fx, [], { WORKTREE_GC_DRY_RUN: '1' });
+  const unarmed = runGc(fx, [], { WORKTREE_GC_ARMED: null });
+  // If the first pass's `git status` had refreshed the index, the second
+  // would see the worktree as recently active.
+  const dryRun = runGc(fx, ['--dry-run']);
 
-  for (const pass of [first, second]) {
+  assert.equal(unarmed.summary.armed, false);
+  for (const pass of [unarmed, dryRun]) {
     assert.equal(pass.exitCode, 0);
-    assert.equal(reportFor(pass.summary, wt).decision, 'would_remove');
-    assert.equal(reportFor(pass.summary, dirty).reason, 'merged_but_dirty');
+    assert.equal(pass.summary.dry_run, true);
+    assert.equal(reportFor(pass, wt).decision, 'would_remove');
+    assert.equal(reportFor(pass, dirty).reason, 'merged_but_dirty');
     assert.equal(pass.summary.prune, 'skipped_dry_run');
   }
   assert.ok(existsSync(wt));
   assert.ok(existsSync(dirty));
 });
 
-void test('a path held by a deleted-file mapping still counts', () => {
-  const held = heldWorktrees(new Set(['/root/wt/a/node_modules/x.node (deleted)', '/elsewhere']), [
-    '/root/wt/a',
-    '/root/wt/b',
-  ]);
-  assert.deepEqual([...held], ['/root/wt/a']);
+void test('a refused removal exits 3 and the next pass finishes it from quarantine', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'refused');
+  const refusing = wrappedGit(
+    fx,
+    'refusing-git',
+    '*"worktree remove"*',
+    'echo "fatal: simulated refusal" >&2; exit 128',
+  );
+
+  const first = runGc(fx, [], { AQUA_GIT_BIN: refusing });
+
+  assert.equal(first.exitCode, 3);
+  assert.equal(reportFor(first, wt).decision, 'remove_failed');
+  assert.match(String(reportFor(first, wt).detail), /simulated refusal/);
+  assert.equal(first.summary.counts.remove_failed, 1);
+  assert.equal(first.summary.fatal, null);
+  const [left] = readdirSync(join(fx.roots, QUARANTINE_DIR));
+  assert.ok(left);
+  const leftover = join(fx.roots, QUARANTINE_DIR, left);
+
+  // A removal killed half-way: tracked files already gone. That must read
+  // as ours to finish, never as somebody's dirty work.
+  rmSync(join(leftover, 'README.md'));
+  const second = runGc(fx);
+
+  assert.equal(second.exitCode, 0);
+  assert.equal(reportFor(second, leftover).decision, 'removed');
+  assert.equal(existsSync(leftover), false);
 });
 
 void test('configuration that would widen the blast radius is refused', () => {
   assert.throws(() => readConfig([], { WORKTREE_GC_ROOTS: '/' }));
   assert.throws(() => readConfig([], { WORKTREE_GC_ROOTS: 'relative/wt' }));
   assert.throws(() => readConfig([], { WORKTREE_GC_GRACE_HOURS: '0.1' }));
+  assert.throws(() => readConfig([], { WORKTREE_GC_MAX_REMOVALS: '0' }));
   assert.throws(() => readConfig(['--force'], {}));
   const defaults = readConfig([], { AQUA_REPO: '/var/aqua-saas' });
   assert.deepEqual(defaults.roots, ['/var/aqua-saas/.worktrees', '/root/wt']);
   assert.equal(defaults.graceMs, 6 * 3600 * 1000);
-  assert.equal(defaults.dryRun, false);
+  assert.equal(defaults.armed, false);
+  assert.equal(defaults.dryRun, true);
+  assert.equal(readConfig([], { WORKTREE_GC_ARMED: '1' }).dryRun, false);
+  assert.equal(readConfig([], { WORKTREE_GC_ARMED: 'yes' }).dryRun, true);
 });

@@ -103,9 +103,8 @@ jobs:
       # both skip it and these specs ran nowhere. That is not acceptable for
       # code with production intervention authority: the T0 supervisor
       # restarts containers on the droplet, the worktree collector deletes
-      # directories there, the worktree audit shares its parser, and the
-      # watchdog probe decides who gets paged.
-      - name: Run tools test suites (supervisor, host-maintenance, worktree-audit, watchdog)
+      # directories there, and the watchdog probe decides who gets paged.
+      - name: Run tools test suites (supervisor + host-maintenance + watchdog)
         if: always()
         run: npm run tools:test
 

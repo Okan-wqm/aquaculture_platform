@@ -10,7 +10,7 @@ import {
   parseWorktreeList,
   shortBranch,
   type WorktreeRecord as WorktreeListEntry,
-} from '../host-maintenance/worktree-list.ts';
+} from './worktree-list.ts';
 
 const GIT_ENV_BLOCKLIST = new Set([
   'GIT_DIR',
@@ -323,7 +323,10 @@ export function globToRegex(pattern: string): RegExp {
   return new RegExp(source);
 }
 
-export function ownerForPath(path: string, rules: readonly RoutingRule[]): {
+export function ownerForPath(
+  path: string,
+  rules: readonly RoutingRule[],
+): {
   readonly owner: string;
   readonly matchedPatterns: readonly string[];
 } {
@@ -368,7 +371,11 @@ function branchShortName(branch: string | null, statusBranch?: string): string |
   return statusBranch ? statusBranch : shortBranch(branch);
 }
 
-function classifyDecision(entry: WorktreeListEntry, status: GitStatus, files: readonly ChangedPath[]): {
+function classifyDecision(
+  entry: WorktreeListEntry,
+  status: GitStatus,
+  files: readonly ChangedPath[],
+): {
   readonly decision: Decision;
   readonly reasons: readonly string[];
 } {
@@ -453,7 +460,11 @@ function loadPrs(repoRoot: string, includeGithub: boolean): readonly PrMetadata[
   return JSON.parse(raw) as PrMetadata[];
 }
 
-function collect(repoRoot: string, routingTable: string, includeGithub: boolean): readonly WorktreeRecord[] {
+function collect(
+  repoRoot: string,
+  routingTable: string,
+  includeGithub: boolean,
+): readonly WorktreeRecord[] {
   const auditDate = new Date().toISOString();
   const worktrees = parseWorktreeList(run('git', WORKTREE_LIST_ARGS, repoRoot));
   const rules = parseRoutingTable(readFileSync(routingTable, 'utf8'));
@@ -462,7 +473,11 @@ function collect(repoRoot: string, routingTable: string, includeGithub: boolean)
 
   return worktrees.map((entry) => {
     const status = parseStatusV2(
-      run('git', ['-C', entry.path, 'status', '--porcelain=v2', '-b', '--untracked-files=all'], repoRoot),
+      run(
+        'git',
+        ['-C', entry.path, 'status', '--porcelain=v2', '-b', '--untracked-files=all'],
+        repoRoot,
+      ),
     );
     const branch = branchShortName(entry.branch, status.branchHead);
     const files = status.files.map((file) => classifyChangedPath(file, rules));
@@ -490,7 +505,7 @@ function collect(repoRoot: string, routingTable: string, includeGithub: boolean)
       upstream: status.upstream ?? null,
       ahead: status.ahead,
       behind: status.behind,
-      pr: branch ? prsByHead.get(branch) ?? null : null,
+      pr: branch ? (prsByHead.get(branch) ?? null) : null,
       lastCommit: lastCommit(entry.path),
       dirty: {
         staged,
@@ -540,20 +555,22 @@ function renderReport(records: readonly WorktreeRecord[]): string {
     '',
     '| Path | Branch | Dirty | Ahead/Behind | Decision | Primary Owners |',
     '|---|---|---:|---:|---|---|',
-    ...records.map((record) => {
-      const owners = Object.entries(record.owners)
-        .sort((left, right) => right[1] - left[1])
-        .map(([owner, count]) => `${owner} (${count})`)
-        .join(', ');
-      return [
-        record.path,
-        record.branch ?? '(detached)',
-        `${record.dirty.total} (${record.dirty.staged} staged, ${record.dirty.unstaged} unstaged, ${record.dirty.untracked} untracked)`,
-        `${record.ahead}/${record.behind}`,
-        record.decision,
-        owners || '-',
-      ].join(' | ');
-    }).map((row) => `| ${row} |`),
+    ...records
+      .map((record) => {
+        const owners = Object.entries(record.owners)
+          .sort((left, right) => right[1] - left[1])
+          .map(([owner, count]) => `${owner} (${count})`)
+          .join(', ');
+        return [
+          record.path,
+          record.branch ?? '(detached)',
+          `${record.dirty.total} (${record.dirty.staged} staged, ${record.dirty.unstaged} unstaged, ${record.dirty.untracked} untracked)`,
+          `${record.ahead}/${record.behind}`,
+          record.decision,
+          owners || '-',
+        ].join(' | ');
+      })
+      .map((row) => `| ${row} |`),
     '',
   ];
 
@@ -602,7 +619,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
 
 function printUsage(): void {
   process.stdout.write(`Usage:
-  node --experimental-strip-types tools/worktree-audit/worktree-audit.ts \\
+  node --experimental-strip-types tools/host-maintenance/worktree-audit.ts \\
     --repo-root /var/aqua-saas \\
     --output docs/worktrees/YYYY-MM-DD-aqua-saas-worktree-inventory.jsonl \\
     --report /tmp/worktree-audit-summary.md \\

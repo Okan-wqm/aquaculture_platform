@@ -2,7 +2,7 @@
  * The one parser for `git worktree list --porcelain -z` in this repository.
  *
  * Two tools read the worktree list: the collector (worktree-gc.ts), which
- * deletes worktrees, and the inventory audit (tools/worktree-audit), which
+ * deletes worktrees, and the inventory audit (worktree-audit.ts), which
  * reports on them. When each parsed the list itself they disagreed on what a
  * record was: the audit had no notion of `locked` or `prunable`, so it could
  * never tell an operator that a worktree was protected or already gone. A

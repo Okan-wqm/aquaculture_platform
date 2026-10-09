@@ -1,9 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
-import { parseWorktreeList } from '../host-maintenance/worktree-list.ts';
-
 import { globToRegex, isDetached, ownerForPath, parseRoutingTable } from './worktree-audit.ts';
+import { parseWorktreeList } from './worktree-list.ts';
 
 void test('the inventory files branchless worktrees, bare main included, as detached', () => {
   const entries = parseWorktreeList(

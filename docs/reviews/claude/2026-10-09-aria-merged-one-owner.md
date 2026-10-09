@@ -138,8 +138,10 @@ plan's own merge, with no GitHub read. That covers #1906 if it merges before thi
 - **L3, accepted as defence in depth:**
   - The AST invariant catches the bypasses a reviewer would write by accident: an import, an alias,
     a `getattr` literal, a splat, a non-literal event, a direct append.
-  - A name built at runtime by string concatenation needs deliberate evasion. It still meets the
-    runtime guard, the `_MERGED_ROW_OWNER` token `record_pr_lifecycle` checks.
+  - A name built at runtime by string concatenation is not caught, and the runtime guard does not
+    stop it either: the `_MERGED_ROW_OWNER` token `record_pr_lifecycle` checks can itself be fetched
+    with `getattr(module, "_MERGED_ROW" + "_OWNER")`. Writing that takes deliberate evasion, which
+    review is expected to catch, so this stays LOW.
 - **L4, closed:** `pr_tracking` ingests every merged row of an ARIA PR. A row whose lineage is not
   ARIA's is carried with `attributed_to_aria: false`, so impact analysis sees the change and nothing
   downstream credits ARIA for it.

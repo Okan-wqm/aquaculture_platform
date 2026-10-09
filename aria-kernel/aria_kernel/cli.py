@@ -1413,6 +1413,19 @@ def build_parser() -> argparse.ArgumentParser:
     comp_list.add_argument("--rejected-only", action="store_true")
     comp_list.add_argument("--limit", type=int, default=None)
 
+    # ORPHAN-HIGH-573 — file-level narrative-prompt validator verb.
+    narrative_parser = add_subparser(sub, "narrative-prompt")
+    narrative_sub = narrative_parser.add_subparsers(
+        dest="narrative_prompt_command", required=True
+    )
+    narrative_validate = add_subparser(narrative_sub, "validate")
+    narrative_validate.add_argument("--file", required=True)
+    narrative_validate.add_argument(
+        "--registry",
+        default=None,
+        help="Pedagogy registry JSON (default: .claude/agents/_pedagogy-registry.json).",
+    )
+
     # Plan 020 Phase 6.C — agent eval harness CLI.
     eval_parser = add_subparser(sub, "agent-eval")
     eval_sub = eval_parser.add_subparsers(dest="agent_eval_command", required=True)
@@ -4374,6 +4387,32 @@ def _main(argv: list[str] | None = None) -> int:
             limit=args.limit,
         )
         print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    # ORPHAN-HIGH-573 — file-level narrative-prompt validator verb.
+    if args.command == "narrative-prompt" and args.narrative_prompt_command == "validate":
+        from .narrative_prompt_validator import load_registry, validate_file
+
+        registry_path = (
+            Path(args.registry)
+            if args.registry
+            else Path(".claude") / "agents" / "_pedagogy-registry.json"
+        )
+        result = validate_file(
+            Path(args.file), pedagogy_registry=load_registry(registry_path)
+        )
+        payload = {
+            "file": str(result.path),
+            "agent_name": result.agent_name,
+            "pedagogy_tier": result.pedagogy_tier,
+            "approx_tokens": result.approx_tokens,
+            "violation_count": len(result.violations),
+            "violations": result.violations,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        # The validator is pure; the verb is the invariant's caller, so a
+        # non-empty violations list FAILS here (exit 1), mirroring `tool run`.
+        return 1 if result.violations else 0
         return 0
 
     # Plan 020 Phase 6.C — agent eval CLI dispatch.

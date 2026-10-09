@@ -124,6 +124,7 @@ function main(planOnly) {
   const graph = files.length === 0 || forceFull ? null : selectTests(files, cacheDir);
   const selected = graph === null ? [] : graph.selected;
   const plan = planRun(selected, loadDurations(durationsFile), budgetS);
+  applyInvariantFloor(files, plan);
 
   if (planOnly) {
     const out = { base, files, budgetS, full: forceFull, gateSpecs: specs, selected, ...plan };
@@ -201,6 +202,45 @@ function budget() {
     );
   }
   return seconds;
+}
+
+/**
+ * INVARIANT FLOOR (2026-10-08, evidence: PR #1892 merged with suite shard 7
+ * red and main stayed red 8h46m, fixed by #1897). The import graph cannot
+ * reach tests that assert over the WHOLE discovered surface set — the
+ * capability-roster and surface-reachability modules discover surfaces at
+ * runtime instead of importing what they cover, so a kernel-code change can
+ * break them with zero import edges. Any aria_kernel/ code change pins them
+ * at the FRONT of the run (execute() never budget-skips index 0), and a
+ * missing-floor regression fails the plan's shape, not silently skips.
+ */
+const INVARIANT_FLOOR_MODULES = [
+  'aria-kernel/tests/test_autonomy_evidence_status.py',
+  'aria-kernel/tests/test_surface_reachability.py',
+];
+
+function applyInvariantFloor(files, plan) {
+  if (!files.some((file) => file.startsWith('aria-kernel/aria_kernel/'))) return;
+  const pinned = [];
+  for (const path of INVARIANT_FLOOR_MODULES) {
+    if (plan.run.some((entry) => entry.path === path)) continue;
+    if (plan.skipped.some((entry) => entry.path === path)) {
+      plan.skipped = plan.skipped.filter((entry) => entry.path !== path);
+    }
+    plan.run.unshift({
+      path,
+      tier: 0,
+      reason: 'invariant floor: discovery-based surface test (PR #1892/#1897)',
+      estimateS: 1.5,
+    });
+    pinned.push(path);
+  }
+  if (pinned.length > 0) {
+    say(
+      `invariant floor pinned to the front of the run (discovery-based, the import graph ` +
+        `cannot reach them): ${pinned.join(', ')}`,
+    );
+  }
 }
 
 function selectTests(files, cacheDir) {

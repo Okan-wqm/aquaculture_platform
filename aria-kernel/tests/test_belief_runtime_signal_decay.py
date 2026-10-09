@@ -286,6 +286,47 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         self.assertTrue(_bounded_glob("src/adapters/*.ts"))
         self.assertFalse(_refs_touch("apps/hr-service/src/main.ts", "apps/**"))
 
+    def test_double_star_is_special_only_as_a_whole_segment(self) -> None:
+        from aria_kernel.memory import _refs_touch
+
+        self.assertFalse(_refs_touch("apps/svc/bc", "apps/svc/b**/c"))
+        self.assertTrue(_refs_touch("apps/svc/bX/c", "apps/svc/b**/c"))
+        # `*` and `?` never cross a directory boundary.
+        self.assertFalse(_refs_touch("src/adapters/x/pdf.ts", "src/adapters/*.ts"))
+        self.assertFalse(_refs_touch("src/adapters/a/c", "src/adapters/a?c"))
+
+    def test_many_double_stars_stay_fast_and_bounded(self) -> None:
+        # Review: 2^k variants per pair — k=22 took 3.3 s and 664 MB.
+        import time
+        import tracemalloc
+
+        from aria_kernel.memory import MAX_GLOB_SEGMENTS, _bounded_glob, _refs_touch
+
+        over_cap = "apps/svc/" + "**/" * 30 + "x.ts"
+        within_cap = "apps/svc/" + "**/x/" * ((MAX_GLOB_SEGMENTS - 3) // 2) + "y"
+        long_path = "apps/svc/" + "x/" * 400 + "z"
+        tracemalloc.start()
+        try:
+            started = time.monotonic()
+            self.assertFalse(_bounded_glob(over_cap))
+            self.assertFalse(_refs_touch("apps/svc/x.ts", over_cap))
+            self.assertFalse(_refs_touch(long_path, within_cap))
+            self.assertFalse(_refs_touch("apps/svc/" + "a" * 600, "apps/svc/" + "*a" * 60 + "b"))
+            elapsed = time.monotonic() - started
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertLess(elapsed, 2.0)
+        self.assertLess(peak, 16 * 1024 * 1024)
+
+    def test_an_over_cap_glob_is_reported_unbounded(self) -> None:
+        self._seed("b-deep", ["apps/svc/" + "**/" * 30 + "x.ts"])
+        ingest_runtime_signal(source="incident", service="s", summary="x",
+                              code_refs=["apps/svc/x.ts"], base_dir=self.tools, now=self.now)
+        result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools, now=self.now)
+        self.assertEqual(result["decayed_count"], 0)
+        self.assertEqual(len(result["unbounded_belief_globs"]), 1)
+
     def test_double_star_also_matches_zero_directories(self) -> None:
         from aria_kernel.memory import _refs_touch
 

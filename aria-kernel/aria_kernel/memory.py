@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import fnmatch
+import functools
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -872,6 +873,144 @@ def _is_glob(ref: str) -> bool:
 #: segments: `apps/**` names nearly the whole repo, `apps/hr-service/**` one
 #: service.
 MIN_LITERAL_GLOB_SEGMENTS = 2
+#: A belief-side glob longer than this, or with more segments, is treated as
+#: unbounded: it is never compiled or matched, only reported.
+MAX_GLOB_PATTERN_CHARS = 256
+MAX_GLOB_SEGMENTS = 16
+
+
+# One compiled glob token: ("lit", char), ("one", None) for ``?``,
+# ("any", None) for ``*``, or ("cls", (negated, members)) for ``[...]``.
+_GlobToken = tuple[str, Any]
+
+
+def _compile_segment(segment: str) -> tuple[_GlobToken, ...]:
+    """One path segment of a glob as tokens (fnmatch syntax; ``/`` never appears inside a segment)."""
+    tokens: list[_GlobToken] = []
+    index = 0
+    while index < len(segment):
+        char = segment[index]
+        if char == "*":
+            if not tokens or tokens[-1][0] != "any":
+                tokens.append(("any", None))
+        elif char == "?":
+            tokens.append(("one", None))
+        elif char == "[":
+            # A leading ! or ^ negates; a ] right after the opening (or after
+            # the negation) is a literal member; no closing ] means a literal [.
+            body_start = index + 1
+            negated = segment[body_start:body_start + 1] in ("!", "^")
+            if negated:
+                body_start += 1
+            search_from = body_start + 1 if segment[body_start:body_start + 1] == "]" else body_start
+            close = segment.find("]", search_from)
+            if close < 0:
+                tokens.append(("lit", char))
+            else:
+                tokens.append(("cls", (negated, _class_members(segment[body_start:close]))))
+                index = close
+        else:
+            tokens.append(("lit", char))
+        index += 1
+    return tuple(tokens)
+
+
+def _class_members(body: str) -> tuple[tuple[str, str], ...]:
+    """``a-z0`` as ranges ``(("a", "z"), ("0", "0"))``."""
+    members: list[tuple[str, str]] = []
+    index = 0
+    while index < len(body):
+        if index + 2 < len(body) and body[index + 1] == "-":
+            members.append((body[index], body[index + 2]))
+            index += 3
+        else:
+            members.append((body[index], body[index]))
+            index += 1
+    return tuple(members)
+
+
+def _token_accepts(token: _GlobToken, char: str) -> bool:
+    kind, value = token
+    if kind == "one":
+        return True
+    if kind == "lit":
+        return char == value
+    negated, members = value
+    inside = any(low <= char <= high for low, high in members)
+    return inside != negated
+
+
+def _segment_matches(tokens: tuple[_GlobToken, ...], text: str) -> bool:
+    """Wildcard match of one segment by dynamic programming: O(len(tokens) * len(text)), no backtracking."""
+    reachable = [False] * (len(text) + 1)
+    reachable[0] = True
+    for token in tokens:
+        nxt = [False] * (len(text) + 1)
+        if token[0] == "any":
+            seen = False
+            for position in range(len(text) + 1):
+                seen = seen or reachable[position]
+                nxt[position] = seen
+        else:
+            for position in range(len(text)):
+                if reachable[position] and _token_accepts(token, text[position]):
+                    nxt[position + 1] = True
+        reachable = nxt
+        if not any(reachable):
+            return False
+    return reachable[len(text)]
+
+
+@functools.lru_cache(maxsize=4096)
+def _compiled_glob(pattern: str) -> "tuple[tuple[_GlobToken, ...] | None, ...] | None":
+    """``pattern`` compiled ONCE into per-segment tokens (None marks ``**``), or None over the size caps.
+
+    Gitignore semantics: ``**`` is special only as a WHOLE segment and spans
+    zero or more directories (``a/**/c`` matches ``a/c`` and ``a/x/y/c``; a
+    trailing ``a/**`` matches everything under ``a/``); ``*`` and ``?`` never
+    cross ``/``; ``a/b**/c`` is an ordinary segment and does not match
+    ``a/bc``. Consecutive ``**`` collapse into one. Matching is dynamic
+    programming over segments and characters (``_glob_matches``), never a
+    backtracking regex: the previous expansion built 2^k fnmatch variants
+    for k ``**/`` segments per match (k=22: 3.3 s and 664 MB per pair), and a
+    translated regex backtracks exponentially on non-matching paths.
+    """
+    if len(pattern) > MAX_GLOB_PATTERN_CHARS:
+        return None
+    segments = pattern.split("/")
+    if len(segments) > MAX_GLOB_SEGMENTS:
+        return None
+    compiled: list[tuple[_GlobToken, ...] | None] = []
+    for segment in segments:
+        if segment == "**":
+            if compiled and compiled[-1] is None:
+                continue
+            compiled.append(None)
+        else:
+            compiled.append(_compile_segment(segment))
+    return tuple(compiled)
+
+
+def _glob_matches(compiled: "tuple[tuple[_GlobToken, ...] | None, ...]", path: str) -> bool:
+    """Segment-level dynamic programming: O(pattern segments * path segments) segment matches."""
+    parts = path.split("/")
+    reachable = [False] * (len(parts) + 1)
+    reachable[0] = True
+    for tokens in compiled:
+        nxt = [False] * (len(parts) + 1)
+        if tokens is None:
+            seen = False
+            for position in range(len(parts) + 1):
+                seen = seen or reachable[position]
+                nxt[position] = seen
+        else:
+            for position in range(len(parts)):
+                if reachable[position] and _segment_matches(tokens, parts[position]):
+                    nxt[position + 1] = True
+        reachable = nxt
+        if not any(reachable):
+            return False
+    return reachable[len(parts)]
 
 
 def _bounded_glob(pattern: str) -> bool:
@@ -879,29 +1018,16 @@ def _bounded_glob(pattern: str) -> bool:
 
     ``apps/hr-service/src/**/*.ts`` and ``src/adapters/*.ts`` are bounded;
     ``*``, ``*/*``, ``**/x`` and ``apps/**`` are not — one such
-    adapter-emitted belief would be touched by nearly every signal.
+    adapter-emitted belief would be touched by nearly every signal — and
+    neither is a pattern over the size caps.
     """
     segments = pattern.split("/")
     leading = segments[:MIN_LITERAL_GLOB_SEGMENTS]
     return (
         len(segments) > MIN_LITERAL_GLOB_SEGMENTS
         and all(segment and not _is_glob(segment) for segment in leading)
+        and _compiled_glob(pattern) is not None
     )
-
-
-def _glob_variants(pattern: str) -> list[str]:
-    """``pattern`` with each ``**/`` taken as one-or-more AND as zero directories.
-
-    fnmatch's ``*`` already crosses ``/``, so a kept ``**/`` matches one or
-    more directories; the variant with it removed gives gitignore's
-    zero-directory case, so ``src/**/*.ts`` matches ``src/main.ts``.
-    """
-    index = pattern.find("**/")
-    if index < 0:
-        return [pattern]
-    head, tail = pattern[:index], pattern[index + 3:]
-    rest = _glob_variants(tail)
-    return [head + "**/" + variant for variant in rest] + [head + variant for variant in rest]
 
 
 def _refs_touch(signal_ref: str, evidence_ref: str) -> bool:
@@ -918,9 +1044,10 @@ def _refs_touch(signal_ref: str, evidence_ref: str) -> bool:
     if _is_glob(signal_ref):
         return False
     if _is_glob(evidence_ref):
-        return _bounded_glob(evidence_ref) and any(
-            fnmatch.fnmatchcase(signal_ref, variant) for variant in _glob_variants(evidence_ref)
-        )
+        if not _bounded_glob(evidence_ref):
+            return False
+        compiled = _compiled_glob(evidence_ref)
+        return compiled is not None and _glob_matches(compiled, signal_ref)
     return signal_ref == evidence_ref
 
 

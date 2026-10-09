@@ -74,7 +74,8 @@ def lifecycle_write_offenders(sources: list[tuple[str, ast.AST]]) -> list[str]:
                 if any(k.arg is None for k in node.keywords) or (
                         event is not None and not (isinstance(event, ast.Constant)
                                                    and event.value not in ("merged", "closed_unmerged",
-                                                                           "merge_unproven"))):
+                                                                           "merge_unproven",
+                                                                           "merge_lineage_unverified"))):
                     offenders.append(f"{relative}:{node.lineno}:record_pr_lifecycle")
             if name in _APPENDERS and any(
                     k.arg == "expected_surface" and isinstance(k.value, ast.Constant)

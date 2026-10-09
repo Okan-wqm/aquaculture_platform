@@ -92,7 +92,8 @@ def fixture_history() -> list[dict[str, Any]]:
     (a stalled abandon, a dead challenger envelope), one revised by the
     primary planner and merged, three rejected on a red CI check."""
     rejected = _event("x", "implementation_rejected", "", rejection_class="ci_check_red", rejected_at="t")
-    merged = _event("x", "implementation_merged", "", merge_sha=MERGE_SHA, merged_at="t", idempotency_key_hash="h")
+    merged = _event("x", "implementation_merged", "", merge_sha=MERGE_SHA, merged_at="t", idempotency_key_hash="h",
+                    head_lineage="delivered")
     return [
         _event("plan-a", "plan_started", "2026-09-01T10:00:00+00:00"),
         _event("plan-a", "plan_abandoned", "2026-09-01T11:00:00+00:00",

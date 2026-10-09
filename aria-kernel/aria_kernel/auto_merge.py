@@ -530,7 +530,7 @@ def _label_names(pr: dict[str, Any]) -> set[str]:
 # tests/invariants/test_merged_single_writer.py fails the build on any other
 # module naming it.
 _MERGED_ROW_OWNER = object()
-_OWNED_LIFECYCLE_EVENTS = frozenset({"merged", "closed_unmerged", "merge_unproven"})
+_OWNED_LIFECYCLE_EVENTS = frozenset({"merged", "closed_unmerged", "merge_unproven", "merge_lineage_unverified"})
 
 
 def record_pr_lifecycle(

@@ -24,7 +24,7 @@ from .incident_ledger import (
 )
 from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .merge_lane_merge_state import route_unmergeable_merge_state
-from .merge_record import MERGED_BY_MERGE_LANE, record_merge
+from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, record_merge
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
@@ -466,7 +466,10 @@ def _record_merge_result(
             base_dir=base_dir,
         )
         # ARIA-HIGH-390 — the one writer of "merged" (`merge_record`).
-        record_merge(pr=fresh_pr, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir, cycle_id=cycle_id)
+        # It merged at the head it checked: the one writer of `delivered`
+        # without a classification (review of #1910, N4).
+        record_merge(pr=fresh_pr, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir, cycle_id=cycle_id,
+                     head_lineage=LINEAGE_DELIVERED)
         return result
     if merge_result.get("enqueued") is True:
         result.update({"decision": "enqueued", "eligible": True})
@@ -557,7 +560,7 @@ def reconcile_enqueued_merges(
             # Review of #1910, F9 — the queue entry names the PR; a payload
             # missing its number never loses the merged row.
             record_merge(pr={**pr, "number": number}, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir,
-                         cycle_id=cycle_id)
+                         cycle_id=cycle_id, head_lineage=LINEAGE_DELIVERED)
         else:
             observed = str(state.get("state") or "")
             if state.get("head_sha") != head_sha:

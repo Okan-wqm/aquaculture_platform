@@ -102,6 +102,8 @@ def observe_pr_event(
         "apply_ref": payload.get("apply_ref"),
         "validation_refs": _string_list(payload.get("validation_refs")),
     }
+    if isinstance(payload.get("attributed_to_aria"), bool):
+        row["attributed_to_aria"] = payload["attributed_to_aria"]
     root = ensure_tools_dir(base_dir)
     append_jsonl(root / "pr-events.jsonl", row)
     if event == "merged" or row.get("merge_commit_sha"):
@@ -138,10 +140,6 @@ def ingest_merged_pr_lifecycle(
     for row in load_declared_jsonl(lifecycle_path, expected_surface="pr_lifecycle"):
         if row.get("event") != "merged":
             continue
-        # ARIA-HIGH-390 (review of #1910, F1) — a merge at a head carrying a
-        # person's commits is not ARIA's change to carry into impact learning.
-        if not merged_row_is_arias(row):
-            continue
         key = (row.get("pr_number"), row.get("head_sha"))
         if key in seen:
             already_known += 1
@@ -160,6 +158,11 @@ def ingest_merged_pr_lifecycle(
                     "merged_at": merged_row_instant(row),
                     "source": "pr_lifecycle",
                     "proposal_id": row.get("proposal_id"),
+                    # Review of #1910, L4 — impact analysis sees every merge
+                    # of an ARIA PR; one whose head is not ARIA's change (a
+                    # person's commits, an unread head) is carried
+                    # unattributed, so nothing downstream credits ARIA for it.
+                    "attributed_to_aria": merged_row_is_arias(row),
                 },
                 base_dir=root,
             )

@@ -258,6 +258,7 @@ class ChangeIntelligenceMinterTest(_ToolsDirTest):
             },
             merged_by=MERGED_BY_MERGE_LANE,
             base_dir=self.tools,
+            head_lineage="delivered",
         )
 
     def test_a_merge_becomes_a_merge_event_and_one_envelope(self) -> None:

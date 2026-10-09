@@ -98,3 +98,48 @@ plan's own merge, with no GitHub read. That covers #1906 if it merges before thi
   dequeued, so a payload without its number never loses the row.
 - **F10, closed:** the reducer ties `merged_after_rejection.pr_number` to the PR the post-delivery
   settlement named.
+
+## Re-review corrections (re-review of #1910 at 32584f862)
+
+- **N1 HIGH, closed: a person's branch merged into ARIA's passed as `base_merged`.**
+  - `classify_merged_head` tested each update merge's second parent for ancestry against the merge
+    commit itself. With the merge-commit method (`allow_merge_commit` is on), the merge commit's
+    second parent IS the PR head, so any branch merged into ARIA's counted as "contained".
+  - Ancestry is now tested against the base at the merge, `merge_sha^1`: the first parent of a merge
+    commit, a squash or a rebase. Only a commit already on the base is a base update.
+  - Probe S1 is pinned for both merge methods. The earlier lineage tests merged with `--no-ff` and
+    so hid it.
+- **N2, closed:** `head_unverifiable` is no longer terminal.
+  - Any failed or timed-out read is counted as a `merge_lineage_unverified` lifecycle row and asked
+    again next cycle.
+  - At `MAX_LINEAGE_CHECKS` (6) the outcome is disclosed. A REJECTED plan's PR becomes
+    `merge_unproven` (`merged_head_unreadable:…:after_6_checks`). A RECORDED plan's merge is
+    recorded as GitHub reports it, with lineage `head_unverifiable`, which no reader credits.
+  - Only `head_diverged`, or another named fact, ends a PR's lifecycle.
+- **N3, closed:** `patch-id --verbatim` replaces `--stable`. A re-indent that moves a statement into
+  an `if` is no longer "the delivered patch" (probe S3, pinned).
+- **N4, closed:** every merged row names its lineage; `record_merge` requires one from the
+  vocabulary.
+  - A backfill writes `backfilled_unverified`.
+  - Only the merge lane writes `delivered` without a classification, because it merges at the head
+    it checked (directly, or settled by the queue at the enqueued head).
+  - `merged_row_is_arias` credits only `delivered`, `base_merged` and `patch_unchanged`. A row
+    without a lineage is not ARIA's, so #1906 merged before this deploys is never credited.
+- **N5, closed:** `implementation_merged` carries `head_lineage`.
+  - The plan still folds MERGED, which is GitHub's truth.
+  - Convention promotion (`_reconcile_promotion` reports `not_credited`) and the implementer's
+    merged episode in `agent_eval` both skip any lineage that is not ARIA's.
+- **L1, closed:** `closed_unmerged` is not terminal. A PR closed unmerged is asked again once a day,
+  at most `MAX_CLOSED_RECHECKS` (14) times, so a reopen-and-merge is seen. A reopen writes no
+  `opened` row.
+- **L2, closed:** every git read in the classification (both fetches, the walk, the patch ids) runs
+  inside the guard. `TimeoutExpired` or any `SubprocessError`/`OSError` gives `head_unverifiable`,
+  which is retryable and never aborts the cycle.
+- **L3, accepted as defence in depth:**
+  - The AST invariant catches the bypasses a reviewer would write by accident: an import, an alias,
+    a `getattr` literal, a splat, a non-literal event, a direct append.
+  - A name built at runtime by string concatenation needs deliberate evasion. It still meets the
+    runtime guard, the `_MERGED_ROW_OWNER` token `record_pr_lifecycle` checks.
+- **L4, closed:** `pr_tracking` ingests every merged row of an ARIA PR. A row whose lineage is not
+  ARIA's is carried with `attributed_to_aria: false`, so impact analysis sees the change and nothing
+  downstream credits ARIA for it.

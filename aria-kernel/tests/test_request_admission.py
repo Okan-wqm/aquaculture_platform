@@ -303,7 +303,7 @@ class AThrottledProducerIsAdmittedOnceTheDrainCatchesUp(_Store):
         record_merge(
             pr={"number": 1822, "head_sha": "b" * 40, "base_branch": "main",
                 "changed_files": ["aria-kernel/aria_kernel/cycle.py"]},
-            merged_by=MERGED_BY_MERGE_LANE, base_dir=self.tools,
+            merged_by=MERGED_BY_MERGE_LANE, base_dir=self.tools, head_lineage="delivered",
         )
         ingest_merged_pr_lifecycle(base_dir=self.tools)
         behind = _ledgers(40, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))

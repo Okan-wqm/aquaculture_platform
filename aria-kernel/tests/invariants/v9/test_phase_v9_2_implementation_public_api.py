@@ -184,6 +184,7 @@ class TestV9StatePreconditions(unittest.TestCase):
                 merge_sha="merge0123456789",
                 merged_at="2026-05-18T16:10:00Z",
                 idempotency_key_hash="sha256:" + "c" * 64,
+                head_lineage="delivered",
                 base_dir=workspace,
             )
             state = _pc.fold_plan_state(plan_id=plan_id, base_dir=workspace)

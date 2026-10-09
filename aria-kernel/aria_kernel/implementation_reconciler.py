@@ -31,11 +31,19 @@ from .finding_closure import FindingDetector, close_merged_plan_finding, default
 from .implementation_rejections import MERGEABLE_AFTER_REJECTION
 from .merge_record import (
     EVENT_CLOSED_UNMERGED,
+    EVENT_LINEAGE_UNVERIFIED,
     EVENT_MERGE_UNPROVEN,
+    LINEAGE_BACKFILLED_UNVERIFIED,
+    LINEAGE_UNVERIFIABLE,
+    MAX_LINEAGE_CHECKS,
     MERGED_BY_OBSERVED,
+    MergeLineageUnverified,
     MergeNotProven,
     classify_merged_head,
+    closed_recheck_due,
     lifecycle_rows,
+    lineage_checks,
+    lineage_credits_aria,
     observed_merge,
     opened_row,
     record_merge,
@@ -93,17 +101,35 @@ def _plan_change_ids(root: Path) -> dict[str, tuple[str, ...]]:
     return {plan_id: tuple(ids) for plan_id, ids in out.items()}
 
 
-def _terminal_prs(lifecycle: list[dict[str, Any]]) -> set[int]:
-    """PRs whose lifecycle already ends: merged, closed unmerged, or a merge refused once (F7)."""
+def _ended_prs(lifecycle: list[dict[str, Any]]) -> set[int]:
+    """PRs whose lifecycle ended: merged, or a merge refused for a named fact.
+
+    A PR closed unmerged is not ended — it is re-asked once a day, bounded
+    (review of #1910, L1) — and an unreadable merged head is retried
+    (review of #1910, N2).
+    """
     return {row["pr_number"] for row in lifecycle if type(row.get("pr_number")) is int
-            and row.get("event") in {"merged", EVENT_CLOSED_UNMERGED, EVENT_MERGE_UNPROVEN}}
+            and row.get("event") in {"merged", EVENT_MERGE_UNPROVEN}}
+
+
+def _unreadable_head(
+    pr: dict[str, Any], *, lifecycle: list[dict[str, Any]], root: Path,
+) -> dict[str, Any] | None:
+    """One more cycle that could not read a merged head: counted and retried, or None at the bound."""
+    number = pr.get("number", pr.get("pr_number"))
+    checks = lineage_checks(lifecycle, number)
+    if checks + 1 >= MAX_LINEAGE_CHECKS:
+        return None
+    record_pr_unmergeable(pr=pr, event=EVENT_LINEAGE_UNVERIFIED, reason="merged_head_unreadable", base_dir=root)
+    lifecycle[:] = lifecycle_rows(root)
+    return {"unverified": {"pr_number": number, "checks": checks + 1, "max_checks": MAX_LINEAGE_CHECKS}}
 
 
 def _observe_merge(
     plan_id: str, state: dict[str, Any], *, reader: Any, lifecycle: list[dict[str, Any]],
     change_ids: tuple[str, ...], base_branch: str, workspace: Path, root: Path,
 ) -> dict[str, Any] | None:
-    """What GitHub says of the plan's PR: None (nothing to ask, or not merged), a refusal, or the merge."""
+    """What GitHub says of the plan's PR: None (nothing to ask, or not merged), a refusal, a retry, or the merge."""
     impl = state.get("implementation") or {}
     if state.get("state") == "IMPLEMENTATION_RECORDED":
         pr_number = _pr_number_from_url(str(impl.get("pr_url") or ""))
@@ -121,6 +147,13 @@ def _observe_merge(
         # that credit ARIA refuse it (`merge_record.merged_row_is_arias`).
         lineage = classify_merged_head(workspace, pr_number=pr_number, delivered_sha=delivered,
                                        head_sha=head, merge_sha=merge_sha)
+        if lineage == LINEAGE_UNVERIFIABLE:
+            # N2 — a read that failed this cycle is asked again; at the bound
+            # the merge is recorded as GitHub reports it, unverified, which
+            # no reader credits to ARIA.
+            retry = _unreadable_head({**pr, "number": pr_number}, lifecycle=lifecycle, root=root)
+            if retry is not None:
+                return retry
         return {"merge": {
             "pr": pr, "merge_sha": merge_sha, "merged_at": merged_at, "merged_head_sha": head or None,
             "head_lineage": lineage,
@@ -132,14 +165,18 @@ def _observe_merge(
         return None
     # ARIA-HIGH-390 — the kernel's own PRs for this plan, by the change it
     # minted; every one still open to a merge is asked (a re-opened PR is
-    # another opened row), and a PR whose lifecycle ended is not asked again.
-    terminal = _terminal_prs(lifecycle)
+    # another opened row). A PR whose lifecycle ended is not asked again; one
+    # closed unmerged is asked again once a day, bounded (L1).
+    ended = _ended_prs(lifecycle)
     candidates: dict[int, dict[str, Any]] = {}
     for change_id in change_ids:
         for row in lifecycle:
-            if (row.get("event") == "opened" and row.get("change_id") == change_id
-                    and type(row.get("pr_number")) is int and row["pr_number"] not in terminal):
-                candidates[row["pr_number"]] = row
+            number = row.get("pr_number")
+            if (row.get("event") == "opened" and row.get("change_id") == change_id and type(number) is int
+                    and number not in ended
+                    and (not any(r.get("event") == EVENT_CLOSED_UNMERGED and r.get("pr_number") == number
+                                 for r in lifecycle) or closed_recheck_due(lifecycle, number))):
+                candidates[number] = row
     for number, opened in sorted(candidates.items()):
         remote = reader.pr_merge_state(number)
         if not isinstance(remote, dict):
@@ -148,12 +185,20 @@ def _observe_merge(
         if state_name == "CLOSED":
             record_pr_unmergeable(pr=opened, event=EVENT_CLOSED_UNMERGED, reason="closed_unmerged_on_github",
                                   base_dir=root)
+            lifecycle[:] = lifecycle_rows(root)
             continue
         if state_name != "MERGED":
             continue
         try:
             merge_sha, merged_at, head, lineage = verify_merge_after_rejection(
                 opened=opened, remote=remote, workspace=workspace)
+        except MergeLineageUnverified as exc:
+            retry = _unreadable_head(dict(opened), lifecycle=lifecycle, root=root)
+            if retry is not None:
+                return retry
+            reason = f"{exc}:after_{MAX_LINEAGE_CHECKS}_checks"
+            record_pr_unmergeable(pr=opened, event=EVENT_MERGE_UNPROVEN, reason=reason, base_dir=root)
+            return {"refused": reason}
         except MergeNotProven as exc:
             record_pr_unmergeable(pr=opened, event=EVENT_MERGE_UNPROVEN, reason=str(exc), base_dir=root)
             return {"refused": str(exc)}
@@ -185,14 +230,21 @@ def _backfill_lifecycle(
     pr = opened_row(lifecycle, pr_number=pr_number)
     if pr is None:
         return [], [{"plan_id": plan_id, "pr_number": pr_number, "reason": "no_opened_row"}]
+    # Review of #1910, N4 — no head is classified here, so the row is never
+    # ARIA's: only a merge whose head was checked may say "delivered".
     written = record_merge(pr=pr, merged_by=MERGED_BY_OBSERVED, base_dir=root,
                            merge_sha=str(impl.get("merge_sha") or "") or None,
-                           merged_at=str(impl.get("merged_at") or "") or None)
+                           merged_at=str(impl.get("merged_at") or "") or None,
+                           head_lineage=LINEAGE_BACKFILLED_UNVERIFIED)
     lifecycle[:] = lifecycle_rows(root)
     return ([{"plan_id": plan_id, "pr_number": pr_number}] if written["lifecycle_row"] else []), []
 
 
-def _reconcile_promotion(plan_id: str, root: Path) -> dict[str, Any]:
+def _reconcile_promotion(plan_id: str, state: dict[str, Any], root: Path) -> dict[str, Any]:
+    """Merge-backed convention evidence for a merged plan — only when the merge is ARIA's change (review of #1910, N5)."""
+    lineage = (state.get("implementation") or {}).get("head_lineage")
+    if not lineage_credits_aria(lineage):
+        return {"plan_id": plan_id, "status": "not_credited", "head_lineage": lineage}
     from .knowledge_graph import (
         KnowledgeGraphSchemaError,
         KnowledgeGraphTamper,
@@ -273,11 +325,12 @@ def reconcile_recorded_implementations(
     result: dict[str, Any] = {
         "status": "reconciled", "merged": [], "checked": 0,
         "promotions": [], "merge_errors": [], "finding_closures": [],
-        "merge_refusals": [], "lifecycle_backfilled": [], "lifecycle_backfill_skipped": [],
+        "merge_refusals": [], "lineage_unverified": [], "lifecycle_backfilled": [],
+        "lifecycle_backfill_skipped": [],
     }
     for plan_id, state in states.items():
         if state.get("state") == "IMPLEMENTATION_MERGED":
-            result["promotions"].append(_reconcile_promotion(plan_id, root))
+            result["promotions"].append(_reconcile_promotion(plan_id, state, root))
             result["finding_closures"].append(
                 _close_finding(plan_id, state, root, checkout, finding_detectors, history),
             )
@@ -310,6 +363,9 @@ def reconcile_recorded_implementations(
         if "refused" in observed:
             result["merge_refusals"].append({"plan_id": plan_id, "reason": observed["refused"]})
             continue
+        if "unverified" in observed:
+            result["lineage_unverified"].append({"plan_id": plan_id, **observed["unverified"]})
+            continue
         try:
             written = record_merge(plan_id=plan_id, merged_by=MERGED_BY_OBSERVED, base_dir=root, **observed["merge"])
         except (GovernanceError, MergeNotProven) as exc:
@@ -321,9 +377,10 @@ def reconcile_recorded_implementations(
         if event.get("event_appended"):
             result["merged"].append({"plan_id": plan_id, "pr_number": written["pr_number"],
                                      "merge_sha": observed["merge"]["merge_sha"]})
-        result["promotions"].append(_reconcile_promotion(plan_id, root))
+        merged_state = fold_plan_state(plan_id=plan_id, base_dir=root)
+        result["promotions"].append(_reconcile_promotion(plan_id, merged_state, root))
         result["finding_closures"].append(_close_finding(
-            plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), root, checkout, finding_detectors, history,
+            plan_id, merged_state, root, checkout, finding_detectors, history,
         ))
 
     return result

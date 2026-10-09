@@ -126,7 +126,7 @@ class OutcomeBase(unittest.TestCase):
             path,
             {
                 "schema_version": 1, "recorded_at": _iso(merged_at),
-                "event": "merged", "pr_number": pr_number, "change_id": None,
+                "event": "merged", "pr_number": pr_number, "change_id": None, "head_lineage": "delivered",
             },
             expected_surface="pr_lifecycle",
         )
@@ -521,7 +521,7 @@ class AssessmentHotEvidenceTests(unittest.TestCase):
             from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, lifecycle_rows, record_merge
 
             record_merge(pr={"number": 9901, "head_sha": self.commit_sha}, merged_by=MERGED_BY_MERGE_LANE,
-                         base_dir=self.tools)
+                         base_dir=self.tools, head_lineage="delivered")
             merge_row = lifecycle_rows(self.tools)[-1]
         self.assertIsNone(merge_row["change_id"])
         self.first = emit_change_outcome(
@@ -918,7 +918,8 @@ class AssessmentAdverseAccountingTests(unittest.TestCase):
             )
             from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
 
-            record_merge(pr={"number": 9902, "head_sha": commit_sha}, merged_by=MERGED_BY_MERGE_LANE, base_dir=tools)
+            record_merge(pr={"number": 9902, "head_sha": commit_sha}, merged_by=MERGED_BY_MERGE_LANE, base_dir=tools,
+                         head_lineage="delivered")
         first = emit_change_outcome(change_id=change_id, repo_root=repo, base_dir=tools)
         self.assertEqual(first["verdict"], "unknown")
         outcome_path = tools / "change-ledger/outcome.jsonl"

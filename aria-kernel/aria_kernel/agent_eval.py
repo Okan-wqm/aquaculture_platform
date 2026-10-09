@@ -59,6 +59,7 @@ from .failure_attribution import (
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
+from .merge_record import lineage_credits_aria
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -970,6 +971,11 @@ def _performance_episodes(
             rejected_episodes[plan_id] = rejected
             episodes.append(rejected)
         elif kind == "implementation_merged":
+            # Review of #1910, N5 — a merge whose head is not ARIA's change (a
+            # person's commits, an unread head, a backfilled row) folds the
+            # plan MERGED but is no implementer's merged episode.
+            if not lineage_credits_aria(payload.get("head_lineage")):
+                continue
             # ARIA-HIGH-390 (review of #1910, F6) — a person merged the PR of a
             # plan the kernel had ended: the merge supersedes the rejection,
             # so the implementer is not scored both ways for one change.

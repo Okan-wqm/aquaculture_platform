@@ -1679,6 +1679,7 @@ def _record_implementation_merged(
     merge_sha: str,
     merged_at: str,
     idempotency_key_hash: str,
+    head_lineage: str,
     base_dir: str | Path | None = None,
     merged_after_rejection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -1703,6 +1704,9 @@ def _record_implementation_merged(
         "merge_sha": merge_sha,
         "merged_at": merged_at,
         "idempotency_key_hash": idempotency_key_hash,
+        # Review of #1910, N5 — what merged, so learning credits ARIA only
+        # for ARIA's change (`merge_record.lineage_credits_aria`).
+        "head_lineage": head_lineage,
     }
     if merged_after_rejection is not None:
         payload["merged_after_rejection"] = merged_after_rejection
@@ -2521,6 +2525,7 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         state["implementation"]["merge_sha"] = payload["merge_sha"]
         state["implementation"]["merged_at"] = payload["merged_at"]
         state["implementation"]["idempotency_key_hash"] = payload["idempotency_key_hash"]
+        state["implementation"]["head_lineage"] = payload.get("head_lineage")
     elif event_type == "implementation_rejected":
         # implementation_rejected has 3 legal predecessor states
         # (REQUESTED / IN_FLIGHT / RECORDED) — the rejection_class
@@ -3217,6 +3222,11 @@ def _validate_event(event: dict[str, Any]) -> None:
                     or not all(isinstance(after.get(key), str) and after[key]
                                for key in ("rejection_class", "head_sha"))):
                 raise GovernanceError("merged_after_rejection names rejection_class, pr_number and head_sha")
+        if "head_lineage" in payload:
+            from .merge_record import LINEAGES
+
+            if payload["head_lineage"] not in LINEAGES:
+                raise GovernanceError(f"head_lineage must be one of {sorted(LINEAGES)}")
         # Idempotency-key is a 5-tuple per V9.6 (closes arb HIGH-006).
         # Encoded here as a sha256 hash of the canonical tuple so the
         # validator can _require_hash without re-implementing 5-field

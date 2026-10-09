@@ -45,6 +45,7 @@ from .human_required_adjudication import sweep_human_required_adjudications
 from .agent_invocations import reap_stale_claims
 from .calibration import recommend_calibration
 from .calibration_actuator import apply_bounded_calibration
+from .capability_resolver import SERVICE_HARDENING_CAPABILITY
 from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
@@ -2685,7 +2686,7 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
             ),
             next_action=next_action,
             wake_condition=wake_condition,
-            capability="service_hardening",
+            capability=SERVICE_HARDENING_CAPABILITY,
             priority=priority,
             target_project=project,
             base_dir=context.base_dir,

@@ -1,10 +1,4 @@
 {
-  "require_capability_resolution": {
-    "expires_on": "2026-10-20",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "Refuses a mission step whose required capability is unresolved. The CAPABILITY_REQUIRED flow it belongs to is PLAN Wave 6 (parent mission blocks, genesis child mission produces the capability, parent resumes); until that flow exists there is no caller with a capability to resolve. Renewed 2026-09-21 for thirty days by the operator's delegate: the flow this control belongs to has not started, and the six dormancy waivers lapsed together on 2026-09-20 and turned every kernel lane red."
-  },
   "require_lifecycle_state": {
     "expires_on": "2026-10-20",
     "finding_id": "ORPHAN-HIGH-573",

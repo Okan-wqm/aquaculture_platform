@@ -1413,6 +1413,15 @@ def build_parser() -> argparse.ArgumentParser:
     comp_list.add_argument("--rejected-only", action="store_true")
     comp_list.add_argument("--limit", type=int, default=None)
 
+    # ARIA-025-D1 — judge replay operator verb (gold-set recall).
+    judge_parser = add_subparser(sub, "judge")
+    judge_sub = judge_parser.add_subparsers(dest="judge_command", required=True)
+    judge_replay = add_subparser(judge_sub, "replay")
+    judge_replay.add_argument("--tool-id", default=None,
+        help="Replay one tool's gold corpus; without it every registered tool is walked.")
+    judge_replay.add_argument("--target-sha", default=None)
+    judge_replay.add_argument("--cycle-id", default=None)
+
     # ORPHAN-HIGH-573 — whole-inventory workflow registry verdict verb.
     # The caller that always sees the real repo (preflight legitimately
     # runs against synthetic workspaces, so the inventory verdict cannot
@@ -4397,6 +4406,54 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(rows, indent=2, sort_keys=True))
         return 0
+
+    # ARIA-025-D1 — judge replay operator verb dispatch.
+    if args.command == "judge" and args.judge_command == "replay":
+        from .judge_calibration import score_judges
+        from .judge_replay import REPLAY_GROUP_PREFIX, replay_judges_on_goldset
+
+        if args.tool_id:
+            tool_ids = [args.tool_id]
+        else:
+            tool_ids = [
+                str(tool.get("tool_id") or "")
+                for tool in list_tools(base_dir=args.tools_dir)
+            ]
+            tool_ids = [tool_id for tool_id in tool_ids if tool_id]
+        replayed: list[dict[str, Any]] = []
+        for tool_id in tool_ids:
+            try:
+                result = replay_judges_on_goldset(
+                    tool_id=tool_id,
+                    base_dir=args.tools_dir,
+                    target_sha=args.target_sha,
+                    cycle_id=args.cycle_id,
+                )
+                replayed.append({"tool_id": tool_id, **result})
+            except GovernanceError as exc:
+                replayed.append({
+                    "tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200],
+                })
+        # The read path is score_judges (pure): compute_judge_calibration
+        # appends an audit row per call and the cycle phase owns that append.
+        recall_prefix = (
+            f"{REPLAY_GROUP_PREFIX}{args.tool_id}:" if args.tool_id else REPLAY_GROUP_PREFIX
+        )
+        recall = score_judges(
+            base_dir=args.tools_dir, judgment_group_prefix=recall_prefix,
+        )
+        # Every tool blocked — refused outright, or throttled before a single
+        # judge was admitted — is a failed replay, and the exit code says so
+        # for operator scripts; a partial replay reports per tool and exits 0.
+        blocked = [
+            row for row in replayed
+            if row.get("status") == "blocked"
+            or (row.get("request_admission_throttled") and not row.get("minted"))
+        ]
+        status = "blocked" if replayed and len(blocked) == len(replayed) else "completed"
+        payload = {"status": status, "replayed": replayed, "replay_recall": recall}
+        print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+        return 1 if status == "blocked" else 0
 
     # ORPHAN-HIGH-573 — whole-inventory workflow registry verdict verb.
     if args.command == "workflow" and args.workflow_command == "verify-registry":

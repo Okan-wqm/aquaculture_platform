@@ -65,6 +65,48 @@ def feedback_dial(row: Mapping[str, Any]) -> tuple[str, str] | None:
     return None
 
 
+#: The judge id the gold-set replay seeds its ground-truth anchors under
+#: (``judge_replay.replay_judges_on_goldset``).
+GOLDSET_REPLAY_JUDGE_ID = "goldset-replay"
+
+
+def moves_auto_applied_dial(row: Mapping[str, Any]) -> bool:
+    """May this labelled row move a dial the actuator AUTO-APPLIES?
+
+    Review of #1896 (HIGH). One ``judge replay --tool-id tool-x`` moved the
+    actuator's fresh labels from {0, 0} to {tp 2, fp 1, labels 3}: the
+    replay's seeded anchors and its judges' verdicts were counted as new
+    evidence about the tool, although a replay re-asks questions whose
+    answers are already known — it measures the JUDGES, never the adapter.
+    The cycle phase's replay had the same effect before the verb existed.
+
+    The rule, decided once here for every auto-applied dial:
+      * only a verdict about a FINDING moves a dial — a belief verdict
+        (``judgment_subject == "belief"``) is about the belief, not the tool;
+      * nothing from a replay moves a dial — no ``replay:`` judgment group,
+        no ``goldset-replay`` seed;
+      * only GROUND TRUTH moves a dial: a human label, or an ai_consensus
+        row that is an anchor (``feedback_store.is_ground_truth_row``). A
+        single ``ai_judge`` verdict, or a 2-judge consensus nobody tried to
+        refute, is an opinion, and an auto-applied dial is the last place to
+        let an opinion act without a person.
+    """
+    from .feedback_store import JUDGMENT_SUBJECT_FINDING, is_ground_truth_row, judgment_subject_of
+    from .judge_replay import REPLAY_GROUP_PREFIX
+
+    # A verdict about a BELIEF (an operator settling a belief escalation,
+    # recorded with the source tool's id) says nothing about the adapter's
+    # precision; the adapter-precision lanes already exclude it.
+    if judgment_subject_of(dict(row)) != JUDGMENT_SUBJECT_FINDING:
+        return False
+    group = row.get("judgment_group_id")
+    if isinstance(group, str) and group.startswith(REPLAY_GROUP_PREFIX):
+        return False
+    if row.get("judge_id") == GOLDSET_REPLAY_JUDGE_ID:
+        return False
+    return is_ground_truth_row(dict(row))
+
+
 def auto_applied_rows(base_dir: str | Path | None) -> list[dict[str, Any]]:
     from .ledger import load_declared_jsonl
     from .tool_registry import ensure_tools_dir_readonly
@@ -104,4 +146,5 @@ def tool_pressure_weights(base_dir: str | Path | None) -> dict[str, int]:
 __all__ = [
     "AUTO_APPLIED_PATH", "AUTO_APPLIED_SURFACE", "SECURITY_TOOLS", "SOURCE_DIAL", "clamp_dial", "dial_bounds", "TOOL_DIAL", "TOOL_DIAL_MAX",
     "TOOL_DIAL_MIN", "TOOL_DIAL_NEUTRAL", "auto_applied_rows", "feedback_dial", "tool_pressure_weights",
+    "GOLDSET_REPLAY_JUDGE_ID", "moves_auto_applied_dial",
 ]

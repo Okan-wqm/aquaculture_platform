@@ -62,6 +62,7 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
             'add_subparser(skill_genesis_sub, "approve")',
             'worker_result_submit.add_argument("--lease-token"',
             'worker_result_submit.add_argument("--allow-legacy-no-token"',
+            'add_subparser(judge_sub, "replay")',
             'add_subparser(workflow_sub, "verify-registry")',
             'workflow_verify_registry.add_argument("--workspace-root", default=".")',
             'add_subparser(narrative_sub, "validate")',

@@ -744,6 +744,13 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("reports_daily", "reports/daily/*.md", "artifact", "reports", "runtime", True, "rewrite_fsync", True),
     StateSurface("burn_in_reports", "burn-in/**/*.json", "artifact", "autonomy", "runtime", True, "rewrite_fsync", True),
     StateSurface("plan_convergence_events", "plans/*.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),
+    # ARIA-HIGH-204 — the decision-questioning fold ledger. The phase mints
+    # `verification` envelopes asking upheld/overturned/insufficient_evidence;
+    # an outcome ledger outside the manifest would be a decision surface the
+    # integrity chain never covers, and without ANY ledger the verdict an
+    # agent returned stayed readable in results.jsonl while recorded nowhere —
+    # the writer-with-no-reader defect this surface exists to close.
+    StateSurface("decision_questioning_outcomes", "decision-questioning/outcomes.jsonl", "ledger", "decision_questioning", "runtime", True, "append_fsync", True),
     StateSurface("mission_events", "missions/mission-events.jsonl", "ledger", "missions", "runtime", True, "append_fsync", True),
     StateSurface("mission_index", "missions/mission-index.json", "index", "missions", "runtime", True, "rewrite_fsync", True),
     StateSurface("cost_budget", "budget/*.jsonl", "ledger", "budget", "runtime", True, "append_fsync", True),

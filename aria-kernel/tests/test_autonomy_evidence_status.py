@@ -1461,14 +1461,6 @@ def alias_factory(root):
                 "reflection reports completed cycles but cannot authorize them",
             ("executor", f"{KERNEL}human_required.py", "consumer"):
                 "human escalation observes outstanding requests",
-            # ARIA-HIGH-204 / ARIA-HIGH-396 — the questioning reader folds
-            # accepted answers into its OWN outcomes ledger and escalates
-            # overturns to the operator; it reads results but its contract
-            # forbids it from accepting or rewriting anything (a self-audit
-            # that reopened its own decisions would be a writer with no
-            # external authority behind it).
-            ("executor", f"{KERNEL}decision_questioning.py", "consumer"):
-                "questioning folds accepted answers into its own outcomes ledger and escalates overturns; it cannot accept or authorize results",
             # Plan 032 — ops/economy readers of executor results (Faz 032d–032i):
             # every one derives a count or a metric and none can accept a result.
             ("executor", f"{KERNEL}doctor.py", "consumer"):

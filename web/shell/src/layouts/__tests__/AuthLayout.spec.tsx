@@ -60,7 +60,10 @@ describe('AuthLayout', () => {
   });
 
   it('renders the industrial chrome around the real unauthenticated route', () => {
-    renderLayout();
+    const { container } = renderLayout();
+
+    // FE-HIGH-313: the Suderra reef scene is the backdrop, as decoration.
+    expect(container.querySelector('suderra-reef-scene')?.getAttribute('aria-hidden')).toBe('true');
 
     expect(screen.getByRole('region', { name: 'Suderra authentication' })).toBeTruthy();
     expect(screen.getByText('Real auth route')).toBeTruthy();

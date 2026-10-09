@@ -1,0 +1,31 @@
+<svg viewBox="0 0 152 94" style="width:100%;height:100%;overflow:visible">
+    <defs>
+      <linearGradient id="gb-__ID__" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#24394A"/><stop offset="42%" stop-color="#5E7889"/><stop offset="68%" stop-color="#A7BAC5"/><stop offset="88%" stop-color="#D6E2E7"/><stop offset="100%" stop-color="#B0C2CB"/>
+      </linearGradient>
+      <linearGradient id="gt-__ID__" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22394A"/><stop offset="100%" stop-color="#48657A"/></linearGradient>
+    </defs>
+    <g class="pitchg" style="transform-origin:88px 49px">
+      <g class="tailg" style="transform-origin:40px 49px">
+        <path d="M40 41 C31 34 23 30 13 28.5 C17.5 36 19 43 18.5 49 C19 55.5 17.5 62 13 69.5 C23 68 31 64 40 57 Z" fill="url(#gt-__ID__)"/>
+        <path d="M37 44 C29 39 24 35.5 17 33" stroke="rgba(210,230,238,0.1)" stroke-width="0.7" fill="none"/>
+        <path d="M37 54 C29 59 24 62.5 17 65" stroke="rgba(210,230,238,0.1)" stroke-width="0.7" fill="none"/>
+      </g>
+      <path d="M114 82 C107 87 98 87.5 92 84.5 C99 82 107 80.5 111 79.5 Z" fill="rgba(60,85,100,0.55)"/>
+      <path d="M89 79 C86 84 80 86.5 76 85.5 C80 82 84 79.5 87 78.5 Z" fill="rgba(60,85,100,0.5)"/>
+      <path d="M146 50 C143 39 136 28 122 20 C106 11 84 10 66 17 C51 23 40 34 36 45 L36 53 C40 64 51 74 66 80 C84 87 106 86 122 77 C136 70 143 60 146 50 Z" fill="url(#gb-__ID__)"/>
+      <path d="M64 18 L68 8.5 L72 15 L77 8 L81 14.5 L86 8 L90 14.5 L95 8.5 L98 14.5 C106 12.5 114 13 120 16.5 L118 19 C100 13.5 80 14 64 18 Z" fill="rgba(28,48,62,0.85)"/>
+      <path d="M64 17 C88 11 112 12 128 22" stroke="rgba(200,240,238,0.09)" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+      <path d="M48 42 C80 38 112 39 132 44" stroke="rgba(190,215,225,0.16)" stroke-width="0.8" fill="none"/>
+      <path d="M126 27 C118 34 116 62 125 70" stroke="rgba(8,22,32,0.4)" stroke-width="1.4" fill="none"/>
+      <ellipse cx="118" cy="31" rx="3.6" ry="4.6" fill="rgba(10,20,28,0.4)"/>
+      <path d="M137 30 C135 34 134.5 38 135.5 42" stroke="rgba(212,178,96,0.55)" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+      <path d="M137 30 C135 34 134.5 38 135.5 42" stroke="rgba(255,224,150,0.2)" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+      <path d="M146 50 C142 52 138 53 134.5 53" stroke="rgba(6,16,24,0.55)" stroke-width="1.1" fill="none"/>
+      <g class="pectg" style="transform-origin:118px 58px">
+        <path d="M118 57 C111 63 102 67.5 94 69 C101 70.5 111 68.5 119 62 Z" fill="rgba(140,168,182,0.5)" stroke="rgba(200,230,240,0.14)" stroke-width="0.5"/>
+      </g>
+      <circle cx="129" cy="41" r="4" fill="none" stroke="rgba(200,240,238,0.26)" stroke-width="0.8"/>
+      <circle cx="129" cy="41" r="3.3" fill="#0A151D"/>
+      <circle cx="130.2" cy="39.8" r="1" fill="rgba(230,245,248,0.85)"/>
+    </g></svg>

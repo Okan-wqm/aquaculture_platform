@@ -1,7 +1,7 @@
 /**
  * Vitest Test Setup — shell.
  * Provides jsdom shims the auth surface needs (matchMedia for the reduced-motion
- * guard, ResizeObserver for FishBackground) and a clean storage per test.
+ * guard, ResizeObserver for the reef scene) and a clean storage per test.
  */
 import { beforeEach } from 'vitest';
 
@@ -20,7 +20,7 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   });
 }
 
-// jsdom does not implement ResizeObserver (used by FishBackground). A no-op class
+// jsdom does not implement ResizeObserver (used by the reef scene). A no-op class
 // satisfies the constructor + observe/unobserve/disconnect surface.
 if (typeof globalThis.ResizeObserver === 'undefined') {
   class ResizeObserverMock {

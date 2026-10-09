@@ -250,7 +250,34 @@
   --color-sd-ink-hint: #8aa0aa; /* placeholder / empty-state hint text */
   --color-sd-mint-paper: #eafaf4; /* text on the deep-teal composer button */
   --color-sd-rule: rgba(10, 31, 43, 0.09); /* hairline dividers on paper */
+  --color-sd-sea: #4fb6c8; /* cyan accent: eyebrow dot, info tint */
+  --color-sd-mint-deep: #4abba2; /* success accent on paper */
+  --color-sd-mint-ink: #166f5a; /* success text on paper */
+  --color-sd-rail-bright: #eaf6f8; /* rail brand name, hovered child label */
+  --color-sd-rail-accent: #8fd8e4; /* rail brand caption */
   --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
+}
+
+/* SUDERRA tokens under the dark theme (FE-HIGH-313). The paper/ink tokens are
+   the surface pair every sd-* page paints with, so the dark theme re-assigns
+   them here once and every `bg-sd-paper` / `text-sd-ink` follows the shell's
+   toggle with no `dark:` sibling of its own. The rail tokens stay: the rail is
+   deep water in both themes. `mint-paper` is the text ON `teal-deep`, so the
+   two flip together and keep their contrast. */
+[data-theme='dark'] {
+  --color-sd-paper: #071a28;
+  --color-sd-parchment: #0d2434;
+  --color-sd-ink: #e6f1f4;
+  --color-sd-ink-soft: #b5ccd4;
+  --color-sd-ink-muted: #8fb0bb;
+  --color-sd-ink-hint: #7c9aa6;
+  --color-sd-teal: #5fc0d1;
+  --color-sd-teal-deep: #8fd8e4;
+  --color-sd-mint-paper: #06202a;
+  --color-sd-mint-ink: #7cdcc0;
+  --color-sd-danger: #e07a55;
+  --color-sd-danger-ink: #f0a58a;
+  --color-sd-rule: rgba(198, 221, 228, 0.12);
 }
 
 /* Custom keyframes (v4 keeps keyframes in the stylesheet, not the config). */

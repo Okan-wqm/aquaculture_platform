@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserPlus, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ConfirmModal, useAuth, PageHeader, Button } from '@aquaculture/shared-ui';
+import { ConfirmModal, useAuth, PageHeader, Button, useI18n } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
@@ -83,6 +83,7 @@ const TenantUsers: React.FC = () => {
   // hasResourcePermission, so this is a superset that additionally honours a
   // delegate holding the specific users:* capability (previously blocked).
   const { hasPermission, user: currentUser } = useAuth();
+  const { t } = useI18n();
   const canInviteUsers = hasPermission('users:invite');
   const canEditUsers = hasPermission('users:edit_permissions');
   const canDeactivateUsers = hasPermission('users:deactivate');
@@ -287,9 +288,10 @@ const TenantUsers: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="sd-page">
       {/* Page Header */}
       <PageHeader
+        eyebrow={<span className="sd-eyebrow">{t('nav.section.people')}</span>}
         title="Users"
         description="Manage users and their access to modules and farm sites"
         actions={
@@ -441,6 +443,7 @@ const TenantUsers: React.FC = () => {
           variant="danger"
           isLoading={isDeleting}
           loadingText="Processing..."
+          surface="suderra"
         />
       )}
 
@@ -457,6 +460,7 @@ const TenantUsers: React.FC = () => {
           variant="warning"
           isLoading={activateUserMutation.isPending}
           loadingText="Processing..."
+          surface="suderra"
         />
       )}
 
@@ -473,6 +477,7 @@ const TenantUsers: React.FC = () => {
           variant="warning"
           isLoading={unlockUserMutation.isPending}
           loadingText="Processing..."
+          surface="suderra"
         />
       )}
 

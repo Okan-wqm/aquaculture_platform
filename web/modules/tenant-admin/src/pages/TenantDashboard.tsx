@@ -8,6 +8,7 @@ import {
   parseMoney,
   PageHeader,
   Button,
+  useI18n,
 } from '@aquaculture/shared-ui';
 import {
   Users,
@@ -25,6 +26,7 @@ import { getMyModules, getTenantUsers, getMySubscription } from '../lib/api';
 import type { User, MyModule } from '../lib/types';
 import { useTenantStats } from '../hooks/useTenantData';
 import { formatRelativeTime, formatDate } from '../utils/date-utils';
+import { SD_CARD, SD_CARD_LABEL, SD_STAT_TITLE, SD_STAT_VALUE } from '../components/ui/suderra';
 
 /**
  * Stat card data type
@@ -94,9 +96,9 @@ const colorClasses = {
     text: 'text-warning-600 dark:text-warning-400',
   },
   purple: {
-    bg: 'bg-accent-50 dark:bg-accent-900/20',
-    icon: 'bg-accent-100 dark:bg-accent-900/40 text-accent-600 dark:text-accent-400',
-    text: 'text-accent-600 dark:text-accent-400',
+    bg: 'bg-warning-50 dark:bg-warning-900/20',
+    icon: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    text: 'text-warning-700 dark:text-warning-300',
   },
 };
 
@@ -143,6 +145,7 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({ status }) =
 const TenantDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useI18n();
 
   // Use TanStack Query for stats (PERF-001)
   const { data: tenantStats } = useTenantStats();
@@ -243,7 +246,7 @@ const TenantDashboard: React.FC = () => {
         title: 'Total Users',
         value: totalUsers,
         changeLabel: `${activeUsers} active`,
-        icon: <Users className="w-6 h-6" />,
+        icon: <Users className="w-4 h-4" aria-hidden="true" />,
         color: 'green',
       },
       {
@@ -251,7 +254,7 @@ const TenantDashboard: React.FC = () => {
         title: 'Active Modules',
         value: activeModules,
         changeLabel: `of ${totalModules} assigned`,
-        icon: <Package className="w-6 h-6" />,
+        icon: <Package className="w-4 h-4" aria-hidden="true" />,
         color: 'blue',
       },
       {
@@ -259,7 +262,7 @@ const TenantDashboard: React.FC = () => {
         title: 'Active Sessions',
         value: tenantStats?.activeSessions ?? activeUsers,
         changeLabel: 'users online',
-        icon: <Activity className="w-6 h-6" />,
+        icon: <Activity className="w-4 h-4" aria-hidden="true" />,
         color: 'yellow',
       },
       {
@@ -268,7 +271,7 @@ const TenantDashboard: React.FC = () => {
         value: monthlyGrowth > 0 ? `+${monthlyGrowth}%` : '0%',
         change: monthlyGrowth,
         changeLabel: 'user growth',
-        icon: <TrendingUp className="w-6 h-6" />,
+        icon: <TrendingUp className="w-4 h-4" aria-hidden="true" />,
         color: 'purple',
       },
     ],
@@ -295,9 +298,10 @@ const TenantDashboard: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="sd-page">
       {/* Page Header */}
       <PageHeader
+        eyebrow={<span className="sd-eyebrow">{t('nav.overview')}</span>}
         title="Dashboard"
         description="Welcome back! Here's what's happening with your tenant."
         actions={
@@ -336,7 +340,7 @@ const TenantDashboard: React.FC = () => {
 
       {/* Subscription Banner */}
       {subscription && (
-        <div className="bg-gradient-to-r from-success-50 via-info-50 to-accent-50 rounded-xl border border-success-200 dark:border-success-800 p-6">
+        <div className="bg-gradient-to-r from-success-50 via-info-50 to-warning-50 rounded-[14px] border border-success-200 dark:border-success-800 p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-xl bg-success-100 dark:bg-success-900/40">
@@ -382,7 +386,7 @@ const TenantDashboard: React.FC = () => {
             </div>
             <div className="flex items-center gap-6">
               <div className="text-right">
-                <p className="text-2xl font-bold text-success-600 dark:text-success-400">
+                <p className="font-display text-[30px] leading-none text-gray-900 dark:text-gray-100">
                   ${parseMoney(subscription.pricing.basePriceDecimal)}
                   <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/mo</span>
                 </p>
@@ -408,31 +412,20 @@ const TenantDashboard: React.FC = () => {
         {statsData.map((stat) => {
           const colors = colorClasses[stat.color];
           return (
-            <div
-              key={stat.id}
-              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between">
-                <div className={`p-3 rounded-xl ${colors.icon}`}>{stat.icon}</div>
-                {stat.change !== undefined && stat.change > 0 && (
-                  <div className="flex items-center gap-1 text-sm font-medium text-success-600 dark:text-success-400">
-                    <ArrowUpRight className="w-4 h-4" />
-                    {stat.change}%
-                  </div>
-                )}
+            <div key={stat.id} className={`${SD_CARD} flex flex-col gap-2 px-5 py-4`}>
+              <div className="flex items-start justify-between gap-2.5">
+                <h3 className={SD_STAT_TITLE}>{stat.title}</h3>
+                <div className={`rounded-lg p-1.5 ${colors.icon}`}>{stat.icon}</div>
               </div>
-              <div className="mt-4">
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  {stat.title}
-                </h3>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-                  {stat.value}
-                </p>
-                {stat.changeLabel && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    {stat.changeLabel}
-                  </p>
+              <p className={SD_STAT_VALUE}>{stat.value}</p>
+              <div className="flex items-center gap-2 text-[13px] text-gray-600 dark:text-gray-300">
+                {stat.change !== undefined && stat.change > 0 && (
+                  <span className="flex items-center gap-0.5 font-medium text-success-700 dark:text-success-300">
+                    <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
+                    {stat.change}%
+                  </span>
                 )}
+                {stat.changeLabel}
               </div>
             </div>
           );
@@ -442,12 +435,10 @@ const TenantDashboard: React.FC = () => {
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Modules Status - Takes 2 columns */}
-        <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+        <div className={`lg:col-span-2 overflow-hidden ${SD_CARD}`}>
+          <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Module Status
-              </h2>
+              <h2 className={SD_CARD_LABEL}>Module Status</h2>
               <Button variant="ghost" onClick={() => navigate('/tenant/modules')}>
                 View All
               </Button>
@@ -498,12 +489,10 @@ const TenantDashboard: React.FC = () => {
         </div>
 
         {/* Recent Activity - Takes 1 column */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+        <div className={SD_CARD}>
+          <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Recent Activity
-              </h2>
+              <h2 className={SD_CARD_LABEL}>Recent Activity</h2>
             </div>
           </div>
           {activities.length === 0 ? (
@@ -522,7 +511,7 @@ const TenantDashboard: React.FC = () => {
                         : activity.type === 'module_assigned'
                           ? 'bg-info-100 dark:bg-info-900/40 text-info-600 dark:text-info-400'
                           : activity.type === 'login'
-                            ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-600 dark:text-accent-400'
+                            ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300'
                             : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                     }`}
                   >
@@ -550,24 +539,24 @@ const TenantDashboard: React.FC = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-gradient-to-r from-success-600 to-success-700 rounded-xl p-6 text-white">
+      <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-[14px] p-6 text-white">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h3 className="text-lg font-semibold">Need to add more users?</h3>
-            <p className="text-success-100 text-sm mt-1">
+            <p className="text-primary-100 text-sm mt-1">
               Invite team members to collaborate on your aquaculture operations.
             </p>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/tenant/modules')}
-              className="px-4 py-2 text-sm font-medium text-success-600 bg-white dark:bg-gray-900 rounded-lg hover:bg-success-50 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-primary-700 bg-white dark:bg-gray-900 dark:text-primary-200 rounded-full hover:bg-primary-50 transition-colors"
             >
               View Modules
             </button>
             <button
               onClick={() => navigate('/tenant/users')}
-              className="px-4 py-2 text-sm font-medium text-white bg-success-800 rounded-lg hover:bg-success-900 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white bg-primary-900 rounded-full hover:bg-primary-800 transition-colors"
             >
               Invite Users
             </button>

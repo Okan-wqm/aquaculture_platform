@@ -95,9 +95,12 @@ export function fixture(opts: { bareMain?: boolean } = {}): Fixture {
   git(['init', '--quiet', '--bare', '-b', 'main', origin]);
   git(['clone', '--quiet', origin, seed]);
   writeFileSync(join(seed, 'README.md'), 'seed\n');
+  // Like the real repository: ARIA's committed code is in every checkout.
+  mkdirSync(join(seed, 'aria-tools'));
+  writeFileSync(join(seed, 'aria-tools', 'repo_identity.json'), '{}\n');
   writeFileSync(
     join(seed, '.gitignore'),
-    'node_modules\n.state/\n.full-review/\ndist\n__pycache__/\naria-findings/\n.aria-ci/\naria-tools/\n.aria-state-store/\n',
+    'node_modules\n.state/\n.full-review/\ndist\n__pycache__/\naria-findings/\n.aria-ci/\n.aria-state-store/\n',
   );
   git(['-C', seed, 'add', '.']);
   git(['-C', seed, 'commit', '--quiet', '-m', 'seed'], OLD_ENV);

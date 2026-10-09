@@ -118,20 +118,23 @@ removable, about 1.3 GB.
 - The user decided on 2026-10-09: "ARIA'ya özgü yapılar silinmemeli" — ARIA-specific
   structures must never be deleted. That replaced the ARIA allow-list above (and the
   `aria-tools/secrets|memory|audit` carve-out an infra review had asked for) with an explicit
-  keep rule, not an inference: a worktree holding `aria-findings`, `.aria-ci`, `aria-tools`,
-  `aria-worktrees`, `.aria-state-store`, `state.git`, `.claude/agents/.dispatch-log.jsonl` or a
-  top-level `aria-agent-outputs*` entry (tracked or ignored), on a branch with a segment
-  starting `aria`, or with `aria` in any directory name of its path is kept (`kept_aria`), never
-  removed or quarantined. The hard exclusions for canonical ARIA state stay.
+  keep rule, not an inference: a worktree on a branch with a segment starting `aria`, with `aria`
+  in any directory name of its path, or holding an untracked or ignored file under
+  `aria-findings`, `.aria-ci`, `aria-tools`, `aria-worktrees`, `.aria-state-store`, `state.git`,
+  `.claude/agents/.dispatch-log.jsonl` or a top-level `aria-agent-outputs*` entry is kept
+  (`kept_aria`), never removed or quarantined. Tracked, unmodified files under those paths are
+  ARIA's committed code, preserved in git, and do not keep a worktree (a first version counted
+  them and kept every checkout). The hard exclusions for canonical ARIA state stay.
 
 ### Status of INFRA-HIGH-208: not resolved
 
-The unarmed pass after the user's decision (2026-10-09) removes nothing: 114 worktrees are
-`kept_aria`, because `aria-tools/` is tracked in this repository, so every checkout contains it.
-51 of those 114 hold no ARIA content beyond the tracked, unmodified files. The collector is
-correct and safe, but it does not yet free the disk the finding is about, so the finding stays
-OPEN. Narrowing the rule (for example, counting only untracked, ignored or modified ARIA
-content) is the user's decision to make.
+The unarmed pass after the user's decision (2026-10-09) still removes nothing. Of 156
+worktrees, 91 are `kept_aria`: 59 by branch name (the merged agent worktrees are almost all
+`fix/aria-*`, `train/aria-*` branches), 9 by directory name, and 23 because they hold ignored
+`aria-findings/` or `.aria-ci/` files only they have. The rest are outside the roots,
+protected, unmerged, recently active or dirty. The collector is correct and safe, but under
+the user's rule it frees no disk on this host today, so the finding stays OPEN; whether ARIA
+worktrees whose work is merged may go is the user's decision.
 
 ### Not done here
 

@@ -129,8 +129,11 @@ export function isRebuildableCache(path: string): boolean {
  * ARIA-specific structures are never deleted - the user's decision of
  * 2026-10-09 ("ARIA'ya özgü yapılar silinmemeli"), which replaced an
  * earlier allow-list that had treated some ARIA paths as disposable inside
- * <repo>/.worktrees. A worktree is ARIA's, and kept, when it contains any of
- * these paths - tracked, untracked or ignored, file, directory or symlink:
+ * <repo>/.worktrees. A worktree is ARIA's, and kept, when it holds content
+ * under one of these paths that only it has: an untracked or ignored file
+ * (worktree-gc.ts asks git), or a tracked modification (kept as dirty).
+ * Tracked, unmodified files there are ARIA's committed code, preserved in
+ * git, and do not keep a worktree.
  */
 export const ARIA_ARTIFACT_PATHS = [
   'aria-findings',
@@ -143,26 +146,8 @@ export const ARIA_ARTIFACT_PATHS = [
 ];
 /** ...or a top-level entry whose name starts with `aria-agent-outputs`. */
 const ARIA_ARTIFACT_PREFIX = 'aria-agent-outputs';
-
-function lexists(path: string): boolean {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** The first ARIA artifact path present in the worktree, or null. */
-export function ariaArtifact(worktree: string): string | null {
-  const named = ARIA_ARTIFACT_PATHS.find((p) => lexists(join(worktree, p)));
-  if (named) return named;
-  try {
-    return readdirSync(worktree).find((e) => e.startsWith(ARIA_ARTIFACT_PREFIX)) ?? null;
-  } catch {
-    return null;
-  }
-}
+/** The same set as git pathspecs. */
+export const ARIA_PATHSPECS = [...ARIA_ARTIFACT_PATHS, `${ARIA_ARTIFACT_PREFIX}*`];
 
 /**
  * ...or whose name says it is ARIA's work, case-insensitively:

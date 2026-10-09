@@ -80,7 +80,7 @@ import {
   type WorktreeRecord,
 } from './worktree-list.ts';
 import {
-  ariaArtifact,
+  ARIA_PATHSPECS,
   ariaName,
   canonical,
   headRef,
@@ -281,16 +281,33 @@ function classifyLeftover(pass: Pass, real: string): Verdict {
 
 /**
  * ARIA-specific structures are never removed or quarantined (user decision,
- * 2026-10-09): an ARIA artifact path in the tree, or an ARIA branch or
- * directory name (worktree-state.ts spells out the matchers).
+ * 2026-10-09): an ARIA branch or directory name, or an untracked or ignored
+ * file under an ARIA artifact path that only this worktree holds
+ * (worktree-state.ts spells out the matchers and paths).
  */
-function ariaVerdict(record: WorktreeRecord, real: string | null): Verdict | null {
-  const artifact = real === null ? null : ariaArtifact(real);
-  if (artifact) return { reason: 'aria', detail: `contains ${artifact}` };
+function ariaVerdict(record: WorktreeRecord, real: string | null, pass: Pass): Verdict | null {
   const gitDir = real === null ? null : worktreeGitDir(real);
   const ref = (gitDir === null ? null : headRef(gitDir)) ?? record.branch;
   const name = ariaName(ref, real ?? record.path) ?? ariaName(null, record.path);
-  return name ? { reason: 'aria', detail: name } : null;
+  if (name) return { reason: 'aria', detail: name };
+  if (real === null) return null;
+  // No .git file: only a tree this collector moved into quarantine after it
+  // passed this same check (then readable by git) ends up like this.
+  if (isStranded(real)) return null;
+  const status = gitIn(pass, real, [
+    '--no-optional-locks',
+    'status',
+    '--porcelain',
+    '--ignored=matching',
+    '--untracked-files=all',
+    '--',
+    ...ARIA_PATHSPECS,
+  ]);
+  if (!status.ok) return { reason: 'status_failed', detail: firstLine(status.stderr) };
+  const own = status.stdout.split('\n').find((l) => l.startsWith('?? ') || l.startsWith('!! '));
+  return own
+    ? { reason: 'aria', detail: `holds ${own.slice(3)}, which only this worktree has` }
+    : null;
 }
 
 /** Every check except the process scan and symlink dependents. Re-run before each removal. */
@@ -300,7 +317,7 @@ function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
   const location = classifyLocation(record.path, real, config.roots, config.protectedPaths);
   if (location) return { reason: location };
   if (record.locked) return { reason: 'locked' };
-  const aria = ariaVerdict(record, real);
+  const aria = ariaVerdict(record, real, pass);
   if (aria) return aria;
   if (quarantineOf(record.path, config.roots)) {
     if (real === null || isStranded(real)) return { reason: 'quarantine_stranded' };
@@ -439,7 +456,8 @@ function quarantineOrphans(pass: Pass): WorktreeReport[] {
         reason: 'quarantine_orphan',
       };
       orphans.push(report);
-      const aria = ariaArtifact(path) ?? ariaName(null, path);
+      // Content is judged by git once the tree is readable again (next pass).
+      const aria = ariaName(null, path);
       if (aria) {
         report.reason = 'aria';
         report.detail = aria;

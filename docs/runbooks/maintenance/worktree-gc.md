@@ -32,9 +32,11 @@ A worktree is removed only when every one of these holds:
 3. It is not ARIA's (`aria`). ARIA-specific structures are never deleted or quarantined, by
    the user's decision of 2026-10-09 ("ARIA'ya özgü yapılar silinmemeli") — an explicit rule,
    not an inference about which ARIA files are disposable. A worktree is ARIA's when:
-   - it contains, tracked or untracked or ignored, any of `aria-findings`, `.aria-ci`,
-     `aria-tools`, `aria-worktrees`, `.aria-state-store`, `state.git`,
-     `.claude/agents/.dispatch-log.jsonl`, or a top-level `aria-agent-outputs*` entry;
+   - it holds an untracked or ignored file — something only this worktree has — under any of
+     `aria-findings`, `.aria-ci`, `aria-tools`, `aria-worktrees`, `.aria-state-store`,
+     `state.git`, `.claude/agents/.dispatch-log.jsonl` or a top-level `aria-agent-outputs*`
+     entry (a tracked modification there keeps it as `merged_but_dirty`). Tracked, unmodified
+     files there are ARIA's committed code, preserved in git, and do not keep a worktree;
    - its branch has a path segment starting with `aria`, case-insensitive (`aria/...`,
      `x/aria-...`, `lane/aria...`, `claude/aria-...`);
    - any directory in its path contains `aria`, case-insensitive (`*aria*`; deliberately broad:

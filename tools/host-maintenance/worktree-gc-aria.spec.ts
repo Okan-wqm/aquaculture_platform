@@ -15,7 +15,7 @@ import { test } from 'node:test';
 
 import { BUILTIN_PROTECTED, classifyLocation, isAriaStatePath } from './gc-config.ts';
 import { QUARANTINE_DIR } from './gc-quarantine.ts';
-import { addWorktree, fixture, reportFor, runGc } from './gc-test-fixture.ts';
+import { addWorktree, fixture, git, reportFor, runGc } from './gc-test-fixture.ts';
 import { ARIA_ARTIFACT_PATHS, ariaName } from './worktree-state.ts';
 
 void test('canonical ARIA state is never collectable, however wide the roots', () => {
@@ -50,26 +50,71 @@ void test('a worktree under a .aria-state-store directory is kept', () => {
   assert.ok(existsSync(store));
 });
 
-void test('a worktree holding any ARIA artifact is kept and never quarantined', () => {
+void test('tracked, unmodified ARIA code does not keep a worktree', () => {
   const fx = fixture();
-  const artifacts = [...ARIA_ARTIFACT_PATHS, 'aria-agent-outputs-2026-10-09'];
-  const holders = artifacts.map((artifact, i) => {
+  const wt = addWorktree(fx, 'plain');
+  assert.ok(existsSync(join(wt, 'aria-tools', 'repo_identity.json')));
+
+  const run = runGc(fx);
+
+  assert.equal(reportFor(run, wt).decision, 'removed');
+  // Still in git: removing the worktree deleted no ARIA structure.
+  assert.equal(git(['-C', fx.repo, 'show', 'origin/main:aria-tools/repo_identity.json']), '{}\n');
+});
+
+void test('an untracked file under aria-tools keeps the worktree', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'untracked-ledger');
+  writeFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), '{}\n');
+
+  const report = reportFor(runGc(fx), wt);
+
+  assert.equal(report.reason, 'aria');
+  assert.match(String(report.detail), /aria-tools\/cycles\.jsonl/);
+  assert.ok(existsSync(join(wt, 'aria-tools', 'cycles.jsonl')));
+});
+
+void test('an ignored file under .aria-ci keeps the worktree', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'ignored-evidence');
+  mkdirSync(join(wt, '.aria-ci'));
+  writeFileSync(join(wt, '.aria-ci', 'evidence.json'), '{}\n');
+
+  const report = reportFor(runGc(fx), wt);
+
+  assert.equal(report.reason, 'aria');
+  assert.match(String(report.detail), /\.aria-ci/);
+  assert.ok(existsSync(join(wt, '.aria-ci', 'evidence.json')));
+});
+
+void test('every ARIA artifact path keeps a worktree that alone holds content there', () => {
+  const fx = fixture();
+  const files = [
+    'aria-findings/F-001.json',
+    'aria-worktrees/lane-1/x',
+    '.aria-state-store/HEAD',
+    'state.git',
+    '.claude/agents/.dispatch-log.jsonl',
+    'aria-agent-outputs-2026-10-09/out.json',
+  ];
+  assert.ok(
+    ARIA_ARTIFACT_PATHS.every(
+      (p) => p === 'aria-tools' || p === '.aria-ci' || files.some((f) => f.startsWith(p)),
+    ),
+  );
+  const holders = files.map((file, i) => {
     const wt = addWorktree(fx, `holder-${i}`);
-    mkdirSync(join(wt, artifact, '..'), { recursive: true });
-    writeFileSync(join(wt, artifact), 'aria\n');
+    mkdirSync(join(wt, file, '..'), { recursive: true });
+    writeFileSync(join(wt, file), 'aria\n');
     return wt;
   });
-  const plain = addWorktree(fx, 'plain');
 
   const run = runGc(fx);
 
   holders.forEach((wt, i) => {
-    const report = reportFor(run, wt);
-    assert.equal(report.reason, 'aria', artifacts[i]);
-    assert.ok(existsSync(wt), artifacts[i]);
+    assert.equal(reportFor(run, wt).reason, 'aria', files[i]);
+    assert.ok(existsSync(join(wt, files[i] ?? '')), files[i]);
   });
-  assert.equal(run.summary.counts.kept_aria, holders.length);
-  assert.equal(reportFor(run, plain).decision, 'removed');
   const quarantine = join(fx.roots, QUARANTINE_DIR);
   assert.deepEqual(existsSync(quarantine) ? readdirSync(quarantine) : [], []);
 });

@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal, Protocol, TypedDict
 
 from .convergent_skill_authoring import run_convergent_authoring
+from .skill_genesis import materialize_generated_adapter
 from .ledger import append_declared_jsonl, load_jsonl
 from .request_admission import admit_request
 from .strict_jsonl_reader import read_strict_jsonl
@@ -306,6 +307,12 @@ def run_skill_genesis_drainer(
                 evidence_judge=evidence_judge,
                 adversarial_judge=adversarial_judge,
                 sandbox_runner=sandbox_runner,
+                # ORPHAN-HIGH-573 (skill-genesis trio) — the kernel-side
+                # materializer: imports before write, signature on the
+                # written artifact, manifest contract before register_tool.
+                # Without it an authored adapter was never written,
+                # verified, or registered.
+                materialize_fn=materialize_generated_adapter,
             )
         except Exception as _v7_exc:
             _persist_status(

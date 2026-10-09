@@ -54,6 +54,20 @@ _SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 # `*/*` frame would touch every belief. Refused at the door.
 _GLOB_METACHARACTERS = frozenset("*?[")
 
+# Bidirectional override and isolate controls (U+202A..U+202E, U+2066..U+2069)
+# reorder what an operator SEES without changing what is stored — the
+# Trojan-Source class. Refused wherever a control character is.
+_BIDI_CONTROLS = frozenset(chr(code) for code in (*range(0x202A, 0x202F), *range(0x2066, 0x206A)))
+
+
+def _holds_control(text: str, allowed: frozenset[str] = frozenset()) -> bool:
+    """True when ``text`` holds a C0/C1 control or a bidi control other than ``allowed``."""
+    return any(
+        ((ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F) or char in _BIDI_CONTROLS)
+        and char not in allowed
+        for char in text
+    )
+
 
 def canonical_runtime_signal_ref(ref: Any) -> str:
     """The stored form of one runtime-signal code ref, or a GovernanceError naming why it is refused.
@@ -66,9 +80,10 @@ def canonical_runtime_signal_ref(ref: Any) -> str:
     law finds malformed is not a path at all (``alert:HighCpu``,
     ``sarif:semgrep``): it is kept verbatim, and pressure routes it to the
     provenance channel no agent cites (``pressure_evidence.split_citable_refs``).
-    Three things no ref may carry whatever its shape: whitespace (prose is not a
-    reference), a glob metacharacter, and a ``..`` segment or leading ``/``
-    hidden behind a token prefix.
+    What no ref may carry whatever its shape: a control or bidi-override
+    character, whitespace (prose is not a reference), a glob metacharacter,
+    and a ``..`` segment or a leading ``/`` or ``~`` hidden behind a token
+    prefix (``alert:/etc/passwd``).
     """
     from .canonical_path import resolve_repo_relpath
     from .evidence_trust import parse_evidence_ref
@@ -78,13 +93,17 @@ def canonical_runtime_signal_ref(ref: Any) -> str:
         raise GovernanceError("runtime_signal_ref_not_string: a code ref is a non-empty string")
     if len(ref) > MAX_CODE_REF_CHARS:
         raise GovernanceError(f"runtime_signal_ref_too_long: {ref[:80]!r}... exceeds {MAX_CODE_REF_CHARS} chars")
-    if not _nameable_path(ref):
-        raise GovernanceError(f"agent_evidence_path_unresolvable: {ref[:120]!r} holds a control character")
+    if not _nameable_path(ref) or _holds_control(ref):
+        raise GovernanceError(
+            f"agent_evidence_path_unresolvable: {ref[:120]!r} holds a control or bidi-override character"
+        )
     if any(char.isspace() for char in ref):
         raise GovernanceError(f"runtime_signal_ref_whitespace: {ref[:120]!r} is prose, not a reference")
     if _GLOB_METACHARACTERS.intersection(ref):
         raise GovernanceError(f"runtime_signal_ref_glob: {ref[:120]!r} is a pattern, not a reference")
-    if ref.startswith(("/", "~")) or ".." in ref.replace(":", "/").split("/"):
+    # Every colon-separated part is checked, so `alert:/etc/passwd` and
+    # `sarif:~/x` are refused like a bare `/etc/passwd`.
+    if any(part.startswith(("/", "~")) for part in ref.split(":")) or ".." in ref.replace(":", "/").split("/"):
         raise GovernanceError(f"agent_evidence_path_escapes_workspace: {ref[:120]!r}")
     if _is_ledger_pointer_ref(ref):
         raise GovernanceError(f"runtime_signal_ref_ledger_pointer: {ref[:120]!r} names a kernel record, not a code area")
@@ -107,8 +126,8 @@ def _bounded_text(field: str, value: Any, limit: int, *, allow_newlines: bool) -
     text = value.strip()
     if len(text) > limit:
         raise GovernanceError(f"runtime_signal_{field}_too_long: {len(text)} chars exceeds {limit}")
-    allowed = {"\n", "\r", "\t"} if allow_newlines else set()
-    if any((ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F) and char not in allowed for char in text):
+    allowed = frozenset({"\n", "\r", "\t"}) if allow_newlines else frozenset()
+    if _holds_control(text, allowed):
         raise GovernanceError(f"runtime_signal_{field}_control_character: {text[:80]!r}")
     return text
 

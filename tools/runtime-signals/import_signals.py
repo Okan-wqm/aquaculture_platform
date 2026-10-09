@@ -238,6 +238,10 @@ def _read_bounded_json(path: Path, limit: int, label: str) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise SystemExit(f"{label} is not valid UTF-8 JSON: {exc}") from exc
+    except RecursionError as exc:
+        # A small file can still nest deeper than the parser's stack: an
+        # outside-authored document reports, it never crashes the importer.
+        raise SystemExit(f"{label} nests deeper than the JSON parser can read") from exc
 
 
 def load_path_map(path: Path) -> dict[str, str]:

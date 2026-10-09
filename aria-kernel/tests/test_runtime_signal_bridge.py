@@ -103,6 +103,10 @@ class RuntimeSignalRefLawTests(unittest.TestCase):
             "apps/x/../feed.ts": "agent_evidence_path_escapes_workspace",
             "/etc/passwd": "agent_evidence_path_escapes_workspace",
             "alert:../../x": "agent_evidence_path_escapes_workspace",
+            "alert:/etc/passwd": "agent_evidence_path_escapes_workspace",
+            "sarif:~/x": "agent_evidence_path_escapes_workspace",
+            "apps/fee\u202ed.ts": "agent_evidence_path_unresolvable",
+            "apps/fee\u2066d.ts": "agent_evidence_path_unresolvable",
             "*/*": "runtime_signal_ref_glob",
             "apps/[ab].ts": "runtime_signal_ref_glob",
             "apps/a?.ts": "runtime_signal_ref_glob",
@@ -148,6 +152,11 @@ class RuntimeSignalRefLawTests(unittest.TestCase):
             self._ingest(service="farm\nservice")
         with self.assertRaisesRegex(GovernanceError, "runtime_signal_summary_control_character"):
             self._ingest(summary="beep\x07")
+        for bidi in ("\u202a", "\u202e", "\u2066", "\u2069"):
+            with self.assertRaisesRegex(GovernanceError, "runtime_signal_service_control_character"):
+                self._ingest(service=f"farm{bidi}service")
+            with self.assertRaisesRegex(GovernanceError, "runtime_signal_summary_control_character"):
+                self._ingest(summary=f"looks fine{bidi} but is not")
         with self.assertRaisesRegex(GovernanceError, "runtime_signal_too_many_refs"):
             self._ingest(code_refs=[f"apps/f{i}.ts" for i in range(MAX_CODE_REFS + 1)])
         # A multi-line summary (a scanner message) is text, not an attack.

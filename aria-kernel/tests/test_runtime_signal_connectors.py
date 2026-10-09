@@ -262,6 +262,14 @@ class ImportSignalsTests(unittest.TestCase):
                       "--tools-dir", str(self.tools))
         self.assertIn("at most", str(caught.exception))
 
+    def test_input_nested_past_the_parser_stack_is_reported(self) -> None:
+        input_path = self.root / "deep.json"
+        input_path.write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
+        with self.assertRaises(SystemExit) as caught:
+            self._run("--kind", "incident", "--input", str(input_path), "--repo-root", str(self.repo),
+                      "--tools-dir", str(self.tools))
+        self.assertIn("nests deeper", str(caught.exception))
+
     def test_too_many_rows_are_refused(self) -> None:
         input_path = self.root / "many.json"
         input_path.write_text(json.dumps([{}] * (import_signals.MAX_ROWS + 1)), encoding="utf-8")

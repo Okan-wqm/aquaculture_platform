@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,40 @@ def rewrite_declared_fixture(
         migration_id=migration_id,
         bypass_profile_gate=True,
     )
+
+
+def rewrite_declared_out_of_band(
+    path: str | Path,
+    rows: list[dict[str, Any]],
+    *,
+    expected_surface: str,
+) -> None:
+    """Re-chain ``rows`` and write the bytes directly, bypassing the writer.
+
+    The out-of-band half of the memory fixtures: the kernel's writer refuses
+    a rewrite that changes a recorded memory row (``memory_class``, tier 1),
+    so a fixture that simulates the loss the PUBLISH and SNAPSHOT gates
+    exist to catch — the 01f37e939 manual reset, a runner rebuild — must
+    produce the tree the way those losses actually arrived: bytes on disk,
+    never a kernel call. The rows are re-chained exactly as
+    ``_rewrite_jsonl_unlocked`` would, so the snapshot's chain verification
+    sees a valid, shrunken or rewritten ledger rather than a corrupt one.
+    """
+    if not expected_surface or not expected_surface.strip():
+        raise AssertionError("expected_surface is required for declared fixtures")
+    from aria_kernel.ledger import _record_hash
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    previous: str | None = None
+    lines = []
+    for row in rows:
+        stored = dict(row)
+        stored["previous_ledger_hash"] = previous
+        stored["ledger_hash"] = _record_hash(stored, previous)
+        previous = stored["ledger_hash"]
+        lines.append(json.dumps(stored, sort_keys=True, separators=(",", ":")))
+    target.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
 
 
 def seed_repo_verified_evidence(repo: Path, files: dict[str, str]) -> str:

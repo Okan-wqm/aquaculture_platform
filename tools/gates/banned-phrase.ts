@@ -6,7 +6,7 @@
  * CLAUDE.md's "Architectural Approach" section. Fails the run when any
  * match is found in a non-exempt path.
  *
- * Banned phrases (canonical in CLAUDE.md and _shared/tier-claim-syntax.md:49-60):
+ * Banned phrases (canonical in CLAUDE.md and _shared/tier-claim-syntax.md's banned-phrase section):
  *   - "for now"
  *   - "interim solution" / "interim"
  *   - "temporary"

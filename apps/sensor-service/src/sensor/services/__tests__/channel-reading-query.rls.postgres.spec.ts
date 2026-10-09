@@ -245,6 +245,20 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
     });
   });
 
+  it('narrows the history to the named channel keys', async () => {
+    const response = await service.getSeries(
+      sensorIds[TENANT_A]!,
+      TENANT_A,
+      new Date(now - 60 * 60_000),
+      new Date(now),
+      undefined,
+      ['ph', 'no_such_key'],
+    );
+
+    expect(response.channels.map((channel) => channel.channelKey)).toEqual(['ph']);
+    expect(response.channels[0]?.points.map((point) => point.avg)).toEqual([7.3, 6.8]);
+  });
+
   it('says which store and width it read, in which zone, and marks disabled channels', async () => {
     const response = await service.getSeries(
       sensorIds[TENANT_A]!,

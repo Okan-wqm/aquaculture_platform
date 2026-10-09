@@ -1423,10 +1423,16 @@ def run_autonomy_orchestrator(
                         # reaped plan never cools its finding off, and an
                         # executor that settled first is not overwritten.
                         from .implementation_settlement import (
-                            ALREADY_SETTLED, SETTLED, settle_orphaned_plan,
+                            ALREADY_SETTLED, IN_FLIGHT, SETTLED, settle_orphaned_plan,
                         )
 
                         _settled_orphan = settle_orphaned_plan(plan_id=_orphan_plan_id, base_dir=root)
+                        if _settled_orphan.get("status") == IN_FLIGHT:
+                            # ARIA-HIGH-389 — its request holds a live claim
+                            # lease (a delivery may be opening its PR):
+                            # spared, whatever the ledger's age says.
+                            _spared_recent.append(_orphan)
+                            continue
                         if _settled_orphan.get("status") == ALREADY_SETTLED:
                             # The executor (or a concurrent reaper) wrote
                             # the terminal first, under the plan lock.

@@ -3,14 +3,14 @@
  *
  * Problems are computed at read time with the bind's own rule (plan D12):
  * a channel disabled, re-declared, moved or deleted after it was bound shows
- * up here as the code the bind would refuse it with, and PR-4's reading
- * resolver skips such a source. The sensor service is asked outside any
+ * up here as the code the bind would refuse it with, and the reading
+ * resolver (ParameterReadingResolver) skips such a source with the same
+ * codes. The sensor service is asked outside any
  * database connection; when it cannot answer the read is a 503, never a guess.
  *
  * @module WaterQuality/QueryHandlers
  */
 import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -20,6 +20,7 @@ import { DataSource } from 'typeorm';
 
 import {
   boundChannelStatus,
+  latestInParameterUnit,
   type ChannelBindingCheck,
   type ParameterSourceStatus,
 } from '../dto/parameter-source-status.response';
@@ -28,13 +29,14 @@ import { WaterQualityParamEquipment } from '../entities/water-quality-param-equi
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import {
   CheckParameterChannelBindingQuery,
+  CountLiveChannelSourcesQuery,
   ListParameterQuantityDeclarationsQuery,
   ListParameterSourcesAtPointQuery,
 } from '../queries/parameter-source-queries';
 import { assessChannel, bindingProblems } from '../services/channel-binding-rules';
 import { loadFarmPlacement } from '../services/channel-placement';
-import { assertLivePoint, siteOfPoint } from '../services/measurement-point-lookup';
-import { liveAtPoint, pointOf } from '../services/parameter-sources';
+import { assertLivePoint, assertPointReadable } from '../services/measurement-point-lookup';
+import { liveAtPoint, liveChannelSourceCount, pointOf } from '../services/parameter-sources';
 import { SensorChannelDirectory } from '../services/sensor-channel-directory.service';
 
 @Injectable()
@@ -89,15 +91,7 @@ export class ListParameterSourcesAtPointHandler
       'farm',
       tenantId,
       async (queryRunner) => {
-        await assertLivePoint(queryRunner.manager, tenantId, point, 'lookup');
-        // Object-level site gate (SEC-HIGH-051 / FARM-MEDIUM-274): MODULE_MANAGER
-        // and above pass; a MODULE_USER reads only a point at an assigned site.
-        if (!caller.roles.some((role) => roleHasPermission(role, Role.MODULE_MANAGER))) {
-          this.siteAuth.assertSiteAssignment({
-            caller,
-            siteId: await siteOfPoint(queryRunner.manager, tenantId, point),
-          });
-        }
+        await assertPointReadable(queryRunner.manager, this.siteAuth, tenantId, point, caller);
         return tenantManagerRepo(queryRunner.manager, WaterQualityParamEquipment, tenantId).find({
           where: liveAtPoint(point),
           relations: ['parameterConfig'],
@@ -126,12 +120,20 @@ export class ListParameterSourcesAtPointHandler
       const description = byId.get(source.id);
       if (description === undefined) {
         // A manual source: nothing to describe.
-        return { source, channel: null, problems: [] };
+        return {
+          source,
+          channel: null,
+          problems: [],
+          latestValue: null,
+          unit: source.parameterConfig.unit,
+        };
       }
       return {
         source,
         channel: boundChannelStatus(description),
         problems: bindingProblems(source.parameterConfig, pointOf(source), description, farm),
+        latestValue: latestInParameterUnit(source.parameterConfig, description),
+        unit: source.parameterConfig.unit,
       };
     });
   }
@@ -153,6 +155,26 @@ export class ListParameterQuantityDeclarationsHandler
         where: { parameterConfigId },
         order: { declaredAt: 'DESC' },
       }),
+    );
+  }
+}
+
+/**
+ * The live channel sources of a parameter, counted where the declare and the
+ * config writers count them (liveChannelSourceCount), so the configuration UI
+ * shows a parameter's meaning as fixed exactly when a write would be refused
+ * with PARAMETER_BOUND.
+ */
+@Injectable()
+@QueryHandler(CountLiveChannelSourcesQuery)
+export class CountLiveChannelSourcesHandler
+  implements IQueryHandler<CountLiveChannelSourcesQuery, number>
+{
+  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+
+  async execute(query: CountLiveChannelSourcesQuery): Promise<number> {
+    return runInTenantRead(this.dataSource, 'farm', query.tenantId, (queryRunner) =>
+      liveChannelSourceCount(queryRunner.manager, query.tenantId, query.parameterConfigId),
     );
   }
 }

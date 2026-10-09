@@ -465,6 +465,7 @@ export const ParameterConfigManager: React.FC = () => {
       {modalMode && (
         <ConfigFormModal
           mode={modalMode}
+          parameterConfigId={modalMode === 'edit' && editingConfig ? editingConfig.id : null}
           initialData={buildFormData(editingConfig)}
           onSubmit={handleFormSubmit}
           onClose={handleCloseModal}

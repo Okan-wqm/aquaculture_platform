@@ -181,4 +181,32 @@ describe('workflow invariant: the closure-reconcile lane heals the registry by i
     expect(plan.run).toContain('NEEDS_HEAL');
     expect(plan.run).toContain('exit 1');
   });
+
+  it('states on the PR body that the plan is the pre-merge state by design', () => {
+    const { steps } = loadSteps();
+    const open = stepByName(steps, 'Open or update reconcile PR');
+    // A reader who lands on a MERGED reconcile PR sees its frozen dry-run
+    // body say "not RESOLVED" — the body must carry its own explanation:
+    // the plan is the BEFORE picture and the merge itself applies it.
+    expect(open.run).toContain('BEFORE this PR merges');
+    expect(open.run).toContain('the merge itself applied');
+  });
+
+  it('marks the merged reconcile PR as applied exactly once, on a clean pass', () => {
+    const { steps } = loadSteps();
+    const names = stepNames(steps);
+    const mark = names.indexOf('Mark the merged reconcile PR as applied');
+    const autoMerge = names.indexOf('Request auto-merge for the reconcile PR');
+    expect(mark).toBeGreaterThanOrEqual(0);
+    expect(mark).toBeGreaterThan(autoMerge);
+    const step = stepByName(steps, 'Mark the merged reconcile PR as applied');
+    // Clean pass = the state right after a reconcile PR merged; a dirty
+    // pass has its own PR to talk about.
+    expect(step.if).toContain("steps.plan.outputs.has_changes == 'false'");
+    expect(step.if).toContain("steps.plan.outputs.dry_run != 'true'");
+    // The marker string doubles as the idempotency guard's grep needle —
+    // one comment per merged PR, never one per clean run.
+    expect(step.run).toContain('closure-reconcile:applied');
+    expect(step.run).toContain("grep -q 'closure-reconcile:applied'");
+  });
 });

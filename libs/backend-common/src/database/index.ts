@@ -112,7 +112,12 @@ export * from './sensor-continuous-aggregate-definition';
 // Migration helpers — column/table existence guards. Shared across all
 // services for migrations that reference state created by squashed
 // earlier migrations. See migration-helpers.ts docblock for rationale.
-export { columnExists, tableExists } from './migration-helpers';
+export {
+  addColumnWithIndex,
+  columnExists,
+  dropColumnWithIndex,
+  tableExists,
+} from './migration-helpers';
 
 // Transactional outbox DDL — one SQL shape for every service-local
 // outbox table that backs @platform/outbox. Migrations pass only schema,

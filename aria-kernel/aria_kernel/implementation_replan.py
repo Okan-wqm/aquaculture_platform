@@ -253,6 +253,20 @@ def _tracked_files(workspace: Path, paths: list[str]) -> set[str]:
     return {path for path in paths if path in listed}
 
 
+def _unstart(root: Path, successor_id: str, *, reason: str) -> None:
+    """A successor that exists but must not live (re-review of #1908): abandoned, and its queue closed,
+    so one operator request never has two live plans."""
+    from .plan_convergence import TERMINAL_STATES, abandon_plan, fold_plan_state
+    from .plan_request_closure import close_abandoned_plan_requests
+
+    state = fold_plan_state(plan_id=successor_id, base_dir=root).get("state")
+    if state is None:
+        return
+    if state not in TERMINAL_STATES:
+        abandon_plan(plan_id=successor_id, reason=reason, base_dir=root)
+    close_abandoned_plan_requests(root, plan_ids=[successor_id])
+
+
 def _successor_content(ctx: _Context, surfaces: list[EnablingSurface], depth: int) -> dict[str, Any]:
     content = copy.deepcopy(ctx.content)
     affected = content.get("affected_surfaces")
@@ -298,7 +312,7 @@ def replan_after_refusal(
     from .bridge_exceptions import BridgeContractViolation
     from .ledger import LedgerIntegrityError, append_declared_jsonl
     from .operator_feedback_ingestion import INGESTION_SURFACE, ingestion_ledger_path
-    from .plan_convergence import abandon_plan, content_hash, fold_plan_state
+    from .plan_convergence import content_hash, fold_plan_state
     from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
     if reason_class not in REPLAN_REASON_CLASSES:
@@ -360,6 +374,7 @@ def replan_after_refusal(
         # name, and the refusal falls back to a person. Programming errors raise.
         append_tools_governance(root, REPLAN_FAILED_KIND, {**record, "error_class": type(exc).__name__,
                                                            "error_message": str(exc)[:500]})
+        _unstart(root, successor_id, reason=f"replan_successor_start_failed:{type(exc).__name__}")
         return {"status": FAILED, "reason": f"successor_start_failed:{type(exc).__name__}", **record}
     if fold_plan_state(plan_id=successor_id, base_dir=root).get("state") is None:
         append_tools_governance(root, REPLAN_FAILED_KIND, {**record, "verdict": result.get("arbiter_verdict")})
@@ -367,8 +382,7 @@ def replan_after_refusal(
     settled = _settle(settlement_for_replan(request_id=request_id, reason_class=reason_class),
                       base_dir=root, plan_id=plan_id)
     if settled["status"] != SETTLED:
-        abandon_plan(plan_id=successor_id, reason=f"replan_predecessor_not_settled:{settled['status']}",
-                     base_dir=root)
+        _unstart(root, successor_id, reason=f"replan_predecessor_not_settled:{settled['status']}")
         append_tools_governance(root, REPLAN_FAILED_KIND, {**record, "predecessor_settlement": settled["status"]})
         return {"status": FAILED, "reason": f"predecessor_settlement_{settled['status']}", **record}
     append_tools_governance(root, REPLANNED_KIND, {

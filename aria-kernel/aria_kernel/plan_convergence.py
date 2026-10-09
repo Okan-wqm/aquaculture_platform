@@ -188,10 +188,16 @@ def start_plan(
     _validate_id(plan_id, "plan_id")
     _validate_id(initial_revision_id, "initial_revision_id")
     _validate_plan_content(plan_content)
+    from .plan_contract import PLAN_CONTRACT_SCHEMA_VERSION
+
     payload = {
         "plan_content": plan_content,
         "content_hash": content_hash(plan_content),
         "initial_revision_id": initial_revision_id,
+        # ARIA-HIGH-397 — the contract version the plan's bodies are held to,
+        # fixed at its start: a rule a later contract adds (declared imports)
+        # binds the plans that start under it, never one already in flight.
+        "plan_contract_version": PLAN_CONTRACT_SCHEMA_VERSION,
     }
     admission_scope = compute_admission_scope(plan_content, workspace_root=workspace_root, base_dir=base_dir)
     if admission_scope is not None:
@@ -656,7 +662,14 @@ def _validate_submitted_plan(
     evidence_refusals = plan_body_evidence_refusals(state, body, root=root)
     if evidence_refusals:
         raise GovernanceError("; ".join(f"{code}: {ref}" for code, ref in evidence_refusals))
-    require_plan_contract(body, base_dir=root)
+    require_plan_contract(body, base_dir=root, contract_version=started_contract_version(state))
+
+
+def started_contract_version(state: Any) -> int:
+    """The plan contract version recorded at the plan's start (1 for a plan started before it was recorded)."""
+    started = state.get("plan_started") if isinstance(state, dict) else None
+    version = started.get("plan_contract_version") if isinstance(started, dict) else None
+    return version if type(version) is int and version >= 1 else 1
 
 
 PLAN_EVIDENCE_STATE_STORE_RECORD = "plan_evidence_state_store_record"
@@ -3071,6 +3084,9 @@ def _validate_event(event: dict[str, Any]) -> None:
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("initial_revision_id"), "initial_revision_id")
+        if "plan_contract_version" in payload and (type(payload["plan_contract_version"]) is not int
+                                                   or payload["plan_contract_version"] < 1):
+            raise GovernanceError("plan_contract_version must be a positive integer")
         if "admission_scope" in payload:
             from .plan_origin import validate_admission_scope
 

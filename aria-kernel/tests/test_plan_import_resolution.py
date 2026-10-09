@@ -76,6 +76,34 @@ class ImportsAreDeclaredNeverParsed(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertIsNotNone(key_change_violation(bad))
 
+    def test_a_source_key_change_must_declare_its_imports_from_contract_2(self) -> None:
+        from aria_kernel.plan_contract import PLAN_CONTRACT_SCHEMA_VERSION, plan_contract_violations
+
+        undeclared = {"architectural_tier": 2, "validation_commands": [],
+                      "key_changes": [{"id": "k", "description": "d", "paths": [LEAVE_TYPES]}]}
+        declared = {**undeclared, "key_changes": [change("k", [LEAVE_TYPES])]}
+        self.assertEqual(PLAN_CONTRACT_SCHEMA_VERSION, 2)
+        refused = plan_contract_violations(undeclared, base_dir=None, contract_version=2)
+        self.assertTrue(any(v.startswith("plan_key_change_imports_undeclared:") for v in refused), refused)
+        self.assertEqual(plan_contract_violations(declared, base_dir=None, contract_version=2), [])
+        # A plan already in flight (contract 1) and the kernel's own seed are not held to it.
+        self.assertEqual(plan_contract_violations(undeclared, base_dir=None, contract_version=1), [])
+        self.assertEqual(plan_contract_violations(undeclared, base_dir=None, contract_version=2,
+                                                  require_tier=False), [])
+        config_only = {**undeclared, "key_changes": [{"id": "k", "description": "d", "paths": ["a/tsconfig.json"]}]}
+        self.assertEqual(plan_contract_violations(config_only, base_dir=None, contract_version=2), [])
+
+    def test_the_contract_version_is_fixed_at_the_plans_start(self) -> None:
+        from aria_kernel.plan_convergence import start_plan, started_contract_version
+
+        with tempfile.TemporaryDirectory() as tmp:
+            start_plan(plan_id="plan-v", initial_revision_id="r0", base_dir=Path(tmp) / "aria-tools", plan_content={
+                "schema_version": 1, "title": "t", "summary": "s", "affected_surfaces": [], "key_changes": ["x"],
+                "validation_commands": [], "evidence_refs": ["docs/aria/SPEC.md"]})
+            self.assertEqual(started_contract_version(fold_plan_state(plan_id="plan-v",
+                                                                      base_dir=Path(tmp) / "aria-tools")), 2)
+        self.assertEqual(started_contract_version({"plan_started": {"plan_content": {}}}), 1)
+
     def test_only_the_key_changes_files_are_planned(self) -> None:
         body = {"affected_surfaces": ["mod-b/tsconfig.json"], "key_changes": [change("k", [LEAVE_TYPES])]}
         self.assertEqual(planned_paths(body), [LEAVE_TYPES])
@@ -203,6 +231,18 @@ class TheWitnessAsksTheRepositorysTypescript(unittest.TestCase):
         (modules / ".bin" / "ts-node").symlink_to(installed / ".bin" / "ts-node")
         block, _risks = self._compute([change("k", [LEAVE_TYPES], (LEAVE_TYPES, "@lib/status"))])
         self.assertEqual(block["verdict"], VERDICT_ENVIRONMENT_UNABLE, block)
+
+    def test_a_witness_that_cannot_be_run_is_environment_unable(self) -> None:
+        self._link_node_modules()
+
+        def refuse(cmd: list[str], cwd: str, timeout: int) -> None:
+            raise PermissionError("denied")
+
+        block, risks = compute_import_resolution(
+            plan_content={"key_changes": [change("k", [LEAVE_TYPES], (LEAVE_TYPES, "@lib/status"))]},
+            round_number=1, workspace_root=self.repo, input_path=self.input, runner=refuse)
+        self.assertEqual((block["verdict"], risks), (VERDICT_ENVIRONMENT_UNABLE, []))
+        self.assertIn("PermissionError", block["reason"])
 
     def test_a_plan_that_declares_nothing_runs_no_witness(self) -> None:
         block, risks = self._compute([change("k", ["a/b.ts"])])

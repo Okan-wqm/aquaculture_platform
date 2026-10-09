@@ -130,3 +130,25 @@ coverage are signed history, and reopening one would rewrite what was agreed.
   - the executor's re-planned terminal (`_close_replanned_refusal`: the claim released
     `agent_refused:scope`, the request CANCELLED, no HUMAN_REQUIRED);
   - a request signed by a key the anchor does not hold, named `operator_request_unverified:…`.
+
+## Re-review corrections (#1908 at 160e613f5)
+
+- **MEDIUM, closed: an orphaned successor.** A drainer that started the successor and then raised
+  left it DRAFT, with a live challenger, beside a predecessor that went to a person. Every failure
+  after the start (an exception, or a settlement another writer won) now abandons the successor
+  and closes its queue (`implementation_replan._unstart`). The test starts the successor for real
+  and then fails.
+- **LOW, closed:** any failure to run the witness or write its input (a `PermissionError`, any
+  `OSError`/`SubprocessError`) is `environment_unable`, never a crashed drain.
+- **Decision, closed: `imports` is required.** Leaving it out made the gate silently not
+  applicable, which is F-015's exact shape.
+  - From plan contract version 2, every agent-authored key change whose `paths` include a
+    TypeScript/JavaScript source file must declare `imports`. An empty list is allowed when it
+    adds or changes none. A change without it is refused with `plan_key_change_imports_undeclared`
+    at submission and at the `plan_contract_complete` gate.
+  - The version is fixed at the plan's start (`plan_started.plan_contract_version`), so a plan
+    already in flight (version 1) is never refused mid-round.
+  - The kernel's own seed is not held to the rule (`require_tier=False`); its first revision is.
+  - A config-only key change, such as a re-plan's kernel-written one, has no source file to
+    declare imports for.
+  - Nothing is parsed out of prose.

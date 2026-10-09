@@ -147,13 +147,16 @@ def compute_import_resolution(
     witness: dict[str, Any] = {"tool": WITNESS_RELPATH}
     if not ts_node.is_file():
         return _unable(f"toolchain_missing: {TS_NODE_RELPATH}", checked=len(checks), witness=witness), []
-    input_path.parent.mkdir(parents=True, exist_ok=True)
-    input_path.write_text(json.dumps({
-        "schema_version": 1,
-        "repo_root": str(workspace),
-        "checks": [{"specifier": item["specifier"], "from_path": item["from_path"]} for item in checks],
-        "planned_paths": planned_paths(plan_content),
-    }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text(json.dumps({
+            "schema_version": 1,
+            "repo_root": str(workspace),
+            "checks": [{"specifier": item["specifier"], "from_path": item["from_path"]} for item in checks],
+            "planned_paths": planned_paths(plan_content),
+        }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        return _unable(f"witness_input_unwritable: {type(exc).__name__}", checked=len(checks), witness=witness), []
     cmd = [str(ts_node), "--project", WITNESS_TSCONFIG, WITNESS_RELPATH, "--input", str(input_path)]
     try:
         proc = (runner or _default_runner)(cmd, str(workspace), timeout_seconds)
@@ -161,6 +164,11 @@ def compute_import_resolution(
         return _unable(f"toolchain_missing: {exc}", checked=len(checks), witness=witness), []
     except subprocess.TimeoutExpired:
         return _unable(f"timeout_after_{timeout_seconds}s", checked=len(checks), witness=witness), []
+    except (OSError, subprocess.SubprocessError) as exc:
+        # A permission refusal or any other failure to run the witness is
+        # the environment's, never "resolved" and never a crashed drain.
+        return _unable(f"witness_unrunnable: {type(exc).__name__}: {exc}", checked=len(checks),
+                       witness=witness), []
     witness["exit_code"] = proc.returncode
     if proc.returncode != 0:
         witness["stderr_tail"] = (proc.stderr or "")[-1000:]

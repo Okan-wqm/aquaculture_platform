@@ -238,6 +238,27 @@ class ARefusalTheKernelCannotStandOnStaysWithAPerson(_ConvergedOperatorPlan):
         self.assertEqual(outcome["status"], "failed")
         self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
 
+    def test_a_successor_started_by_a_drainer_that_then_failed_is_unstarted(self) -> None:
+        # Re-review of #1908: the drainer starts the successor, then raises.
+        from aria_kernel.agent_invocations import derive_request_state
+        from aria_kernel.tool_registry import GovernanceError
+
+        real = cd.run_convergence_drainer
+
+        def start_then_fail(**kwargs):
+            real(**kwargs)
+            raise GovernanceError("store refused after the start")
+
+        with mock.patch("aria_kernel.convergence_drainer.run_convergence_drainer", side_effect=start_then_fail):
+            outcome = self.replan()
+        self.assertEqual(outcome["status"], "failed")
+        self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
+        self.assertEqual(fold_plan_state(plan_id="plan-1-rp1", base_dir=self.tools)["state"], "ABANDONED")
+        successor_requests = [row for row in self.requests() if row.get("convergence_id") == "plan-1-rp1"]
+        self.assertTrue(successor_requests)
+        self.assertEqual({derive_request_state(request_id=row["request_id"], base_dir=self.tools)
+                          for row in successor_requests}, {"CANCELLED"})
+
     def test_a_settlement_another_writer_won_unstarts_the_successor(self) -> None:
         with mock.patch("aria_kernel.implementation_settlement._settle",
                         return_value={"status": "already_settled", "rejection_class": "x"}):

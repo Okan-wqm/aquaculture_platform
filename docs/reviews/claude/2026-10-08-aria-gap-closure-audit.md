@@ -42,7 +42,7 @@ does not carry:
 tool version, the manifest hash and the fixture-set hash only. So a verdict
 can outlive the code it measured.
 
-#1898 adds the primary control: `tool fixture-refresh` runs only against the
+PR #1898 adds the primary control: `tool fixture-refresh` runs only against the
 store's own checkout at a clean HEAD. Binding the row itself is a separate
 lane (owner claude, deadline 2026-10-20). It covers:
 

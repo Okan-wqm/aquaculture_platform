@@ -55,6 +55,7 @@ import { ListParamEquipmentQuery } from './queries/list-param-equipment.query';
 import { GetUnitMeasurementPlanQuery } from './queries/get-unit-measurement-plan.query';
 import { UnitMeasurementPlan } from './dto/unit-measurement-plan.response';
 import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
+import { CountLiveChannelSourcesQuery } from './queries/parameter-source-queries';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 import { Cacheable } from '../common/cache/cacheable.decorator';
 import {
@@ -347,6 +348,22 @@ export class WaterQualityParameterConfigResolver {
   @ResolveField(() => [String], { name: 'declarableQuantities' })
   declarableQuantities(@Parent() config: WaterQualityParameterConfig): string[] {
     return [...declarableQuantitiesOfParameter(config.code)];
+  }
+
+  /**
+   * How many sensor channels feed the parameter now, anywhere. While any does,
+   * its code, unit, quantity and activity are fixed (PARAMETER_BOUND) — the
+   * configuration UI disables those fields on this count.
+   */
+  @ResolveField(() => Int, {
+    name: 'liveChannelSourceCount',
+    description: 'Sensor channels bound to the parameter now; its meaning is fixed while any is',
+  })
+  async liveChannelSourceCount(
+    @Parent() config: WaterQualityParameterConfig,
+    @CurrentTenant() tenantId: string,
+  ): Promise<number> {
+    return this.queryBus.execute(new CountLiveChannelSourcesQuery(tenantId, config.id));
   }
 
   // -------------------------------------------------------------------------

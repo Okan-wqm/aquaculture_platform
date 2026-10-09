@@ -1,4 +1,9 @@
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
+import type {
+  SiteAuthorizationService,
+  SiteScopeCaller,
+} from '@aquaculture/backend-common/security';
 import { BadRequestException, HttpStatus, NotFoundException } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 
@@ -93,4 +98,27 @@ export async function siteOfPoint(
   }
   const sites = await resolveUnitSiteIds(manager, [point.id], tenantId);
   return sites.get(point.id) ?? null;
+}
+
+/**
+ * A read of what is at a point (its sources, its values) is live and allowed:
+ * the point is a live part of the tenant's farm (else 404), and a caller below
+ * MODULE_MANAGER reads only a point at a site assigned to them — the site, a
+ * system's site, a unit's site (SEC-HIGH-051 / FARM-MEDIUM-274, as
+ * `effectiveUnitTemperatures` does). Every point-scoped read calls this.
+ */
+export async function assertPointReadable(
+  manager: EntityManager,
+  siteAuth: SiteAuthorizationService,
+  tenantId: string,
+  point: MeasurementPoint,
+  caller: SiteScopeCaller,
+): Promise<void> {
+  await assertLivePoint(manager, tenantId, point, 'lookup');
+  if (!caller.roles.some((role) => roleHasPermission(role, Role.MODULE_MANAGER))) {
+    siteAuth.assertSiteAssignment({
+      caller,
+      siteId: await siteOfPoint(manager, tenantId, point),
+    });
+  }
 }

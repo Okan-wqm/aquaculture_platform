@@ -43,6 +43,7 @@ import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-
 import { WaterQualityResolver } from './water-quality.resolver';
 import { WaterQualityParameterConfigResolver } from './water-quality-parameter-config.resolver';
 import { ParameterChannelBindingResolver } from './parameter-channel-binding.resolver';
+import { WaterChemistryReadingResolver } from './water-chemistry-reading.resolver';
 
 // Parameter Config Command Handlers
 import {
@@ -71,6 +72,7 @@ import { WaterQualityEvaluationService } from './services/water-quality-evaluati
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 import { SensorChannelDirectory } from './services/sensor-channel-directory.service';
+import { ParameterReadingResolver } from './services/parameter-reading-resolver.service';
 
 // Phase 7.5 — event handler that auto-seeds default WQ parameter
 // configs when a new tenant is provisioned. The handler also runs
@@ -149,8 +151,11 @@ const CommandHandlers = [
     WaterQualityResolver,
     WaterQualityParameterConfigResolver,
     ParameterChannelBindingResolver,
+    WaterChemistryReadingResolver,
     // The only farm caller of request.sensor.describeChannels (FARM-HIGH-373).
     SensorChannelDirectory,
+    // The one reader of "the value of a parameter at a point, now" (PR-4).
+    ParameterReadingResolver,
     ...CommandHandlers,
     ...WaterQualityQueryHandlers,
   ],

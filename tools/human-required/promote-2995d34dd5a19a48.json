@@ -1,0 +1,20 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "anchor_judged_count": 0,
+    "cycle_id": "cyc-20261009T075229Z-auto",
+    "evidence_refs": [
+      "aria-tools/runs.jsonl#dual-alias-adapter"
+    ],
+    "kind": "tool_promotion",
+    "precision": 0.0,
+    "tool_id": "dual-alias-adapter"
+  },
+  "reason": "adapter 'dual-alias-adapter' is promotion-ready (precision=0.0, anchors=0); panel approval opens a 24h operator veto window",
+  "recorded_at": "2026-10-09T07:55:39Z",
+  "request_id": "promote-2995d34dd5a19a48",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-16T07:55:39Z",
+  "status": "open"
+}

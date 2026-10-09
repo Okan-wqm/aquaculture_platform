@@ -1,0 +1,24 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "kind": "anchor_stale",
+    "request_id": "AIR-aria-autonomy-planner-2e1d5c6133a8",
+    "role": "maintenance_utility",
+    "target_agent": "aria-autonomy-planner"
+  },
+  "kernel_disposition": {
+    "disposition": "expired_operator_required",
+    "expiry_fault_class": "unclassified",
+    "expiry_reason": "anchor_expired",
+    "queue_item_id": "qi-5c043ef06c72",
+    "reason": "queue_item_not_reofferable:queue_full",
+    "role": "maintenance_utility"
+  },
+  "reason": "request 'AIR-aria-autonomy-planner-2e1d5c6133a8' expired ANCHOR_STALE unclaimed; kernel disposition expired_operator_required: queue_item_not_reofferable:queue_full",
+  "recorded_at": "2026-10-09T08:12:54Z",
+  "request_id": "AIR-aria-autonomy-planner-2e1d5c6133a8",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-12T08:12:54Z",
+  "status": "open"
+}

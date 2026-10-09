@@ -5,12 +5,6 @@
     "owner": "okan",
     "reason": "Renewed 2026-10-09: the control's recorded decision binds routing to the Wave 6 genesis/tool_registry lifecycle unification (one vocabulary onto lifecycle_common), which the program has not started — the two lifecycle machines still run their own transition tables on main, so an explicit second entry point beside record_transition would be a duplicate answer until there is one vocabulary to gate. Same decision window as ORPHAN-HIGH-837's genesis rung (rev3.1 Faz 1): by 2026-11-20 the unification lands and routes it, or the program deletes the helper with what only it reads. Its sibling require_capability_resolution was WIRED for real (transition_mission IMPLEMENTING gate) and its waiver deleted."
   },
-  "validate_file": {
-    "expires_on": "2026-10-09",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "REASON REPLACED 2026-09-09. The previous one said 'Operator-facing CLI surface with no CLI verb attached - give it one or delete it', which reads as dead code. It is not. validate_file is the ENGINE of the V4 narrative-shape invariant: tests/invariants/v4/test_phase_v4_b_narrative_shape.py:62,66 runs it over every agent file to enforce the pedagogy contract, and that test is a real gate. pedagogy_lint.py (which does run in CI) only mentions this module in a comment; it does not import it. So the consumer is an invariant test, which is this control's INTENDED and sufficient consumer -- there is no unguarded production path here to close. The reachability gate cannot express that distinction: its rule that 'tests calling a control directly cannot count as evidence' is right for a control meant to run in production and wrong for one whose gate IS the invariant. Third instance of the CONTROL_VERBS classification problem, after record_resolution (a real control the prefix list cannot see) and check_remaining_budget (an accessor it wrongly called a control, since renamed). Open decision is whether the gate learns 'invariant-driven control' as a category, not whether to delete this."
-  },
   "validate_generated_adapter": {
     "expires_on": "2026-10-20",
     "finding_id": "ORPHAN-HIGH-573",
@@ -34,11 +28,5 @@
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
     "reason": "Auto-merge head-SHA freshness check. merge_pr_if_ready performs its own head-SHA freshness comparison inline, so the protection exists; this is the extracted helper that the inline code never adopted. PLAN Wave 8 implements branch_tip_lock_and_recheck as a real hard-fail check - that is where these two collapse into one. Renewed 2026-09-21 for thirty days by the operator's delegate: the flow this control belongs to has not started, and the six dormancy waivers lapsed together on 2026-09-20 and turned every kernel lane red."
-  },
-  "verify_workflow_registry": {
-    "expires_on": "2026-10-09",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "REASON REPLACED 2026-09-09, and the previous one was FALSE. It claimed 'the equivalent assertion runs in CI as a TypeScript invariant, so the drift IS caught - by the other lane'. Checked: no spec under tests/invariants references WORKFLOW_CONTRACTS, and the nearest one (aria-kernel-workflow-setup.spec.ts) asserts something else entirely -- that a job running kernel code provisions the kernel first. Deleting on that reason would have removed an UNDUPLICATED guarantee: preflight's live verify_workflow_contract validates ONE contract against its YAML and by construction only ever visits workflows that already have a contract, so an ARIA workflow added with neither a contract nor an audited exclusion is invisible to it. Only the whole-inventory verdict sees that. Wiring it into verify_workflow_preflight was attempted and REVERTED: that preflight legitimately runs against synthetic workspaces, where the workflow YAMLs are absent and the inventory verdict is invalid for a reason that is not a defect (test_workflow_enterprise_preflight proved it). A repo-wide invariant needs a caller that always sees the real repo, and neither a CLI verb nor a CI step exists for it yet -- that entry point is the open decision, not whether the control is worth keeping. Verified valid=True against the live tree on 2026-09-09, so it will pass the day it is wired."
   }
 }

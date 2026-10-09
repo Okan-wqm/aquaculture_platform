@@ -57,8 +57,18 @@ export const CHANNEL_LATEST_VALUES_QUERY = `
 `;
 
 export const CHANNEL_SERIES_QUERY = `
-  query ChannelSeries($sensorId: ID!, $startTime: DateTime!, $endTime: DateTime!) {
-    channelSeries(sensorId: $sensorId, startTime: $startTime, endTime: $endTime) {
+  query ChannelSeries(
+    $sensorId: ID!
+    $startTime: DateTime!
+    $endTime: DateTime!
+    $channelKeys: [String!]
+  ) {
+    channelSeries(
+      sensorId: $sensorId
+      startTime: $startTime
+      endTime: $endTime
+      channelKeys: $channelKeys
+    ) {
       sensorId
       resolution
       sourceTier

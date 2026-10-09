@@ -409,7 +409,7 @@ export class Tank {
     nullable: true,
     transformer: new DecimalTransformer(),
   })
-  waterVolume?: number;
+  waterVolume?: number | null;
 
   // -------------------------------------------------------------------------
   // KAPASİTE VE YOĞUNLUK

@@ -62,7 +62,7 @@ FINDING_REGISTRY_RELPATH = ("docs", "reviews", "_registry", "findings.jsonl")
 #: refspec, which the checkout's own config controls — into a namespace only
 #: this module writes, pruned on every fetch.
 PUBLIC_REPOSITORY_URL = "https://github.com/Okan-wqm/aquaculture_platform.git"
-PUBLIC_REFS = "refs/aria-public/"
+PUBLIC_REFS = "refs/aria-public/heads/"  # only what the pruned refspec writes
 PUBLIC_REFSPEC = "+refs/heads/*:refs/aria-public/heads/*"
 PUBLIC_REGISTRY_REF = "refs/aria-public/heads/main"
 FINDING_REGISTRY_MAX_CHARS = 64 * 1024 * 1024
@@ -247,12 +247,14 @@ class _Refusal(Exception):
         self.reason = reason
 
 
-def _git(workspace: Path, *args: str, max_chars: int = VALUE_MAX_CHARS) -> str:
+def _git(workspace: Path, *args: str, max_chars: int = VALUE_MAX_CHARS, config: tuple[str, ...] = ()) -> str:
     """git in the bound workspace, with no caller GIT_* environment; bounded output; a refusal on failure."""
     hermetic = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    hermetic["GIT_TERMINAL_PROMPT"] = "0"  # never wait on a credential prompt
+    overrides = [item for setting in ("core.fsmonitor=false", *config) for item in ("-c", setting)]
     try:
         completed = subprocess.run(
-            ["git", "-c", "core.fsmonitor=false", "-C", str(workspace), *args],
+            ["git", *overrides, "-C", str(workspace), *args],
             capture_output=True, timeout=30, check=False, env=hermetic,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -268,6 +270,30 @@ def _git(workspace: Path, *args: str, max_chars: int = VALUE_MAX_CHARS) -> str:
     return text
 
 
+def _public_transport_config() -> tuple[str, ...]:
+    """Command-line config for every git call that reaches the public URL; ``-c`` outranks repository config.
+
+    No proxy, TLS verified against the SYSTEM CA bundle (OpenSSL's compiled
+    default, not an environment override), and no credential helper: through
+    a proxy with verification off or a custom CA, a man-in-the-middle could
+    make a private sha look public, and an operator's credential helper would
+    make a PRIVATE repository answer as if it were public. (An EMPTY
+    ``http.sslCAInfo`` is not "the default": curl then fails every TLS
+    handshake, measured — so the bundle is named.)
+    """
+    import ssl
+
+    cafile = Path(ssl.get_default_verify_paths().openssl_cafile or "")
+    if not cafile.is_file():
+        raise _Refusal("public_remote_ca_unavailable")
+    url = PUBLIC_REPOSITORY_URL
+    return (
+        "http.proxy=", f"http.{url}.proxy=", "http.sslVerify=true", f"http.{url}.sslVerify=true",
+        f"http.sslCAInfo={cafile}", f"http.{url}.sslCAInfo={cafile}", "http.sslCAPath=",
+        "credential.helper=", "core.askPass=",
+    )
+
+
 def _fetch_public(workspace: Path) -> None:
     """Refresh ``refs/aria-public/`` from the pinned public URL; a refusal when that is not what git would reach.
 
@@ -276,12 +302,13 @@ def _fetch_public(workspace: Path) -> None:
     pinned one. The explicit refspec and ``--prune`` replace the namespace
     with exactly the public branches: a ref planted there locally is removed.
     """
-    resolved = _git(workspace, "ls-remote", "--get-url", PUBLIC_REPOSITORY_URL).strip()
+    config = _public_transport_config()
+    resolved = _git(workspace, "ls-remote", "--get-url", PUBLIC_REPOSITORY_URL, config=config).strip()
     if resolved != PUBLIC_REPOSITORY_URL:
         raise _Refusal("public_remote_url_rewritten")
     try:
         _git(workspace, "fetch", "--quiet", "--prune", "--no-tags", "--no-recurse-submodules",
-             PUBLIC_REPOSITORY_URL, PUBLIC_REFSPEC)
+             PUBLIC_REPOSITORY_URL, PUBLIC_REFSPEC, config=config)
     except _Refusal as refusal:
         raise _Refusal("public_remote_unavailable") from refusal
 

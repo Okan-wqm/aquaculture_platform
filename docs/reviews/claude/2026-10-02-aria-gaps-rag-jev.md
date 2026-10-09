@@ -114,7 +114,18 @@ Re-review, the same day:
     planted ref there is removed;
   - before that fetch, `ls-remote --get-url` must return the pinned URL, so no `insteadOf`
     rewrite can redirect it;
-  - a commit is admissible only when a `refs/aria-public/` ref contains it;
+  - every call that reaches the pinned URL overrides the checkout's transport config on the command
+    line:
+    - no proxy;
+    - `sslVerify=true` against the system CA bundle (named explicitly, because an empty
+      `http.sslCAInfo` breaks every handshake);
+    - no credential helper and no prompt.
+
+    A MITM proxy or a private repository answering through stored credentials therefore cannot
+    make a sha "public";
+
+  - a commit is admissible only when a `refs/aria-public/heads/` ref (the namespace the pruned
+    refspec writes) contains it;
   - finding text is read from `refs/aria-public/heads/main`, never the working tree.
 
   By design there is no second admissible source:

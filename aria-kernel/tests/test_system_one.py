@@ -293,6 +293,43 @@ class Refusals(_Store):
         self.assert_refused(self.ask("J0", self.refs(commit=stash_untracked, path="ignored.local"), transport),
                             transport, "commit_not_on_public_remote")
 
+    def test_only_the_pruned_heads_namespace_counts_as_public(self) -> None:
+        # Re-review: --prune cleans only refs/aria-public/heads/*, so a ref
+        # planted beside it must not count.
+        unpushed = self.commit_file("src/local3.ts", "const tenant = 'local';\n", "local only", push=False)
+        for planted in ("refs/aria-public/x", "refs/aria-public/tags/v1"):
+            with self.subTest(planted=planted):
+                self.git("update-ref", planted, unpushed)
+                transport = _Transport()
+                self.assert_refused(self.ask("J0", self.refs(commit=unpushed, path="src/local3.ts"), transport),
+                                    transport, "commit_not_on_public_remote")
+                self.reset_rows()
+
+    def test_repository_transport_config_is_overridden_on_every_public_call(self) -> None:
+        # A proxy, disabled verification, a custom CA or a credential helper in
+        # the checkout's config must not shape what "public" means.
+        for key, value in (("http.proxy", "http://127.0.0.1:9"), ("http.sslVerify", "false"),
+                           ("http.sslCAInfo", "/tmp/evil-ca.pem"), ("credential.helper", "store")):
+            self.git("config", key, value)
+        real_run = subprocess.run
+        calls: list[list[str]] = []
+
+        def recording_run(argv, *args, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(list(argv))
+            return real_run(argv, *args, **kwargs)
+
+        with mock.patch.object(system_one.subprocess, "run", side_effect=recording_run):
+            self.assertIsInstance(self.ask("J0", self.refs(), _Transport(_noul(0.6))), Answer)
+        public = [argv for argv in calls if "ls-remote" in argv or "fetch" in argv]
+        self.assertEqual(len(public), 2)
+        for argv in public:
+            settings = {argv[i + 1] for i, item in enumerate(argv) if item == "-c"}
+            self.assertIn("http.proxy=", settings)
+            self.assertIn("http.sslVerify=true", settings)
+            self.assertIn("credential.helper=", settings)
+            self.assertTrue(any(s.startswith("http.sslCAInfo=") and s != "http.sslCAInfo=/tmp/evil-ca.pem"
+                                for s in settings))
+
     def test_a_url_rewrite_of_the_pinned_repository_is_refused(self) -> None:
         self.git("config", f"url.{self.root}.insteadOf", str(self.origin))
         transport = _Transport()

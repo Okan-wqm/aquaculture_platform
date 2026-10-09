@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -222,23 +223,148 @@ def ingest_runtime_signal(
     return record
 
 
-def load_open_runtime_signals(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    """Open (unresolved) runtime signals, most severe first."""
+_SIGNAL_ID_RE = re.compile(r"^runtime-[0-9a-f]{16}$")
+_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def _record_path(root: Path, signal_id: Any) -> Path:
+    """The record path for ``signal_id``; refused unless it is a bridge-minted id (never a path)."""
+    if not isinstance(signal_id, str) or not _SIGNAL_ID_RE.match(signal_id):
+        raise GovernanceError(f"runtime_signal_id_invalid: {str(signal_id)[:80]!r}")
+    return _signal_path(root, signal_id)
+
+
+def _write_record_atomic(path: Path, record: dict[str, Any]) -> None:
+    """Replace a signal record whole: a reader sees the old file or the new one, never a torn one."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _ref_law_refusal(doc: dict[str, Any]) -> tuple[list[str], str | None]:
+    """``(canonical_refs, None)`` when every stored ref passes the current ref law, else ``([], reason)``."""
+    refs = doc.get("code_refs")
+    if not isinstance(refs, list) or not refs or len(refs) > MAX_CODE_REFS:
+        count = len(refs) if isinstance(refs, list) else 0
+        return [], f"runtime_signal_refs_invalid: {type(refs).__name__} of {count}"
+    canonical: list[str] = []
+    try:
+        for ref in refs:
+            value = canonical_runtime_signal_ref(ref)
+            if value not in canonical:
+                canonical.append(value)
+    except GovernanceError as exc:
+        return [], str(exc)
+    return canonical, None
+
+
+def scan_open_runtime_signals(*, base_dir: str | Path | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Open signals split by the CURRENT ref law, without writing anything.
+
+    ``open``: records whose refs all pass ``canonical_runtime_signal_ref``,
+    returned with their refs canonical, most severe first. ``refused``:
+    open records that fail it — written before the bridge enforced the law
+    (a `*/*` frame, a `../` escape) — plus records that cannot be read, each
+    with its reason. A refused record never reaches a reader; moving it out
+    of the open set is ``quarantine_refused_runtime_signals``'s job, a
+    profile-gated write a cycle phase owns. This function is a pure read, so
+    pressure, belief decay and the list verb stay readers under every
+    profile.
+    """
     root = ensure_tools_dir(base_dir)
     directory = _signals_dir(root)
     if not directory.exists():
-        return []
-    order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        return {"open": [], "refused": []}
     rows: list[dict[str, Any]] = []
-    for path in directory.glob("*.json"):
+    refused: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("runtime-*.json")):
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            refused.append({"signal_id": path.stem, "reason": f"runtime_signal_unreadable: {type(exc).__name__}"})
             continue
-        if doc.get("status") == "open":
-            rows.append(doc)
-    rows.sort(key=lambda r: (order.get(str(r.get("severity")), 9), str(r.get("signal_id"))))
-    return rows
+        if not isinstance(doc, dict):
+            refused.append({"signal_id": path.stem, "reason": "runtime_signal_unreadable: not an object"})
+            continue
+        if doc.get("status") != "open":
+            continue
+        canonical, reason = _ref_law_refusal(doc)
+        if reason is not None:
+            refused.append({"signal_id": path.stem, "reason": reason})
+            continue
+        rows.append({**doc, "code_refs": canonical})
+    rows.sort(key=lambda r: (_SEVERITY_ORDER.get(str(r.get("severity")), 9), str(r.get("signal_id"))))
+    return {"open": rows, "refused": refused}
+
+
+def load_open_runtime_signals(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """Open runtime signals that pass the current ref law, most severe first (a pure read)."""
+    return scan_open_runtime_signals(base_dir=base_dir)["open"]
+
+
+def quarantine_refused_runtime_signals(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Move every open record the current ref law refuses out of the open set.
+
+    The cycle phase that consumes signals (belief decay) calls this before it
+    reads them. With nothing refused it is a pure read and returns at once,
+    under every profile. Otherwise the profile gate decides first: a profile
+    that may not write governance gets ``status=withheld_by_profile`` with the
+    refused records listed and nothing written (the readers already withhold
+    them). Order per record, under the record's exclusive lock: re-read it (a
+    concurrent resolve wins — only a still-open, still-refused record moves),
+    write the governance row FIRST, then replace the record atomically with
+    ``status=quarantined``.
+    """
+    from .file_lock import with_exclusive_lock
+    from .runtime_profile import enforce_profile_for_write
+
+    root = ensure_tools_dir(base_dir)
+    refused = scan_open_runtime_signals(base_dir=root)["refused"]
+    if not refused:
+        return {"status": "nothing_refused", "quarantined": [], "unreadable": []}
+    try:
+        enforce_profile_for_write("tool_governance", base_dir=root)
+    except GovernanceError as exc:
+        if not str(exc).startswith("profile_violation"):
+            raise
+        return {"status": "withheld_by_profile", "reason": str(exc)[:200], "refused": refused,
+                "quarantined": [], "unreadable": []}
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    quarantined: list[dict[str, Any]] = []
+    unreadable: list[dict[str, Any]] = []
+    for candidate in refused:
+        try:
+            path = _record_path(root, candidate["signal_id"])
+        except GovernanceError:
+            unreadable.append(candidate)
+            continue
+        with with_exclusive_lock(path):
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                unreadable.append(candidate)
+                continue
+            if not isinstance(doc, dict) or doc.get("status") != "open":
+                continue
+            _, reason = _ref_law_refusal(doc)
+            if reason is None:
+                continue
+            append_tools_governance(
+                root,
+                "runtime_signal_quarantined",
+                {"signal_id": candidate["signal_id"], "reason": reason[:200]},
+            )
+            _write_record_atomic(path, {
+                **doc, "status": "quarantined", "quarantine_reason": reason, "quarantined_at": stamp,
+            })
+            quarantined.append({"signal_id": candidate["signal_id"], "reason": reason})
+    # An unreadable record names no ref law verdict to act on; it is reported
+    # on every run until an operator removes or repairs it.
+    return {"status": "applied", "quarantined": quarantined, "unreadable": unreadable}
 
 
 def resolve_runtime_signal(
@@ -248,19 +374,26 @@ def resolve_runtime_signal(
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Close a runtime signal once investigated, so it stops driving pressure."""
+    """Close a runtime signal once investigated, so it stops driving pressure.
+
+    Under the record's exclusive lock and replaced atomically, the same
+    discipline as quarantine, so the two can never lose each other's write.
+    """
+    from .file_lock import with_exclusive_lock
+
     if not isinstance(resolution_note, str) or not resolution_note.strip():
         raise GovernanceError("resolution_note is required")
     root = ensure_tools_dir(base_dir)
-    path = _signal_path(root, signal_id)
+    path = _record_path(root, signal_id)
     if not path.exists():
         raise GovernanceError(f"runtime signal not found: {signal_id}")
-    record = json.loads(path.read_text(encoding="utf-8"))
-    if record.get("status") == "resolved":
-        return record
-    record["status"] = "resolved"
-    record["resolved_at"] = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    record["resolution_note"] = resolution_note
-    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    append_tools_governance(root, "runtime_signal_resolved", {"signal_id": signal_id})
+    with with_exclusive_lock(path):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("status") == "resolved":
+            return record
+        record["status"] = "resolved"
+        record["resolved_at"] = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        record["resolution_note"] = resolution_note
+        append_tools_governance(root, "runtime_signal_resolved", {"signal_id": signal_id})
+        _write_record_atomic(path, record)
     return record

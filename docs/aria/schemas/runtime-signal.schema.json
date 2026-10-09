@@ -38,7 +38,15 @@
       "enum": ["low", "medium", "high", "critical"]
     },
     "trust_grade": { "const": "runtime_unverified" },
-    "status": { "enum": ["open", "resolved"] },
+    "status": { "enum": ["open", "resolved", "quarantined"] },
+    "quarantine_reason": {
+      "description": "Why the reader moved an open record out of the open set: one of its refs fails the bridge's current ref law (canonical_runtime_signal_ref).",
+      "type": "string"
+    },
+    "quarantined_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
     "recorded_at": {
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"

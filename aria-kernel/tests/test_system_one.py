@@ -1,8 +1,10 @@
-"""System One `ask` (ARIA-LOW-252) — registry-only questions, egress refusals, the call ledger.
+"""System One `ask` (ARIA-LOW-252) — registry-only questions, state BUILT from references, the call ledger.
 
 The transport is a scripted callable (never the network). The registry is the
 file ``<bound workspace>/aria-config/system-one-questions.json`` the store is
-bound to — the only place a question can come from.
+bound to — the only place a question can come from — and every state value is
+built by ``system_one`` from a reference into that workspace's git repository
+or finding registry: a caller never hands it text.
 
 One property per test:
 
@@ -11,9 +13,15 @@ One property per test:
 * A question that is not English, a question not in the registry, and a call
   from a decision point the question is not registered for are refused, and
   the transport is never called.
-* A state that looks like it carries a secret is refused before any egress.
-* The ledger row carries the state's sha256, the exact model id the vendor
-  named and the answer — never the state itself.
+* Text instead of a reference, a path that escapes or names a credential
+  file, a commit that is not a sha or not in the repository, an unregistered
+  finding: refused before egress.
+* Repository content that carries a credential shape, an e-mail address or a
+  routable IPv4 address, or Turkish, is refused by the backstop over the
+  FINAL payload — keys included — and never reaches the ledger.
+* The ledger row carries the state's sha256, an id-shaped subject, the exact
+  model id and the VALIDATED answer only — never the state, never the
+  vendor's raw object.
 * Choice options are shuffled deterministically per (question, state).
 * Disabled (the seeded default): no network, no row — main's behaviour.
 * An answer from a model other than the registry's runs as shadow.
@@ -25,16 +33,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from aria_kernel import system_one
 from aria_kernel.jev_runtime import JevReply, JevUnavailable
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.state_manifest import STATE_SURFACES
-from aria_kernel.system_one import Answer, Unavailable, ask, load_registry
+from aria_kernel.system_one import Answer, StateRef, Unavailable, ask, load_registry
 from aria_kernel.tool_registry import ensure_tools_dir
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -54,9 +64,10 @@ _KIND = {
 }
 _TURKISH = {**_J0, "id": "TR", "instructions": "Bu diff bulguyu düzeltiyor mu"}
 _TRANSLIT = {**_J0, "id": "TRA", "instructions": "Bu diff bulguyu duzeltiyor mu"}
+_UNBUILDABLE = {**_J0, "id": "ENV", "state_keys": ["finding", "env"]}
 
-_STATE = {"finding": {"finding": "Repository query skips tenant scoping", "rule": "Use getScopedRepository"},
-          "diff": "--- a/x.ts\n+++ b/x.ts\n-repo.getRepository(X)\n+repo.getScopedRepository(X)\n"}
+_FINDING = {"id": "ARIA-HIGH-123", "title": "Repository query skips tenant scoping",
+            "rule_violated": "Use getScopedRepository"}
 
 
 class _Transport:
@@ -81,11 +92,34 @@ class _Store(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
+        self.git("init", "-q")
+        (self.root / ".gitignore").write_text("aria-tools/\n", encoding="utf-8")
+        registry = self.root / "docs" / "reviews" / "_registry" / "findings.jsonl"
+        registry.parent.mkdir(parents=True)
+        registry.write_text(json.dumps(_FINDING) + "\n", encoding="utf-8")
+        self.base = self.commit_file("src/x.ts", "repo.getRepository(X)\n", "base")
+        self.fix = self.commit_file("src/x.ts", "repo.getScopedRepository(X)\n", "scope the repository")
         self.tools = ensure_tools_dir(self.root / "aria-tools")
-        self.write_registry([_J0, _KIND, _TURKISH, _TRANSLIT])
+        self.write_registry([_J0, _KIND, _TURKISH, _TRANSLIT, _UNBUILDABLE])
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def commit_file(self, path: str, content: str, message: str) -> str:
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+                 "commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def refs(self, commit: str | None = None, path: str = "src/x.ts") -> dict[str, StateRef]:
+        return {"finding": StateRef(finding_id="ARIA-HIGH-123"), "diff": StateRef(commit=commit or self.fix, path=path)}
 
     def write_registry(self, questions: list[dict[str, Any]], *, enabled: bool = True) -> None:
         path = self.root / "aria-config" / "system-one-questions.json"
@@ -99,33 +133,37 @@ class _Store(unittest.TestCase):
         path = self.tools.joinpath(*system_one.CALLS_RELPATH)
         return load_declared_jsonl(path, expected_surface=system_one.CALLS_SURFACE) if path.exists() else []
 
-    def ask(self, question_id: str, state: Any, transport: _Transport, point: str = "pre_pr_open") -> Answer | Unavailable:
-        return ask(question_id, state, decision_point=point, base_dir=self.tools, subject="test:1", transport=transport)
+    def reset_rows(self) -> None:
+        self.tools.joinpath(*system_one.CALLS_RELPATH).unlink(missing_ok=True)
+
+    def ask(self, question_id: str, refs: Any, transport: _Transport, point: str = "pre_pr_open",
+            subject: str | None = "ARIA-HIGH-123") -> Answer | Unavailable:
+        return ask(question_id, refs, decision_point=point, base_dir=self.tools, subject=subject, transport=transport)
 
 
 class Availability(_Store):
     def test_unavailable_transport_is_pipeline_safe_and_recorded_once(self) -> None:
-        result = self.ask("J0", _STATE, _Transport(JevUnavailable("vendor_error_http_503")))
+        result = self.ask("J0", self.refs(), _Transport(JevUnavailable("vendor_error_http_503")))
         self.assertEqual(result, Unavailable("J0", "unavailable", "vendor_error_http_503"))
         (row,) = self.rows()
         self.assertEqual((row["outcome"], row["reason"], row["answer"], row["model"]),
                          ("unavailable", "vendor_error_http_503", None, None))
 
     def test_a_raising_transport_never_reaches_the_caller(self) -> None:
-        result = self.ask("J0", _STATE, _Transport(OSError("boom")))
+        result = self.ask("J0", self.refs(), _Transport(OSError("boom")))
         self.assertEqual(result, Unavailable("J0", "unavailable", "transport_raised:OSError"))
         self.assertEqual([row["outcome"] for row in self.rows()], ["unavailable"])
 
     def test_disabled_registry_calls_nothing_and_writes_nothing(self) -> None:
         self.write_registry([_J0], enabled=False)
         transport = _Transport()
-        result = self.ask("J0", _STATE, transport)
+        result = self.ask("J0", self.refs(), transport)
         self.assertEqual(result, Unavailable("J0", "unavailable", "system_one_disabled"))
         self.assertEqual((transport.payloads, self.rows()), ([], []))
 
     def test_absent_registry_is_disabled(self) -> None:
         (self.root / "aria-config" / "system-one-questions.json").unlink()
-        result = self.ask("J0", _STATE, _Transport())
+        result = self.ask("J0", self.refs(), _Transport())
         self.assertEqual(result, Unavailable("J0", "unavailable", "registry_absent"))
         self.assertEqual(self.rows(), [])
 
@@ -142,50 +180,122 @@ class Refusals(_Store):
         for question_id in ("TR", "TRA"):
             with self.subTest(question_id=question_id):
                 transport = _Transport()
-                self.assert_refused(self.ask(question_id, _STATE, transport), transport, "question_not_english")
-                (self.tools / "system-one" / "calls.jsonl").unlink()
+                self.assert_refused(self.ask(question_id, self.refs(), transport), transport, "question_not_english")
+                self.reset_rows()
+
+    def test_a_state_key_with_no_builder_is_refused(self) -> None:
+        transport = _Transport()
+        self.assert_refused(self.ask("ENV", {"finding": StateRef(finding_id="ARIA-HIGH-123"),
+                                             "env": StateRef(path="x")}, transport), transport, "state_key_unbuildable")
 
     def test_question_not_in_registry_is_refused(self) -> None:
         transport = _Transport()
-        self.assert_refused(self.ask("J9", _STATE, transport), transport, "question_not_registered")
+        self.assert_refused(self.ask("J9", self.refs(), transport), transport, "question_not_registered")
 
     def test_decision_point_the_question_is_not_registered_for_is_refused(self) -> None:
         transport = _Transport()
-        self.assert_refused(self.ask("J0", _STATE, transport, point="judge_fanout"), transport,
+        self.assert_refused(self.ask("J0", self.refs(), transport, point="judge_fanout"), transport,
                             "decision_point_not_registered")
 
-    def test_secret_looking_state_is_refused_before_egress(self) -> None:
-        secrets = (
+    def test_text_is_never_accepted_in_place_of_a_reference(self) -> None:
+        for refs, reason in (
+            ({"finding": {"finding": "f", "rule": "r"}, "diff": "a diff"}, "state_shape"),
+            ("free text", "state_shape"),
+            ({"diff": StateRef(commit=self.fix, path="src/x.ts")}, "state_shape"),
+            ({**self.refs(), "env": StateRef(path="x")}, "state_shape"),
+        ):
+            with self.subTest(refs=str(refs)[:30]):
+                transport = _Transport()
+                self.assert_refused(self.ask("J0", refs, transport), transport, reason)
+                self.reset_rows()
+
+    def test_bad_references_are_refused_before_egress(self) -> None:
+        for refs, reason in (
+            (self.refs(path="../../etc/passwd"), "path_refused"),
+            (self.refs(path="/etc/passwd"), "path_refused"),
+            (self.refs(path="src/*.ts"), "path_refused"),
+            (self.refs(path="aria-tools/runs.jsonl"), "path_refused"),
+            (self.refs(path="config/.env.production"), "path_credential_shaped"),
+            (self.refs(path="deploy/id_rsa"), "path_credential_shaped"),
+            (self.refs(commit="HEAD"), "commit_not_a_sha"),
+            (self.refs(commit="0" * 40), "reference_not_in_repository"),
+            ({"finding": StateRef(finding_id="ARIA-HIGH-999"), "diff": StateRef(commit=self.fix, path="src/x.ts")},
+             "finding_not_registered"),
+            ({"finding": StateRef(finding_id="not an id"), "diff": StateRef(commit=self.fix, path="src/x.ts")},
+             "finding_id_malformed"),
+        ):
+            with self.subTest(reason=reason, refs=str(refs)[:60]):
+                transport = _Transport()
+                self.assert_refused(self.ask("J0", refs, transport), transport, reason)
+                self.reset_rows()
+
+    def test_repository_content_with_a_credential_shape_is_refused(self) -> None:
+        leaks = (
             "-----BEGIN RSA " + "PRIVATE KEY-----\nMIIE",
-            "+DB_" + "PASSWORD=" + "hunter2hunter2",
+            "DB_" + "PASSWORD=" + "hunter2hunter2",
             "token apikey_" + "0123456789abcdef" * 2,
             "gh" + "p_" + "A" * 36,
+            "eyJ" + "hbGciOiJIUzI1NiJ9" + ".eyJ" + "zdWIiOiIxMjM0NTY3ODkwIn0" + ".abcdefghijkl",
+            "s" + "k_live_" + "a1B2c3D4e5F6g7H8i9",
+            "wh" + "sec_" + "a1B2c3D4e5F6g7H8i9",
+            "postgres://user:" + "s3cret" + "@db:5432/x",
+            "password: " + "'" + "hunter2" + "'",
+            "do" + "p_v1_" + "a" * 64,
+            "S" + "G." + "a" * 22 + "." + "b" * 43,
+            "np" + "m_" + "a" * 36,
         )
-        for leak in secrets:
-            with self.subTest(leak=leak[:12]):
+        for index, leak in enumerate(leaks):
+            with self.subTest(leak=leak[:14]):
+                commit = self.commit_file(f"src/leak{index}.ts", f"const x = 1;\n{leak}\n", f"leak {index}")
                 transport = _Transport()
-                state = {**_STATE, "diff": _STATE["diff"] + leak}
-                self.assert_refused(self.ask("J0", state, transport), transport, "state_secret_shaped")
+                self.assert_refused(self.ask("J0", self.refs(commit=commit, path=f"src/leak{index}.ts"), transport),
+                                    transport, "state_secret_shaped")
                 self.assertNotIn(leak, (self.tools / "system-one" / "calls.jsonl").read_text(encoding="utf-8"))
-                (self.tools / "system-one" / "calls.jsonl").unlink()
+                self.reset_rows()
 
-    def test_state_must_have_exactly_the_registered_keys(self) -> None:
-        for state in ({"diff": "x"}, {**_STATE, "env": "x"}, "free text", {"finding": 3, "diff": "x"}):
-            with self.subTest(state=str(state)[:20]):
+    def test_personal_data_in_repository_content_is_refused(self) -> None:
+        for index, (text, reason) in enumerate((
+            ("contact: jane.doe@customer.no", "state_personal_data"),
+            ("upstream 10.20.30.40:5432", "state_personal_data"),
+        )):
+            with self.subTest(text=text):
+                commit = self.commit_file(f"src/pd{index}.ts", text + "\n", f"pd {index}")
                 transport = _Transport()
-                self.assert_refused(self.ask("J0", state, transport), transport, "state_shape")
-                (self.tools / "system-one" / "calls.jsonl").unlink()
+                self.assert_refused(self.ask("J0", self.refs(commit=commit, path=f"src/pd{index}.ts"), transport),
+                                    transport, reason)
+                self.reset_rows()
+        # Documentation addresses and loopback are public by definition.
+        commit = self.commit_file("src/ok.ts", "a@example.com 127.0.0.1 192.0.2.10\n", "public")
+        self.assertIsInstance(self.ask("J0", self.refs(commit=commit, path="src/ok.ts"), _Transport(_noul(0.5))), Answer)
 
-    def test_non_english_state_is_refused(self) -> None:
+    def test_non_english_repository_content_is_refused(self) -> None:
+        commit = self.commit_file("src/tr.ts", "// Kiracı sınırı aşılıyor\n", "tr")
         transport = _Transport()
-        state = {**_STATE, "finding": {"finding": "Kiracı sınırı aşılıyor", "rule": "r"}}
-        self.assert_refused(self.ask("J0", state, transport), transport, "state_not_english")
+        self.assert_refused(self.ask("J0", self.refs(commit=commit, path="src/tr.ts"), transport), transport,
+                            "state_not_english")
+
+    def test_a_payload_over_the_wire_cap_is_refused(self) -> None:
+        transport = _Transport()
+        with mock.patch.object(system_one, "PAYLOAD_MAX_BYTES", 200):
+            self.assert_refused(self.ask("J0", self.refs(), transport), transport, "payload_too_large")
+
+    def test_the_backstop_reads_mapping_keys_too(self) -> None:
+        # Review H1: keys skipped every check. A built state never has
+        # caller keys, and the backstop reads them anyway.
+        key = "-----BEGIN RSA " + "PRIVATE KEY-----"
+        refusal = system_one._egress_refusal({"model": "m", "state": "{}", "questions": {}}, {key: "x"})
+        self.assertEqual(refusal, "state_secret_shaped:credential_shape")
+
+    def test_a_free_text_subject_is_refused(self) -> None:
+        transport = _Transport()
+        self.assert_refused(self.ask("J0", self.refs(), transport, subject="customer jane.doe asked"), transport,
+                            "subject_not_an_id")
 
 
 class Ledger(_Store):
-    def test_answered_row_carries_hash_model_answer_never_the_state(self) -> None:
-        transport = _Transport(_noul(0.93))
-        result = self.ask("J0", _STATE, transport)
+    def test_answered_row_carries_hash_model_validated_answer_never_the_state(self) -> None:
+        transport = _Transport(JevReply("jev-1.13.0", {"J0": {"type": "noul", "noul": 0.93, "explain": "x" * 500}}, 120))
+        result = self.ask("J0", self.refs(), transport, subject="PR#1756")
         self.assertEqual(result, Answer(
             question_id="J0", version=1, type="noul", value=0.93, confidence=None, probabilities=None,
             model="jev-1.13.0", mode="shadow", decision_point="pre_pr_open",
@@ -193,48 +303,56 @@ class Ledger(_Store):
         sent = transport.payloads[0]
         self.assertEqual((sent["model"], list(sent["questions"])), ("jev-1.13.0", ["J0"]))
         self.assertEqual(sent["questions"]["J0"], {"type": "noul", "instructions": _J0["instructions"]})
+        state = json.loads(sent["state"])
+        self.assertEqual(state["finding"], {"finding": _FINDING["title"], "rule": _FINDING["rule_violated"]})
+        self.assertIn("+repo.getScopedRepository(X)", state["diff"])
         (row,) = self.rows()
         self.assertEqual(row["state_sha256"], "sha256:" + hashlib.sha256(sent["state"].encode("utf-8")).hexdigest())
-        self.assertEqual(json.loads(sent["state"]), _STATE)
         self.assertEqual(
             {k: row[k] for k in ("question_id", "question_version", "model", "decision_point", "mode",
                                  "outcome", "input_tokens", "subject")},
             {"question_id": "J0", "question_version": 1, "model": "jev-1.13.0", "decision_point": "pre_pr_open",
-             "mode": "shadow", "outcome": "answered", "input_tokens": 120, "subject": "test:1"},
+             "mode": "shadow", "outcome": "answered", "input_tokens": 120, "subject": "PR#1756"},
         )
-        self.assertEqual(row["answer"], {"type": "noul", "noul": 0.93})
+        self.assertEqual(row["answer"], {"value": 0.93, "confidence": None, "probabilities": None})
         self.assertIsInstance(row["latency_ms"], int)
         raw = (self.tools / "system-one" / "calls.jsonl").read_text(encoding="utf-8")
         self.assertNotIn("getScopedRepository", raw)
         self.assertNotIn("tenant scoping", raw)
+        self.assertNotIn("explain", raw)
 
     def test_malformed_answer_is_unavailable(self) -> None:
-        for answers in ({}, {"J0": {"type": "noul", "noul": 1.7}}, {"J0": {"type": "score", "score": 1}}):
-            with self.subTest(answers=answers):
-                result = self.ask("J0", _STATE, _Transport(JevReply("jev-1.13.0", answers, 5)))
+        for model, answers in (("jev-1.13.0", {}), ("jev-1.13.0", {"J0": {"type": "noul", "noul": 1.7}}),
+                               ("jev-1.13.0", {"J0": {"type": "score", "score": 1}}),
+                               ("jev 1.13\nX", {"J0": {"type": "noul", "noul": 0.5}})):
+            with self.subTest(answers=answers, model=model):
+                result = self.ask("J0", self.refs(), _Transport(JevReply(model, answers, 5)))
                 self.assertEqual(result, Unavailable("J0", "unavailable", "answer_malformed"))
 
-    def test_other_model_answers_in_shadow(self) -> None:
+    def test_other_model_answers_in_shadow_and_only_known_options_are_kept(self) -> None:
         reply = JevReply("jev-1.14.0", {"KIND": {"type": "choice", "choice": "fix", "confidence": 0.8,
-                                                 "probabilities": {"fix": 0.8, "test": 0.2}}}, 9)
-        result = self.ask("KIND", {"diff": "x"}, _Transport(reply))
+                                                 "probabilities": {"fix": 0.8, "test": 0.2, "injected": 0.9}}}, 9)
+        result = self.ask("KIND", {"diff": StateRef(commit=self.fix, path="src/x.ts")}, _Transport(reply))
         assert isinstance(result, Answer)
         self.assertEqual((result.value, result.mode, result.model), ("fix", "shadow", "jev-1.14.0"))
-        self.assertEqual(self.rows()[0]["declared_mode"], "order")
+        (row,) = self.rows()
+        self.assertEqual(row["declared_mode"], "order")
+        self.assertEqual(row["answer"]["probabilities"], {"fix": 0.8, "test": 0.2})
 
 
 class Shuffle(_Store):
-    def order_for(self, state: dict[str, str]) -> list[str]:
+    def order_for(self, commit: str) -> list[str]:
         transport = _Transport(JevReply("jev-1.13.0", {"KIND": {
             "type": "choice", "choice": "fix", "confidence": 0.9, "probabilities": {"fix": 0.9}}}, 1))
-        self.ask("KIND", state, transport)
+        self.ask("KIND", {"diff": StateRef(commit=commit, path="src/x.ts")}, transport)
         return list(transport.payloads[0]["questions"]["KIND"]["criteria"])
 
     def test_options_are_a_deterministic_per_state_permutation(self) -> None:
-        orders = [self.order_for({"diff": f"change {index}"}) for index in range(12)]
+        commits = [self.commit_file("src/x.ts", f"change {index}\n", f"change {index}") for index in range(12)]
+        orders = [self.order_for(commit) for commit in commits]
         for order in orders:
             self.assertEqual(sorted(order), sorted(_KIND["criteria"]))
-        self.assertEqual(self.order_for({"diff": "change 3"}), orders[3])
+        self.assertEqual(self.order_for(commits[3]), orders[3])
         self.assertGreater(len({tuple(order) for order in orders}), 1)
         self.assertGreater(len({order[0] for order in orders}), 1)
 

@@ -80,6 +80,35 @@ registered question even in shadow.
 Rule: A model the protocol may ask is reached through one bounded transport whose failures are
 returned, asks only operator-owned questions, and records every call without its input.
 
+Security review of #1756, 2026-10-09. The operator rule is: only public repository code and
+finding or PR text may leave the host, never tenant data, logs, secrets or operator content, and
+calls are logged without content. The review found and #1756 fixed:
+
+- **Egress is built from references, not filtered from caller text.** `system_one` builds every
+  state value itself from a `StateRef`:
+  - a 40-hex commit the bound repository holds, read with `git`;
+  - a path held to the agent evidence law, with credential-shaped files refused;
+  - a finding id read from the registry.
+- **The deny scan is now a backstop over the final payload.** It covers every string, mapping
+  keys included, plus the wire size. It adds JWT, Stripe live/test, webhook secrets, URL
+  credentials, quoted and YAML passwords, AWS, DigitalOcean, SendGrid, npm, GitLab, Google and
+  Slack shapes. It also refuses e-mail addresses and IPv4 addresses outside the
+  documentation/loopback ranges.
+- **The transport is private to `system_one`.** An invariant test pins that only `system_one`
+  imports it.
+  - The endpoint is pinned (https, `api.typesafe.ai`).
+  - No redirect is followed and any 3xx is refused; environment proxies are ignored.
+  - One monotonic deadline covers both attempts, and the response is capped.
+  - The key file is opened with `O_NOFOLLOW` and checked by `fstat` (regular file, owned by the
+    euid, mode `0600`). The key must match a fixed charset.
+  - Every failure names at most an exception class.
+- **The ledger stores an id-shaped subject and the validated answer fields only.**
+- **`system_one.py`, `jev_runtime.py` and `secret_scrub.py` are authority surfaces.**
+
+Open for the operator: `aria-config/` has no CODEOWNERS entry. The question registry is READONLY
+to ARIA's implementer and an authority surface. No human review rule is attached to it on GitHub,
+and this PR does not change CODEOWNERS.
+
 ## ARIA-LOW-319
 
 Recorded 2026-10-03, the wiring half of ARIA-LOW-252. The decision points the questions were

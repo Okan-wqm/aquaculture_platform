@@ -193,12 +193,8 @@ the hard-fail check registry.
 - **No adjacent tidying.** Apply exactly `key_changes[]`; refactors, renames
   or cleanups beyond them are `forbidden_scope_violation` material even
   inside `allowed_scope[]`.
-- **Finish or refuse.** Apply, validate, commit and submit the response
-  envelope in one run — the executor gates, pushes and opens the PR from
-  your commit; if the plan is infeasible, emit the refusal envelope — never
-  an unexecuted plan or a partial diff. When the plan cannot be completed
-  because it needs a file outside `allowed_scope[]` (e.g. a tsconfig alias its
-  import needs), refuse `reason_class=scope` and list that file's repo path in
-  the refusal's `enabling_surfaces[]`; the kernel re-plans it when the file is
-  inside the operator's signed write roots (ARIA-HIGH-397). Never edit it.
+- **Finish or refuse.** Apply, validate, commit and submit in one run (the executor gates, pushes
+  and opens the PR from your commit); if infeasible, refuse — never an unexecuted plan or a partial
+  diff. A file the plan needs outside `allowed_scope[]` (e.g. a tsconfig alias): refuse `scope`, list it in
+  `enabling_surfaces[]` (re-planned inside the signed write roots, ARIA-HIGH-397); never edit it.
 - **Coding standards.** Every diff conforms to `@.claude/agents/_shared/aria-code-writing-standards.md`.

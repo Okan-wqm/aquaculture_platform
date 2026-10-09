@@ -29,7 +29,6 @@ from .memory import decay_beliefs_by_head_distance, decay_stale_beliefs_by_age, 
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import budget_projection, read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
-from .capability_resolver import SERVICE_HARDENING_CAPABILITY
 from .genesis_policy import load_policy
 from .reflection import run_reflection
 from .human_required import (
@@ -40,6 +39,7 @@ from .human_required_adjudication import sweep_human_required_adjudications
 from .agent_invocations import reap_stale_claims
 from .calibration import recommend_calibration
 from .calibration_actuator import apply_bounded_calibration
+from .capability_resolver import SERVICE_HARDENING_CAPABILITY
 from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities

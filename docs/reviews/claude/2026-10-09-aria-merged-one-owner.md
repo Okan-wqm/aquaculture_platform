@@ -116,6 +116,9 @@ plan's own merge, with no GitHub read. That covers #1906 if it merges before thi
     `merge_unproven` (`merged_head_unreadable:…:after_6_checks`). A RECORDED plan's merge is
     recorded as GitHub reports it, with lineage `head_unverifiable`, which no reader credits.
   - Only `head_diverged`, or another named fact, ends a PR's lifecycle.
+  - Known limit: the auto-cycle runs once a day, so the six checks span about six days. If the
+    merged head stays unreadable for that long, a REJECTED plan's merge is refused for good. The
+    ending is disclosed (`after_6_checks`) and fails closed: nothing is credited.
 - **N3, closed:** `patch-id --verbatim` replaces `--stable`. A re-indent that moves a statement into
   an `if` is no longer "the delivered patch" (probe S3, pinned).
 - **N4, closed:** every merged row names its lineage; `record_merge` requires one from the

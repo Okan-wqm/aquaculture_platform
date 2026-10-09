@@ -32,10 +32,12 @@ of these hold:
 The selector is import-graph based. Tests that assert over the whole
 discovered surface set (capability rosters, surface reachability) import
 nothing they cover, so the graph cannot reach them. Any change under
-`aria-kernel/aria_kernel/` pins
+`aria-kernel/aria_kernel/` selects
 `tests/test_autonomy_evidence_status.py` and `tests/test_surface_reachability.py`
-to the front of every scoped run (`applyInvariantFloor` in
-`scripts/ci/aria-suite-changed.mjs`).
+into every scoped run at the `floor` tier (`applyInvariantFloor` in
+`scripts/ci/aria-suite-changed.mjs`): last priority, inside the budget
+discipline, never displacing a changed module. The hard guarantee is the
+required `aria-kernel` check, which always runs the full suite.
 
 ## Night budget
 

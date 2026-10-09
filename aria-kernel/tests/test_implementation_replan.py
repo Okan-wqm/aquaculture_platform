@@ -41,6 +41,7 @@ class _ConvergedOperatorPlan(_PlanCase):
     """An operator plan CONVERGED and its implementation request minted, in a signed checkout."""
 
     write_roots: list[str] | None = ["apps/farm-service"]
+    foreign_signer = False
 
     def setUp(self) -> None:  # noqa: D401 — replaces _PlanCase.setUp: the store lives in the signed checkout
         from aria_kernel.cross_review_bridge import issue_implementation_envelope
@@ -55,8 +56,16 @@ class _ConvergedOperatorPlan(_PlanCase):
         for name, owns in (("farm-expert", "apps/farm-service/**"), ("access-boundary-auditor", "web/**")):
             (agents / f"{name}.md").write_text(f"---\nname: {name}\ndescription: r\n---\n\nOwns `{owns}`.\n",
                                                encoding="utf-8")
+        # The enabling surface is a tracked file of the checkout (review of #1908, item 8).
+        self.fx.commit_files({ENABLING: "{}\n", WRITE_SURFACE: "export const x = 1;\n",
+                              "apps/farm-service-extra/tsconfig.json": "{}\n"})
         extra = {} if self.write_roots is None else {"write_roots": self.write_roots}
-        self.row = self.fx.append_raw(self.fx.sign(self.fx.request_row(id=REQUEST_ID, **extra)))
+        signer = {}
+        if self.foreign_signer:
+            from tests._helpers.operator_requests import mint_ed25519_key
+
+            signer = {"key": mint_ed25519_key(Path(self.tmp.name) / "intruder"), "principal": "intruder@aria.test"}
+        self.row = self.fx.append_raw(self.fx.sign(self.fx.request_row(id=REQUEST_ID, **extra), **signer))
         cd.run_convergence_drainer(cycle_id="cyc-1", base_dir=self.tools, workspace_root=self.root,
                                    plan_id="plan-1", plan_seed=self.plan(), max_rounds=2)
         self.bind_synthesis("plan-1")
@@ -186,32 +195,98 @@ class ARefusalTheKernelCannotStandOnStaysWithAPerson(_ConvergedOperatorPlan):
         self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
 
     def test_a_tampered_request_row_is_not_trusted(self) -> None:
-        # Widen the roots on the stored row after signing: the signature no
-        # longer verifies, so its roots bound nothing.
+        # Widening the roots on the stored row breaks its hash chain: the
+        # consumed row is no longer the verified one.
         ledger = self.tools / "operator-feedback.jsonl"
-        lines = ledger.read_text(encoding="utf-8").splitlines()
-        rows = [json.loads(line) for line in lines]
+        rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
         rows[-1]["write_roots"] = ["apps"]
         ledger.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
-        outcome = self.replan()
-        self.assertEqual(outcome["status"], INELIGIBLE)
-        self.assertNotEqual(outcome["reason"], "no_eligible_enabling_surface")
+        self.assertEqual(self.replan()["reason"], "operator_request_row_unavailable")
 
-    def test_the_lineage_is_bounded(self) -> None:
-        from aria_kernel.tool_registry import append_tools_governance
-
+    def test_the_lineage_is_bounded_by_the_durable_bindings(self) -> None:
+        # Counted from the `replan_of` synthesis bindings, written before a
+        # successor starts (review of #1908, item 7), not a later governance row.
         for depth in range(1, MAX_REPLANS_PER_LINEAGE + 1):
             parent = "plan-0" if depth == 1 else f"plan-0-rp{depth - 1}"
             child = "plan-1" if depth == MAX_REPLANS_PER_LINEAGE else f"plan-0-rp{depth}"
-            append_tools_governance(self.tools, REPLANNED_KIND, {"plan_id": parent, "successor_plan_id": child})
+            append_declared_fixture(ingestion_ledger_path(self.tools), {
+                "schema_version": 3, "row_type": "synthesis_bound", "cycle_id": "cyc-0",
+                "plan_content_hash": "sha256:" + str(depth) * 64,
+                "replan_of": {"plan_id": parent, "successor_plan_id": child},
+            }, expected_surface="operator_feedback_ingestion")
         outcome = self.replan()
         self.assertEqual((outcome["status"], outcome["reason"]), (INELIGIBLE, "replan_bound_reached"))
+
+    def test_a_directory_a_root_an_ignored_path_or_a_sibling_prefix_is_never_a_surface(self) -> None:
+        outcome = self.replan(named=("apps/farm-service", "apps/farm-service/src",
+                                     "apps/farm-service/node_modules/x/index.js",
+                                     "apps/farm-service-extra/tsconfig.json"))
+        self.assertEqual((outcome["status"], outcome["reason"]), (INELIGIBLE, "no_eligible_enabling_surface"))
+        self.assertEqual({row["path"]: row["reason"] for row in outcome["refused_surfaces"]}, {
+            "apps/farm-service": "outside_signed_write_roots",
+            "apps/farm-service/src": "not_a_tracked_file",
+            "apps/farm-service/node_modules/x/index.js": "not_a_tracked_file",
+            "apps/farm-service-extra/tsconfig.json": "outside_signed_write_roots",
+        })
+
+    def test_no_settled_replan_without_a_started_successor(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError
+
+        with mock.patch("aria_kernel.convergence_drainer.run_convergence_drainer",
+                        side_effect=GovernanceError("store refused")):
+            outcome = self.replan()
+        self.assertEqual(outcome["status"], "failed")
+        self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
+
+    def test_a_settlement_another_writer_won_unstarts_the_successor(self) -> None:
+        with mock.patch("aria_kernel.implementation_settlement._settle",
+                        return_value={"status": "already_settled", "rejection_class": "x"}):
+            outcome = self.replan()
+        self.assertEqual((outcome["status"], outcome["reason"]), ("failed", "predecessor_settlement_already_settled"))
+        self.assertEqual(fold_plan_state(plan_id="plan-1-rp1", base_dir=self.tools)["state"], "ABANDONED")
 
     def test_a_plan_no_longer_waiting_is_not_replanned(self) -> None:
         from aria_kernel.implementation_settlement import settle_agent_refusal
 
         settle_agent_refusal(request_id=self.request_id, reason_class="scope", base_dir=self.tools)
         self.assertEqual(self.replan()["reason"], "plan_not_awaiting_implementation")
+
+
+class ARequestSignedByAKeyTheAnchorDoesNotHold(_ConvergedOperatorPlan):
+    foreign_signer = True
+
+    def test_its_roots_bound_nothing_and_the_signature_failure_is_named(self) -> None:
+        outcome = self.replan()
+        self.assertEqual(outcome["status"], INELIGIBLE)
+        self.assertTrue(outcome["reason"].startswith("operator_request_unverified:"), outcome)
+        self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
+
+
+class TheExecutorsReplannedTerminal(_ConvergedOperatorPlan):
+    def test_it_releases_the_claim_closes_the_request_and_names_the_refusal(self) -> None:
+        import os
+
+        from aria_kernel.agent_invocations import claim_request, derive_request_state
+        from tests._helpers.executor_module import load_ci_executor
+        from tests._helpers.operator_acts import operator_set_profile
+
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
+        claim = claim_request(request_id=self.request_id, agent_id="executor-test", base_dir=self.tools)
+        self.assertEqual(self.replan()["status"], REPLANNED)
+        self.assertEqual(derive_request_state(request_id=self.request_id, base_dir=self.tools), "CLAIMED")
+        executor = load_ci_executor("ci_executor_replanned_terminal")
+        with mock.patch.dict(os.environ, {"ARIA_TOOLS_DIR": str(self.tools)}):
+            code = executor._close_replanned_refusal(
+                tools_dir=self.tools, repo=self.root, request=self.requests("implementation")[0],
+                request_id=self.request_id, target_agent="aria-implementer", claim_id=claim["claim_id"],
+                agent_id="executor-test", lease_token=claim["lease_token"], reason_class="scope", plan_id="plan-1",
+            )
+        self.assertEqual(code, executor.REFUSAL_EXIT_CODE)
+        self.assertEqual(derive_request_state(request_id=self.request_id, base_dir=self.tools), "CANCELLED")
+        claims = [row for row in load_jsonl(self.tools / "agent-invocations" / "claims.jsonl")
+                  if row.get("request_id") == self.request_id]
+        self.assertIn("agent_refused:scope", [row.get("reason") for row in claims])
+        self.assertFalse((self.tools / "human-required" / f"{self.request_id}.json").exists())
 
 
 class ARequestSignedWithoutWriteRoots(_ConvergedOperatorPlan):

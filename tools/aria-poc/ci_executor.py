@@ -696,6 +696,29 @@ class HumanRequiredRecordUnavailable(RuntimeError):
     must say so (`_release_unescalated`), never release as if it did."""
 
 
+def _close_replanned_refusal(
+    *, tools_dir: Path, repo: Path, request: dict[str, Any], request_id: str, target_agent: str,
+    claim_id: str, agent_id: str, lease_token: str, reason_class: str, plan_id: str,
+) -> int:
+    """ARIA-HIGH-397 — the terminal of a refusal the kernel re-planned: no HUMAN_REQUIRED.
+
+    The claim is released under the agent's class; the predecessor plan was
+    settled while the claim was held, so once the request is unheld its ended
+    plan closes it (`plan_request_closure`) and no drain claims it again; the
+    child's summary names the by-design refusal.
+    """
+    from aria_kernel.plan_request_closure import close_abandoned_plan_requests
+
+    _release_claim(
+        tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+        agent_id=agent_id, lease_token=lease_token,
+        reason=f"agent_refused:{reason_class}",
+    )
+    close_abandoned_plan_requests(tools_dir, plan_ids=[plan_id])
+    return _refuse_dispatch(request=request, request_id=request_id, target_agent=target_agent,
+                            reason="agent_refused")
+
+
 def _hand_over_after_delivery(*, tools_dir: Path, request_id: str, delivered: Any, cause: str) -> None:
     """ARIA-HIGH-389 — a refusal after THIS run's delivery opened the PR.
 
@@ -5529,19 +5552,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 _stage(f"implementation_replan status={_replan['status']} reason={_replan.get('reason')} "
                        f"successor={_replan.get('successor_plan_id')}")
                 if _replan["status"] == REPLANNED:
-                    _release_claim(
-                        tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-                        agent_id=agent_id, lease_token=lease_token,
-                        reason=f"agent_refused:{_reason_class}",
-                    )
-                    # The settlement ran while the claim was held; now the
-                    # request is unheld, its ended plan closes it.
-                    from aria_kernel.plan_request_closure import close_abandoned_plan_requests
-
-                    close_abandoned_plan_requests(tools_dir, plan_ids=[str(_replan["plan_id"])])
-                    return _refuse_dispatch(
-                        request=request_envelope, request_id=request_id, target_agent=subagent_type,
-                        reason="agent_refused",
+                    return _close_replanned_refusal(
+                        tools_dir=tools_dir, repo=repo, request=request_envelope, request_id=request_id,
+                        target_agent=subagent_type, claim_id=claim_id, agent_id=agent_id,
+                        lease_token=lease_token, reason_class=_reason_class, plan_id=str(_replan["plan_id"]),
                     )
             # Persist HUMAN_REQUIRED through the kernel's recorder (one
             # recorder, shared with the delivery refusals — ARIA-HIGH-124)

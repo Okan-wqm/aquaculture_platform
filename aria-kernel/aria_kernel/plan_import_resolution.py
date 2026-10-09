@@ -8,19 +8,24 @@ asks the compiler anything. On 2026-10-08 F-015's plan converged prescribing
 maps no ``@platform/shared-ui/*`` alias. The implementer was the first to run
 the compiler (TS2307); it refused, and the plan went to a person.
 
-WHAT. :func:`prescribed_imports` reads the module specifiers a plan's key
-changes prescribe (``from '…'``, ``import '…'``, ``import('…')``,
-``require('…')``) and attributes each to the key change's own TypeScript or
-JavaScript paths. :func:`compute_import_resolution` asks the repository's
-TypeScript, through ``tools/gates/plan-import-witness.ts``, whether each
-specifier resolves from each of those files under the project's own compiler
-configuration, with the plan's planned files overlaid on the file view. The
-result rides the round's ``coverage_computed`` event as its
-``import_resolution`` block, and every unresolved specifier is a material
-synthetic risk (``IMP-R{N}-…``) on the same risk channel coverage gaps use, so
-the next revision addresses it like a reviewer's risk. The evaluator refuses
-CONVERGED by name while one stands (``plan_convergence``, gate
-``prescribed_imports_resolve``).
+WHAT. A key change DECLARES the imports it adds or changes, as structured
+data: ``imports: [{from_path, specifier}]``, each bound to one of the key
+change's own files (``plan_convergence.key_change_violation`` refuses any
+other shape; the plan contract tells every planner). Prose is never parsed:
+"from 'PENDING' to 'APPROVED'" and "replace the import from 'X'" name no
+import. :func:`compute_import_resolution` asks the repository's TypeScript,
+through ``tools/gates/plan-import-witness.ts``, whether each declared
+specifier resolves for the file that imports it, under the compiler
+configuration of the project that compiles that file, with the files the
+plan's key changes write overlaid. The convergence drainer runs it on the
+body that would CONVERGE (the latest revision, not the round-1 challenger)
+and records it on the round's ``coverage_computed`` as its
+``import_resolution`` block; every unresolved specifier is a material
+synthetic risk (``IMP-R{N}-…``) on the coverage gaps' channel, and the
+evaluator refuses CONVERGED by name while one stands (``plan_convergence``,
+gate ``prescribed_imports_resolve``). Asset specifiers (a stylesheet, an
+image, a ``?query`` import) are the bundler's and are not judged; an ambient
+``declare module`` of the project's own declaration files resolves.
 
 A plan that changes a project's compiler configuration itself takes the
 answer on: its specifiers in that project are reported ``config_planned`` and
@@ -35,7 +40,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import subprocess
 from pathlib import Path
 from typing import Any, Callable
@@ -56,14 +60,7 @@ SYNTHETIC_RISK_CATEGORY = "import_unresolved"
 SYNTHETIC_RISK_SEVERITY = "material"
 
 # Source files whose imports the TypeScript compiler resolves.
-_SOURCE_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
-_SPECIFIER = r"""['"]([^'"\s`]{1,200})['"]"""
-_PRESCRIPTION_PATTERNS = (
-    re.compile(r"\bfrom\s+" + _SPECIFIER),
-    re.compile(r"\bimport\s+" + _SPECIFIER),
-    re.compile(r"\bimport\s*\(\s*" + _SPECIFIER + r"\s*\)"),
-    re.compile(r"\brequire\s*\(\s*" + _SPECIFIER + r"\s*\)"),
-)
+SOURCE_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 MAX_CHECKS = 200
 
 Runner = Callable[[list[str], str, int], "subprocess.CompletedProcess[str]"]
@@ -73,45 +70,34 @@ def _default_runner(cmd: list[str], cwd: str, timeout_seconds: int) -> "subproce
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout_seconds)  # noqa: S603
 
 
-def _source_paths(paths: Any) -> list[str]:
-    return [str(path) for path in paths or [] if isinstance(path, str) and path.endswith(_SOURCE_SUFFIXES)]
-
-
 def planned_paths(plan_content: dict[str, Any]) -> list[str]:
-    """Every path the plan writes: its surfaces and its key changes' paths."""
-    from .plan_convergence import affected_surface_paths
+    """Every file the plan's key changes write (an affected surface the body never writes is not planned)."""
+    from .plan_convergence import key_change_paths
 
-    affected = plan_content.get("affected_surfaces") or []
-    paths = {str(path) for path in affected_surface_paths([affected] if isinstance(affected, dict) else affected)}
-    for change in plan_content.get("key_changes") or []:
-        if isinstance(change, dict):
-            paths.update(str(path) for path in change.get("paths") or [] if isinstance(path, str))
+    paths: set[str] = set()
+    for change in plan_content.get("key_changes") or [] if isinstance(plan_content, dict) else []:
+        paths.update(key_change_paths(change))
     return sorted(paths)
 
 
 def prescribed_imports(plan_content: Any) -> list[dict[str, str]]:
-    """The (specifier, from_path, key_change_id) a plan's key changes prescribe, deduplicated, in order."""
+    """The (specifier, from_path, key_change_id) the key changes declare in ``imports[]``, deduplicated."""
     if not isinstance(plan_content, dict):
         return []
     found: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for index, change in enumerate(plan_content.get("key_changes") or []):
-        if not isinstance(change, dict):
+        if not isinstance(change, dict) or not isinstance(change.get("imports"), list):
             continue
-        sources = _source_paths(change.get("paths"))
-        text = str(change.get("description") or "")
-        if not sources or not text:
-            continue
-        specifiers: list[str] = []
-        for pattern in _PRESCRIPTION_PATTERNS:
-            specifiers.extend(match.group(1) for match in pattern.finditer(text))
         change_id = str(change.get("id") or f"key-change-{index + 1}")
-        for specifier in specifiers:
-            for source in sources:
-                if (specifier, source) in seen:
-                    continue
-                seen.add((specifier, source))
-                found.append({"specifier": specifier, "from_path": source, "key_change_id": change_id})
+        for entry in change["imports"]:
+            if not isinstance(entry, dict):
+                continue
+            key = (str(entry.get("specifier") or ""), str(entry.get("from_path") or ""))
+            if not all(key) or key in seen:
+                continue
+            seen.add(key)
+            found.append({"specifier": key[0], "from_path": key[1], "key_change_id": change_id})
     return found[:MAX_CHECKS]
 
 
@@ -119,6 +105,7 @@ def build_synthetic_risk(entry: dict[str, Any], *, round_number: int) -> dict[st
     """One unresolved specifier as a CROSS_REVIEW_RISK-schema risk (round-scoped id, like coverage)."""
     digest = hashlib.sha256(f"{entry['specifier']}|{entry['from_path']}".encode("utf-8")).hexdigest()[:8]
     project = entry.get("project_config")
+    config = entry.get("paths_config") or project
     return {
         "risk_id": f"IMP-R{round_number}-{digest}",
         "risk_category": SYNTHETIC_RISK_CATEGORY,
@@ -132,8 +119,8 @@ def build_synthetic_risk(entry: dict[str, Any], *, round_number: int) -> dict[st
             "Prescribe a specifier the project resolves, or make this one resolve inside the plan's write set "
             "(the project's compiler configuration, e.g. its tsconfig paths) and name that file in a key change"
         ),
-        "affected_files": [path for path in (entry["from_path"], project) if path],
-        "evidence_refs": [project] if project else [],
+        "affected_files": [path for path in (entry["from_path"], config) if path],
+        "evidence_refs": [config] if config else [],
     }
 
 
@@ -192,7 +179,8 @@ def compute_import_resolution(
         if not isinstance(result, dict) or result.get("specifier") != check["specifier"] \
                 or result.get("from_path") != check["from_path"]:
             return _unable("witness_output_misaligned", checked=len(checks), witness=witness), []
-        entry = {**check, "project_config": result.get("project_config"), "reason": str(result.get("reason") or "")}
+        entry = {**check, "project_config": result.get("project_config"),
+                 "paths_config": result.get("paths_config"), "reason": str(result.get("reason") or "")}
         if result.get("config_planned") is True:
             config_planned.append(entry)
         elif result.get("resolved") is not True:
@@ -227,6 +215,42 @@ def validate_import_resolution(block: Any) -> None:
         raise GovernanceError("import_resolution unresolved verdict and entries must agree")
 
 
+def converging_body(state: dict[str, Any]) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    """(revision id, content hash, structured body) of the revision that would CONVERGE: the latest one."""
+    import json as _json
+
+    latest = state.get("latest_revision") or {}
+    if latest.get("source") == "plan_started":
+        content: Any = (state.get("plan_started") or {}).get("plan_content")
+    else:
+        content = latest.get("content")
+        if isinstance(content, str):
+            try:
+                content = _json.loads(content)
+            except ValueError:
+                content = None
+    return latest.get("revision_id"), latest.get("content_hash"), content if isinstance(content, dict) else None
+
+
+def import_resolution_for_round(
+    *, state: dict[str, Any], plan_id: str, round_number: int, workspace_root: str | Path, base_dir: str | Path,
+    runner: Runner | None = None,
+) -> dict[str, Any]:
+    """The round's ``import_resolution`` block, judged on the body that would converge, with its target named."""
+    from .tool_registry import ensure_tools_dir
+
+    revision_id, content_hash, body = converging_body(state)
+    if body is None:
+        block, risks = {"verdict": VERDICT_NOT_APPLICABLE, "checked": 0, "unresolved": [], "config_planned": []}, []
+    else:
+        block, risks = compute_import_resolution(
+            plan_content=body, round_number=round_number, workspace_root=workspace_root, runner=runner,
+            input_path=ensure_tools_dir(base_dir) / "coverage" / f"{plan_id}-r{round_number}-imports-input.json",
+        )
+    return {**block, "target_revision_id": revision_id, "target_plan_content_hash": content_hash,
+            "synthetic_risks": risks}
+
+
 __all__ = [
     "SYNTHETIC_RISK_CATEGORY",
     "VERDICTS",
@@ -236,6 +260,8 @@ __all__ = [
     "VERDICT_UNRESOLVED",
     "build_synthetic_risk",
     "compute_import_resolution",
+    "converging_body",
+    "import_resolution_for_round",
     "planned_paths",
     "prescribed_imports",
     "validate_import_resolution",

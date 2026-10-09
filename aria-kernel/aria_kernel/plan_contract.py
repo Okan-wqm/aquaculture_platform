@@ -62,7 +62,7 @@ REASON_TIER_INVALID = "plan_architectural_tier_invalid"
 REASON_COMMAND_NOT_DECLARED = "plan_validation_command_not_declared"
 REASON_RECIPE_UNKNOWN = "plan_validation_recipe_unknown"
 # ARIA-HIGH-104 (3) — a key_changes[] entry that is not a string step or a
-# {id?, description, paths?} object (plan_convergence.KEY_CHANGE_FIELDS).
+# {id?, description, paths?, imports?} object (plan_convergence.KEY_CHANGE_FIELDS).
 REASON_KEY_CHANGE_SHAPE = "plan_key_change_shape"
 # ARIA-HIGH-104 (4) — a `finding_id` naming an origin the kernel derives no
 # commit contract for (`plan_origin.plan_origin`): the same read the
@@ -334,8 +334,12 @@ def render_plan_contract_rules(plan_contract: dict[str, Any] | None = None) -> l
         lines.append("  - registered recipes for this store: none; only the canonical suite is admissible")
     lines.append(
         "- Every `plan_content.key_changes[]` entry is a string (one step) or an object"
-        " `{id?, description, paths?}` — `description` the step, `paths` the repo-relative files it"
-        " touches; the implementer reads `paths`, never any other field."
+        " `{id?, description, paths?, imports?}` — `description` the step, `paths` the repo-relative files it"
+        " touches; the implementer reads `paths`, never any other field. `imports` lists every module"
+        " specifier the change adds or changes, as `{from_path, specifier}` with `from_path` one of its own"
+        " source `paths`: the kernel asks the compiler whether each resolves for that file and refuses"
+        " CONVERGED while one does not (gate `prescribed_imports_resolve`); an import the change needs"
+        " but does not declare is the implementer's TS2307."
     )
     lines.append(
         "- `plan_content.finding_id`, when present, names the finding the plan addresses in a form the"

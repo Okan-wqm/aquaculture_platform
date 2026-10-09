@@ -112,15 +112,22 @@ def _converged_content(state: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _lineage(root: Path, plan_id: str) -> tuple[str, int]:
-    """(the lineage's first plan, how many re-plans led to ``plan_id``) from the governance ledger."""
-    from .ledger import load_jsonl
+    """(the lineage's first plan, how many re-plans led to ``plan_id``).
 
-    path = root / "governance.jsonl"
+    Read from the durable ``replan_of`` synthesis bindings, written BEFORE a
+    successor starts (review of #1908, item 7): a governance row is appended
+    after, and a crash between the two must not reset the count.
+    """
+    from .ledger import load_declared_jsonl
+    from .operator_feedback_ingestion import INGESTION_SURFACE, ingestion_ledger_path
+    from .operator_request_spend import SYNTHESIS_BOUND_ROW_TYPE
+
+    path = ingestion_ledger_path(root)
     parent_of = {
-        str(row["details"]["successor_plan_id"]): str(row["details"]["plan_id"])
-        for row in (load_jsonl(path) if path.is_file() else [])
-        if row.get("kind") == REPLANNED_KIND and isinstance(row.get("details"), dict)
-        and row["details"].get("successor_plan_id") and row["details"].get("plan_id")
+        str(row["replan_of"]["successor_plan_id"]): str(row["replan_of"]["plan_id"])
+        for row in (load_declared_jsonl(path, expected_surface=INGESTION_SURFACE) if path.is_file() else [])
+        if row.get("row_type") == SYNTHESIS_BOUND_ROW_TYPE and isinstance(row.get("replan_of"), dict)
+        and row["replan_of"].get("successor_plan_id") and row["replan_of"].get("plan_id")
     }
     first, depth = plan_id, 0
     while first in parent_of and depth <= MAX_REPLANS_PER_LINEAGE:
@@ -189,9 +196,9 @@ def _kernel_surfaces(ctx: _Context) -> list[tuple[str, str]]:
     if block.get("verdict") != VERDICT_UNRESOLVED:
         return []
     return [
-        (str(entry["project_config"]),
+        (str(entry.get("paths_config") or entry["project_config"]),
          f"the repository's TypeScript does not resolve '{entry['specifier']}' from {entry['from_path']}")
-        for entry in block["unresolved"] if entry.get("project_config")
+        for entry in block["unresolved"] if entry.get("paths_config") or entry.get("project_config")
     ]
 
 
@@ -202,14 +209,27 @@ def _eligible_surfaces(
     from .plan_import_resolution import planned_paths
     from .plan_origin import admission_scope_for_plan
 
+    from .plan_convergence import affected_surface_paths
+
     scope = admission_scope_for_plan(ctx.state) or {}
     evidence = set(scope.get("evidence_surfaces") or [])
-    planned = set(planned_paths(ctx.content))
+    affected = ctx.content.get("affected_surfaces") or []
+    planned = set(planned_paths(ctx.content)) | set(
+        affected_surface_paths([affected] if isinstance(affected, dict) else affected))
+    tracked = _tracked_files(ctx.workspace, [path for path, _basis, _fact in candidates])
     accepted: dict[str, EnablingSurface] = {}
     refused: list[dict[str, str]] = []
     for path, basis, fact in candidates:
-        root = next((entry for entry in roots if path == entry or path.startswith(entry.rstrip("/") + "/")), None)
+        # Containment by path parts, never a string prefix: `apps/farm` is
+        # not a root of `apps/farm-service/...` (review of #1908, item 9).
+        root = next((entry for entry in roots
+                     if Path(path).parts[:len(Path(entry).parts)] == Path(entry).parts
+                     and len(Path(path).parts) > len(Path(entry).parts)), None)
         reason = ("outside_signed_write_roots" if root is None
+                  # A tracked file only: no directory, no root itself, nothing
+                  # gitignored (node_modules), so a refusal can never widen a
+                  # plan to a tree (review of #1908, item 8).
+                  else "not_a_tracked_file" if path not in tracked
                   else "readonly_to_the_kernel" if _readonly_prefix(path) is not None
                   else "evidence_only_surface" if path in evidence
                   else "already_in_the_write_set" if path in planned
@@ -219,6 +239,18 @@ def _eligible_surfaces(
         elif path not in accepted:
             accepted[path] = EnablingSurface(path=path, root=str(root), basis=basis, fact=fact)
     return sorted(accepted.values(), key=lambda surface: surface.path), refused
+
+
+def _tracked_files(workspace: Path, paths: list[str]) -> set[str]:
+    """The given paths git tracks at the checkout (files only: a directory is never listed as itself)."""
+    import subprocess
+
+    if not paths:
+        return set()
+    done = subprocess.run(["git", "ls-files", "-z", "--", *paths], cwd=workspace, capture_output=True,
+                          text=True, check=False, timeout=60)
+    listed = set(done.stdout.split("\0")) if done.returncode == 0 else set()
+    return {path for path in paths if path in listed}
 
 
 def _successor_content(ctx: _Context, surfaces: list[EnablingSurface], depth: int) -> dict[str, Any]:
@@ -266,7 +298,7 @@ def replan_after_refusal(
     from .bridge_exceptions import BridgeContractViolation
     from .ledger import LedgerIntegrityError, append_declared_jsonl
     from .operator_feedback_ingestion import INGESTION_SURFACE, ingestion_ledger_path
-    from .plan_convergence import content_hash, fold_plan_state
+    from .plan_convergence import abandon_plan, content_hash, fold_plan_state
     from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
     if reason_class not in REPLAN_REASON_CLASSES:
@@ -302,25 +334,23 @@ def replan_after_refusal(
 
     successor_id = f"{first}-rp{depth + 1}"
     successor = _successor_content(ctx, surfaces, depth + 1)
-    settled = _settle(settlement_for_replan(request_id=request_id, reason_class=reason_class),
-                      base_dir=root, plan_id=plan_id)
-    if settled["status"] != SETTLED:
-        # Another writer ended the plan first (or the store refused): the
-        # plan is no longer this refusal's to re-plan.
-        return {"status": FAILED, "reason": f"predecessor_settlement_{settled['status']}", "plan_id": plan_id}
     record = {
         "plan_id": plan_id, "successor_plan_id": successor_id, "request_id": request_id,
         "reason_class": reason_class, "depth": depth + 1, "lineage_first_plan_id": first,
         "surfaces": [surface.record() for surface in surfaces], "refused_surfaces": refused,
     }
+    # Review of #1908, item 6 — the successor STARTS first; the predecessor
+    # is settled only once the successor demonstrably exists, and a
+    # settlement another writer won un-starts the successor. No settled
+    # re-plan without a successor, and no two live plans for one request.
     try:
         append_declared_jsonl(ingestion_ledger_path(root), {
             **{key: binding.get(key) for key in ("schema_version", "row_type", "cycle_id", "ingestion_ledger_hash",
                                                  "candidate_id", "source_type", "consumed")},
             "bound_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "plan_content_hash": content_hash(successor),
-            "replan_of": {"plan_id": plan_id, "binding_ledger_hash": binding.get("ledger_hash"),
-                          "request_id": request_id},
+            "replan_of": {"plan_id": plan_id, "successor_plan_id": successor_id,
+                          "binding_ledger_hash": binding.get("ledger_hash"), "request_id": request_id},
         }, expected_surface=INGESTION_SURFACE)
         result = run_convergence_drainer(cycle_id=cycle_id, base_dir=root, workspace_root=ctx.workspace,
                                          plan_id=successor_id, plan_seed=successor,
@@ -334,6 +364,13 @@ def replan_after_refusal(
     if fold_plan_state(plan_id=successor_id, base_dir=root).get("state") is None:
         append_tools_governance(root, REPLAN_FAILED_KIND, {**record, "verdict": result.get("arbiter_verdict")})
         return {"status": FAILED, "reason": "successor_not_started", **record}
+    settled = _settle(settlement_for_replan(request_id=request_id, reason_class=reason_class),
+                      base_dir=root, plan_id=plan_id)
+    if settled["status"] != SETTLED:
+        abandon_plan(plan_id=successor_id, reason=f"replan_predecessor_not_settled:{settled['status']}",
+                     base_dir=root)
+        append_tools_governance(root, REPLAN_FAILED_KIND, {**record, "predecessor_settlement": settled["status"]})
+        return {"status": FAILED, "reason": f"predecessor_settlement_{settled['status']}", **record}
     append_tools_governance(root, REPLANNED_KIND, {
         **record, "minted_request_ids": list(result.get("request_ids") or []),
     })

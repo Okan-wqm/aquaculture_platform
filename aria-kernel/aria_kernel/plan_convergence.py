@@ -3294,45 +3294,37 @@ PRESCRIBED_IMPORTS_UNCHECKED = "prescribed_imports_unchecked"
 PRESCRIBED_IMPORTS_ENVIRONMENT_UNABLE = "prescribed_imports_environment_unable"
 
 
-def _coverage_target_content(state: dict[str, Any], coverage: dict[str, Any]) -> dict[str, Any] | None:
-    """The plan body a round's coverage event evaluated (the challenger's in round 1, else a revision)."""
-    target = (coverage.get("target_revision_id"), coverage.get("target_plan_content_hash"))
-    challenger = state.get("challenger") or {}
-    if target == (challenger.get("challenger_revision_id"), challenger.get("content_hash")):
-        return challenger.get("plan_content")
-    latest = state.get("latest_revision") or {}
-    if target == (latest.get("revision_id"), latest.get("content_hash")):
-        if latest.get("source") == "plan_started":
-            return (state.get("plan_started") or {}).get("plan_content")
-        return latest.get("content")
-    return None
-
-
 def _prescribed_imports_gate(
     state: dict[str, Any], coverage: dict[str, Any] | None,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """(the gate decision or None when the target prescribes nothing, an escalation reason or None)."""
+    """(the gate decision or None when the converging body declares no import, an escalation reason or None).
+
+    Judged on the body that would CONVERGE (the latest revision; in round 1
+    the primary, not the challenger the coverage closure measured): the
+    round's block must name that revision, or the body counts as unchecked.
+    """
     from .plan_import_resolution import (
         VERDICT_ENVIRONMENT_UNABLE,
-        VERDICT_NOT_APPLICABLE,
         VERDICT_UNRESOLVED,
+        converging_body,
         prescribed_imports,
     )
 
     if coverage is None:
         return None, None
+    revision_id, content_hash, body = converging_body(state)
     block = coverage.get("import_resolution")
-    content = _coverage_target_content(state, coverage)
-    if block is None and not prescribed_imports(content):
+    if not prescribed_imports(body):
         return None, None
-    if block is None or (block.get("verdict") == VERDICT_NOT_APPLICABLE and prescribed_imports(content)):
+    if (not isinstance(block, dict) or block.get("target_revision_id") != revision_id
+            or block.get("target_plan_content_hash") != content_hash):
         gate = {"gate": PRESCRIBED_IMPORTS_GATE, "verdict": "unchecked", "passed": False}
         return gate, PRESCRIBED_IMPORTS_UNCHECKED
     verdict = block.get("verdict")
     gate = {
         "gate": PRESCRIBED_IMPORTS_GATE,
         "verdict": verdict,
-        "passed": verdict != VERDICT_UNRESOLVED and verdict != VERDICT_ENVIRONMENT_UNABLE,
+        "passed": verdict not in (VERDICT_UNRESOLVED, VERDICT_ENVIRONMENT_UNABLE),
         "unresolved": [f"{item.get('specifier')} @ {item.get('from_path')}" for item in block.get("unresolved") or []],
     }
     if verdict == VERDICT_ENVIRONMENT_UNABLE:
@@ -3573,7 +3565,11 @@ def _validate_id(value: str, field: str) -> None:
 # derives its check from this tuple), what staging reads for
 # ``intended_affected_files`` and what the envelope's per-change obligations
 # carry.
-KEY_CHANGE_FIELDS: tuple[str, ...] = ("id", "description", "paths")
+# ARIA-HIGH-397 — `imports`: the module specifiers the change adds or changes,
+# each bound to one of the change's own source files, judged against the
+# compiler before CONVERGED (`plan_import_resolution`). Structured, never
+# parsed out of the description.
+KEY_CHANGE_FIELDS: tuple[str, ...] = ("id", "description", "paths", "imports")
 
 
 def key_change_description(change: Any) -> str:
@@ -3618,6 +3614,27 @@ def key_change_violation(change: Any) -> str | None:
     paths = change.get("paths")
     if paths is not None and (not isinstance(paths, list) or not all(_valid_repo_path(path) for path in paths)):
         return "paths must be a list of repo-relative POSIX paths"
+    return _key_change_imports_violation(change.get("imports"), key_change_paths(change))
+
+
+def _key_change_imports_violation(imports: Any, paths: list[str]) -> str | None:
+    """ARIA-HIGH-397 — ``imports`` is a list of ``{from_path, specifier}``; each
+    ``from_path`` is one of the change's own source files."""
+    from .plan_import_resolution import MAX_CHECKS, SOURCE_SUFFIXES
+
+    if imports is None:
+        return None
+    if not isinstance(imports, list) or len(imports) > MAX_CHECKS:
+        return f"imports must be a list of at most {MAX_CHECKS} {{from_path, specifier}} objects"
+    for entry in imports:
+        if not isinstance(entry, dict) or set(entry) != {"from_path", "specifier"}:
+            return "each imports[] entry is exactly {from_path, specifier}"
+        specifier, from_path = entry["specifier"], entry["from_path"]
+        if (not isinstance(specifier, str) or not specifier.strip() or len(specifier) > 200
+                or any(char.isspace() for char in specifier)):
+            return "imports[].specifier must be one module specifier"
+        if from_path not in paths or not str(from_path).endswith(SOURCE_SUFFIXES):
+            return "imports[].from_path must be one of the change's own source paths"
     return None
 
 

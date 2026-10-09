@@ -1,7 +1,7 @@
 #!/usr/bin/env ts-node
 /**
- * plan-import-witness: does every module specifier a plan prescribes resolve
- * for its project? (ARIA-HIGH-397)
+ * plan-import-witness: does every module specifier a plan declares resolve
+ * for the file that imports it? (ARIA-HIGH-397)
  * ==========================================================================
  *
  * # Why
@@ -14,20 +14,27 @@
  *
  * # What
  *
- * For each `{specifier, from_path}` the kernel extracted from a plan's key
- * changes (aria_kernel/plan_import_resolution.py), this witness:
+ * For each `{specifier, from_path}` a plan's key changes DECLARE (their
+ * structured `imports[]`, aria_kernel/plan_import_resolution.py), this
+ * witness:
  *
- * - finds the project the file belongs to: the nearest `tsconfig.json` from
- *   the file's directory up to the repository root;
- * - parses it with the compiler's own config reader (`extends` included);
- * - asks the compiler's module resolution (`ts.resolveModuleName`) for the
- *   specifier from that file, under that project's options. Files the plan
- *   itself creates are overlaid on the host's file view, so a specifier
- *   that names a planned file resolves.
+ * - finds the project that compiles the file: the nearest `tsconfig.json`,
+ *   or the project it references whose file set holds the file (a Vite-style
+ *   solution config); its `extends` chain is read with the compiler's own
+ *   config reader;
+ * - reports the specifier `config_planned` when the plan itself changes any
+ *   config of that chain: the answer then depends on content the plan has
+ *   not written, and the implementation's validation judges it;
+ * - otherwise asks the compiler's module resolution (`ts.resolveModuleName`)
+ *   from that file under that project's options, with the files the plan
+ *   creates overlaid on the compiler's file view. A specifier an ambient
+ *   `declare module` of the project's own declaration files names (a Module
+ *   Federation remote) resolves too.
  *
- * A result is `resolved` only when the compiler resolves it. The TypeScript
- * used is the repository's own (`node_modules/typescript`), and the witness
- * refuses to run against any other copy.
+ * Asset specifiers (a non-code extension, a `?query` suffix) are the
+ * bundler's, never the compiler's, and are reported `asset`, not judged.
+ * The TypeScript used is the repository's own (`node_modules/typescript`),
+ * and the witness refuses to run against any other copy.
  *
  * # Exit codes
  *
@@ -37,6 +44,8 @@
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
+
+import type * as TS from 'typescript';
 
 interface WitnessInput {
   schema_version: number;
@@ -48,15 +57,56 @@ interface WitnessInput {
 interface CheckResult {
   specifier: string;
   from_path: string;
+  // The project that compiles the importing file, and the config of its
+  // chain that declares `compilerOptions.paths` (where an alias belongs).
   project_config: string | null;
-  // The plan itself changes the project's compiler configuration: the
-  // answer depends on content the plan has not written yet, so the witness
-  // reports it as the plan's to make true and does not judge it.
+  paths_config: string | null;
   config_planned: boolean;
+  asset: boolean;
   resolved: boolean;
   resolved_file: string | null;
   reason: string | null;
 }
+
+interface Project {
+  config: string;
+  chain: string[];
+  options: TS.CompilerOptions;
+  fileNames: Set<string>;
+  ambient: RegExp[];
+  pathsConfig: string;
+}
+
+// Extensions the compiler never resolves: the bundler loads them.
+const ASSET_EXTENSIONS = new Set([
+  '.css',
+  '.scss',
+  '.sass',
+  '.less',
+  '.styl',
+  '.svg',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.avif',
+  '.ico',
+  '.bmp',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.otf',
+  '.eot',
+  '.mp3',
+  '.mp4',
+  '.webm',
+  '.wav',
+  '.html',
+  '.md',
+  '.txt',
+  '.wasm',
+]);
 
 function fail(message: string): never {
   process.stderr.write(`plan-import-witness: ${message}\n`);
@@ -70,7 +120,7 @@ function parseArgs(argv: string[]): { input: string } {
   return { input: value };
 }
 
-function loadRepoTypescript(repoRoot: string): typeof import('typescript') {
+function loadRepoTypescript(repoRoot: string): typeof TS {
   // Resolved from the repository root, and refused unless it is the
   // repository's own copy: a global tsc would answer for another compiler.
   const load = createRequire(path.join(repoRoot, 'package.json'));
@@ -87,18 +137,127 @@ function loadRepoTypescript(repoRoot: string): typeof import('typescript') {
   if (!fs.realpathSync(resolved).startsWith(pinned)) {
     fail(`typescript_not_repo_pinned: resolved ${resolved}, expected under ${pinned}`);
   }
-  return load(resolved) as typeof import('typescript');
+  return load(resolved) as typeof TS;
 }
 
-function nearestConfig(repoRoot: string, fromPath: string): string | null {
-  let dir = path.dirname(path.join(repoRoot, fromPath));
-  while (dir.startsWith(repoRoot)) {
-    const candidate = path.join(dir, 'tsconfig.json');
-    if (fs.existsSync(candidate)) return candidate;
-    if (dir === repoRoot) break;
-    dir = path.dirname(dir);
+function within(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function rel(repoRoot: string, file: string): string {
+  return path.relative(repoRoot, file).split(path.sep).join('/');
+}
+
+function isAsset(specifier: string): boolean {
+  if (specifier.includes('?')) return true;
+  return ASSET_EXTENSIONS.has(path.extname(specifier).toLowerCase());
+}
+
+function ambientPattern(name: string): RegExp {
+  const escaped = name.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`);
+}
+
+class Projects {
+  private readonly cache = new Map<string, Project | string>();
+
+  constructor(
+    private readonly ts: typeof TS,
+    private readonly repoRoot: string,
+  ) {}
+
+  /** The project compiling `file` (absolute), or a reason there is none. */
+  forFile(file: string): Project | string {
+    let dir = path.dirname(file);
+    while (within(this.repoRoot, dir)) {
+      const candidate = path.join(dir, 'tsconfig.json');
+      if (fs.existsSync(candidate)) {
+        const nearest = this.load(candidate);
+        if (typeof nearest === 'string') return nearest;
+        if (nearest.fileNames.has(file)) return nearest;
+        for (const reference of this.references(candidate)) {
+          const referenced = this.load(reference);
+          if (typeof referenced !== 'string' && referenced.fileNames.has(file)) return referenced;
+        }
+        return nearest;
+      }
+      if (dir === this.repoRoot) break;
+      dir = path.dirname(dir);
+    }
+    return 'no_project_config';
   }
-  return null;
+
+  private references(config: string): string[] {
+    const read = this.ts.readConfigFile(config, (file) => this.ts.sys.readFile(file));
+    const refs =
+      (read.config as { references?: Array<{ path?: string }> } | undefined)?.references ?? [];
+    return refs
+      .map((ref) =>
+        typeof ref.path === 'string' ? path.resolve(path.dirname(config), ref.path) : '',
+      )
+      .filter(Boolean)
+      .map((target) => (target.endsWith('.json') ? target : path.join(target, 'tsconfig.json')));
+  }
+
+  private chain(config: string): { chain: string[]; pathsConfig: string } {
+    const chain: string[] = [];
+    let pathsConfig = '';
+    const visit = (file: string): void => {
+      if (chain.includes(file) || !fs.existsSync(file)) return;
+      chain.push(file);
+      const read = this.ts.readConfigFile(file, (name) => this.ts.sys.readFile(name));
+      const body = read.config as {
+        extends?: string | string[];
+        compilerOptions?: { paths?: unknown };
+      };
+      if (!pathsConfig && body?.compilerOptions?.paths) pathsConfig = file;
+      const parents = body?.extends === undefined ? [] : ([] as string[]).concat(body.extends);
+      for (const parent of parents) {
+        const resolved = parent.startsWith('.') ? path.resolve(path.dirname(file), parent) : '';
+        if (resolved) visit(resolved.endsWith('.json') ? resolved : `${resolved}.json`);
+      }
+    };
+    visit(config);
+    return { chain, pathsConfig: pathsConfig || config };
+  }
+
+  private load(config: string): Project | string {
+    const cached = this.cache.get(config);
+    if (cached !== undefined) return cached;
+    const read = this.ts.readConfigFile(config, (file) => this.ts.sys.readFile(file));
+    let project: Project | string;
+    if (read.error) {
+      project = `config_unreadable: ${this.ts.flattenDiagnosticMessageText(read.error.messageText, ' ')}`;
+    } else {
+      const parsed = this.ts.parseJsonConfigFileContent(
+        read.config,
+        this.ts.sys,
+        path.dirname(config),
+        undefined,
+        config,
+      );
+      const fileNames = new Set(parsed.fileNames.map((file) => path.resolve(file)));
+      const ambient: RegExp[] = [];
+      for (const file of fileNames) {
+        if (!file.endsWith('.d.ts')) continue;
+        const source = this.ts.createSourceFile(
+          file,
+          this.ts.sys.readFile(file) ?? '',
+          this.ts.ScriptTarget.Latest,
+        );
+        for (const statement of source.statements) {
+          if (this.ts.isModuleDeclaration(statement) && this.ts.isStringLiteral(statement.name)) {
+            ambient.push(ambientPattern(statement.name.text));
+          }
+        }
+      }
+      const { chain, pathsConfig } = this.chain(config);
+      project = { config, chain, options: parsed.options, fileNames, ambient, pathsConfig };
+    }
+    this.cache.set(config, project);
+    return project;
+  }
 }
 
 function main(): void {
@@ -114,16 +273,21 @@ function main(): void {
   }
   const repoRoot = path.resolve(parsed.repo_root ?? process.cwd());
   const ts = loadRepoTypescript(repoRoot);
-  const planned = new Set(parsed.planned_paths.map((p) => path.join(repoRoot, p)));
+  // Only files the plan writes are overlaid, never anything under
+  // node_modules, and only inside the repository.
+  const planned = new Set(
+    parsed.planned_paths
+      .map((p) => path.resolve(repoRoot, p))
+      .filter((file) => within(repoRoot, file) && !file.split(path.sep).includes('node_modules')),
+  );
   const plannedDirs = new Set<string>();
   for (const file of planned) {
-    for (let dir = path.dirname(file); dir.startsWith(repoRoot); dir = path.dirname(dir)) {
+    for (let dir = path.dirname(file); within(repoRoot, dir); dir = path.dirname(dir)) {
       plannedDirs.add(dir);
       if (dir === repoRoot) break;
     }
   }
-  // The host is the compiler's own file view with the plan's files overlaid.
-  const host: import('typescript').ModuleResolutionHost = {
+  const host: TS.ModuleResolutionHost = {
     fileExists: (file) => planned.has(path.resolve(file)) || ts.sys.fileExists(file),
     readFile: (file) => ts.sys.readFile(file),
     directoryExists: (dir) => plannedDirs.has(path.resolve(dir)) || ts.sys.directoryExists(dir),
@@ -131,26 +295,40 @@ function main(): void {
     getCurrentDirectory: () => repoRoot,
     getDirectories: (dir) => ts.sys.getDirectories(dir),
   };
-  const optionsByConfig = new Map<string, import('typescript').CompilerOptions | string>();
+  const projects = new Projects(ts, repoRoot);
   const results: CheckResult[] = [];
   for (const check of parsed.checks) {
-    const config = nearestConfig(repoRoot, check.from_path);
-    const configRel = config ? path.relative(repoRoot, config).split(path.sep).join('/') : null;
-    if (!config) {
+    const base = {
+      ...check,
+      project_config: null,
+      paths_config: null,
+      config_planned: false,
+      asset: false,
+    };
+    if (isAsset(check.specifier)) {
       results.push({
-        ...check,
-        project_config: null,
-        config_planned: false,
-        resolved: false,
+        ...base,
+        asset: true,
+        resolved: true,
         resolved_file: null,
-        reason: 'no_project_config',
+        reason: 'asset_specifier',
       });
       continue;
     }
-    if (planned.has(config)) {
+    const containing = path.resolve(repoRoot, check.from_path);
+    const project = projects.forFile(containing);
+    if (typeof project === 'string') {
+      results.push({ ...base, resolved: false, resolved_file: null, reason: project });
+      continue;
+    }
+    const facts = {
+      ...base,
+      project_config: rel(repoRoot, project.config),
+      paths_config: rel(repoRoot, project.pathsConfig),
+    };
+    if (project.chain.some((config) => planned.has(config))) {
       results.push({
-        ...check,
-        project_config: configRel,
+        ...facts,
         config_planned: true,
         resolved: false,
         resolved_file: null,
@@ -158,54 +336,28 @@ function main(): void {
       });
       continue;
     }
-    if (!optionsByConfig.has(config)) {
-      const read = ts.readConfigFile(config, (file) => ts.sys.readFile(file));
-      if (read.error) {
-        optionsByConfig.set(
-          config,
-          `config_unreadable: ${ts.flattenDiagnosticMessageText(read.error.messageText, ' ')}`,
-        );
-      } else {
-        const content = ts.parseJsonConfigFileContent(
-          read.config,
-          ts.sys,
-          path.dirname(config),
-          undefined,
-          config,
-        );
-        optionsByConfig.set(config, content.options);
-      }
-    }
-    const options = optionsByConfig.get(config);
-    if (typeof options === 'string' || options === undefined) {
+    const answer = ts.resolveModuleName(check.specifier, containing, project.options, host);
+    const file = answer.resolvedModule?.resolvedFileName;
+    if (file) {
+      results.push({ ...facts, resolved: true, resolved_file: rel(repoRoot, file), reason: null });
+    } else if (project.ambient.some((pattern) => pattern.test(check.specifier))) {
       results.push({
-        ...check,
-        project_config: configRel,
-        config_planned: false,
+        ...facts,
+        resolved: true,
+        resolved_file: null,
+        reason: 'ambient_module_declaration',
+      });
+    } else {
+      results.push({
+        ...facts,
         resolved: false,
         resolved_file: null,
-        reason: options ?? 'config_unreadable',
+        reason: 'module_not_resolved',
       });
-      continue;
     }
-    const containing = path.join(repoRoot, check.from_path);
-    const answer = ts.resolveModuleName(check.specifier, containing, options, host);
-    const file = answer.resolvedModule?.resolvedFileName;
-    results.push({
-      ...check,
-      project_config: configRel,
-      config_planned: false,
-      resolved: Boolean(file),
-      resolved_file: file ? path.relative(repoRoot, file).split(path.sep).join('/') : null,
-      reason: file ? null : 'module_not_resolved',
-    });
   }
   process.stdout.write(
-    JSON.stringify({
-      schema_version: 1,
-      typescript_version: ts.version,
-      results,
-    }) + '\n',
+    JSON.stringify({ schema_version: 2, typescript_version: ts.version, results }) + '\n',
   );
 }
 

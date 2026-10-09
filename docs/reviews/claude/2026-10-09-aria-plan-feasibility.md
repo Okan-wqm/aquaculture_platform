@@ -88,3 +88,45 @@ coverage are signed history, and reopening one would rewrite what was agreed.
 - The fix is a bounded drain-to-drain chain edge in the executor workflow, with its own chain-edge
   and workflow-contract pins. It is split out with an owner and a deadline (claude, 2026-10-20)
   rather than folded in here.
+
+## Review corrections (adversarial review of #1908)
+
+- **HIGH-1, closed: round 1 judged the challenger.** The coverage closure measures the challenger
+  in round 1, but the primary is what converges and is implemented. The import check now runs in
+  the drainer on the body that would converge (`plan_import_resolution.import_resolution_for_round`
+  on the latest revision). Its block names that revision, and the gate counts a block naming any
+  other body as unchecked (HUMAN_REQUIRED). The reviewer's probe, a primary carrying the F-015
+  specifier beside a clean challenger, no longer converges.
+- **HIGH-2, closed: prose was parsed as imports.** A key change now declares its imports as data:
+  `imports: [{from_path, specifier}]`, a new field of the closed key-change shape
+  (`KEY_CHANGE_FIELDS`). The plan contract tells every planner. Nothing is parsed out of a
+  description, so "from 'PENDING' to 'APPROVED'", a removed import and "do not import" name nothing.
+- **HIGH-3, closed: cross-stack key changes.** Each import is bound to one of its change's own
+  source files and judged only from that file.
+- **HIGH-4, closed: valid frontend imports.**
+  - Asset specifiers (non-code extensions, `?query`) are the bundler's and are not judged.
+  - An ambient `declare module` of the project's own declaration files resolves (the Module
+    Federation remotes in `web/shell`).
+  - The project is the one that compiles the file: the nearest `tsconfig.json`, or the project
+    it references whose file set holds the file (`apps/*/tsconfig.app.json`).
+- **MEDIUM-HIGH-5, closed: `config_planned`.**
+  - Only files the key changes write are planned. A config listed only in `affected_surfaces` is
+    not the plan's.
+  - The whole `extends` chain counts: an alias added to `tsconfig.base.json` is the plan's to make
+    true.
+  - The IMP risk and the re-plan's kernel surface name the config that declares
+    `compilerOptions.paths` (`paths_config`), where an alias belongs.
+- **Should-fix 6–9, closed.**
+  - The successor starts first. The predecessor is settled only once the successor exists, and a
+    settlement another writer won abandons the successor.
+  - The lineage is counted from the durable `replan_of` bindings, which name the successor before
+    it starts.
+  - An enabling surface must be a tracked file strictly inside a root: no directory, no root
+    itself, nothing gitignored, and containment by path parts, so a sibling prefix is outside.
+  - The witness overlays only the key changes' files, never under `node_modules`, with path
+    containment.
+- **Tests:**
+  - every probe above;
+  - the executor's re-planned terminal (`_close_replanned_refusal`: the claim released
+    `agent_refused:scope`, the request CANCELLED, no HUMAN_REQUIRED);
+  - a request signed by a key the anchor does not hold, named `operator_request_unverified:…`.

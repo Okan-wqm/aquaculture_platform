@@ -58,6 +58,7 @@ from .cross_review_bridge import (
 )
 from .ledger import load_declared_jsonl
 from .must_satisfy import architecture_spine_obligation, coverage_gap_obligation, plan_contract_obligation
+from .plan_import_resolution import import_resolution_for_round
 from .plan_convergence import (
     CROSS_REVIEW_SELF_AGREEMENT_REASON,
     TERMINAL_STATES,
@@ -819,6 +820,14 @@ def run_convergence_drainer(
                             "verdict_after": payload.get("verdict"),
                         },
                     )
+            # ARIA-HIGH-397 — the same round, a second question, asked of the
+            # body that would CONVERGE (the latest revision; in round 1 the
+            # primary, not the challenger the closure measured): do the
+            # imports its key changes declare resolve for their files?
+            payload = {**payload, "import_resolution": import_resolution_for_round(
+                state=cur, plan_id=plan_id, round_number=round_n,
+                workspace_root=workspace_root or Path.cwd(), base_dir=base_dir,
+            )}
             record_coverage(plan_id=plan_id, coverage=payload, base_dir=base_dir)
             append_tools_governance(
                 root,

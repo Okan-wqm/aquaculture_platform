@@ -868,14 +868,40 @@ def _is_glob(ref: str) -> bool:
     return any(ch in ref for ch in _GLOB_METACHARACTERS)
 
 
+#: A belief-side glob is matched only under this many literal leading path
+#: segments: `apps/**` names nearly the whole repo, `apps/hr-service/**` one
+#: service.
+MIN_LITERAL_GLOB_SEGMENTS = 2
+
+
 def _bounded_glob(pattern: str) -> bool:
     """A belief-side glob may name a class of files only under a literal directory.
 
-    ``src/adapters/*.ts`` is bounded; ``*``, ``*/*`` and ``**/x`` are not —
-    one such adapter-emitted belief would be touched by every signal.
+    ``apps/hr-service/src/**/*.ts`` and ``src/adapters/*.ts`` are bounded;
+    ``*``, ``*/*``, ``**/x`` and ``apps/**`` are not — one such
+    adapter-emitted belief would be touched by nearly every signal.
     """
-    first, sep, _ = pattern.partition("/")
-    return bool(sep) and bool(first) and not _is_glob(first)
+    segments = pattern.split("/")
+    leading = segments[:MIN_LITERAL_GLOB_SEGMENTS]
+    return (
+        len(segments) > MIN_LITERAL_GLOB_SEGMENTS
+        and all(segment and not _is_glob(segment) for segment in leading)
+    )
+
+
+def _glob_variants(pattern: str) -> list[str]:
+    """``pattern`` with each ``**/`` taken as one-or-more AND as zero directories.
+
+    fnmatch's ``*`` already crosses ``/``, so a kept ``**/`` matches one or
+    more directories; the variant with it removed gives gitignore's
+    zero-directory case, so ``src/**/*.ts`` matches ``src/main.ts``.
+    """
+    index = pattern.find("**/")
+    if index < 0:
+        return [pattern]
+    head, tail = pattern[:index], pattern[index + 3:]
+    rest = _glob_variants(tail)
+    return [head + "**/" + variant for variant in rest] + [head + variant for variant in rest]
 
 
 def _refs_touch(signal_ref: str, evidence_ref: str) -> bool:
@@ -892,16 +918,44 @@ def _refs_touch(signal_ref: str, evidence_ref: str) -> bool:
     if _is_glob(signal_ref):
         return False
     if _is_glob(evidence_ref):
-        return _bounded_glob(evidence_ref) and fnmatch.fnmatchcase(signal_ref, evidence_ref)
+        return _bounded_glob(evidence_ref) and any(
+            fnmatch.fnmatchcase(signal_ref, variant) for variant in _glob_variants(evidence_ref)
+        )
     return signal_ref == evidence_ref
 
 
+#: Clock skew a signal's ``recorded_at`` may run ahead of the decay clock.
+#: A stamp further in the future is invalid: it would never age out.
+SIGNAL_CLOCK_SKEW = timedelta(hours=1)
+
+
 def _signal_age_days(signal: dict[str, Any], now: datetime) -> float | None:
+    """Days since the signal was recorded; None when the stamp is unparseable or beyond the skew allowance in the future."""
     try:
         recorded = datetime.strptime(str(signal.get("recorded_at")), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         return None
-    return (now - recorded).total_seconds() / 86400.0
+    if recorded - now > SIGNAL_CLOCK_SKEW:
+        return None
+    return max(0.0, (now - recorded).total_seconds() / 86400.0)
+
+
+RUNTIME_SIGNAL_DECAYED_AT = "runtime_signal_decayed_at"
+
+
+def _last_runtime_decay(rows: list[dict[str, Any]]) -> dict[str, str]:
+    """Per belief, the latest ``runtime_signal_decayed_at`` anywhere in its history.
+
+    Adapters re-support a decayed belief every cycle, so its LATEST row does
+    not carry the stamp; the history does.
+    """
+    last: dict[str, str] = {}
+    for row in rows:
+        stamp = row.get(RUNTIME_SIGNAL_DECAYED_AT)
+        belief_id = str(row.get("belief_id") or "")
+        if isinstance(stamp, str) and belief_id and stamp > last.get(belief_id, ""):
+            last[belief_id] = stamp
+    return last
 
 
 def decay_beliefs_by_runtime_signals(
@@ -943,7 +997,7 @@ def decay_beliefs_by_runtime_signals(
         "signal_count": 0, "decayed_count": 0, "decayed": [],
         "unmatched_refs": [], "refused_glob_refs": [], "non_path_refs": [],
         "withheld_signals": [row["signal_id"] for row in scan["refused"]],
-        "aged_out_signals": [], "unbounded_belief_globs": [],
+        "aged_out_signals": [], "invalid_stamp_signals": [], "unbounded_belief_globs": [],
         "held_by_signal_cap": {}, "held_by_cycle_cap": 0,
     }
     live: list[dict[str, Any]] = []
@@ -952,7 +1006,12 @@ def decay_beliefs_by_runtime_signals(
     for signal in scan["open"]:
         signal_id = str(signal.get("signal_id") or "")
         age = _signal_age_days(signal, moment)
-        if age is None or age > RUNTIME_SIGNAL_DECAY_TTL_DAYS:
+        if age is None:
+            # Unparseable, or stamped beyond the clock-skew allowance in the
+            # future — such a record would never age out.
+            report["invalid_stamp_signals"].append(signal_id)
+            continue
+        if age > RUNTIME_SIGNAL_DECAY_TTL_DAYS:
             report["aged_out_signals"].append(signal_id)
             continue
         refs: list[str] = []
@@ -972,38 +1031,56 @@ def decay_beliefs_by_runtime_signals(
     if not live:
         return report
 
+    history = load_jsonl(root / "memory" / "beliefs.jsonl")
+    last_decayed = _last_runtime_decay(history)
     matched_refs: set[str] = set()
     unbounded: set[str] = set()
-    per_signal: dict[str, int] = {}
-    decayed: list[dict[str, Any]] = []
-    repo_state = _repo_state(root, cycle_id)
-    for belief in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl")):
+    # Every supported belief some signal touches, with EVERY touching signal
+    # (first matching ref per signal), so a capped signal never holds a
+    # belief another touching signal still has room for.
+    candidates: list[tuple[dict[str, Any], list[tuple[dict[str, Any], str, str]]]] = []
+    for belief in latest_beliefs(history):
         if belief.get("status") != "supported":
             continue
         evidence = [_match_path(e) for e in (belief.get("evidence_refs") or []) if str(e).strip()]
         if not evidence:
             continue
         unbounded.update(e for e in evidence if _is_glob(e) and not _bounded_glob(e))
-        hit: tuple[dict[str, Any], str, str] | None = None
+        touches: list[tuple[dict[str, Any], str, str]] = []
         for signal in live:
             for ref in signal["refs"]:
                 touched = next((e for e in evidence if _refs_touch(ref, e)), None)
                 if touched is not None:
-                    hit = (signal, ref, touched)
+                    touches.append((signal, ref, touched))
                     matched_refs.add(ref)
                     break
-            if hit is not None:
-                break
-        if hit is None:
-            continue
-        signal, signal_ref, evidence_ref = hit
-        if per_signal.get(signal["signal_id"], 0) >= MAX_DECAYS_PER_SIGNAL:
-            held = report["held_by_signal_cap"]
-            held[signal["signal_id"]] = held.get(signal["signal_id"], 0) + 1
-            continue
+        if touches:
+            candidates.append((belief, touches))
+    # Least-recently runtime-decayed first (never-decayed before any stamp),
+    # belief_id as the deterministic tiebreak. Adapters re-support decayed
+    # beliefs every cycle; ordering by belief_id alone made the caps decay
+    # the same head every cycle and starve the tail forever.
+    candidates.sort(key=lambda pair: (last_decayed.get(str(pair[0].get("belief_id") or ""), ""),
+                                      str(pair[0].get("belief_id") or "")))
+
+    per_signal: dict[str, int] = {}
+    decayed: list[dict[str, Any]] = []
+    repo_state = _repo_state(root, cycle_id)
+    stamp = moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+    for belief, touches in candidates:
         if len(decayed) >= MAX_RUNTIME_SIGNAL_DECAYS_PER_CYCLE:
             report["held_by_cycle_cap"] += 1
             continue
+        chosen = next(
+            (touch for touch in touches if per_signal.get(touch[0]["signal_id"], 0) < MAX_DECAYS_PER_SIGNAL),
+            None,
+        )
+        if chosen is None:
+            held = report["held_by_signal_cap"]
+            for signal, _, _ in touches:
+                held[signal["signal_id"]] = held.get(signal["signal_id"], 0) + 1
+            continue
+        signal, signal_ref, evidence_ref = chosen
         per_signal[signal["signal_id"]] = per_signal.get(signal["signal_id"], 0) + 1
         revalidation_cycles = int(belief.get("needs_revalidation_cycles", 0)) + 1
         status = "stale" if revalidation_cycles >= STALE_AFTER_REVALIDATION_CYCLES else "needs_revalidation"
@@ -1020,6 +1097,7 @@ def decay_beliefs_by_runtime_signals(
                     f"evidence_ref={evidence_ref})"
                 ),
                 "verification_status": "needs_revalidation",
+                RUNTIME_SIGNAL_DECAYED_AT: stamp,
             },
         )
         _stamp_belief_freshness(

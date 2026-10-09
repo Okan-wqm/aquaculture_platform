@@ -310,21 +310,33 @@ def quarantine_refused_runtime_signals(
     """Move every open record the current ref law refuses out of the open set.
 
     The cycle phase that consumes signals (belief decay) calls this before it
-    reads them. Order per record, under the record's exclusive lock: re-read
-    it (a concurrent resolve wins — only a still-open, still-refused record
-    moves), write the governance row FIRST, then replace the record
-    atomically with ``status=quarantined``. The profile gate runs before any
-    write, so a frozen kernel refuses the whole step and writes nothing.
+    reads them. With nothing refused it is a pure read and returns at once,
+    under every profile. Otherwise the profile gate decides first: a profile
+    that may not write governance gets ``status=withheld_by_profile`` with the
+    refused records listed and nothing written (the readers already withhold
+    them). Order per record, under the record's exclusive lock: re-read it (a
+    concurrent resolve wins — only a still-open, still-refused record moves),
+    write the governance row FIRST, then replace the record atomically with
+    ``status=quarantined``.
     """
     from .file_lock import with_exclusive_lock
     from .runtime_profile import enforce_profile_for_write
 
-    enforce_profile_for_write("tool_governance", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
+    refused = scan_open_runtime_signals(base_dir=root)["refused"]
+    if not refused:
+        return {"status": "nothing_refused", "quarantined": [], "unreadable": []}
+    try:
+        enforce_profile_for_write("tool_governance", base_dir=root)
+    except GovernanceError as exc:
+        if not str(exc).startswith("profile_violation"):
+            raise
+        return {"status": "withheld_by_profile", "reason": str(exc)[:200], "refused": refused,
+                "quarantined": [], "unreadable": []}
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
     quarantined: list[dict[str, Any]] = []
     unreadable: list[dict[str, Any]] = []
-    for candidate in scan_open_runtime_signals(base_dir=root)["refused"]:
+    for candidate in refused:
         try:
             path = _record_path(root, candidate["signal_id"])
         except GovernanceError:
@@ -352,7 +364,7 @@ def quarantine_refused_runtime_signals(
             quarantined.append({"signal_id": candidate["signal_id"], "reason": reason})
     # An unreadable record names no ref law verdict to act on; it is reported
     # on every run until an operator removes or repairs it.
-    return {"quarantined": quarantined, "unreadable": unreadable}
+    return {"status": "applied", "quarantined": quarantined, "unreadable": unreadable}
 
 
 def resolve_runtime_signal(

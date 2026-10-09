@@ -207,17 +207,28 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
         self.assertEqual(governance.count("runtime_signal_quarantined"), 1)
 
-    def test_quarantine_is_refused_whole_under_a_frozen_profile(self) -> None:
+    def test_quarantine_is_withheld_whole_under_a_frozen_profile(self) -> None:
         from aria_kernel.runtime_profile import set_profile
         from aria_kernel.runtime_signal_bridge import quarantine_refused_runtime_signals
-        from aria_kernel.tool_registry import GovernanceError
 
         path = self._write_pre_law_signal("runtime-00000000000000cc", ["*/*"])
         before = path.read_bytes()
         set_profile("frozen", operator_approval_ref="op:freeze", base_dir=self.tools)
-        with self.assertRaisesRegex(GovernanceError, "profile_violation"):
-            quarantine_refused_runtime_signals(base_dir=self.tools)
+        result = quarantine_refused_runtime_signals(base_dir=self.tools)
+        self.assertEqual(result["status"], "withheld_by_profile")
+        self.assertEqual([r["signal_id"] for r in result["refused"]], ["runtime-00000000000000cc"])
         self.assertEqual(path.read_bytes(), before)
+
+    def test_quarantine_with_nothing_refused_passes_a_frozen_profile(self) -> None:
+        # Review: the gate ran unconditionally, so the decay phase raised on
+        # every frozen cycle even with nothing to quarantine.
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.runtime_signal_bridge import quarantine_refused_runtime_signals
+
+        ingest_runtime_signal(source="incident", service="s", summary="fine",
+                              code_refs=["src/a.ts"], base_dir=self.tools)
+        set_profile("frozen", operator_approval_ref="op:freeze", base_dir=self.tools)
+        self.assertEqual(quarantine_refused_runtime_signals(base_dir=self.tools)["status"], "nothing_refused")
 
     def test_a_resolved_record_is_never_quarantined(self) -> None:
         import json
@@ -266,6 +277,24 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         self.assertFalse(_refs_touch("src/a.ts", "*/a.ts"))
         self.assertTrue(_refs_touch("src/a.ts", "src/a.ts"))
 
+    def test_a_glob_needs_two_literal_leading_segments(self) -> None:
+        from aria_kernel.memory import _bounded_glob, _refs_touch
+
+        self.assertFalse(_bounded_glob("apps/**"))
+        self.assertFalse(_bounded_glob("apps/*/src/x.ts"))
+        self.assertTrue(_bounded_glob("apps/hr-service/**"))
+        self.assertTrue(_bounded_glob("src/adapters/*.ts"))
+        self.assertFalse(_refs_touch("apps/hr-service/src/main.ts", "apps/**"))
+
+    def test_double_star_also_matches_zero_directories(self) -> None:
+        from aria_kernel.memory import _refs_touch
+
+        pattern = "apps/hr-service/src/**/*.ts"
+        self.assertTrue(_refs_touch("apps/hr-service/src/main.ts", pattern))
+        self.assertTrue(_refs_touch("apps/hr-service/src/leave/leave.service.ts", pattern))
+        self.assertTrue(_refs_touch("apps/hr-service/src/a/b/c.ts", pattern))
+        self.assertFalse(_refs_touch("apps/farm-service/src/main.ts", pattern))
+
     def test_non_path_tokens_never_match_and_are_reported(self) -> None:
         # `alert:X` used to normalize to `alert`, so every alert was equal and
         # a `*` belief decayed on any of them.
@@ -308,6 +337,65 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools, now=self.now)
         self.assertEqual(result["decayed_count"], 0)
         self.assertEqual(result["aged_out_signals"], [record["signal_id"]])
+
+    def test_a_future_stamped_signal_is_invalid_and_decays_nothing(self) -> None:
+        from datetime import timedelta
+
+        self._seed("b-future", ["src/a.ts"])
+        record = ingest_runtime_signal(source="incident", service="s", summary="from the future",
+                                       code_refs=["src/a.ts"], base_dir=self.tools,
+                                       now=self.now + timedelta(hours=2))
+        result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools, now=self.now)
+        self.assertEqual(result["decayed_count"], 0)
+        self.assertEqual(result["invalid_stamp_signals"], [record["signal_id"]])
+        # Inside the skew allowance it is a normal, fresh signal.
+        ingest_runtime_signal(source="incident", service="s", summary="slight skew",
+                              code_refs=["src/a.ts"], base_dir=self.tools,
+                              now=self.now + timedelta(minutes=30))
+        self.assertEqual(decay_beliefs_by_runtime_signals(cycle_id="c2", base_dir=self.tools,
+                                                          now=self.now)["decayed_count"], 1)
+
+    def _resupport(self, belief_id: str, evidence_refs: list[str]) -> None:
+        """What an adapter does every cycle: a fresh supported row, no decay stamp."""
+        self._seed(belief_id, evidence_refs)
+
+    def test_the_caps_rotate_through_every_belief_instead_of_starving_the_tail(self) -> None:
+        from unittest import mock
+
+        from aria_kernel import memory
+
+        ids = [f"b{index:02d}" for index in range(5)]
+        for belief_id in ids:
+            self._seed(belief_id, ["src/shared.ts"])
+        ingest_runtime_signal(source="incident", service="s", summary="shared",
+                              code_refs=["src/shared.ts"], base_dir=self.tools, now=self.now)
+        seen: set[str] = set()
+        with mock.patch.object(memory, "MAX_DECAYS_PER_SIGNAL", 2):
+            for cycle in range(3):
+                result = decay_beliefs_by_runtime_signals(
+                    cycle_id=f"c{cycle}", base_dir=self.tools,
+                    now=self.now + memory.timedelta(minutes=cycle),
+                )
+                seen.update(row["belief_id"] for row in result["decayed"])
+                for belief_id in ids:
+                    self._resupport(belief_id, ["src/shared.ts"])
+        self.assertEqual(seen, set(ids))
+
+    def test_a_capped_signal_does_not_hold_a_belief_another_signal_has_room_for(self) -> None:
+        from unittest import mock
+
+        from aria_kernel import memory
+
+        self._seed("b-a", ["src/a.ts"])
+        self._seed("b-b", ["src/a.ts", "src/b.ts"])
+        ingest_runtime_signal(source="incident", service="s", summary="first",
+                              code_refs=["src/a.ts"], base_dir=self.tools, now=self.now)
+        ingest_runtime_signal(source="incident", service="s", summary="second",
+                              code_refs=["src/b.ts"], base_dir=self.tools, now=self.now)
+        with mock.patch.object(memory, "MAX_DECAYS_PER_SIGNAL", 1):
+            result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools, now=self.now)
+        self.assertEqual(sorted(row["belief_id"] for row in result["decayed"]), ["b-a", "b-b"])
+        self.assertEqual(result["held_by_signal_cap"], {})
 
     def test_per_signal_and_per_cycle_caps_hold_back_and_report(self) -> None:
         from unittest import mock

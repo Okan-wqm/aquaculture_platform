@@ -1,0 +1,34 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-37925359084",
+  "claim_id": "claim_ad5f516def1a3ca1",
+  "details": {
+    "adjudication": {
+      "rationale": "What must be decided: whether escalation consensus-bf03ca0ac25dc118 \u2014 raised because AI consensus failed at low_confidence on finding 'tenant-raw-query-missing-predicate:apps/messaging-service/src/event-handlers/messaging-nats.handler.ts:530' (tool tenant-scoping-adapter, run 4c1384cd-7dfe-4ff2-a4d9-8e32e1b64589) \u2014 can be cleared on the evidence in this record. Why it matters and what breaks if skipped: a resolve here requires pointing to evidence that settles the finding either way; clearing it with none could suppress a possible cross-tenant read on a raw query in the messaging NATS handler, or force a wasted fix cycle on a non-issue, and the consensus ledger would record a decision no auditor can retrace \u2014 the downstream surfaces are the human-required queue and the finding registry's audit trail. Evidence relied on: the evidence payload holds exactly one ref, human-required:consensus-bf03ca0ac25dc118 \u2014 the escalation record's own identifier \u2014 with no excerpt of its contents: no source excerpt for the cited handler line, no text of the two judges' verdicts, rationales, or confidence values whose disagreement or low confidence triggered the escalation, and no adapter output from the named run. The repository map, decision memory, and established-knowledge blocks are explicitly marked not-evidence projections, and the cited source path is not in this request's allowed_scope (human-required:consensus-bf03ca0ac25dc118 only), so the handler code cannot be independently inspected here. Result: nothing admissible establishes the finding true or false, and resolving on inference about tenant-scoping patterns rather than evidence would be adjudication by guesswork. The correct verdict is therefore insufficient_evidence, which blocks resolution and leaves the decision with the human operator \u2014 precisely the failure mode the HUMAN_REQUIRED gate exists to catch.",
+      "verdict": "insufficient_evidence"
+    },
+    "agent_confidence_source": "self_reported",
+    "agent_contract_hash": "sha256:0a6e814cc8172156b992ec574de930b4bfab2de5bc0e76a0836989f6fc27bad1",
+    "agent_dispatch_model": "glm-5.3",
+    "agent_subagent_type": "aria-adversarial-judge",
+    "agent_text": "```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-adversarial-judge-f9ddc164adce\",\n  \"claim_id\": \"human-required:consensus-bf03ca0ac25dc118\",\n  \"agent_id\": \"aria-adversarial-judge\",\n  \"role\": \"human_required_adjudication\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-human_required_adjudication-AIR-aria-adversarial-judge-f9ddc164adce.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"adjudicate-consensus-bf03ca0ac25dc118\",\n      \"verdict\": \"satisfied\",\n      \"note\": \"The adjudication answer returned is insufficient_evidence, one of the three allowed values, and its rationale cites the only admissible evidence (human-required:consensus-bf03ca0ac25dc118). That record carries no primary evidence \u2014 no excerpt of the cited handler line, no text of the two judges' verdicts or confidences, no adapter output from run 4c1384cd-7dfe-4ff2-a4d9-8e32e1b64589 \u2014 so neither clearing the escalation nor refusing it can be established on this record.\",\n      \"evidence_refs\": [\"human-required:consensus-bf03ca0ac25dc118\"]\n    }\n  ],\n  \"evidence_refs\": [\"human-required:consensus-bf03ca0ac25dc118\"],\n  \"details\": {\n    \"counter_evidence_refs\": [],\n    \"adjudication\": {\n      \"verdict\": \"insufficient_evidence\",\n      \"rationale\": \"What must be decided: whether escalation consensus-bf03ca0ac25dc118 \u2014 raised because AI consensus failed at low_confidence on finding 'tenant-raw-query-missing-predicate:apps/messaging-service/src/event-handlers/messaging-nats.handler.ts:530' (tool tenant-scoping-adapter, run 4c1384cd-7dfe-4ff2-a4d9-8e32e1b64589) \u2014 can be cleared on the evidence in this record. Why it matters and what breaks if skipped: a resolve here requires pointing to evidence that settles the finding either way; clearing it with none could suppress a possible cross-tenant read on a raw query in the messaging NATS handler, or force a wasted fix cycle on a non-issue, and the consensus ledger would record a decision no auditor can retrace \u2014 the downstream surfaces are the human-required queue and the finding registry's audit trail. Evidence relied on: the evidence payload holds exactly one ref, human-required:consensus-bf03ca0ac25dc118 \u2014 the escalation record's own identifier \u2014 with no excerpt of its contents: no source excerpt for the cited handler line, no text of the two judges' verdicts, rationales, or confidence values whose disagreement or low confidence triggered the escalation, and no adapter output from the named run. The repository map, decision memory, and established-knowledge blocks are explicitly marked not-evidence projections, and the cited source path is not in this request's allowed_scope (human-required:consensus-bf03ca0ac25dc118 only), so the handler code cannot be independently inspected here. Result: nothing admissible establishes the finding true or false, and resolving on inference about tenant-scoping patterns rather than evidence would be adjudication by guesswork. The correct verdict is therefore insufficient_evidence, which blocks resolution and leaves the decision with the human operator \u2014 precisely the failure mode the HUMAN_REQUIRED gate exists to catch.\"\n    }\n  }\n}\n```",
+    "counter_evidence_refs": [],
+    "runtime_attempt_ledger_hash": "sha256:be38fb68d906dc252db9660c8e0700432a7eb70369975f6a88b766e61b89034a"
+  },
+  "evidence_refs": [
+    "human-required:consensus-bf03ca0ac25dc118"
+  ],
+  "request_id": "AIR-aria-adversarial-judge-f9ddc164adce",
+  "role": "human_required_adjudication",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "human-required:consensus-bf03ca0ac25dc118"
+      ],
+      "id": "adjudicate-consensus-bf03ca0ac25dc118",
+      "note": "The adjudication answer returned is insufficient_evidence, one of the three allowed values, and its rationale cites the only admissible evidence (human-required:consensus-bf03ca0ac25dc118). That record carries no primary evidence \u2014 no excerpt of the cited handler line, no text of the two judges' verdicts or confidences, no adapter output from run 4c1384cd-7dfe-4ff2-a4d9-8e32e1b64589 \u2014 so neither clearing the escalation nor refusing it can be established on this record.",
+      "verdict": "satisfied"
+    }
+  ],
+  "status": "submitted"
+}

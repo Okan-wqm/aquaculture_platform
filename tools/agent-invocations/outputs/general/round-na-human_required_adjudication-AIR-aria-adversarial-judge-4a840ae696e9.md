@@ -1,0 +1,34 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-37925359084",
+  "claim_id": "claim_ea384ba4bbd064a6",
+  "details": {
+    "adjudication": {
+      "rationale": "What must be done and why it matters: this escalation exists because two independent judges could not agree whether the test-gap-adapter finding \u2014 that the security-relevant source file apps/sensor-service/src/vfd-programming/resolvers/vfd-programming.resolver.ts ships without tests \u2014 is real. Resolvers of this class typically carry the auth/role guards, so an untested one is an unverified authorization surface; a wrong resolve either mints make-work from a false positive or lets a real security gap ship, and either error flows silently into the finding registry and the consensus gate \u2014 which is the downstream surface this verdict protects. The evidence relied on: the record contains exactly one admissible ref, human-required:consensus-f685b0941f791105, and it is the escalation record itself \u2014 kernel self-output stating THAT the judges disagreed (judge_disagreement), not why, and carrying no repository content: no excerpt of the resolver, no test inventory for apps/sensor-service, no adapter finding row for run 4a6f8f9c-72e0-4b1e-ad1d-bd02b100daca, and neither judge's rationale. Self-output cannot establish a finding's truth in either direction, so resolve cannot be pointed at any evidence, and refusing the underlying finding would be equally unsupported. The provable result is the payload's own content: one self-referential ref and nothing from the repository. Per the adjudication rule, insufficient_evidence is returned; it blocks resolution \u2014 the correct terminal state \u2014 until the operator attaches the two judge verdicts, the adapter output, and the resolver plus its test directory as admissible evidence refs.",
+      "verdict": "insufficient_evidence"
+    },
+    "agent_confidence_source": "self_reported",
+    "agent_contract_hash": "sha256:0a6e814cc8172156b992ec574de930b4bfab2de5bc0e76a0836989f6fc27bad1",
+    "agent_dispatch_model": "glm-5.3",
+    "agent_subagent_type": "aria-adversarial-judge",
+    "agent_text": "{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-adversarial-judge-4a840ae696e9\",\n  \"claim_id\": \"consensus-f685b0941f791105\",\n  \"agent_id\": \"aria-adversarial-judge\",\n  \"role\": \"human_required_adjudication\",\n  \"status\": \"submitted\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"adjudicate-consensus-f685b0941f791105\",\n      \"verdict\": \"satisfied\",\n      \"note\": \"Adjudication returned in details.adjudication as insufficient_evidence, citing the sole admissible ref. Reverse-order independent scan of the record: the evidence payload contains only human-required:consensus-f685b0941f791105 \u2014 the escalation record itself, i.e. kernel self-output stating that the judges disagreed, with no excerpt of apps/sensor-service/src/vfd-programming/resolvers/vfd-programming.resolver.ts, no test inventory for apps/sensor-service, no test-gap-adapter output for run 4a6f8f9c-72e0-4b1e-ad1d-bd02b100daca, and neither judge's rationale. Neither a resolve (finding stands) nor a refutation (tests exist) can be established on self-output alone, so the item's requirement \u2014 a verdict from the closed set that cites the evidence relied on \u2014 is met with insufficient_evidence, which blocks resolution.\",\n      \"evidence_refs\": [\n        \"human-required:consensus-f685b0941f791105\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"human-required:consensus-f685b0941f791105\"\n  ],\n  \"details\": {\n    \"adjudication\": {\n      \"verdict\": \"insufficient_evidence\",\n      \"rationale\": \"What must be done and why it matters: this escalation exists because two independent judges could not agree whether the test-gap-adapter finding \u2014 that the security-relevant source file apps/sensor-service/src/vfd-programming/resolvers/vfd-programming.resolver.ts ships without tests \u2014 is real. Resolvers of this class typically carry the auth/role guards, so an untested one is an unverified authorization surface; a wrong resolve either mints make-work from a false positive or lets a real security gap ship, and either error flows silently into the finding registry and the consensus gate \u2014 which is the downstream surface this verdict protects. The evidence relied on: the record contains exactly one admissible ref, human-required:consensus-f685b0941f791105, and it is the escalation record itself \u2014 kernel self-output stating THAT the judges disagreed (judge_disagreement), not why, and carrying no repository content: no excerpt of the resolver, no test inventory for apps/sensor-service, no adapter finding row for run 4a6f8f9c-72e0-4b1e-ad1d-bd02b100daca, and neither judge's rationale. Self-output cannot establish a finding's truth in either direction, so resolve cannot be pointed at any evidence, and refusing the underlying finding would be equally unsupported. The provable result is the payload's own content: one self-referential ref and nothing from the repository. Per the adjudication rule, insufficient_evidence is returned; it blocks resolution \u2014 the correct terminal state \u2014 until the operator attaches the two judge verdicts, the adapter output, and the resolver plus its test directory as admissible evidence refs.\"\n    },\n    \"counter_evidence_refs\": []\n  }\n}",
+    "counter_evidence_refs": [],
+    "runtime_attempt_ledger_hash": "sha256:5218caea561507c271f9e9700480d861135fb12ccd8e1f59605b5c5413ab35f1"
+  },
+  "evidence_refs": [
+    "human-required:consensus-f685b0941f791105"
+  ],
+  "request_id": "AIR-aria-adversarial-judge-4a840ae696e9",
+  "role": "human_required_adjudication",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "human-required:consensus-f685b0941f791105"
+      ],
+      "id": "adjudicate-consensus-f685b0941f791105",
+      "note": "Adjudication returned in details.adjudication as insufficient_evidence, citing the sole admissible ref. Reverse-order independent scan of the record: the evidence payload contains only human-required:consensus-f685b0941f791105 \u2014 the escalation record itself, i.e. kernel self-output stating that the judges disagreed, with no excerpt of apps/sensor-service/src/vfd-programming/resolvers/vfd-programming.resolver.ts, no test inventory for apps/sensor-service, no test-gap-adapter output for run 4a6f8f9c-72e0-4b1e-ad1d-bd02b100daca, and neither judge's rationale. Neither a resolve (finding stands) nor a refutation (tests exist) can be established on self-output alone, so the item's requirement \u2014 a verdict from the closed set that cites the evidence relied on \u2014 is met with insufficient_evidence, which blocks resolution.",
+      "verdict": "satisfied"
+    }
+  ],
+  "status": "submitted"
+}

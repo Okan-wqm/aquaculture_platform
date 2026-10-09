@@ -49,6 +49,7 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
             'runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)',
             'runtime_restore.add_argument("--operator-approval-ref", required=True)',
             'runtime_rollback.add_argument("--workspace-root", required=True)',
+            'add_subparser(tool_sub, "fixture-refresh")',
             'add_subparser(autonomy_sub, "project-queue")',
             '"--output", choices=["summary", "full"]',
             'add_subparser(plan_sub, "advance-rounds")',
@@ -62,7 +63,8 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
             'add_subparser(skill_genesis_sub, "approve")',
             'worker_result_submit.add_argument("--lease-token"',
             'worker_result_submit.add_argument("--allow-legacy-no-token"',
-            'add_subparser(tool_sub, "fixture-refresh")',
+            'add_subparser(workflow_sub, "verify-registry")',
+            'workflow_verify_registry.add_argument("--workspace-root", default=".")',
             'add_subparser(narrative_sub, "validate")',
             'narrative_validate.add_argument("--file", required=True)',
         ):

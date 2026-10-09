@@ -1422,6 +1422,15 @@ def build_parser() -> argparse.ArgumentParser:
     comp_list.add_argument("--rejected-only", action="store_true")
     comp_list.add_argument("--limit", type=int, default=None)
 
+    # ORPHAN-HIGH-573 — whole-inventory workflow registry verdict verb.
+    # The caller that always sees the real repo (preflight legitimately
+    # runs against synthetic workspaces, so the inventory verdict cannot
+    # live there; the aria-kernel.yml lane step invokes this verb).
+    workflow_parser = add_subparser(sub, "workflow")
+    workflow_sub = workflow_parser.add_subparsers(dest="workflow_command", required=True)
+    workflow_verify_registry = add_subparser(workflow_sub, "verify-registry")
+    workflow_verify_registry.add_argument("--workspace-root", default=".")
+
     # ORPHAN-HIGH-573 — file-level narrative-prompt validator verb.
     narrative_parser = add_subparser(sub, "narrative-prompt")
     narrative_sub = narrative_parser.add_subparsers(
@@ -4442,6 +4451,26 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(rows, indent=2, sort_keys=True))
         return 0
+
+    # ORPHAN-HIGH-573 — whole-inventory workflow registry verdict verb.
+    if args.command == "workflow" and args.workflow_command == "verify-registry":
+        from .workflow_contracts import verify_workflow_registry
+
+        verdict = verify_workflow_registry(workspace_root=args.workspace_root)
+        payload = {
+            "valid": verdict.valid,
+            "registered_count": verdict.registered_count,
+            "audited_exclusion_count": verdict.audited_exclusion_count,
+            "failed_contracts": {
+                workflow_id: list(reasons)
+                for workflow_id, reasons in verdict.failed_contracts.items()
+            },
+            "uncovered_workflows": list(verdict.uncovered_workflows),
+            "failure_classes": list(verdict.failure_classes),
+            "reasons": list(verdict.reasons),
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if verdict.valid else 1
 
     # ORPHAN-HIGH-573 — file-level narrative-prompt validator verb.
     if args.command == "narrative-prompt" and args.narrative_prompt_command == "validate":

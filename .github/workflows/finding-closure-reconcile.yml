@@ -284,6 +284,11 @@ jobs:
           {
             echo "Findings whose \`Closes:\` trailer is already reachable from \`main\`, recorded as RESOLVED."
             echo ""
+            echo "> **The plan below is the registry state BEFORE this PR merges** — frozen when the PR"
+            echo "> opened. Merging this PR is exactly what applies it, so an \`OPEN → RESOLVED\` line"
+            echo "> reads as 'not RESOLVED' only until this PR lands; after the merge, the merge itself applied"
+            echo "> every line of it on \`main\`."
+            echo ""
             echo '```'
             cat /tmp/reconcile-plan.txt
             echo '```'
@@ -320,6 +325,34 @@ jobs:
           else
             echo "::notice::auto-merge unavailable (repository setting or branch protection): $(head -1 /tmp/auto-merge.err)"
           fi
+
+      - name: Mark the merged reconcile PR as applied
+        # The PR body is the frozen pre-merge plan by design; a reader who
+        # opens a MERGED reconcile PR sees "not RESOLVED" and needs the
+        # one-line answer on the PR itself. A clean pass is the state right
+        # after a reconcile PR merged. The marker string doubles as the
+        # grep needle, so the comment lands once per merged PR, never once
+        # per clean run. PR-comment API only — no repo mutation, so it sits
+        # outside the governed-mutation ordering.
+        if: steps.plan.outputs.has_changes == 'false' && steps.plan.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+        run: |
+          set -uo pipefail
+          merged_pr="$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --head automation/finding-closure-reconcile --state merged \
+            --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -z "$merged_pr" ]; then
+            echo "no merged reconcile PR to mark"
+            exit 0
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/issues/$merged_pr/comments" \
+              --jq '.[].body' 2>/dev/null | grep -q 'closure-reconcile:applied'; then
+            echo "PR #$merged_pr already marked applied"
+            exit 0
+          fi
+          gh pr comment "$merged_pr" --body "closure-reconcile:applied — the plan in this PR's body described the registry state BEFORE this PR merged; the merge itself applied it, so every 'OPEN → RESOLVED' line in it is now live on \`main\`." \
+            || echo "::notice::could not comment on PR #$merged_pr (permissions); the body's pre-merge note stands"
 
       # ADR-036 — upload the enterprise-preflight audit proof so the governed
       # write decision is retained as CI evidence.

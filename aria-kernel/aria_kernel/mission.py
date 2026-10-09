@@ -900,6 +900,37 @@ def transition_mission(
                     f"(reason_code={reason_code!r}); forward mainline skips require "
                     f"one of {sorted(FORWARD_SKIP_REASONS)}"
                 )
+        # ORPHAN-HIGH-573 (require_capability_resolution) — a mission minted
+        # with a `capability` may not enter IMPLEMENTING until the
+        # capability-resolution ledger carries a decision for it. The
+        # CAPABILITY_REQUIRED waiting state only covers missions the pipeline
+        # itself declared capability-less; this gate is the one every step
+        # passes regardless of who minted the mission. Any decision value
+        # satisfies it — reuse means the capability exists, extend/request
+        # mean it is being built on a tracked lane with a row of its own.
+        if to_state == "IMPLEMENTING" and state.get("capability"):
+            from .capability_resolver import require_capability_resolution
+
+            capability = str(state["capability"])
+            resolution_errors: list[str] = []
+            for requested_kind in ("skill", "agent"):
+                try:
+                    require_capability_resolution(
+                        capability_key=capability,
+                        requested_kind=requested_kind,
+                        allowed_decisions={"request", "extend", "reuse"},
+                        base_dir=root,
+                    )
+                    resolution_errors = []
+                    break
+                except GovernanceError as exc:
+                    resolution_errors.append(str(exc))
+            if resolution_errors:
+                raise GovernanceError(
+                    "capability_resolution_required_for_mission_step: "
+                    f"capability={capability!r} has no accepted decision "
+                    "in capability-resolution/decisions.jsonl"
+                )
         if retry_rung is not None and state.get("retry_rung") is not None:
             if RETRY_LADDER.index(retry_rung) < RETRY_LADDER.index(state["retry_rung"]):
                 raise GovernanceError(

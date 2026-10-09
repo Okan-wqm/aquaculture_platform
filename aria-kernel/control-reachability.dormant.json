@@ -1,15 +1,9 @@
 {
-  "require_capability_resolution": {
-    "expires_on": "2026-10-20",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "Refuses a mission step whose required capability is unresolved. The CAPABILITY_REQUIRED flow it belongs to is PLAN Wave 6 (parent mission blocks, genesis child mission produces the capability, parent resumes); until that flow exists there is no caller with a capability to resolve. Renewed 2026-09-21 for thirty days by the operator's delegate: the flow this control belongs to has not started, and the six dormancy waivers lapsed together on 2026-09-20 and turned every kernel lane red."
-  },
   "require_lifecycle_state": {
-    "expires_on": "2026-10-20",
+    "expires_on": "2026-11-20",
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
-    "reason": "Genesis lifecycle state precondition. The genesis machine runs today through its own transition table; this helper is the alternative entry point. PLAN Wave 6 merges the genesis and tool_registry lifecycles onto one vocabulary - route it or drop it there, not before. Renewed 2026-09-21 for thirty days by the operator's delegate: the flow this control belongs to has not started, and the six dormancy waivers lapsed together on 2026-09-20 and turned every kernel lane red."
+    "reason": "Renewed 2026-10-09: the control's recorded decision binds routing to the Wave 6 genesis/tool_registry lifecycle unification (one vocabulary onto lifecycle_common), which the program has not started — the two lifecycle machines still run their own transition tables on main, so an explicit second entry point beside record_transition would be a duplicate answer until there is one vocabulary to gate. Same decision window as ORPHAN-HIGH-837's genesis rung (rev3.1 Faz 1): by 2026-11-20 the unification lands and routes it, or the program deletes the helper with what only it reads. Its sibling require_capability_resolution was WIRED for real (transition_mission IMPLEMENTING gate) and its waiver deleted."
   },
   "validate_file": {
     "expires_on": "2026-10-09",

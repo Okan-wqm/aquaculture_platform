@@ -50,7 +50,6 @@ import type { QueryRunner } from 'typeorm';
 
 import { validateSqlIdentifier } from './sql-identifier.util';
 
-
 /**
  * The narrow runner surface the DDL pair helpers need: one statement
  * at a time. A real TypeORM QueryRunner satisfies this structurally,
@@ -138,9 +137,7 @@ export async function dropColumnWithIndex(
   if (options.schema) {
     const schema = validateSqlIdentifier(options.schema, 'schema');
     await queryRunner.query(`DROP INDEX IF EXISTS "${schema}"."${indexName}"`);
-    await queryRunner.query(
-      `ALTER TABLE "${schema}"."${table}" DROP COLUMN IF EXISTS "${column}"`,
-    );
+    await queryRunner.query(`ALTER TABLE "${schema}"."${table}" DROP COLUMN IF EXISTS "${column}"`);
     return;
   }
   await queryRunner.query(`DROP INDEX IF EXISTS "${indexName}"`);
@@ -183,10 +180,7 @@ export async function columnExists(
  * @param queryRunner active migration QueryRunner
  * @param table       unqualified table name
  */
-export async function tableExists(
-  queryRunner: QueryRunner,
-  table: string,
-): Promise<boolean> {
+export async function tableExists(queryRunner: QueryRunner, table: string): Promise<boolean> {
   const rows: Array<{ exists: boolean }> = await queryRunner.query(
     `SELECT EXISTS (
        SELECT 1 FROM information_schema.tables

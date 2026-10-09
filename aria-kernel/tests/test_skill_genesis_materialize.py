@@ -83,12 +83,13 @@ SEED = {
 class MaterializeGeneratedAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
-        self.tools = Path(self._tmp.name) / "aria-tools"
-        ensure_tools_dir(self.tools)
         # The adapter is a REPO artifact: the materializer writes it under
         # the workspace's tools/aria-adapters/ (the one prefix the argv
-        # trust policy names), not under the tools root.
+        # trust policy names), not under the tools root. The workspace is
+        # the one the tools store is bound to: an unbound store's parent.
         self.workspace = Path(self._tmp.name) / "workspace"
+        self.tools = self.workspace / "aria-tools"
+        ensure_tools_dir(self.tools)
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -98,7 +99,6 @@ class MaterializeGeneratedAdapterTests(unittest.TestCase):
             "draft_id": "draft-fixture-1",
             "adapter_source": source,
             "adapter_manifest": manifest or manifest_definition(),
-            "_workspace_root": str(self.workspace),
         }
 
     def test_happy_path_writes_verifies_and_registers(self) -> None:
@@ -153,6 +153,39 @@ class MaterializeGeneratedAdapterTests(unittest.TestCase):
             materialize_generated_adapter(
                 primary_draft={"draft_id": "x"}, seed=SEED, base_dir=self.tools,
             )
+
+    def test_a_tool_id_that_is_not_a_slug_writes_nothing_anywhere(self) -> None:
+        # Review: a drafted `../../../escaped` wrote escaped.py OUTSIDE the
+        # workspace and left it there when the manifest check then failed.
+        for tool_id in ("../../../escaped", "a/b", "Upper", "x", "", None):
+            with self.subTest(tool_id=tool_id):
+                manifest = manifest_definition()
+                manifest["tool_id"] = tool_id
+                with self.assertRaisesRegex(GovernanceError, "tool_id_invalid"):
+                    materialize_generated_adapter(
+                        primary_draft=self._draft(manifest=manifest), seed=SEED, base_dir=self.tools,
+                    )
+        self.assertEqual(list(Path(self._tmp.name).rglob("escaped*")), [])
+        self.assertFalse((self.workspace / "tools").exists())
+
+    def test_a_draft_cannot_choose_the_workspace(self) -> None:
+        draft = self._draft()
+        draft["_workspace_root"] = str(Path(self._tmp.name) / "elsewhere")
+        result = materialize_generated_adapter(primary_draft=draft, seed=SEED, base_dir=self.tools)
+        self.assertEqual(
+            Path(result["adapter_path"]),
+            self.workspace / "tools" / "aria-adapters" / "genesis-fixture-adapter.py",
+        )
+        self.assertFalse((Path(self._tmp.name) / "elsewhere").exists())
+
+    def test_a_manifest_refusal_leaves_no_file_behind(self) -> None:
+        bad = manifest_definition(allowed_read_globs=["**"], read_paths=["secrets/env.ts"])
+        with self.assertRaises(GovernanceError):
+            materialize_generated_adapter(
+                primary_draft=self._draft(manifest=bad), seed=SEED, base_dir=self.tools,
+            )
+        self.assertFalse((self.workspace / "tools" / "aria-adapters").exists())
+        self.assertFalse((self.tools / "skill-genesis" / "adapters").exists())
 
     def test_drainer_passes_the_materializer_to_the_authoring(self) -> None:
         self.assertIn(

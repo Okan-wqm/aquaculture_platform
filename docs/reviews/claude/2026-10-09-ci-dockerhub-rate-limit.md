@@ -27,3 +27,25 @@ Docker official image and is already pinned by digest, so it is unchanged.
 
 Not changed: no Docker Hub credentials were added to CI. The mirror removes the dependency on
 an anonymous quota rather than spending a token on it.
+
+The Rust testcontainer broker in `apps/sensor-ingestion/tests/policy_integration.rs` pulled
+`nats:2.10-alpine` from Docker Hub the same way and failed `cargo test --workspace` on this PR;
+it now uses the same mirror.
+
+Detection: `tests/invariants/ci-image-registry.spec.ts` fails when a workflow `image:` /
+`container:` value or a Rust `GenericImage::new` names no registry host (Docker resolves that
+to Docker Hub). Exceptions are keyed to an OPEN finding and fail once that finding closes.
+
+## INFRA-HIGH-214
+
+Docker Hub pulls the mirror cannot cover, all seen failing on this PR's CI:
+
+- `timescale/timescaledb-ha` (CI Postgres services and the migration testcontainers) is not a
+  Docker official image, so it is not on the ECR mirror. It is the one invariant exception.
+- Dockerfile `FROM` bases built in CI (`cargo-deny-action` builds `FROM rust:...`; the
+  infra-image build check builds postgres-walg and mosquitto).
+- `moby/buildkit:buildx-stable-1`, pulled by `docker/setup-buildx-action`.
+
+Owner: claude. Deadline 2026-10-16. The fix needs a decision from the operator: either a
+digest-preserving GHCR mirror of these images (the repo already publishes postgres and
+mosquitto derivatives to GHCR), or org Docker Hub pull credentials in CI.

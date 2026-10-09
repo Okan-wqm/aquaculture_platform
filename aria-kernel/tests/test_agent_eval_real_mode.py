@@ -322,7 +322,8 @@ class ImplementationEnvelopeCarriesTheLessonTests(unittest.TestCase):
             plan_content=converging_plan_content(
                 "K10 lesson plan",
                 affected_surfaces=[{"paths": ["apps/farm-service/src/sample.ts"]}],
-                key_changes=[{"id": "kc-1", "description": "set it", "paths": ["apps/farm-service/src/sample.ts"]}],
+                key_changes=[{"id": "kc-1", "description": "set it", "paths": ["apps/farm-service/src/sample.ts"],
+                              "imports": []}],
                 finding_id="ORPHAN-HIGH-104",
             ),
         )

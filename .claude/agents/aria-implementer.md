@@ -79,7 +79,7 @@ Your steps:
    ledger, answers `verified`/`mismatch` and returns the full body. Cite the call; never recompute
    by hand (the sandbox refuses `python3 -c`, `base64`, `ts-node`). On `mismatch`: `reason_class=evidence`, STOP.
 2. **Verify scope**. Each `key_changes[]` entry is a string step or
-   `{id?, description, paths?}` (`plan_convergence.KEY_CHANGE_FIELDS`); every
+   `{id?, description, paths?, imports?}` (`plan_convergence.KEY_CHANGE_FIELDS`); every
    `key_changes[].paths[]` entry must be INSIDE `allowed_scope[]` AND outside
    `implementation_safety.READONLY_PATHS`. On violation, emit
    `reason_class=scope` (note: the offending path) and STOP.

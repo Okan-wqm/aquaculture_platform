@@ -113,7 +113,7 @@ class ConvergedDeliveryTests(unittest.TestCase):
                 "ARIA-HIGH-362 plan",
                 affected_surfaces=[{"paths": ["apps/farm-service/src/sample.ts"]}],
                 key_changes=[{"id": "kc-1", "description": "set the interval",
-                              "paths": ["apps/farm-service/src/sample.ts"]}],
+                              "paths": ["apps/farm-service/src/sample.ts"], "imports": []}],
             ),
         )
 

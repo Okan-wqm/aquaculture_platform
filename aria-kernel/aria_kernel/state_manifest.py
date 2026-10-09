@@ -247,6 +247,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
     ),
+    # Memory (2026-10-10 memory-laws finding): the claim/result/transcript/
+    # context/prompt record is what ARIA's agents were asked and answered —
+    # the primary source of every judgment and eval above it. Append-only;
+    # the monthly prompts segments (ARIA-HIGH-275) append, never rewrite.
     StateSurface(
         name="agent_invocation_claims",
         path_pattern="agent-invocations/claims.jsonl",
@@ -256,6 +260,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        memory=True,
     ),
     StateSurface(
         name="agent_invocation_results",
@@ -266,6 +271,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        memory=True,
     ),
     StateSurface(
         name="agent_invocation_transcripts",
@@ -276,6 +282,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        memory=True,
     ),
     StateSurface(
         name="agent_invocation_contexts",
@@ -286,6 +293,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        memory=True,
     ),
     StateSurface(
         name="agent_invocation_prompts",
@@ -296,6 +304,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        memory=True,
     ),
     # ARIA-HIGH-275 — the monthly segments of the two ledgers above, which
     # stay as frozen segment 0. Same lock group, so every segment append
@@ -450,9 +459,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("runtime_profile_state", "runtime-profile.json", "runtime_state", "runtime_profile", "tools", True, "rewrite_fsync", True),
     StateSurface("runtime_profile_history", "runtime-profile-history.jsonl", "ledger", "runtime_profile", "tools", True, "append_fsync", True),
     StateSurface("raw_findings", "raw-findings.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
-    StateSurface("change_planned", "change-ledger/planned.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
-    StateSurface("change_committed", "change-ledger/committed.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
-    StateSurface("change_validated", "change-ledger/validated.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
+    StateSurface("change_planned", "change-ledger/planned.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("change_committed", "change-ledger/committed.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("change_validated", "change-ledger/validated.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True, memory=True),
     # G-4 — the fourth event of the same chain: what the change ACHIEVED,
     # recomputed from the ledgers N nights after the merge. Same lock group
     # as its three siblings (one chain, one lock) and strict_read like them,
@@ -461,7 +470,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # about the world and authorises nothing (write_driving=False), so
     # MEASURING whether a merged change worked never requires the authority
     # to commit, merge, or open a PR.
-    StateSurface("change_outcome", "change-ledger/outcome.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("change_outcome", "change-ledger/outcome.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("pr_actions", "pr-actions.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("pr_lifecycle", "pr-lifecycle.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("pr_lifecycle_plans", "pr-lifecycle-plans.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
@@ -501,8 +510,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("mcp_tool_calls", "mcp/tool-calls.jsonl", "ledger", "mcp", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("mcp_quarantine", "mcp/quarantine.jsonl", "ledger", "mcp", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("handoffs", "handoffs.jsonl", "ledger", "handoffs", "runtime", True, "append_fsync", True, profile_surface="handoffs", observe_class="observation"),
-    StateSurface("agent_evals", "agent-evals/runs.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
-    StateSurface("agent_eval_fixtures", "agent-evals/fixtures.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
+    StateSurface("agent_evals", "agent-evals/runs.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action", memory=True),
+    StateSurface("agent_eval_fixtures", "agent-evals/fixtures.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action", memory=True),
     StateSurface("agent_eval_fixture_files", "agent-evals/fixtures/*.json", "artifact", "agent_evals", "runtime", True, "rewrite_fsync", True, profile_surface="agent_evals", observe_class="action"),
     StateSurface("agent_eval_fixture_runs", "fixture-runs.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
     StateSurface("agent_compliance", "agent-compliance.jsonl", "ledger", "agent_compliance", "runtime", True, "append_fsync", True, profile_surface="agent_compliance", observe_class="action"),
@@ -586,7 +595,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # ARIA-HIGH-285 — procedural memory (agent_eval `performance_observed`), declared exactly
     # like the ledgers above; tests/test_agent_eval_real_mode.py pins the equality (K2 `memory`).
     StateSurface("memory_procedural", "memory/procedural.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
-    StateSurface("goldset_proposals", "goldsets/proposals.jsonl", "ledger", "goldset", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
+    StateSurface("goldset_proposals", "goldsets/proposals.jsonl", "ledger", "goldset", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action", memory=True),
     StateSurface("pressure_artifacts", "pressure/*.json", "artifact", "pressure", "runtime", True, "rewrite_fsync", True),
     StateSurface("pressure_log", "pressure/pressure-log.jsonl", "ledger", "pressure", "runtime", True, "append_fsync", True),
     StateSurface("triage_decisions", "triage/decisions.jsonl", "ledger", "triage", "runtime", True, "append_fsync", True),
@@ -649,9 +658,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # historical defect into a permanent write-block on the whole
     # learning wheel. write_driving=False: they inform judgment, they
     # never authorise an action by themselves.
-    StateSurface("operator_feedback", "operator-feedback.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("judgment_samples", "judgment-samples.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("feedback_consensus_uncertainties", "feedback-consensus-uncertainties.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("operator_feedback", "operator-feedback.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
+    StateSurface("judgment_samples", "judgment-samples.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
+    StateSurface("feedback_consensus_uncertainties", "feedback-consensus-uncertainties.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("operator_feedback_seeding", "operator-feedback-seeding/*/*.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # V9.5 hard-fail check 12 (operator_feedback_signature) — what the plan
     # synthesizer admitted and dropped from operator-feedback.jsonl on each
@@ -661,9 +670,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # a tolerated read. profile_surface observation: the row records what
     # the synthesizer verified, it enacts nothing by itself.
     StateSurface("operator_feedback_ingestion", "operator-feedback-ingestion.jsonl", "ledger", "feedback", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
-    StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
+    StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
+    StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
     # ARIA-HIGH-370 — the bounded calibration actuator's ledger: every
     # application with its evidence, and its held / reverted judgement.
     # ARIA-HIGH-370 (second review of #1829, M5) — every half-open probe the
@@ -718,9 +727,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("apply_actions", "apply/actions.jsonl", "ledger", "apply", "runtime", True, "append_fsync", True, profile_surface="pr_action", observe_class="action"),
     StateSurface("performance_baselines", "performance/baselines.jsonl", "ledger", "performance", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("performance_comparisons", "performance/comparisons.jsonl", "ledger", "performance", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
-    StateSurface("fitness_reports", "fitness/fitness-reports.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
+    StateSurface("fitness_reports", "fitness/fitness-reports.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("fitness_recommendation_candidates", "fitness/recommendation-candidates.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
-    StateSurface("fitness_agent", "fitness/agent-fitness.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
+    StateSurface("fitness_agent", "fitness/agent-fitness.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("heartbeat_ticks", "heartbeat/ticks.jsonl", "ledger", "heartbeat", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("heartbeat_cycle_batches", "heartbeat/cycle-batches.jsonl", "ledger", "heartbeat", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("ci_workflow_inventory", "ci/workflow-inventory.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
@@ -741,7 +750,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("report_ingestion_cache_events", "report-ingestion/cache-events.jsonl", "ledger", "report_ingestion", "runtime", True, "append_fsync", True),
     StateSurface("reports_daily", "reports/daily/*.md", "artifact", "reports", "runtime", True, "rewrite_fsync", True),
     StateSurface("burn_in_reports", "burn-in/**/*.json", "artifact", "autonomy", "runtime", True, "rewrite_fsync", True),
-    StateSurface("plan_convergence_events", "plans/*.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),
+    StateSurface("plan_convergence_events", "plans/*.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True, memory=True),
     # ARIA-HIGH-204 — the decision-questioning fold ledger. The phase mints
     # `verification` envelopes asking upheld/overturned/insufficient_evidence;
     # an outcome ledger outside the manifest would be a decision surface the
@@ -753,17 +762,17 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("mission_index", "missions/mission-index.json", "index", "missions", "runtime", True, "rewrite_fsync", True),
     StateSurface("cost_budget", "budget/*.jsonl", "ledger", "budget", "runtime", True, "append_fsync", True),
     StateSurface("quarantine", "quarantine/*.jsonl", "ledger", "quarantine", "runtime", True, "append_fsync", True),
-    StateSurface("agent_genesis_requests", "agent-genesis/requests.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
-    StateSurface("agent_genesis_drafts", "agent-genesis/drafts.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
-    StateSurface("agent_genesis_pr_lanes", "agent-genesis/pr-lanes.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
-    StateSurface("agent_genesis_materializations", "agent-genesis/materializations.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
-    StateSurface("agent_genesis_extension_decisions", "agent-genesis/extension-decisions.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
+    StateSurface("agent_genesis_requests", "agent-genesis/requests.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("agent_genesis_drafts", "agent-genesis/drafts.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("agent_genesis_pr_lanes", "agent-genesis/pr-lanes.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("agent_genesis_materializations", "agent-genesis/materializations.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("agent_genesis_extension_decisions", "agent-genesis/extension-decisions.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("agent_genesis_draft_intents", "agent-genesis/drafts/*.intent.json", "artifact", "genesis", "runtime", True, "rewrite_fsync", False, profile_surface="agent_genesis", observe_class="action"),
-    StateSurface("genesis_sandbox_runs", "genesis-sandbox/runs.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
-    StateSurface("skill_genesis_requests", "skill-genesis/requests.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
-    StateSurface("skill_genesis_drafts", "skill-genesis/drafts.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
-    StateSurface("skill_genesis_sandbox", "skill-genesis/sandbox.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
-    StateSurface("skill_genesis_materializations", "skill-genesis/materializations.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
+    StateSurface("genesis_sandbox_runs", "genesis-sandbox/runs.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("skill_genesis_requests", "skill-genesis/requests.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("skill_genesis_drafts", "skill-genesis/drafts.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("skill_genesis_sandbox", "skill-genesis/sandbox.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("skill_genesis_materializations", "skill-genesis/materializations.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
     # Plan 032 Faz 032h — curator proposals + operator decisions (never an effect on a skill file).
     StateSurface("skill_curation_proposals", "skill-genesis/curation-proposals.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # Plan 032 Faz 032i — token-economy recommendations (effort downgrades, cap calibration observations).
@@ -787,7 +796,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("security_remediation", "security/remediation.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # Plan 033 Faz 033i — qualifying shadow-cycle burn-in for agent retirement.
     StateSurface("security_parity", "security/parity.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
+    StateSurface("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("operator_provenance", "operator-provenance/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("enterprise_readiness_claims", "enterprise/readiness-claims.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_remote_cas_proofs", "enterprise/remote-cas-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="remote_cas_lease", observe_class="action"),
@@ -854,8 +863,14 @@ def memory_surfaces() -> tuple[StateSurface, ...]:
     """ARIA-HIGH-263 — every declared surface flagged ``memory``.
 
     The one derivation of "which ledgers are ARIA's memory": compaction's
-    refusal and the snapshot's shrink check both read it, so a surface that
-    gains the flag is protected everywhere at once and none keeps a copy.
+    refusal, the snapshot's shrink check and the ledger writer's rewrite
+    refusal (``memory_class``, the 2026-10-10 memory-laws finding) all read
+    it, so a surface that gains the flag is protected everywhere at once and
+    none keeps a copy. The flag is the whole self-learning record — what was
+    observed, believed, judged, measured and decided — not only the
+    ``memory/*`` ledgers; two surfaces stay out on purpose (tests fake legacy
+    rows in them by rewriting history): ``tools_governance`` and
+    ``agent_invocation_requests``.
     """
     return tuple(surface for surface in STATE_SURFACES if surface.memory)
 

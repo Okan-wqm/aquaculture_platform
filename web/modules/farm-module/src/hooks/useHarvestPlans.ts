@@ -362,6 +362,67 @@ export interface HarvestPlanFilterInput {
 }
 
 // ============================================================================
+// WIRE ENUM TRANSLATION (FARM-CRITICAL-409)
+// ============================================================================
+
+/**
+ * The GraphQL schema serializes the harvest enums by their UPPERCASE names —
+ * `registerEnumType` exposes the TS enum keys as SDL names while the lowercase
+ * values exist only as database column values. This module (and
+ * HarvestPlansPage's config maps) speak the lowercase vocabulary, so every
+ * request and response crosses the wire boundary exactly once, here.
+ */
+function enumToWire(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : value.toUpperCase();
+}
+
+interface HarvestEnumFields {
+  status?: string;
+  harvestType?: string;
+  harvestMethod?: string;
+  productForm?: string;
+}
+
+function harvestEnumsToWire<T extends HarvestEnumFields>(input: T): T {
+  return {
+    ...input,
+    status: enumToWire(input.status) as T['status'],
+    harvestType: enumToWire(input.harvestType) as T['harvestType'],
+    harvestMethod: enumToWire(input.harvestMethod) as T['harvestMethod'],
+    productForm: enumToWire(input.productForm) as T['productForm'],
+  };
+}
+
+function harvestFilterToWire(filter?: HarvestPlanFilterInput): HarvestPlanFilterInput | undefined {
+  if (!filter) {
+    return filter;
+  }
+  return {
+    ...harvestEnumsToWire(filter),
+    statuses: filter.statuses?.map((status) => enumToWire(status) as HarvestPlanStatus),
+    harvestTypes: filter.harvestTypes?.map(
+      (harvestType) => enumToWire(harvestType) as HarvestType,
+    ),
+  };
+}
+
+function planFromWire<T extends HarvestPlan>(plan: T): T {
+  const lowerOrNull = <V extends string>(value: V | null | undefined): V | null | undefined =>
+    value === null || value === undefined ? value : (value.toLowerCase() as V);
+  return {
+    ...plan,
+    status: lowerOrNull(plan.status) as HarvestPlanStatus,
+    harvestType: lowerOrNull(plan.harvestType) as HarvestType,
+    harvestMethod: lowerOrNull(plan.harvestMethod) as HarvestMethod | undefined,
+    productForm: lowerOrNull(plan.productForm) as ProductForm,
+  };
+}
+
+function plansFromWire(plans: HarvestPlan[]): HarvestPlan[] {
+  return plans.map(planFromWire);
+}
+
+// ============================================================================
 // QUERY KEY FACTORY
 // ============================================================================
 
@@ -386,9 +447,9 @@ export function useHarvestPlanList(filter?: HarvestPlanFilterInput) {
 
       const data = await graphqlClient.request<{ harvestPlans: PaginatedHarvestPlans }>(
         HARVEST_PLANS_QUERY,
-        { filter }
+        { filter: harvestFilterToWire(filter) }
       );
-      return data.harvestPlans;
+      return { ...data.harvestPlans, items: plansFromWire(data.harvestPlans.items) };
     },
     staleTime: 30000,
     enabled: !authLoading && isAuthenticated && !!token && !!tenantId,
@@ -418,7 +479,7 @@ export function useHarvestPlan(id: string | null) {
         HARVEST_PLAN_QUERY,
         { id }
       );
-      return data.harvestPlan;
+      return planFromWire(data.harvestPlan);
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId && !!id,
@@ -438,7 +499,7 @@ export function useHarvestPlanByCode(planCode: string | null) {
         HARVEST_PLAN_BY_CODE_QUERY,
         { planCode }
       );
-      return data.harvestPlanByCode;
+      return planFromWire(data.harvestPlanByCode);
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId && !!planCode,
@@ -458,7 +519,7 @@ export function useHarvestPlansByBatch(batchId: string | null, activeOnly = fals
         HARVEST_PLANS_BY_BATCH_QUERY,
         { batchId, activeOnly }
       );
-      return data.harvestPlansByBatch;
+      return plansFromWire(data.harvestPlansByBatch);
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId && !!batchId,
@@ -478,7 +539,7 @@ export function useUpcomingHarvestPlans(days = 30) {
         UPCOMING_HARVEST_PLANS_QUERY,
         { days }
       );
-      return data.upcomingHarvestPlans;
+      return plansFromWire(data.upcomingHarvestPlans);
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId,
@@ -497,7 +558,7 @@ export function useOverdueHarvestPlans() {
       const data = await graphqlClient.request<{ overdueHarvestPlans: HarvestPlan[] }>(
         OVERDUE_HARVEST_PLANS_QUERY
       );
-      return data.overdueHarvestPlans;
+      return plansFromWire(data.overdueHarvestPlans);
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId,
@@ -563,9 +624,9 @@ export function useCreateHarvestPlan() {
       }
       const data = await graphqlClient.request<{ createHarvestPlan: HarvestPlan }>(
         CREATE_HARVEST_PLAN_MUTATION,
-        { input }
+        { input: harvestEnumsToWire(input) }
       );
-      return data.createHarvestPlan;
+      return planFromWire(data.createHarvestPlan);
     },
     onSuccess: () => {
       invalidateAllHarvestPlanQueries(queryClient, tenantId);
@@ -590,9 +651,9 @@ export function useUpdateHarvestPlan() {
       }
       const data = await graphqlClient.request<{ updateHarvestPlan: HarvestPlan }>(
         UPDATE_HARVEST_PLAN_MUTATION,
-        { input }
+        { input: harvestEnumsToWire(input) }
       );
-      return data.updateHarvestPlan;
+      return planFromWire(data.updateHarvestPlan);
     },
     onSuccess: () => {
       invalidateAllHarvestPlanQueries(queryClient, tenantId);
@@ -646,7 +707,7 @@ export function useApproveHarvestPlan() {
         APPROVE_HARVEST_PLAN_MUTATION,
         { id }
       );
-      return data.approveHarvestPlan;
+      return planFromWire(data.approveHarvestPlan);
     },
     onSuccess: () => {
       invalidateAllHarvestPlanQueries(queryClient, tenantId);
@@ -673,7 +734,7 @@ export function useScheduleHarvestPlan() {
         SCHEDULE_HARVEST_PLAN_MUTATION,
         { id, confirmedDate }
       );
-      return data.scheduleHarvestPlan;
+      return planFromWire(data.scheduleHarvestPlan);
     },
     onSuccess: () => {
       invalidateAllHarvestPlanQueries(queryClient, tenantId);
@@ -700,7 +761,7 @@ export function useStartHarvestPlan() {
         START_HARVEST_PLAN_MUTATION,
         { id }
       );
-      return data.startHarvestPlan;
+      return planFromWire(data.startHarvestPlan);
     },
     onSuccess: () => {
       invalidateAllHarvestPlanQueries(queryClient, tenantId);
@@ -737,7 +798,7 @@ export function useCompleteHarvestPlan() {
         COMPLETE_HARVEST_PLAN_MUTATION,
         { id, actualQuantity, actualBiomass, actualAvgWeight }
       );
-      return data.completeHarvestPlan;
+      return planFromWire(data.completeHarvestPlan);
     },
     onSuccess: () => {
       invalidateAllHarvestPlanQueries(queryClient, tenantId);
@@ -764,7 +825,7 @@ export function useCancelHarvestPlan() {
         CANCEL_HARVEST_PLAN_MUTATION,
         { id }
       );
-      return data.cancelHarvestPlan;
+      return planFromWire(data.cancelHarvestPlan);
     },
     onSuccess: () => {
       invalidateAllHarvestPlanQueries(queryClient, tenantId);
@@ -791,7 +852,7 @@ export function usePostponeHarvestPlan() {
         POSTPONE_HARVEST_PLAN_MUTATION,
         { id, newDate }
       );
-      return data.postponeHarvestPlan;
+      return planFromWire(data.postponeHarvestPlan);
     },
     onSuccess: () => {
       invalidateAllHarvestPlanQueries(queryClient, tenantId);

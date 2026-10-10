@@ -129,9 +129,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
         batchId: selectedBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        // `reason` is a MortalityReason enum value whose string literal
-        // (e.g. `'disease'`) matches the hook's `MortalityReason` union
-        // type exactly — no cast required.
+        // `reason` carries the UPPERCASE GraphQL enum name (FARM-CRITICAL-409).
         reason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         observedAt,

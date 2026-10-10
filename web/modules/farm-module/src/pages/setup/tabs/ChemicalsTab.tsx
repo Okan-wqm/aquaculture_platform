@@ -762,7 +762,11 @@ export const ChemicalsTab: React.FC = () => {
             onChange={(e) => setSelectedCategory(e.target.value)}
             options={[
               { value: 'all', label: 'All Categories' },
-              ...chemicalTypes.map((type) => ({ value: type.code, label: type.name })),
+              // Filter values go to the backend as GraphQL enum names (FARM-CRITICAL-409).
+              ...chemicalTypes.map((type) => ({
+                value: type.code.toUpperCase(),
+                label: type.name,
+              })),
             ]}
           />
         </div>
@@ -904,7 +908,9 @@ export const ChemicalsTab: React.FC = () => {
                       }
                       error={formData.type ? undefined : fieldErrors.type}
                       options={chemicalTypes.map((type) => ({
-                        value: type.code,
+                        // The catalog stores lowercase DB codes; the mutation
+                        // sends the GraphQL enum NAME (FARM-CRITICAL-409).
+                        value: type.code.toUpperCase(),
                         label: type.name,
                       }))}
                     />

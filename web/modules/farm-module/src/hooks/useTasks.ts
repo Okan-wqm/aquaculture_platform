@@ -9,6 +9,7 @@ import {
   TaskStats,
   TaskStatus,
 } from '../pages/tasks/types/task.types';
+import { buildCommandEnvelope } from '../utils/command-envelope';
 
 // ============================================================================
 // GRAPHQL FIELD FRAGMENTS
@@ -223,9 +224,14 @@ export function useTasks(filter?: TaskFilterInput) {
 
   const completeTaskMutation = useMutation({
     mutationFn: async (id: string) => {
+      // FARM-CRITICAL-408: the backend contract is `completeTask(input:
+      // TaskLifecycleInput!)` and it fail-closed rejects legacy envelope-less
+      // calls; the old `completeTask(id: $id)` document never matched the
+      // schema and every UI completion died as a validation error.
+      const envelope = await buildCommandEnvelope('completeTask', { id });
       const mutation = `
-        mutation CompleteTask($id: String!) {
-          completeTask(id: $id) {
+        mutation CompleteTask($input: TaskLifecycleInput!) {
+          completeTask(input: $input) {
             ${TASK_FIELDS}
           }
         }
@@ -233,7 +239,7 @@ export function useTasks(filter?: TaskFilterInput) {
 
       const result = await graphqlClient.request<{ completeTask: Task }>(
         mutation,
-        { id }
+        { input: { id, ...envelope } }
       );
 
       return result.completeTask;
@@ -249,9 +255,11 @@ export function useTasks(filter?: TaskFilterInput) {
 
   const startTaskMutation = useMutation({
     mutationFn: async (id: string) => {
+      // FARM-CRITICAL-408: same TaskLifecycleInput contract as completeTask.
+      const envelope = await buildCommandEnvelope('startTask', { id });
       const mutation = `
-        mutation StartTask($id: String!) {
-          startTask(id: $id) {
+        mutation StartTask($input: TaskLifecycleInput!) {
+          startTask(input: $input) {
             ${TASK_FIELDS}
           }
         }
@@ -259,7 +267,7 @@ export function useTasks(filter?: TaskFilterInput) {
 
       const result = await graphqlClient.request<{ startTask: Task }>(
         mutation,
-        { id }
+        { input: { id, ...envelope } }
       );
 
       return result.startTask;

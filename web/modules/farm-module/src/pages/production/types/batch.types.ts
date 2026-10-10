@@ -12,33 +12,40 @@
  * TanksPage); the batch aggregate + mutation inputs live in the useBatches SSoT.
  */
 
-/** Cull cause codes — lowercase values match the backend enum exactly. */
+/**
+ * Cull cause codes. Values are the GraphQL enum NAMES (uppercase) —
+ * `registerEnumType` exposes the TS keys as SDL names while the lowercase
+ * forms exist only as database column values. FARM-CRITICAL-409: sending the
+ * lowercase value (`small_size`) was rejected by the schema
+ * (`Value "small_size" does not exist in "CullReason" enum`), making UI cull
+ * recording impossible.
+ */
 export enum CullReason {
-  SMALL_SIZE = 'small_size',
-  DEFORMED = 'deformed',
-  SICK = 'sick',
-  POOR_GROWTH = 'poor_growth',
-  GRADING = 'grading',
-  QUALITY = 'quality',
-  OTHER = 'other',
+  SMALL_SIZE = 'SMALL_SIZE',
+  DEFORMED = 'DEFORMED',
+  SICK = 'SICK',
+  POOR_GROWTH = 'POOR_GROWTH',
+  GRADING = 'GRADING',
+  QUALITY = 'QUALITY',
+  OTHER = 'OTHER',
 }
 
 /**
- * Mortality cause codes — lowercase values match the backend GraphQL schema and
- * `tank_operations.mortalityReason` enum column exactly, so the enum value IS the
- * wire format (no cast needed at the mutation boundary).
+ * Mortality cause codes. Values are the GraphQL enum NAMES (uppercase) for the
+ * same wire-contract reason as `CullReason` above — the lowercase DB column
+ * values are translated server-side (FARM-CRITICAL-409).
  */
 export enum MortalityReason {
-  DISEASE = 'disease',
-  WATER_QUALITY = 'water_quality',
-  STRESS = 'stress',
-  HANDLING = 'handling',
-  TEMPERATURE = 'temperature',
-  OXYGEN = 'oxygen',
-  PREDATION = 'predation',
-  CANNIBALISM = 'cannibalism',
-  UNKNOWN = 'unknown',
-  OTHER = 'other',
+  DISEASE = 'DISEASE',
+  WATER_QUALITY = 'WATER_QUALITY',
+  STRESS = 'STRESS',
+  HANDLING = 'HANDLING',
+  TEMPERATURE = 'TEMPERATURE',
+  OXYGEN = 'OXYGEN',
+  PREDATION = 'PREDATION',
+  CANNIBALISM = 'CANNIBALISM',
+  UNKNOWN = 'UNKNOWN',
+  OTHER = 'OTHER',
 }
 
 export const MortalityReasonLabels: Record<MortalityReason, string> = {

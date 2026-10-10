@@ -59,69 +59,69 @@ import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 // ============================================================================
 
 const statusColors: Record<HealthEventStatus, string> = {
-  active: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  monitoring: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  resolved: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
-  chronic: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  cancelled: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  ACTIVE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  MONITORING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  RESOLVED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  CHRONIC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  CANCELLED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<HealthEventStatus, string> = {
-  active: 'Active',
-  monitoring: 'Monitoring',
-  resolved: 'Resolved',
-  chronic: 'Chronic',
-  cancelled: 'Cancelled',
+  ACTIVE: 'Active',
+  MONITORING: 'Monitoring',
+  RESOLVED: 'Resolved',
+  CHRONIC: 'Chronic',
+  CANCELLED: 'Cancelled',
 };
 
 const severityColors: Record<HealthSeverity, string> = {
-  minor: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  moderate: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  severe: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  MINOR: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  MODERATE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  SEVERE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  CRITICAL: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const severityLabels: Record<HealthSeverity, string> = {
-  minor: 'Minor',
-  moderate: 'Moderate',
-  severe: 'Severe',
-  critical: 'Critical',
+  MINOR: 'Minor',
+  MODERATE: 'Moderate',
+  SEVERE: 'Severe',
+  CRITICAL: 'Critical',
 };
 
 const eventTypeLabels: Record<HealthEventType, string> = {
-  disease_outbreak: 'Disease Outbreak',
-  symptom_observed: 'Symptom Observed',
-  routine_inspection: 'Routine Inspection',
-  treatment_start: 'Treatment Start',
-  treatment_end: 'Treatment End',
-  vaccination: 'Vaccination',
-  quarantine_start: 'Quarantine Start',
-  quarantine_end: 'Quarantine End',
-  mortality_event: 'Mortality Event',
-  recovery: 'Recovery',
-  lab_result: 'Lab Result',
-  vet_consultation: 'Vet Consultation',
+  DISEASE_OUTBREAK: 'Disease Outbreak',
+  SYMPTOM_OBSERVED: 'Symptom Observed',
+  ROUTINE_INSPECTION: 'Routine Inspection',
+  TREATMENT_START: 'Treatment Start',
+  TREATMENT_END: 'Treatment End',
+  VACCINATION: 'Vaccination',
+  QUARANTINE_START: 'Quarantine Start',
+  QUARANTINE_END: 'Quarantine End',
+  MORTALITY_EVENT: 'Mortality Event',
+  RECOVERY: 'Recovery',
+  LAB_RESULT: 'Lab Result',
+  VET_CONSULTATION: 'Vet Consultation',
 };
 
 const diseaseCategoryLabels: Record<DiseaseCategory, string> = {
-  bacterial: 'Bacterial',
-  viral: 'Viral',
-  parasitic: 'Parasitic',
-  fungal: 'Fungal',
-  nutritional: 'Nutritional',
-  environmental: 'Environmental',
-  genetic: 'Genetic',
-  unknown: 'Unknown',
+  BACTERIAL: 'Bacterial',
+  VIRAL: 'Viral',
+  PARASITIC: 'Parasitic',
+  FUNGAL: 'Fungal',
+  NUTRITIONAL: 'Nutritional',
+  ENVIRONMENTAL: 'Environmental',
+  GENETIC: 'Genetic',
+  UNKNOWN: 'Unknown',
 };
 
 const treatmentMethodLabels: Record<TreatmentMethod, string> = {
-  bath: 'Bath Treatment',
-  in_feed: 'In-Feed',
-  injection: 'Injection',
-  immersion: 'Immersion',
-  topical: 'Topical',
-  environmental: 'Environmental',
-  vaccination: 'Vaccination',
+  BATH: 'Bath Treatment',
+  IN_FEED: 'In-Feed',
+  INJECTION: 'Injection',
+  IMMERSION: 'Immersion',
+  TOPICAL: 'Topical',
+  ENVIRONMENTAL: 'Environmental',
+  VACCINATION: 'Vaccination',
 };
 
 // ============================================================================
@@ -151,12 +151,12 @@ const defaultFormData: HealthEventFormData = {
   tankId: '',
   title: '',
   description: '',
-  eventType: 'symptom_observed',
+  eventType: 'SYMPTOM_OBSERVED',
   eventDate: new Date().toISOString().split('T')[0],
   eventTime: '',
-  diseaseCategory: 'unknown',
+  diseaseCategory: 'UNKNOWN',
   diseaseName: '',
-  severity: 'moderate',
+  severity: 'MODERATE',
   affectedCount: 0,
   mortalityCount: 0,
   notes: '',
@@ -178,7 +178,7 @@ interface TreatmentFormData {
 }
 
 const defaultTreatmentData: TreatmentFormData = {
-  method: 'bath',
+  method: 'BATH',
   medicationName: '',
   activeIngredient: '',
   dosage: 0,
@@ -646,7 +646,7 @@ export const HealthEventsPage: React.FC = () => {
       render: (_value, item) => (
         <div className="flex items-center justify-end gap-2">
           {/* Treatment actions */}
-          {item.status !== 'resolved' && item.status !== 'cancelled' && (
+          {item.status !== 'RESOLVED' && item.status !== 'CANCELLED' && (
             <>
               {!item.isUnderTreatment ? (
                 <Button

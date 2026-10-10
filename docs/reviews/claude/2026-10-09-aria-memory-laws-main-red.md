@@ -16,7 +16,7 @@ Owner: claude (fix), okan (review). Follow-up of ARIA-HIGH-401
 
 ### Root cause
 
-#1920 made the ledger writer (`ledger._rewrite_jsonl_unlocked` → `memory_class.refuse_history_rewrite`)
+PR #1920 made the ledger writer (`ledger._rewrite_jsonl_unlocked` → `memory_class.refuse_history_rewrite`)
 refuse any rewrite that changes a recorded row of a memory-class surface, and flagged the
 change ledgers and the agent-invocation request segments as memory. That law is correct and
 stays. Two fixtures built their state by editing memory history through the kernel's own

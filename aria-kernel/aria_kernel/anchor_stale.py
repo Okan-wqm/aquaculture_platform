@@ -36,7 +36,9 @@ before any ledger is read and costs one dict lookup. When nothing is due the
 sweep reads no ledger beyond the ones its caller already holds. Idempotent:
 a resolved record is never read again, an open record already carries the
 kernel's decision, and a crash mid-batch leaves a started row whose
-unfinished items the next sweep decides again.
+unfinished items the next sweep decides again. The one open record read
+again is an operator hand-off ``owner_of`` made that it no longer makes
+(ARIA-HIGH-418): its owner is decided once, by the same rule.
 """
 from __future__ import annotations
 
@@ -57,7 +59,14 @@ from .anchor_stale_effects import (
     reoffer_queue_item,
     remint_judge,
 )
-from .expiry_ownership import OWNER_KERNEL_REMINT, OWNER_OPERATOR, OWNER_PRODUCER, OWNER_REOFFER, owner_of
+from .expiry_ownership import (
+    OWNER_KERNEL_REMINT,
+    OWNER_OPERATOR,
+    OWNER_PRODUCER,
+    OWNER_REOFFER,
+    is_ownership_verdict,
+    owner_of,
+)
 from .human_required import DEFAULT_SEVERITY, list_human_required, write_kernel_disposition
 from .human_required_adjudication import _adjudications_path
 from .judge_subject_liveness import JudgeSubjectLiveness
@@ -176,13 +185,25 @@ def _record_ids(root: Path) -> set[str]:
     return {path.stem for path in directory.glob("*.json")} if directory.exists() else set()
 
 
-def _undecided_open_records(root: Path) -> list[dict[str, Any]]:
-    """Open anchor_stale records the kernel has not decided (the pre-ARIA-HIGH-360 panel questions)."""
-    return [
-        record for record in list_human_required(base_dir=root)
-        if (record.get("context") or {}).get("kind") == ANCHOR_STALE_KIND
-        and record.get("request_id") and "kernel_disposition" not in record
-    ]
+def _open_records(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Open anchor_stale records: (never decided, handed to the operator by ownership).
+
+    The first are the pre-ARIA-HIGH-360 panel questions. The second carry an
+    ``owner_of`` verdict (``expiry_ownership.is_ownership_verdict``); the
+    sweep re-reads one only once ``owner_of`` names another owner.
+    """
+    undecided: list[dict[str, Any]] = []
+    handed: list[dict[str, Any]] = []
+    for record in list_human_required(base_dir=root):
+        if (record.get("context") or {}).get("kind") != ANCHOR_STALE_KIND or not record.get("request_id"):
+            continue
+        disposition = record.get("kernel_disposition")
+        if disposition is None:
+            undecided.append(record)
+        elif disposition.get("disposition") == DISPOSITION_OPERATOR and is_ownership_verdict(
+                str(disposition.get("reason") or "")):
+            handed.append(record)
+    return undecided, handed
 
 
 def _notify_operator(root: Path, handed: list[str], now: datetime) -> None:
@@ -223,19 +244,29 @@ def dispose_anchor_stale_requests(
     by_id = {str(r["request_id"]): r for r in requests if r.get("request_id")}
     order = {rid: position for position, rid in enumerate(by_id)}
     successor_of = {str(r["remint_of"]): str(r["request_id"]) for r in requests if r.get("remint_of") and r.get("request_id")}
-    open_records = sorted(_undecided_open_records(root), key=lambda r: -order.get(str(r["request_id"]), len(order)))
+    undecided, handed = _open_records(root)
     recorded = _record_ids(root)
     stale = [r for r in reversed(requests) if r.get("request_id") and states.get(str(r["request_id"])) == "ANCHOR_STALE"
              and str(r["request_id"]) not in recorded]
-    panels = _panel_request_ids(root) if open_records or any(
-        r.get("role") == "human_required_adjudication" for r in stale) else {}
+    handed_requests = [by_id[str(record["request_id"])] for record in handed if str(record["request_id"]) in by_id]
+    panels = _panel_request_ids(root) if undecided or any(
+        r.get("role") == "human_required_adjudication" for r in (*stale, *handed_requests)) else {}
     panel_ids = frozenset(rid for ids in panels.values() for rid in ids)
     gate = RemintGate(root, requests, states, cycle_id=cycle_id)
-    owners = {str(r["request_id"]): owner_of(r, panel_ids) for r in stale}
-    for record in open_records:
+    owners = {str(r["request_id"]): owner_of(r, panel_ids) for r in (*stale, *handed_requests)}
+    for record in undecided:
         request = by_id.get(str(record["request_id"]))
         if request is not None:
             owners[str(request["request_id"])] = owner_of(request, panel_ids)
+    # ARIA-HIGH-418 — an operator hand-off by ownership is re-read once
+    # `owner_of` names another owner (466 fan-out judges on 2026-10-10,
+    # whose group-key shapes the first signature did not know). A record
+    # whose owner is still the operator is not: re-deciding the 39
+    # legitimate operator records every sweep would take the sweep's slots
+    # (the ARIA-HIGH-364 starvation) and notify again for nothing.
+    reread = [record for record in handed if str(record["request_id"]) in by_id
+              and owners[str(record["request_id"])][0] != OWNER_OPERATOR]
+    open_records = sorted([*undecided, *reread], key=lambda r: -order.get(str(r["request_id"]), len(order)))
     work: list[tuple[str, dict[str, Any] | None, dict[str, Any] | None]] = [
         (str(record["request_id"]), by_id.get(str(record["request_id"])), record) for record in open_records
     ] + [
@@ -255,7 +286,8 @@ def dispose_anchor_stale_requests(
     # decided.
     candidates = [item for item in work if item[0] not in waiting_ids]
     summary: dict[str, Any] = {"disposed": [], "waiting_judge_backlog_full": len(waiting),
-                               "waiting_sample": waiting[:20], "bound": ANCHOR_STALE_DISPOSITIONS_PER_SWEEP}
+                               "waiting_sample": waiting[:20], "bound": ANCHOR_STALE_DISPOSITIONS_PER_SWEEP,
+                               "reread_ownership": len(reread)}
     if not candidates:
         return summary
     causes = _causes(claims)
@@ -313,7 +345,10 @@ def dispose_anchor_stale_requests(
             effect = operator_required(f"disposition_effect_failed:{type(exc).__name__}", error=str(exc)[:300])
         disposition = {"role": request.get("role"), "expiry_reason": cause.reason,
                        "expiry_fault_class": cause.fault_class, **effect}
-        if record is not None:
+        if record is not None and "kernel_disposition" in record:
+            # The hand-off this decision replaces stays on the record.
+            disposition["supersedes"] = record["kernel_disposition"]
+        elif record is not None:
             disposition["closed_panel_request_ids"] = panels.get(rid, [])
         written = write_kernel_disposition(item={
             "request_id": rid, "severity": str(request.get("severity") or DEFAULT_SEVERITY),

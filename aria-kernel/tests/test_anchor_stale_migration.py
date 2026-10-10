@@ -6,6 +6,8 @@ Pins (production writers, ``tests/_helpers/anchor_stale_store``):
   rule; its panel is never folded or re-opened again, and its envelopes are
   moot whether selected by poll or claimed by id;
 * a historical anchor_stale panel's fold still replays, and acts on nothing;
+* an operator hand-off made by ownership is re-read once ``owner_of`` names
+  another owner, and never otherwise (ARIA-HIGH-418);
 * a judge re-mint waits while the judge backlog is full, reading no ledger;
   decisions per sweep are bounded, newest first;
 * raw findings and feedback are read once per sweep, and not at all when
@@ -22,9 +24,19 @@ from unittest.mock import patch
 from aria_kernel import anchor_stale
 from aria_kernel import human_required_adjudication as hra
 from aria_kernel.agent_invocations import claim_request, next_pending_request
-from aria_kernel.anchor_stale_effects import DISPOSITION_OPERATOR, DISPOSITION_PRODUCER_OWNED, DISPOSITION_REMINTED
+from aria_kernel.anchor_stale_effects import (
+    DISPOSITION_DROPPED,
+    DISPOSITION_OPERATOR,
+    DISPOSITION_PRODUCER_OWNED,
+    DISPOSITION_REMINTED,
+)
 from aria_kernel.feedback_store import record_operator_feedback
-from aria_kernel.human_required import RESOLVED_BY_KERNEL, list_human_required, record_human_required
+from aria_kernel.human_required import (
+    RESOLVED_BY_KERNEL,
+    list_human_required,
+    record_human_required,
+    write_kernel_disposition,
+)
 from aria_kernel.judge_subject_liveness import JudgeSubjectLiveness
 from aria_kernel.tool_registry import GovernanceError
 
@@ -95,6 +107,77 @@ class OpenRecordsAreMigrated(_Panels):
         self.sweep()
         record = self.record("AIR-gone")
         self.assertEqual((record["status"], record["kernel_disposition"]["reason"]), ("open", "request_not_in_ledger"))
+
+
+class OwnershipHandOffsAreReRead(AnchorStaleStore):
+    """ARIA-HIGH-418 — aria/state f5c5c86a1 held 505 open operator records; 466 were fan-out judges the
+    first signature did not recognise, and 39 are the operator's for good (19 consensus arbiters, 20
+    queue items the full queue would not take back)."""
+
+    def hand_off(self, request_id: str, reason: str) -> None:
+        """The record the first ARIA-HIGH-360 sweep wrote (e.g. AIR-aria-evidence-judge-403acd6e7d3a)."""
+        row = self.row(request_id)
+        write_kernel_disposition(item={
+            "request_id": request_id, "severity": "HIGH",
+            "reason": f"request {request_id!r} expired ANCHOR_STALE unclaimed",
+            "context": {"kind": anchor_stale.ANCHOR_STALE_KIND, "request_id": request_id, "role": row["role"],
+                        "target_agent": row["target_agent"]},
+            "status": "open",
+            "disposition": {"disposition": DISPOSITION_OPERATOR, "reason": reason, "role": row["role"],
+                            "expiry_reason": "anchor_expired", "expiry_fault_class": "unclassified"},
+        }, base_dir=self.tools)
+
+    def outbox(self) -> str:
+        path = self.tools / "notifications" / "outbox.jsonl"
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def test_a_hand_off_ownership_no_longer_makes_is_decided_once(self) -> None:
+        self.report(5)
+        legacy = {"tool_id": "tool-x", "run_id": "r1", "judgment_group_id": "judge:tool-x:r1:F5"}
+        self.seed_row("AIR-live", role="evidence_judgment", target_agent=EVIDENCE_JUDGE, finding_id="F5", **legacy)
+        self.seed_row("AIR-gone-quiet", role="evidence_judgment", target_agent=EVIDENCE_JUDGE, finding_id="F9",
+                      **{**legacy, "judgment_group_id": "judge:tool-x:r1:F9"})
+        for request_id in ("AIR-live", "AIR-gone-quiet"):
+            self.hand_off(request_id, "producer_unverified:anchor_stale")
+        outbox = self.outbox()
+
+        summary = self.sweep()
+
+        self.assertEqual(summary["reread_ownership"], 2)
+        expected = {"AIR-live": (DISPOSITION_REMINTED, "subject_live"),
+                    "AIR-gone-quiet": (DISPOSITION_DROPPED, "subject_closed:finding_not_reported_recently")}
+        for request_id, (disposition, reason) in expected.items():
+            with self.subTest(request_id=request_id):
+                record = self.record(request_id)
+                self.assertEqual((record["status"], record["resolved_by"]), ("resolved", RESOLVED_BY_KERNEL))
+                decided = record["kernel_disposition"]
+                self.assertEqual((decided["disposition"], decided["reason"]), (disposition, reason))
+                self.assertEqual(decided["supersedes"]["reason"], "producer_unverified:anchor_stale")
+        self.assertEqual(len(self.successors("AIR-live")), 1)
+        self.assertEqual(self.outbox(), outbox)  # nothing was handed to the operator
+        again = self.sweep()
+        self.assertEqual((again["disposed"], again["reread_ownership"]), ([], 0))
+
+    def test_a_hand_off_that_still_holds_is_never_read_again(self) -> None:
+        prompt = '{"$schema": "aria/next-cycle-queue-request/v1", "queue_item_id": "q-full"}'
+        self.seed_row("AIR-arbiter", role="consensus_arbitration", target_agent="aria-consensus-arbiter")
+        self.seed_row("AIR-cli-judge", role="evidence_judgment", target_agent=EVIDENCE_JUDGE)
+        self.seed_row("AIR-maint-full", role="maintenance_utility", target_agent="aria-autonomy-planner",
+                      prompt=prompt)
+        handed = {"AIR-arbiter": "no_recovering_producer:consensus_arbitration",
+                  "AIR-cli-judge": "producer_unverified:anchor_stale",
+                  # Owned by the re-offer arm; the queue refused the item, not ownership.
+                  "AIR-maint-full": "queue_item_not_reofferable:queue_full"}
+        for request_id, reason in handed.items():
+            self.hand_off(request_id, reason)
+        before = {request_id: self.record(request_id) for request_id in handed}
+        outbox = self.outbox()
+
+        summary = self.sweep()
+
+        self.assertEqual((summary["disposed"], summary["reread_ownership"]), ([], 0))
+        self.assertEqual({request_id: self.record(request_id) for request_id in handed}, before)
+        self.assertEqual(self.outbox(), outbox)
 
 
 class PanelEnvelopesAreMoot(_Panels):

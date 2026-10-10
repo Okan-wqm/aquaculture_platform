@@ -15,8 +15,11 @@ the rule contract resolved now (``rule_contract.resolve_rule_contract``),
 and the fan-out's envelope (``judge_fanout.judge_request_fields``). Only the
 identity is the dead request's: role, judge, finding id, run id and judgment
 group, so the answer folds into the same consensus group, and ``remint_of``
-names the dead request. The anchor-stale disposition and the adjudication
-panel's ``re_mint`` (``remint_judge_for_panel``) both re-ask a judge here.
+names the dead request. The fingerprint is the dead request's or, for one
+minted before fingerprints were threaded, the one the sampler offers the
+newest report under (``JudgeSubjectLiveness.fingerprint``, ARIA-HIGH-418).
+The anchor-stale disposition and the adjudication panel's ``re_mint``
+(``remint_judge_for_panel``) both re-ask a judge here.
 """
 from __future__ import annotations
 
@@ -45,14 +48,14 @@ def remint_judge_request(
     ``human_required_panel.remint*`` or the anchor-stale sweep's
     ``anchor_stale.remint*``, each inheriting the dead request's class.
     """
-    from .feedback_store import _sample_item_from_finding, finding_fingerprint
+    from .feedback_store import _sample_item_from_finding
     from .judge_fanout import _evidence_refs, judge_request_fields
     from .rule_contract import resolve_rule_contract
 
     root = subjects.root
     tool_id = str(dead.get("tool_id") or "")
     finding = subjects.reported_finding(dead)
-    fingerprint = str(dead.get("finding_fingerprint") or "") or finding_fingerprint(tool_id, finding)
+    fingerprint = subjects.fingerprint(dead)
     item = _sample_item_from_finding(
         tool_id, str(dead.get("run_id") or ""), dead.get("cycle_id"),
         str(dead.get("finding_id") or ""), finding, fingerprint,

@@ -13,6 +13,9 @@ Pins, against the production writers (``tests/_helpers/anchor_stale_store``):
   reasons production writes today spend budget;
 * every role has exactly one owner (``expiry_ownership``); work no producer
   recovers, and an operator's own request, stay OPEN for the operator;
+* every group-key shape the fan-out ever minted proves the fan-out
+  (ARIA-HIGH-418), and a judge keyed before fingerprints is re-minted in its
+  own group;
 * a live fan-out judge subject is re-minted the way the fan-out mints today,
   and a rule with no contract is refused as the fan-out refuses it;
 * a projected maintenance request's queue item is re-offered;
@@ -23,10 +26,12 @@ Migration, mootness, ledger cost and crash pins: test_anchor_stale_migration.
 from __future__ import annotations
 
 import ast
+import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
+from unittest.mock import patch
 
 from aria_kernel import anchor_stale
 from aria_kernel import human_required_adjudication as hra
@@ -39,10 +44,11 @@ from aria_kernel.anchor_stale_effects import (
     DISPOSITION_REMINTED,
     DISPOSITION_REOFFERED,
 )
-from aria_kernel.expiry_ownership import OWNER_OPERATOR, OWNER_PRODUCER, ROLE_OWNERSHIP
+from aria_kernel.expiry_ownership import OWNER_KERNEL_REMINT, OWNER_OPERATOR, OWNER_PRODUCER, ROLE_OWNERSHIP, owner_of
 from aria_kernel.feedback_store import _sampleable_raw_findings, record_operator_feedback
 from aria_kernel.human_required import RESOLVED_BY_KERNEL
-from aria_kernel.judge_fanout import judge_request_fields
+from aria_kernel.judge_fanout import _group_id, judge_request_fields
+from aria_kernel.judge_replay import _replay_group
 from aria_kernel.next_cycle_queue import append_pending, mark_consumed, read_pending
 from aria_kernel.rule_contract import resolve_rule_contract
 from aria_kernel.tool_registry import GovernanceError
@@ -134,6 +140,33 @@ class EveryRoleHasOneOwner(unittest.TestCase):
                         defined[name] = _defined_names(ast.parse((package / name).read_text(encoding="utf-8")))
                     self.assertIn(symbol, defined[name], citation)
 
+    def test_every_group_key_shape_the_fanout_minted_proves_the_fanout(self) -> None:
+        # ARIA-HIGH-418 — aria/state f5c5c86a1 held 466 August fan-out judges
+        # handed to the operator as unverified: 414 keyed by run and finding
+        # id (before Y2) and 52 keyed by a fingerprint the request does not
+        # carry (before ORPHAN-HIGH-765).
+        fingerprint = item(1)["finding_fingerprint"]
+        request = {"request_id": "AIR-j", "role": "evidence_judgment", "tool_id": "tool-x",
+                   "finding_id": "F1", "run_id": "r1"}
+        fanout = {
+            "run_and_finding_id": {**request, "judgment_group_id": "judge:tool-x:r1:F1"},
+            "fingerprint_not_on_the_request": {**request, "judgment_group_id": f"judge:tool-x:{fingerprint}"},
+            "fingerprint": {**request, "finding_fingerprint": fingerprint, "judgment_group_id": _group_id(item(1))},
+            "finding_id": {**request, "judgment_group_id": _group_id({**item(1), "finding_fingerprint": ""})},
+        }
+        foreign = {
+            # cli.py `agent-invocations request` sets neither field.
+            "operator_cli": {"request_id": "AIR-j", "role": "adversarial_judgment"},
+            "goldset_replay": {**request, "judgment_group_id": _replay_group("tool-x", "r1", "F1")},
+            "another_tools_group": {**request, "judgment_group_id": "judge:tool-y:r1:F1"},
+        }
+        for shape, row in fanout.items():
+            with self.subTest(shape=shape):
+                self.assertEqual(owner_of(row, frozenset()), (OWNER_KERNEL_REMINT, "anchor_stale"))
+        for shape, row in foreign.items():
+            with self.subTest(shape=shape):
+                self.assertEqual(owner_of(row, frozenset()), (OWNER_OPERATOR, "producer_unverified:anchor_stale"))
+
 
 class LiveJudgeSubjectIsReMinted(AnchorStaleStore):
     def _fanout_envelope(self, i: int) -> dict[str, Any]:
@@ -184,6 +217,35 @@ class LiveJudgeSubjectIsReMinted(AnchorStaleStore):
         self.assertNotEqual(successor["suggested_prompt"], "Did rule-a fire?")
         self.assertEqual(successor["suggested_prompt"], expected["suggested_prompt"])
         self.assertEqual(successor["must_satisfy"], expected["must_satisfy"])
+
+    def test_a_judge_keyed_before_fingerprints_is_reminted_under_the_samplers_fingerprint(self) -> None:
+        # ARIA-HIGH-418 — the runner store's legacy judges carry a finding id
+        # and no fingerprint. The successor stays in the dead request's group
+        # (the other judge may have answered there) and carries the
+        # fingerprint the sampler offers the finding under, for both row
+        # shapes: inline (v1 ledger) and compact `{rule, id}` summary (118 of
+        # the 234 re-mints on aria/state f5c5c86a1), which alone fingerprints
+        # to something else.
+        legacy: dict[str, tuple[int, str]] = {}
+        for i, (row_format, group_shape) in enumerate(
+                [(fmt, shape) for fmt in ("v1", "v2-shadow") for shape in ("run", "fingerprint")], start=5):
+            with patch.dict(os.environ, {"ARIA_RUN_LEDGER_FORMAT": row_format}):
+                self.report(i)
+            group = (f"judge:tool-x:r1:F{i}" if group_shape == "run"
+                     else f"judge:tool-x:{item(i)['finding_fingerprint']}")
+            legacy[f"AIR-{row_format}-{group_shape}"] = (i, group)
+            self.seed_row(f"AIR-{row_format}-{group_shape}", role="adversarial_judgment",
+                          target_agent="aria-adversarial-judge", tool_id="tool-x", finding_id=f"F{i}",
+                          run_id="r1", judgment_group_id=group)
+        sampled = {s["finding_id"]: s["finding_fingerprint"]
+                   for s in _sampleable_raw_findings(tool_id="tool-x", cycle_id=None, base_dir=self.tools)}
+        self.sweep()
+        for request_id, (i, group) in legacy.items():
+            with self.subTest(request_id=request_id):
+                self.assertEqual(self.disposition(request_id)["disposition"], DISPOSITION_REMINTED)
+                successor = self.successors(request_id)[0]
+                self.assertEqual(successor["finding_fingerprint"], sampled[f"F{i}"])
+                self.assertEqual(successor["judgment_group_id"], group)
 
     def test_a_rule_with_no_contract_is_refused_as_the_fanout_refuses_it(self) -> None:
         self.report(4, rule="rule-undeclared")

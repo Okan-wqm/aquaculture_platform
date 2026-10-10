@@ -34,7 +34,10 @@ const SINGLE_WRITER_HANDLERS = [
   'apps/farm-service/src/batch/handlers/record-mortality.handler.ts',
   'apps/farm-service/src/batch/handlers/record-cull.handler.ts',
   'apps/farm-service/src/batch/handlers/transfer-batch.handler.ts',
-  'apps/farm-service/src/harvest/handlers/create-harvest-record.handler.ts',
+  // The harvest write (direct harvest records AND harvest-plan completion) lives
+  // in HarvestRecordWriter, the single owner both harvest handlers call
+  // (FARM-HIGH-394) — so the writer, not a handler, is the file in scope.
+  'apps/farm-service/src/harvest/services/harvest-record-writer.service.ts',
   'apps/farm-service/src/harvest/handlers/delete-harvest-record.handler.ts',
 ];
 

@@ -5,7 +5,7 @@
  * seam: plan rows render from the backend list and a transport failure does
  * not render a fake-empty success state.
  */
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
@@ -103,6 +103,87 @@ describe('HarvestPlansPage', () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalled());
     await waitFor(() => {
       expect(screen.queryByText(/Autumn harvest wave 1/)).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('HarvestPlansPage — completing a plan (FARM-HIGH-395 / FARM-HIGH-396)', () => {
+  const IN_PROGRESS_PLAN = { ...PLAN, status: 'in_progress', canComplete: true };
+
+  function routeWith(plan: typeof IN_PROGRESS_PLAN): void {
+    routeGraphql([
+      {
+        match: 'query HarvestPlans',
+        result: {
+          harvestPlans: {
+            items: [plan],
+            total: 1,
+            page: 1,
+            limit: 20,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+        },
+      },
+      { match: 'query Batches', result: { batches: { items: [], total: 0, page: 1, limit: 100, totalPages: 0 } } },
+      { match: 'mutation CompleteHarvestPlan', result: { completeHarvestPlan: { ...plan, status: 'completed' } } },
+    ]);
+  }
+
+  async function openCompleteModal(): Promise<HTMLElement> {
+    renderWithProviders(<HarvestPlansPage />, { route: '/harvest', path: 'harvest' });
+    const [menu] = await screen.findAllByRole('button', { name: 'More actions' });
+    if (!menu) throw new Error('no plan action menu rendered');
+    fireEvent.click(menu);
+    fireEvent.click(await screen.findByRole('button', { name: /Complete Harvest/ }));
+    return screen.findByRole('dialog');
+  }
+
+  it('pre-fills the counted results from the plan estimates — never a 0 g weight', async () => {
+    routeWith(IN_PROGRESS_PLAN);
+    const dialog = await openCompleteModal();
+
+    expect(within(dialog).getByDisplayValue('2500')).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue('5000')).toBeInTheDocument();
+    expect(within(dialog).queryByDisplayValue('0')).not.toBeInTheDocument();
+  });
+
+  it('leaves a field empty (required) when the plan has no estimate for it', async () => {
+    routeWith({
+      ...IN_PROGRESS_PLAN,
+      estimates: { estimatedQuantity: 5000, estimatedBiomass: 12500, estimatedAvgWeight: 0 },
+    });
+    const dialog = await openCompleteModal();
+
+    expect(within(dialog).queryByDisplayValue('0')).not.toBeInTheDocument();
+    const weight = within(dialog)
+      .getAllByRole('spinbutton')
+      .find((input) => input.getAttribute('max') === '100000');
+    expect(weight).toHaveValue(null);
+    expect(weight).toBeRequired();
+  });
+
+  it('sends one validated input with the quality class the operator picked', async () => {
+    routeWith(IN_PROGRESS_PLAN);
+    const dialog = await openCompleteModal();
+
+    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'ORDINAER' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Complete Harvest' }));
+
+    await waitFor(() => {
+      const call = requestMock.mock.calls.find(([query]) =>
+        (query as string).includes('mutation CompleteHarvestPlan'),
+      );
+      expect(call?.[1]).toEqual({
+        input: {
+          id: 'hp-1',
+          actualQuantity: 5000,
+          actualBiomass: 12500,
+          actualAvgWeight: 2500,
+          qualityClass: 'ORDINAER',
+        },
+      });
     });
   });
 });

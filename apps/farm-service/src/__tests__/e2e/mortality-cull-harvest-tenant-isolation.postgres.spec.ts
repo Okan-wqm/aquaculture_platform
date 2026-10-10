@@ -23,6 +23,9 @@ import {
   HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
+import type { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { collaborator } from '@aquaculture/testing';
+import type { CommandBus } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, Repository } from 'typeorm';
 
@@ -58,6 +61,12 @@ import {
   QualityClass,
 } from '../../harvest/entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../harvest/handlers/create-harvest-record.handler';
+import { HarvestRecordWriter } from '../../harvest/services/harvest-record-writer.service';
+import type { HarvestPolicyService } from '../../harvest/services/harvest-policy.service';
+import type { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import type { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import type { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import type { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { DeleteHarvestRecordHandler } from '../../harvest/handlers/delete-harvest-record.handler';
 import { ListHarvestsHandler } from '../../harvest/handlers/list-harvests.handler';
@@ -251,32 +260,35 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     // CommandBus and exercised by the unit spec; this DB-isolation e2e stubs
     // it as a no-op so the harvest path under test is unaffected.
     const commandBus = { execute: jest.fn().mockResolvedValue(undefined) };
-    createHarvest = new CreateHarvestRecordHandler(
-      dataSource,
+    // The harvest write is owned by HarvestRecordWriter (FARM-HIGH-394); the
+    // handler drives it inside its own tenant transaction.
+    const harvestRecordWriter = new HarvestRecordWriter(
       outboxPublisher,
-      dayPlanRecalc as never,
-      commandBus as never,
-      harvestEligibility as never,
-      backdatePolicy as never,
-      harvestPolicy as never,
-      harvestRepository,
-      batchRepository,
-      operationRepository,
-      tankBatchRepository,
-      tankRepository,
-      // TankBatchService SSoT writer — create-harvest routes its tank-batch
+      collaborator<DayPlanRecalcService>(dayPlanRecalc, 'DayPlanRecalcService'),
+      collaborator<CommandBus>(commandBus, 'CommandBus'),
+      collaborator<BatchHarvestEligibilityService>(
+        harvestEligibility,
+        'BatchHarvestEligibilityService',
+      ),
+      collaborator<HarvestPolicyService>(harvestPolicy, 'HarvestPolicyService'),
+      // TankBatchService SSoT writer — the harvest routes its tank-batch
       // decrement through applyBatchDelta (ORPHAN-HIGH-272), same as the
       // mortality/cull/transfer handlers above.
       tankBatchService,
-      new FinanceSettingsService(dataSource),
       new SiteAuthorizationService(),
-      // CreateHarvestRecordHandler also defaults farmStockProjection +
-      // mobileCommandReceipts to throwing test-only stubs; this isolation e2e
-      // must supply working no-op stubs (same rationale as the mortality/cull
-      // handlers above) or the harvest path throws before the tenant-isolation
-      // assertions run.
-      farmStockProjection as never,
-      mobileCommandReceipts as never,
+      // A working no-op projection stub (same rationale as the mortality/cull
+      // handlers above) so the harvest path reaches the isolation assertions.
+      collaborator<FarmStockProjectionService>(farmStockProjection, 'FarmStockProjectionService'),
+    );
+    createHarvest = new CreateHarvestRecordHandler(
+      dataSource,
+      collaborator<BackdatePolicyService>(backdatePolicy, 'BackdatePolicyService'),
+      new FinanceSettingsService(dataSource),
+      harvestRecordWriter,
+      collaborator<MobileCommandReceiptService>(
+        mobileCommandReceipts,
+        'MobileCommandReceiptService',
+      ),
     );
     deleteHarvest = new DeleteHarvestRecordHandler(
       harvestRepository,

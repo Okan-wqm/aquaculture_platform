@@ -366,6 +366,14 @@ export const tr: Record<MessageKey, string> = {
   'sites.details.createdAt': 'Oluşturulma',
   'sites.details.notSet': 'Belirtilmemiş',
 
+  // ── Harvest quality class (farm-module harvest-plan completion, FARM-HIGH-396) ──
+  'harvest.qualityClass.label': 'Kalite sınıfı',
+  'harvest.qualityClass.placeholder': 'Kalite sınıfı seçin',
+  'harvest.qualityClass.SUPERIOR': 'Superior (üstün)',
+  'harvest.qualityClass.ORDINAER': 'Ordinær (standart)',
+  'harvest.qualityClass.PRODUKSJONSFISK': 'Produksjonsfisk (işleme balığı)',
+  'harvest.qualityClass.UTKAST': 'Utkast (ıskarta)',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Genel Bakış',
   'messaging.title': 'Mesajlar',

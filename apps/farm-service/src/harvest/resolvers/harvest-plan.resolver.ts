@@ -47,6 +47,7 @@ import { GetHarvestPlanStatsQuery } from '../queries/get-harvest-plan-stats.quer
 import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
+import { CompleteHarvestPlanInput } from '../dto/complete-harvest-plan.input';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -324,22 +325,27 @@ export class HarvestPlanResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async completeHarvestPlan(
     @Tenant() tenantId: string,
-    // SEC-HIGH-188: the verified caller (roles already validated as canonical
-    // Role values by the JWT guard) goes to the service unchanged — no string
-    // filtering, no defaulting; the service refuses a caller without authority.
+    // SEC-HIGH-188: the caller goes to the command unchanged — no filtering,
+    // no defaulting. Its roles come from the gateway's HMAC-bound verified-user
+    // assertion; VerifiedUserAssertionMiddleware checks only that they are
+    // strings, and @Roles admits the request. CompleteHarvestPlanHandler
+    // re-checks them against the permission matrix through the role
+    // hierarchy, so an empty set or a role outside it reaches no authority.
     @CurrentUser() user: SiteScopeCaller,
-    @Args('id', { type: () => ID }) id: string,
-    @Args('actualQuantity', { type: () => Int }) actualQuantity: number,
-    @Args('actualBiomass', { type: () => Float }) actualBiomass: number,
-    @Args('actualAvgWeight', { type: () => Float }) actualAvgWeight: number,
+    // FARM-HIGH-395: one validated input instead of bare scalars the
+    // ValidationPipe never saw.
+    @Args('input') input: CompleteHarvestPlanInput,
   ): Promise<HarvestPlan> {
-    this.logger.log(`Completing harvest for plan ${id}`);
+    this.logger.log(`Completing harvest for plan ${input.id}`);
     return this.harvestPlanService.completeHarvest(
       tenantId,
-      id,
-      actualQuantity,
-      actualBiomass,
-      actualAvgWeight,
+      input.id,
+      {
+        actualQuantity: input.actualQuantity,
+        actualBiomass: input.actualBiomass,
+        actualAvgWeight: input.actualAvgWeight,
+        qualityClass: input.qualityClass,
+      },
       user,
     );
   }

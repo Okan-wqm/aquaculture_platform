@@ -369,6 +369,14 @@ export const en = {
   'sites.details.createdAt': 'Created',
   'sites.details.notSet': 'Not set',
 
+  // ── Harvest quality class (farm-module harvest-plan completion, FARM-HIGH-396) ──
+  'harvest.qualityClass.label': 'Quality class',
+  'harvest.qualityClass.placeholder': 'Select a quality class',
+  'harvest.qualityClass.SUPERIOR': 'Superior',
+  'harvest.qualityClass.ORDINAER': 'Ordinary (ordinær)',
+  'harvest.qualityClass.PRODUKSJONSFISK': 'Production fish (produksjonsfisk)',
+  'harvest.qualityClass.UTKAST': 'Reject (utkast)',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Overview',
   'messaging.title': 'Messages',

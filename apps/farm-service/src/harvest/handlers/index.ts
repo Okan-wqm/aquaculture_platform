@@ -4,6 +4,7 @@
  */
 // Command Handlers
 export * from './create-harvest-record.handler';
+export * from './complete-harvest-plan.handler';
 export * from './update-harvest-record.handler';
 export * from './delete-harvest-record.handler';
 

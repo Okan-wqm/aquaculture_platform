@@ -2450,6 +2450,19 @@ export type CompetencyRatingInput = {
   rating: Scalars['Float']['input'];
 };
 
+export type CompleteHarvestPlanInput = {
+  /** Average weight in grams */
+  actualAvgWeight: Scalars['Float']['input'];
+  /** Harvested biomass in kg */
+  actualBiomass: Scalars['Float']['input'];
+  /** Counted number of fish harvested */
+  actualQuantity: Scalars['Int']['input'];
+  /** Harvest plan ID */
+  id: Scalars['ID']['input'];
+  /** Norwegian quality class (kvalitetsklasse) of the harvest — the stored SSoT. */
+  qualityClass: QualityClass;
+};
+
 export type CompleteMaintenanceInput = {
   meterReading?: InputMaybe<Scalars['Float']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
@@ -10914,10 +10927,7 @@ export type MutationCompleteGoalArgs = {
 
 
 export type MutationCompleteHarvestPlanArgs = {
-  actualAvgWeight: Scalars['Float']['input'];
-  actualBiomass: Scalars['Float']['input'];
-  actualQuantity: Scalars['Int']['input'];
-  id: Scalars['ID']['input'];
+  input: CompleteHarvestPlanInput;
 };
 
 

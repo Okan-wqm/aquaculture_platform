@@ -233,7 +233,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
   return (
     <>
-      <div className="p-6 space-y-6">
+      <div className="sd-page p-6 space-y-6">
         {/* Back button + Header */}
         <PageHeader
           title={

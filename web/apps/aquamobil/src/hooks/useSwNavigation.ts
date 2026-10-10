@@ -79,9 +79,7 @@ export function useSwNavigation(): void {
           // WHY: navigate() uses React Router relative paths (relative to
           // basename). The SW already focused this window — we just need to
           // route to the correct page within the SPA.
-          const path = event.data.channelId
-            ? `/messages/${event.data.channelId}`
-            : '/messages';
+          const path = event.data.channelId ? `/messages/${event.data.channelId}` : '/messages';
           navigate(path);
           break;
         }
@@ -95,9 +93,7 @@ export function useSwNavigation(): void {
         case 'NAVIGATE_TO_ALERTS': {
           const { alertId, acknowledge } = event.data;
           const path =
-            acknowledge && alertId
-              ? `/alerts?ack=${encodeURIComponent(alertId)}`
-              : '/alerts';
+            acknowledge && alertId ? `/alerts?ack=${encodeURIComponent(alertId)}` : '/alerts';
           navigate(path);
           break;
         }

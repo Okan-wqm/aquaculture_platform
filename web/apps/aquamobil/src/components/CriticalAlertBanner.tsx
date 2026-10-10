@@ -13,6 +13,12 @@ import { PUSH_NOTIFICATION_EVENT, type PushNotificationDetail } from '@/hooks/us
  *   - the 30s alertHistory poll (useAlerts), which also serves offline reads
  *   - foreground FCM pushes (`data.type === 'alert'`), which trigger an
  *     immediate refetch + a haptic alarm pattern (MOB-MEDIUM-007)
+ *
+ * v4 keeps this the LOUDEST element on any screen it appears on: a full-bleed
+ * fill in the `crit` token (the design's alarm colour, and the only solid-fill
+ * alarm surface in the app), the message a step LARGER than it was, and the
+ * pulse intact. Every other v4 alarm surface is a tinted card with a coloured
+ * border — this one is deliberately not, because it must out-shout them all.
  */
 export function CriticalAlertBanner(): ReactElement | null {
   const navigate = useNavigate();
@@ -51,15 +57,15 @@ export function CriticalAlertBanner(): ReactElement | null {
       <button
         onClick={() => navigate('/alerts')}
         aria-label={`${criticalUnacknowledged.length} unacknowledged critical alert${criticalUnacknowledged.length > 1 ? 's' : ''}`}
-        className="w-full min-h-[44px] bg-red-600 text-white px-4 py-2.5 flex items-center gap-2.5 text-left touch-feedback animate-pulse"
+        className="w-full min-h-touch bg-crit text-white px-4 py-2.5 flex items-center gap-2.5 text-left touch-feedback animate-pulse"
       >
         <AlertTriangle size={20} className="shrink-0" />
-        <span className="flex-1 text-sm font-bold truncate">
+        <span className="flex-1 text-title font-bold truncate">
           {criticalUnacknowledged.length > 1
             ? `${criticalUnacknowledged.length} critical alerts need acknowledgement`
             : top?.message}
         </span>
-        <span className="text-xs font-semibold uppercase tracking-wide shrink-0 flex items-center">
+        <span className="text-meta font-semibold uppercase tracking-wide shrink-0 flex items-center">
           Acknowledge
           <ChevronRight size={16} />
         </span>

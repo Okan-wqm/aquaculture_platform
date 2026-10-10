@@ -17,6 +17,7 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { print } from 'graphql';
 
 import { type GraphQLErrorPayload, readGraphQLResponse } from '@/utils/graphql-response';
+import { resolveRequestTenantId } from '@/utils/jwt-claims';
 
 // ---------------------------------------------------------------------------
 // Module-level auth store — kept in sync by AuthProvider via syncAuthStore()
@@ -35,6 +36,19 @@ const authStore: AuthStore = {
   refreshAuth: null,
   logout: null,
 };
+
+/**
+ * The tenant this lane's requests are sent for. The decision itself is owned
+ * by `resolveRequestTenantId` (token claim first, the stored copy only for a
+ * token without one) — shared with the service worker's replay lane so the
+ * two cannot drift (MOB-MEDIUM-024, MOB-MEDIUM-005). `authStore.tenantId` is
+ * the copy AuthProvider pushes in through syncAuthStore after React commits,
+ * so it can lag the token; boot-time queries fired in that gap used to reach
+ * the subgraphs with no tenant (2026-09-17 field finding).
+ */
+function currentTenantId(): string | null {
+  return resolveRequestTenantId(authStore.accessToken, authStore.tenantId);
+}
 
 // ---------------------------------------------------------------------------
 // Auth readiness barrier
@@ -205,11 +219,12 @@ export async function authenticatedFetch(
     // Barrier timed out — proceed anyway; request will fail 401 if no token
   });
 
+  const tenantId = currentTenantId();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
     ...(authStore.accessToken ? { Authorization: `Bearer ${authStore.accessToken}` } : {}),
-    ...(authStore.tenantId ? { 'X-Tenant-Id': authStore.tenantId } : {}),
+    ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
     // Caller-supplied headers win (spread last)
     ...(options?.headers as Record<string, string> | undefined),
   };
@@ -236,8 +251,9 @@ export async function authenticatedFetch(
     const refreshed = await runSingleFlightRefresh();
     if (refreshed && authStore.accessToken) {
       headers['Authorization'] = `Bearer ${authStore.accessToken}`;
-      if (authStore.tenantId) {
-        headers['X-Tenant-Id'] = authStore.tenantId;
+      const refreshedTenantId = currentTenantId();
+      if (refreshedTenantId) {
+        headers['X-Tenant-Id'] = refreshedTenantId;
       }
       response = await fetch(url, {
         ...options,

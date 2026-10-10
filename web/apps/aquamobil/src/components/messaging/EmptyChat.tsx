@@ -1,6 +1,8 @@
 import { MessageCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 
+import { EmptyState } from '@/components/ui';
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -12,21 +14,20 @@ import type { ReactElement } from 'react';
  * chat should communicate "nothing here yet, go ahead and type" quickly.
  * The muted colors and simple copy avoid alarming the user -- this is a
  * normal state, not an error.
+ *
+ * WHY the kit's EmptyState rather than the hand-rolled block this replaces:
+ * the kit draws "nothing here" and "could not load" differently (`tone`), which
+ * is exactly the distinction the WHY above is asking for. `tone` stays at its
+ * `empty` default here — an empty channel is good news, not a failure.
+ * `flex-1` is kept because the chat column expects this to fill the scroller.
  */
 export function EmptyChat(): ReactElement {
   return (
-    <div className="flex flex-col items-center justify-center flex-1 px-8 py-16">
-      {/* WHY: ocean-50 circle with ocean icon -- uses the primary brand color
-          at low intensity to keep the empty state calm but on-brand. */}
-      <div className="w-20 h-20 bg-ocean-50 dark:bg-ocean-950/40 rounded-full flex items-center justify-center mb-5">
-        <MessageCircle size={36} className="text-ocean-400 dark:text-ocean-500" />
-      </div>
-      <h3 className="text-base font-bold text-gray-900 dark:text-white mb-1.5">
-        Start the conversation
-      </h3>
-      <p className="text-sm text-gray-400 dark:text-gray-500 text-center leading-relaxed max-w-[240px]">
-        Send your first message to get started
-      </p>
-    </div>
+    <EmptyState
+      className="flex-1 justify-center"
+      icon={<MessageCircle size={22} />}
+      title="Start the conversation"
+      description="Send your first message to get started"
+    />
   );
 }

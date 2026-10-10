@@ -131,18 +131,27 @@ function mortalityPayload(
 const TENANT_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const TENANT_B = 'bbbbbbbb-0000-0000-0000-000000000002';
 
-function refreshResponse(tenantId: string): Response {
+function refreshResponse(tenantId: string | null, accessToken = 'sw-access-token'): Response {
   return new Response(
     JSON.stringify({
       data: {
         refreshToken: {
-          accessToken: 'sw-access-token',
+          accessToken,
           user: { id: 'user-1', tenantId },
         },
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   );
+}
+
+/** An unsigned JWT-shaped access token whose payload carries `tenantId`. */
+function tokenWithTenant(tenantId: string): string {
+  const payload = btoa(JSON.stringify({ sub: 'user-1', tenantId }))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  return `eyJhbGciOiJSUzI1NiJ9.${payload}.signature`;
 }
 
 function graphqlOkResponse(): Response {
@@ -267,6 +276,55 @@ describe('handleBackgroundSyncEvent (MOB-MEDIUM-002)', () => {
 
     expect(await getPendingOperations(TENANT_A)).toHaveLength(0);
     expect(await getPendingOperations(TENANT_B)).toHaveLength(1);
+  });
+
+  // MOB-MEDIUM-005: the refresh response's user.tenantId is a copy that can be
+  // null while the signed token carries the claim. The SW must resolve the
+  // tenant the way the foreground lane does (resolveRequestTenantId), not
+  // silently skip the drain.
+  it('drains the token-claim tenant when the refresh response carries user.tenantId null', async () => {
+    await queueOperation(TENANT_A, 'recordMortality', mortalityPayload());
+    const token = tokenWithTenant(TENANT_A);
+    fetchMock
+      .mockResolvedValueOnce(refreshResponse(null, token))
+      .mockResolvedValue(graphqlOkResponse());
+    const { sw } = fakeSw();
+
+    await handleBackgroundSyncEvent(sw);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, opInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const headers = opInit.headers as Record<string, string>;
+    expect(headers['X-Tenant-Id']).toBe(TENANT_A);
+    expect(headers.Authorization).toBe(`Bearer ${token}`);
+    expect(await getPendingOperations(TENANT_A)).toHaveLength(0);
+  });
+
+  it('the signed claim wins over a disagreeing user.tenantId copy', async () => {
+    await queueOperation(TENANT_A, 'recordMortality', mortalityPayload({ batchId: 'a' }));
+    await queueOperation(TENANT_B, 'recordMortality', mortalityPayload({ batchId: 'b' }));
+    fetchMock
+      .mockResolvedValueOnce(refreshResponse(TENANT_B, tokenWithTenant(TENANT_A)))
+      .mockResolvedValue(graphqlOkResponse());
+    const { sw } = fakeSw();
+
+    await handleBackgroundSyncEvent(sw);
+
+    const [, opInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect((opInit.headers as Record<string, string>)['X-Tenant-Id']).toBe(TENANT_A);
+    expect(await getPendingOperations(TENANT_A)).toHaveLength(0);
+    expect(await getPendingOperations(TENANT_B)).toHaveLength(1);
+  });
+
+  it('no claim and no user.tenantId is a silent no-op — the queue stays intact', async () => {
+    await queueOperation(TENANT_A, 'recordMortality', mortalityPayload());
+    fetchMock.mockResolvedValueOnce(refreshResponse(null));
+    const { sw } = fakeSw();
+
+    await handleBackgroundSyncEvent(sw);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await getPendingOperations(TENANT_A)).toHaveLength(1);
   });
 
   it('without Web Locks there is no cross-context mutual exclusion → no drain', async () => {

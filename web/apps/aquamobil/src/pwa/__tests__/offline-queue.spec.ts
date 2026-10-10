@@ -8,7 +8,7 @@
 
 import { webcrypto } from 'node:crypto';
 
-import { vi, describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 
 // --------------------------------------------------------------------------
 // Mocks — idb-keyval
@@ -197,6 +197,8 @@ import {
   clearPendingBlobs,
   MAX_PENDING_BLOB_BYTES,
   isPermanentlyFailed,
+  SERVICE_WORKER_READY_TIMEOUT_MS,
+  waitForServiceWorker,
 } from '../offline-queue';
 
 // MOB-HIGH-022: the queued payload is the generated RecordMortalityInput minus the
@@ -390,6 +392,98 @@ describe('Offline Queue', () => {
       const storedEntries = Array.from(idbStore.values());
       const stored = storedEntries[0] as Record<string, unknown>;
       expect(stored.type).toBe('recordMortality');
+    });
+  });
+
+  // ========================================================================
+  // Bounded serviceWorker.ready (2026-09-17 field finding)
+  // ========================================================================
+
+  describe('service worker readiness is bounded', () => {
+    const registeredSync = vi.fn(() => Promise.resolve());
+    const originalServiceWorker = navigator.serviceWorker;
+
+    /** Install a `navigator.serviceWorker` whose `ready` is the given promise. */
+    function setReady(ready: Promise<unknown>): void {
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: { ready },
+        configurable: true,
+      });
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      // queueOperation only registers Background Sync where SyncManager exists
+      // (an `in globalThis` presence check, so any value stands in for it).
+      vi.stubGlobal('SyncManager', {});
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: originalServiceWorker,
+        configurable: true,
+      });
+    });
+
+    it('resolves null when no worker becomes ready within the bound', async () => {
+      // `.ready` on an untrusted-certificate origin: it never settles.
+      setReady(new Promise<never>(() => undefined));
+
+      const wait = waitForServiceWorker(SERVICE_WORKER_READY_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(SERVICE_WORKER_READY_TIMEOUT_MS);
+
+      await expect(wait).resolves.toBeNull();
+    });
+
+    it('resolves the registration and leaves no timer behind when a worker is ready', async () => {
+      const registration = { sync: { register: registeredSync } };
+      setReady(Promise.resolve(registration));
+
+      await expect(waitForServiceWorker(SERVICE_WORKER_READY_TIMEOUT_MS)).resolves.toBe(
+        registration,
+      );
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('queueOperation returns the queued record even though .ready never settles', async () => {
+      setReady(new Promise<never>(() => undefined));
+      const payload = {
+        batchId: 'b-sw',
+        tankId: 't-sw',
+        quantity: 2,
+        reason: 'DISEASE' as const,
+        observedAt: OBSERVED_AT,
+      };
+
+      // hasValidAuth=true takes the Background Sync branch that used to hang.
+      const pending = queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload, true);
+      // The write path (encryption, hashing) settles on the real event loop, so
+      // wait until the readiness bound is armed before advancing past it.
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0));
+      await vi.advanceTimersByTimeAsync(SERVICE_WORKER_READY_TIMEOUT_MS);
+
+      await expect(pending).resolves.toMatchObject({ status: 'queued' });
+      // The record is persisted before the readiness wait, so nothing is lost
+      // when Background Sync is skipped — the in-app sync drains it.
+      expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
+      expect(registeredSync).not.toHaveBeenCalled();
+    });
+
+    it('queueOperation registers Background Sync when a worker is ready', async () => {
+      setReady(Promise.resolve({ sync: { register: registeredSync } }));
+      const payload = {
+        batchId: 'b-sw2',
+        tankId: 't-sw2',
+        quantity: 3,
+        reason: 'DISEASE' as const,
+        observedAt: OBSERVED_AT,
+      };
+
+      await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload, true);
+
+      expect(registeredSync).toHaveBeenCalledWith('sync-operations');
     });
   });
 

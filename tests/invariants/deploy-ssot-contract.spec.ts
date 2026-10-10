@@ -749,6 +749,7 @@ describe('deploy SSOT contract', () => {
       CAPACITY_GC_MODE: 'off',
       FULL_DEPLOY: 'false',
       DEPLOY_PROJECTED_PULL_BYTES: '0',
+      DEPLOY_PROJECTED_DEPS_BYTES: '0',
       SELECTIVE_HARD_FREE_GIB: '0',
       SELECTIVE_WARN_FREE_GIB: '0',
       SELECTIVE_HARD_FREE_PERCENT: '0',

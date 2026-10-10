@@ -24,6 +24,7 @@
 # SOURCED BY:
 #   - scripts/deploy/droplet-up.sh         (deploy executor on the droplet)
 #   - scripts/deploy/post-deploy-verify.sh (deploy verifier on the droplet)
+#   - scripts/deploy/droplet-capacity.sh   (capacity gate; DEPLOY_DEPS_ROOT)
 #   - .github/workflows/deploy-digitalocean.yml SSH blocks forward/use the
 #     same default DEPLOY_CHECKOUT_DIR before invoking the scripts above.
 #
@@ -72,6 +73,14 @@ export DEPLOY_SOURCE_REPO="${DEPLOY_SOURCE_REPO:-/var/aqua-saas}"
 export DEPLOY_CHECKOUT_DIR="${DEPLOY_CHECKOUT_DIR:-/var/lib/aqua/deploy/checkout}"
 export DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-${DEPLOY_SOURCE_REPO}/.env}"
 export DEPLOY_CERTS_DIR="${DEPLOY_CERTS_DIR:-${DEPLOY_SOURCE_REPO}/certs}"
+#   DEPLOY_DEPS_ROOT   — deploy-owned Node dependency trees (INFRA-HIGH-218):
+#                         <root>/<sha256(recipe+package-lock.json)>/node_modules,
+#                         installed by `npm ci` from the deploy SHA's lockfile
+#                         and symlinked into the checkout. Current + previous
+#                         key are retained. Never the source repo's
+#                         node_modules: that tree belongs to interactive
+#                         sessions and can be emptied by them at any moment.
+export DEPLOY_DEPS_ROOT="${DEPLOY_DEPS_ROOT:-/var/lib/aqua/deploy/deps}"
 # Pin the compose project to the live droplet's existing identity (was the cwd
 # basename `aqua-saas`) so the cwd change to the isolated checkout cannot
 # re-derive empty volumes. The `:-` keeps an operator/.env override authoritative.
@@ -138,19 +147,22 @@ materialize_deploy_checkout() {
   ln -sfn "${DEPLOY_ENV_FILE}" "${dir}/.env"
   ln -sfn "${DEPLOY_CERTS_DIR}" "${dir}/certs"
 
-  # node_modules provisioning (ORPHAN-HIGH-250): the deploy checkout is a bare
-  # SHA-pinned worktree that never runs `npm ci`, but the deploy now executes
-  # third-party-importing TS scripts via Node 22 type-stripping (e.g.
-  # check-service-health.ts → `import js-yaml`). Node resolves node_modules by
-  # walking up from the script's dir, which never reaches the source repo's
-  # tree, so those imports died with ERR_MODULE_NOT_FOUND — the health gate
-  # crashed, reported a false "critical service health check failed", and the
-  # rollback ran the same broken gate (rollback_failed). Symlink the source
-  # repo's already-installed node_modules (gitignored, so the SHA checkout never
-  # carries it) so the deploy scripts resolve their declared deps. Guarded:
-  # absent only on a never-installed droplet, where the scripts can't run anyway.
-  if [ -d "${src}/node_modules" ]; then
-    ln -sfn "${src}/node_modules" "${dir}/node_modules"
+  # node_modules is NEVER borrowed from another tree (INFRA-HIGH-218). The
+  # deploy owns its dependencies: provision_deploy_dependencies (below) links
+  # the checkout to a tree installed from THIS SHA's lockfile under
+  # DEPLOY_DEPS_ROOT. Anything else here — notably the ORPHAN-HIGH-250 link to
+  # the interactive source repo's node_modules, which a session `npm ci`
+  # emptied mid-deploy on 2026-10-10 — is removed, so a checkout can only ever
+  # resolve deps from the deploy-owned tree or not at all (fail loud).
+  # `rm -rf` on a symlink path removes the link, never its target.
+  if [ -e "${dir}/node_modules" ] || [ -L "${dir}/node_modules" ]; then
+    case "$(readlink -f "${dir}/node_modules" 2>/dev/null || true)" in
+      "$(readlink -f "${DEPLOY_DEPS_ROOT}" 2>/dev/null || echo "${DEPLOY_DEPS_ROOT}")"/*) ;;
+      *)
+        echo "  Removing non-deploy-owned ${dir}/node_modules"
+        rm -rf "${dir}/node_modules"
+        ;;
+    esac
   fi
 
   local head
@@ -160,4 +172,49 @@ materialize_deploy_checkout() {
     return 1
   fi
   echo "  Deploy checkout pinned: ${dir} @ ${head}"
+}
+
+# ──────────────────────────────────────────────────────────────────────────
+# provision_deploy_dependencies
+#
+# Gives the pinned checkout its own node_modules (INFRA-HIGH-218): install (or
+# reuse) the tree for the checkout's package-lock.json under DEPLOY_DEPS_ROOT,
+# verify every deploy-script import loads from it, atomically link
+# ${DEPLOY_CHECKOUT_DIR}/node_modules to it, and prune to the current +
+# previous key. The logic lives in scripts/deploy/deploy-deps.ts (Node
+# builtins only — it runs before any node_modules exists); this wrapper owns the
+# exclusive lock so two deploys, or a deploy and a verifier, never interleave.
+# Call AFTER materialize_deploy_checkout and the capacity gate (the gate
+# projects the install bytes via `deploy-deps.ts plan`), and again right before
+# every gate that imports a package: with an intact tree that is a sub-second
+# verify-and-reuse; a damaged one is reinstalled. Exit 75 = lock timeout.
+# ──────────────────────────────────────────────────────────────────────────
+provision_deploy_dependencies() {
+  local dir="${DEPLOY_CHECKOUT_DIR}"
+  local rc=0
+  echo "=== Provisioning deploy-owned node_modules (${DEPLOY_DEPS_ROOT}) ==="
+  mkdir -p "${DEPLOY_DEPS_ROOT}"
+  flock --exclusive --wait 1800 --conflict-exit-code 75 "${DEPLOY_DEPS_ROOT}/.lock" \
+    node "${dir}/scripts/deploy/deploy-deps.ts" provision \
+      --checkout "${dir}" --root "${DEPLOY_DEPS_ROOT}" || rc=$?
+  if [ "${rc}" -eq 75 ]; then
+    echo "::error::Timed out waiting for ${DEPLOY_DEPS_ROOT}/.lock (another deploy holds it)." >&2
+  fi
+  return "${rc}"
+}
+
+# verify_deploy_dependencies — read-only check that the checkout resolves its
+# deploy-script imports from the deploy-owned tree of ITS lockfile. Used by
+# the post-deploy verifier, which must not install anything.
+verify_deploy_dependencies() {
+  local dir="${DEPLOY_CHECKOUT_DIR}"
+  local rc=0
+  mkdir -p "${DEPLOY_DEPS_ROOT}"
+  flock --shared --wait 1800 --conflict-exit-code 75 "${DEPLOY_DEPS_ROOT}/.lock" \
+    node "${dir}/scripts/deploy/deploy-deps.ts" verify \
+      --checkout "${dir}" --root "${DEPLOY_DEPS_ROOT}" || rc=$?
+  if [ "${rc}" -eq 75 ]; then
+    echo "::error::Timed out waiting for ${DEPLOY_DEPS_ROOT}/.lock (a deploy is provisioning)." >&2
+  fi
+  return "${rc}"
 }

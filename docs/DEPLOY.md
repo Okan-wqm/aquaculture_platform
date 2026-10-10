@@ -132,18 +132,83 @@ Use server access only for diagnosis or a controlled rerun of the deploy script:
 
 ```bash
 ssh root@your-droplet-ip
-cd /var/aqua-saas
+cd /var/lib/aqua/deploy/checkout
 
 # Diagnose current state
 docker compose -f docker-compose.droplet.yml ps
 docker logs aqua-db-migrate --tail=300
 docker logs aqua-gateway --tail=300
 
-# Controlled rerun. The workflow normally sets these.
+# Controlled rerun, the same way the workflow does it. The workflow normally
+# sets these.
 export DEPLOY_SHA=<git-sha>
 export DEPLOY_SERVICES=all
-./scripts/deploy/droplet-up.sh
+cd /var/aqua-saas && git fetch --force --prune origin
+git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
+source /var/lib/aqua/deploy/deploy-paths.sh
+materialize_deploy_checkout "${DEPLOY_SHA}"
+cd "${DEPLOY_CHECKOUT_DIR}"
+bash scripts/deploy/droplet-up.sh
 ```
+
+`/var/aqua-saas` is a bare repository (`core.bare=true`) shared with
+engineering and agent sessions. Use it only for its git objects. Files sitting
+in that directory are not kept up to date by git, so never run or source a
+script from there.
+
+### Deploy checkout layout
+
+All deploy state lives under `/var/lib/aqua/deploy`, defined once in
+`scripts/deploy/deploy-paths.sh`:
+
+| Path                              | Owner    | Contents                                                                                                                                                                     |
+| --------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `checkout/`                       | deploy   | git worktree pinned (detached) to the deploy SHA; every deploy script runs from here                                                                                         |
+| `checkout/.env`, `checkout/certs` | operator | symlinks to the persistent secrets in `/var/aqua-saas/.env` and `/var/aqua-saas/certs`                                                                                       |
+| `checkout/node_modules`           | deploy   | symlink to `deps/<key>/node_modules`                                                                                                                                         |
+| `deps/<key>/`                     | deploy   | Node dependencies installed by `npm ci --ignore-scripts --omit=dev` from the deploy SHA's `package-lock.json`; `<key>` is the sha256 of the install recipe plus the lockfile |
+| `deps/history.json`, `deps/.lock` | deploy   | retention order (current and previous key) and the flock that serializes installs                                                                                            |
+| `releases/<release-id>/`          | deploy   | per-release state: capacity snapshot, rollback manifest, image digests                                                                                                       |
+
+The deploy TS gates (`check-service-health.ts`, `assert-service-signals.ts`)
+import `js-yaml` and resolve it only from `deps/<key>`. `droplet-up.sh` runs
+`provision_deploy_dependencies` after the capacity gate and before any state
+change. With an unchanged lockfile it reuses the existing tree, otherwise it
+runs one `npm ci` (about 35 s, about 1.2 GiB). The new tree is built in
+`deps/.staging-*`, verified, renamed into place, and only then linked.
+`droplet-up.sh` runs it again before the main health gate and before the
+rollback's health gate. When the tree is intact that second run is a sub-second
+reuse; when it was damaged in the meantime it reinstalls instead of letting the
+gate die with `ERR_MODULE_NOT_FOUND`.
+
+The key is the sha256 of the install recipe, the npm major version, the project
+`.npmrc` and the lockfile. These are read once, and the same bytes are what gets
+installed. npm runs with a deploy-owned cache and config and a minimal
+environment, so deploy secrets such as `GHCR_TOKEN` never reach it.
+
+Retention keeps the current key and the previous one, so a rollback redeploy of
+the previous SHA does not need the network. The key the checkout is linked to
+is never pruned. `post-deploy-verify.sh` runs `verify_deploy_dependencies`
+under a shared lock that it holds through its health gate. That step checks the
+tree and never installs.
+
+The checkout never links to `/var/aqua-saas/node_modules`. That tree belongs to
+interactive sessions, and on 2026-10-10 one of them emptied it during a deploy
+(INFRA-HIGH-218). `tests/invariants/deploy-owned-dependencies.spec.ts` fails
+the build if the deploy links to it again.
+
+If provisioning fails, the deploy records `deploy_dependencies_unavailable`.
+When this happens before rollout, nothing has changed; read the npm output in
+the job log, and if the cause was a registry outage, re-run the job.
+`provision_deploy_dependencies` exits 75 when it times out waiting for the
+lock, which means another deploy is installing.
+
+`deps/` holds only regenerable content. Do not delete the key that
+`checkout/node_modules` points to while a deploy or post-deploy verify can be
+running. Any other key directory can be deleted, and the next deploy that needs
+it reinstalls it. Never point another tree's `node_modules` at `deps/`: running
+`npm ci` through such a link empties the deploy's tree, which is the same
+mechanism as the incident.
 
 Set `ALLOW_JETSTREAM_PURGE=true` only during an explicit maintenance window.
 The deploy script refuses implicit JetStream deletion.

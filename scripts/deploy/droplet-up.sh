@@ -35,12 +35,14 @@ set -euo pipefail
 # runs from the dedicated, deploy-owned DEPLOY_CHECKOUT_DIR worktree — NOT the
 # interactive /var/aqua-saas working tree — so a parallel engineering/agent
 # session checking out a feature branch can never fight or false-fail the
-# deploy. deploy-paths.sh is loaded from the persistent source repo because
-# THIS file may itself be executing from the freshly-materialized checkout, and
-# that checkout is what the materialize routine (provided by the snippet)
-# pins to DEPLOY_SHA before we cd into it below.
+# deploy. deploy-paths.sh is loaded from THIS script's own directory: the
+# caller has already pinned that tree to DEPLOY_SHA, so the materializer and
+# dependency provisioner are exactly the deploy SHA's. The source repo is
+# core.bare=true; files lying in its directory are never updated by git, so
+# sourcing them ran a stale materializer that could re-create the link to the
+# sessions' node_modules (INFRA-HIGH-218).
 # shellcheck source=scripts/deploy/deploy-paths.sh
-source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/deploy-paths.sh"
 # shellcheck source=scripts/deploy/lib/deployment-mode-policy.sh
 source scripts/deploy/lib/deployment-mode-policy.sh
 
@@ -949,6 +951,15 @@ rollback_and_record() {
   fi
 
   sleep "${ROLLBACK_HEALTH_SETTLE_SECONDS:-30}"
+  # Re-assert the deploy-owned dependency tree right before the rollback's
+  # health gate (INFRA-HIGH-218): reuse is a sub-second verify; a tree that was
+  # damaged since provisioning is reinstalled instead of failing the gate with
+  # ERR_MODULE_NOT_FOUND.
+  if ! provision_deploy_dependencies; then
+    echo "::error::Rollback health gate cannot run: deploy-owned node_modules unavailable."
+    record_release_ledger "rollback_failed" "${reason}" || true
+    return 1
+  fi
   if verify_rollback_images && \
      COMPOSE_FILE=docker-compose.droplet.yml \
      MANIFEST=infrastructure/deploy/service-criticality.yaml \
@@ -1072,6 +1083,19 @@ echo "=== Capacity preflight (before certs, secrets, pulls, migrations, restarts
 if ! CAPACITY_GC_MODE="${CAPACITY_GC_MODE:-auto}" bash scripts/deploy/droplet-capacity.sh gate; then
   echo "::error::Capacity preflight failed before production state changed."
   record_no_state_changed_failure "disk_preflight_low_bytes"
+  exit 1
+fi
+
+# The deploy's TS gates (check-service-health.ts, assert-service-signals.ts —
+# also run by rollback_and_record) import third-party packages. They resolve
+# from a deploy-owned tree installed from THIS SHA's lockfile, never from a
+# tree an interactive session can mutate (INFRA-HIGH-218). Provisioned after
+# the capacity gate (which projected its bytes) and before any production state
+# changes, so a failed install aborts with nothing to roll back — and the
+# rollback path later finds the same verified tree linked into this checkout.
+if ! provision_deploy_dependencies; then
+  echo "::error::Deploy-owned node_modules could not be provisioned for ${DEPLOY_SHA}."
+  record_no_state_changed_failure "deploy_dependencies_unavailable"
   exit 1
 fi
 
@@ -1655,6 +1679,14 @@ dump_nonhealthy_container_logs "pre-health-gate"
 # tsc/tsx/python is required on the droplet — Node is already
 # a base dependency for the service containers.
 echo "=== Waiting for critical/required services ==="
+# The health gate imports js-yaml. Re-assert the deploy-owned tree first
+# (sub-second reuse when intact): it was provisioned before the rollout, and
+# nothing may make this gate die with ERR_MODULE_NOT_FOUND (INFRA-HIGH-218).
+if ! provision_deploy_dependencies; then
+  echo "::error::Health gate cannot run: deploy-owned node_modules unavailable. Deploy failed without rollback."
+  record_release_ledger "failed" "deploy_dependencies_unavailable"
+  exit 1
+fi
 set +e
 COMPOSE_FILE=docker-compose.droplet.yml \
   MANIFEST=infrastructure/deploy/service-criticality.yaml \

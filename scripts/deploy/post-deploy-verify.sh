@@ -10,15 +10,6 @@ POSTGRES_DB="${POSTGRES_DB:-aquaculture}"
 POSTGRES_USER="${POSTGRES_USER:-aquaculture}"
 DEPLOY_STATE_ROOT="${DEPLOY_STATE_ROOT:-/var/lib/aqua/deploy/releases}"
 
-# Deploy filesystem SSoT. This verifier is piped to the droplet over SSH via
-# `bash -s`, so its initial cwd is the login home — it sources deploy-paths.sh
-# from the persistent source repo (always present) to learn the deploy-owned,
-# SHA-pinned DEPLOY_CHECKOUT_DIR it must verify from. The verifier reads the
-# deploy's worktree, NOT the interactive /var/aqua-saas tree, so the HEAD check
-# below can no longer false-fail when a parallel session drifts that tree.
-# shellcheck source=scripts/deploy/deploy-paths.sh
-source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
-
 case "${TARGET_SHA}" in
   *[!0-9a-f]*)
     echo "::error::TARGET_SHA must be lowercase hex." >&2
@@ -29,6 +20,22 @@ if [ "${#TARGET_SHA}" -ne 40 ]; then
   echo "::error::TARGET_SHA must be exactly 40 characters." >&2
   exit 2
 fi
+
+# Deploy filesystem SSoT. This verifier is piped to the droplet over SSH via
+# `bash -s`, so it has no script directory of its own. It reads deploy-paths.sh
+# for TARGET_SHA from the git OBJECT STORE (`git show`, immutable for that SHA —
+# the same ORPHAN-211 pattern the deploy workflow uses), never from files lying
+# in the source repo's directory: that repo is core.bare=true and those files
+# are never updated, so they can be any stale version (INFRA-HIGH-218). The
+# verifier then reads the deploy's worktree, NOT the interactive tree, so the
+# HEAD check below cannot false-fail when a parallel session drifts that tree.
+# Captured first so a missing object fails the script under `set -e` (a
+# process substitution's exit status would be ignored). Sourced through a
+# process substitution, not stdin: this script itself arrives on stdin.
+deploy_paths_snippet="$(git -C "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}" show "${TARGET_SHA}:scripts/deploy/deploy-paths.sh")"
+# shellcheck source=scripts/deploy/deploy-paths.sh
+source <(printf '%s\n' "${deploy_paths_snippet}")
+unset deploy_paths_snippet
 
 # docker-compose.droplet.yml image refs interpolate ${TAG:?TAG required},
 # so EVERY compose invocation below (check-service-health.ts runs
@@ -173,11 +180,29 @@ if [ "${actual_manifest_hash}" != "${ledger_manifest_hash}" ]; then
   exit 1
 fi
 
+# The health gate imports js-yaml; it must resolve from the deploy-owned tree
+# for this checkout's lockfile, never from a session-owned node_modules
+# (INFRA-HIGH-218). Read-only: the verifier never installs. A shared lock on
+# the deps root is held from the check through the health gate so no deploy
+# can re-link or prune the tree in between (shared locks do not block the
+# check's own shared flock).
+log "=== Deploy-owned dependency check ==="
+if ! declare -F verify_deploy_dependencies >/dev/null; then
+  echo "::error::deploy-paths.sh at ${TARGET_SHA} predates deploy-owned dependencies (INFRA-HIGH-218); verify a newer release." >&2
+  exit 2
+fi
+mkdir -p "${DEPLOY_DEPS_ROOT}"
+exec 8>>"${DEPLOY_DEPS_ROOT}/.lock"
+flock --shared --wait 1800 8
+verify_deploy_dependencies >&2
+
 log "=== Service criticality health gate ==="
 COMPOSE_FILE=docker-compose.droplet.yml \
   MANIFEST=infrastructure/deploy/service-criticality.yaml \
   POLL_INTERVAL="${POLL_INTERVAL:-10}" \
   node scripts/deploy/check-service-health.ts >&2
+flock --unlock 8
+exec 8>&-
 
 CATALOG_DEPLOY_ENV="${CATALOG_DEPLOY_ENV:-infrastructure/deploy/service-catalog.deploy.vars}"
 if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then

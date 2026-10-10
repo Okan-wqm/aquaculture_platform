@@ -117,11 +117,11 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
 
   it('runs droplet-up.sh from the isolated checkout, never force-checking-out the shared tree', () => {
     const exec = executableShell(dropletUp);
-    // Sources the SSoT snippet from the PERSISTENT source repo (the checkout it
-    // creates may not exist yet on first deploy).
-    expect(exec).toContain(
-      'source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"',
-    );
+    // Sources the SSoT snippet from its OWN (SHA-pinned) tree. Files lying in
+    // the core.bare source repo's directory are never updated by git, so
+    // sourcing them ran a stale materializer (INFRA-HIGH-218).
+    expect(exec).toContain('source "$(dirname "${BASH_SOURCE[0]}")/deploy-paths.sh"');
+    expect(exec).not.toMatch(/source\s+"?\$\{DEPLOY_SOURCE_REPO/);
     expect(exec).toContain('materialize_deploy_checkout "${DEPLOY_SHA}"');
     expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
 
@@ -142,10 +142,12 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
 
   it('verifies from the isolated checkout so the HEAD == TARGET_SHA guard is a true invariant', () => {
     const exec = executableShell(verify);
-    // Piped over SSH via `bash -s` -> source the SSoT from the persistent repo.
+    // Piped over SSH via `bash -s` -> read the SSoT for TARGET_SHA from the git
+    // object store (immutable), never from the source repo's stale files.
     expect(exec).toContain(
-      'source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"',
+      'git -C "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}" show "${TARGET_SHA}:scripts/deploy/deploy-paths.sh"',
     );
+    expect(exec).not.toMatch(/source\s+"?\$\{DEPLOY_SOURCE_REPO/);
     expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
     expect(exec).not.toMatch(/\bcd\s+\/var\/aqua-saas\b/);
     // The HEAD check remains, now against the deploy-owned worktree.

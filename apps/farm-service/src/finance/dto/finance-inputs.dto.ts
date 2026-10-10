@@ -8,6 +8,7 @@
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import {
   IsDateString,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -117,10 +118,12 @@ export class CreateFinanceCategoryInput {
   name!: string;
 
   @Field(() => FinanceCategoryScope)
+  @IsEnum(FinanceCategoryScope)
   scope!: FinanceCategoryScope;
 
   @Field(() => FinanceCategoryKind, { nullable: true })
   @IsOptional()
+  @IsEnum(FinanceCategoryKind)
   kind?: FinanceCategoryKind;
 
   @Field(() => Int, { nullable: true })

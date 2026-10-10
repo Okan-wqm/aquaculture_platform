@@ -32,6 +32,13 @@ export interface FindingTrailerTarget {
    */
   readonly aliases?: readonly string[];
   /**
+   * Per alias, the review file the sidecar records for it — the document whose
+   * heading carries the alias and which the historical trailer cites. A trailer
+   * naming the alias is bound to that file or to the finding's own review_file;
+   * any other anchored file is still a different finding that reused the name.
+   */
+  readonly alias_review_files?: ReadonlyMap<string, string>;
+  /**
    * Closing commits an override reopen has REJECTED as closure evidence: their
    * `Closes:` trailer names this finding, but the finding was reopened on the
    * judgement that the change did not close it (a version-gated tracking
@@ -93,6 +100,18 @@ export function commitMessageClosesFindingExactly(
     // the review-file binding still applies, so the alias is matched under the
     // same rules rather than as a free-text escape hatch.
     if (commitMessageClosesFindingExactly(message, { ...finding, id: alias, aliases: [] })) {
+      return true;
+    }
+    const aliasReviewFile = finding.alias_review_files?.get(alias);
+    if (
+      aliasReviewFile !== undefined &&
+      commitMessageClosesFindingExactly(message, {
+        ...finding,
+        id: alias,
+        aliases: [],
+        review_file: aliasReviewFile,
+      })
+    ) {
       return true;
     }
   }

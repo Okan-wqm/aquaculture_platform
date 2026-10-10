@@ -74,11 +74,6 @@ function loadFindingIdAliasesAt(path: string): readonly FindingIdAlias[] {
   return parsed?.aliases ?? [];
 }
 
-/** alias id → canonical ledger id. */
-export function loadFindingIdAliasMap(repoRoot: string): ReadonlyMap<string, string> {
-  return new Map(loadFindingIdAliases(repoRoot).map((entry) => [entry.alias, entry.canonical]));
-}
-
 /** canonical ledger id → every alias that resolves to it. */
 export function loadCanonicalToAliases(repoRoot: string): ReadonlyMap<string, readonly string[]> {
   const out = new Map<string, string[]>();
@@ -88,4 +83,9 @@ export function loadCanonicalToAliases(repoRoot: string): ReadonlyMap<string, re
     out.set(entry.canonical, list);
   }
   return out;
+}
+
+/** alias id → the review file the sidecar records for it (where its heading lives). */
+export function loadAliasReviewFiles(repoRoot: string): ReadonlyMap<string, string> {
+  return new Map(loadFindingIdAliases(repoRoot).map((entry) => [entry.alias, entry.review_file]));
 }

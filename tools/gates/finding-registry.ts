@@ -77,7 +77,11 @@ import {
   findNonCanonicalFindingEvidence,
   requiresCanonicalFindingEvidence,
 } from './finding-evidence-shape';
-import { findingIdAliasesBeside, loadCanonicalToAliases } from './finding-id-aliases';
+import {
+  findingIdAliasesBeside,
+  loadAliasReviewFiles,
+  loadCanonicalToAliases,
+} from './finding-id-aliases';
 import {
   canonicalJson,
   chainTip,
@@ -1428,9 +1432,16 @@ export function withFindingAliases<T extends FindingTrailerTarget>(
   candidates: readonly T[],
 ): T[] {
   const aliasesByCanonical = loadCanonicalToAliases(repoRoot);
+  const reviewFiles = loadAliasReviewFiles(repoRoot);
   return candidates.map((candidate) => {
     const aliases = aliasesByCanonical.get(candidate.id);
-    return aliases === undefined ? candidate : { ...candidate, aliases };
+    if (aliases === undefined) return candidate;
+    const aliasReviewFiles = new Map<string, string>();
+    for (const alias of aliases) {
+      const file = reviewFiles.get(alias);
+      if (file !== undefined) aliasReviewFiles.set(alias, file);
+    }
+    return { ...candidate, aliases, alias_review_files: aliasReviewFiles };
   });
 }
 

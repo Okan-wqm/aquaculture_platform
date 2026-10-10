@@ -43,6 +43,7 @@ from aria_kernel.implementation_delivery import (
 )
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG
 from tests._helpers.git_fixtures import _git, implementer_identity_args, make_repo_with_initial_commit
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.operator_acts import operator_set_profile
@@ -1302,11 +1303,15 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         for name in ("npx", "npm", "node"):
             self._install_executable(name, "print('ok')\n")
         self.gh_log = self.root / "gh-calls.jsonl"
+        # Every git-config injection name counts (ARIA-HIGH-234): `gh`
+        # resolves the repository through git, and unlike a local push no
+        # transport clears any of them on the way.
         self._install_executable("gh", (
             "import json, os, sys, time\n"
             f"with open({str(self.gh_log)!r}, 'a', encoding='utf-8') as log:\n"
             "    log.write(json.dumps({'time': time.time(), 'argv': sys.argv[1:],\n"
-            "        'credential_names': sorted(n for n in os.environ if n in ('GH_TOKEN', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'))}) + '\\n')\n"
+            "        'credential_names': sorted(n for n in os.environ if n == 'GH_TOKEN' or (n.startswith('GIT_CONFIG')\n"
+            "            and n not in ('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM')))}) + '\\n')\n"
             "print('https://github.com/fixture/aria-high-124/pull/6'); raise SystemExit(0)\n"
         ))
         self.environ = mock.patch.dict("os.environ", {
@@ -1676,7 +1681,10 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         # And a profile without the grant mints nothing: the delivery lands on
         # the lane's own job token (ARIA-CRITICAL-246: the PR is a write, and
         # a write runs on an installation token), with no minted git credential.
-        with mock.patch.dict("os.environ", LANE_CREDENTIAL_ENV):
+        # ARIA-HIGH-234 — on a host whose step injects git configuration
+        # through the environment (an auth header, a url rewrite, `-c`
+        # exports, a `git config` file), none of it rides the push or `gh`.
+        with mock.patch.dict("os.environ", {**LANE_CREDENTIAL_ENV, **AMBIENT_GIT_CONFIG}):
             delivered = deliver_implementation(
                 request_id=self.request["request_id"], claim_id=self.claim["claim_id"], agent_id=self.claim["agent_id"],
                 cycle_id=CYCLE_ID, signer_key_fp=self.fingerprint, implementation_ids=self.ids,

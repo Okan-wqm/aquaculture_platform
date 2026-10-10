@@ -69,6 +69,7 @@ from aria_kernel.self_revert import (
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.validation_runs_ledger import list_validation_runs_for_change, record_validation_run
 from aria_kernel.validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG, injected_git_config
 from tests._helpers.installation_credential import INSTALLATION_TOKEN
 from tests._helpers.operator_acts import operator_set_profile
 
@@ -228,12 +229,16 @@ class SelfRevertTests(unittest.TestCase):
         # adds one for the branch's pushed tip, `gh pr list --head` reads them.
         self.gh_calls: list[list[str]] = []
         self.gh_list_calls: list[list[str]] = []
+        # The git configuration each `gh` call's environment injected, by verb.
+        self.gh_injected: list[tuple[str, dict[str, str]]] = []
         self.remote_prs: list[dict[str, Any]] = []
         self.gh_create_mode = "ok"  # ok | refused | timeout_after_create
         self.gh_list_mode = "ok"  # ok | unreadable
         real_run = subprocess.run
 
         def fake_run(argv: Any, *args: Any, **kwargs: Any) -> Any:
+            if isinstance(argv, list) and argv[:1] == ["gh"]:
+                self.gh_injected.append((argv[2], injected_git_config(kwargs.get("env") or {})))
             if isinstance(argv, list) and argv[:3] == ["gh", "pr", "create"]:
                 self.gh_calls.append(list(argv))
                 if self.gh_create_mode == "refused":
@@ -915,6 +920,35 @@ class SelfRevertTests(unittest.TestCase):
         ]))
         self.assertEqual(self._out("show", "-s", "--format=%B", tip, cwd=self.origin),
                          f'Revert "{MERGE_SUBJECT}"\n\nThis reverts commit {self.merge_sha}.')
+
+    def test_the_revert_push_lookup_and_pr_carry_no_ambient_git_config(self) -> None:
+        # ARIA-HIGH-234 — a step that injects git configuration through the
+        # environment reaches none of the producer's git or `gh` children:
+        # the push, the PR lookup and the create carry the delivery
+        # credential's own helper configuration and nothing else, and the
+        # revert commit carries none at all.
+        from aria_kernel.delivery_credentials import GIT_CREDENTIAL_HELPER_ENV
+
+        pushed: list[dict[str, str]] = []
+        reverted: list[dict[str, str]] = []
+        real_git = self_revert._git
+
+        def observing_git(args: list[str], **kwargs: Any) -> Any:
+            if "push" in args:
+                pushed.append(injected_git_config(kwargs.get("env") or {}))
+            if "revert" in args:
+                reverted.append(injected_git_config(kwargs.get("env") or {}))
+            return real_git(args, **kwargs)
+
+        self._aria_merged()
+        self._merge_outcome()
+        with mock.patch.dict(os.environ, AMBIENT_GIT_CONFIG), \
+                mock.patch.object(self_revert, "_git", side_effect=observing_git):
+            self._produce(self._green_parent())
+        self.assertEqual(self._decisions(), [DECISION_OPENED])
+        self.assertEqual(pushed, [GIT_CREDENTIAL_HELPER_ENV])
+        self.assertEqual(reverted, [{}])
+        self.assertEqual(self.gh_injected, [("list", GIT_CREDENTIAL_HELPER_ENV), ("create", GIT_CREDENTIAL_HELPER_ENV)])
 
     def test_a_retry_whose_revert_commit_differs_revalidates_instead_of_reusing(self) -> None:
         from aria_kernel import delivery_credentials

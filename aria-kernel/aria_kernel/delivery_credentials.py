@@ -96,6 +96,7 @@ from .gh_token_factory import (
     mint_installation_token,
     revoke_installation_token,
 )
+from .git_containment import git_config_environment
 from .pr_manager import GH_PR_CREATE_TIMEOUT_SECONDS
 from .state_store import GIT_TIMEOUT_SECONDS as _GIT_TIMEOUT_SECONDS
 from .tool_registry import append_tools_governance, ensure_tools_dir
@@ -103,12 +104,9 @@ from .tool_registry import append_tools_governance, ensure_tools_dir
 DELIVERY_TOKEN_ENV_NAME = "GH_TOKEN"
 # Env-only git configuration: no file under the synthetic HOME, nothing the
 # agent can edit, gone with the process. `gh auth git-credential` reads the
-# same GH_TOKEN, so push and PR-create share one scoped credential.
-GIT_CREDENTIAL_HELPER_ENV: dict[str, str] = {
-    "GIT_CONFIG_COUNT": "1",
-    "GIT_CONFIG_KEY_0": "credential.helper",
-    "GIT_CONFIG_VALUE_0": "!gh auth git-credential",
-}
+# same GH_TOKEN, so push and PR-create share one scoped credential. Spelled
+# by the one owner of env-borne git configuration (ARIA-HIGH-234).
+GIT_CREDENTIAL_HELPER_ENV: dict[str, str] = git_config_environment({"credential.helper": "!gh auth git-credential"})
 DRY_RUN_TOKEN_SENTINEL = "aria-dry-run-sentinel"
 DELIVERY_CREDENTIAL_MODES: tuple[str, ...] = ("installation", "pat_fallback", "dry_run")
 # The window the delivery's credential must be alive for (round 6): the ONE

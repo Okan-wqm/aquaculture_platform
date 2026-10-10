@@ -85,6 +85,7 @@ from aria_kernel.git_containment import (
 from aria_kernel.dependency_tree import TOOL_CACHE_DIRNAMES
 from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET, serve_hook_broker
 from aria_kernel.signing_agent import hold_signing_agent
+from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG, injected_git_config
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
 
 CYCLE = "cyc-aria-high-123"
@@ -1033,21 +1034,12 @@ class PublishEnvironmentTests(unittest.TestCase):
     ``GIT_CONFIG_VALUE_0`` (validation_env.py says so), and a push without a
     minted credential would otherwise go out under that job's identity."""
 
-    AMBIENT = {
-        "GIT_CONFIG_COUNT": "2",
-        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-        "GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic eDpmaXh0dXJl",
-        "GIT_CONFIG_KEY_1": "url.https://mirror.invalid/.insteadOf",
-        "GIT_CONFIG_VALUE_1": "https://github.com/",
-        "GIT_CONFIG_PARAMETERS": "'core.hookspath'='.husky'",
-    }
+    AMBIENT = {**AMBIENT_GIT_CONFIG, "GIT_CONFIG_PARAMETERS": "'core.hookspath'='.husky'"}
 
     def test_ambient_git_config_injection_is_not_inherited(self) -> None:
         with mock.patch.dict(os.environ, self.AMBIENT):
             env = gc._publish_environment()
-        for name in self.AMBIENT:
-            with self.subTest(name=name):
-                self.assertNotIn(name, env)
+        self.assertEqual(injected_git_config(env), {})
         self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.devnull)
         self.assertEqual(env["GIT_CONFIG_SYSTEM"], os.devnull)
 

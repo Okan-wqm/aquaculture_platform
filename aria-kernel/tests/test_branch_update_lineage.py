@@ -24,7 +24,7 @@ from aria_kernel.branch_update_lineage import BranchUpdateLineageRefused, verify
 from aria_kernel.pr_branch_update import update_request_id
 from aria_kernel.recovery import record_intent, record_receipt
 from aria_kernel.tool_registry import ensure_tools_dir
-from tests._helpers.declared_fixtures import append_declared_fixture, rewrite_declared_fixture
+from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 
@@ -295,14 +295,21 @@ class MergeLaneMergeStateTests(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.calls = self.root / "gh.log"
-        # The delivered commit IS the live head: the shared predicate admits it.
         record_pr_lifecycle({"number": PR, "base_branch": "main", "head_sha": "e" * 40, "change_id": "chg-7",
                              "changed_files": []}, event="opened", base_dir=self.tools)
-        append_declared_fixture(self.tools / "change-ledger" / "committed.jsonl",
-                                {"change_id": "chg-7", "commit_sha": "e" * 40}, expected_surface="change_committed")
         gh = self.bin / "gh"
         gh.write_text(f"#!/bin/sh\necho \"$@\" >> {self.calls}\n", encoding="utf-8")
         gh.chmod(0o755)
+
+    def _deliver(self, commit_sha: str) -> None:
+        """Record the commit ARIA delivered for chg-7, once, in the order it happened.
+
+        The change ledger is memory (append-only, ``memory_class``): each test
+        records its delivered commit as the ledger's first row rather than
+        rewriting a row the fixture already wrote.
+        """
+        append_declared_fixture(self.tools / "change-ledger" / "committed.jsonl",
+                                {"change_id": "chg-7", "commit_sha": commit_sha}, expected_surface="change_committed")
 
     def _merge(self, status: str) -> dict[str, Any]:
         from aria_kernel.merge_authority import merge_pr_if_ready
@@ -328,6 +335,8 @@ class MergeLaneMergeStateTests(unittest.TestCase):
         self.assertFalse(any(self.tools.rglob("*incident*")), "an incident row was written")
 
     def test_behind_requests_the_update_once_and_writes_no_incident(self) -> None:
+        # The delivered commit IS the live head: the shared predicate admits it.
+        self._deliver("e" * 40)
         first = self._merge("BEHIND")
         self.assertEqual((first["decision"], first["branch_update"]["outcome"]), ("skipped_branch_behind_base", "accepted"))
         self.assertIn(f"api -X PUT repos/{{owner}}/{{repo}}/pulls/{PR}/update-branch -f expected_head_sha={'e' * 40}",
@@ -340,13 +349,13 @@ class MergeLaneMergeStateTests(unittest.TestCase):
     def test_behind_is_not_updated_when_the_head_is_not_one_aria_can_vouch_for(self) -> None:
         # GSEC-MEDIUM-002 — a head that is neither the delivered commit nor a
         # verified lineage is never merged into by ARIA.
-        rewrite_declared_fixture(self.tools / "change-ledger" / "committed.jsonl",
-                                 [{"change_id": "chg-7", "commit_sha": "d" * 40}], expected_surface="change_committed")
+        self._deliver("d" * 40)
         result = self._merge("BEHIND")
         self.assertTrue(result["branch_update"]["outcome"].startswith("not_requested:head_lineage_refused:"), result)
         self.assertFalse(self.calls.exists())
 
     def test_dirty_and_blocked_are_named_skips(self) -> None:
+        self._deliver("e" * 40)
         for status in ("DIRTY", "BLOCKED"):
             result = self._merge(status)
             self.assertEqual(result["decision"], f"skipped_merge_state_{status.lower()}")

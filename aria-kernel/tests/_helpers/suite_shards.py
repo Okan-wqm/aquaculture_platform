@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import statistics
 import sys
 import time
@@ -195,6 +196,9 @@ def run_shard(
         "modules": {name: {"tests": counts[name], "seconds": seconds.get(name)} for name in mine},
         "tests_run": result.testsRun,
         "successful": result.wasSuccessful(),
+        # ARIA-MEDIUM-411 — a re-run shard's report supersedes the attempt it
+        # re-ran; outside Actions there is one attempt.
+        "run_attempt": int(os.environ.get("GITHUB_RUN_ATTEMPT") or 1),
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -234,7 +238,19 @@ def verify_reports(reports: Sequence[Mapping[str, Any]]) -> list[str]:
 
 
 def read_reports(reports_dir: Path) -> list[dict[str, Any]]:
-    return [json.loads(path.read_text(encoding="utf-8")) for path in sorted(reports_dir.glob("*.json"))]
+    """The current report of every shard: the one from its latest run attempt.
+
+    ARIA-MEDIUM-411 — the verdict job downloads every attempt's reports. "Re-run
+    failed jobs" re-runs only the failed shards, so each shard's latest attempt
+    is its result, exactly as the job status GitHub shows for it. Two reports
+    for one shard in one attempt are both kept, so verify names the duplicate.
+    """
+    reports = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(reports_dir.glob("*.json"))]
+    latest: dict[Any, int] = {}
+    for report in reports:
+        attempt = int(report.get("run_attempt") or 1)
+        latest[report.get("shard")] = max(latest.get(report.get("shard"), attempt), attempt)
+    return [report for report in reports if int(report.get("run_attempt") or 1) == latest[report.get("shard")]]
 
 
 def measured_seconds(reports: Sequence[Mapping[str, Any]]) -> dict[str, float]:

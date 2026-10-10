@@ -67,3 +67,93 @@ in the arbiter ruling).
 
 Rule: Signing material that a later job must verify against lives where that job can read it, and
 no runner-readable location holds operator signing authority.
+
+## ARIA-LOW-318
+
+Recorded 2026-10-03, the core half of ARIA-LOW-252 under the rev3.1 design (Jev as System One, a
+reflex layer below the judges rather than a judge provider). Nothing in the kernel can reach the
+vendor: there is no bounded transport whose failures are returned instead of raised, no
+operator-owned registry of the measured questions (J0, R5, J2, R4, J1 tenant-scoping), and no
+ledger that records a call without its input. Until all three exist, no decision point can ask a
+registered question even in shadow.
+
+Rule: A model the protocol may ask is reached through one bounded transport whose failures are
+returned, asks only operator-owned questions, and records every call without its input.
+
+Security review of #1756, 2026-10-09. The operator rule is: only public repository code and
+finding or PR text may leave the host, never tenant data, logs, secrets or operator content, and
+calls are logged without content. The review found and #1756 fixed:
+
+- **Egress is built from references, not filtered from caller text.** `system_one` builds every
+  state value itself from a `StateRef`:
+  - a 40-hex commit the bound repository holds, read with `git`;
+  - a path held to the agent evidence law, with credential-shaped files refused;
+  - a finding id read from the registry.
+- **The deny scan is now a backstop over the final payload.** It covers every string, mapping
+  keys included, plus the wire size. It adds JWT, Stripe live/test, webhook secrets, URL
+  credentials, quoted and YAML passwords, AWS, DigitalOcean, SendGrid, npm, GitLab, Google and
+  Slack shapes. It also refuses e-mail addresses and IPv4 addresses outside the
+  documentation/loopback ranges.
+- **The transport is private to `system_one`.** An invariant test pins that only `system_one`
+  imports it.
+  - The endpoint is pinned (https, `api.typesafe.ai`).
+  - No redirect is followed and any 3xx is refused; environment proxies are ignored.
+  - One monotonic deadline covers both attempts, and the response is capped.
+  - The key file is opened with `O_NOFOLLOW` and checked by `fstat` (regular file, owned by the
+    euid, mode `0600`). The key must match a fixed charset.
+  - Every failure names at most an exception class.
+- **The ledger stores an id-shaped subject and the validated answer fields only.**
+- **`system_one.py`, `jev_runtime.py` and `secret_scrub.py` are authority surfaces.**
+
+Re-review, the same day:
+
+- **"Public" now means what the public repository publishes.** The checkout's own remote
+  configuration is never consulted: neither `remote.origin.url` nor its refspec. Per ask:
+  - the module fetches from the pinned URL `https://github.com/Okan-wqm/aquaculture_platform.git`
+    with an explicit refspec into `refs/aria-public/heads/*`, using `--prune`, so a locally
+    planted ref there is removed;
+  - before that fetch, `ls-remote --get-url` must return the pinned URL, so no `insteadOf`
+    rewrite can redirect it;
+  - every call that reaches the pinned URL overrides the checkout's transport config on the command
+    line:
+    - no proxy;
+    - `sslVerify=true` against the system CA bundle (named explicitly, because an empty
+      `http.sslCAInfo` breaks every handshake);
+    - no credential helper and no prompt.
+
+    A MITM proxy or a private repository answering through stored credentials therefore cannot
+    make a sha "public";
+
+  - a commit is admissible only when a `refs/aria-public/heads/` ref (the namespace the pruned
+    refspec writes) contains it;
+  - finding text is read from `refs/aria-public/heads/main`, never the working tree.
+
+  By design there is no second admissible source:
+  - unpushed work is refused;
+  - a stash commit carrying ignored files is refused;
+  - an ARIA implementation branch becomes askable once it is pushed (`origin/aria-impl-*`), so a
+    `pre_pr_open` question about an unpushed commit is refused.
+
+- **The response deadline holds.** The transport uses `http.client`, which follows no redirect
+  and reads no proxy from the environment. A watchdog shuts the socket at the deadline, so
+  trickled headers cannot hold a call. The body is read in chunks against the deadline, and a
+  reply completing after it is refused.
+- **The transport stays private.** `system_one` binds it under a private alias. The invariant
+  test flags any name, attribute, import or importlib string naming it outside the two modules.
+- **More credential-shaped paths are refused:** `credentials*.json`, `service-account*.json`,
+  `*.tfvars`, `*.tfstate`, `kubeconfig`, `.netrc`, `*.p8`, and `.kube/`, `.aws/` and `.docker/`.
+
+Open for the operator: `aria-config/` has no CODEOWNERS entry. The question registry is READONLY
+to ARIA's implementer and an authority surface. No human review rule is attached to it on GitHub,
+and this PR does not change CODEOWNERS.
+
+## ARIA-LOW-319
+
+Recorded 2026-10-03, the wiring half of ARIA-LOW-252. The decision points the questions were
+validated for do not ask them: the PR opener records no J0 for the findings a branch claims to
+close and no R5 for its title and body against its diff, the merge authority records no J0 per
+`Closes:` trailer, the judge fan-out records no J1 for tenant-scoping findings, and no planner or
+implementer envelope can carry ranked candidate files (R4).
+
+Rule: A validated reflex is asked, in shadow, at every decision point it was validated for, and
+steers nothing until the operator promotes its question.

@@ -14,6 +14,12 @@
 
 set -euo pipefail
 
+# Deploy filesystem SSoT (DEPLOY_DEPS_ROOT), read from this script's own tree —
+# the SHA-pinned checkout the gate runs from.
+CAPACITY_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/deploy/deploy-paths.sh
+source "${CAPACITY_SCRIPT_DIR}/deploy-paths.sh"
+
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 DEPLOY_SHA="${DEPLOY_SHA:-}"
 FULL_DEPLOY="${FULL_DEPLOY:-false}"
@@ -114,6 +120,7 @@ Environment:
   NATS_MIN_MEMORY_BYTES=<bytes>           (default 512MiB)
   NATS_MIN_CPUS=<cores>                   (default 1.0)
   BROKER_QUEUE_BUDGET_BYTES=<bytes>       (default 0; measured 60-min queue projection)
+  DEPLOY_PROJECTED_DEPS_BYTES=<bytes>     (default: deploy-deps.ts plan for this checkout)
   GC_DRY_RUN=true|false   (gc only: enumerate removals without deleting)
 EOF
 }
@@ -812,6 +819,31 @@ projected_pull_bytes() {
   fi
 }
 
+# Bytes the deploy's dependency install will add under DEPLOY_DEPS_ROOT: 0 when
+# the tree for this checkout's lockfile is already present, else the measured
+# size of the last install (or a fixed estimate on a host that never
+# installed) — computed by the same tool that installs (INFRA-HIGH-218), for
+# the checkout this script belongs to. Empty output = projection unavailable.
+projected_deps_bytes() {
+  if [ -n "${DEPLOY_PROJECTED_DEPS_BYTES:-}" ]; then
+    echo "${DEPLOY_PROJECTED_DEPS_BYTES}"
+    return 0
+  fi
+  node "${CAPACITY_SCRIPT_DIR}/deploy-deps.ts" plan \
+    --checkout "$(cd "${CAPACITY_SCRIPT_DIR}/../.." && pwd -P)" \
+    --root "${DEPLOY_DEPS_ROOT}" || true
+}
+
+# Filesystem (df column 1) that will hold DEPLOY_DEPS_ROOT. The root may not
+# exist yet, so measure its nearest existing ancestor.
+deps_root_filesystem() {
+  local probe="${DEPLOY_DEPS_ROOT}"
+  while [ ! -e "${probe}" ] && [ "${probe}" != "/" ]; do
+    probe="$(dirname "${probe}")"
+  done
+  df_bytes_row "${probe}" | awk -F '\t' '{print $1}'
+}
+
 thresholds() {
   if [ "${FULL_DEPLOY}" = "true" ]; then
     echo "$((FULL_HARD_FREE_GIB * GIB)) $((FULL_WARN_FREE_GIB * GIB)) ${FULL_HARD_FREE_PERCENT} $((FULL_PROJECTED_RESERVE_GIB * GIB))"
@@ -921,6 +953,8 @@ capacity_core_snapshot() {
   echo "deploy_sha=${DEPLOY_SHA:-unknown}"
   echo "docker_root=$(docker_root)"
   echo "projected_pull_bytes=${pull_estimate}"
+  echo "projected_deps_bytes=$(projected_deps_bytes)"
+  echo "deps_root=${DEPLOY_DEPS_ROOT}"
   echo "broker_queue_budget_bytes=${BROKER_QUEUE_BUDGET_BYTES}"
   local nats_max_file_store
   nats_max_file_store="$(parse_size_bytes "$(nats_conf_max_file_store_bytes)")"
@@ -977,6 +1011,9 @@ write_capacity_json() {
   local out="${DEPLOY_STATE_DIR}/capacity-snapshot.json"
   local pull_estimate
   pull_estimate="$(projected_pull_bytes)"
+  local deps_estimate
+  deps_estimate="$(projected_deps_bytes)"
+  case "${deps_estimate}" in '' | *[!0-9]*) deps_estimate="" ;; esac
   local docker_root_dir
   docker_root_dir="$(docker_root)"
   local min_free=""
@@ -1001,7 +1038,7 @@ write_capacity_json() {
   done < <(runtime_paths)
 
   cat > "${out}" <<EOF
-{"dockerRoot":"${docker_root_dir}","fullDeploy":$([ "${FULL_DEPLOY}" = "true" ] && echo true || echo false),"deployServices":"${DEPLOY_SERVICES:-}","projectedPullBytes":${pull_estimate},"minRuntimeFreeBytes":${min_free:-0},"minRuntimeInodeFreePercent":${min_inode:-0}}
+{"dockerRoot":"${docker_root_dir}","fullDeploy":$([ "${FULL_DEPLOY}" = "true" ] && echo true || echo false),"deployServices":"${DEPLOY_SERVICES:-}","projectedPullBytes":${pull_estimate},"projectedDepsBytes":${deps_estimate:-null},"minRuntimeFreeBytes":${min_free:-0},"minRuntimeInodeFreePercent":${min_inode:-0}}
 EOF
 }
 
@@ -1017,6 +1054,19 @@ capacity_failures() {
   # The broker queue projection (Task 0.4 measured artifact) is disk that the
   # outage buffer will legitimately claim on top of the deploy reserve.
   local effective_reserve=$((projected_reserve + BROKER_QUEUE_BUDGET_BYTES))
+  # The deploy-owned dependency install lands on DEPLOY_DEPS_ROOT's filesystem
+  # after this gate passes (INFRA-HIGH-218), so it is projected here. An
+  # unknown projection fails closed rather than counting as zero.
+  local deps_estimate deps_fs path_deps deps_fs_measured=false
+  deps_estimate="$(projected_deps_bytes)"
+  deps_fs="$(deps_root_filesystem || true)"
+  case "${deps_estimate}" in
+    '' | *[!0-9]*)
+      echo "::error::deps_projection_unavailable deps_root=${DEPLOY_DEPS_ROOT} value=${deps_estimate:-empty}"
+      failures=$((failures + 1))
+      deps_estimate=0
+      ;;
+  esac
 
   while IFS= read -r path; do
     [ -n "${path}" ] || continue
@@ -1025,7 +1075,12 @@ capacity_failures() {
       continue
     fi
     free_pct=$((avail * 100 / size))
-    projected_free=$((avail - pull_estimate))
+    path_deps=0
+    if [ -n "${deps_fs}" ] && [ "${fs}" = "${deps_fs}" ]; then
+      path_deps="${deps_estimate}"
+      deps_fs_measured=true
+    fi
+    projected_free=$((avail - pull_estimate - path_deps))
 
     if [ "${avail}" -lt "${hard_free}" ]; then
       echo "::error::disk_preflight_low_bytes path=${path} free_bytes=${avail} hard_free_bytes=${hard_free}"
@@ -1041,7 +1096,7 @@ capacity_failures() {
     fi
 
     if [ "${projected_free}" -lt "${effective_reserve}" ]; then
-      echo "::error::disk_preflight_projected_low path=${path} projected_free_bytes=${projected_free} reserve_bytes=${projected_reserve} broker_queue_budget_bytes=${BROKER_QUEUE_BUDGET_BYTES}"
+      echo "::error::disk_preflight_projected_low path=${path} projected_free_bytes=${projected_free} reserve_bytes=${projected_reserve} broker_queue_budget_bytes=${BROKER_QUEUE_BUDGET_BYTES} deps_bytes=${path_deps}"
       failures=$((failures + 1))
     fi
 
@@ -1057,6 +1112,13 @@ capacity_failures() {
       fi
     fi
   done < <(runtime_paths)
+
+  # A non-zero install that landed on no measured filesystem (df failed, or
+  # DEPLOY_DEPS_ROOT lives outside the runtime paths) is not "free".
+  if [ "${deps_estimate}" -gt 0 ] && [ "${deps_fs_measured}" != "true" ]; then
+    echo "::error::deps_filesystem_unmeasured deps_root=${DEPLOY_DEPS_ROOT} deps_fs=${deps_fs:-unknown} deps_bytes=${deps_estimate}"
+    failures=$((failures + 1))
+  fi
 
   local broker_error
   while IFS= read -r broker_error; do

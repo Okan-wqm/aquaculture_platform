@@ -36,6 +36,8 @@ export interface CapacityAutoGcScenario {
   initialFreeBytes: string;
   reclaimedPerImageBytes: string;
   projectedPullBytes: string;
+  /** Deploy-owned dependency install projection; defaults to '0'. */
+  projectedDepsBytes?: string;
   projectedReserveGib: string;
   /** `repository tag id` rows listed ahead of the default svc-a/b/c rows. */
   extraInventory?: readonly string[];
@@ -174,6 +176,10 @@ export function runCapacityAutoGcScenario(scenario: CapacityAutoGcScenario): Cap
           FULL_DEPLOY: 'false',
           DEPLOY_SERVICES: 'svc-a svc-b svc-c',
           DEPLOY_PROJECTED_PULL_BYTES: scenario.projectedPullBytes,
+          // The GC scenarios calibrate free bytes against the pull projection;
+          // the deploy-owned dependency projection (INFRA-HIGH-218) is explicit
+          // (default zero) so host state under DEPLOY_DEPS_ROOT cannot shift them.
+          DEPLOY_PROJECTED_DEPS_BYTES: scenario.projectedDepsBytes ?? '0',
           SELECTIVE_HARD_FREE_GIB: '0',
           SELECTIVE_WARN_FREE_GIB: '3',
           SELECTIVE_HARD_FREE_PERCENT: '0',

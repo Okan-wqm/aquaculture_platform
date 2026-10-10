@@ -80,3 +80,15 @@ free inodes, or below the projected 20 GiB post-pull reserve.
 
 Selective deploy blocks below 15 GiB free, below 10 percent free, below 5
 percent free inodes, or below the projected 10 GiB post-pull reserve.
+
+The projected free space subtracts both the image pull estimate and, on the
+filesystem that holds `DEPLOY_DEPS_ROOT` (`/var/lib/aqua/deploy/deps`), the
+deploy-owned dependency install (INFRA-HIGH-218). That projection
+(`projected_deps_bytes` in the snapshot) comes from
+`scripts/deploy/deploy-deps.ts plan`. It is 0 when the tree for the deploy
+SHA's lockfile already exists. Otherwise it is 1.5 times the last measured
+install, or 2 GiB on a host that has never installed. If the projection cannot
+be computed, the gate fails with `deps_projection_unavailable` and does not
+treat the install as free. Retention keeps two keys of about 1.2 GiB each. A
+new install first prunes down to the live key, so the peak is two trees plus
+the transient npm cache.

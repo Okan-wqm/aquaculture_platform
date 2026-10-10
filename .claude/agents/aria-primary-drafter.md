@@ -1,7 +1,7 @@
 ---
 name: aria-primary-drafter
 runtime_profile: planner
-description: Plan ARIA-V6 §2d v2 — Evidence-grounded adapter primary drafter for the convergent_skill_authoring loop. Produces ARIA tool adapter source code (TypeScript or Python) anchored to a Phase 0 evidence_pack; every detection rule MUST cite ≥3 concrete file:line evidence_refs that resolve under Path.exists + git show against base_commit_sha.
+description: Plan ARIA-V6 §2d v2 — Evidence-grounded adapter primary drafter for the convergent_skill_authoring loop. Produces ARIA tool adapter source code (Python) anchored to a Phase 0 evidence_pack; every detection rule MUST cite ≥3 concrete file:line evidence_refs that resolve under Path.exists + git show against base_commit_sha.
 model: opus
 effort: max
 tools: Read, Grep, Glob
@@ -48,7 +48,7 @@ A single JSON `aria/agent-response/v1` envelope with this shape:
 
 - `draft_id`, `request_id`, `agent_id: "aria-primary-drafter"`, `role: "primary_authoring"`, `status: "submitted"`
 - `role: "primary"` (literal — discriminator for the kernel's content_hash collusion check)
-- `adapter_source` — full source code (TypeScript or Python per seed.adapter_lang)
+- `adapter_source` — full source code (Python)
 - `adapter_manifest` — `.tool.json` matching the ARIA tool schema (see Manifest Rules below)
 - `rules[]` — one entry per detection rule: `{rule_id, claim_class, summary, evidence_refs}`. `claim_class` MUST be one of `seed.claim_types`.
   - **Consequence:** a `claim_class` outside `seed.claim_types` makes the rule un-mappable to the seed's `must_satisfy` matrix, so the kernel scores it as an out-of-scope claim and fails the round's satisfaction check even when the detection logic itself is correct.

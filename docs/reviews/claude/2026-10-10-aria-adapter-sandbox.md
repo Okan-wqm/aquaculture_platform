@@ -298,3 +298,145 @@ Recorded, not changed here:
 - **ARIA-MEDIUM-432:** the room hides a fixed list of directories and shows the rest of the
   workspace. A tracked-files view is the tier-1 fix. bwrap should also be launched by its
   absolute path.
+
+## ARIA-HIGH-414 — drafted adapter bytes: allowlist, custody, provenance, promotion (genesis, wave 2)
+
+### Symptom
+
+Reproduced on this branch at 314c6a18e (`scratchpad/genesis/repro/head_repro.py` against `git archive HEAD`):
+
+- **H1 is live on main.** The nightly calibration (`autonomy_orchestrator.py:2101-2116` →
+  `skill_genesis_drainer.py:299` → `convergent_skill_authoring.py:474` →
+  `dispatcher_factory.select_sandbox_runner`) ran `adapter_path or draft_id`.
+  `_normalize_drafter_response` never sets `adapter_path`, so it ran `python3 <draft_id>`, a path
+  the drafter wrote. With `draft_id = "decoy.py"` the run printed the decoy's marker. The drafted
+  `adapter_source` never executed, and `authored_validated` would have certified the decoy. (The
+  2026-09-25 read-through, `docs/aria/reviews/2026-09-25-aria-tam-okuma/B04.md` item 2, saw the
+  missing `adapter_path`.)
+- **The allowlist did not hold.** `verify_adapter_imports` PASSED these spellings:
+  - `import os.path` (allowlisted as written, and it binds `os`);
+  - `pathlib.os.system`;
+  - `gi_frame.f_builtins['__import__']`;
+  - `__import__('subprocess')`;
+  - `sys.modules['os']`.
+
+  An adapter that passed it then started a process inside the room (`os.system` printed
+  `ran-a-process-2`).
+
+- **H2.** `verify_adapter_signature` returned True for swapped bytes that the same writer re-hashed.
+  It had no dispatch-time caller (`control-reachability.dormant.json`, ORPHAN-HIGH-573).
+- **Promotion.** A SHADOW tool carrying drafted code reached ACTIVE on the auto-promote token alone
+  (`transition_tool`, token verifier mocked), and `last_transition` named no operator.
+- The #1900 materializer's own defects are recorded above (2026-10-09): symlink-following writes,
+  no cleanup when `register_tool` failed, the drafter's scope and timeout kept. It also wrote the
+  adapter into the workspace, which the runner's checkout cleans every night while the registry
+  row lives on.
+
+Production (aria/state f5c5c86a1): 20 skill-genesis requests, all `convergent=false`; 15
+curated tools, 0 genesis tools. Latent, never run.
+
+### Root cause
+
+Nothing owned the drafted bytes. Each step re-derived them from something the drafter wrote:
+
+- calibration used a path;
+- materialization used a dict field;
+- the signature used a hash the writer computed;
+- dispatch used the manifest's argv.
+
+The allowlist was a name check over a language that reaches modules without names.
+
+### Decision (a): an AST-complete deny cannot hold for Python, so enforce at runtime
+
+A name-based deny cannot be complete:
+
+- the four spellings above use no import primitive;
+- `functools.singledispatch` evaluates a string annotation;
+- importing the allowlist itself preloads `os`, `posix`, `importlib`, `marshal` and
+  `urllib.parse` (11 forbidden-root modules, measured under `python3 -I -S`).
+
+The allowlist is therefore enforced where every spelling converges. Every drafted adapter runs
+only under `tools/aria-poc/genesis_adapter_launcher.py`, inside the room. The launcher:
+
+1. checks sha256(bytes) against the digest on its command line;
+2. imports exactly the allowlist (+ `_strptime`);
+3. deletes `_imp`'s native constructors (`create_builtin` raises no audit event, and this
+   interpreter builds `_posixsubprocess` and `_socket` in);
+4. installs a PEP 578 audit hook that refuses:
+   - every further module load;
+   - process creation, threads and tracing;
+   - a second hook;
+   - re-pointing a function's `__code__`;
+   - any write-open (a writable `/proc/self/mem` would patch the hook away);
+5. only then compiles the bytes.
+
+The static check stays as the early, named refusal (+ `import a.b` binding `a`, the dynamic
+primitives, `sys.modules`), documented as not the boundary.
+
+Pinned: 22 spellings in `BYPASS_SPELLINGS`. Each runs through the launcher directly on every
+host, and again through `run_staged_adapter` in a real bwrap room. Three of them pass the
+static check and are refused at runtime
+(`test_spellings_no_ast_walk_can_see_pass_it_and_the_launcher_refuses_them`).
+
+### Fix (b)(c)(d): one owner of the bytes, `aria_kernel/genesis_adapter_custody.py`
+
+- **Provenance.** The bytes come only from the primary drafter's ACCEPTED result:
+  `dispatcher_factory.accepted_response` re-reads the sealed artifact and checks it against the
+  row's `output_hash`. All 569 accepted rows in f5c5c86a1 carry one. The draft dict's
+  `adapter_path`, `draft_id` and `_workspace_root` are never read. The workspace and store are
+  the loop's.
+- **Calibration** runs those bytes through the launcher and records the digest it ran
+  (`skill-genesis/sandbox.jsonl`, `kind: adapter_calibration`, with the provenance).
+- **Materialization** (`materialize_drafted_adapter`, wired as the drainer's `materialize_fn`;
+  supersedes #1900) refuses unless:
+  - the recorded calibration row named by the round's `calibration_ledger_hash` ran these exact
+    bytes;
+  - that row came from this drafter result;
+  - the row passed on its own recorded numbers.
+
+  The kernel binds scope, `allowed_read_globs`, runner, timeout (seed `timeout_ms`, else
+  300 s), health thresholds, owner, kind and status. Health thresholds: a drafted `precision_min`
+  would set its own bar, and the `{min,max}` range shape crashed `tool_health` on the first
+  run.
+
+  No adapter file is written. The bytes live in a hash-chained custody row
+  (`skill-genesis/materializations.jsonl`), so nothing can follow a symlink. A refused
+  registration appends a `withdrawn` row.
+
+- **Dispatch.** `tool_runner.run_tool` and `fixture_runner.run_fixture_case` call
+  `verify_genesis_dispatch`. A tool is a genesis tool if the kernel holds custody of it or its
+  runner names the launcher. Such a tool runs only when:
+  - its registered runner equals the custody runner;
+  - its custody bytes hash to the custody digest;
+  - that digest is the calibration's.
+
+  The kernel's own launcher runs them, never a workspace copy. The run envelope records
+  `runner.genesis_adapter_sha256`.
+
+- **Promotion.** `transition_tool` (SHADOW → ACTIVE) calls `verify_genesis_promotion` among its
+  structural gates, so no operator act is spent on a refusal. The custody must verify, and the
+  authority must be an operator act or the panel token. The auto-promote token alone is refused.
+
+  First runs (calibration, SHADOW) need kernel-recorded provenance. ACTIVE needs the existing
+  operator or panel authority. This is main's ruling on the stub's "provenance or operator
+  approval".
+
+- **Python only.** `adapter_lang` other than python is refused at the seed and at staging. The
+  allowlist exists for Python only. The drafter contract says so
+  (`.claude/agents/aria-primary-drafter.md`).
+- **Removed.** `skill_genesis_sandbox.execute_in_sandbox` (it ran a drafted adapter by file path)
+  and `verify_adapter_signature` (a self-written hash). Their dormancy waivers went with them,
+  and with `verify_adapter_imports` and `validate_generated_adapter`, which are now wired.
+- **Adjacent.** The calibration scorer no longer raises `AttributeError` on an adapter whose
+  stdout is JSON but not `{"findings": [...]}`; that is now a named shape refusal.
+
+### Not done
+
+- `cycle_phases/memory.py:23-27` still describes a `execute_in_sandbox` dispatch in its docstring.
+  The function never existed on that path (B04 N14). It is not my file, so I am reporting it here.
+- `validate_generated_adapter` still asks for `{min,max}` threshold ranges that `tool_health` cannot
+  read. Genesis now binds thresholds, so the shape never reaches a registry row. The rule itself
+  is unchanged.
+- The calibration corpus reader scores only `label`. `finalize_corpus` writes `verdict` and
+  `legacy_label`, so a finalized corpus scores every prediction as a false positive. That fails
+  closed, and it is reported here, not changed.

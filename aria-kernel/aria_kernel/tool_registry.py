@@ -1463,6 +1463,19 @@ def transition_tool(
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
             if critical_false_positives > 0:
                 raise GovernanceError("SHADOW -> ACTIVE requires zero critical false positives")
+            # ARIA-HIGH-414 — a skill-genesis drafted adapter: its custody
+            # bytes must still verify, and the authority must be an operator
+            # act or the panel; the auto-promote token alone is refused.
+            # Structural, so a refusal spends no operator act. Late import:
+            # genesis_adapter_custody imports this module.
+            from .genesis_adapter_custody import verify_genesis_promotion
+
+            verify_genesis_promotion(
+                tool,
+                operator_approval_ref=operator_approval_ref,
+                panel_approval_token=panel_approval_token,
+                base_dir=base_dir,
+            )
     leaving_quarantine = (
         current == "QUARANTINED" and target_status not in _QUARANTINE_EXITS_WITHOUT_APPROVAL
     )

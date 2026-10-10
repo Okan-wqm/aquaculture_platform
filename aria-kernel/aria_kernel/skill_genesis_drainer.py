@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal, Protocol, TypedDict
 
 from .convergent_skill_authoring import run_convergent_authoring
+from .genesis_adapter_custody import materialize_drafted_adapter
 from .ledger import append_declared_jsonl, load_jsonl
 from .request_admission import admit_request
 from .strict_jsonl_reader import read_strict_jsonl
@@ -306,6 +307,13 @@ def run_skill_genesis_drainer(
                 evidence_judge=evidence_judge,
                 adversarial_judge=adversarial_judge,
                 sandbox_runner=sandbox_runner,
+                # ARIA-HIGH-414 — the kernel-side materializer: it registers
+                # only the drafter's accepted bytes, only when they are the
+                # bytes the passing calibration ran, as a SHADOW tool whose
+                # scope, timeout and runner the seed and the kernel bind, and
+                # it takes custody of the bytes so every later run re-hashes
+                # them. Without it an authored adapter was never registered.
+                materialize_fn=materialize_drafted_adapter,
             )
         except Exception as _v7_exc:
             _persist_status(

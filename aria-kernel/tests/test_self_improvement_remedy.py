@@ -125,15 +125,28 @@ class OpenerRouting(_Store):
         with self.doctor_scoped_to("deadlines"):
             signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
             keys = {s.key for s in signals if s.kind == "deadline_due"}
-            self.assertEqual(keys, {"registry_finding:X-MEDIUM-000", "registry_finding:X-MEDIUM-001", "human_required_sla:AIR-late"})
+            # The rows, plus the `deadlines` organ's own FAIL, announced under the same kind.
+            self.assertEqual(keys, {"registry_finding:X-MEDIUM-000", "registry_finding:X-MEDIUM-001", "human_required_sla:AIR-late", "deadlines"})
             for _night in range(3):
                 si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
         for mission in self.self_improvement_missions():
             self.assertFalse(str(mission["source_id"]).startswith("deadline_due:"), mission)
             self.assertNotIn(mission["source_id"], {f"deadline_due:{key}" for key in keys})
-        # The lapsed SLA is a FAULT: it still reaches the opener as the
-        # `deadlines` organ's own FAIL, which IS a self-change contract.
-        self.assertIn("doctor_fail:deadlines", [m["source_id"] for m in self.self_improvement_missions()])
+        # The lapsed SLA is still a FAULT — the `deadlines` organ FAILs — but
+        # its answer is an operator's adjudication, so the organ is announced
+        # too (first-night dry run on aria/state: 228 lapsed SLAs minted a
+        # self-change mission nobody could complete).
+        self.assertNotIn("doctor_fail:deadlines", [m["source_id"] for m in self.self_improvement_missions()])
+        self.assertIn(("deadline_due", "deadlines"), {(s.kind, s.key) for s in signals})
+
+    def test_a_blocked_capability_gap_never_takes_a_mission_slot(self) -> None:
+        gaps = [
+            {"capability_gap_key": "shadow_run:tenant-scoping-adapter", "blocked_by": ["genesis_adjudication_required"]},
+            {"capability_gap_key": "repo:evidence_gap:jsonl", "blocked_by": []},
+        ]
+        with mock.patch("aria_kernel.capability_gap.latest_capability_gaps", return_value=gaps), self.doctor_scoped_to():
+            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+        self.assertEqual([s.key for s in signals if s.kind == "capability_gap"], ["repo:evidence_gap:jsonl"])
 
 
 class RepairLoop(_Store):
@@ -259,7 +272,7 @@ class RepairLoop(_Store):
         reason = "deadlines_lapsed:223:" + ",".join(f"AIR-aria-autonomy-planner-{n:012x}(-60d)" for n in range(223))
         [signal] = si.doctor_signals(DoctorCheck("deadlines", "fail", reason))
 
-        self.assertEqual((signal.kind, signal.key), ("doctor_fail", "deadlines"))
+        self.assertEqual((signal.kind, signal.key), ("deadline_due", "deadlines"))
         head = "Doctor organ deadlines failing: "
         self.assertEqual(signal.title, head + reason[: si.DOCTOR_REASON_TITLE_CHARS])
         self.assertEqual(signal.evidence, {"reason": reason})

@@ -447,8 +447,12 @@ class ReadoutAndConsumers(_Fixture):
         self.assertEqual((late.priority, soon.priority, later.priority), (2, 2, 3))
         self.assertTrue(late.title.startswith("Deadline AIR-late (human_required_sla) lapsed -2d"), late.title)
         self.assertEqual(later.evidence["days_left"], 5)
-        self.assertIn(("doctor_fail", "deadlines"), signals, "the lapsed fault also rides the organ's FAIL at priority 1")
-        self.assertEqual(signals[("doctor_fail", "deadlines")].priority, 1)
+        # The lapsed fault also rides the organ's FAIL at priority 1 — announced,
+        # like the rows: its answer is an operator's adjudication, never a
+        # change under aria-kernel/ (first-night dry run, 2026-10-10).
+        self.assertIn(("deadline_due", "deadlines"), signals)
+        self.assertEqual(signals[("deadline_due", "deadlines")].priority, 1)
+        self.assertNotIn(("doctor_fail", "deadlines"), signals)
 
     def test_an_announcement_never_outranks_a_fault(self) -> None:
         row = deadlines.DeadlineRow("k", "x", self.now - timedelta(days=40), "e", "c", True)

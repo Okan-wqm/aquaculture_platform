@@ -66,7 +66,13 @@ SELF_CHANGE_SIGNAL_KINDS: tuple[str, ...] = tuple(kind for kind, remedy in SIGNA
 # `doctor_fail`. The doctor names what is wrong; the remedy is this module's,
 # so the routing lives here, keyed by organ. `notifications` fails when the
 # lane has no channel or an invalid selector — both answered in the env.
-DOCTOR_ORGAN_SIGNAL_KINDS: dict[str, str] = {"notifications": "config_missing"}
+# `deadlines` fails on lapsed registry findings and operator SLAs — answered
+# by an operator's adjudication, never by a change under aria-kernel/. The
+# first-night dry run on aria/state f5c5c86a1 (228 lapsed HUMAN_REQUIRED
+# SLAs) showed it minting a self-change mission every store would carry
+# dead; it is announced like the `deadline_due` rows it summarises (the
+# organ's FAIL, `doctor_unhealthy`, the CI step's `::error`).
+DOCTOR_ORGAN_SIGNAL_KINDS: dict[str, str] = {"notifications": "config_missing", "deadlines": "deadline_due"}
 # Where a self-change may point. Anything else is not ARIA's own code.
 SELF_CHANGE_ALLOWED_PREFIXES: tuple[str, ...] = ("aria-kernel/", "tools/aria-poc/", ".github/workflows/aria-", "aria-config/", ".claude/agents/aria-")
 # The authority surfaces: a self-change naming any of these is refused. These
@@ -228,7 +234,12 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> 
     try:
         from .capability_gap import latest_capability_gaps
 
-        for gap in latest_capability_gaps(base_dir=root)[:5]:
+        # A gap its producer marked `blocked_by` (a shadow-run adapter waiting
+        # on genesis adjudication) is not a self-change ARIA can make: its
+        # answer is outside SELF_CHANGE_ALLOWED_PREFIXES (tools/aria-adapters/)
+        # and behind a decision, so it never takes a mission slot.
+        actionable = [gap for gap in latest_capability_gaps(base_dir=root) if not gap.get("blocked_by")]
+        for gap in actionable[:5]:
             key = str(gap.get("capability_gap_key") or gap.get("gap_id"))
             signals.append(Signal("capability_gap", key, f"Close capability gap {key}", {"gap": {k: gap.get(k) for k in ("gap_id", "score", "capability", "kind")}}, 2))
     except Exception:  # noqa: BLE001 — a missing gap ledger is no gap

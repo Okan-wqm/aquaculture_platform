@@ -98,10 +98,6 @@ the doctor.
   cycle by design (I-W1-05). The same cause failing again after its mission closed is still a
   doctor FAIL, a `doctor_unhealthy` notice and a CI `::error`, so it is not silent. It does not
   get a second mission. Changing mission identity is not this finding.
-- **`doctor_fail:deadlines` stays a self-change.** On the bound store it is the first mission
-  the opener will mint, because 223 HUMAN_REQUIRED SLAs have lapsed. Its routing was decided
-  deliberately in ARIA-MEDIUM-128 (`test_self_improvement_remedy.py:126-129`). The lapsed SLAs
-  are HR-queue hygiene (ARIA-HIGH-418).
 - **Other organs that fail for host reasons** (`providers`, `sandbox_backend`, `claude_cli`,
   `gateway_heartbeat_fresh`) still route to `doctor_fail`. None of them failed on the bound
   store or this host. Adding one is a one-line entry in `DOCTOR_ORGAN_SIGNAL_KINDS` once a
@@ -144,3 +140,18 @@ Recorded, not changed:
   This is deliberate, and the gateway is not deployed on prod.
 - **P7:** one test uses a queue FAIL shape the queue organ never returns. Its other
   assertions still discriminate.
+
+### First-night dry run (main, 2026-10-10)
+
+A dry run of the doctor, self_improve and deliver steps on aria/state f5c5c86a1 found two
+missions every store would carry dead. Both are fixed in the follow-up commit:
+
+- **`doctor_fail:deadlines`.** The `deadlines` organ FAILs on 228 lapsed HUMAN_REQUIRED SLAs.
+  Its answer is an operator's adjudication, never a change under `aria-kernel/`. The organ is
+  now routed to `deadline_due`, which is ANNOUNCE like the rows it summarises; it was the
+  ARIA-MEDIUM-128 pin, and the dry run is the evidence against it. The FAIL, the
+  `doctor_unhealthy` notice and the CI `::error` all remain.
+- **Blocked capability gaps.** Four of six missions were `capability_gap:shadow_run:*` gaps
+  whose producer marked them `blocked_by: genesis_adjudication_required`. Their answer is in
+  `tools/aria-adapters/` (outside `SELF_CHANGE_ALLOWED_PREFIXES`) and behind a decision.
+  `scan_signals` now skips any gap that carries `blocked_by`.

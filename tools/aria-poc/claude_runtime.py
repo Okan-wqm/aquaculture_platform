@@ -267,9 +267,10 @@ class ClaudeRunResult:
     unreachable: dict[str, Any] | None = None
     # ARIA-HIGH-425 — the quota reading of a run the vendor SERVED whose
     # window is spent (`extract_rate_limit_exhaustion`, trigger
-    # `utilization_threshold`), or None. Not a failure: the answer stands and
-    # the executor that holds the claim cools the provider with it. A
-    # `rejected` reading is a `credit_exhaustion` instead (the run was refused).
+    # `utilization_threshold` or `overage_serving`), or None. Not a failure:
+    # the answer stands and the executor that holds the claim cools the
+    # provider with it. A `rejected` reading is a `credit_exhaustion` instead
+    # (the run was refused).
     quota_window: dict[str, Any] | None = None
     # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
     # failure / credit-exhaustion markers, process exit), stamped by the
@@ -2071,12 +2072,20 @@ def extract_rate_limit_exhaustion(events: tuple[dict[str, Any], ...]) -> dict[st
     window is the one that binds (``rateLimitType``), or when its
     utilization has reached the kernel's
     ``provider_cooldown.QUOTA_WINDOW_EXHAUSTED_UTILIZATION``. The record names
-    ``trigger`` (``rejected`` or ``utilization_threshold``), every spent
-    window with its utilization and reset, and ``resets_at``: the LATEST of
-    their resets (ISO), because the quota is back only when every spent window
-    is — or None when the reading states none. Detection only: a ``rejected``
-    reading is the run's credit exhaustion (`extract_credit_exhaustion`), a
-    threshold reading rides a served result as ``quota_window``.
+    ``trigger``, every spent window with its utilization and reset, and
+    ``resets_at``: the LATEST of their resets (ISO), because the quota is back
+    only when every spent window is — or None when the reading states none.
+    Detection only: ``rejected`` (the vendor refused the run) is the run's
+    credit exhaustion (`extract_credit_exhaustion`); ``utilization_threshold``
+    and ``overage_serving`` ride a served result as ``quota_window``.
+
+    ``overage_serving`` (review of 79b82c8d3, queue): a ``rejected`` window
+    while ``isUsingOverage`` is true is a run that billed extra usage — its
+    answer stands, so it is no refusal. The subscription window is still
+    spent, and the operator's decision moves work to Z.ai when the quota runs
+    out rather than onto spend beyond it, so the window cools all the same.
+    Every reading stored so far says ``isUsingOverage: false`` (overage is
+    disabled for the organisation).
     """
     from aria_kernel.provider_cooldown import QUOTA_WINDOW_EXHAUSTED_UTILIZATION
 
@@ -2107,11 +2116,13 @@ def extract_rate_limit_exhaustion(events: tuple[dict[str, Any], ...]) -> dict[st
     top_reset = _reading_epoch(info.get("resetsAt"))
     if rejected and top_reset is not None:
         resets.append(top_reset)
+    trigger = (("overage_serving" if info.get("isUsingOverage") is True else "rejected") if rejected
+               else "utilization_threshold")
     return {
         "source": RATE_LIMIT_EVENT_TYPE,
         "signature": "claude_rate_limit_event",
-        "trigger": "rejected" if rejected else "utilization_threshold",
-        "matched_marker": "rate_limit_rejected" if rejected else "rate_limit_utilization_threshold",
+        "trigger": trigger,
+        "matched_marker": f"rate_limit_{trigger}",
         "status": str(info.get("status")),
         "threshold": QUOTA_WINDOW_EXHAUSTED_UTILIZATION,
         "windows": {name: {"utilization": utilization, "resets_at": _epoch_iso(reset)}

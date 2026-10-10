@@ -488,3 +488,23 @@ credit_exhausted)` circuit. It then skipped every claude_first request, and five
   failures. That file is not this finding's; the drain's mapping is the authority.
 - **Judges under an Anthropic cooldown now key the drain's batch route on zai.** Batching stays
   off (`judge_batch_size: 1`), so nothing changes until the operator raises it.
+
+### Peer review of 79b82c8d3 (queue) — one latent defect fixed
+
+- **Defect.** queue confirmed a latent LOW. A `rejected` reading while `isUsingOverage` is true is
+  a run that billed extra usage, and its answer stands. The reader nevertheless made it the run's
+  credit exhaustion: the served answer was dropped and Anthropic was cooled.
+- **Fix.**
+  - The reader names that reading `overage_serving`. It is not a refusal and rides the result as
+    `quota_window`.
+  - The subscription window is still spent. The operator's decision moves work to Z.ai when the
+    quota runs out, not onto spend beyond it, so the window cools until its reset all the same.
+- **Test.** `test_a_rejected_window_that_overage_served_keeps_its_answer_and_still_cools`. It is red
+  on 79b82c8d3, where `extract_credit_exhaustion` returns trigger `rejected` on rc 0.
+- **Not affected today.** All 339 stored readings say `isUsingOverage: false`, because overage is
+  disabled for the organisation.
+- **Perf note, kept as is.**
+  - The drain reads the cooldowns once per iteration on purpose, because a child in the same pass
+    writes the cooldown the next request must see. It costs about 0.7 s on the 20 MB store,
+    against a child of minutes.
+  - The extra read in `invoke_claude_cli` is on the legacy spawn lane only.

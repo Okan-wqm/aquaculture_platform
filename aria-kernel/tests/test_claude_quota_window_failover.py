@@ -140,8 +140,9 @@ class TheReaderReadsTheCliShape(unittest.TestCase):
         events = (_rejected(1790316000), _failed_result(_API_429))
         detection = claude_runtime.extract_credit_exhaustion(returncode=1, stderr=_TRUST_NOTICE, events=events)
         self.assertIsNotNone(detection, "the vendor's own `rejected` is a decided quota exhaustion")
-        self.assertEqual((detection["signature"], detection["trigger"], detection["resets_at"]),
-                         ("claude_rate_limit_event", "rejected", _SEPT_RESET))
+        self.assertEqual((detection["signature"], detection["trigger"], detection["resets_at"],
+                          detection["matched_marker"]),
+                         ("claude_rate_limit_event", "rejected", _SEPT_RESET, "rate_limit_rejected"))
         result = claude_runtime.ClaudeRunResult(
             returncode=1, stdout="", stderr=_TRUST_NOTICE, final_message="", usage=None, events=events,
             credit_exhaustion=detection,
@@ -151,6 +152,18 @@ class TheReaderReadsTheCliShape(unittest.TestCase):
             claude_runtime.run_with_model_fallback(run=lambda model, effort: result, model="opus", failover=None,
                                                    effort="max", write_capable=False)
         self.assertEqual((raised.exception.provider, raised.exception.detail["resets_at"]), ("anthropic", _SEPT_RESET))
+
+
+    def test_a_rejected_window_that_overage_served_keeps_its_answer_and_still_cools(self) -> None:
+        """Review of 79b82c8d3 (queue): with overage enabled the CLI may report the
+        subscription window rejected while extra usage serves the run."""
+        event = _rejected(1790316000)
+        event["rate_limit_info"].update(isUsingOverage=True, overageStatus="allowed")
+        events = (event, {"type": "result", "subtype": "success", "is_error": False, "result": "{}"})
+        self.assertIsNone(claude_runtime.extract_credit_exhaustion(returncode=0, stderr="", events=events),
+                          "a served answer is no refusal")
+        reading = claude_runtime.extract_rate_limit_exhaustion(events)
+        self.assertEqual((reading["trigger"], reading["resets_at"]), ("overage_serving", _SEPT_RESET))
 
 
 class _Tools(unittest.TestCase):

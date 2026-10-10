@@ -34,6 +34,8 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
   Badge: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Badge,
   // The page opens with the real PageHeader (its h1 is what the tests read).
   PageHeader: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).PageHeader,
+  // The Suderra eyebrow reads its label through the real i18n (English without a provider).
+  useI18n: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).useI18n,
   // ROLE_COLORS / DEFAULT_ROLE_COLOR are theme tokens (FE-HIGH-066).
   colors: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).colors,
   useAuth: () => ({
@@ -157,6 +159,8 @@ describe('TenantRolesPage error/empty separation (RBAC-M14)', () => {
     renderPage();
 
     expect(screen.getByText('No roles defined')).toBeInTheDocument();
+    // FE-HIGH-314: the page renders inside the Suderra token scope.
+    expect(screen.getByRole('heading', { level: 1 }).closest('.sd-page')).not.toBeNull();
     // Header + empty-state both offer the seed (roles:create holder).
     expect(screen.getAllByText('Seed Default Roles').length).toBeGreaterThan(0);
     expect(screen.queryByText('Failed to load roles')).not.toBeInTheDocument();

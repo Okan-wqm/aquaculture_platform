@@ -3,6 +3,7 @@ export {
   ConfirmModal,
   type ModalProps,
   type ModalSize,
+  type ModalSurface,
   type ConfirmModalProps,
 } from './Modal';
 export type { DialogTheme } from './useDialogBehavior';

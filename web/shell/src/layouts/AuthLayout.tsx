@@ -1,7 +1,8 @@
 /**
  * Auth Layout Component
  *
- * Industrial reef layout for login, invitation, and password reset pages.
+ * Industrial reef layout for login, invitation, and password reset pages: the
+ * Suderra reef scene (ReefScene) behind a frosted auth card.
  * Authentication behavior remains owned by AuthContext and the routed forms.
  */
 
@@ -15,7 +16,7 @@ import {
   useI18n,
   Spinner,
 } from '@aquaculture/shared-ui';
-import FishBackground from '../components/FishBackground';
+import ReefScene from '../components/ReefScene';
 import { Lock } from 'lucide-react';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -62,7 +63,7 @@ const AuthChrome: React.FC = () => {
 
   return (
     <div className="industrial-auth">
-      <FishBackground fishCount={20} />
+      <ReefScene density="high" />
 
       <main className="industrial-auth-main">
         {/* Single top-level landmark heading for the auth routes (visually hidden;

@@ -1,0 +1,215 @@
+/*
+ * Shadow-root stylesheet of <suderra-reef-scene> (the login background).
+ *
+ * Loaded with `?raw` into the element's own shadow root, so nothing here can
+ * reach the page and nothing on the page reaches in. The colours are the
+ * underwater illustration's (light shafts, marine snow, kelp, caustics); the
+ * interface palette stays in theme.css.
+ */
+:host {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+}
+.bg,
+.layer {
+  position: absolute;
+  inset: 0;
+}
+.bg {
+  overflow: hidden;
+}
+.fill-box {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* God rays */
+.rays {
+  opacity: 0.42;
+}
+.rays .ray {
+  position: absolute;
+  top: -10%;
+  width: 140px;
+  height: 130%;
+  background: linear-gradient(180deg, rgb(200 240 238 / 0.22), rgb(200 240 238 / 0) 70%);
+  filter: blur(14px);
+  transform-origin: top center;
+  animation: ray-sway 14s ease-in-out infinite alternate;
+}
+.ray-1 { left: 12%; --r0: 6deg; --r1: 10deg; width: 180px; }
+.ray-2 { left: 38%; --r0: -6deg; --r1: -2deg; width: 240px; opacity: 0.85; animation-duration: 18s; }
+.ray-3 { left: 62%; --r0: 4deg; --r1: 8deg; width: 200px; opacity: 0.7; animation-duration: 16s; }
+.ray-4 { left: 82%; --r0: -10deg; --r1: -6deg; width: 160px; opacity: 0.6; animation-duration: 12s; }
+@keyframes ray-sway {
+  0% { transform: rotate(var(--r0)) translateX(-12px); }
+  100% { transform: rotate(var(--r1)) translateX(12px); }
+}
+
+/* Marine snow */
+.snow span {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(200 240 238 / 0.8), rgb(200 240 238 / 0));
+  animation: snowdrift ease-in-out infinite alternate;
+}
+@keyframes snowdrift {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(10px, 16px, 0); }
+}
+
+/* Fish */
+.fish {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.pitchg,
+.tailg,
+.pectg {
+  transform-box: view-box;
+}
+.pectg {
+  animation: pect-flap 1.7s ease-in-out infinite;
+}
+@keyframes pect-flap {
+  0%, 100% { transform: rotate(7deg); }
+  50% { transform: rotate(-13deg); }
+}
+.baittail {
+  animation: btail 0.48s ease-in-out infinite alternate;
+}
+@keyframes btail {
+  from { transform: rotate(-13deg); }
+  to { transform: rotate(13deg); }
+}
+.p-far { opacity: 0.6; filter: blur(1.7px) brightness(0.72) saturate(0.85); }
+.p-mid { opacity: 0.85; filter: blur(0.7px) brightness(0.86); }
+.p-near { opacity: 1; }
+
+/* Plants */
+.kelp-w { position: absolute; bottom: 8px; width: 90px; }
+.kelp-far { filter: blur(2px) brightness(0.6); }
+.grass-w { position: absolute; bottom: 6px; width: 70px; }
+.ks { animation: kseg var(--kd) ease-in-out infinite alternate; }
+@keyframes kseg {
+  from { transform: rotate(calc(var(--ka) * -1)); }
+  to { transform: rotate(var(--ka)); }
+}
+.gb {
+  animation-name: kseg;
+  animation-duration: 4.5s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+.kst-a { stop-color: rgb(24 60 50 / 0.95); }
+.kst-b { stop-color: rgb(62 138 116 / 0.75); }
+.klf-a { stop-color: rgb(30 74 60 / 0.85); }
+.klf-b { stop-color: rgb(70 150 124 / 0.6); }
+.bl-a { stop-color: rgb(28 68 56 / 0.9); }
+.bl-b { stop-color: rgb(64 132 108 / 0.55); }
+.kfloat { fill: rgb(110 231 199 / 0.16); stroke: rgb(110 231 199 / 0.3); stroke-width: 0.7; }
+.kfloat--small { fill: rgb(110 231 199 / 0.13); stroke: rgb(110 231 199 / 0.22); stroke-width: 0.5; }
+.blade {
+  fill: none;
+  stroke: rgb(38 var(--g) 80 / var(--a));
+  stroke-width: 1.9;
+  stroke-linecap: round;
+}
+
+/* Sea floor and caustic dapple */
+.floor { position: absolute; bottom: 0; left: 0; width: 100%; height: 200px; }
+.caustic {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 150px;
+  mix-blend-mode: screen;
+  -webkit-mask-image: linear-gradient(transparent, rgb(0 0 0 / 0.85) 70%);
+  mask-image: linear-gradient(transparent, rgb(0 0 0 / 0.85) 70%);
+}
+.ca1 {
+  background:
+    radial-gradient(circle 46px at 8% 78%, rgb(127 214 224 / 0.09), transparent 60%),
+    radial-gradient(circle 60px at 26% 88%, rgb(127 214 224 / 0.07), transparent 60%),
+    radial-gradient(circle 40px at 45% 80%, rgb(127 214 224 / 0.08), transparent 60%),
+    radial-gradient(circle 56px at 64% 90%, rgb(127 214 224 / 0.07), transparent 60%),
+    radial-gradient(circle 44px at 82% 82%, rgb(127 214 224 / 0.08), transparent 60%),
+    radial-gradient(circle 52px at 96% 89%, rgb(127 214 224 / 0.06), transparent 60%);
+  animation: caust 11s ease-in-out infinite alternate;
+}
+.ca2 {
+  background:
+    radial-gradient(circle 52px at 16% 90%, rgb(110 231 199 / 0.06), transparent 60%),
+    radial-gradient(circle 42px at 36% 82%, rgb(110 231 199 / 0.07), transparent 60%),
+    radial-gradient(circle 58px at 55% 92%, rgb(110 231 199 / 0.05), transparent 60%),
+    radial-gradient(circle 40px at 74% 84%, rgb(110 231 199 / 0.07), transparent 60%),
+    radial-gradient(circle 50px at 90% 92%, rgb(110 231 199 / 0.05), transparent 60%);
+  animation: caust 15s ease-in-out infinite alternate-reverse;
+}
+@keyframes caust {
+  from { transform: translateX(-28px); }
+  to { transform: translateX(28px); }
+}
+
+/* Vent bubbles */
+.bubbles span {
+  position: absolute;
+  bottom: -30px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgb(255 255 255 / 0.5),
+    rgb(180 230 240 / 0.14) 60%,
+    transparent 72%
+  );
+  box-shadow:
+    inset 0 0 6px rgb(255 255 255 / 0.14),
+    0 0 5px rgb(127 214 224 / 0.12);
+  animation: brise linear infinite;
+}
+@keyframes brise {
+  0% { transform: translate3d(0, 0, 0) scale(0.65); opacity: 0; }
+  8% { opacity: 0.85; }
+  30% { transform: translate3d(6px, -30vh, 0) scale(0.82); }
+  55% { transform: translate3d(-5px, -55vh, 0) scale(0.95); }
+  80% { transform: translate3d(5px, -80vh, 0) scale(1.05); opacity: 0.5; }
+  100% { transform: translate3d(-2px, -104vh, 0) scale(1.1); opacity: 0; }
+}
+
+/* Depth tint and vignette */
+.tint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, rgb(2 10 18 / 0.38) 100%);
+}
+.vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 120% 90% at 50% 42%, transparent 58%, rgb(2 8 14 / 0.5) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ray,
+  .snow span,
+  .pectg,
+  .baittail,
+  .ks,
+  .gb,
+  .ca1,
+  .ca2,
+  .bubbles span {
+    animation: none !important;
+  }
+  .bubbles span {
+    display: none;
+  }
+}

@@ -302,3 +302,27 @@ aliases:
       registration allocated the next free OBS sequence, OBS-CRITICAL-007, and the audit document's
       heading followed the ledger. The trailer cannot be rewritten (force push is banned) and
       OBS-CRITICAL-003 is not a live ledger id, so the closure resolves through this alias.
+
+  - alias: FE-HIGH-321
+    canonical: FE-HIGH-313
+    review_file: docs/reviews/claude/2026-10-09-suderra-shell-on-main.md
+    commits:
+      - '5435f85ba'
+      - '8a0f0a000'
+    effective_date: '2026-10-10'
+    reason: >
+      The Suderra shell port was written while FE-HIGH-313 was registered only on #1737's branch,
+      so it registered the same gap on main as FE-HIGH-321 and its pushed commits name that id.
+      #1737 brought FE-HIGH-313 to main; the branch-only FE-HIGH-321 row was dropped before merge
+      and the trailers, which cannot be rewritten (force push is banned), resolve through this alias.
+  - alias: FE-HIGH-322
+    canonical: FE-HIGH-314
+    review_file: docs/reviews/claude/2026-10-09-suderra-shell-on-main.md
+    commits:
+      - '5435f85ba'
+      - '8a0f0a000'
+    effective_date: '2026-10-10'
+    reason: >
+      The tenant-admin restyle port registered #1737's FE-HIGH-314 on main as FE-HIGH-322 before
+      #1737 landed. The branch-only FE-HIGH-322 row was dropped before merge and the pushed
+      trailers, which cannot be rewritten (force push is banned), resolve through this alias.

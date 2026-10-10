@@ -7,7 +7,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 import type { NavigationItem, UserRole } from '../../types';
 import { useI18n } from '../../i18n';
-import { useDialogBehavior } from '../Modal/useDialogBehavior';
+import { canSeeNavItem, hasActiveChild, isNavItemActive, useNavOverlay } from './navShared';
 import {
   Activity,
   Bell,
@@ -196,18 +196,9 @@ const MenuItem: React.FC<{
   const hasChildren = !!item.children?.length;
   const childItems = item.children ?? [];
 
-  // Access check — computed as a boolean (no useCallback overhead for a sync value)
-  const hasAccess =
-    !item.requiredRoles?.length || item.requiredRoles.some((role) => userRoles.includes(role));
-
-  const pathMatches = (path?: string): boolean => {
-    if (!path || !activePath) return false;
-    if (path === activePath) return true;
-    return hasChildren && activePath.startsWith(path + '/');
-  };
-
-  const isActive = pathMatches(item.path);
-  const isChildActive = item.children?.some((child) => child.path === activePath) ?? false;
+  const hasAccess = canSeeNavItem(item, userRoles);
+  const isActive = isNavItemActive(item, activePath);
+  const isChildActive = hasActiveChild(item, activePath);
 
   // BUG-1 FIX: Auto-expand parent when a child is active
   const [isExpanded, setIsExpanded] = useState(!!isChildActive);
@@ -358,9 +349,6 @@ const sidebarThemeStyles = {
   },
 };
 
-/** Tailwind's `md`: above it the sidebar is an in-flow column, below it an off-canvas overlay. */
-const DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
-
 export const Sidebar: React.FC<SidebarProps> = ({
   items,
   activePath,
@@ -381,40 +369,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const asideRef = useRef<HTMLElement>(null);
   const { t } = useI18n();
 
-  const closeOverlay = useCallback(() => onMobileOpenChange(false), [onMobileOpenChange]);
-
-  // Escape, focus into the panel, focus back to the opener on close and the
-  // body scroll lock come from the hook Modal and Drawer share — one open-
-  // surface behaviour, not a third copy.
-  useDialogBehavior({
-    isOpen: mobileOpen,
-    onClose: closeOverlay,
-    closeOnEscape: true,
+  // Escape, focus handling, scroll lock, closing on the `md` crossing and on
+  // navigation: the overlay behaviour SuderraSidebar shares (navShared.ts).
+  const { closeOverlay, handleNavigate } = useNavOverlay({
+    mobileOpen,
+    onMobileOpenChange,
+    onNavigate,
     containerRef: asideRef,
   });
-
-  // The overlay is a phone-width surface. Once the viewport grows past `md`
-  // the in-flow column is on screen again, so an open overlay would show the
-  // navigation twice; it closes itself on that crossing.
-  useEffect(() => {
-    if (!mobileOpen) return undefined;
-    const desktop = window.matchMedia(DESKTOP_MEDIA_QUERY);
-    const settle = (): void => {
-      if (desktop.matches) closeOverlay();
-    };
-    settle();
-    desktop.addEventListener('change', settle);
-    return () => desktop.removeEventListener('change', settle);
-  }, [mobileOpen, closeOverlay]);
-
-  // Choosing a destination closes the overlay; the in-flow column stays put.
-  const handleNavigate = useCallback(
-    (path: string) => {
-      onNavigate(path);
-      if (mobileOpen) closeOverlay();
-    },
-    [onNavigate, mobileOpen, closeOverlay],
-  );
 
   // `collapsed` is the desktop column's rail mode; the overlay always shows labels.
   const rail = collapsed && !mobileOpen;

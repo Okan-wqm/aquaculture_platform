@@ -366,24 +366,18 @@ const LoginForm: React.FC = () => {
           {t('login.signIn')}
         </Button>
 
-        {/* Mobile App Download Banner */}
+        {/* AquaMobil — the field app, as the Suderra pill under the form. The
+            trailing arrow says it opens a new tab. */}
         <div className="industrial-mobile-link-wrap">
           <a
             href="/mobile"
             target="_blank"
             rel="noopener noreferrer"
-            className="industrial-mobile-link group"
+            className="industrial-mobile-pill"
           >
-            <div className="industrial-mobile-icon">
-              <Smartphone className="w-4 h-4" strokeWidth={1.8} aria-hidden="true" />
-            </div>
-            <div className="industrial-mobile-copy">
-              <span>{t('login.mobile.title')}</span>
-              <small>{t('login.mobile.subtitle')}</small>
-            </div>
-            <div className="industrial-mobile-arrow">
-              <ExternalLink className="w-4 h-4" strokeWidth={1.8} aria-hidden="true" />
-            </div>
+            <Smartphone className="h-[13px] w-[13px]" strokeWidth={1.8} aria-hidden="true" />
+            <span>{t('login.mobile.pill')}</span>
+            <ExternalLink className="h-3 w-3" strokeWidth={1.8} aria-hidden="true" />
           </a>
         </div>
       </form>

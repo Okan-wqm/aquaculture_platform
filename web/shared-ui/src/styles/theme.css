@@ -232,7 +232,7 @@
   --color-sd-parchment: #fffdf8; /* raised surfaces (cards, dropdowns) */
   --color-sd-ink: #0a1f2b; /* primary text on paper */
   --color-sd-ink-soft: #3d5c69; /* secondary text */
-  --color-sd-ink-muted: #5c7783; /* tertiary/hint text */
+  --color-sd-ink-muted: #4a6673; /* tertiary text — 6.0:1 on parchment, 5.5:1 on paper */
   --color-sd-ink-faint: #9cbcc6; /* faint labels on dark rail */
   --color-sd-teal: #146f84; /* accent (links, active tabs) */
   --color-sd-teal-deep: #0b4f60; /* accent hover/deep */
@@ -247,10 +247,120 @@
   --color-sd-rail-child-icon: #7fa2ad; /* rail child icon */
   --color-sd-danger: #b04a28; /* unread badge / destructive accent */
   --color-sd-danger-ink: #8e3a1e; /* error banner text on paper */
-  --color-sd-ink-hint: #8aa0aa; /* placeholder / empty-state hint text */
+  --color-sd-ink-hint: #4f6c78; /* hint text — 5.5:1 on parchment, 4.6:1 on a chat bubble */
   --color-sd-mint-paper: #eafaf4; /* text on the deep-teal composer button */
   --color-sd-rule: rgba(10, 31, 43, 0.09); /* hairline dividers on paper */
+  --color-sd-sea: #4fb6c8; /* cyan accent: eyebrow dot, info tint */
+  --color-sd-mint-deep: #4abba2; /* success accent on paper */
+  --color-sd-mint-ink: #166f5a; /* success text on paper */
+  --color-sd-rail-bright: #eaf6f8; /* rail brand name, hovered child label */
+  --color-sd-rail-accent: #8fd8e4; /* rail brand caption */
+  --color-sd-cream: #fffdf8; /* white inside the Suderra scope, both themes (never re-assigned) */
+  --color-sd-sand: #f6d08a; /* warm glow over the paper column */
+  --color-sd-foam: #bae4e5; /* cool glow over the paper column */
+  --color-sd-violet: #8b74be; /* AI accent (chat bubble, channel icon) */
+  --color-sd-violet-ink: #4a3766; /* AI icon on paper */
+
+  /* Suderra scope ramps (FE-HIGH-321). `sd-page` / `sd-surface` (suderra.css)
+     re-assign the design-system scales to these, so this file stays the one
+     owner of every colour value; web-theme-token-parity.spec.ts pins the
+     contrast the scope relies on. ink = gray under the light theme, deep = gray
+     under the dark theme, teal = primary, mint / amber / rust / sea = success /
+     warning / error / info. */
+  --color-sd-ink-50: #f6f4ee;
+  --color-sd-ink-100: #eeece4;
+  --color-sd-ink-200: #e1e2dc;
+  --color-sd-ink-300: #ccd2d1;
+  --color-sd-ink-400: #557282;
+  --color-sd-ink-500: #4a6673;
+  --color-sd-ink-600: #3d5c69;
+  --color-sd-ink-700: #2b4956;
+  --color-sd-ink-800: #173341;
+  --color-sd-ink-900: #0a1f2b;
+  --color-sd-deep-50: #eef6f8;
+  --color-sd-deep-100: #dcebef;
+  --color-sd-deep-200: #c6dde4;
+  --color-sd-deep-300: #a9c7d0;
+  --color-sd-deep-400: #8fb6c2;
+  --color-sd-deep-500: #6f93a0;
+  --color-sd-deep-600: #3f6272;
+  --color-sd-deep-700: #24465a;
+  --color-sd-deep-800: #12324a;
+  --color-sd-deep-900: #0b2436;
+  --color-sd-teal-50: #e9f5f7;
+  --color-sd-teal-100: #cde9ee;
+  --color-sd-teal-200: #9fd3dd;
+  --color-sd-teal-300: #6bb9c8;
+  --color-sd-teal-400: #3c9db1;
+  --color-sd-teal-500: #1d8399;
+  --color-sd-teal-600: #146f84;
+  --color-sd-teal-700: #0b4f60;
+  --color-sd-teal-800: #093f4d;
+  --color-sd-teal-900: #07303b;
+  --color-sd-mint-50: #ebfaf5;
+  --color-sd-mint-100: #d2f3e8;
+  --color-sd-mint-200: #a6e6d2;
+  --color-sd-mint-300: #74d4b9;
+  --color-sd-mint-400: #4abba2;
+  --color-sd-mint-500: #2b9c84;
+  --color-sd-mint-600: #1d7c68;
+  --color-sd-mint-700: #166f5a;
+  --color-sd-mint-800: #125849;
+  --color-sd-mint-900: #0e4438;
+  --color-sd-amber-50: #fcf6e6;
+  --color-sd-amber-100: #f9edcc;
+  --color-sd-amber-200: #f3dc9c;
+  --color-sd-amber-300: #e9c46a;
+  --color-sd-amber-400: #d4a64a;
+  --color-sd-amber-500: #b98a26;
+  --color-sd-amber-600: #946610;
+  --color-sd-amber-700: #8a5e10;
+  --color-sd-amber-800: #6e4a0d;
+  --color-sd-amber-900: #57390a;
+  --color-sd-rust-50: #fbf0eb;
+  --color-sd-rust-100: #f6ddd3;
+  --color-sd-rust-200: #ecbca9;
+  --color-sd-rust-300: #de977d;
+  --color-sd-rust-400: #d97c5c;
+  --color-sd-rust-500: #b04a28;
+  --color-sd-rust-600: #9d4022;
+  --color-sd-rust-700: #8e3a1e;
+  --color-sd-rust-800: #722f18;
+  --color-sd-rust-900: #5a2513;
+  --color-sd-sea-50: #eaf7f9;
+  --color-sd-sea-100: #d1eef3;
+  --color-sd-sea-200: #a6dce6;
+  --color-sd-sea-300: #77c8d6;
+  --color-sd-sea-400: #4fb6c8;
+  --color-sd-sea-500: #2f9bb0;
+  --color-sd-sea-600: #217f91;
+  --color-sd-sea-700: #1b6675;
+  --color-sd-sea-800: #16525e;
+  --color-sd-sea-900: #11414b;
   --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
+}
+
+/* SUDERRA tokens under the dark theme (FE-HIGH-313). The paper/ink tokens are
+   the surface pair every sd-* page paints with, so the dark theme re-assigns
+   them here once and every `bg-sd-paper` / `text-sd-ink` follows the shell's
+   toggle with no `dark:` sibling of its own. The rail tokens stay: the rail is
+   deep water in both themes. `mint-paper` is the text ON `teal-deep`, so the
+   two flip together and keep their contrast. */
+[data-theme='dark'] {
+  --color-sd-paper: #071a28;
+  --color-sd-parchment: #0d2434;
+  --color-sd-ink: #e6f1f4;
+  --color-sd-ink-soft: #b5ccd4;
+  --color-sd-ink-muted: #8fb0bb;
+  --color-sd-ink-hint: #88a6b1;
+  --color-sd-violet-ink: #cbbcf0;
+  --color-sd-teal: #5fc0d1;
+  --color-sd-teal-deep: #8fd8e4;
+  --color-sd-mint-paper: #06202a;
+  --color-sd-mint-ink: #7cdcc0;
+  --color-sd-danger: #e07a55;
+  --color-sd-danger-ink: #f0a58a;
+  --color-sd-rule: rgba(198, 221, 228, 0.12);
 }
 
 /* Custom keyframes (v4 keeps keyframes in the stylesheet, not the config). */

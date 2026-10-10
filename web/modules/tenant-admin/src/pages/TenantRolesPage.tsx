@@ -529,7 +529,7 @@ const TenantRolesPage: React.FC = () => {
   }
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-stack">
       {/* Page Header */}
       <PageHeader
         eyebrow={<span className="sd-eyebrow">{t('nav.section.people')}</span>}

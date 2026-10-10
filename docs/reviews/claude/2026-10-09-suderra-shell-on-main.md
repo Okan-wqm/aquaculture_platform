@@ -84,9 +84,23 @@ tenant-admin, shell and shared-ui stay at zero on both ratchets.
 
 ## Coordination with #1737
 
-#1737 puts `sd-page space-y-6` on nine tenant-admin roots. `sd-page` spaces its children by
-sibling margin in block flow (not flex gap), so that margin collapses with `space-y-6` and those
-pages keep 24px rhythm. Class names are the same on both branches.
+`sd-page` is a colour and type scope only, with no layout of its own, so #1737's tenant-admin
+roots (full-height flex pages, `space-y-6` stacks) keep their layout. A page that wants the
+Suderra 22px rhythm adds `sd-stack`: the four pages here and messaging-module's three do. Class
+names are the same on both branches.
+
+## Review of 5435f85ba
+
+- FE-HIGH-001: `sd-ink-hint` was 2.7:1 on parchment and carried the dialog close icon and the
+  chat hint, preview, author and time text. It is now 5.5:1 light / 6.2:1 dark (4.6:1 on a chat
+  bubble), `sd-ink-muted` was darkened with it, and the own-bubble time takes the bubble's text
+  colour. `web-theme-token-parity.spec.ts` pins every text token of the scope in both themes.
+- FE-MEDIUM-002: `sd-page` no longer sets sibling margins (see above).
+- FE-MEDIUM-003: the rail opens on hover, pin or keyboard focus; focus a pointer press caused
+  does not hold it open once the pointer leaves (spec: click, leave, closed).
+- FE-MEDIUM-004: the scope ramps moved into theme.css as `--color-sd-{ink,deep,teal,mint,amber,
+rust,sea}-*` tokens; suderra.css holds only `var()` references, and the parity spec fails on a
+  colour literal there and checks every step of every re-assigned scale.
 
 ## How to look at it
 

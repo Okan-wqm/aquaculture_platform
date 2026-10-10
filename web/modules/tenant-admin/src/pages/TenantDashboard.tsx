@@ -298,7 +298,7 @@ const TenantDashboard: React.FC = () => {
   }
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-stack">
       {/* Page Header */}
       <PageHeader
         eyebrow={<span className="sd-eyebrow">{t('nav.overview')}</span>}

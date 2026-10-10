@@ -278,6 +278,9 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
   const [pinned, setPinned] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
+  // Focus that a pointer press caused must not hold the rail open after the
+  // pointer leaves; only keyboard focus does (what :focus-visible means).
+  const pointerPressed = useRef(false);
   // A group's explicit choice; otherwise it is open while one of its children is the page.
   const [groupChoice, setGroupChoice] = useState<Record<string, boolean>>({});
 
@@ -293,6 +296,10 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
 
   const handleToggleGroup = useCallback((groupId: string, openNow: boolean) => {
     setGroupChoice((prev) => ({ ...prev, [groupId]: openNow }));
+  }, []);
+
+  const handleFocus = useCallback(() => {
+    if (!pointerPressed.current) setFocusInside(true);
   }, []);
 
   const handleBlur = useCallback((event: React.FocusEvent<HTMLElement>) => {
@@ -333,7 +340,15 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
         data-open={open ? 'true' : 'false'}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
-        onFocus={() => setFocusInside(true)}
+        onPointerDown={() => {
+          pointerPressed.current = true;
+        }}
+        // Focus moves on press, before release; a press that moved no focus must
+        // not swallow the next keyboard focus.
+        onPointerUp={() => {
+          pointerPressed.current = false;
+        }}
+        onFocus={handleFocus}
         onBlur={handleBlur}
         className={`shrink-0 flex-col transition-[width] duration-200 ease-out motion-reduce:transition-none focus:outline-hidden ${placement} ${className}`}
       >

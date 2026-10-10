@@ -22,81 +22,82 @@
  * reads covers every utility at once and lets the cascade stay as Tailwind
  * built it.
  *
- * Contrast (WCAG AA 4.5:1, measured): gray-400 on white 5.0, on gray-50 4.6;
- * white on primary-600 5.7, success-600 5.0, error-600 6.5, warning-600 5.0;
- * dark gray-400 on gray-900 7.3, on gray-800 6.1.
- */
+ * One owner for colour: every value here is a `var()` of a theme.css token
+ * (the scope ramps are `--color-sd-{ink,deep,teal,mint,amber,rust,sea}-*`).
+ * web-theme-token-parity.spec.ts fails on a colour literal in this file and
+ * pins the contrast the scope relies on (WCAG AA 4.5:1 for text, 3:1 for
+ * icons, both themes). */
 
 @layer components {
   /* ── 1. Token scope ─────────────────────────────────────────────────────── */
   :where(.sd-page, .sd-surface) {
-    --color-white: #fffdf8;
+    --color-white: var(--color-sd-cream);
 
-    --color-gray-50: #f6f4ee;
-    --color-gray-100: #eeece4;
-    --color-gray-200: #e1e2dc;
-    --color-gray-300: #ccd2d1;
-    --color-gray-400: #557282;
-    --color-gray-500: #4a6673;
-    --color-gray-600: #3d5c69;
-    --color-gray-700: #2b4956;
-    --color-gray-800: #173341;
-    --color-gray-900: #0a1f2b;
+    --color-gray-50: var(--color-sd-ink-50);
+    --color-gray-100: var(--color-sd-ink-100);
+    --color-gray-200: var(--color-sd-ink-200);
+    --color-gray-300: var(--color-sd-ink-300);
+    --color-gray-400: var(--color-sd-ink-400);
+    --color-gray-500: var(--color-sd-ink-500);
+    --color-gray-600: var(--color-sd-ink-600);
+    --color-gray-700: var(--color-sd-ink-700);
+    --color-gray-800: var(--color-sd-ink-800);
+    --color-gray-900: var(--color-sd-ink-900);
 
-    --color-primary-50: #e9f5f7;
-    --color-primary-100: #cde9ee;
-    --color-primary-200: #9fd3dd;
-    --color-primary-300: #6bb9c8;
-    --color-primary-400: #3c9db1;
-    --color-primary-500: #1d8399;
-    --color-primary-600: #146f84;
-    --color-primary-700: #0b4f60;
-    --color-primary-800: #093f4d;
-    --color-primary-900: #07303b;
+    --color-primary-50: var(--color-sd-teal-50);
+    --color-primary-100: var(--color-sd-teal-100);
+    --color-primary-200: var(--color-sd-teal-200);
+    --color-primary-300: var(--color-sd-teal-300);
+    --color-primary-400: var(--color-sd-teal-400);
+    --color-primary-500: var(--color-sd-teal-500);
+    --color-primary-600: var(--color-sd-teal-600);
+    --color-primary-700: var(--color-sd-teal-700);
+    --color-primary-800: var(--color-sd-teal-800);
+    --color-primary-900: var(--color-sd-teal-900);
 
-    --color-success-50: #ebfaf5;
-    --color-success-100: #d2f3e8;
-    --color-success-200: #a6e6d2;
-    --color-success-300: #74d4b9;
-    --color-success-400: #4abba2;
-    --color-success-500: #2b9c84;
-    --color-success-600: #1d7c68;
-    --color-success-700: #166f5a;
-    --color-success-800: #125849;
-    --color-success-900: #0e4438;
+    --color-success-50: var(--color-sd-mint-50);
+    --color-success-100: var(--color-sd-mint-100);
+    --color-success-200: var(--color-sd-mint-200);
+    --color-success-300: var(--color-sd-mint-300);
+    --color-success-400: var(--color-sd-mint-400);
+    --color-success-500: var(--color-sd-mint-500);
+    --color-success-600: var(--color-sd-mint-600);
+    --color-success-700: var(--color-sd-mint-700);
+    --color-success-800: var(--color-sd-mint-800);
+    --color-success-900: var(--color-sd-mint-900);
 
-    --color-warning-50: #fcf6e6;
-    --color-warning-100: #f9edcc;
-    --color-warning-200: #f3dc9c;
-    --color-warning-300: #e9c46a;
-    --color-warning-400: #d4a64a;
-    --color-warning-500: #b98a26;
-    --color-warning-600: #946610;
-    --color-warning-700: #8a5e10;
-    --color-warning-800: #6e4a0d;
-    --color-warning-900: #57390a;
+    --color-warning-50: var(--color-sd-amber-50);
+    --color-warning-100: var(--color-sd-amber-100);
+    --color-warning-200: var(--color-sd-amber-200);
+    --color-warning-300: var(--color-sd-amber-300);
+    --color-warning-400: var(--color-sd-amber-400);
+    --color-warning-500: var(--color-sd-amber-500);
+    --color-warning-600: var(--color-sd-amber-600);
+    --color-warning-700: var(--color-sd-amber-700);
+    --color-warning-800: var(--color-sd-amber-800);
+    --color-warning-900: var(--color-sd-amber-900);
 
-    --color-error-50: #fbf0eb;
-    --color-error-100: #f6ddd3;
-    --color-error-200: #ecbca9;
-    --color-error-300: #de977d;
-    --color-error-400: #d97c5c;
-    --color-error-500: #b04a28;
-    --color-error-600: #9d4022;
-    --color-error-700: #8e3a1e;
-    --color-error-800: #722f18;
-    --color-error-900: #5a2513;
+    --color-error-50: var(--color-sd-rust-50);
+    --color-error-100: var(--color-sd-rust-100);
+    --color-error-200: var(--color-sd-rust-200);
+    --color-error-300: var(--color-sd-rust-300);
+    --color-error-400: var(--color-sd-rust-400);
+    --color-error-500: var(--color-sd-rust-500);
+    --color-error-600: var(--color-sd-rust-600);
+    --color-error-700: var(--color-sd-rust-700);
+    --color-error-800: var(--color-sd-rust-800);
+    --color-error-900: var(--color-sd-rust-900);
 
-    --color-info-50: #eaf7f9;
-    --color-info-100: #d1eef3;
-    --color-info-200: #a6dce6;
-    --color-info-300: #77c8d6;
-    --color-info-400: #4fb6c8;
-    --color-info-500: #2f9bb0;
-    --color-info-600: #217f91;
-    --color-info-700: #1b6675;
-    --color-info-800: #16525e;
-    --color-info-900: #11414b;
+    --color-info-50: var(--color-sd-sea-50);
+    --color-info-100: var(--color-sd-sea-100);
+    --color-info-200: var(--color-sd-sea-200);
+    --color-info-300: var(--color-sd-sea-300);
+    --color-info-400: var(--color-sd-sea-400);
+    --color-info-500: var(--color-sd-sea-500);
+    --color-info-600: var(--color-sd-sea-600);
+    --color-info-700: var(--color-sd-sea-700);
+    --color-info-800: var(--color-sd-sea-800);
+    --color-info-900: var(--color-sd-sea-900);
 
     /* PageHeader reads these for its h1: the display serif inside the scope. */
     --page-title-font: var(--font-display);
@@ -106,16 +107,16 @@
   /* The dark theme's ink ramp: deep water instead of neutral grey, so a
      `dark:bg-gray-900` card sits on the same sea as the rail. */
   [data-theme='dark'] :where(.sd-page, .sd-surface) {
-    --color-gray-50: #eef6f8;
-    --color-gray-100: #dcebef;
-    --color-gray-200: #c6dde4;
-    --color-gray-300: #a9c7d0;
-    --color-gray-400: #8fb6c2;
-    --color-gray-500: #6f93a0;
-    --color-gray-600: #3f6272;
-    --color-gray-700: #24465a;
-    --color-gray-800: #12324a;
-    --color-gray-900: #0b2436;
+    --color-gray-50: var(--color-sd-deep-50);
+    --color-gray-100: var(--color-sd-deep-100);
+    --color-gray-200: var(--color-sd-deep-200);
+    --color-gray-300: var(--color-sd-deep-300);
+    --color-gray-400: var(--color-sd-deep-400);
+    --color-gray-500: var(--color-sd-deep-500);
+    --color-gray-600: var(--color-sd-deep-600);
+    --color-gray-700: var(--color-sd-deep-700);
+    --color-gray-800: var(--color-sd-deep-800);
+    --color-gray-900: var(--color-sd-deep-900);
   }
 
   /* ── 2. Shell content column ────────────────────────────────────────────── */
@@ -136,13 +137,13 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(ellipse 58% 42% at 86% -10%, rgb(246 208 138 / 0.26), transparent 66%),
-      radial-gradient(ellipse 48% 30% at 8% -6%, rgb(186 228 229 / 0.24), transparent 70%);
+      radial-gradient(ellipse 58% 42% at 86% -10%, color-mix(in srgb, var(--color-sd-sand) 26%, transparent), transparent 66%),
+      radial-gradient(ellipse 48% 30% at 8% -6%, color-mix(in srgb, var(--color-sd-foam) 24%, transparent), transparent 70%);
   }
   [data-theme='dark'] .sd-content::before {
     background:
-      radial-gradient(ellipse 58% 42% at 86% -10%, rgb(79 182 200 / 0.1), transparent 66%),
-      radial-gradient(ellipse 48% 30% at 8% -6%, rgb(110 231 199 / 0.07), transparent 70%);
+      radial-gradient(ellipse 58% 42% at 86% -10%, color-mix(in srgb, var(--color-sd-sea) 10%, transparent), transparent 66%),
+      radial-gradient(ellipse 48% 30% at 8% -6%, color-mix(in srgb, var(--color-sd-mint) 7%, transparent), transparent 70%);
   }
 
   .sd-main {
@@ -155,19 +156,19 @@
   }
 
   /* ── 3. Page classes ────────────────────────────────────────────────────── */
-  /* Vertical rhythm by sibling margin, not flex gap: in block flow the margin
-     collapses with a page's own `space-y-*`, so a root written
-     `sd-page space-y-6` (#1737's tenant-admin pages) keeps 24px instead of
-     adding a gap on top of the spacing utility. */
+  /* `sd-page` is a colour and type scope only — no layout, so a page root
+     that brings its own (a full-height flex column, a `space-y-*` stack) keeps
+     it. A page that wants the Suderra 22px rhythm adds `sd-stack`. */
   .sd-page {
-    display: block;
+    color: var(--color-sd-ink);
+  }
+  .sd-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
     width: 100%;
     max-width: 1920px;
     margin-inline: auto;
-    color: var(--color-sd-ink);
-  }
-  .sd-page > * + * {
-    margin-top: 22px;
   }
 
   .sd-pagehead {
@@ -214,7 +215,7 @@
     border: 1px solid var(--color-sd-rule);
     border-radius: 14px;
     background: color-mix(in srgb, var(--color-sd-parchment) 86%, transparent);
-    box-shadow: 0 1px 2px rgb(10 31 43 / 0.05);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--color-sd-rail-bottom) 6%, transparent);
   }
   .sd-card--flush {
     overflow: hidden;
@@ -235,15 +236,15 @@
     border-radius: 12px;
   }
   .sd-banner--success {
-    border: 1px solid rgb(74 187 162 / 0.36);
-    background: rgb(74 187 162 / 0.16);
+    border: 1px solid color-mix(in srgb, var(--color-sd-mint-deep) 36%, transparent);
+    background: color-mix(in srgb, var(--color-sd-mint-deep) 16%, transparent);
     color: var(--color-sd-mint-ink);
     font-size: 13.5px;
     font-weight: 600;
   }
   .sd-banner--error {
-    border: 1px solid rgb(176 74 40 / 0.26);
-    background: rgb(176 74 40 / 0.07);
+    border: 1px solid color-mix(in srgb, var(--color-sd-danger) 26%, transparent);
+    background: color-mix(in srgb, var(--color-sd-danger) 7%, transparent);
     color: var(--color-sd-danger-ink);
   }
 
@@ -277,11 +278,11 @@
     transition: background-color 0.15s ease;
   }
   .sd-chan-row:hover {
-    background: rgb(79 182 200 / 0.08);
+    background: color-mix(in srgb, var(--color-sd-sea) 8%, transparent);
   }
   .sd-chan-row--active {
     border-left-color: var(--color-sd-mint-deep);
-    background: rgb(74 187 162 / 0.09);
+    background: color-mix(in srgb, var(--color-sd-mint-deep) 9%, transparent);
   }
   .sd-chan-icon {
     display: grid;
@@ -294,11 +295,8 @@
     background: var(--color-sd-rule);
   }
   .sd-chan-icon--ai {
-    color: #4a3766;
-    background: rgb(139 116 190 / 0.18);
-  }
-  [data-theme='dark'] .sd-chan-icon--ai {
-    color: #cbbcf0;
+    color: var(--color-sd-violet-ink);
+    background: color-mix(in srgb, var(--color-sd-violet) 18%, transparent);
   }
   .sd-chan-title {
     overflow: hidden;
@@ -380,8 +378,8 @@
     background: var(--color-sd-teal-deep);
   }
   .sd-msg--ai {
-    border-color: rgb(139 116 190 / 0.3);
-    background: rgb(139 116 190 / 0.13);
+    border-color: color-mix(in srgb, var(--color-sd-violet) 30%, transparent);
+    background: color-mix(in srgb, var(--color-sd-violet) 13%, transparent);
   }
   .sd-msg-author {
     display: flex;
@@ -396,6 +394,11 @@
     margin-top: 3px;
     color: var(--color-sd-ink-hint);
     font-size: 11px;
+  }
+  /* On the teal own-bubble the hint colour would fall to 3:1; the time takes
+     the bubble's own text colour (mint-paper on teal-deep, 8.5:1 / 10.5:1). */
+  .sd-msg--mine .sd-msg-time {
+    color: inherit;
   }
   .sd-msg-row--mine .sd-msg-time {
     text-align: right;
@@ -422,7 +425,7 @@
   .sd-composer textarea:focus-visible {
     border-color: var(--color-sd-mint-deep);
     outline: none;
-    box-shadow: 0 0 0 3px rgb(74 187 162 / 0.18);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-sd-mint-deep) 18%, transparent);
   }
   .sd-send {
     display: grid;

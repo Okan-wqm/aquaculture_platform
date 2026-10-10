@@ -260,7 +260,7 @@ const ChatRoomPage: React.FC = () => {
   const visibleMessages = messages.filter((m) => !m.isDeleted);
 
   return (
-    <div className="sd-page max-w-[520px]">
+    <div className="sd-page sd-stack max-w-[520px]">
       <div className="sd-card sd-card--flush sd-chat-card">
         {/* Header */}
         <div className="sd-chat-head">

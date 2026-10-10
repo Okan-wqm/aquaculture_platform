@@ -141,6 +141,20 @@ describe('SuderraSidebar', () => {
     expect(rail().getAttribute('data-open')).toBe('true');
   });
 
+  it('closes when the pointer leaves after a click — pointer focus does not hold it open', () => {
+    renderRail();
+    fireEvent.mouseEnter(rail());
+    const billing = screen.getByRole('button', { name: 'Billing' });
+    fireEvent.pointerDown(billing);
+    act(() => {
+      billing.focus();
+    });
+    fireEvent.pointerUp(billing);
+    fireEvent.click(billing);
+    fireEvent.mouseLeave(rail());
+    expect(rail().getAttribute('data-open')).toBe('false');
+  });
+
   it('stays open once pinned, after the pointer leaves', () => {
     renderRail();
     fireEvent.mouseEnter(rail());

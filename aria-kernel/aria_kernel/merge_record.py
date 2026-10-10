@@ -116,6 +116,48 @@ def opened_row(rows: list[dict[str, Any]], *, pr_number: int | None = None,
     return found
 
 
+# ARIA-HIGH-408 — where one kernel PR's lifecycle stands, read from this
+# ledger alone. `open` is an `opened` row with no later lifecycle end.
+PR_STATE_OPEN = "open"
+# Precedence when a PR has several rows: a merge observed after a close (a
+# reopen writes no `opened` row) is the PR's outcome, and a refused merge ends
+# it; a close or an unreadable head only describes it until then.
+_PR_STATE_PRECEDENCE = ("merged", EVENT_MERGE_UNPROVEN, EVENT_LINEAGE_UNVERIFIED, EVENT_CLOSED_UNMERGED)
+
+
+def pull_requests_for_change(rows: list[dict[str, Any]], *, proposal_id: str,
+                             change_id: str | None) -> list[dict[str, Any]]:
+    """The PRs the kernel opened for one gated change, each with its lifecycle state.
+
+    ARIA-HIGH-408 — "this change's PR exists / merged / closed" is this
+    ledger's fact: the ``opened`` row is written by the one ``gh pr create``
+    (``pr_manager._create_pull_request``) whichever lane asked for it, and
+    the terminal rows by this module. A reader asking whether a change still
+    needs a PR asks here instead of keeping a second copy of the answer on
+    the apply action or the proposal, which no writer advances.
+
+    Bound by the change the apply action names, as the implementation
+    reconciler binds a plan to its PRs: a newer staging of the same proposal
+    is a different change and is not hidden by an older PR. An action that
+    names no change (``plan_apply_worktree``, the operator lane, mints none)
+    has one branch per proposal, so its PRs are the proposal's.
+    """
+    opened: dict[int, None] = {}
+    for row in rows:
+        if row.get("event") != "opened" or row.get("proposal_id") != proposal_id:
+            continue
+        if change_id is not None and row.get("change_id") != change_id:
+            continue
+        if type(row.get("pr_number")) is int:
+            opened.setdefault(row["pr_number"], None)
+    result = []
+    for number in opened:
+        events = {row.get("event") for row in rows if row.get("pr_number") == number}
+        state = next((event for event in _PR_STATE_PRECEDENCE if event in events), PR_STATE_OPEN)
+        result.append({"pr_number": number, "pr_state": state})
+    return result
+
+
 def merged_row_instant(row: Mapping[str, Any]) -> str:
     """When a merged row's merge happened: GitHub's ``merged_at``, else (rows before it was carried) the record time."""
     return str(row.get("merged_at") or row.get("recorded_at") or "")
@@ -399,6 +441,7 @@ __all__ = [
     "MERGED_BY_OBSERVED",
     "MergeLineageUnverified",
     "MergeNotProven",
+    "PR_STATE_OPEN",
     "classify_merged_head",
     "closed_recheck_due",
     "lifecycle_rows",
@@ -408,6 +451,7 @@ __all__ = [
     "merged_row_is_arias",
     "observed_merge",
     "opened_row",
+    "pull_requests_for_change",
     "record_merge",
     "record_pr_unmergeable",
     "verify_merge_after_rejection",

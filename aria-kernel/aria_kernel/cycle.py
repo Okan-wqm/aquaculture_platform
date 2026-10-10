@@ -3117,6 +3117,7 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
     # ORPHAN-HIGH-499's mutation invisible to a `hasattr` test, and it would let
     # a future reader conclude the edge is still here.
     from .apply_engine import IN_FLIGHT_APPLY_STATUSES, latest_apply_action
+    from .merge_record import lifecycle_rows, pull_requests_for_change
     from .pr_manager import open_pr_for_action
     from .proposal import list_proposals
 
@@ -3135,19 +3136,45 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
     # downgraded the whole cycle on `status == "fail"`, and nothing ever
     # cleared the proposal. Work that has not finished is not work that
     # failed; this phase reports it and moves on.
+    #
+    # ARIA-HIGH-408 — and a gated change whose PR the kernel already opened
+    # is DELIVERED, not a candidate. `ready_for_pr` is the gate's verdict on
+    # the change and stays true after the PR opens; nothing advances it, and
+    # nothing should, because "this change's PR exists / merged / closed" has
+    # one owner already: the pr-lifecycle ledger (`opened` from the one
+    # `gh pr create`, whichever lane asked; `merged` / `closed_unmerged` from
+    # `merge_record`). Reading only the action, this phase asked
+    # `open_pr_for_action` to preview PR #1906 — opened by the executor,
+    # merged by a person — on every cycle after it opened; the preview was
+    # refused (the executor's local branch is not on a fresh runner) and
+    # every cycle terminated FAILED. A closed-unmerged PR is that delivery's
+    # outcome, not a reason to open a second PR for the same change: a new
+    # attempt is a new staging, with a new change.
+    lifecycle = lifecycle_rows(base_dir)
     candidates: list[dict[str, Any]] = []
     in_flight: list[dict[str, Any]] = []
+    delivered: list[dict[str, Any]] = []
     for prop in list_proposals(base_dir=base_dir):
         if prop.get("status") != "approved_for_apply":
             continue
-        action = latest_apply_action(
-            proposal_id=str(prop.get("proposal_id") or ""), base_dir=base_dir,
-        )
+        proposal_id = str(prop.get("proposal_id") or "")
+        action = latest_apply_action(proposal_id=proposal_id, base_dir=base_dir)
         status = (action or {}).get("status")
         if status in IN_FLIGHT_APPLY_STATUSES:
             in_flight.append({
                 "proposal_id": prop.get("proposal_id"),
                 "apply_action_status": status,
+            })
+            continue
+        change_id = (action or {}).get("change_id")
+        pull_requests = pull_requests_for_change(
+            lifecycle, proposal_id=proposal_id, change_id=change_id,
+        ) if action else []
+        if pull_requests:
+            delivered.append({
+                "proposal_id": proposal_id,
+                "change_id": change_id,
+                "pull_requests": pull_requests,
             })
             continue
         candidates.append(prop)
@@ -3234,6 +3261,9 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
         # Reported, never counted: an operator reading the cycle row must be
         # able to see the staged work that is waiting for its implementer.
         "in_flight": in_flight,
+        # Reported, never counted: the gated changes whose PRs exist, with
+        # where each PR's lifecycle stands (open / merged / closed_unmerged).
+        "delivered": delivered,
     }
 
 

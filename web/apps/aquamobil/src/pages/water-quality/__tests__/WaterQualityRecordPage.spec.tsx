@@ -18,6 +18,9 @@ const h = vi.hoisted(() => ({
   graphqlRequest: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   addToQueue: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   navigate: vi.fn(),
+  // The `parameters` prop of every DynamicMeasurementForm render — the plan
+  // as the page handed it to the form (MOB-MEDIUM-006).
+  formParameters: [] as unknown[],
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -46,19 +49,23 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
 // values so the assertion is about THIS page's payload, not the form's UI.
 vi.mock('@aquaculture/farm-shared', () => ({
   DynamicMeasurementForm: ({
+    parameters,
     onSubmit,
   }: {
+    parameters: unknown;
     onSubmit: (
       values: Record<string, number | string | boolean>,
       notes: string,
       weatherConditions?: string,
     ) => void;
-  }) =>
-    createElement(
+  }) => {
+    h.formParameters.push(parameters);
+    return createElement(
       'button',
       { onClick: () => onSubmit({ temperature: 12.5, ph: 7.2 }, 'clear water', 'sunny') },
       'Submit measurement',
-    ),
+    );
+  },
 }));
 
 import { WaterQualityRecordPage } from '../WaterQualityRecordPage';
@@ -108,6 +115,7 @@ describe('WaterQualityRecordPage — queue-first contract (MOB-CRITICAL-021)', (
 
   beforeEach(() => {
     vi.clearAllMocks();
+    h.formParameters = [];
     h.isOnline = true;
     h.addToQueue.mockResolvedValue({ status: 'queued', id: 'op-1' });
     h.graphqlRequest.mockImplementation((_document: unknown, variables?: unknown) => {
@@ -148,6 +156,56 @@ describe('WaterQualityRecordPage — queue-first contract (MOB-CRITICAL-021)', (
     for (const [document] of h.graphqlRequest.mock.calls) {
       expect(isMutationDocument(document)).toBe(false);
     }
+  });
+
+  // MOB-MEDIUM-006: the required flag of each field is the PLAN entry's
+  // `required`, not a property of the parameter config. Two entries with
+  // opposite flags, out of display order: a hard-coded flag either way, or a
+  // flag read from anywhere but the entry, fails this.
+  it("hands the unit measurement plan to the form with each entry's required flag", async () => {
+    const optionalPh = {
+      required: false,
+      parameter: {
+        ...PARAMETER.parameter,
+        id: 'p-0',
+        code: 'ph',
+        name: 'pH',
+        unit: 'pH',
+        displayOrder: 0,
+      },
+    };
+    h.graphqlRequest.mockImplementation((_document: unknown, variables?: unknown) => {
+      const vars = (variables ?? {}) as { unitId?: string };
+      if (vars.unitId !== undefined) {
+        return Promise.resolve({
+          unitMeasurementPlan: { planned: true, entries: [PARAMETER, optionalPh] },
+        });
+      }
+      return Promise.resolve({ equipmentList: { items: [] } });
+    });
+
+    render(createElement(WaterQualityRecordPage), { wrapper: wrapper(client) });
+    await screen.findByRole('button', { name: /Submit measurement/ });
+
+    // The plan is read for the picked unit.
+    expect(h.graphqlRequest).toHaveBeenCalledWith(expect.anything(), { unitId: 'eq-1' });
+    const parameters = h.formParameters.at(-1);
+    expect(parameters).toEqual([
+      expect.objectContaining({ code: 'ph', isRequired: false, displayOrder: 0 }),
+      expect.objectContaining({
+        code: 'temperature',
+        isRequired: true,
+        displayOrder: 1,
+        limits: {
+          optimalMin: 8,
+          optimalMax: 16,
+          warningMin: 6,
+          warningMax: 18,
+          criticalMin: 4,
+          criticalMax: 20,
+        },
+      }),
+    ]);
   });
 
   it('shows the queued op\'s real sync status online instead of a green "recorded"', async () => {

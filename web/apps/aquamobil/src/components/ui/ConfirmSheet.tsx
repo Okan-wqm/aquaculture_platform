@@ -13,10 +13,10 @@
  * `errorMessage`, so the user is never told an action succeeded while
  * recoverable data remains (MT-MEDIUM-050).
  */
-import { clsx } from 'clsx';
 import { useCallback, useState, type ReactElement } from 'react';
 
 import { BottomSheet } from './BottomSheet';
+import { Button } from './Button';
 
 export type ConfirmTone = 'danger' | 'primary';
 
@@ -40,11 +40,6 @@ export interface ConfirmSheetProps {
   /** Error from a failed confirm, shown inside the sheet. */
   errorMessage?: string | null;
 }
-
-const CONFIRM_TONE_CLASS: Record<ConfirmTone, string> = {
-  danger: 'bg-red-600 text-white',
-  primary: 'bg-ocean-600 text-white',
-};
 
 export function ConfirmSheet({
   isOpen,
@@ -77,32 +72,25 @@ export function ConfirmSheet({
       isBusy={isPending}
       showCloseButton={false}
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
+      <p className="text-body text-ink-2">{message}</p>
       {errorMessage && (
-        <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="mt-3 text-body text-crit" role="alert">
           {errorMessage}
         </p>
       )}
       <div className="mt-6 flex gap-3">
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          block
           onClick={onCancel}
           disabled={isPending}
-          className="min-h-[3rem] flex-1 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 touch-feedback transition-colors disabled:opacity-50 dark:border-gray-700 dark:text-gray-300"
+          className="flex-1"
         >
           {cancelLabel}
-        </button>
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={isPending}
-          className={clsx(
-            'min-h-[3rem] flex-1 rounded-xl text-sm font-medium touch-feedback transition-colors disabled:opacity-50',
-            CONFIRM_TONE_CLASS[tone],
-          )}
-        >
+        </Button>
+        <Button variant={tone} block onClick={handleConfirm} loading={isPending} className="flex-1">
           {confirmLabel}
-        </button>
+        </Button>
       </div>
     </BottomSheet>
   );

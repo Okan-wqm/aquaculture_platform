@@ -98,7 +98,13 @@ describe('useSendMessage post-upload send retry (MSG-LOW-052)', () => {
 
   it('does NOT queue a retry when the online send succeeds', async () => {
     h.graphqlRequest.mockResolvedValue({
-      sendMessage: { id: 'm1', channelId: 'channel-1', content: null, contentType: 'IMAGE', createdAt: '' },
+      sendMessage: {
+        id: 'm1',
+        channelId: 'channel-1',
+        content: null,
+        contentType: 'IMAGE',
+        createdAt: '',
+      },
     });
 
     const { result } = renderHook(() => useSendMessage('channel-1'), {

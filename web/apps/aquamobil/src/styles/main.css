@@ -1,4 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+/* v4 design tokens + self-hosted Geist. MUST precede the Tailwind layers so the
+   custom properties exist before any utility resolves `var(--…)`.
+   WHY not a Google Fonts @import (which this replaces): AquaMobil is an
+   offline-first PWA — a CDN font drops out exactly when the worker is in the
+   field with no signal, which is the case the app exists for. */
+@import './tokens.css';
 
 @tailwind base;
 @tailwind components;
@@ -35,25 +40,41 @@ html {
   overscroll-behavior-y: contain;
 }
 
-/* WHY: System font stack with DM Sans primary — provides consistent typography across
-   iOS (SF Pro fallback) and Android (Roboto fallback) while maintaining brand identity. */
+/* WHY: the v4 motion layer (spring page transitions, the springing sheet, the
+   blipping status dots) is decorative. A worker who has asked their OS for
+   reduced motion gets the same information with none of the movement — the
+   `both` fill on the entrance animations means content still ends up visible. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* WHY `background` (not `background-color`): the `colour` theme's --bg is a
+   gradient. `background-attachment: fixed` keeps it anchored so scrolling a long
+   list doesn't drag the gradient with it. Surfaces stay solid so one
+   `bg-surface-N` utility works in every theme. */
 body {
-  @apply bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  background-attachment: fixed;
+  color: var(--ink1);
+  font-family:
+    'Geist',
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Display',
+    'Segoe UI',
+    Roboto,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* WHY: Touch-action manipulation prevents 300ms tap delay on mobile browsers */
   touch-action: manipulation;
-}
-
-/* WHY: gray-400 is body copy here (captions, helper text, empty states), so it
-   is assigned per theme — darkened for sunlight on white, Tailwind's own value
-   on the dark surfaces — and tailwind.config.js reads this variable. */
-:root {
-  --am-gray-400: 107 114 128;
-}
-.dark {
-  --am-gray-400: 156 163 175;
 }
 
 /* WHY: Thin scrollbar — on mobile WebViews, visible scrollbars compete with content.
@@ -68,32 +89,40 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+  background: var(--line2);
+  border-radius: 9999px;
 }
 
 /* WHY: Shimmer animation provides a loading skeleton effect that signals content is arriving.
    The ocean-blue tint maintains brand consistency even during loading states. */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    rgba(0, 115, 230, 0.04) 25%,
-    rgba(0, 115, 230, 0.08) 50%,
-    rgba(0, 115, 230, 0.04) 75%
-  );
-  background-size: 200% 100%;
+  background:
+    linear-gradient(90deg, transparent 25%, var(--acc-dim) 50%, transparent 75%), var(--s2);
+  background-size:
+    200% 100%,
+    auto;
   animation: shimmer 1.5s infinite;
 }
 
 /* WHY: Offline pulse animation draws attention to the offline indicator without being distracting.
    The 2-second cycle is slow enough to not cause motion sickness in sensitive users. */
 @keyframes pulse-offline {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .offline-pulse {
@@ -102,31 +131,35 @@ body {
 
 /* WHY: Gradient text utility for hero sections — used sparingly for visual emphasis */
 .text-gradient-ocean {
-  background: linear-gradient(135deg, #0073e6, #3080ff);
+  background: linear-gradient(135deg, var(--acc), var(--type-water));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* WHY: Glass morphism effect for floating elements (modals, toasts) — provides visual depth
-   while maintaining readability of content behind the overlay. */
+/* WHY: Glass morphism for floating elements (sign-in card, toasts) — visual depth
+   without losing readability of what sits behind.
+   WHAT changed in v4: the two hardcoded light/dark variants collapsed into the
+   surface tokens, so glass follows the active theme instead of only knowing
+   light and dark. */
 .glass {
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--s1) 78%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.dark .glass {
-  background: rgba(30, 41, 59, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line2);
 }
 
 /* WHY: Slide up animation for install prompts and bottom sheets — follows Material Design
    motion guidelines for surface elevation changes (entering from below). */
 @keyframes slide-up {
-  from { transform: translateY(100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .animate-slide-up {
@@ -136,8 +169,12 @@ body {
 /* WHY: Backdrop fade for BottomSheet — the scrim eases in behind the rising
    sheet instead of snapping to 40% black; paired with slide-up above. */
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .animate-fade-in {
@@ -147,10 +184,20 @@ body {
 /* WHY: Bounce-once animation for success checkmarks — a single bounce draws attention
    to the success state without the infinite looping that causes visual fatigue. */
 @keyframes bounce-once {
-  0% { transform: scale(0.3); opacity: 0; }
-  50% { transform: scale(1.1); }
-  70% { transform: scale(0.95); }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  70% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .animate-bounce-once {
@@ -174,6 +221,141 @@ body {
 /* WHY: Selection color matches brand — when users long-press to select text,
    the highlight color should be consistent with the app's color scheme. */
 ::selection {
-  background: rgba(0, 115, 230, 0.2);
+  background: var(--acc-dim);
 }
 
+/* ── Caveat (self-hosted, public/fonts) ─────────────────────────────────
+ * Brand tagline script for the sign-in miniature (web-login parity).
+ * Local file, not a CDN link — the offline-first typography invariant
+ * (design-token spec) bans remote font hosts for the field app.
+ * ────────────────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/caveat-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/caveat-600.woff2') format('woff2');
+}
+
+/* ── Sign-in miniature (mirrors web/shell AuthLayout .industrial-auth) ────
+ * WHY here and not in the component: the sign-in screen is a miniature of the
+ * web login, whose deep-sea ground, frosted card and teal ink are brand art,
+ * not themeable UI chrome — they do not follow night/day/colour, exactly like
+ * the shell's .industrial-auth. Their shades live in this stylesheet (as the
+ * shell's do in web/shell/src/styles/index.css) so LoginPage writes classes,
+ * and only its tablet/phone scale reaches the DOM as runtime style.
+ * ────────────────────────────────────────────────────────────────────── */
+.am-auth-ground {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgb(127 214 224 / 0.18), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 50% 5%, rgb(200 240 238 / 0.1), transparent 70%),
+    linear-gradient(180deg, #0b324a 0%, #0a2b40 18%, #061b2c 40%, #04111c 70%, #020a12 100%);
+  font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+.am-auth-card {
+  border: 1px solid rgb(255 255 255 / 0.55);
+  background: rgb(240 246 247 / 0.58);
+  box-shadow:
+    0 24px 80px -20px rgb(0 0 0 / 0.65),
+    0 8px 24px -8px rgb(0 30 50 / 0.5),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  backdrop-filter: blur(10px) saturate(130%);
+}
+.am-auth-highlight {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  z-index: 1;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  pointer-events: none;
+}
+.am-auth-chip {
+  top: 12px;
+  right: 12px;
+  padding: 4px 9px;
+  border: 1px solid rgb(20 58 92 / 0.12);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.4);
+  color: #294e65;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.am-auth-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #2f8ca0;
+  box-shadow: 0 0 6px rgb(47 140 160 / 0.8);
+}
+.am-auth-lockup {
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 14px rgb(2 30 45 / 0.14));
+}
+.am-auth-tagline {
+  margin: 6px 0 0;
+  max-width: 300px;
+  text-align: center;
+  color: #1c3b66;
+  font-family: 'Caveat', cursive;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.am-auth-title {
+  color: #14304a;
+}
+.am-auth-ink {
+  color: #294e65;
+}
+.am-auth-accent-ink {
+  color: #217a8e;
+}
+.am-auth-notice-warn {
+  background: rgb(200 154 60 / 0.14);
+  border: 1px solid rgb(200 154 60 / 0.5);
+  color: #92610a;
+}
+.am-auth-notice-crit {
+  background: rgb(176 74 40 / 0.1);
+  border: 1px solid rgb(176 74 40 / 0.4);
+  color: #8e3a1e;
+}
+.am-auth-notice-crit-icon {
+  color: #b04a28;
+}
+.am-auth-field {
+  background: rgb(255 255 255 / 0.52);
+  color: #14304a;
+  border: 1px solid rgb(20 58 92 / 0.22);
+}
+.am-auth-submit {
+  background: #4fb6c8;
+  color: #04222a;
+  border: 1px solid rgb(143 220 230 / 0.8);
+  box-shadow: 0 8px 20px -8px rgb(79 182 200 / 0.55);
+}
+.am-auth-rule {
+  border-color: rgb(20 58 92 / 0.14);
+}
+.am-auth-alt {
+  background: rgb(255 255 255 / 0.4);
+  color: #217a8e;
+  border: 1px solid rgb(47 140 160 / 0.45);
+}
+.am-auth-footer {
+  border-top: 1px solid rgb(20 58 92 / 0.1);
+  color: #294e65;
+}
+.am-auth-version {
+  color: rgb(234 246 249 / 0.5);
+}

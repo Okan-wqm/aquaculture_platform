@@ -8,9 +8,10 @@
  * fields on the warehouse and record paths. One `Field` owns the contract:
  * label ↔ control through `useId`, the error under the field wired with
  * `aria-describedby` + `aria-invalid`, `required` on the control, the 44 px
- * touch floor, the focus ring (no global `!important` rule), and the dark
- * palette. A label may be visually hidden (`hideLabel`) when a section title
- * already names the field — it is never omitted.
+ * touch floor and the focus ring. Colour comes from the v4 semantic tokens
+ * (src/styles/tokens.css), so one class is right in all three themes. A label
+ * may be visually hidden (`hideLabel`) when a section title already names the
+ * field — it is never omitted.
  */
 import { clsx } from 'clsx';
 import {
@@ -40,12 +41,12 @@ interface FieldRenderProps {
 }
 
 const CONTROL =
-  'block w-full rounded-xl border bg-white text-base text-gray-900 placeholder:text-gray-400 transition-colors ' +
-  'focus:outline-none focus:border-ocean-500 focus-visible:ring-2 focus-visible:ring-ocean-500/30 ' +
-  'disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500';
+  'block w-full rounded-xl border bg-surface-1 text-body text-ink-1 placeholder:text-ink-3 transition-colors ' +
+  'focus:outline-none focus:border-acc focus-visible:ring-2 focus-visible:ring-acc ' +
+  'disabled:cursor-not-allowed disabled:opacity-60';
 const CONTROL_STATE = {
-  valid: 'border-gray-200 dark:border-gray-700',
-  invalid: 'border-red-500 dark:border-red-500',
+  valid: 'border-line',
+  invalid: 'border-crit',
 };
 
 export function Field({
@@ -65,27 +66,23 @@ export function Field({
     <div className={twMerge('block', className)}>
       <label
         htmlFor={id}
-        className={clsx(
-          hideLabel
-            ? 'sr-only'
-            : 'mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300',
-        )}
+        className={clsx(hideLabel ? 'sr-only' : 'mb-2 block text-body font-semibold text-ink-1')}
       >
         {label}
         {required && (
-          <span className="ml-1 text-red-500" aria-hidden="true">
+          <span className="ml-1 text-crit" aria-hidden="true">
             *
           </span>
         )}
       </label>
       {children({ id, describedBy, invalid: Boolean(error) })}
       {error ? (
-        <p id={errorId} role="alert" className="mt-1.5 text-sm text-red-600 dark:text-red-400">
+        <p id={errorId} role="alert" className="mt-2 text-body text-crit">
           {error}
         </p>
       ) : (
         hint && (
-          <p id={hintId} className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+          <p id={hintId} className="mt-1.5 text-meta text-ink-3">
             {hint}
           </p>
         )
@@ -99,11 +96,24 @@ export interface InputProps
     FieldProps {
   /** A lucide icon rendered inside the control's leading edge */
   leading?: ReactNode;
+  /** One control at the trailing edge, inside the field — a clear button */
+  trailing?: ReactNode;
   inputClassName?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, hideLabel, hint, error, required, className, leading, inputClassName, ...rest },
+  {
+    label,
+    hideLabel,
+    hint,
+    error,
+    required,
+    className,
+    leading,
+    trailing,
+    inputClassName,
+    ...rest
+  },
   ref,
 ) {
   return (
@@ -118,7 +128,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       {({ id, describedBy, invalid }) => (
         <div className="relative">
           {leading && (
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3">
               {leading}
             </span>
           )}
@@ -135,11 +145,15 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                 invalid ? CONTROL_STATE.invalid : CONTROL_STATE.valid,
                 'min-h-touch px-4 py-3',
                 leading && 'pl-10',
+                trailing && 'pr-12',
               ),
               inputClassName,
             )}
             {...rest}
           />
+          {trailing && (
+            <span className="absolute right-0 top-1/2 -translate-y-1/2">{trailing}</span>
+          )}
         </div>
       )}
     </Field>

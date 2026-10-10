@@ -46,6 +46,39 @@ function hasBackgroundSync(
   return 'sync' in reg;
 }
 
+/**
+ * How long queueOperation waits for an active service worker before it skips
+ * Background Sync registration. Exported so the spec pins the bound it asserts.
+ */
+export const SERVICE_WORKER_READY_TIMEOUT_MS = 3_000;
+
+/**
+ * `navigator.serviceWorker.ready`, bounded.
+ *
+ * WHY: per spec `.ready` never rejects — it stays pending until a worker is
+ * active, which on an untrusted-certificate origin (or any context where the SW
+ * never registers) is never. Every caller that awaits it directly inherits that
+ * hang. This resolves to the registration when a worker becomes ready within
+ * `timeoutMs`, and to `null` otherwise — "no worker" is an expected state the
+ * caller handles, not an error — and clears its timer either way so a resolved
+ * wait leaves nothing scheduled behind it.
+ */
+export function waitForServiceWorker(timeoutMs: number): Promise<ServiceWorkerRegistration | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    navigator.serviceWorker.ready.then(
+      (registration) => {
+        clearTimeout(timer);
+        resolve(registration);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
 /** Maximum number of operations that can be queued offline before requiring a sync. */
 export const MAX_QUEUE_SIZE = 200;
 /** Threshold at which the UI should warn the user the queue is nearly full. */
@@ -364,8 +397,19 @@ export async function queueOperation<K extends OperationType>(
   // is called by the app), and the SyncManager presence check gates it there.
   if (hasValidAuth && 'serviceWorker' in navigator && 'SyncManager' in globalThis) {
     try {
-      const registration = await navigator.serviceWorker.ready;
-      if (hasBackgroundSync(registration)) {
+      // WHY bounded: `serviceWorker.ready` never rejects and stays pending until a
+      // worker activates. On an origin whose certificate the device does not
+      // trust (a by-IP deployment) the SW never registers, so an unbounded await
+      // here never returned and EVERY record submission hung on "Recording…"
+      // (2026-09-17 field finding). Background Sync is an optimisation on top of
+      // the queue: the record is already persisted above, and the in-app
+      // auto-sync (plain fetch, no SW) drains it while the app is open.
+      const registration = await waitForServiceWorker(SERVICE_WORKER_READY_TIMEOUT_MS);
+      if (registration === null) {
+        logger.info(
+          'No active service worker; Background Sync skipped, in-app sync drains the queue',
+        );
+      } else if (hasBackgroundSync(registration)) {
         await registration.sync.register('sync-operations');
 
         // ADR-012: Register messaging-specific sync tag for priority processing.

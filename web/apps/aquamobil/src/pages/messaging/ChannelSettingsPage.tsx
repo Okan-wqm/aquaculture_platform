@@ -31,15 +31,20 @@ import {
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { IconButton, Switch } from '../../components/ui';
-
+import { AppHeader } from '@/components/AppHeader';
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { MemberRow } from '@/components/messaging/MemberRow';
 import { SentimentBadge } from '@/components/messaging/SentimentBadge';
-import { BottomSheet } from '@/components/ui/BottomSheet';
-import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { Spinner } from '@/components/ui/Spinner';
+import {
+  BottomSheet,
+  Button,
+  Card,
+  ConfirmSheet,
+  EmptyState,
+  IconButton,
+  Skeleton,
+  Switch,
+} from '@/components/ui';
 import { useAiConsent } from '@/hooks/useAiConsent';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelActions } from '@/hooks/useChannelActions';
@@ -192,10 +197,10 @@ export function ChannelSettingsPage(): JSX.Element {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <PageHeader tone="plain" title="Channel Info" />
-        <div className="flex items-center justify-center min-h-[50vh]">
-          <Spinner size="lg" />
+      <div className="min-h-screen">
+        <AppHeader title="Channel Info" onBack={() => navigate(-1)} showAvatar={false} />
+        <div className="px-4">
+          <Skeleton variant="tile" count={3} />
         </div>
       </div>
     );
@@ -204,16 +209,16 @@ export function ChannelSettingsPage(): JSX.Element {
   // Error state
   if (error || !channel) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <PageHeader tone="plain" title="Channel Info" />
-        <div className="px-4 mt-4">
-          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-center gap-3 border border-red-200 dark:border-red-800">
-            <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
-            <span className="text-red-600 dark:text-red-300 text-sm">
-              {error || 'Channel not found'}
-            </span>
-          </div>
-        </div>
+      <div className="min-h-screen">
+        <AppHeader title="Channel Info" onBack={() => navigate(-1)} showAvatar={false} />
+        {/* tone="error" announces itself and takes the alarm tile, so a failed
+            fetch cannot be mistaken for an empty channel. */}
+        <EmptyState
+          tone="error"
+          icon={<AlertCircle size={22} />}
+          title="Could not load channel"
+          description={error || 'Channel not found'}
+        />
       </div>
     );
   }
@@ -223,12 +228,12 @@ export function ChannelSettingsPage(): JSX.Element {
   const currentNotifOption = NOTIFICATION_OPTIONS.find((o) => o.value === myNotifPref);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <PageHeader tone="plain" title="Channel Info" />
+    // The page ground comes from <body>, so no background is set here.
+    <div className="min-h-screen">
+      <AppHeader title="Channel Info" onBack={() => navigate(-1)} showAvatar={false} />
 
       {/* Channel avatar + name */}
-      <div className="flex flex-col items-center pt-6 pb-4 px-4">
+      <div className="flex flex-col items-center pt-2 pb-4 px-4">
         <ChannelAvatar
           type={avatarType}
           name={displayName}
@@ -238,65 +243,61 @@ export function ChannelSettingsPage(): JSX.Element {
 
         <div className="mt-3 text-center">
           <div className="flex items-center justify-center gap-2">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">{displayName}</h2>
+            <h2 className="text-head font-bold text-ink-1">{displayName}</h2>
             {canEdit && channel.type === 'group' && (
-              <IconButton
-                aria-label="Rename group"
-                className="rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                <Edit3 size={14} className="text-gray-400 dark:text-gray-500" />
+              // IconButton supplies the 44px floor and the accessible name this
+              // icon-only control never had. It carries no handler today — that
+              // is unchanged here; wiring it is not a restyle.
+              <IconButton aria-label="Edit channel name" className="hover:bg-surface-2">
+                <Edit3 size={14} className="text-ink-3" />
               </IconButton>
             )}
           </div>
           {channel.type === 'group' && (
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            <p className="text-body text-ink-3 mt-0.5">
               Group - {channel.memberCount ?? activeMembers.length} members
             </p>
           )}
           {channel.description && (
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xs">
-              {channel.description}
-            </p>
+            <p className="text-body text-ink-3 mt-1 max-w-xs">{channel.description}</p>
           )}
         </div>
       </div>
 
       {/* Notifications section */}
       <div className="px-4 pt-2">
-        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2">
+        <h3 className="text-meta font-semibold text-ink-3 uppercase tracking-wider px-1 mb-2">
           Notifications
         </h3>
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
+        <Card className="overflow-hidden">
           <button
             onClick={() => setShowNotifPicker(!showNotifPicker)}
-            className="w-full flex items-center gap-3 p-4 touch-feedback transition-all"
+            className="w-full flex items-center gap-3 p-4 min-h-touch touch-feedback transition-all"
           >
-            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center">
+            {/* The accent, not amber: this tile shows the ACTIVE setting, and in
+                v4 the accent carries every active state. Amber is reserved for a
+                watch condition, which a notification preference is not. */}
+            <div className="w-10 h-10 rounded-xl bg-acc-dim flex items-center justify-center">
               {currentNotifOption ? (
-                <currentNotifOption.icon size={20} className="text-amber-600" />
+                <currentNotifOption.icon size={20} className="text-acc" />
               ) : (
-                <Bell size={20} className="text-amber-600" />
+                <Bell size={20} className="text-acc" />
               )}
             </div>
             <div className="flex-1 text-left min-w-0">
-              <span className="font-medium text-gray-900 dark:text-white">
+              <span className="text-title font-medium text-ink-1">
                 {currentNotifOption?.label ?? 'All Messages'}
               </span>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {currentNotifOption?.description ?? ''}
-              </p>
+              <p className="text-meta text-ink-3 mt-0.5">{currentNotifOption?.description ?? ''}</p>
             </div>
             <ChevronRight
               size={18}
-              className={clsx(
-                'text-gray-300 dark:text-gray-600 transition-transform',
-                showNotifPicker && 'rotate-90',
-              )}
+              className={clsx('text-ink-3 transition-transform', showNotifPicker && 'rotate-90')}
             />
           </button>
 
           {showNotifPicker && (
-            <div className="border-t border-gray-100 dark:border-gray-800">
+            <div className="border-t border-line">
               {NOTIFICATION_OPTIONS.map((option) => {
                 const OptIcon = option.icon;
                 const isSelected = myNotifPref === option.value;
@@ -306,27 +307,26 @@ export function ChannelSettingsPage(): JSX.Element {
                     onClick={() => {
                       void handleNotifChange(option.value);
                     }}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 touch-feedback transition-all border-b border-gray-50 dark:border-gray-800 last:border-0"
+                    className="w-full flex items-center gap-3 px-4 py-3.5 min-h-touch touch-feedback transition-all border-b border-line last:border-0"
                   >
-                    <OptIcon
-                      size={18}
-                      className={isSelected ? 'text-ocean-500' : 'text-gray-400 dark:text-gray-500'}
-                    />
+                    <OptIcon size={18} className={isSelected ? 'text-acc' : 'text-ink-3'} />
                     <div className="flex-1 text-left">
                       <span
                         className={clsx(
-                          'text-sm',
-                          isSelected
-                            ? 'font-semibold text-ocean-600 dark:text-ocean-400'
-                            : 'font-medium text-gray-700 dark:text-gray-300',
+                          'text-body',
+                          isSelected ? 'font-semibold text-acc' : 'font-medium text-ink-2',
                         )}
                       >
                         {option.label}
                       </span>
                     </div>
                     {isSelected && (
-                      <div className="w-5 h-5 bg-ocean-500 rounded-full flex items-center justify-center">
-                        <Check strokeWidth="3" size={12} aria-hidden="true" />
+                      // A lucide Check on the accent replaces the inline SVG with
+                      // its hardcoded white stroke — `--on-acc` is the ink the
+                      // theme puts on a saturated fill, and white is wrong on the
+                      // day theme's lighter teal.
+                      <div className="w-5 h-5 bg-acc rounded-full flex items-center justify-center">
+                        <Check size={12} strokeWidth={3} className="text-acc-on" />
                       </div>
                     )}
                   </button>
@@ -334,50 +334,53 @@ export function ChannelSettingsPage(): JSX.Element {
               })}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* Members section */}
       {channel.type === 'group' && (
         <div className="px-4 pt-6">
           <div className="flex items-center justify-between px-1 mb-2">
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            <h3 className="text-meta font-semibold text-ink-3 uppercase tracking-wider">
               Members ({activeMembers.length})
             </h3>
             {canEdit && (
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => setShowAddMemberSheet(true)}
-                className="flex items-center gap-1 text-xs text-ocean-500 font-medium touch-feedback"
+                className="text-acc text-body px-2"
               >
                 <UserPlus size={14} />
                 Add
-              </button>
+              </Button>
             )}
           </div>
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden divide-y divide-gray-50 dark:divide-gray-800">
+          <Card className="overflow-hidden divide-y divide-line">
             {activeMembers.map((member) => (
               <MemberRow key={member.id} member={member} />
             ))}
-          </div>
+          </Card>
         </div>
       )}
 
       {/* AI Analysis section (TENANT_ADMIN only) */}
       {isTenantAdmin && (
         <div className="px-4 pt-6">
-          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2">
+          <h3 className="text-meta font-semibold text-ink-3 uppercase tracking-wider px-1 mb-2">
             AI Analysis
           </h3>
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
+          <Card className="overflow-hidden">
             {/* AI Analysis Toggle */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-50 dark:border-gray-800">
+            <div className="flex items-center justify-between p-4 border-b border-line">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center">
-                  <Brain size={20} className="text-purple-600" />
+                {/* Teal rather than a violet of its own: there is no AI token,
+                    and a hand-picked purple is the one colour no theme owns. */}
+                <div className="w-10 h-10 rounded-xl bg-acc-dim flex items-center justify-center">
+                  <Brain size={20} className="text-acc" />
                 </div>
                 <div>
-                  <span className="font-medium text-gray-900 dark:text-white">AI Analysis</span>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  <span className="text-title font-medium text-ink-1">AI Analysis</span>
+                  <p className="text-meta text-ink-3 mt-0.5">
                     {isAiEnabled ? 'Enabled for this tenant' : 'Not enabled for tenant'}
                   </p>
                 </div>
@@ -388,15 +391,14 @@ export function ChannelSettingsPage(): JSX.Element {
                 checked={hasConsented && isAiEnabled}
                 onChange={() => void toggleConsent()}
                 disabled={!isAiEnabled || aiConsentLoading}
-                tone="violet"
               />
             </div>
 
             {/* Consent Status */}
-            <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-800">
+            <div className="px-4 py-3 border-b border-line">
               <div className="flex items-center gap-2">
-                <Sparkles size={14} className="text-gray-400 dark:text-gray-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">
+                <Sparkles size={14} className="text-ink-3" />
+                <span className="text-meta text-ink-3">
                   Consent: {hasConsented ? 'Granted' : 'Not granted'}
                 </span>
               </div>
@@ -407,71 +409,71 @@ export function ChannelSettingsPage(): JSX.Element {
                 never a fabricated verdict (MOB-MEDIUM-003). */}
             {latestSentiment !== null && (
               <div className="px-4 py-3 flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Weekly Sentiment</span>
+                <span className="text-body text-ink-2">Weekly Sentiment</span>
                 <SentimentBadge trend={latestSentiment.badge} />
               </div>
             )}
-          </div>
+          </Card>
         </div>
       )}
 
       {/* Media & Links section */}
       <div className="px-4 pt-6">
-        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2">
+        <h3 className="text-meta font-semibold text-ink-3 uppercase tracking-wider px-1 mb-2">
           Shared Content
         </h3>
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
-          <button className="w-full flex items-center gap-3 p-4 touch-feedback transition-all border-b border-gray-50 dark:border-gray-800">
-            <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center">
-              <Image size={20} className="text-purple-600" />
+        <Card className="overflow-hidden">
+          {/* Neutral tiles: these two rows are navigation, not status, and v4
+              spends colour only on state or on a log type. */}
+          <button className="w-full flex items-center gap-3 p-4 min-h-touch touch-feedback transition-all border-b border-line">
+            <div className="w-10 h-10 rounded-xl bg-surface-2 flex items-center justify-center">
+              <Image size={20} className="text-ink-2" />
             </div>
-            <span className="font-medium text-gray-900 dark:text-white flex-1 text-left">
-              Media
-            </span>
-            <ChevronRight size={18} className="text-gray-300 dark:text-gray-600" />
+            <span className="text-title font-medium text-ink-1 flex-1 text-left">Media</span>
+            <ChevronRight size={18} className="text-ink-3" />
           </button>
-          <button className="w-full flex items-center gap-3 p-4 touch-feedback transition-all">
-            <div className="w-10 h-10 rounded-xl bg-green-50 dark:bg-green-900/30 flex items-center justify-center">
-              <Link size={20} className="text-green-600" />
+          <button className="w-full flex items-center gap-3 p-4 min-h-touch touch-feedback transition-all">
+            <div className="w-10 h-10 rounded-xl bg-surface-2 flex items-center justify-center">
+              <Link size={20} className="text-ink-2" />
             </div>
-            <span className="font-medium text-gray-900 dark:text-white flex-1 text-left">
-              Shared Links
-            </span>
-            <ChevronRight size={18} className="text-gray-300 dark:text-gray-600" />
+            <span className="text-title font-medium text-ink-1 flex-1 text-left">Shared Links</span>
+            <ChevronRight size={18} className="text-ink-3" />
           </button>
-        </div>
+        </Card>
       </div>
 
       {/* Danger zone */}
       <div className="px-4 pt-6">
-        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2">
+        <h3 className="text-meta font-semibold text-ink-3 uppercase tracking-wider px-1 mb-2">
           Actions
         </h3>
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
+        <Card className="overflow-hidden">
+          {/* Coral here IS an alarm, not decoration: both rows are irreversible
+              from the worker's side, so they take the crit token. */}
           <button
             onClick={() => setShowLeaveDialog(true)}
             disabled={actionLoading}
-            className="w-full flex items-center gap-3 p-4 touch-feedback transition-all border-b border-gray-50 dark:border-gray-800"
+            className="w-full flex items-center gap-3 p-4 min-h-touch touch-feedback transition-all border-b border-line"
           >
-            <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 flex items-center justify-center">
-              <LogOut size={20} className="text-red-600" />
+            <div className="w-10 h-10 rounded-xl bg-crit-dim flex items-center justify-center">
+              <LogOut size={20} className="text-crit" />
             </div>
-            <span className="font-medium text-red-600 dark:text-red-400">Leave Channel</span>
+            <span className="text-title font-medium text-crit">Leave Channel</span>
           </button>
 
           {isOwner && (
             <button
               onClick={() => setShowDeleteDialog(true)}
               disabled={actionLoading}
-              className="w-full flex items-center gap-3 p-4 touch-feedback transition-all"
+              className="w-full flex items-center gap-3 p-4 min-h-touch touch-feedback transition-all"
             >
-              <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 flex items-center justify-center">
-                <Trash2 size={20} className="text-red-600" />
+              <div className="w-10 h-10 rounded-xl bg-crit-dim flex items-center justify-center">
+                <Trash2 size={20} className="text-crit" />
               </div>
-              <span className="font-medium text-red-600 dark:text-red-400">Delete Channel</span>
+              <span className="text-title font-medium text-crit">Delete Channel</span>
             </button>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* Confirmation sheets */}
@@ -508,14 +510,14 @@ export function ChannelSettingsPage(): JSX.Element {
             value={addMemberSearch}
             onChange={(e) => setAddMemberSearch(e.target.value)}
             placeholder="Search by name or email..."
-            className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500"
+            className="w-full rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-body text-ink-1 placeholder-ink-3 focus:outline-none focus:ring-2 focus:ring-acc focus:border-acc"
           />
         </div>
 
         {/* User list */}
         <div className="min-h-0 flex-1 overflow-y-auto">
           {availableUsers.length === 0 ? (
-            <p className="text-center text-sm text-gray-400 dark:text-gray-500 py-6">
+            <p className="text-center text-body text-ink-3 py-6">
               {addMemberSearch ? 'No users match your search' : 'All users are already members'}
             </p>
           ) : (
@@ -527,22 +529,18 @@ export function ChannelSettingsPage(): JSX.Element {
                     void handleAddMember(u.id);
                   }}
                   disabled={actionLoading}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 touch-feedback transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 min-h-touch rounded-xl hover:bg-surface-2 touch-feedback transition-colors"
                 >
-                  <div className="w-10 h-10 rounded-full bg-ocean-100 dark:bg-ocean-900/30 flex items-center justify-center flex-shrink-0">
-                    <span className="text-sm font-bold text-ocean-600 dark:text-ocean-400">
+                  <div className="w-10 h-10 rounded-full bg-acc-dim flex items-center justify-center flex-shrink-0">
+                    <span className="text-body font-bold text-acc">
                       {u.name.charAt(0).toUpperCase()}
                     </span>
                   </div>
                   <div className="flex-1 text-left min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                      {u.name}
-                    </p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{u.email}</p>
+                    <p className="text-body font-medium text-ink-1 truncate">{u.name}</p>
+                    <p className="text-meta text-ink-3 truncate">{u.email}</p>
                   </div>
-                  {u.isOnline && (
-                    <div className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
-                  )}
+                  {u.isOnline && <div className="w-2.5 h-2.5 rounded-full bg-ok flex-shrink-0" />}
                 </button>
               ))}
             </div>

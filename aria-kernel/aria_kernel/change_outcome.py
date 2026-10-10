@@ -71,6 +71,7 @@ from .change_ledger import (
     _ledger_dir,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .merge_record import fold_merged_rows, merged_row_instant, merged_row_is_arias
 from .state_manifest import iter_surfaces
 from .tool_registry import (
     GovernanceError,
@@ -466,9 +467,8 @@ def _merge_index(tools_root: Path) -> dict[str, dict[str, Any]]:
         if isinstance(change_id, str) and change_id and pr_number is not None:
             changes_by_pr.setdefault(pr_number, set()).add(change_id)
     index: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        if row.get("event") != "merged":
-            continue
+    # ARIA-HIGH-409 — each merged row with its lineage attestation folded.
+    for row in fold_merged_rows(rows):
         for change_id in changes_by_pr.get(row.get("pr_number"), set()):
             index[change_id] = row  # later merged row wins
     return index
@@ -523,11 +523,19 @@ def recompute_change_outcome(
             f"merged pr-lifecycle row; an outcome is a statement about a "
             f"change that reached main, not about one that might"
         )
-    merged_at = _parse_instant(str(merge_row.get("recorded_at") or ""))
+    # ARIA-HIGH-390 (review of #1910, F1/F2) — the merge GitHub observed
+    # is the anchor, and a head carrying a person's commits is not ARIA's
+    # change to grade.
+    if not merged_row_is_arias(merge_row):
+        raise GovernanceError(
+            f"change_outcome_merge_head_diverged: {change_id!r} merged at a head whose lineage is "
+            f"{merge_row.get('head_lineage')!r}, not ARIA's delivered change"
+        )
+    merged_at = _parse_instant(merged_row_instant(merge_row))
     if merged_at is None:
         raise GovernanceError(
             f"change_outcome_merge_anchor_unreadable: merged row for "
-            f"{change_id!r} carries no parseable recorded_at"
+            f"{change_id!r} carries no parseable merged_at"
         )
 
     ctx = EvaluationContext(
@@ -876,7 +884,7 @@ def _capture_assessment_inputs(
     merged_at = _parse_instant(str(original.get("merged_at") or ""))
     merges = [row for row in pr_rows if row.get("event") == "merged"
               and row.get("pr_number") == pr_number
-              and _parse_instant(str(row.get("recorded_at") or "")) == merged_at]
+              and _parse_instant(merged_row_instant(row)) == merged_at]
     if not openings or not merges or merged_at is None or evaluated_at < merged_at:
         raise GovernanceError("change_assessment_original_merge_unavailable")
 
@@ -1091,7 +1099,10 @@ def evaluate_change_outcomes(
         if merge_row is None:
             _skip("not_merged")
             continue
-        merged_at = _parse_instant(str(merge_row.get("recorded_at") or ""))
+        if not merged_row_is_arias(merge_row):
+            _skip("merge_head_diverged")
+            continue
+        merged_at = _parse_instant(merged_row_instant(merge_row))
         if merged_at is None:
             _skip("merge_anchor_unreadable")
             continue

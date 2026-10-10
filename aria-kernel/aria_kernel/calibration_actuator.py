@@ -64,6 +64,7 @@ from .calibration_dials import (
     auto_applied_rows,
     dial_bounds,
     feedback_dial,
+    moves_auto_applied_dial,
 )
 
 MAX_STEP_PER_CYCLE = 10
@@ -92,7 +93,7 @@ def _labels(feedback: list[dict[str, Any]], tool: str, since: datetime | None) -
 
     tp = fp = 0
     for row in feedback:
-        if feedback_dial(row) != (TOOL_DIAL, tool):
+        if feedback_dial(row) != (TOOL_DIAL, tool) or not moves_auto_applied_dial(row):
             continue
         stamp = parse_utc_stamp(str(row.get("recorded_at") or ""))
         if since is not None and (stamp is None or stamp <= since):

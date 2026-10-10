@@ -84,6 +84,8 @@ CROSS_REVIEW_REASON_CODES: frozenset[str] = frozenset({
 ATTRIBUTABLE_GATE_CODES: frozenset[str] = CROSS_REVIEW_REASON_CODES | frozenset({
     "plan_contract_incomplete", "critical_risks_present", "high_risks_present", "unknown_risks_present",
     "new_risk_category_round_3", "coverage_gaps_present", "architecture_spine_regression",
+    # ARIA-HIGH-397 — the body prescribed an import its project cannot resolve.
+    "prescribed_imports_unresolved",
 })
 #: The codes the kernel's own ``force_plan_human_required`` callers write
 #: (convergence_drainer, plan_round_controller, converged_delivery). A forced

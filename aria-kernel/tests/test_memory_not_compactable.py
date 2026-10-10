@@ -32,6 +32,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 from aria_kernel import state_compact, state_store
@@ -60,7 +61,10 @@ from aria_kernel.state_store import (
     tools_root,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
-from tests._helpers.declared_fixtures import append_declared_fixture, rewrite_declared_fixture
+from tests._helpers.declared_fixtures import (
+    append_declared_fixture,
+    rewrite_declared_out_of_band,
+)
 from tests.test_state_publish_maintenance import MaintenanceLaneTestCase
 from tests.test_state_store import REPO_HASH, _EnvPatch, _git
 
@@ -90,32 +94,66 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _memory_surface_file(root: Path, surface) -> Path:
+    """The one file a test seeds a memory surface through.
+
+    A glob ledger (``plan_convergence_events`` is ``plans/*.jsonl``) is the
+    surface, not a single path, so the seed picks one deterministic file of
+    the family — the gates protect each file of the family the same way. A
+    monthly-segment surface (ARIA-HIGH-275) lives in the segment the
+    rollover's own append path wrote (it opens the segment with its marker);
+    call ``_seed_memory`` before asking for it.
+    """
+    from aria_kernel.ledger import segment_family, segment_paths
+
+    family = segment_family(surface.name)
+    if family != surface.name:
+        return segment_paths(root, family)[-1]
+    if "*" in surface.path_pattern:
+        return root / surface.path_pattern.replace("*", "memory-seed")
+    return resolve_surface_path(root, surface)
+
+
+def _memory_row(version: int) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "belief_id": "b-0",
+        "event": "learned",
+        "recorded_at": _old_ts(30 - version),
+        "version": version,
+    }
+
+
 def _seed_memory(root: Path) -> dict[str, str]:
     """Every memory surface with rows the retired compactors would have cut:
     old timestamps and one id recorded three times."""
+    from aria_kernel import ledger
+    from aria_kernel.ledger import segment_family, segment_paths
+
     digests: dict[str, str] = {}
     for surface in memory_surfaces():
-        path = resolve_surface_path(root, surface)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        for version in range(3):
-            append_declared_fixture(
-                path,
-                {
-                    "schema_version": 1,
-                    "belief_id": "b-0",
-                    "event": "learned",
-                    "recorded_at": _old_ts(30 - version),
-                    "version": version,
-                },
-                expected_surface=surface.name,
-            )
+        family = segment_family(surface.name)
+        if family != surface.name:
+            for version in range(3):
+                ledger.append_segment_rows(
+                    root, [_memory_row(version)],
+                    expected_surface=family, bypass_profile_gate=True,
+                )
+            path = segment_paths(root, family)[-1]
+        else:
+            path = _memory_surface_file(root, surface)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            for version in range(3):
+                append_declared_fixture(
+                    path, _memory_row(version), expected_surface=surface.name,
+                )
         digests[surface.name] = _sha(path)
     return digests
 
 
 def _assert_memory_unchanged(test: unittest.TestCase, root: Path, digests: dict[str, str]) -> None:
     for surface in memory_surfaces():
-        path = resolve_surface_path(root, surface)
+        path = _memory_surface_file(root, surface)
         test.assertTrue(path.is_file(), f"{surface.name} must survive")
         test.assertEqual(_sha(path), digests[surface.name], f"{surface.name} must be byte-identical")
 
@@ -274,7 +312,9 @@ class ContinuityNamesAMemoryRewrite(unittest.TestCase):
 
     def test_fewer_rows_outranks_a_loss_that_could_be_vouched_for(self) -> None:
         rows = load_declared_jsonl(self.beliefs, expected_surface="memory_beliefs")
-        rewrite_declared_fixture(self.beliefs, rows[-1:], expected_surface="memory_beliefs")
+        # Out of band: the writer refuses this rewrite (memory_class), and the
+        # continuity verdict is what must name it — the loss arrived as bytes.
+        rewrite_declared_out_of_band(self.beliefs, rows[-1:], expected_surface="memory_beliefs")
         (self.tools / "cycles.jsonl").unlink()
         verdict = snapshot_continuity(self._chained(self._build("snap-2")), self.first)
         self.assertEqual(verdict["status"], MEMORY_REWRITE_STATUS)
@@ -305,7 +345,7 @@ class ContinuityNamesAMemoryRewrite(unittest.TestCase):
         rows = load_declared_jsonl(self.beliefs, expected_surface="memory_beliefs")
         rows[0] = {**rows[0], "status": "rewritten"}
         rows.append({"schema_version": 1, "belief_id": "b-new"})
-        rewrite_declared_fixture(self.beliefs, rows, expected_surface="memory_beliefs")
+        rewrite_declared_out_of_band(self.beliefs, rows, expected_surface="memory_beliefs")
         unchecked = self._chained(self._build("snap-2"))
         self.assertEqual(snapshot_continuity(unchecked, self.first)["memory_rewrites"], [])
         with self.assertRaisesRegex(SnapshotError, f"snapshot_{MEMORY_REWRITE_STATUS}:memory_beliefs"):
@@ -345,7 +385,7 @@ class APublishNeverShrinksMemory(MaintenanceLaneTestCase):
         head = _git(store.root, "rev-parse", "HEAD").strip()
         # Exactly what the retired belief compaction did: latest row per id.
         rows = load_declared_jsonl(beliefs, expected_surface="memory_beliefs")
-        rewrite_declared_fixture(beliefs, rows[-1:], expected_surface="memory_beliefs")
+        rewrite_declared_out_of_band(beliefs, rows[-1:], expected_surface="memory_beliefs")
 
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}), self.assertRaisesRegex(
             SnapshotError, f"snapshot_{MEMORY_REWRITE_STATUS}:memory_beliefs",
@@ -362,7 +402,7 @@ class APublishNeverShrinksMemory(MaintenanceLaneTestCase):
         tip = read_published_snapshot(store)
         head = _git(store.root, "rev-parse", "HEAD").strip()
         rows = load_declared_jsonl(beliefs, expected_surface="memory_beliefs")
-        rewrite_declared_fixture(beliefs, rows[:1], expected_surface="memory_beliefs")
+        rewrite_declared_out_of_band(beliefs, rows[:1], expected_surface="memory_beliefs")
         snapshot = build_snapshot(
             snapshot_id="snap-2", cycle_id="cycle-2", lane="test",
             roots=state_store.store_roots(store, REPO_HASH),

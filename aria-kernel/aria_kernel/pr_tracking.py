@@ -102,6 +102,8 @@ def observe_pr_event(
         "apply_ref": payload.get("apply_ref"),
         "validation_refs": _string_list(payload.get("validation_refs")),
     }
+    if isinstance(payload.get("attributed_to_aria"), bool):
+        row["attributed_to_aria"] = payload["attributed_to_aria"]
     root = ensure_tools_dir(base_dir)
     append_jsonl(root / "pr-events.jsonl", row)
     if event == "merged" or row.get("merge_commit_sha"):
@@ -123,6 +125,8 @@ def ingest_merged_pr_lifecycle(
     producer that carries them across, keyed on (pr_number, head_sha) so a
     re-run ingests nothing twice.
     """
+    from .merge_record import fold_merged_rows, merged_row_instant, merged_row_is_arias
+
     root = ensure_tools_dir(base_dir)
     seen = {
         (row.get("pr_number"), row.get("head_sha"))
@@ -133,9 +137,9 @@ def ingest_merged_pr_lifecycle(
         return {"ingested": [], "already_known": 0}
     ingested: list[dict[str, Any]] = []
     already_known = 0
-    for row in load_declared_jsonl(lifecycle_path, expected_surface="pr_lifecycle"):
-        if row.get("event") != "merged":
-            continue
+    # ARIA-HIGH-409 — merged rows with their lineage attestation folded; the
+    # key stays the merged row's own head, so an attestation ingests nothing.
+    for row in fold_merged_rows(load_declared_jsonl(lifecycle_path, expected_surface="pr_lifecycle")):
         key = (row.get("pr_number"), row.get("head_sha"))
         if key in seen:
             already_known += 1
@@ -147,13 +151,18 @@ def ingest_merged_pr_lifecycle(
                     "event": "merged",
                     "pr_number": row.get("pr_number"),
                     "head_sha": row.get("head_sha"),
-                    # Squash merges mint a new commit the lifecycle row does not
-                    # carry; the merged head SHA is the anchor we can prove.
-                    "merge_commit_sha": None,
+                    # The merge commit GitHub reported, when the row carries
+                    # it (ARIA-HIGH-390); the merged head SHA is the anchor.
+                    "merge_commit_sha": row.get("merge_sha"),
                     "changed_files": _string_list(row.get("changed_files")),
-                    "merged_at": row.get("recorded_at"),
+                    "merged_at": merged_row_instant(row),
                     "source": "pr_lifecycle",
                     "proposal_id": row.get("proposal_id"),
+                    # Review of #1910, L4 — impact analysis sees every merge
+                    # of an ARIA PR; one whose head is not ARIA's change (a
+                    # person's commits, an unread head) is carried
+                    # unattributed, so nothing downstream credits ARIA for it.
+                    "attributed_to_aria": merged_row_is_arias(row),
                 },
                 base_dir=root,
             )

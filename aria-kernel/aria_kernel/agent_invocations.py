@@ -5535,7 +5535,13 @@ def judge_claim_submission(
     submitted_role = strict_request.get("role") or envelope.get("role")
     if submitted_role in PLAN_AUTHORING_ROLES:
         submitted_body = submitted_plan_content(submitted_role, envelope)
-        for violation in plan_contract_violations(submitted_body, base_dir=root):
+        # ARIA-HIGH-397 — the body is held to the contract its plan started under.
+        from .plan_convergence import fold_plan_state as _fold_for_contract, started_contract_version
+
+        _contract_plan = strict_request.get("convergence_id")
+        _contract_version = started_contract_version(
+            _fold_for_contract(plan_id=_contract_plan, base_dir=root) if _contract_plan else None)
+        for violation in plan_contract_violations(submitted_body, base_dir=root, contract_version=_contract_version):
             reject("plan_contract", f"plan_contract: {violation}")
         # ARIA-HIGH-355 review — the bridge's own refusals (shape, origin,
         # admission bound, evidence), judged before acceptance for the same

@@ -232,7 +232,8 @@ class ImplementationEnvelopeValidatesTests(unittest.TestCase):
             plan_content=converging_plan_content(
                 "ARIA-HIGH-104 shape plan",
                 affected_surfaces=[{"paths": ["apps/farm-service/src/sample.ts"]}],
-                key_changes=[{"id": "kc-1", "description": "set the interval", "paths": ["apps/farm-service/src/sample.ts"]}],
+                key_changes=[{"id": "kc-1", "description": "set the interval", "paths": ["apps/farm-service/src/sample.ts"],
+                              "imports": []}],
                 finding_id="ORPHAN-HIGH-104",
             ),
         )
@@ -457,7 +458,8 @@ class ConvergedPlanWithBannedWordsStillMintsTests(unittest.TestCase):
             plan_content=converging_plan_content(
                 "ARIA-HIGH-104 banned-words plan",
                 affected_surfaces=[{"paths": [self.path]}],
-                key_changes=[{"id": self.key_change_id, "description": self.plan_text, "paths": [self.path]}],
+                key_changes=[{"id": self.key_change_id, "description": self.plan_text, "paths": [self.path],
+                              "imports": []}],
                 validation_commands=[{"cmd": "nx affected --target=test"}, {"recipe_id": "recipe-104-banned-words"}],
             ),
         )

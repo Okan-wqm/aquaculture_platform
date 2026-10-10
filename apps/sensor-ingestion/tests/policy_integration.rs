@@ -102,7 +102,10 @@ async fn start_nats_broker() -> (
     // `nats:2.10-alpine` is the image `aqua-nats` runs — pin the
     // minor so a container registry refresh cannot silently upgrade
     // the test broker to a major version with different defaults.
-    let container = GenericImage::new("nats", "2.10-alpine")
+    // Pulled through the ECR Public mirror of the Docker official
+    // images: CI runners share Docker Hub's anonymous pull quota
+    // (INFRA-HIGH-213, tests/invariants/ci-image-registry.spec.ts).
+    let container = GenericImage::new("public.ecr.aws/docker/library/nats", "2.10-alpine")
         .with_exposed_port(4222.tcp())
         .with_wait_for(WaitFor::message_on_stderr("Server is ready"))
         .with_cmd(vec!["-m", "8222", "-DV"])

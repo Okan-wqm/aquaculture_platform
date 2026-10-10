@@ -16,7 +16,7 @@ from aria_kernel.judgment_bridge import (
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.request_admission import admit_request
-from tests._helpers.declared_fixtures import sha256_file
+from tests._helpers.declared_fixtures import rewrite_declared_out_of_band, sha256_file
 
 
 def _seed_repo() -> Path:
@@ -132,18 +132,20 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             base_dir=self.tools,
             admission=admit_request("operator_cli.request", role, base_dir=self.tools),
         )
-        # Inject the legacy request fields the bridge needs.
-        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl, segment_paths
+        # Inject the legacy request fields the bridge needs. Out of band on
+        # purpose: the segment is memory now (the memory-laws finding), and
+        # the writer refuses to edit a recorded row — the fixture writes the
+        # bytes the way the legacy shape actually arrived.
+        from aria_kernel.ledger import load_declared_jsonl, segment_paths
         path = segment_paths(self.tools, "agent_invocation_requests")[-1]  # the request's segment
         rows = load_declared_jsonl(path, expected_surface="agent_invocation_requests")
         rows[-1]["tool_id"] = "demo-adapter"
         rows[-1]["run_id"] = "run-001"
         rows[-1]["finding_id"] = "F-001"
-        rewrite_declared_jsonl(
+        rewrite_declared_out_of_band(
             path,
             rows,
             expected_surface="agent_invocation_requests",
-            migration_id="test-fixture-legacy-request-fields",
         )
         request = rows[-1]
 

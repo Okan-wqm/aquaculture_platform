@@ -535,6 +535,7 @@ def render_response_validator_contract() -> str:
         "  a non-empty `evidence_refs` list. `evidence` is not read; put the reason in `note`.",
         f"- Banned phrases anywhere in `note` or `rationale` reject the envelope: {banned}.",
         f"- A refusal is a separate `{REFUSAL_SCHEMA}` envelope with `reason_class` ∈ {{{reasons}}}.",
+        "  An implementation refusal may add `enabling_surfaces` (repo paths it needed outside its scope).",
         "- `output_path`, when present, must equal the request's `expected_output_path`.",
         "",
         "### Plan contract (roles `primary_plan` and `challenger_plan`; `cross_review` verifies it)",

@@ -1971,6 +1971,20 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual([(row["failure_mode"], row["attributable"]) for row in implementer],
                          [("implementer_refused", False)])
 
+    def test_a_scope_refusal_the_kernel_cannot_replan_stays_with_a_person_with_the_reason(self) -> None:
+        # ARIA-HIGH-397 — the executor asks the re-plan first; a plan with no
+        # operator-signed write roots (this fixture's) is not re-planned, and
+        # the HUMAN_REQUIRED record names why.
+        self._install_implementer(commit=False, refusal="scope")
+        completed, _worktree = self._run_in_request_worktree()
+        self.assertEqual(completed.returncode, ci_executor.REFUSAL_EXIT_CODE, self._diagnostic(completed))
+        self.assertIn("implementation_replan status=ineligible", completed.stderr)
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "HUMAN_REQUIRED")
+        [record] = self._human_required()
+        self.assertEqual(record["context"]["replan"]["status"], "ineligible")
+        self.assertTrue(record["context"]["replan"]["reason"])
+        self._assert_settled("agent_refusal", "implementer_refused", "unclassified")
+
     def test_no_delivery_authority_mints_nothing_and_keeps_the_request(self) -> None:
         # ARIA-HIGH-388 (adversarial review, HIGH-2) — under `standard` the
         # request is released harness-class BEFORE the identity mint and the

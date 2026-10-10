@@ -78,7 +78,7 @@ jobs:
           - 5432:5432
 
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s

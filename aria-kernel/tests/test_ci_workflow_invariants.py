@@ -32,6 +32,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from tests._helpers.kernel_lane import kernel_lane_surface
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
@@ -181,19 +183,24 @@ class CIWorkflowInvariants(unittest.TestCase):
         self.assertEqual(violations, [], msg="\n".join(violations))
 
     def test_the_kernel_lane_fires_on_pr_and_on_every_main_push(self) -> None:
-        # Clause 3 — the one kernel lane. Its PR trigger carries the suite's
-        # own inputs (ARIA-HIGH-098: an adapters-only PR must run the
-        # registry contract; ARIA-MEDIUM-135: docs/adr/** came over from
-        # the retired fast lane so a SPEC/ADR amendment fires it on the PR)
-        # and its push trigger is unfiltered (ARIA-V-007).
+        # Clause 3 — the one kernel lane. It runs on every PR, unfiltered,
+        # because `aria-kernel` is a required context and a filtered trigger
+        # never reports on a PR outside the filter (INFRA-HIGH-215). Its
+        # `changes` job runs the suite for the suite's own inputs
+        # (ARIA-HIGH-098: an adapters-only PR must run the registry contract;
+        # ARIA-MEDIUM-135: docs/adr/** came over from the retired fast lane so
+        # a SPEC/ADR amendment fires it on the PR), and its push trigger is
+        # unfiltered (ARIA-V-007).
         kernel = self.workflows.get("aria-kernel.yml")
         self.assertIsNotNone(kernel, "aria-kernel.yml missing")
         on = kernel.get("on") if "on" in kernel else kernel.get(True)
         self.assertIsInstance(on, dict, msg="aria-kernel.yml has no `on:` block")
-        paths = (on.get("pull_request") or {}).get("paths") or []
+        self.assertIn("pull_request", on, msg="aria-kernel.yml must run on pull requests")
+        self.assertIsNone(on["pull_request"], msg="aria-kernel.yml: the pull_request trigger must be unfiltered")
+        surface = kernel_lane_surface(kernel)
         for required in ("aria-kernel/**", "scripts/ci/aria-suite-run.sh", "docs/aria/**", "docs/adr/**",
                          "tools/aria-adapters/**"):
-            self.assertIn(required, paths, f"aria-kernel.yml: pull_request.paths lacks {required}")
+            self.assertIn(required, surface, f"aria-kernel.yml: the kernel surface lacks {required}")
         self.assertIn("push", on, msg="aria-kernel.yml must run on every main push")
 
     def test_deleted_kernel_fast_stays_deleted(self) -> None:

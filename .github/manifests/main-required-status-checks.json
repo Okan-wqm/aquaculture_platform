@@ -154,10 +154,11 @@
         {
           "context": "aria-kernel",
           "job_id": "aria-kernel",
-          "requires_jobs": ["suite", "lane", "state"],
+          "requires_jobs": ["changes", "suite", "lane", "state"],
           "required_markers": [
             "Verify the shards ran the whole suite once",
-            "Require every kernel job"
+            "Require every kernel job",
+            "false) expected=skipped ;;"
           ]
         }
       ]

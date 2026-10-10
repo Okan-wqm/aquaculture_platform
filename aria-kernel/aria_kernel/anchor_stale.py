@@ -24,7 +24,8 @@ expiry cause (``anchor_expiry_cause``) and its owner (``expiry_ownership``):
    name when the finding no longer needs that judge (``subject_closed:``);
    hand to the operator when the lineage is spent
    (``MAX_EXPIRY_LINEAGE_REMINTS``, or ``ANCHOR_STALE_REMINT_BUDGET``
-   request-class expiries; an outage expiry spends no budget); otherwise
+   request-class expiries; a harness-class expiry, an outage or one after
+   only harness releases, spends no budget); otherwise
    re-mint at HEAD the way the fan-out mints today (``judge_remint``).
 
 THE BACKLOG. ``dispose_anchor_stale_requests`` runs inside the lease sweep
@@ -47,7 +48,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .anchor_expiry_cause import ANCHOR_STALE_REMINT_BUDGET, MAX_EXPIRY_LINEAGE_REMINTS, ExpiryCause
+from .anchor_expiry_cause import (
+    ANCHOR_STALE_REMINT_BUDGET,
+    MAX_EXPIRY_LINEAGE_REMINTS,
+    ExpiryCause,
+    expiry_causes,
+)
 from .anchor_stale_effects import (
     DISPOSITION_DROPPED,
     DISPOSITION_OPERATOR,
@@ -147,14 +153,6 @@ def decide_expiry_disposition(
     return ExpiryDecision(ACTION_REMINT, "subject_live")
 
 
-def _causes(claims: list[dict[str, Any]]) -> dict[str, ExpiryCause]:
-    """Each expired request's cause, from its terminal ``anchor_stale`` claim row."""
-    return {
-        str(row["request_id"]): ExpiryCause.from_reason(str(row.get("reason") or ""))
-        for row in claims if row.get("event") == "anchor_stale" and row.get("request_id")
-    }
-
-
 def _lineage(by_id: Mapping[str, Mapping[str, Any]], causes: Mapping[str, ExpiryCause], rid: str) -> Lineage:
     depth = spent = 0
     seen = {rid}
@@ -166,7 +164,8 @@ def _lineage(by_id: Mapping[str, Mapping[str, Any]], causes: Mapping[str, Expiry
         seen.add(parent)
         depth += 1
         cause = causes.get(parent)
-        # Only an outage expiry is free; an ancestor that died otherwise spends.
+        # Only a harness-class expiry is free (anchor_expiry_cause); an ancestor
+        # that died otherwise spends.
         if cause is None or cause.spends_remint_budget:
             spent += 1
         current = by_id.get(parent)
@@ -290,7 +289,7 @@ def dispose_anchor_stale_requests(
                                "reread_ownership": len(reread)}
     if not candidates:
         return summary
-    causes = _causes(claims)
+    causes = expiry_causes(claims)
     subjects = JudgeSubjectLiveness(base_dir=root, now=reference)
     planned: list[tuple[str, dict[str, Any], dict[str, Any] | None, ExpiryCause, ExpiryDecision]] = []
     waiting_admission: list[str] = []

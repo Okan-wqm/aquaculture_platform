@@ -3943,10 +3943,12 @@ ADMISSION_REFUSALS: dict[str, _AdmissionRefusalKind] = {
     ),
 }
 # A task-binding refusal (`_native_task_binding_refusal`) is not a fleet
-# outcome; it releases under the admission's general reason as before and
-# summarises as the executor's own policy.
+# outcome; it summarises as the executor's own policy and releases under its
+# own harness-class name, the one the hash-changed binding path uses.
+# ARIA-MEDIUM-427: it released under the fleet's reason, so the 70 releases
+# of 2026-09-18/19 (all `target_revision_mismatch`) read as logged-out sessions.
 TASK_BINDING_REFUSAL = _AdmissionRefusalKind(
-    release_reason="native_runtime_admission_unavailable",
+    release_reason="native_runtime_task_binding_unavailable",
     failure_class="policy_violation", retryable=False,
 )
 # ARIA-HIGH-115 — the implementer's signing identity could not be held in

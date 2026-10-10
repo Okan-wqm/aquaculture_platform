@@ -3391,7 +3391,7 @@ def _anchor_expiry_reason(
     """
     if (now - created).total_seconds() <= max_age_seconds:
         return None
-    from .anchor_expiry_cause import anchor_expiry_reason_in_outage
+    from .anchor_expiry_cause import ANCHOR_EXPIRED, anchor_expiry_reason_in_outage
     from .provider_clock import role_head_providers
 
     role = str(request.get("role") or "")
@@ -3400,7 +3400,7 @@ def _anchor_expiry_reason(
         return None
     overlapped = clock.overlapping(created, now, providers)
     if not overlapped:
-        return "anchor_expired"
+        return ANCHOR_EXPIRED
     return anchor_expiry_reason_in_outage(interval.provider for interval in overlapped)
 
 

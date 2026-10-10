@@ -45,7 +45,8 @@ The deploy now owns its dependencies.
   - The key also covers the npm major version and the project `.npmrc`. The install input is
     read once, and the same bytes are hashed and installed.
   - The install is built in a staging directory with a deploy-owned npm cache, an empty user
-    and global config, and a minimal environment (no `GHCR_TOKEN`). Every bare import of `scripts/deploy/**` must load from that directory.
+    and global config, and a minimal environment (no `GHCR_TOKEN`). Every bare import of
+    `scripts/deploy/**` must load from that directory.
     Only then is it renamed into place, and the checkout link is swapped with one
     `rename(2)`.
   - A deploy with an unchanged lockfile reuses the tree after verifying it, without npm.

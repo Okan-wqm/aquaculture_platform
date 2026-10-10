@@ -49,6 +49,8 @@ _KERNEL_WF = _REPO_ROOT / ".github" / "workflows" / "aria-kernel.yml"
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
+from tests._helpers.kernel_lane import kernel_lane_surface  # noqa: E402
+
 
 class PhaseB3SpecAdrAmendment(unittest.TestCase):
     @classmethod
@@ -168,9 +170,12 @@ class PhaseB3SpecAdrAmendment(unittest.TestCase):
         self.assertIsInstance(push, dict, "aria-kernel.yml must carry a push trigger")
         self.assertNotIn("paths", push, "an unfiltered push retriggers on SPEC/ADR edits; a paths filter is the only way to lose that")
         self.assertNotIn("paths-ignore", push, "an unfiltered push retriggers on SPEC/ADR edits; a paths-ignore filter is the only way to lose that")
-        pr_paths = (kernel_on.get("pull_request") or {}).get("paths") or []
+        # INFRA-HIGH-215 — the PR trigger is unfiltered (a required context
+        # must report on every PR); the `changes` job runs the suite for a
+        # SPEC/ADR amendment.
+        surface = kernel_lane_surface(yaml.safe_load(self.kernel_wf_text))
         for required in ("docs/aria/**", "docs/adr/**"):
-            self.assertIn(required, pr_paths, f"aria-kernel.yml pull_request.paths lacks {required}")
+            self.assertIn(required, surface, f"aria-kernel.yml: the kernel surface lacks {required}")
         self.assertFalse(
             (_REPO_ROOT / ".github" / "workflows" / "aria-kernel-fast.yml").exists(),
             "aria-kernel-fast.yml was retired (ARIA-MEDIUM-135)",

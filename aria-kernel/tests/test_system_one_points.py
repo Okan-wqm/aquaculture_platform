@@ -603,7 +603,12 @@ class Envelopes(unittest.TestCase):
         body = converging_plan_content(
             self._PLAN["title"], summary=self._PLAN["summary"], finding_id=self._PLAN["finding_id"],
             affected_surfaces=[{"paths": ["apps/tenant.ts"]}],
-            key_changes=[{"id": "kc-1", "description": "scope it", "paths": ["apps/tenant.ts"]}],
+            # Contract v2 (60dee947c): a key change that writes a source file declares
+            # `imports` — an empty list, it changes none. Without it the contract gate
+            # records plan_contract_incomplete, the plan never leaves CRITIQUED, and the
+            # envelope mint refuses `implementation_envelope_forbidden_on_state_CRITIQUED`.
+            key_changes=[{"id": "kc-1", "description": "scope it", "paths": ["apps/tenant.ts"],
+                          "imports": []}],
         )
         vendor = Vendor()
         answering = (patch("aria_kernel.system_one._transport", vendor) if behaviour is None

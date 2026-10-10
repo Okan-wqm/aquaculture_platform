@@ -31,8 +31,11 @@
   "reason": "https://github.com/Okan-wqm/aquaculture_platform/pull/1906 needs a human merge",
   "recorded_at": "2026-10-09T11:02:23Z",
   "request_id": "human-merge-pr-1906",
+  "resolution_note": "pr_merged_observed_on_github:https://github.com/Okan-wqm/aquaculture_platform/pull/1906",
+  "resolved_at": "2026-10-10T01:28:53Z",
+  "resolved_by": "github_observation",
   "schema_version": 1,
   "severity": "MEDIUM",
   "sla_deadline": "2026-10-16T11:02:23Z",
-  "status": "open"
+  "status": "resolved"
 }

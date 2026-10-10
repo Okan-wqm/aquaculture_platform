@@ -34,7 +34,7 @@
       "severity": "HIGH",
       "source_event_id": "finding:F-003:emitted",
       "source_ledger_hash": "sha256:e01d397362f01ae58aeef5d2efc94cb43eaf079825554f5009b2f7b28058c611",
-      "status": "OPEN"
+      "status": "RESOLVED"
     },
     {
       "claim_summary": "ui_option_drift: 'financescope' value sets diverge across 2 surfaces (cross_service=True)",
@@ -58,7 +58,7 @@
       "severity": "HIGH",
       "source_event_id": "finding:F-005:emitted",
       "source_ledger_hash": "sha256:80a2b2c19f3433463c46d249220f824cb1b4630f84ae6d142ada4770834e165d",
-      "status": "OPEN"
+      "status": "RESOLVED"
     },
     {
       "claim_summary": "ui_option_drift: 'financescope' value sets diverge across 2 surfaces (cross_service=True)",
@@ -82,7 +82,7 @@
       "severity": "HIGH",
       "source_event_id": "finding:F-007:emitted",
       "source_ledger_hash": "sha256:5941cd7594cd328c56a8918573a93b7536063b86ef64b1a85f4c8c6f27db0445",
-      "status": "OPEN"
+      "status": "RESOLVED"
     },
     {
       "claim_summary": "ui_option_drift: 'leaverequest' value sets diverge across 2 surfaces (cross_service=True)",
@@ -94,7 +94,7 @@
       "severity": "HIGH",
       "source_event_id": "finding:F-008:emitted",
       "source_ledger_hash": "sha256:6da89ac8847faf1601a49dfa4f5bcb72a871650ba768b66ca690a48c860872d0",
-      "status": "OPEN"
+      "status": "RESOLVED"
     },
     {
       "claim_summary": "AI consensus confirmed true positive at apps/admin-api-service/src/guards/__tests__/platform-admin.guard.spec.ts (tool test-gap-adapter, finding security-source-without-test:apps/hr-service/src/common/guards/gql-auth.guard.ts, confidence 0.825)",
@@ -178,7 +178,7 @@
       "severity": "HIGH",
       "source_event_id": "finding:F-015:emitted",
       "source_ledger_hash": "sha256:173bb612c7be043cdf52feaafcc986b43fcc43261b6a365b7999ae278bfc4968",
-      "status": "OPEN"
+      "status": "RESOLVED"
     },
     {
       "claim_summary": "Adapter rule 'tenant_raw_query_missing_tenant_predicate' of tenant-scoping-adapter is quarantined: 3/3 ground-truth verdicts are false positives \u2014 the matcher, not the code it flags, is the defect",
@@ -253,8 +253,8 @@
       "status": "OPEN"
     }
   ],
-  "generated_at": "2026-10-08T15:56:14Z",
+  "generated_at": "2026-10-10T01:28:46Z",
   "schema_version": 2,
   "source_ledger": "aria-findings/finding-events.jsonl",
-  "source_ledger_tip_hash": "sha256:40dc73b108c8fdeeefdd413f7b5a50ad30aeecadcc0e19b37c8b1d451e2ab951"
+  "source_ledger_tip_hash": "sha256:4b38b294b61de9957039c262410d52c1db49877bb8564932b770552916b28778"
 }

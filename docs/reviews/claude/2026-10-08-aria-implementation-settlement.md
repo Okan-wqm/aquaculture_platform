@@ -212,6 +212,9 @@ with its reason.
   plan ledger keeps `IMPLEMENTATION_REJECTED` and the finding is not closed by the merge.
   - Folding it in belongs to the one owner of "merged": ARIA-HIGH-390 (owner claude, deadline
     2026-10-17).
+  - ARIA-HIGH-390 is closed by `merge_record`, the one writer of "merged". An observed merge of
+    the plan's own PR at its delivered head folds the plan MERGED and closes its finding; see
+    `docs/reviews/claude/2026-10-09-aria-merged-one-owner.md`.
 - **The reaper's two races with a delivery, folded in from the final review of ARIA-HIGH-388.**
   - The reaper aged a plan by its ledger events, which a delivery in progress does not write. It
     could reap a plan whose request held a live claim lease, and the PR that delivery opened then

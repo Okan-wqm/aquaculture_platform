@@ -279,3 +279,13 @@ def settlement_for_replan(*, request_id: str, reason_class: str) -> Implementati
     """
     return ImplementationSettlement(IMPLEMENTATION_REPLANNED, FAULT_HARNESS, AGENT_REFUSAL_STAGE,
                                     _cause(reason_class), request_id)
+
+
+# ARIA-HIGH-390 — the classes that end a plan after its PR existed: a person
+# may still merge that PR, and the plan ledger then records the merge
+# (`merge_record`, `plan_convergence._record_implementation_merged`). Every
+# other rejection ended the plan before anything was published to merge.
+MERGEABLE_AFTER_REJECTION: frozenset[str] = frozenset({
+    IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
+    ORPHAN_REAPED,
+})

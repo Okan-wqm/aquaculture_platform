@@ -18,8 +18,16 @@ through this module.
 * ``record_parked_plan`` — ONE operator item per plan that ends
   HUMAN_REQUIRED, keyed by the plan (``plan-human-required-<plan_id>``), so
   every later caller's record is the same record. Both the cycle and the
-  executor call it, as does ``converged_delivery`` when it moves an ungated
-  CONVERGED plan to HUMAN_REQUIRED.
+  executor call it, as does ``converged_delivery`` for every CONVERGED plan
+  it moves to HUMAN_REQUIRED (ungated, unwritable scope, delivery
+  exhausted). The item carries the plan's delivery attempts from its own
+  ledger, so it says the same thing whichever caller wrote it.
+* ARIA-MEDIUM-429 — delivery exhaustion used to write a second item,
+  ``converged-delivery-exhausted-<plan>`` (``legacy_exhaustion_request_id``),
+  beside the one ``reconcile_parked_plans`` then added. Nothing writes it
+  now. The reconcile folds an open one into the plan's item, append-only:
+  its facts move onto the kept item, and it is resolved by the kernel,
+  naming that item.
 """
 from __future__ import annotations
 
@@ -37,7 +45,15 @@ EXECUTOR_ORIGIN = "executor"
 OPERATOR_REASON_PREFIX = "operator_"
 PARKED_DISPOSITION_LEFT = "plan_left_human_required"
 PARKED_DISPOSITION_OPERATOR = "parked_by_operator"
+PARKED_DISPOSITION_FOLDED = "folded_into_parked_plan_item"
+PARKED_DUPLICATE_FOLDED_KIND = "parked_plan_duplicate_folded"
 RECONCILE_FAILED_KIND = "parked_plan_reconcile_failed"
+
+
+def legacy_exhaustion_request_id(plan_id: str) -> str:
+    """The second operator item ``converged_delivery`` wrote for an exhausted
+    plan before ARIA-MEDIUM-429. Read only to fold it into the plan's item."""
+    return f"converged-delivery-exhausted-{plan_id}"
 
 
 def parked_plan_request_id(plan_id: str, generation: int = 1) -> str:
@@ -65,13 +81,25 @@ def _latest_reason_codes(state: dict[str, Any]) -> list[str]:
     return []
 
 
-def record_parked_plan(*, plan_id: str, base_dir: Path, verdict: str, origin: str) -> dict[str, Any] | None:
+def _delivery_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {key: row.get(key) for key in ("attempt", "cycle_id", "profile", "runner_class", "recorded_at", "voided")}
+        for row in state.get("implementation_delivery_attempts") or []
+    ]
+
+
+def record_parked_plan(
+    *, plan_id: str, base_dir: Path, verdict: str, origin: str, last_rejection_class: str | None = None,
+) -> dict[str, Any] | None:
     """The operator item for a plan that ended HUMAN_REQUIRED, or None when it did not.
 
     Idempotent per (plan, parking): ``record_human_required`` returns the
     existing record, so a plan escalated, re-judged and reported by several
     jobs is still one item in the operator's queue. A plan the operator
     parked himself is recorded resolved, by the kernel, saying so.
+
+    ``last_rejection_class`` is the one fact only the caller knows: the
+    runner's verdict on the offer that spent the last delivery attempt.
     """
     from .human_required import record_human_required, write_kernel_disposition
     from .plan_convergence import fold_plan_state
@@ -95,6 +123,11 @@ def record_parked_plan(*, plan_id: str, base_dir: Path, verdict: str, origin: st
         "origin": origin,
         "finding_id": "ARIA-HIGH-368",
     }
+    attempts = _delivery_attempts(state)
+    if attempts:
+        context["delivery_attempts"] = attempts
+    if last_rejection_class is not None:
+        context["last_rejection_class"] = last_rejection_class
     if reasons and all(code.startswith(OPERATOR_REASON_PREFIX) for code in reasons):
         written = write_kernel_disposition(item={
             "request_id": request_id, "severity": "HIGH", "reason": reason, "context": context,
@@ -114,8 +147,11 @@ def _resolve_left_items(*, plan_id: str, state: dict[str, Any], base_dir: Path) 
     from .human_required import write_kernel_disposition
 
     resolved: list[str] = []
-    for generation in range(1, len(_human_required_evaluations(state)) + 1):
-        request_id = parked_plan_request_id(plan_id, generation)
+    request_ids = [
+        parked_plan_request_id(plan_id, generation)
+        for generation in range(1, len(_human_required_evaluations(state)) + 1)
+    ]
+    for request_id in [*request_ids, legacy_exhaustion_request_id(plan_id)]:
         if not (base_dir / "human-required" / f"{request_id}.json").exists():
             continue
         written = write_kernel_disposition(item={
@@ -129,6 +165,54 @@ def _resolve_left_items(*, plan_id: str, state: dict[str, Any], base_dir: Path) 
         if written is not None:
             resolved.append(request_id)
     return resolved
+
+
+def _fold_legacy_exhaustion_item(*, plan_id: str, kept_request_id: str, base_dir: Path) -> str | None:
+    """Fold an open ``converged-delivery-exhausted-<plan>`` item into the plan's one item (ARIA-MEDIUM-429).
+
+    Append-only, in the order a crash can resume: the kept item, when open,
+    takes the facts only the legacy item holds (its attempts and the last
+    rejection class), then the fold is recorded once in governance, and the
+    legacy item is resolved by the kernel, naming the kept item. Returns
+    the folded id, or None when there is nothing open to fold.
+    """
+    from .human_required import open_human_required_record, refresh_open_record_context, write_kernel_disposition
+    from .tool_registry import append_tools_governance_once
+
+    legacy_id = legacy_exhaustion_request_id(plan_id)
+    legacy = open_human_required_record(legacy_id, base_dir=base_dir)
+    if legacy is None:
+        return None
+    legacy_context = legacy.get("context") or {}
+    kept = open_human_required_record(kept_request_id, base_dir=base_dir)
+    if kept is not None:
+        facts = {
+            "delivery_attempts": legacy_context.get("attempts"),
+            "last_rejection_class": legacy_context.get("last_rejection_class"),
+        }
+        refresh_open_record_context(
+            request_id=kept_request_id,
+            context={
+                **{key: value for key, value in facts.items() if value is not None},
+                **(kept.get("context") or {}),
+                "folded_from": legacy_id,
+            },
+            base_dir=base_dir,
+        )
+    append_tools_governance_once(
+        base_dir, PARKED_DUPLICATE_FOLDED_KIND,
+        {"plan_id": plan_id, "folded_request_id": legacy_id, "kept_request_id": kept_request_id},
+        claim_keys=("folded_request_id",),
+    )
+    write_kernel_disposition(item={
+        "request_id": legacy_id, "severity": legacy.get("severity"), "reason": str(legacy.get("reason")),
+        "context": legacy_context, "status": "resolved",
+        "disposition": {"disposition": PARKED_DISPOSITION_FOLDED,
+                        "reason": f"one operator item per parked plan: {kept_request_id}",
+                        "kept_request_id": kept_request_id,
+                        "finding_id": "ARIA-MEDIUM-429"},
+    }, base_dir=base_dir)
+    return legacy_id
 
 
 def reconcile_parked_plans(*, base_dir: Path) -> dict[str, Any]:
@@ -146,7 +230,7 @@ def reconcile_parked_plans(*, base_dir: Path) -> dict[str, Any]:
     from .plan_convergence import events_path, fold_plan_state
     from .tool_registry import GovernanceError, append_tools_governance
 
-    report: dict[str, Any] = {"recorded": [], "resolved": [], "failed": []}
+    report: dict[str, Any] = {"recorded": [], "resolved": [], "folded": [], "failed": []}
     path = events_path(base_dir)
     if not path.exists():
         return report
@@ -175,6 +259,10 @@ def reconcile_parked_plans(*, base_dir: Path) -> dict[str, Any]:
                     record_parked_plan(plan_id=plan_id, base_dir=base_dir,
                                        verdict="human_required", origin="reconcile")
                     report["recorded"].append(request_id)
+                folded = _fold_legacy_exhaustion_item(plan_id=plan_id, kept_request_id=request_id,
+                                                      base_dir=base_dir)
+                if folded is not None:
+                    report["folded"].append(folded)
             else:
                 report["resolved"].extend(_resolve_left_items(plan_id=plan_id, state=state, base_dir=base_dir))
         except (GovernanceError, LedgerIntegrityError, OSError) as exc:
@@ -226,10 +314,13 @@ def report_executor_terminal(
 __all__ = [
     "EXECUTOR_ORIGIN",
     "OPERATOR_REASON_PREFIX",
+    "PARKED_DISPOSITION_FOLDED",
     "PARKED_DISPOSITION_LEFT",
     "PARKED_DISPOSITION_OPERATOR",
+    "PARKED_DUPLICATE_FOLDED_KIND",
     "PARKED_PLAN_CONTEXT_KIND",
     "RECONCILE_FAILED_KIND",
+    "legacy_exhaustion_request_id",
     "parked_plan_request_id",
     "reconcile_parked_plans",
     "record_parked_plan",

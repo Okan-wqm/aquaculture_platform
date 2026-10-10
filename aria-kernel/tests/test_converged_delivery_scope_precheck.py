@@ -36,6 +36,7 @@ from aria_kernel.apply_engine import list_apply_actions
 from aria_kernel.bridge_exceptions import BridgeContractViolation
 from aria_kernel.convergence_outcome import (
     PARKED_PLAN_CONTEXT_KIND,
+    legacy_exhaustion_request_id,
     parked_plan_request_id,
     record_parked_plan,
 )
@@ -44,7 +45,6 @@ from aria_kernel.converged_delivery import (
     WITHHELD_NOT_CONVERGED,
     WITHHELD_REQUEST_LIVE,
     deliver_converged_plan,
-    human_required_request_id,
     redeliver_stranded_converged_plans,
 )
 from aria_kernel.cross_review_bridge import issue_implementation_envelope
@@ -243,9 +243,9 @@ class ReadonlyOnlyPlanIsNeverStaged(_ScopeCase):
         self.assertEqual(record_parked_plan(plan_id=plan_id, base_dir=self.tools, verdict="again",
                                             origin="test")["request_id"], item_id)
         report = self.sweep(cycle_id="cyc-later")
-        self.assertEqual(report["parked"], {"recorded": [], "resolved": [], "failed": []})
+        self.assertEqual(report["parked"], {"recorded": [], "resolved": [], "folded": [], "failed": []})
         self.assertEqual(sorted(self.operator_items()), [item_id])
-        self.assertNotIn(human_required_request_id(plan_id), self.operator_items())
+        self.assertNotIn(legacy_exhaustion_request_id(plan_id), self.operator_items())
 
     def test_the_sweep_parks_a_stranded_plan_and_still_offers_the_next(self) -> None:
         parked = self.converge("plan-readonly", [WORKFLOW])

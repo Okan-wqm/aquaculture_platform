@@ -167,3 +167,94 @@ The same follow-up also makes two small changes `main` approved, each red then g
   intended outcome: the plan is sound, and only the lane's authority boundary keeps it from being
   delivered. The code is listed in `KERNEL_FORCED_CODES` (see the review section) but is not an
   `ATTRIBUTABLE_GATE_CODES` member.
+
+## ARIA-MEDIUM-429 — one exhausted plan, two operator items (fix, wave 2)
+
+### Symptom
+
+On the archive (f5c5c86a1, `human-required/`), both plans that delivery exhausted have two open
+items for one parking:
+
+| Plan                             | `converged-delivery-exhausted-<plan>` | `plan-human-required-<plan>` (origin `reconcile`) |
+| -------------------------------- | ------------------------------------- | ------------------------------------------------- |
+| `plan-cyc-20261008T120143Z-auto` | open, 10-08 19:06:27Z                 | open, 19:06:41Z                                   |
+| `plan-cyc-20261008T151306Z-auto` | open, 10-10 09:21:07Z                 | open, 09:21:24Z                                   |
+
+The first item carries the attempts `[1, 2, 3]` and `runner_exception:BridgeContractViolation`.
+The second carries neither. Both describe one `plan_evaluated` row,
+`implementation_delivery_exhausted`.
+
+### Evidence
+
+- `converged_delivery.py:378-404` (parent): `_record_exhaustion` writes its own record, with
+  request id `converged-delivery-exhausted-<plan>` and context kind `converged_plan_delivery`.
+- `converged_delivery.py:445` (parent): `escalate_exhausted_plan` writes that record after the
+  HUMAN_REQUIRED transition.
+- `converged_delivery.py:799` (parent): the sweep then runs `reconcile_parked_plans`. That
+  function writes `plan-human-required-<plan>` for any HUMAN_REQUIRED plan whose parked item is
+  missing (`convergence_outcome.py:168-177`). The exhaustion never wrote that item.
+- `converged_delivery.py:720-726` (parent): the sweep's repair branch rewrote a missing
+  exhaustion record. That made a second writer for the same fact.
+
+### Root cause
+
+`convergence_outcome.record_parked_plan` is documented as the ONE operator item per parked plan.
+The independence migration and the no-writable-scope parking (ARIA-HIGH-416) both use it.
+Delivery exhaustion predates it and kept its own record. The reconcile, which guarantees the
+one item, then added the plan's item next to it.
+
+### Fix (tier 1: one writer)
+
+- `escalate_exhausted_plan` writes the plan's item through `record_parked_plan`, with verdict
+  `attempts_exhausted`, origin `converged_delivery` and the last rejection class.
+- `record_parked_plan` derives `delivery_attempts` from the plan's own ledger. So the reconcile's
+  repair writes the same attempts as the escalation would have.
+- `_record_exhaustion`, `human_required_request_id` and the sweep's repair branch are deleted,
+  along with the sweep report's `repaired` key. An escalation that did not live to write its item
+  is repaired by the `reconcile_parked_plans` at the end of the same sweep. That was already the
+  one place the invariant is guaranteed. Its report gains a `folded` list.
+- **Existing duplicates, append-only.** `reconcile_parked_plans` folds an open legacy
+  `converged-delivery-exhausted-<plan>` item into the plan's item, in an order a crash can
+  resume. The reconcile already skips a plan whose item exists, so it cannot add a second item.
+  1. When the kept item is open, it takes the legacy item's attempts and last rejection class
+     (`refresh_open_record_context`, kind unchanged, plus `folded_from`).
+  2. One `parked_plan_duplicate_folded` governance row is appended, once per legacy id.
+  3. The legacy item is resolved by the kernel with `kernel_disposition`
+     `folded_into_parked_plan_item`, naming the kept item.
+- A legacy item of a plan that left HUMAN_REQUIRED is resolved together with the plan's other
+  items (`_resolve_left_items`).
+- The no-authority record (`converged-delivery-no-authority-<plan>`) is unchanged. That plan
+  stays CONVERGED, so it is not a parking.
+
+### Production evidence (copy of `human-required/`, `plans/` and `governance.jsonl`)
+
+|                                     | parent                                     | this fix                                                                                                          |
+| ----------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| open items for the two plans        | 4                                          | 2, one per plan                                                                                                   |
+| first reconcile                     | `{recorded: [], resolved: [], failed: []}` | `folded`: both legacy ids                                                                                         |
+| kept items                          | no attempts                                | `delivery_attempts` `[1, 2, 3]`, `last_rejection_class` `runner_exception:BridgeContractViolation`, `folded_from` |
+| legacy items                        | open                                       | `resolved`, `resolved_by: kernel`, `folded_into_parked_plan_item`                                                 |
+| `parked_plan_duplicate_folded` rows | 0                                          | 2                                                                                                                 |
+| second reconcile                    |                                            | all four lists empty; `human-required/` and `governance.jsonl` byte-identical                                     |
+
+The governance ledger stays append-only: the old bytes are a prefix of the new file.
+
+### Tests
+
+`tests/test_parked_plan_single_item.py` has 4 tests on the delivery suite's real CONVERGED plan.
+All 4 are red on the parent.
+
+- An exhaustion writes the plan's one item, with its attempts and last rejection class, and the
+  reconcile adds nothing.
+- The production pair folds into the plan's item, and a second reconcile writes nothing.
+- A legacy item of an abandoned plan is resolved with the plan's other items.
+- A fold interrupted after its governance row completes once.
+
+`test_converged_delivery.py` now pins the exhaustion item as the plan's own item, and the repair
+as the reconcile's. `test_converged_delivery_scope_precheck.py` changed only for the rename and
+the report's new `folded` key.
+
+### Not done here
+
+- **The two production pairs are not changed by this commit.** They fold on the first cycle
+  sweep that runs this code. The resolved legacy item keeps all of its content.

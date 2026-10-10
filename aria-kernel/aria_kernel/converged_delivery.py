@@ -42,10 +42,11 @@ cycle (:func:`redeliver_stranded_converged_plans`, origin
 * **The bound.** After ``MAX_DELIVERY_ATTEMPTS`` counted attempts the plan
   moves, under the plan lock and only from CONVERGED with no live request
   (review M3), to ``HUMAN_REQUIRED`` with reason code
-  ``implementation_delivery_exhausted``, and the operator record
-  ``human-required/converged-delivery-exhausted-<plan>.json`` is written. A
-  plan whose transition landed but whose record did not is repaired by the
-  next sweep.
+  ``implementation_delivery_exhausted``, and the plan's one operator item
+  (``convergence_outcome.record_parked_plan``, ARIA-MEDIUM-429) is written
+  with the attempts and the last rejection class. A plan whose transition
+  landed but whose item did not gets it from the sweep's
+  ``reconcile_parked_plans``.
 * **No authority, for long.** A lane whose runner cannot deliver (a permanent
   ``standard`` ceiling) never spends a plan's attempts, so on its own it would
   never surface the plan. After ``AUTHORITY_ABSENT_CYCLES`` such cycles since
@@ -111,10 +112,6 @@ NO_WRITABLE_SCOPE_REASON: str = "implementation_envelope_no_writable_scope"
 NO_WRITABLE_SCOPE_KIND: str = "converged_delivery_no_writable_scope"
 
 
-def human_required_request_id(plan_id: str) -> str:
-    return f"converged-delivery-exhausted-{plan_id}"
-
-
 def authority_absent_request_id(plan_id: str) -> str:
     return f"converged-delivery-no-authority-{plan_id}"
 
@@ -147,20 +144,19 @@ def live_implementation_request_ids(plan_id: str, *, base_dir: Path) -> list[str
     return live
 
 
-def _plan_ledger_scan(base_dir: Path) -> tuple[list[str], list[str]]:
-    """(CONVERGED plans oldest convergence first, plans ended by exhaustion) — one ledger pass."""
+def _plan_ledger_scan(base_dir: Path) -> list[str]:
+    """CONVERGED plans, oldest convergence first — one ledger pass."""
     from .ledger import load_declared_jsonl
     from .plan_convergence import events_path, fold_plan_state
 
     path = events_path(base_dir)
     if not path.exists():
-        return [], []
+        return []
     # The plan ledger is append-only and written under the plan lock, so an
     # event's position IS when the plan converged. `recorded_at` has second
     # resolution: ordering by it fell back to the plan id on a tie and offered
     # a newer plan first. The position is the order.
     converged_at: dict[str, int] = {}
-    exhausted: set[str] = set()
     for position, event in enumerate(load_declared_jsonl(path, expected_surface="plan_convergence_events")):
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         if event.get("event_type") != "plan_evaluated":
@@ -168,19 +164,16 @@ def _plan_ledger_scan(base_dir: Path) -> tuple[list[str], list[str]]:
         plan_id = str(event.get("plan_id"))
         if payload.get("terminal_state") == "CONVERGED":
             converged_at[plan_id] = position
-        elif DELIVERY_EXHAUSTED_REASON in (payload.get("reason_codes") or []):
-            exhausted.add(plan_id)
     ordered = sorted(converged_at, key=converged_at.__getitem__)
-    converged = [
+    return [
         plan_id for plan_id in ordered
         if fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("state") == "CONVERGED"
     ]
-    return converged, sorted(exhausted)
 
 
 def converged_plan_ids(*, base_dir: Path) -> list[str]:
     """Plans that fold to CONVERGED, oldest convergence first (one ledger pass)."""
-    return _plan_ledger_scan(base_dir)[0]
+    return _plan_ledger_scan(base_dir)
 
 
 def withhold_ungated_self_agreement(plan_id: str, *, base_dir: Path) -> bool:
@@ -368,40 +361,6 @@ def _claim_attempt(
     return attempt, None
 
 
-def _attempt_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {key: row.get(key) for key in ("attempt", "cycle_id", "profile", "runner_class", "recorded_at", "voided")}
-        for row in state.get("implementation_delivery_attempts") or []
-    ]
-
-
-def _record_exhaustion(plan_id: str, *, base_dir: Path, last_rejection_class: str | None) -> str:
-    from .human_required import record_human_required
-    from .plan_convergence import fold_plan_state
-
-    request_id = human_required_request_id(plan_id)
-    attempts = _attempt_summaries(fold_plan_state(plan_id=plan_id, base_dir=base_dir))
-    record_human_required(
-        request_id=request_id,
-        severity="HIGH",
-        reason=(
-            f"{DELIVERY_EXHAUSTED_REASON}: CONVERGED plan {plan_id} was offered to an "
-            f"implementation runner that could deliver it {MAX_DELIVERY_ATTEMPTS} times and "
-            f"stayed CONVERGED; it is now HUMAN_REQUIRED. Re-stage it or abandon it"
-        ),
-        context={
-            "kind": HUMAN_REQUIRED_CONTEXT_KIND,
-            "plan_id": plan_id,
-            "reason_code": DELIVERY_EXHAUSTED_REASON,
-            "attempts": attempts,
-            "last_rejection_class": last_rejection_class,
-            "finding_id": "ARIA-HIGH-362",
-        },
-        base_dir=base_dir,
-    )
-    return request_id
-
-
 def escalate_exhausted_plan(
     plan_id: str, *, base_dir: Path, last_rejection_class: str | None = None,
 ) -> dict[str, Any]:
@@ -412,10 +371,12 @@ def escalate_exhausted_plan(
     HUMAN_REQUIRED write are one step under the plan lock
     (``force_plan_human_required(from_states={"CONVERGED"})``), so a mint
     that lands between this function's read and its write is never
-    overwritten. The operator record follows the transition; a record the
-    process did not live to write is written by the next sweep
-    (:func:`redeliver_stranded_converged_plans`).
+    overwritten. The plan's one operator item follows the transition
+    (ARIA-MEDIUM-429: ``record_parked_plan``, never a second exhaustion
+    item); an item the process did not live to write is written by the
+    sweep's ``reconcile_parked_plans``.
     """
+    from .convergence_outcome import record_parked_plan
     from .plan_convergence import (
         PlanStateRefused,
         counted_delivery_attempts,
@@ -442,8 +403,14 @@ def escalate_exhausted_plan(
     except PlanStateRefused:
         latest = fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("state")
         return {"plan_id": plan_id, "status": WITHHELD_NOT_CONVERGED, "state": latest}
-    request_id = _record_exhaustion(plan_id, base_dir=base_dir, last_rejection_class=last_rejection_class)
-    return {"plan_id": plan_id, "status": "escalated", "request_id": request_id,
+    parked = record_parked_plan(
+        plan_id=plan_id, base_dir=base_dir, verdict=WITHHELD_EXHAUSTED, origin="converged_delivery",
+        last_rejection_class=last_rejection_class,
+    )
+    # None only when the plan left HUMAN_REQUIRED between the move and this
+    # read (an operator acted): there is no parking to report.
+    return {"plan_id": plan_id, "status": "escalated",
+            "request_id": parked.get("request_id") if parked is not None else None,
             "attempts": len(counted_delivery_attempts(state))}
 
 
@@ -705,8 +672,9 @@ def redeliver_stranded_converged_plans(
     cycle converges is offered by the converging call and never also by the
     sweep. Exhausted plans are escalated (never while a request is live); at
     most ``REDELIVERIES_PER_CYCLE`` plans are offered; under a runner that
-    cannot deliver, each stranded plan's uncounted cycle is noted; plans
-    ended by exhaustion whose operator record is missing get it.
+    cannot deliver, each stranded plan's uncounted cycle is noted. Every
+    parked plan's one operator item, including one an escalation did not
+    live to write, is the closing ``reconcile_parked_plans``'s.
     """
     from .ledger import LedgerIntegrityError
     from .plan_convergence import counted_delivery_attempts, fold_plan_state
@@ -715,16 +683,9 @@ def redeliver_stranded_converged_plans(
     report: dict[str, Any] = {
         "stranded": [], "offered": [], "escalated": [], "withheld": {}, "surfaced": [],
         "independence_failed": [],
-        "repaired": [], "authority": bool(runner.delivers_implementation),
+        "authority": bool(runner.delivers_implementation),
     }
-    converged, exhausted = _plan_ledger_scan(base_dir)
-    for plan_id in exhausted:
-        if not _record_exists(base_dir, human_required_request_id(plan_id)):
-            try:
-                _record_exhaustion(plan_id, base_dir=base_dir, last_rejection_class=None)
-                report["repaired"].append(plan_id)
-            except Exception as exc:
-                report["escalated"].append(_record_escalation_failure(base_dir, plan_id, exc))
+    converged = _plan_ledger_scan(base_dir)
     # Read once per sweep, and only when uncounted cycles will be noted.
     governance = load_jsonl(base_dir / "governance.jsonl") if converged and not report["authority"] else None
     for plan_id in converged:
@@ -817,7 +778,6 @@ __all__ = [
     "converged_plan_ids",
     "deliver_converged_plan",
     "escalate_exhausted_plan",
-    "human_required_request_id",
     "live_implementation_request_ids",
     "note_uncounted_cycle",
     "redeliver_stranded_converged_plans",

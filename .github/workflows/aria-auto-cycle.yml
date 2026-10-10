@@ -213,13 +213,37 @@ jobs:
       # killed that install on 2026-09-03 and twice more, and each kill left
       # node_modules half-populated, so the NEXT run reinstalled from scratch
       # and was killed again. Same reset, one exclusion, loop gone.
+      # ARIA-HIGH-426 — git clean cannot remove what another account wrote
+      # here (a root-run rescue publish, 2026-10-08: every ARIA job failed at
+      # this step for 11 h with a bare exit 1). On failure the step names each
+      # path this account does not own and the remedy. The body is identical
+      # in aria-auto-cycle.yml and aria-agent-executor.yml (pinned by
+      # aria-kernel/tests/test_workspace_reset_names_foreign_owner.py); it runs
+      # before checkout, so no repository action or script can hold it.
       - name: Reset the persistent workspace, keeping installed dependencies
         shell: bash
         run: |
           set -euo pipefail
           if [ -d .git ]; then
-            git reset --hard
-            git clean -ffdx -e node_modules
+            if ! { git reset --hard && git clean -ffdx -e node_modules; }; then
+              me="$(id -un)"
+              foreign="${RUNNER_TEMP}/aria-workspace-foreign-owned.txt"
+              find . -xdev -name node_modules -prune -o ! -uid "$(id -u)" -printf '%u %p\n' > "$foreign" 2>/dev/null || true
+              count="$(wc -l < "$foreign")"
+              if [ "$count" -gt 0 ]; then
+                echo "::error title=Foreign-owned files in the persistent workspace::${count} path(s) under ${GITHUB_WORKSPACE} are not owned by ${me}, so git clean cannot remove them (ARIA-HIGH-426). As root on the runner host: chown -R ${me}:${me} each listed path, or move it aside. Run python and kernel commands on this tree only as ${me} (sudo -u ${me} ...)."
+                head -n 50 "$foreign"
+                {
+                  echo "### Foreign-owned paths in the persistent workspace (${count}, first 50)"
+                  echo '```'
+                  head -n 50 "$foreign"
+                  echo '```'
+                } >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "::error title=Persistent workspace reset failed::git reset or git clean failed and every path is owned by ${me}; the git output above names the cause."
+              fi
+              exit 1
+            fi
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -20,6 +20,7 @@ from .ledger import (
 )
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
 from .implementation_safety import KERNEL_CHECKOUT_ROOT, verify_bash_command_allowed
+from .write_root_owner import refuse_foreign_owned_root
 
 
 # Plan ARIA-V2 §3.2 — contract v3 introduces canonical-identity-bound
@@ -201,24 +202,30 @@ def tools_dir(path: str | os.PathLike[str] | None = None) -> Path:
     --tools-dir aria-tools --acknowledge --reason "<text>"`` once.
     Subsequent invocations from any cwd inside the worktree find the
     canonical aria-tools via walk-up.
+
+    ARIA-HIGH-426 — every resolution is also refused when the root lies in
+    a tree another account owns (``write_root_owner``): a root process
+    writing the runner's store stopped every self-hosted lane.
     """
     if path is not None:
-        return Path(path).resolve()
-    env = os.environ.get("ARIA_TOOLS_DIR")
-    if env:
-        return Path(env).resolve()
-    discovered = _walk_up_to_bound_identity(Path.cwd())
-    if discovered is not None:
-        return discovered
-    raise GovernanceError(
-        "tools_root_unresolvable: no --tools-dir argument, no "
-        "ARIA_TOOLS_DIR env var, and no parent directory contains an "
-        "initialized aria-tools/ with repo_identity.json. Run "
-        "`aria-kernel integrity migrate-tools-bootstrap "
-        "--workspace-root . --tools-dir aria-tools --acknowledge "
-        "--reason \"<text>\"` to initialize a tools root, OR set "
-        "ARIA_TOOLS_DIR=<absolute-path>, OR pass --tools-dir explicitly."
-    )
+        root = Path(path).resolve()
+    elif os.environ.get("ARIA_TOOLS_DIR"):
+        root = Path(os.environ["ARIA_TOOLS_DIR"]).resolve()
+    else:
+        discovered = _walk_up_to_bound_identity(Path.cwd())
+        if discovered is None:
+            raise GovernanceError(
+                "tools_root_unresolvable: no --tools-dir argument, no "
+                "ARIA_TOOLS_DIR env var, and no parent directory contains an "
+                "initialized aria-tools/ with repo_identity.json. Run "
+                "`aria-kernel integrity migrate-tools-bootstrap "
+                "--workspace-root . --tools-dir aria-tools --acknowledge "
+                "--reason \"<text>\"` to initialize a tools root, OR set "
+                "ARIA_TOOLS_DIR=<absolute-path>, OR pass --tools-dir explicitly."
+            )
+        root = discovered
+    refuse_foreign_owned_root(root, role="tools root")
+    return root
 
 
 def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:

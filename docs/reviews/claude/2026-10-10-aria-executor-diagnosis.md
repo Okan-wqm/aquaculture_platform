@@ -508,3 +508,115 @@ credit_exhausted)` circuit. It then skipped every claude_first request, and five
     writes the cooldown the next request must see. It costs about 0.7 s on the 20 MB store,
     against a child of minutes.
   - The extra read in `invoke_claude_cli` is on the legacy spawn lane only.
+
+## ARIA-HIGH-426 — fix (wave 2): the kernel refuses another account's tree, and the reset names it
+
+### Second vector found while fixing
+
+`file_lock.with_exclusive_lock` creates its lock file with `O_CREAT`, mode 0644, and never
+unlinks it on POSIX (`file_lock.py:197-221`). Every `state checkout` and every publish takes
+`state_store._state_store_lifecycle_lock`, whose lock file is
+`<git-common-dir>/aria-state-lifecycle`. So a root-run state command leaves a root-owned lock in
+the runner's `.git`, and the runner can no longer open that lock for any later checkout or
+publish. Running `chown` on the workspace alone would not fix that. `git reset --hard` and
+`git clean` never look at `.git/`.
+
+### Fix, kernel (tier 1 for the store)
+
+`aria_kernel/write_root_owner.refuse_foreign_owned_root` holds one rule. A write root whose
+nearest existing ancestor is owned by neither this process's euid nor root is refused. The
+refusal is a `GovernanceError` beginning `write_root_foreign_owner:`. It names the root, the
+owning account, the uid this process runs as, and the remedy: run the command as the owner
+(`sudo -u <owner> ...`), or bind a store of your own. There is no override.
+
+Root-owned trees are left to the OS. Root can always clean them up, so writes there are allowed:
+
+- `/tmp`, where a non-root writer leaves files root can remove;
+- `/var/lib/aria/code`, which the gharunner T2 probe reads;
+- this host's root-owned `/var/aqua-saas` worktrees, where the operator's own sessions run.
+
+The rule is asked where each write root is resolved:
+
+- **`tool_registry.tools_dir`.** All three resolutions (`--tools-dir`, `ARIA_TOOLS_DIR`, the
+  walk-up) are checked before `ensure_tools_dir` creates anything. Every ledger read or write
+  resolves through it. The result is memoized per (root, euid).
+- **`state_store._state_store_lifecycle_lock`.** The repository and its git common directory are
+  checked before the lock file is created and before the first git write of a checkout or
+  publish.
+
+`ARIA_WORKSPACE_ROOT` needs no check of its own. The kernel only sets it for a child process
+(`planner_dispatch_hook.py:596`) and never resolves it.
+
+### Fix, lanes (tier 3 for what the kernel cannot reach)
+
+CPython writes `aria_kernel/__init__`'s `.pyc` before any kernel code runs. So a root python
+that imports the runner's checkout still leaves a root-owned `__pycache__`, and no guard inside
+the package can prevent that.
+
+The reset step in `aria-auto-cycle.yml` and `aria-agent-executor.yml` now has one identical body.
+It is inline because it runs before checkout. If `git reset --hard` or
+`git clean -ffdx -e node_modules` fails, the step:
+
+1. lists, with `find -xdev`, every path not owned by the runner account, skipping
+   `node_modules`;
+2. emits `::error title=Foreign-owned files in the persistent workspace::`, giving the count,
+   the workspace, the remedy (`chown -R <runner>:<runner>` as root, or move the path aside) and
+   `sudo -u <runner>`;
+3. prints the first 50 paths, each with its owner, to the log and the job summary;
+4. exits 1.
+
+A failure with no foreign path gets its own `::error`. The happy path is unchanged: there is no
+scan. The step comes before the lease gate, so the abort-gate contract is untouched.
+
+### Evidence
+
+- **Parent code.** `ensure_tools_dir` run as root on a store path inside a tree owned by
+  `nobody` creates `.aria-state-store/tools`, owned by root. That is the incident's shape.
+- **This code.** The same call raises `write_root_foreign_owner`, and nothing is created.
+- **Parent step body.** Run as `nobody` over a root-owned `.aria-state-store/tools/governance.jsonl`,
+  it exits 1 and prints only `HEAD is now at …`.
+- **This step body.** The same run prints the `::error` with the path
+  (`root ./.aria-state-store/tools/governance.jsonl`) and `sudo -u nobody`, and writes the summary.
+
+### Tests
+
+- `tests/test_write_root_owner.py` (5 tests), with the process made root through the module's
+  euid seam:
+  - every tools-root resolution into a foreign tree is refused, nothing is created, and the
+    message names the owner and `sudo -u`;
+  - a state checkout of a foreign repository creates no lifecycle lock and no store;
+  - a root-owned ancestor and an own tree stay writable;
+  - the checkout the suite runs from stays writable.
+- `tests/test_workspace_reset_names_foreign_owner.py` (4 tests) runs the step body exactly as
+  the workflows carry it:
+  - both bodies are identical;
+  - a clean reset still removes untracked files and keeps `node_modules`;
+  - a path another account owns is named, with the remedy. This test needs root, so in CI it is
+    skipped, and here the body runs as `nobody` under `setpriv`;
+  - an unremovable path the runner owns gets the other error.
+
+  On the parent, 3 of the 4 are red.
+
+- The in-slot run in the worktree covered 232 tests and passed, with 1 skipped and 140 subtests:
+  - both new files;
+  - the owner tests `test_tool_registry_binding` and `test_tool_registry_c2_lifecycle`;
+  - `test_state_store_hollow_aside_ignored`, `test_t2_boundary_probe` and `test_jev_runtime`;
+  - the workflow and contract tests the private snapshot could not run.
+
+  On the snapshot, the 38 Python modules that read these workflows or the contract registry,
+  plus the state store and tool registry owner tests, gave 947 passed. The 7 failures there
+  were snapshot artifacts (missing `infrastructure/`, `.mcp.json` and the git repository), and
+  all 7 are green in the worktree.
+
+- The repo's TS invariants that read workflows: 56 suites, 689 tests.
+  `aria-kernel-workflow-setup.spec.ts` caught the first wording of the `::error`: it named
+  `aria_kernel`, which the invariant reads as kernel code running before setup. The text now
+  says "python and kernel commands", and that suite is green.
+
+### Not done here
+
+- **No host change.** `find /home/gharunner/actions-runner/_work -xdev ! -user gharunner` printed
+  0 paths on 2026-10-10. That was a read-only scan, and nothing was changed on the runner host.
+- **The `.pyc` vector stays detect-only,** for the reason above. The cycle job sets
+  `PYTHONDONTWRITEBYTECODE` (`aria-auto-cycle.yml:203`), but an operator shell does not. That is
+  why the remedy names `sudo -u <runner>`.

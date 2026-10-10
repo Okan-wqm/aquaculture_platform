@@ -134,21 +134,26 @@ class APersonsMergeOfARecordedPlan(unittest.TestCase):
         self.assertEqual(len([row for row in load_jsonl(events_path(self.tools))
                               if row.get("event_type") == "implementation_merged"]), 1)
 
-    def test_a_plan_merged_before_the_owner_gets_exactly_one_backfilled_row(self) -> None:
+    def test_a_plan_merged_before_the_owner_gets_exactly_one_classified_row(self) -> None:
         # A merge written to the plan ledger alone (the pre-owner shape).
         record_implementation_merged(plan_id="plan-r", merge_sha=MERGE_SHA, merged_at="2026-10-09T12:00:00Z",
                                      idempotency_key_hash="sha256:" + "a" * 64, head_lineage=LINEAGE_DELIVERED,
                                      base_dir=self.tools)
         self.assertEqual(_merged_rows(self.tools), [])
-        first = self.reconcile(Unreadable())  # the backfill needs no GitHub read
+        # ARIA-HIGH-409 (review of #1932, F2) — the plan's lineage was
+        # classified when it merged, so the backfill takes it with no GitHub
+        # read (a plan with none is read; tests/test_merge_lineage_attestation).
+        first = self.reconcile(Unreadable())
         self.assertEqual(first["lifecycle_backfilled"], [{"plan_id": "plan-r", "pr_number": PR}])
         [row] = _merged_rows(self.tools)
         # F2 — the plan's own merge facts, never "merged today".
         self.assertEqual((row["merged_at"], row["merge_sha"]), ("2026-10-09T12:00:00Z", MERGE_SHA))
-        # N4 — no head was classified, so the row is never ARIA's.
-        self.assertEqual(row["head_lineage"], LINEAGE_BACKFILLED_UNVERIFIED)
-        self.assertFalse(merged_row_is_arias(row))
-        self.assertEqual(self.reconcile(Unreadable())["lifecycle_backfilled"], [])
+        # N4 — the row carries the classified lineage, never a stamp.
+        self.assertEqual(row["head_lineage"], LINEAGE_DELIVERED)
+        self.assertTrue(merged_row_is_arias(row))
+        reader = Reader()
+        self.assertEqual(self.reconcile(reader)["lifecycle_backfilled"], [])
+        self.assertEqual(reader.asked, [])
         self.assertEqual(len(_merged_rows(self.tools)), 1)
 
     def test_an_unmerged_pr_changes_nothing(self) -> None:

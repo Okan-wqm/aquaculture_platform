@@ -95,6 +95,14 @@ EVENT_TYPES = {
     # it is signed history); this annotation marks it uncounted. Legal only
     # in CONVERGED, once per attempt.
     "implementation_delivery_attempt_voided",
+    # ARIA-HIGH-409 — an ANNOTATION on a merged plan whose
+    # `implementation_merged` named no lineage (written by pre-#1910 code, as
+    # PR #1906's was): the merged head's lineage, classified afterwards by the
+    # one owner (`merge_record.attest_merge_lineage`). Legal only in
+    # IMPLEMENTATION_MERGED, once per plan, for that merge commit; the reducer
+    # folds it into implementation.head_lineage. The merged event itself is
+    # never rewritten (memory_class.refuse_history_rewrite).
+    "implementation_merge_lineage_attested",
 }
 TERMINAL_STATES = {
     "CONVERGED",
@@ -1734,6 +1742,60 @@ def _record_implementation_merged(
     )
 
 
+def _require_lineage_attestable(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    """ARIA-HIGH-409 — the one predecessor rule of ``implementation_merge_lineage_attested``."""
+    from .merge_record import UNCLASSIFIED_LINEAGES
+
+    impl = state.get("implementation") or {}
+    if state.get("state") != "IMPLEMENTATION_MERGED":
+        raise GovernanceError(
+            f"invalid_transition: from={state.get('state')} "
+            f"event=implementation_merge_lineage_attested expected=IMPLEMENTATION_MERGED"
+        )
+    if impl.get("merge_sha") != payload.get("merge_sha"):
+        raise GovernanceError("implementation_merge_lineage_attested names another merge than the plan's")
+    if impl.get("head_lineage_attested") is not None or impl.get("head_lineage") not in UNCLASSIFIED_LINEAGES:
+        raise GovernanceError(
+            f"implementation_merge_lineage_attested: plan {state.get('plan_id')!r} already names its "
+            f"lineage {impl.get('head_lineage')!r}"
+        )
+
+
+def _record_implementation_merge_lineage_attested(
+    *,
+    plan_id: str,
+    head_lineage: str,
+    merge_sha: str,
+    pr_number: int,
+    delivered_head_sha: str,
+    merged_head_sha: str | None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-409 — the classified lineage of a merge recorded without one.
+
+    ``merge_record.attest_merge_lineage`` is the only caller (it classifies
+    the head first). Keyed by the merge commit alone, so a plan's merge is
+    attested once whatever a later read would say.
+    """
+    _validate_id(plan_id, "plan_id")
+    payload: dict[str, Any] = {
+        "head_lineage": head_lineage,
+        "merge_sha": merge_sha,
+        "pr_number": pr_number,
+        "delivered_head_sha": delivered_head_sha,
+        "merged_head_sha": merged_head_sha,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-merge-lineage-attested",
+        canonical_payload={"merge_sha": merge_sha},
+        event_type="implementation_merge_lineage_attested",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_lineage_attestable(state, payload),
+    )
+
+
 def record_implementation_rejected(
     *,
     plan_id: str,
@@ -2542,6 +2604,15 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         state["implementation"]["merged_at"] = payload["merged_at"]
         state["implementation"]["idempotency_key_hash"] = payload["idempotency_key_hash"]
         state["implementation"]["head_lineage"] = payload.get("head_lineage")
+    elif event_type == "implementation_merge_lineage_attested":
+        # ARIA-HIGH-409 — annotation: the merged plan's lineage, classified
+        # after the merge event that named none; the state does not move.
+        _require_lineage_attestable(state, payload)
+        state["implementation"]["head_lineage"] = payload["head_lineage"]
+        state["implementation"]["head_lineage_attested"] = {
+            **{key: payload.get(key) for key in ("pr_number", "delivered_head_sha", "merged_head_sha")},
+            "recorded_at": event.get("recorded_at"),
+        }
     elif event_type == "implementation_rejected":
         # implementation_rejected has 3 legal predecessor states
         # (REQUESTED / IN_FLIGHT / RECORDED) — the rejection_class
@@ -3264,6 +3335,17 @@ def _validate_event(event: dict[str, Any]) -> None:
         # validator can _require_hash without re-implementing 5-field
         # parsing.
         _require_hash(payload.get("idempotency_key_hash"), "idempotency_key_hash")
+    elif event_type == "implementation_merge_lineage_attested":
+        from .merge_record import ATTESTABLE_LINEAGES
+
+        if payload.get("head_lineage") not in ATTESTABLE_LINEAGES:
+            raise GovernanceError(f"head_lineage must be one of {sorted(ATTESTABLE_LINEAGES)}")
+        _require_non_empty(payload.get("merge_sha"), "merge_sha")
+        _require_non_empty(payload.get("delivered_head_sha"), "delivered_head_sha")
+        if type(payload.get("pr_number")) is not int:
+            raise GovernanceError("implementation_merge_lineage_attested pr_number must be an integer")
+        if payload.get("merged_head_sha") is not None and not isinstance(payload["merged_head_sha"], str):
+            raise GovernanceError("implementation_merge_lineage_attested merged_head_sha must be a string")
     elif event_type == "implementation_rejected":
         # Canonical valid rejection classes (SSoT: implementation_rejections —
         # VALID_IMPLEMENTATION_REJECTION_CLASSES). Descriptions kept here as a

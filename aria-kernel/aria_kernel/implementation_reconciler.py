@@ -33,13 +33,16 @@ from .merge_record import (
     EVENT_CLOSED_UNMERGED,
     EVENT_LINEAGE_UNVERIFIED,
     EVENT_MERGE_UNPROVEN,
-    LINEAGE_BACKFILLED_UNVERIFIED,
     LINEAGE_UNVERIFIABLE,
     MAX_LINEAGE_CHECKS,
     MERGED_BY_OBSERVED,
+    UNCLASSIFIED_LINEAGES,
     MergeLineageUnverified,
     MergeNotProven,
+    attest_merge_lineage,
+    attestation_binds,
     classify_merged_head,
+    fold_merged_rows,
     closed_recheck_due,
     lifecycle_rows,
     lineage_checks,
@@ -212,32 +215,72 @@ def _observe_merge(
     return None
 
 
-def _backfill_lifecycle(
-    plan_id: str, state: dict[str, Any], lifecycle: list[dict[str, Any]], root: Path,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """(backfilled, skipped) for a plan merged before the one owner existed.
+def _settle_merged_lineage(
+    plan_id: str, state: dict[str, Any], *, lifecycle: list[dict[str, Any]], reader: Any, readable: bool,
+    workspace: Path, root: Path,
+) -> dict[str, Any] | None:
+    """A merged plan whose merge nobody classified gets its lineage (ARIA-HIGH-409); None when it has one.
 
-    The row is written only from the kernel's own ``opened`` row and the
-    plan's merge facts (``merge_sha``, ``merged_at``); without an opened row
-    nothing is guessed (review of #1910, F3).
+    Two shapes reach here, both recorded by code older than the one owner:
+    a plan merged with no ``merged`` lifecycle row, and a merge whose row
+    says ``backfilled_unverified`` or whose plan event named no lineage (PR
+    #1906, ARIA's first merge). The head GitHub merged is classified by the
+    same :func:`classify_merged_head` an observed merge uses, and the owner
+    records it append-only (``merge_record.attest_merge_lineage``). A head
+    that cannot be read is retried like any merge (review of #1910, N2) and
+    disclosed ``head_unverifiable`` at the bound. Without the kernel's own
+    ``opened`` row nothing is guessed (review of #1910, F3).
     """
     impl = state.get("implementation") or {}
     after = impl.get("merged_after_rejection") or {}
     pr_number = _pr_number_from_url(str(impl.get("pr_url") or "")) or after.get("pr_number")
-    if type(pr_number) is not int or any(row.get("event") == "merged" and row.get("pr_number") == pr_number
-                                         for row in lifecycle):
-        return [], []
+    if type(pr_number) is not int:
+        return None
+    recorded = next((row for row in fold_merged_rows(lifecycle) if row.get("pr_number") == pr_number), None)
+    row_unclassified = recorded is None or recorded.get("head_lineage") in UNCLASSIFIED_LINEAGES
+    plan_unclassified = impl.get("head_lineage") in UNCLASSIFIED_LINEAGES
+    if not row_unclassified and not plan_unclassified:
+        return None
     pr = opened_row(lifecycle, pr_number=pr_number)
     if pr is None:
-        return [], [{"plan_id": plan_id, "pr_number": pr_number, "reason": "no_opened_row"}]
-    # Review of #1910, N4 — no head is classified here, so the row is never
-    # ARIA's: only a merge whose head was checked may say "delivered".
-    written = record_merge(pr=pr, merged_by=MERGED_BY_OBSERVED, base_dir=root,
-                           merge_sha=str(impl.get("merge_sha") or "") or None,
-                           merged_at=str(impl.get("merged_at") or "") or None,
-                           head_lineage=LINEAGE_BACKFILLED_UNVERIFIED)
+        return {"skipped": {"plan_id": plan_id, "pr_number": pr_number, "reason": "no_opened_row"}}
+    merge_sha, merged_at = str(impl.get("merge_sha") or ""), str(impl.get("merged_at") or "") or None
+    if recorded is not None and not attestation_binds(recorded, merge_sha):
+        # The row and the plan name different merge commits: a named
+        # disagreement, never attested over and never re-read.
+        return {"error": {"plan_id": plan_id, "reason": "attested_merge_is_not_the_recorded_merge"}}
+    if not row_unclassified and recorded is not None:
+        # The row was classified and the plan event was not (a pass that
+        # stopped between the two): the row is the evidence, nothing is read.
+        lineage = str(recorded["head_lineage"])
+        head = (recorded.get("lineage_attested") or {}).get("merged_head_sha") or recorded.get("head_sha")
+    elif not plan_unclassified:
+        # Review of #1932, F2 — the plan's lineage was classified when it
+        # merged: the row takes it, unread. A read now could only disagree
+        # (a later head, a different checkout) and never upgrades it.
+        lineage = str(impl["head_lineage"])
+        head = (impl.get("head_lineage_attested") or {}).get("merged_head_sha")
+    else:
+        if not readable:
+            return {"waiting": {"plan_id": plan_id, "pr_number": pr_number}}
+        merge = observed_merge(reader.pr_merge_state(pr_number), pr_number=pr_number)
+        head = merge[2] if merge is not None and merge[0] == merge_sha else ""
+        lineage = classify_merged_head(workspace, pr_number=pr_number, delivered_sha=str(pr.get("head_sha") or ""),
+                                       head_sha=head, merge_sha=merge_sha) if head else LINEAGE_UNVERIFIABLE
+        if lineage == LINEAGE_UNVERIFIABLE:
+            retry = _unreadable_head({**pr, "number": pr_number}, lifecycle=lifecycle, root=root)
+            if retry is not None:
+                return retry
+    try:
+        written = attest_merge_lineage(pr=pr, plan_id=plan_id, head_lineage=lineage, merge_sha=merge_sha,
+                                       merged_at=merged_at, merged_head_sha=head or None, base_dir=root)
+    except (GovernanceError, MergeNotProven) as exc:
+        # Contention or a refused transition is observable; retried next pass.
+        return {"error": {"plan_id": plan_id, "reason": str(exc)[:500]}}
     lifecycle[:] = lifecycle_rows(root)
-    return ([{"plan_id": plan_id, "pr_number": pr_number}] if written["lifecycle_row"] else []), []
+    return {"attested": {"plan_id": plan_id, "pr_number": pr_number, "head_lineage": lineage,
+                         "lifecycle_row": written["lifecycle_row"], "attested_row": written["attested_row"],
+                         "plan_event": bool((written["plan_event"] or {}).get("event_appended"))}}
 
 
 def _reconcile_promotion(plan_id: str, state: dict[str, Any], root: Path) -> dict[str, Any]:
@@ -326,28 +369,34 @@ def reconcile_recorded_implementations(
         "status": "reconciled", "merged": [], "checked": 0,
         "promotions": [], "merge_errors": [], "finding_closures": [],
         "merge_refusals": [], "lineage_unverified": [], "lifecycle_backfilled": [],
-        "lifecycle_backfill_skipped": [],
+        "lifecycle_backfill_skipped": [], "lineage_attested": [], "lineage_waiting": [],
     }
-    for plan_id, state in states.items():
-        if state.get("state") == "IMPLEMENTATION_MERGED":
-            result["promotions"].append(_reconcile_promotion(plan_id, state, root))
-            result["finding_closures"].append(
-                _close_finding(plan_id, state, root, checkout, finding_detectors, history),
-            )
-
-    # ARIA-HIGH-390 — a plan merged before the one owner existed (or by a
-    # writer that recorded only the plan) gets its PR's lifecycle row from
-    # the plan's own merge: no GitHub read, the merge is already proven.
-    lifecycle = lifecycle_rows(root)
-    for plan_id, state in states.items():
-        if state.get("state") == "IMPLEMENTATION_MERGED":
-            backfilled, skipped = _backfill_lifecycle(plan_id, state, lifecycle, root)
-            result["lifecycle_backfilled"].extend(backfilled)
-            result["lifecycle_backfill_skipped"].extend(skipped)
-
-    # Local recovery above does not depend on credentials or network health.
     # Neither this call nor pr_merge_state below runs inside a state lock.
     readable, reason = reader.readable()
+    lifecycle = lifecycle_rows(root)
+    for plan_id, state in states.items():
+        if state.get("state") != "IMPLEMENTATION_MERGED":
+            continue
+        # ARIA-HIGH-390/409 — a merge recorded before the one owner existed
+        # is classified first, so this pass's learning already folds it.
+        settled = _settle_merged_lineage(plan_id, state, lifecycle=lifecycle, reader=reader, readable=readable,
+                                         workspace=checkout, root=root)
+        if settled is not None:
+            for key, bucket in (("skipped", "lifecycle_backfill_skipped"), ("waiting", "lineage_waiting"),
+                                ("error", "merge_errors"),
+                                ("unverified", "lineage_unverified"), ("attested", "lineage_attested")):
+                if key in settled:
+                    result[bucket].append({"plan_id": plan_id, **settled[key]} if key == "unverified"
+                                          else settled[key])
+            if settled.get("attested", {}).get("lifecycle_row"):
+                result["lifecycle_backfilled"].append({"plan_id": plan_id, "pr_number": settled["attested"]["pr_number"]})
+            state = fold_plan_state(plan_id=plan_id, base_dir=root)
+        # Learning and closure from durable merge evidence need no network.
+        result["promotions"].append(_reconcile_promotion(plan_id, state, root))
+        result["finding_closures"].append(
+            _close_finding(plan_id, state, root, checkout, finding_detectors, history),
+        )
+
     if not readable:
         result.update(status="unreadable", reason=reason)
         return result

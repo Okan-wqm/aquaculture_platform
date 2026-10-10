@@ -118,12 +118,12 @@ describe('date-column transformer invariant (FARM-CRITICAL-406)', () => {
       while ((match = DATE_COLUMN_RE.exec(source)) !== null) {
         const decoratorStart = source.lastIndexOf('@Column', match.index);
         const decorator = source.slice(decoratorStart, match.index + match[0].length);
-        const propertyType = match[3].trim();
+        const propertyType = (match[3] ?? '').trim();
         scannedColumns += 1;
         if (propertyType === 'Date' && !decorator.includes('DateColumnTransformer')) {
           violations.push({
             file: relative(REPO_ROOT, file),
-            property: match[1],
+            property: match[1] ?? '',
             line: source.slice(0, decoratorStart).split('\n').length,
           });
         }

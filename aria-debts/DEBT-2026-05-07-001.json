@@ -1,7 +1,7 @@
 {
   "$schema": "aria/architectural-debt/v1",
   "auto_close_forbidden": true,
-  "current_status": "OPEN",
+  "current_status": "IN_PROGRESS",
   "debt_id": "DEBT-2026-05-07-001",
   "due_date": "2026-07-06T07:37:04Z",
   "escalation_history": [],
@@ -22,6 +22,12 @@
       "at": "2026-05-07T07:37:04Z",
       "by": "manual:operator",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-10-08T22:30:00Z",
+      "by": "commit:afd590368",
+      "note": "addColumnWithIndex + dropColumnWithIndex (libs/backend-common/src/database/migration-helpers.ts, afd590368) and the migration-column-index-pair invariant (tests/invariants/migration-column-index-pair.spec.ts) are on PR #1890, not yet on main. Not RESOLVED (CONTRACTS.md architectural-debt lifecycle): the permanent fix is not shipped until it merges, and the originating finding's evidence chain (chain_c05abc8bbe3674be, F-001) cannot be re-verified because aria-findings/F-001.json, the short_term_action_taken ref, does not exist on this tree. The Closes: trailers on afd590368 and 8e35ad9f5 were premature; this record supersedes them. RESOLVED needs: the helper and invariant merged to main (resolved_by_commit = that merge SHA) and a re-verification of the F-001 evidence (or an operator relink to a finding that exists). due_date is unchanged and already past: a debt past its deadline grows louder, never quieter.",
+      "status": "IN_PROGRESS"
     }
   ],
   "verification_status": "VERIFIED",

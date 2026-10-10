@@ -463,6 +463,22 @@ class Routing(_Store):
         external_runner.assert_not_called()
         self.assertEqual(gi.inbox_summary(self.tools)["pending"], 0)
 
+    def test_ci_failure_signal_points_at_the_workflow_file(self) -> None:
+        # ARIA-MEDIUM-394 review — the bridge refuses prose refs, and workflow
+        # display names carry spaces; the code area is the workflow FILE
+        # (workflow_run.path), and a check suite, which names none, points at
+        # the workflows directory.
+        from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
+
+        self._ingest(gn.normalize_github("workflow_run", "wr-p", {"action": "completed", "workflow_run": {"id": 11, "name": "ARIA Kernel Fast", "path": ".github/workflows/aria-kernel-fast.yml", "conclusion": "failure", "head_sha": "d" * 40, "head_branch": "main"}, "sender": {"login": "x"}, "repository": {"full_name": "o/r"}}))
+        self._ingest(gn.normalize_github("check_suite", "cs-1", {"action": "completed", "check_suite": {"conclusion": "failure", "head_sha": "e" * 40, "head_branch": "main", "app": {"slug": "github-actions"}}, "sender": {"login": "x"}, "repository": {"full_name": "o/r"}}))
+        routed = {r["delivery_id"]: r for r in gr.drain_inbox(base_dir=self.tools, workspace_root=self.ws)}
+        self.assertEqual(routed["wr-p"]["action"], "runtime_signal")
+        self.assertEqual(routed["cs-1"]["action"], "runtime_signal")
+        self.assertIsNone(routed["wr-p"]["error"])
+        refs = sorted(tuple(s["code_refs"]) for s in load_open_runtime_signals(base_dir=self.tools))
+        self.assertEqual(refs, [(".github/workflows",), (".github/workflows/aria-kernel-fast.yml",)])
+
     def test_I_V12_GW_03_deterministic_closed_routes(self) -> None:
         self._ingest(gn.normalize_github("issues", "i-7", _issue_payload(7, ["aria"])))
         self._ingest(gn.normalize_github("issues", "i-8", _issue_payload(8, ["bug"])))

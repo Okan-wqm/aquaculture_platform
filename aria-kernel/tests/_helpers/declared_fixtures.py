@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from aria_kernel.ledger import append_declared_jsonl, rewrite_declared_jsonl, segment_paths
+from aria_kernel.state_manifest import memory_surfaces
 from aria_kernel.tool_registry import ensure_tools_dir
 
 
@@ -38,8 +39,26 @@ def rewrite_declared_fixture(
     expected_surface: str,
     migration_id: str = "test-fixture-rewrite",
 ) -> None:
+    """Rewrite a NON-memory declared ledger through the kernel writer.
+
+    A memory-class surface (``state_manifest.memory_surfaces()``) is
+    append-only: the writer refuses any rewrite that changes a recorded row
+    (``memory_class.refuse_history_rewrite``). A fixture that reaches for
+    this helper on one is building its state the wrong way round, so it is
+    refused here by name, before the kernel's refusal surfaces as an
+    unrelated ``LedgerIntegrityError`` deep in the test. Build the state by
+    appending rows in their final order (``append_declared_fixture``), or —
+    for a tamper/loss the gates must catch — write the bytes out of band
+    (``rewrite_declared_out_of_band``).
+    """
     if not expected_surface or not expected_surface.strip():
         raise AssertionError("expected_surface is required for declared fixtures")
+    if expected_surface in {surface.name for surface in memory_surfaces()}:
+        raise AssertionError(
+            f"rewrite_declared_fixture: surface {expected_surface!r} is memory-class and append-only; "
+            "build the fixture with append_declared_fixture in its final row order, or simulate a "
+            "tamper/loss with rewrite_declared_out_of_band (a direct filesystem write)"
+        )
     rewrite_declared_jsonl(
         Path(path),
         rows,

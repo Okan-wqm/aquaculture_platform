@@ -51,14 +51,16 @@ class ImplementationRejectionsSsotTests(unittest.TestCase):
             "pr_open_refused",
             # ARIA-HIGH-389
             "implementation_result_refused_after_delivery",
+            # ARIA-HIGH-397
+            "implementation_replanned",
         }
     )
 
-    def test_validation_set_membership_is_the_expected_31(self) -> None:
+    def test_validation_set_membership_is_the_expected_32(self) -> None:
         self.assertEqual(
             VALID_IMPLEMENTATION_REJECTION_CLASSES, self.EXPECTED_CLASSES
         )
-        self.assertEqual(len(VALID_IMPLEMENTATION_REJECTION_CLASSES), 31)
+        self.assertEqual(len(VALID_IMPLEMENTATION_REJECTION_CLASSES), 32)
 
     def test_validation_set_is_frozen(self) -> None:
         self.assertIsInstance(VALID_IMPLEMENTATION_REJECTION_CLASSES, frozenset)

@@ -42,6 +42,8 @@ class MergedPRReader:
         return {
             "state": "MERGED", "mergedAt": "2026-09-10T01:00:00Z",
             "mergeCommit": {"oid": "f" * 40},
+            # GitHub names the head it merged: the delivered tip.
+            "headRefOid": "d" * 40,
         }
 
 
@@ -350,6 +352,7 @@ class ImplementationChainTests(unittest.TestCase):
                     "state": "MERGED",
                     "mergedAt": "2026-08-12T11:00:00Z",
                     "mergeCommit": {"oid": "f" * 40},
+                    "headRefOid": "d" * 40,
                 }
 
         result = reconcile_recorded_implementations(base_dir=self.tools, workspace_root=Path(self.tools).parent, reader=_Reader())
@@ -391,6 +394,7 @@ class ImplementationChainTests(unittest.TestCase):
                     "state": "MERGED",
                     "mergedAt": "2026-09-10T01:00:00Z",
                     "mergeCommit": {"oid": "f" * 40},
+                    "headRefOid": "d" * 40,
                 }
 
         def fail_promotion_append(transaction, path: Path, row: dict, surface, previous) -> None:

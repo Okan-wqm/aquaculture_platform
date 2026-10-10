@@ -191,7 +191,7 @@ class _MergedAt(MergedPRReader):
         from datetime import datetime, timezone
 
         assert pr_number == 4242
-        return {"state": "MERGED", "mergeCommit": {"oid": self.merge_sha},
+        return {"state": "MERGED", "mergeCommit": {"oid": self.merge_sha}, "headRefOid": "d" * 40,
                 "mergedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 

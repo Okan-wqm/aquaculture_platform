@@ -79,7 +79,7 @@ Your steps:
    ledger, answers `verified`/`mismatch` and returns the full body. Cite the call; never recompute
    by hand (the sandbox refuses `python3 -c`, `base64`, `ts-node`). On `mismatch`: `reason_class=evidence`, STOP.
 2. **Verify scope**. Each `key_changes[]` entry is a string step or
-   `{id?, description, paths?}` (`plan_convergence.KEY_CHANGE_FIELDS`); every
+   `{id?, description, paths?, imports?}` (`plan_convergence.KEY_CHANGE_FIELDS`); every
    `key_changes[].paths[]` entry must be INSIDE `allowed_scope[]` AND outside
    `implementation_safety.READONLY_PATHS`. On violation, emit
    `reason_class=scope` (note: the offending path) and STOP.
@@ -193,8 +193,8 @@ the hard-fail check registry.
 - **No adjacent tidying.** Apply exactly `key_changes[]`; refactors, renames
   or cleanups beyond them are `forbidden_scope_violation` material even
   inside `allowed_scope[]`.
-- **Finish or refuse.** Apply, validate, commit and submit the response
-  envelope in one run — the executor gates, pushes and opens the PR from
-  your commit; if the plan is infeasible, emit the refusal envelope — never
-  an unexecuted plan or a partial diff.
+- **Finish or refuse.** Apply, validate, commit and submit in one run (the executor gates, pushes
+  and opens the PR from your commit); if infeasible, refuse — never an unexecuted plan or a partial
+  diff. A file the plan needs outside `allowed_scope[]` (e.g. a tsconfig alias): refuse `scope`, list it in
+  `enabling_surfaces[]` (re-planned inside the signed write roots, ARIA-HIGH-397); never edit it.
 - **Coding standards.** Every diff conforms to `@.claude/agents/_shared/aria-code-writing-standards.md`.

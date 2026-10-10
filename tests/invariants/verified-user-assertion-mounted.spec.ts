@@ -42,6 +42,13 @@ const SUBGRAPHS_REQUIRED: ReadonlyArray<string> = [
   'alert-engine',
   'messaging-service',
   'ai-service',
+  // FARM-HIGH-357: notification-service serves the shell's user-context
+  // resolvers (unreadNotificationCount, myNotifications). Without the
+  // middleware req.user was never built, every poll answered UNAUTHENTICATED
+  // and the shell read that as a dead session (refresh storms, zombie
+  // sessions). It was absent from this list, so nothing caught the gap
+  // (FARM-MEDIUM-398).
+  'notification-service',
 ];
 
 interface ModuleAnalysis {

@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import type { FindManyOptions } from 'typeorm';
 import type { OutboxPublisher } from '@platform/outbox';
 
 import type { AuditLogService } from '../../database/services/audit-log.service';
@@ -94,6 +95,46 @@ describe('site contract command handlers', () => {
       }),
     );
     expect(result.totalArea).toBe(12_500);
+  });
+
+  it('counts only live sites against the plan farm quota — a soft-deleted site frees its slot', async () => {
+    // 2026-09-21 live incident: the quota counted soft-deleted rows, so a FREE
+    // tenant (1 farm) that had deleted its only site could never create one
+    // again ("Plan limit reached"). The count is now scoped to isDeleted=false.
+    // Revert-failing pin for the fix (FARM-MEDIUM-398).
+    const { mockDataSource, mockManager } = createMockDataSource();
+    const repository = createMockRepository<Site>();
+    const stored = [Object.assign(existingSite(), { isDeleted: true, isActive: false })];
+    repository.count.mockImplementation(async (options?: FindManyOptions<Site>) => {
+      const where = options?.where;
+      const deletedFilter = where && !Array.isArray(where) ? where.isDeleted : undefined;
+      return stored.filter(
+        (site) => deletedFilter === undefined || site.isDeleted === deletedFilter,
+      ).length;
+    });
+    repository.create.mockImplementation((site) => Object.assign(new Site(), site));
+    repository.findOne.mockResolvedValue(null);
+    repository.save.mockImplementation(async (site) =>
+      Object.assign(new Site(), site, { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', version: 1 }),
+    );
+    mockManager.getRepository.mockReturnValue(repository);
+    const { audit, outbox } = collaborators();
+    const handler = new CreateSiteHandler(mockDataSource, audit, outbox);
+    const FREE_PLAN_LEVEL = 0;
+
+    const result = await handler.execute(
+      new CreateSiteCommand(
+        { name: 'Replacement', code: 'RP-01', type: SiteType.LAND_BASED },
+        TENANT_ID,
+        USER_ID,
+        FREE_PLAN_LEVEL,
+      ),
+    );
+
+    expect(result.name).toBe('Replacement');
+    expect(repository.count).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ isDeleted: false }) }),
+    );
   });
 
   it('rejects SEA_CAGE without coordinates before opening a transaction', async () => {

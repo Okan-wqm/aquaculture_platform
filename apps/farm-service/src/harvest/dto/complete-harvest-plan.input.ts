@@ -27,14 +27,18 @@ export class CompleteHarvestPlanInput {
   @Min(1)
   actualQuantity!: number;
 
-  @Field(() => Float, { description: 'Harvested biomass in kg' })
-  @IsNumber()
+  // maxDecimalPlaces matches the stored decimal(12,2) column, so a resent
+  // completion compares equal to the stored one (idempotent replay) instead
+  // of differing in a third decimal the column dropped.
+  @Field(() => Float, { description: 'Harvested biomass in kg (at most 2 decimals)' })
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   @Min(0.01)
   actualBiomass!: number;
 
-  @Field(() => Float, { description: 'Average weight in grams' })
-  @IsNumber()
+  // decimal(10,2) column — same reason as actualBiomass.
+  @Field(() => Float, { description: 'Average weight in grams (at most 2 decimals)' })
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   @Min(0.01)
   @Max(100000)

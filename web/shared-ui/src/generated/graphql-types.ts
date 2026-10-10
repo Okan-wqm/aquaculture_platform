@@ -2451,9 +2451,9 @@ export type CompetencyRatingInput = {
 };
 
 export type CompleteHarvestPlanInput = {
-  /** Average weight in grams */
+  /** Average weight in grams (at most 2 decimals) */
   actualAvgWeight: Scalars['Float']['input'];
-  /** Harvested biomass in kg */
+  /** Harvested biomass in kg (at most 2 decimals) */
   actualBiomass: Scalars['Float']['input'];
   /** Counted number of fish harvested */
   actualQuantity: Scalars['Int']['input'];

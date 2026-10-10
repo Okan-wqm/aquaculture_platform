@@ -13,6 +13,7 @@
  * partial widening of entity fixtures).
  */
 import { createMockRepository } from '@aquaculture/testing';
+import { FindOperator } from 'typeorm';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { createBaseEvent } from '@platform/event-contracts';
 import type { IEventBus } from '@platform/event-bus';
@@ -138,7 +139,23 @@ function makeListener(opts: {
   redis?: RedisDouble;
 } {
   const batchRepo = createMockRepository<Batch>();
-  batchRepo.findOne.mockResolvedValue(opts.batch === null ? null : (opts.batch ?? makeBatch()));
+  const stored = opts.batch === null ? null : (opts.batch ?? makeBatch());
+  batchRepo.findOne.mockResolvedValue(stored);
+  // The partial-harvest transition is ONE conditional UPDATE (status IN the
+  // lifecycle policy's source set). The double applies it to the stored
+  // batch exactly as Postgres would: only when the status matches.
+  batchRepo.update.mockImplementation(async (criteria: unknown, patch: unknown) => {
+    const filterValue: unknown =
+      criteria instanceof Object && 'status' in criteria && criteria.status instanceof FindOperator
+        ? criteria.status.value
+        : undefined;
+    const statusFilter: unknown[] = Array.isArray(filterValue) ? filterValue : [];
+    if (!stored || !statusFilter.includes(stored.status)) {
+      return { affected: 0, raw: [], generatedMaps: [] };
+    }
+    Object.assign(stored, patch);
+    return { affected: 1, raw: [], generatedMaps: [] };
+  });
 
   const tankBatchRepo = createMockRepository<TankBatch>();
   tankBatchRepo.find.mockResolvedValue((opts.tankBatches ?? []) as TankBatch[]);
@@ -167,10 +184,9 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
 
     await listener.handle(makeEvent({ isFinal: false }));
 
-    expect(batchRepo.save).toHaveBeenCalled();
-    const saved = batchRepo.save.mock.calls[0]?.[0] as Batch;
-    expect(saved.status).toBe(BatchStatus.HARVESTING);
-    expect(saved.statusReason).toBe('Partial harvest in progress');
+    expect(batch.status).toBe(BatchStatus.HARVESTING);
+    expect(batch.statusReason).toBe('Partial harvest in progress');
+    expect(batchRepo.save).not.toHaveBeenCalled();
   });
 
   it('treats a missing isFinal as partial (tolerant reader) and transitions to HARVESTING', async () => {
@@ -182,19 +198,36 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     delete event.isFinal;
     await listener.handle(event);
 
-    const saved = batchRepo.save.mock.calls[0]?.[0] as Batch;
-    expect(saved.status).toBe(BatchStatus.HARVESTING);
+    expect(batch.status).toBe(BatchStatus.HARVESTING);
   });
 
   it('does NOT re-transition a batch already in HARVESTING', async () => {
     const bus = makeBus();
-    const batch = makeBatch({ status: BatchStatus.HARVESTING });
-    const { listener, batchRepo } = makeListener({ bus, batch });
+    const batch = makeBatch({ status: BatchStatus.HARVESTING, statusReason: 'operator' });
+    const { listener } = makeListener({ bus, batch });
 
     await listener.handle(makeEvent({ isFinal: false }));
 
-    expect(batchRepo.save).not.toHaveBeenCalled();
+    expect(batch.statusReason).toBe('operator');
   });
+
+  it.each([BatchStatus.HARVESTED, BatchStatus.CLOSED, BatchStatus.TRANSFERRED, BatchStatus.FAILED])(
+    'never reopens a finished %s batch on a late partial-harvest event (FARM-HIGH-399)',
+    async (finished) => {
+      // A plan completion across two tanks emits a non-final event for tank 1
+      // and a final one for tank 2; the final one closes the batch before the
+      // non-final one drains. The late event must leave the batch finished.
+      const bus = makeBus();
+      const batch = makeBatch({ status: finished, isActive: finished !== BatchStatus.CLOSED });
+      const { listener, batchRepo } = makeListener({ bus, batch });
+
+      await listener.handle(makeEvent({ isFinal: false }));
+
+      expect(batch.status).toBe(finished);
+      expect(batchRepo.update).toHaveBeenCalledTimes(1);
+      expect(batchRepo.save).not.toHaveBeenCalled();
+    },
+  );
 
   it('does NOT move the batch to HARVESTING on a final harvest (producer owns HARVESTED)', async () => {
     const bus = makeBus();
@@ -203,7 +236,8 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
 
     await listener.handle(makeEvent({ isFinal: true }));
 
-    expect(batchRepo.save).not.toHaveBeenCalled();
+    expect(batchRepo.update).not.toHaveBeenCalled();
+    expect(batch.status).toBe(BatchStatus.GROWING);
   });
 
   it('always publishes a regulatory/traceability follow-up', async () => {
@@ -250,6 +284,7 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
 
     expect(bus.publish).not.toHaveBeenCalled();
     expect(batchRepo.save).not.toHaveBeenCalled();
+    expect(batchRepo.update).not.toHaveBeenCalled();
   });
 
   it('reports a downstream failure as a retry outcome (bounded by the bus, then dead-lettered)', async () => {
@@ -342,6 +377,7 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     // Nothing is published and no DB write happens on a duplicate.
     expect(bus.publish).not.toHaveBeenCalled();
     expect(batchRepo.save).not.toHaveBeenCalled();
+    expect(batchRepo.update).not.toHaveBeenCalled();
   });
 
   it('processes once and keeps the claim on success (first delivery)', async () => {

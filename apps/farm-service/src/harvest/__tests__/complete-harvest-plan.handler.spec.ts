@@ -28,6 +28,7 @@ import type { SelectQueryBuilder } from 'typeorm';
 
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch, type BatchDetail } from '../../batch/entities/tank-batch.entity';
+import { Tank } from '../../tank/entities/tank.entity';
 import type { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import {
   CompleteHarvestPlanCommand,
@@ -215,6 +216,28 @@ describe('CompleteHarvestPlanHandler — stock movement in one transaction (FARM
       lock: { mode: 'pessimistic_write' },
     });
     expect(h.stockQuery.setLock).toHaveBeenCalledWith('pessimistic_write');
+  });
+
+  it('locks tanks before their tank-batch rows, the order every stock write takes (FARM-MEDIUM-400)', async () => {
+    const h = harness({
+      tankBatches: [
+        tankBatch('tank-b', [detail(BATCH_ID, 200)]),
+        tankBatch('tank-a', [detail(BATCH_ID, 600)]),
+      ],
+    });
+
+    await h.handler.execute(complete());
+
+    // Unlocked candidate read, then tanks FOR UPDATE, then tank-batch rows FOR UPDATE.
+    expect(h.mockManager.createQueryBuilder.mock.calls.map(([entity]) => entity)).toEqual([
+      TankBatch,
+      Tank,
+      TankBatch,
+    ]);
+    expect(h.stockQuery.setLock).toHaveBeenCalledTimes(2);
+    expect(h.stockQuery.andWhere).toHaveBeenCalledWith('t.id IN (:...tankIds)', {
+      tankIds: ['tank-a', 'tank-b'],
+    });
   });
 
   it('books the counted biomass exactly across the tanks', async () => {

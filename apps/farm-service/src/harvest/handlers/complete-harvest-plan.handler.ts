@@ -16,9 +16,14 @@
  *      proceeds; COMPLETED with the same counted figures is an idempotent
  *      replay (returns the plan, moves nothing); COMPLETED with other
  *      figures is a 409; anything else is a 400;
- *   2. lock the batch, then the tank-batch rows holding it (the batch →
- *      tank-batch order every stock-removal path takes, so no deadlock with
- *      a direct harvest);
+ *   2. lock the batch, then the tanks holding it, then their tank-batch
+ *      rows — batch → tank → tank-batch, the order the direct harvest,
+ *      mortality and cull paths take, with tanks and tank-batch rows each in
+ *      tank-id order (FARM-MEDIUM-400). Every path locks the batch first, so
+ *      two writers of the SAME batch serialise there; a stock write of a
+ *      DIFFERENT batch on a shared tank takes the tank before the tank-batch
+ *      row, as completion does, so neither can hold one while waiting for
+ *      the other;
  *   3. split the counted quantity across those tanks
  *      ({@link allocateHarvestAcrossTanks}, FARM-MEDIUM-397);
  *   4. harvest each tank through {@link HarvestRecordWriter} — the one owner
@@ -42,7 +47,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
@@ -56,6 +61,7 @@ import {
 import { HarvestPlan, HarvestPlanStatus } from '../entities/harvest-plan.entity';
 import { allocateHarvestAcrossTanks, type TankStock } from '../services/harvest-allocation';
 import { HarvestRecordWriter } from '../services/harvest-record-writer.service';
+import { Tank } from '../../tank/entities/tank.entity';
 
 /**
  * The completeHarvestPlan role set, read from the farm permission matrix (the
@@ -207,25 +213,39 @@ export class CompleteHarvestPlanHandler
   }
 
   /**
-   * The batch's book stock per tank, read under a FOR UPDATE lock on every
-   * tank-batch row holding it (tank order, so concurrent completions lock in
-   * the same order). Per-tank quantity comes from {@link tankCompositionOf},
-   * the same reading the SSoT writer debits.
+   * The batch's book stock per tank, read under FOR UPDATE locks taken in the
+   * global stock-write order (FARM-MEDIUM-400): the tank rows first, then
+   * their tank-batch rows, each in tank-id order.
+   *
+   * The candidate tanks come from an unlocked read of the tank-batch rows.
+   * That set cannot change before the locks land: the caller holds the batch
+   * row lock, and every path that moves this batch into or out of a tank
+   * (allocate, transfer, harvest, mortality, cull) takes that lock first. The
+   * composition itself is re-read under the tank-batch lock. Per-tank
+   * quantity comes from {@link tankCompositionOf}, the same reading the SSoT
+   * writer debits.
    */
   private async lockStockOfBatch(
     manager: EntityManager,
     tenantId: string,
     batchId: string,
   ): Promise<TankStock[]> {
-    const rows = await manager
-      .createQueryBuilder(TankBatch, 'tb')
-      .where('tb.tenantId = :tenantId', { tenantId })
-      .andWhere(
-        `(tb.primaryBatchId = :batchId OR EXISTS (
-            SELECT 1 FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS detail(value)
-            WHERE detail.value->>'batchId' = CAST(:batchId AS text)))`,
-        { batchId },
-      )
+    const holding = await this.tankBatchesHolding(manager, tenantId, batchId).getMany();
+    const tankIds = [...new Set(holding.map((row) => row.tankId))].sort();
+    if (tankIds.length === 0) {
+      return [];
+    }
+
+    await manager
+      .createQueryBuilder(Tank, 't')
+      .where('t.tenantId = :tenantId', { tenantId })
+      .andWhere('t.id IN (:...tankIds)', { tankIds })
+      .orderBy('t.id', 'ASC')
+      .setLock('pessimistic_write')
+      .getMany();
+
+    const rows = await this.tankBatchesHolding(manager, tenantId, batchId)
+      .andWhere('tb.tankId IN (:...tankIds)', { tankIds })
       .orderBy('tb.tankId', 'ASC')
       .setLock('pessimistic_write')
       .getMany();
@@ -238,5 +258,22 @@ export class CompleteHarvestPlanHandler
       }
     }
     return stocks;
+  }
+
+  /** The tank-batch rows whose composition holds `batchId`. */
+  private tankBatchesHolding(
+    manager: EntityManager,
+    tenantId: string,
+    batchId: string,
+  ): SelectQueryBuilder<TankBatch> {
+    return manager
+      .createQueryBuilder(TankBatch, 'tb')
+      .where('tb.tenantId = :tenantId', { tenantId })
+      .andWhere(
+        `(tb.primaryBatchId = :batchId OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS detail(value)
+            WHERE detail.value->>'batchId' = CAST(:batchId AS text)))`,
+        { batchId },
+      );
   }
 }

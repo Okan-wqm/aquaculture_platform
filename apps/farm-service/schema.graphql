@@ -11803,10 +11803,10 @@ input CompleteHarvestPlanInput {
   """Counted number of fish harvested"""
   actualQuantity: Int!
 
-  """Harvested biomass in kg"""
+  """Harvested biomass in kg (at most 2 decimals)"""
   actualBiomass: Float!
 
-  """Average weight in grams"""
+  """Average weight in grams (at most 2 decimals)"""
   actualAvgWeight: Float!
 
   """

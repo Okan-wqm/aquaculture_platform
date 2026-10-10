@@ -900,6 +900,17 @@ def transition_mission(
                     f"(reason_code={reason_code!r}); forward mainline skips require "
                     f"one of {sorted(FORWARD_SKIP_REASONS)}"
                 )
+        # ORPHAN-HIGH-573 (require_capability_resolution) — a mission minted
+        # with a `capability` may not enter IMPLEMENTING until that
+        # capability is resolved. The CAPABILITY_REQUIRED waiting state only
+        # covers missions the pipeline itself declared capability-less; this
+        # gate is the one every step passes regardless of who minted the
+        # mission. What counts as resolved is the resolver's single answer
+        # (a kernel-native declaration, or an accepted ledger decision).
+        if to_state == "IMPLEMENTING" and state.get("capability"):
+            from .capability_resolver import mission_capability_resolution
+
+            mission_capability_resolution(capability_key=str(state["capability"]), base_dir=root)
         if retry_rung is not None and state.get("retry_rung") is not None:
             if RETRY_LADDER.index(retry_rung) < RETRY_LADDER.index(state["retry_rung"]):
                 raise GovernanceError(

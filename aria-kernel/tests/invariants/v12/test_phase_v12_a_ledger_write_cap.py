@@ -109,7 +109,9 @@ class FixtureRefreshSurvivesTheCap(unittest.TestCase):
         def refuse(*_args, **_kwargs):
             raise LedgerRowTooLargeError("ledger_row_too_large:test:bytes=2:max=1")
 
-        with mock.patch.object(cycle, "list_tools", return_value=tools), mock.patch.object(
+        # The phase delegates to fixture_runner.refresh_fixture_suites, which
+        # reads the registry through tool_registry.
+        with mock.patch("aria_kernel.tool_registry.list_tools", return_value=tools), mock.patch.object(
             fixture_runner, "refresh_fixture_suite", side_effect=refuse,
         ):
             result = cycle._phase_fixture_refresh(context)

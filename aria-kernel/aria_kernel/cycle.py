@@ -25,10 +25,16 @@ from .cycle_diff import run_cycle_diff
 from .cycle_progress import emit_progress
 from .cycle_runtime_status import RUNTIME_OK, RUNTIME_DEGRADED, degraded_tool_records, non_ok_runs, runtime_status
 from .impact_graph import cycle_service_examination
-from .memory import decay_beliefs_by_head_distance, decay_stale_beliefs_by_age, update_memory
+from .memory import (
+    decay_beliefs_by_head_distance,
+    decay_beliefs_by_runtime_signals,
+    decay_stale_beliefs_by_age,
+    update_memory,
+)
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import budget_projection, read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
+from .runtime_signal_bridge import quarantine_refused_runtime_signals
 from .genesis_policy import load_policy
 from .reflection import run_reflection
 from .human_required import (
@@ -39,6 +45,7 @@ from .human_required_adjudication import sweep_human_required_adjudications
 from .agent_invocations import reap_stale_claims
 from .calibration import recommend_calibration
 from .calibration_actuator import apply_bounded_calibration
+from .capability_resolver import SERVICE_HARDENING_CAPABILITY
 from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
@@ -1448,6 +1455,18 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
         repo_root=context.workspace_root,
         base_dir=context.base_dir,
     )
+    # ARIA-MEDIUM-393 (Plan 028 §D's event trigger) — the world moved
+    # with no local diff: an OPEN runtime signal referencing a belief's
+    # evidence re-opens the belief through the same transition, so
+    # run_pressure surfaces it this cycle.
+    # The readers of runtime signals are pure; moving a record the current
+    # ref law refuses (one written before the bridge enforced it) out of the
+    # open set is a profile-gated write, and this phase — the signals'
+    # consumer — owns it.
+    runtime_signal_quarantine = quarantine_refused_runtime_signals(base_dir=context.base_dir)
+    runtime_signal = decay_beliefs_by_runtime_signals(
+        cycle_id=context.cycle_id, base_dir=context.base_dir,
+    )
     # M4+M8/E8 — the belief-verdict channel's producer half. A contradiction
     # open across >= 3 distinct cycles becomes a HUMAN_REQUIRED record whose
     # resolution routes the operator's verdict back into belief confidence
@@ -1460,7 +1479,13 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
     escalation = escalate_stuck_contradictions(
         cycle_id=context.cycle_id, base_dir=context.base_dir,
     )
-    return {**age, "head_distance_decay": head_distance, "belief_escalation": escalation}
+    return {
+        **age,
+        "head_distance_decay": head_distance,
+        "runtime_signal_quarantine": runtime_signal_quarantine,
+        "runtime_signal_decay": runtime_signal,
+        "belief_escalation": escalation,
+    }
 
 
 def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
@@ -2084,73 +2109,16 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
     with the driver dead, no fixture suite has run automatically since the
     heartbeat was superseded, so promotion evidence could only rot.
     """
-    from .fixture_runner import refresh_fixture_suite
-    from .ledger import LedgerReadLimitError, LedgerRowTooLargeError
+    from .fixture_runner import refresh_fixture_suites
 
-    refreshed: list[dict[str, Any]] = []
-    skipped_no_fixture_set: list[str] = []
-    # ARIA-HIGH-140 — each suite is a subprocess run over the real
-    # checkout (minutes each under load: 3.5 min per adapter on 2026-09-15,
-    # ten adapters), so the remaining wall-clock is asked BETWEEN suites.
-    # A suite that would start inside the close-out margin is recorded as
-    # skipped rather than begun and cut, which is how two trial-eleven
-    # cycles died inside this phase with the store never sealed.
-    skipped_deadline: list[str] = []
-    for tool in list_tools(base_dir=context.base_dir):
-        tool_id = str(tool.get("tool_id") or "")
-        if not tool_id or not tool.get("fixture_set"):
-            if tool_id:
-                skipped_no_fixture_set.append(tool_id)
-            continue
-        if _job_deadline_reached():
-            skipped_deadline.append(tool_id)
-            continue
-        try:
-            result = refresh_fixture_suite(
-                tool_id,
-                workspace_root=context.workspace_root,
-                cycle_id=context.cycle_id,
-                base_dir=context.base_dir,
-            )
-            refreshed.append({"tool_id": tool_id, "status": result.get("status", "ok")})
-        # Plan 032 Faz 032a — a ledger line-budget refusal (read OR write) is
-        # one tool's blocked refresh, not the night's death: run 33608801135
-        # lost the whole cycle to a single oversized fixture-runs row because
-        # only GovernanceError was caught here.
-        except (GovernanceError, LedgerReadLimitError, LedgerRowTooLargeError) as exc:
-            refreshed.append({"tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200]})
-    # ORPHAN-MEDIUM-783 — a blocked refresh is a first-class health signal,
-    # not a detail inside the cycle state dict. ORPHAN-HIGH-779's six nights
-    # of fixture_path_escape_outside_repo refusals were invisible in every
-    # daily report precisely because record_and_continue was the only
-    # listener. The governance event lands in the reflection report's gate
-    # activity (kind counts) and the durable governance feed; a registry
-    # gap (tools without fixture_set can never satisfy readiness checks
-    # 3-5) rides the same event rather than a second silent channel.
-    blocked = [entry for entry in refreshed if entry.get("status") == "blocked"]
-    if blocked or (skipped_no_fixture_set and not refreshed):
-        append_tools_governance(
-            context.base_dir,
-            "fixture_refresh_blocked",
-            {
-                "cycle_id": context.cycle_id,
-                "blocked": blocked,
-                "skipped_no_fixture_set": skipped_no_fixture_set,
-            },
-        )
-    if skipped_deadline:
-        append_tools_governance(
-            context.base_dir,
-            "fixture_refresh_deadline_skipped",
-            {"cycle_id": context.cycle_id, "skipped": skipped_deadline, "refreshed": len(refreshed)},
-        )
-    return {
-        "status": "completed",
-        "tools": refreshed,
-        "blocked_count": len(blocked),
-        "skipped_no_fixture_set": skipped_no_fixture_set,
-        "skipped_deadline": skipped_deadline,
-    }
+    # One refresh lane: the operator verb (`tool fixture-refresh`) calls the
+    # same function, so a blocked refresh reaches governance either way.
+    return refresh_fixture_suites(
+        workspace_root=context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        deadline_reached=_job_deadline_reached,
+    )
 
 
 def _calibration_knobs(repo_root: Any) -> dict[str, Any]:
@@ -2661,7 +2629,7 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
             ),
             next_action=next_action,
             wake_condition=wake_condition,
-            capability="service_hardening",
+            capability=SERVICE_HARDENING_CAPABILITY,
             priority=priority,
             target_project=project,
             base_dir=context.base_dir,

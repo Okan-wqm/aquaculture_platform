@@ -218,7 +218,7 @@ class FixtureRefreshPhaseTest(unittest.TestCase):
                 {"tool_id": "with-fixtures", "fixture_set": "tools/x"},
                 {"tool_id": "without-fixtures"},
             ]
-            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+            with patch("aria_kernel.tool_registry.list_tools", return_value=tools), \
                  patch("aria_kernel.fixture_runner.refresh_fixture_suite",
                        return_value={"status": "ok"}) as refresh:
                 result = cycle_mod._phase_fixture_refresh(ctx)
@@ -237,10 +237,10 @@ class FixtureRefreshPhaseTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ctx = _context(tmp)
             tools = [{"tool_id": "blocked-adapter", "fixture_set": "tools/x"}]
-            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+            with patch("aria_kernel.tool_registry.list_tools", return_value=tools), \
                  patch("aria_kernel.fixture_runner.refresh_fixture_suite",
                        side_effect=GovernanceError("fixture_path_escape_outside_repo: boom")), \
-                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                 patch("aria_kernel.tool_registry.append_tools_governance") as governance:
                 result = cycle_mod._phase_fixture_refresh(ctx)
 
             self.assertEqual(result["status"], "completed")  # cycle still survives
@@ -265,11 +265,11 @@ class FixtureRefreshPhaseTest(unittest.TestCase):
                 {"tool_id": "second", "fixture_set": "tools/y"},
                 {"tool_id": "third", "fixture_set": "tools/z"},
             ]
-            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+            with patch("aria_kernel.tool_registry.list_tools", return_value=tools), \
                  patch.object(cycle_mod, "_job_deadline_reached", side_effect=[False, True, True]), \
                  patch("aria_kernel.fixture_runner.refresh_fixture_suite",
                        return_value={"status": "ok"}) as refresh, \
-                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                 patch("aria_kernel.tool_registry.append_tools_governance") as governance:
                 result = cycle_mod._phase_fixture_refresh(ctx)
 
             refresh.assert_called_once()
@@ -289,10 +289,10 @@ class FixtureRefreshPhaseTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ctx = _context(tmp)
             tools = [{"tool_id": "only", "fixture_set": "tools/x"}]
-            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+            with patch("aria_kernel.tool_registry.list_tools", return_value=tools), \
                  patch.object(cycle_mod, "_job_deadline_reached", return_value=False), \
                  patch("aria_kernel.fixture_runner.refresh_fixture_suite", return_value={"status": "ok"}), \
-                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                 patch("aria_kernel.tool_registry.append_tools_governance") as governance:
                 result = cycle_mod._phase_fixture_refresh(ctx)
 
             self.assertEqual(result["skipped_deadline"], [])
@@ -305,8 +305,8 @@ class FixtureRefreshPhaseTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ctx = _context(tmp)
             tools = [{"tool_id": "no-fixtures"}]
-            with patch.object(cycle_mod, "list_tools", return_value=tools), \
-                 patch.object(cycle_mod, "append_tools_governance") as governance:
+            with patch("aria_kernel.tool_registry.list_tools", return_value=tools), \
+                 patch("aria_kernel.tool_registry.append_tools_governance") as governance:
                 result = cycle_mod._phase_fixture_refresh(ctx)
 
             self.assertEqual(result["tools"], [])

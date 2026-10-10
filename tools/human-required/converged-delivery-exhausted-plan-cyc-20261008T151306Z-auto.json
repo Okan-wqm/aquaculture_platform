@@ -1,0 +1,43 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "cycle_id": "executor-37811678748-1",
+        "profile": "strict",
+        "recorded_at": "2026-10-08T17:41:34+00:00",
+        "runner_class": "AutonomousV9ImplementationRunner",
+        "voided": null
+      },
+      {
+        "attempt": 2,
+        "cycle_id": "cyc-20261009T075229Z-auto",
+        "profile": "strict",
+        "recorded_at": "2026-10-09T09:06:00+00:00",
+        "runner_class": "AutonomousV9ImplementationRunner",
+        "voided": null
+      },
+      {
+        "attempt": 3,
+        "cycle_id": "cyc-20261010T080114Z-auto",
+        "profile": "strict",
+        "recorded_at": "2026-10-10T09:08:19+00:00",
+        "runner_class": "AutonomousV9ImplementationRunner",
+        "voided": null
+      }
+    ],
+    "finding_id": "ARIA-HIGH-362",
+    "kind": "converged_plan_delivery",
+    "last_rejection_class": "runner_exception:BridgeContractViolation",
+    "plan_id": "plan-cyc-20261008T151306Z-auto",
+    "reason_code": "implementation_delivery_exhausted"
+  },
+  "reason": "implementation_delivery_exhausted: CONVERGED plan plan-cyc-20261008T151306Z-auto was offered to an implementation runner that could deliver it 3 times and stayed CONVERGED; it is now HUMAN_REQUIRED. Re-stage it or abandon it",
+  "recorded_at": "2026-10-10T09:21:07Z",
+  "request_id": "converged-delivery-exhausted-plan-cyc-20261008T151306Z-auto",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-13T09:21:07Z",
+  "status": "open"
+}

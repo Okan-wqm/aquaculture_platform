@@ -399,3 +399,28 @@ export async function createTestBatch(
   );
   return data.createBatch;
 }
+
+/**
+ * Releases a QUARANTINE batch to ACTIVE through releaseBatchFromQuarantine —
+ * the only way out of QUARANTINE (FARM-MEDIUM-402): updateBatchStatus refuses
+ * QUARANTINE -> ACTIVE and names this mutation. The test stub user carries
+ * tenant_admin + module_manager, which the mutation's MODULE_MANAGER+ gate admits.
+ */
+export async function releaseFromQuarantine(
+  batchId: string,
+  reason = 'E2E: quarantine period completed, health check passed',
+  tenantId?: string,
+): Promise<Record<string, unknown>> {
+  const data = await gqlExpectSuccess<{ releaseBatchFromQuarantine: Record<string, unknown> }>(
+    `
+      mutation ReleaseBatchFromQuarantine($input: ReleaseBatchFromQuarantineInput!) {
+        releaseBatchFromQuarantine(input: $input) {
+          id status statusChangedAt statusReason
+        }
+      }
+    `,
+    { input: { batchId, reason } },
+    tenantId,
+  );
+  return data.releaseBatchFromQuarantine;
+}

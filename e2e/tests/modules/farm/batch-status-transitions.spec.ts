@@ -4,16 +4,15 @@
  * Batch status gecislerini (state machine) test eder.
  * Valid ve invalid transition'lari ayri ayri dogrular.
  *
- * Valid transitions (batch.entity.ts canTransitionTo'dan):
- *   QUARANTINE -> ACTIVE, FAILED
- *   ACTIVE     -> GROWING, TRANSFERRED, FAILED
- *   GROWING    -> PRE_HARVEST, TRANSFERRED, FAILED
- *   PRE_HARVEST -> HARVESTING, GROWING, FAILED
- *   HARVESTING -> HARVESTED, FAILED
- *   HARVESTED  -> CLOSED
- *   TRANSFERRED -> CLOSED
- *   FAILED     -> CLOSED
- *   CLOSED     -> (hicbir sey - terminal)
+ * The legal transitions are BATCH_STATUS_TRANSITIONS in
+ * apps/farm-service/src/batch/services/batch-lifecycle-policy.service.ts (the
+ * one table; not copied here). Two edges have their own entry point:
+ *   - QUARANTINE -> ACTIVE goes ONLY through releaseBatchFromQuarantine
+ *     (MODULE_MANAGER+, reason, audit row — FARM-MEDIUM-402); updateBatchStatus
+ *     refuses it and names that mutation.
+ *   - -> CLOSED goes through closeBatch.
+ * ACTIVE / GROWING -> HARVESTING are legal (partial harvest of a growing batch,
+ * FARM-MEDIUM-401).
  *
  * @module E2E/Farm/BatchStatusTransitions
  */
@@ -22,6 +21,7 @@ import {
   gqlExpectError,
   createTestSpecies,
   createTestBatch,
+  releaseFromQuarantine,
 } from './test-helpers';
 
 // Helper: yeni batch olustur (her test icin temiz QUARANTINE batch)
@@ -91,10 +91,11 @@ describe('Batch Status Machine E2E', () => {
   // VALID TRANSITIONS
   // =========================================================================
   describe('Valid Transitions', () => {
-    it('QUARANTINE -> ACTIVE (valid)', async () => {
+    it('QUARANTINE -> ACTIVE (valid, through releaseBatchFromQuarantine)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      const result = await transitionTo(batchId, 'ACTIVE', 'Health check passed');
+      const result = await releaseFromQuarantine(batchId, 'Health check passed');
       expect(result.status).toBe('ACTIVE');
+      expect(result.statusReason).toBe('Released from quarantine: Health check passed');
     });
 
     it('QUARANTINE -> FAILED (valid)', async () => {
@@ -105,28 +106,43 @@ describe('Batch Status Machine E2E', () => {
 
     it('ACTIVE -> GROWING (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       const result = await transitionTo(batchId, 'GROWING');
       expect(result.status).toBe('GROWING');
     });
 
     it('ACTIVE -> TRANSFERRED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       const result = await transitionTo(batchId, 'TRANSFERRED', 'Batch moved to other site');
       expect(result.status).toBe('TRANSFERRED');
     });
 
     it('ACTIVE -> FAILED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       const result = await transitionTo(batchId, 'FAILED', 'Disease outbreak');
       expect(result.status).toBe('FAILED');
     });
 
+    it('ACTIVE -> HARVESTING (valid — partial harvest of an active batch)', async () => {
+      const batchId = await createFreshBatch(speciesId);
+      await releaseFromQuarantine(batchId);
+      const result = await transitionTo(batchId, 'HARVESTING');
+      expect(result.status).toBe('HARVESTING');
+    });
+
+    it('GROWING -> HARVESTING (valid — partial harvest of a growing batch)', async () => {
+      const batchId = await createFreshBatch(speciesId);
+      await releaseFromQuarantine(batchId);
+      await transitionTo(batchId, 'GROWING');
+      const result = await transitionTo(batchId, 'HARVESTING');
+      expect(result.status).toBe('HARVESTING');
+    });
+
     it('GROWING -> PRE_HARVEST (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       const result = await transitionTo(batchId, 'PRE_HARVEST');
       expect(result.status).toBe('PRE_HARVEST');
@@ -134,7 +150,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('GROWING -> TRANSFERRED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       const result = await transitionTo(batchId, 'TRANSFERRED');
       expect(result.status).toBe('TRANSFERRED');
@@ -142,7 +158,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('GROWING -> FAILED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       const result = await transitionTo(batchId, 'FAILED');
       expect(result.status).toBe('FAILED');
@@ -150,7 +166,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('PRE_HARVEST -> HARVESTING (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await transitionTo(batchId, 'PRE_HARVEST');
       const result = await transitionTo(batchId, 'HARVESTING');
@@ -159,7 +175,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('PRE_HARVEST -> GROWING (valid — go back)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await transitionTo(batchId, 'PRE_HARVEST');
       const result = await transitionTo(batchId, 'GROWING', 'Not ready for harvest yet');
@@ -168,7 +184,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('PRE_HARVEST -> FAILED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await transitionTo(batchId, 'PRE_HARVEST');
       const result = await transitionTo(batchId, 'FAILED');
@@ -177,7 +193,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('HARVESTING -> HARVESTED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await transitionTo(batchId, 'PRE_HARVEST');
       await transitionTo(batchId, 'HARVESTING');
@@ -187,7 +203,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('HARVESTING -> FAILED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await transitionTo(batchId, 'PRE_HARVEST');
       await transitionTo(batchId, 'HARVESTING');
@@ -197,7 +213,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('HARVESTED -> CLOSED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await transitionTo(batchId, 'PRE_HARVEST');
       await transitionTo(batchId, 'HARVESTING');
@@ -221,7 +237,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('TRANSFERRED -> CLOSED (valid)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'TRANSFERRED');
 
       const data = await gqlExpectSuccess<{
@@ -263,7 +279,20 @@ describe('Batch Status Machine E2E', () => {
   // INVALID TRANSITIONS
   // =========================================================================
   describe('Invalid Transitions', () => {
-    it('QUARANTINE -> HARVESTING (invalid — skip stages)', async () => {
+    it('QUARANTINE -> ACTIVE through updateBatchStatus (rejected — releaseBatchFromQuarantine owns it)', async () => {
+      const batchId = await createFreshBatch(speciesId);
+      const errors = await gqlExpectError(
+        `
+          mutation UpdateBatchStatus($id: ID!, $status: BatchStatus!) {
+            updateBatchStatus(id: $id, status: $status) { id status }
+          }
+        `,
+        { id: batchId, status: 'ACTIVE' },
+      );
+      expect(errors.map((e) => e.message).join(' ')).toContain('releaseBatchFromQuarantine');
+    });
+
+    it('QUARANTINE -> HARVESTING (invalid — quarantined fish are not harvested)', async () => {
       const batchId = await createFreshBatch(speciesId);
       await expectTransitionReject(batchId, 'HARVESTING');
     });
@@ -319,7 +348,7 @@ describe('Batch Status Machine E2E', () => {
 
     it('HARVESTED -> GROWING (invalid — backward transition)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await transitionTo(batchId, 'PRE_HARVEST');
       await transitionTo(batchId, 'HARVESTING');
@@ -329,33 +358,33 @@ describe('Batch Status Machine E2E', () => {
 
     it('GROWING -> QUARANTINE (invalid — backward transition)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await expectTransitionReject(batchId, 'QUARANTINE');
     });
 
     it('ACTIVE -> QUARANTINE (invalid — backward transition)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await expectTransitionReject(batchId, 'QUARANTINE');
     });
 
     it('ACTIVE -> HARVESTED (invalid — skip stages)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await expectTransitionReject(batchId, 'HARVESTED');
     });
 
     it('GROWING -> HARVESTED (invalid — skip stages)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await expectTransitionReject(batchId, 'HARVESTED');
     });
 
     it('HARVESTING -> QUARANTINE (invalid — backward)', async () => {
       const batchId = await createFreshBatch(speciesId);
-      await transitionTo(batchId, 'ACTIVE');
+      await releaseFromQuarantine(batchId);
       await transitionTo(batchId, 'GROWING');
       await transitionTo(batchId, 'PRE_HARVEST');
       await transitionTo(batchId, 'HARVESTING');

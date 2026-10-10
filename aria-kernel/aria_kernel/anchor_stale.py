@@ -186,15 +186,22 @@ def _undecided_open_records(root: Path) -> list[dict[str, Any]]:
 
 
 def _notify_operator(root: Path, handed: list[str], now: datetime) -> None:
-    """One notification per batch for the records left open for the operator."""
+    """One notification per batch for the records left open for the operator.
+
+    ARIA-HIGH-415 — the title is FIXED: the GitHub-issue channel finds its
+    issue by the exact title, so the count it used to carry opened one issue
+    per distinct count. Every batch is now one comment on one issue; the
+    count rides the body.
+    """
     if not handed:
         return
     from .notify import notify_best_effort
 
     notify_best_effort(
         kind="human_required_opened", key=f"anchor-stale:{handed[0]}:{len(handed)}", base_dir=root, now=now,
-        title=f"ARIA: {len(handed)} expired request(s) need an operator",
-        body="No producer recovers these expired requests; each record names why.\n" + "\n".join(handed[:50]),
+        title="ARIA: expired requests need an operator",
+        body=f"{len(handed)} expired request(s) need an operator. No producer recovers them; each record names why.\n"
+             + "\n".join(handed[:50]),
     )
 
 

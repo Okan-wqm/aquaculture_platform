@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .agent_invocations import _claims_path, _request_event_count, derive_request_states
+from .artifact_safety import scrub_text
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments
 from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
 from .strict_jsonl_reader import read_strict_jsonl
@@ -169,11 +170,17 @@ def record_human_required(
         },
     )
     # Plan 032 Faz 032e — a person is needed; say so on the configured channels.
-    notify_best_effort(
-        kind="human_required_opened", key=request_id, base_dir=root,
-        title=f"ARIA HUMAN_REQUIRED [{sev}] {request_id}",
-        body=f"reason: {reason}\nsla_deadline: {record['sla_deadline']}\nresolve: aria-kernel human-required resolve --request-id {request_id}",
-    )
+    # ARIA-HIGH-415 — on its own only when CRITICAL. The live store opens 5-41
+    # records a day, and each one notified is one issue (the title names the
+    # record). The rest reach the operator as COUNTS in the one daily
+    # delivery summary (`gateway.scheduler`, action `deliver`).
+    if sev == "CRITICAL":
+        notify_best_effort(
+            kind="human_required_opened", key=request_id, base_dir=root,
+            title=f"ARIA HUMAN_REQUIRED [{sev}] {request_id}",
+            body=f"reason: {scrub_text(reason)[:1000]}\nsla_deadline: {record['sla_deadline']}\n"
+                 f"resolve: aria-kernel human-required resolve --request-id {request_id}",
+        )
     return record
 
 

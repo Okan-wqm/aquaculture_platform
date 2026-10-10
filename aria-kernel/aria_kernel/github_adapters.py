@@ -259,14 +259,21 @@ class GhCliIssueWriter:
     creates nothing — creating then could open a second issue for the title.
     """
 
-    def __init__(self, cwd: str | Path = ".") -> None:
+    def __init__(self, cwd: str | Path = ".", *, repo: str | None = None,
+                 timeout_seconds: float = ISSUE_WRITE_TIMEOUT_SECONDS) -> None:
         self._cwd = Path(cwd)
+        # ARIA-HIGH-415 — the notifier names its repository
+        # (ARIA_NOTIFY_GITHUB_REPO) and prices its calls from its own wall
+        # clock; the freeze notice passes neither, so its argv and timeout
+        # are what they always were (`gh` resolves the repository from cwd).
+        self._repo_flags = ["--repo", repo] if repo else []
+        self._timeout = timeout_seconds
 
     def _gh(self, args: list[str]) -> tuple[bool, str]:
         try:
             done = subprocess.run(
-                ["gh", *args], cwd=self._cwd, capture_output=True, text=True, check=False,
-                timeout=ISSUE_WRITE_TIMEOUT_SECONDS,
+                ["gh", *args, *self._repo_flags], cwd=self._cwd, capture_output=True, text=True, check=False,
+                timeout=self._timeout,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             return False, f"{exc.__class__.__name__}: {str(exc)[:200]}"
@@ -276,7 +283,7 @@ class GhCliIssueWriter:
         # ARIA-CRITICAL-246 — a write runs on an installation token; a refusal
         # is this call's failed outcome, by name, like any transport failure.
         try:
-            done = run_gh_write(args, cwd=self._cwd, timeout=ISSUE_WRITE_TIMEOUT_SECONDS)
+            done = run_gh_write([*args, *self._repo_flags], cwd=self._cwd, timeout=self._timeout)
         except GitHubWriteRefused as exc:
             return False, str(exc)
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -334,6 +341,28 @@ class GhCliIssueWriter:
             if not ok:
                 return {"outcome": "failed", "reason": f"issue_edit_failed:{out}", "number": found["number"]}
             return {"outcome": "updated", "number": int(found["number"]), "url": found.get("url")}
+        return self._create(title=title, body=body, labels=labels)
+
+    def comment_or_create(self, *, title: str, body: str, labels: Sequence[str]) -> dict[str, Any]:
+        """Comment ``body`` on the open issue titled ``title``, else open it (ARIA-HIGH-415).
+
+        The notifier's write. A notice is history, so a found issue gains a
+        comment (which notifies its watchers; an edited body does not)
+        instead of having its body replaced as ``upsert_issue`` does.
+        Found the same way, through the issue list and never the search
+        index, so a second notice right after the first finds it.
+        """
+        found_ok, found, reason = self._find_open(title, labels)
+        if not found_ok:
+            return {"outcome": "failed", "reason": reason}
+        if found is not None:
+            ok, out = self._gh_write(["issue", "comment", str(found["number"]), "--body", body])
+            if not ok:
+                return {"outcome": "failed", "reason": f"issue_comment_failed:{out}", "number": found["number"]}
+            return {"outcome": "commented", "number": int(found["number"]), "url": found.get("url")}
+        return self._create(title=title, body=body, labels=labels)
+
+    def _create(self, *, title: str, body: str, labels: Sequence[str]) -> dict[str, Any]:
         refused = self._ensure_labels(labels)
         if refused is not None:
             return {"outcome": "failed", "reason": refused}

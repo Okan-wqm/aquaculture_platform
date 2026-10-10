@@ -260,7 +260,7 @@ class NoWorkIsLost(AnchorStaleStore):
         self.assertEqual(record["kernel_disposition"]["reason"], "no_recovering_producer:verification")
         outbox = (self.tools / "notifications" / "outbox.jsonl").read_text(encoding="utf-8")
         self.assertIn("human_required_opened", outbox)
-        self.assertIn("1 expired request(s) need an operator", outbox)
+        self.assertIn("ARIA: expired requests need an operator", outbox)
         # Never a panel question, and never decided twice.
         self.assertFalse(hra.escalation_adjudicability(record).adjudicable)
         self.assertEqual(self.sweep()["disposed"], [])

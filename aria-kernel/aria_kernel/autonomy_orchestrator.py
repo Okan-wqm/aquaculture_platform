@@ -139,18 +139,51 @@ _DAEMON_LOCK_TIMEOUT_SECONDS: float = 2.0
 _ORCHESTRATOR_ACTION_KIND: str = "agent_claim"
 
 
-def _notify_cycle_failed(root: Any, cycle_id: str, exc: BaseException) -> None:
-    """Plan 032 Faz 032e — best-effort notification; never masks the failure."""
-    try:
-        from .notify import notify_best_effort
+# ARIA-HIGH-415 — FIXED: the GitHub-issue channel finds its issue by the exact
+# title, so the cycle id it used to carry opened one issue per failed night.
+# Every failing cycle is now one comment on one issue; the cycle and why ride
+# the body.
+CYCLE_FAILED_TITLE = "ARIA cycle failing"
+_CYCLE_FAILURE_REASON_MAX_CHARS = 1000
+_CYCLE_FAILURE_REASON_MAX_PHASES = 5
 
-        notify_best_effort(
-            kind="cycle_failed", key=cycle_id, base_dir=root,
-            title=f"ARIA cycle failed: {cycle_id}",
-            body=f"{type(exc).__name__}: {str(exc)[:500]}",
-        )
-    except Exception:  # noqa: BLE001
-        pass
+
+def _cycle_failure_reason(summary: dict[str, Any]) -> str:
+    """Why a cycle failed, read from the summary BOTH failure outcomes write.
+
+    A cycle that raised carries ``error`` (the except branch); one that
+    returned ``failed`` carries ``failed_phases`` rows whose ``error`` the
+    cycle seal now fills (ARIA-MEDIUM-413). A row without ``error`` is a
+    phase that declared failure and gave no reason; its status says so.
+    """
+    if summary.get("error"):
+        return str(summary["error"])
+    phases = [row for row in summary.get("failed_phases") or [] if isinstance(row, dict)]
+    if phases:
+        return "; ".join(f"{row.get('phase')}: {row.get('error') or row.get('status')}"
+                         for row in phases[:_CYCLE_FAILURE_REASON_MAX_PHASES])
+    return f"status={summary.get('status')} runtime_status={summary.get('runtime_status')}"
+
+
+def _notify_cycle_failed(root: Path, *, cycle_id: str, exit_reason: str, reason: str) -> None:
+    """Plan 032 Faz 032e — a failed cycle is an operator event.
+
+    ARIA-HIGH-415 — called once per failed cycle: after the
+    ``cycle_completed`` transition, whichever way the cycle failed (it
+    returned ``failed`` or raised), and on the ``bridge_replay_required``
+    exit. Before this it ran only in the except branch, so the nights that
+    returned ``failed`` (5/5 on 2026-10-09..10) told nobody. The key carries
+    the exit so a continuing run's failed cycle that then also needs a
+    bridge replay is two notices, not a dedup of the second.
+    ``notify_best_effort`` never raises into the run it reports on.
+    """
+    from .notify import notify_best_effort
+
+    notify_best_effort(
+        kind="cycle_failed", key=f"{cycle_id}:{exit_reason}", base_dir=root,
+        title=CYCLE_FAILED_TITLE,
+        body=f"cycle: {cycle_id}\nexit: {exit_reason}\nreason: {scrub_text(reason)[:_CYCLE_FAILURE_REASON_MAX_CHARS]}",
+    )
 
 
 def _iso_now() -> str:
@@ -1819,8 +1852,6 @@ def run_autonomy_orchestrator(
                         _cycle_result_status(cycle_result, default="failed"),
                     )
                 except Exception as exc:
-                    # Plan 032 Faz 032e — a failed cycle is an operator event.
-                    _notify_cycle_failed(root, cycle_id, exc)
                     # ORPHAN-HIGH-456 — the lifecycle counter is dropped here
                     # precisely when it matters most: a cycle that crashed is
                     # the one likely to have left a started-without-terminal
@@ -1854,6 +1885,14 @@ def run_autonomy_orchestrator(
                         "summary": cycle_summary.get("cycle"),
                     },
                 )
+                # ARIA-HIGH-415 — the ONE notice for a failed cycle, whichever
+                # way it failed (it returned `failed` or raised; both wrote
+                # `cycle_summary["cycle"]` above) and whether or not the run
+                # fails closed. Before the reflection, so a reflection that
+                # raises cannot cost the operator the notice.
+                if cycle_status == "failed":
+                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason="cycle_failed",
+                                         reason=_cycle_failure_reason(cycle_summary["cycle"]))
                 # C5/E8 — one warn-mode pedagogy snapshot per cycle,
                 # taken ONCE here (not inside the kwargs builder) so
                 # every reflection exit reports the same scan instead of
@@ -1980,6 +2019,8 @@ def run_autonomy_orchestrator(
                             "pending_after": pending_after,
                         },
                     ]
+                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason="bridge_replay_required",
+                                         reason=f"bridge_status={bridge_status} pending_after={pending_after}")
                     # ARIA-HIGH-420 — the second failed exit reflects like
                     # the first one does.
                     cycle_summary["reflection"] = _reflect_on_failed_cycle(

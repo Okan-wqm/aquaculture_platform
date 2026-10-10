@@ -65,6 +65,19 @@ from tests.test_implementation_lifecycle_continuity import (
 PLAN = "plan-362"
 
 
+def deliverable_plan_content(title: str = "ARIA-HIGH-362 plan") -> dict:
+    """A body the envelope mint can deliver: its surface is writable. The
+    shared fixture's default surface is under READONLY_PATHS, a plan the
+    delivery door parks before staging (ARIA-HIGH-416), so a test that
+    offers a plan to a runner needs one production could implement."""
+    return converging_plan_content(
+        title,
+        affected_surfaces=[{"paths": ["apps/farm-service/src/sample.ts"]}],
+        key_changes=[{"id": "kc-1", "description": "set the interval",
+                      "paths": ["apps/farm-service/src/sample.ts"], "imports": []}],
+    )
+
+
 class _DispatchingRunner:
     """What the real runner does on success: the mint IS the transition."""
 
@@ -109,12 +122,7 @@ class ConvergedDeliveryTests(unittest.TestCase):
         operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         drive_plan_to_converged(
             plan_id=PLAN, tools=self.tools, workspace_root=self.workspace,
-            plan_content=converging_plan_content(
-                "ARIA-HIGH-362 plan",
-                affected_surfaces=[{"paths": ["apps/farm-service/src/sample.ts"]}],
-                key_changes=[{"id": "kc-1", "description": "set the interval",
-                              "paths": ["apps/farm-service/src/sample.ts"], "imports": []}],
-            ),
+            plan_content=deliverable_plan_content(),
         )
 
     def tearDown(self) -> None:
@@ -483,7 +491,8 @@ class SweepBoundTests(unittest.TestCase):
         seed_reviewer_agent(self.workspace)
         operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         for plan_id in ("plan-old", "plan-new"):
-            drive_plan_to_converged(plan_id=plan_id, tools=self.tools, workspace_root=self.workspace)
+            drive_plan_to_converged(plan_id=plan_id, tools=self.tools, workspace_root=self.workspace,
+                                    plan_content=deliverable_plan_content(plan_id))
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -573,7 +582,7 @@ class OrchestratorWiringTests(unittest.TestCase):
 
         def converge_once(**kwargs):
             drive_plan_to_converged(plan_id=kwargs["plan_id"], tools=self.tools,
-                                    workspace_root=self.workspace)
+                                    workspace_root=self.workspace, plan_content=deliverable_plan_content())
             converged.append(kwargs["plan_id"])
             return fixtures._fake_convergence_runner(**kwargs)
 

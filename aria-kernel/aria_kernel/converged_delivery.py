@@ -32,6 +32,13 @@ cycle (:func:`redeliver_stranded_converged_plans`, origin
   (review M6): the sweep's baseline can leave an untracked artefact behind,
   and staging refuses a dirty tree for every plan alike, so the dirt is the
   lane's state and must not spend the converging plan's attempt.
+* **Never stageable** (ARIA-HIGH-416). A plan whose implementation envelope
+  the mint must refuse for its scope (every declared surface readonly, or
+  outside the plan's admission bound) is moved to ``HUMAN_REQUIRED``
+  (``implementation_envelope_no_writable_scope``) before an attempt is
+  claimed. The refusal is the plan body's, the same on every offer, and each
+  offer used to pay a full staging (proposal, apply action, baseline suite)
+  and a counted attempt to learn it.
 * **The bound.** After ``MAX_DELIVERY_ATTEMPTS`` counted attempts the plan
   moves, under the plan lock and only from CONVERGED with no live request
   (review M3), to ``HUMAN_REQUIRED`` with reason code
@@ -96,6 +103,12 @@ WITHHELD_NOT_INDEPENDENT: str = "convergence_not_independent"
 INDEPENDENCE_MIGRATED_KIND: str = "converged_independence_migrated"
 INDEPENDENCE_MIGRATION_FAILED_KIND: str = "converged_independence_migration_failed"
 WITHHELD_INDEPENDENCE_UNJUDGED: str = "independence_unjudged"
+# ARIA-HIGH-416 — a CONVERGED plan the envelope mint must refuse for its scope:
+# moved to HUMAN_REQUIRED before staging, never offered. The reason code is the
+# mint's own refusal token, so the plan ledger and governance name one cause.
+WITHHELD_NO_WRITABLE_SCOPE: str = "no_writable_scope"
+NO_WRITABLE_SCOPE_REASON: str = "implementation_envelope_no_writable_scope"
+NO_WRITABLE_SCOPE_KIND: str = "converged_delivery_no_writable_scope"
 
 
 def human_required_request_id(plan_id: str) -> str:
@@ -232,6 +245,77 @@ def withhold_ungated_self_agreement(plan_id: str, *, base_dir: Path) -> bool:
     return True
 
 
+def _mint_scope_refusals(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> list[dict[str, Any]]:
+    """What the envelope mint would refuse of ``plan_id``'s scope; [] when it would mint one.
+
+    The mint's own derivation (``cross_review_bridge.issue_implementation_envelope``)
+    on the same fold: the hash-verified CONVERGED body's surfaces, held to the
+    bound the plan started with, through the one ``implementation_allowed_scope``.
+    Every input is folded plan state, so this is the mint's verdict, known
+    before staging pays for it.
+    """
+    from .implementation_safety import implementation_allowed_scope
+    from .plan_convergence import affected_surface_paths, plan_body_from_state
+    from .plan_origin import (
+        REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE,
+        AdmissionScopeExceeded,
+        admission_scope_for_plan,
+        record_admission_scope_refusal,
+    )
+    from .tool_registry import GovernanceError
+
+    paths = affected_surface_paths(plan_body_from_state(state)["plan_content"].get("affected_surfaces"))
+    try:
+        bound = admission_scope_for_plan(state)
+    except GovernanceError as exc:
+        # `admission_scope_missing`, the read's one refusal: the plan started
+        # from a finding without the bound its bodies are held to. The mint
+        # raises it for the same fold; only an operator restart records one.
+        return [{"surface": None, "reason": str(exc)[:500]}]
+    try:
+        writable, refused = implementation_allowed_scope(paths, admission_scope=bound)
+    except AdmissionScopeExceeded as exc:
+        record_admission_scope_refusal(base_dir, plan_id=plan_id, stage="converged_delivery", error=exc)
+        return [{"surface": path, "reason": REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE} for path in exc.offending]
+    return [] if writable else refused
+
+
+def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
+    """Why ``plan_id`` is not offered when the mint would refuse its scope, else None (ARIA-HIGH-416).
+
+    The refusal depends on the plan body alone, so no later cycle changes it.
+    The plan moves CONVERGED → HUMAN_REQUIRED here, under the plan lock and
+    only from CONVERGED, with one governance row naming every refused surface
+    and the plan's one operator item: the ARIA-HIGH-375 move. The mint keeps
+    its own check as the second line.
+    """
+    from .convergence_outcome import record_parked_plan
+    from .plan_convergence import PlanStateRefused, force_plan_human_required
+    from .tool_registry import append_tools_governance
+
+    refused = _mint_scope_refusals(plan_id, state=state, base_dir=base_dir)
+    if not refused:
+        return None
+    round_number = max(1, int(state.get("current_round") or 1))
+    try:
+        force_plan_human_required(
+            plan_id=plan_id, round_number=round_number, reason_codes=[NO_WRITABLE_SCOPE_REASON],
+            from_states=frozenset({"CONVERGED"}), base_dir=base_dir, forced_by="kernel:converged_delivery",
+        )
+    except PlanStateRefused:
+        # Left CONVERGED under the lock: not an offer this path may make, and
+        # not a plan this path parked.
+        return WITHHELD_NOT_CONVERGED
+    append_tools_governance(
+        base_dir, NO_WRITABLE_SCOPE_KIND,
+        {"plan_id": plan_id, "round_number": round_number, "refused_surfaces": refused},
+        bypass_profile_gate=True,
+    )
+    record_parked_plan(plan_id=plan_id, base_dir=base_dir, verdict=WITHHELD_NO_WRITABLE_SCOPE,
+                       origin="converged_delivery")
+    return WITHHELD_NO_WRITABLE_SCOPE
+
+
 def _withheld(plan_id: str, origin: str, reason: str, **extra: Any) -> dict[str, Any]:
     return {
         "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
@@ -268,6 +352,13 @@ def _claim_attempt(
         return None, WITHHELD_EXHAUSTED
     if live_implementation_request_ids(plan_id, base_dir=base_dir):
         return None, WITHHELD_REQUEST_LIVE
+    # ARIA-HIGH-416 — before the claim, so a plan the mint must refuse costs no
+    # staging, no baseline suite and no counted attempt. After the live
+    # request (review M3: never parked over its own delivery); before the
+    # tree, which the verdict does not depend on.
+    unwritable = _withhold_unwritable_scope(plan_id, state=state, base_dir=base_dir)
+    if unwritable is not None:
+        return None, unwritable
     if worktree_is_dirty(workspace_root):
         return None, WITHHELD_WORKSPACE_DIRTY
     attempt = len(attempts) + 1
@@ -718,10 +809,13 @@ __all__ = [
     "DELIVERY_EXHAUSTED_REASON",
     "HUMAN_REQUIRED_CONTEXT_KIND",
     "MAX_DELIVERY_ATTEMPTS",
+    "NO_WRITABLE_SCOPE_KIND",
+    "NO_WRITABLE_SCOPE_REASON",
     "ORIGIN_CONVERGED",
     "ORIGIN_EXECUTOR",
     "ORIGIN_REDELIVERY",
     "REDELIVERIES_PER_CYCLE",
+    "WITHHELD_NO_WRITABLE_SCOPE",
     "authority_absent_request_id",
     "converged_plan_ids",
     "deliver_converged_plan",

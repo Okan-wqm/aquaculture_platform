@@ -59,7 +59,7 @@ from .failure_attribution import (
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
-from .merge_record import lineage_credits_aria
+from .merge_record import attested_plan_lineages, fold_lineage, lineage_credits_aria
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -931,6 +931,9 @@ def _performance_episodes(
     converged_episodes: dict[str, dict[str, Any]] = {}
     rejected_episodes: dict[str, dict[str, Any]] = {}
     episodes: list[dict[str, Any]] = []
+    # ARIA-HIGH-409 — a merge recorded without a lineage is credited by its
+    # later attestation; the episode is still the merge event's, one per merge.
+    attested = attested_plan_lineages(events)
     for event in events:
         plan_id, kind, payload = str(event["plan_id"]), event["event_type"], event["payload"]
         source = {"surface": "plan_convergence_events", "id": str(event["event_id"])}
@@ -974,7 +977,7 @@ def _performance_episodes(
             # Review of #1910, N5 — a merge whose head is not ARIA's change (a
             # person's commits, an unread head, a backfilled row) folds the
             # plan MERGED but is no implementer's merged episode.
-            if not lineage_credits_aria(payload.get("head_lineage")):
+            if not lineage_credits_aria(fold_lineage(payload.get("head_lineage"), attested.get(plan_id))):
                 continue
             # ARIA-HIGH-390 (review of #1910, F6) — a person merged the PR of a
             # plan the kernel had ended: the merge supersedes the rejection,

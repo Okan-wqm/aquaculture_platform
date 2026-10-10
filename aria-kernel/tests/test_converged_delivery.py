@@ -505,6 +505,33 @@ class SweepBoundTests(unittest.TestCase):
         self.assertEqual(ORIGIN_REDELIVERY, "stranded_redelivery")
 
 
+class ConvergenceOrderIsLedgerOrderTests(unittest.TestCase):
+    """Plans that converge within one clock second are still oldest first.
+
+    `recorded_at` has second resolution. When it ties, the order fell back to
+    the plan id, so `plan-new` (alphabetically first) was offered before
+    `plan-old` and SweepBoundTests failed whenever a runner converged both
+    plans inside one second. The plan ledger is append-only and written under
+    the plan lock, so its position is the order in which plans converged.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.tools = root / "aria-tools"
+        self.workspace = root / "workspace"
+        seed_reviewer_agent(self.workspace)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_a_tie_on_the_clock_keeps_the_order_the_plans_converged_in(self) -> None:
+        with patch("aria_kernel.plan_convergence.utc_now", return_value="2026-10-10T06:00:00Z"):
+            for plan_id in ("plan-old", "plan-new"):
+                drive_plan_to_converged(plan_id=plan_id, tools=self.tools, workspace_root=self.workspace)
+        self.assertEqual(converged_plan_ids(base_dir=self.tools), ["plan-old", "plan-new"])
+
+
 class OrchestratorWiringTests(unittest.TestCase):
     """(a) through the real orchestrator: the plan a `standard` night converged
     and refused is implemented by the next `strict` night's sweep."""

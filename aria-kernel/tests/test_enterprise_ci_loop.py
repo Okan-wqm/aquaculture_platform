@@ -294,3 +294,87 @@ class EnterpriseCiLoopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheCiObserverRecordsNoMergeDecision(unittest.TestCase):
+    """ARIA-MEDIUM-423 — the CI gate reads the merge lane's evaluation, never records it.
+
+    `auto-merge-decisions.jsonl` is the merge lane's decision ledger. The CI
+    observer's snapshot carries no diff, review or conversation state
+    (`ci._gh_pr_snapshot`), so every row it appended there was a `blocked`
+    dry run: 185 of 185 rows on aria/state f5c5c86a1, each paired 1:1 with a
+    `ci/pr-ci-gates.jsonl` row of the same PR, head and cycle.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.tools_dir = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
+
+    def _decision_rows(self):
+        from aria_kernel.ledger import load_declared_jsonl
+
+        path = self.tools_dir / "auto-merge-decisions.jsonl"
+        return load_declared_jsonl(path, expected_surface="auto_merge_decisions") if path.exists() else []
+
+    def test_every_ci_producer_leaves_the_decision_ledger_untouched(self):
+        # The three producers: own_pr_ci.scan_own_prs and the readiness lane's
+        # `readiness record-ci-report` (both record_ci_report), and wait_pr_checks.
+        record_ci_report(pr=pr_snapshot(), github=github_snapshot(), base_dir=self.tools_dir, workspace_root=None)
+        wait_pr_checks(snapshot={"pr": pr_snapshot(), "github": github_snapshot()}, base_dir=self.tools_dir)
+
+        self.assertEqual(self._decision_rows(), [])
+
+    def test_the_gate_still_blocks_on_the_merge_lane_s_reasons(self):
+        from aria_kernel.auto_merge import evaluate_auto_merge
+
+        gate = wait_pr_checks(
+            snapshot={"pr": pr_snapshot(), "github": github_snapshot(check_conclusion="success")},
+            base_dir=self.tools_dir,
+        )
+        evaluation = evaluate_auto_merge(
+            pr=pr_snapshot(), github=github_snapshot(check_conclusion="success"),
+            policy={"enabled": True, "base_branch": "main", "merge_method": "squash"},
+            base_dir=None, dry_run=True, workspace_root=".",  # wait_pr_checks' default checkout
+        )
+        # Nothing else blocks this PR, so the gate's blockers ARE the evaluation's reasons.
+        self.assertEqual(gate["blocked_by"], sorted(set(evaluation["reasons"])))
+        self.assertIn("diff_text missing — auto_merge_requires_diff_content", gate["blocked_by"])
+        self.assertFalse(gate["ready_for_human_merge"])
+        self.assertEqual(
+            (gate["required_checks"], gate["check_result"], gate["enterprise_risk"]),
+            (evaluation["required_checks"], evaluation["check_result"], evaluation["risk"]["enterprise_risk"]),
+        )
+
+    def test_the_decision_reads_base_dir_only_to_record_itself(self):
+        # Why passing base_dir=None cannot change the gate: inside
+        # evaluate_auto_merge the one read of base_dir is the decision's own
+        # append. A change that makes the decision read state through it must
+        # revisit the CI gate's call, and fails here first.
+        import ast
+        import inspect
+
+        from aria_kernel import auto_merge
+
+        tree = ast.parse(inspect.getsource(auto_merge))
+        [function] = [node for node in tree.body
+                      if isinstance(node, ast.FunctionDef) and node.name == "evaluate_auto_merge"]
+        reads = [node for node in ast.walk(function)
+                 if isinstance(node, ast.Name) and node.id == "base_dir" and isinstance(node.ctx, ast.Load)]
+        appends = [node for node in ast.walk(function)
+                   if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_append_decision"]
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(len(appends), 1)
+        self.assertIs(appends[0].args[0], reads[0])
+
+    def test_the_pre_merge_perimeter_counts_no_observer_row(self):
+        # The capability's counts are the decision ledger's rows; an observer
+        # run adds none, so on a store only the observer touched every count is 0.
+        from aria_kernel.autonomy_evidence import _capability_safe_counts
+
+        record_ci_report(pr=pr_snapshot(), github=github_snapshot(), base_dir=self.tools_dir, workspace_root=None)
+        counts = _capability_safe_counts(
+            "pre_merge_perimeter", {"auto_merge_decisions": tuple(self._decision_rows())},
+        )
+        self.assertEqual(set(counts.values()), {0})
+        self.assertEqual(counts["premerge_decision_blocked"], 0)

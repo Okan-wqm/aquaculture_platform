@@ -169,11 +169,20 @@ def evaluate_pr_ci_gate(
     PR's change in the checkout at ``workspace_root``, through the reader
     the merge authority uses; the row records it (``enterprise_risk``)."""
     inventory = workflow_inventory or latest_workflow_inventory(base_dir=base_dir) or {"workflows": []}
+    # ARIA-MEDIUM-423 — the gate reads the merge lane's evaluation (its
+    # reasons, required checks, check result and lane) and never records it:
+    # `auto-merge-decisions.jsonl` is the merge lane's decision ledger, and an
+    # observer snapshot carries no diff, review or conversation state
+    # (`_gh_pr_snapshot`), so every row this call wrote was a `blocked` dry
+    # run (185 of 185 on aria/state f5c5c86a1). `base_dir=None` is the
+    # evaluation without its record, as in merge_authority's fresh re-check;
+    # the decision reads base_dir only to append itself (pinned by
+    # tests/test_enterprise_ci_loop.py).
     auto = evaluate_auto_merge(
         pr=pr,
         github=github,
         policy=policy or {"enabled": True, "base_branch": "main", "merge_method": "squash"},
-        base_dir=base_dir,
+        base_dir=None,
         cycle_id=cycle_id,
         dry_run=True,
         workspace_root=workspace_root,

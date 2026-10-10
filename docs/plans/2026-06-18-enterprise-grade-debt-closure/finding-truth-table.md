@@ -248,13 +248,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `FARM-CRITICAL-405`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-406`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-407`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-408`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-409`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-410`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-411`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 Updated 2026-10-10 (farm E2E campaign, PR #1951): seven CRITICALs registered
@@ -510,6 +503,12 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
   outbox/infrastructure and migration-timing invariants.
 
 ## Resolved Evidence
+
+- `FARM-CRITICAL-405` … `FARM-CRITICAL-411`, `FARM-HIGH-412/413`,
+  `FARM-MEDIUM-414/415`: registry states are `RESOLVED` with the merge-reachable
+  closing commits from PR #1951 (`b78dfe891` backend, `e4501f650` frontend,
+  `030343a98` deploy), recorded by the 2026-10-10 closure ceremony (PR #1953).
+  Left the active table from bucket `already-fixed-needs-close`.
 
 - `MOB-CRITICAL-021`: registry state is `RESOLVED` with closing commit `ff643ac84`
   ("Merge branch 'main' into claude/mobile-graphql-contract-0jj9jg"), derived by

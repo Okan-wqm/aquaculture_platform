@@ -16,7 +16,7 @@
  * The rail is deep water in both themes: it paints from the `sd-rail-*`
  * tokens, which the dark theme does not re-assign.
  */
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Banknote,
@@ -298,6 +298,22 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
     setGroupChoice((prev) => ({ ...prev, [groupId]: openNow }));
   }, []);
 
+  // Focus moves on press, before release, so the press flag is cleared on
+  // release — anywhere in the document (a press that ends outside the rail) and
+  // on pointercancel (a touch that turned into a scroll) — or a press that moved
+  // no focus would swallow the next keyboard focus.
+  useEffect(() => {
+    const release = (): void => {
+      pointerPressed.current = false;
+    };
+    document.addEventListener('pointerup', release);
+    document.addEventListener('pointercancel', release);
+    return () => {
+      document.removeEventListener('pointerup', release);
+      document.removeEventListener('pointercancel', release);
+    };
+  }, []);
+
   const handleFocus = useCallback(() => {
     if (!pointerPressed.current) setFocusInside(true);
   }, []);
@@ -342,11 +358,6 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
         onMouseLeave={() => setHovering(false)}
         onPointerDown={() => {
           pointerPressed.current = true;
-        }}
-        // Focus moves on press, before release; a press that moved no focus must
-        // not swallow the next keyboard focus.
-        onPointerUp={() => {
-          pointerPressed.current = false;
         }}
         onFocus={handleFocus}
         onBlur={handleBlur}

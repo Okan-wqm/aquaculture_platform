@@ -155,6 +155,32 @@ describe('SuderraSidebar', () => {
     expect(rail().getAttribute('data-open')).toBe('false');
   });
 
+  it.each([
+    ['released outside the rail', (): void => void fireEvent.pointerUp(document.body)],
+    [
+      'cancelled (a touch that became a scroll)',
+      (): void => void fireEvent.pointerCancel(document),
+    ],
+  ])('a press %s does not swallow the next keyboard focus', (_case, end) => {
+    renderRail();
+    const billing = screen.getByRole('button', { name: 'Billing' });
+    fireEvent.pointerDown(billing);
+    end();
+    act(() => {
+      billing.focus();
+    });
+    expect(rail().getAttribute('data-open')).toBe('true');
+  });
+
+  it('stops listening for releases once unmounted', () => {
+    const remove = vi.spyOn(document, 'removeEventListener');
+    renderRail();
+    cleanup();
+    const removed = remove.mock.calls.map(([type]) => type);
+    expect(removed).toEqual(expect.arrayContaining(['pointerup', 'pointercancel']));
+    remove.mockRestore();
+  });
+
   it('stays open once pinned, after the pointer leaves', () => {
     renderRail();
     fireEvent.mouseEnter(rail());

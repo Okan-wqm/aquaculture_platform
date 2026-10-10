@@ -646,3 +646,24 @@ untracked path a concurrent session adds. The durations stay within the host's l
 - **The validation room and the implementer room are unchanged.** In a worktree whose
   `node_modules` is a symlink they still abort on the ancestor's tree. Adapter rooms no
   longer do: their own tree is bound in place.
+
+### Peer review (sandbox) of fa29eea45 + bcf211fcc, and the fix
+
+- **Confirmed: drafted bytes could build a code object.** CPython does not verify bytecode.
+  `f.__code__.replace(co_code=…)` with an out-of-bounds `LOAD_CONST` was a SIGSEGV under the
+  launcher (rc -11, reproduced on bcf211fcc). An out-of-bounds read is the known road to fake
+  objects and native code, which no audit hook sees. `marshal.loads` also returned a code object.
+  The launcher now also refuses `code.__new__` (`CodeType`, `code.replace`), `marshal.loads` and
+  `marshal.load`. `_imp.get_frozen_object` raises `marshal.loads` too, and turns the refusal
+  into its own "is invalid" ImportError. `compile()` raises `compile`, so the launcher's own
+  compile and the stdlib's `exec` (dataclasses) still work. Pinned as bypass spellings
+  `crafted_bytecode`, `code_type_constructor`, `marshal_loads` and `frozen_object_unmarshal`
+  (`test_the_frozen_object_refusal_is_the_hook` shows the same call returns a code object
+  without the launcher).
+- **Overstated claim, corrected.** "Refuses every further module load" was too strong. The
+  `import` event fires for `__import__`/`importlib` on a name not yet in `sys.modules`. A loader
+  object can re-run a pure-Python stdlib file without it. That gains no capability: the native
+  constructors are gone, so a re-run file has only the already-loaded C modules, whose levers
+  are audited, and a file that needs another C module is refused at that import
+  (`loader_runs_subprocess_source`). The launcher and `skill_genesis_sandbox` docstrings now say
+  what holds: the adapter's native code is the C modules the allowlist loaded.

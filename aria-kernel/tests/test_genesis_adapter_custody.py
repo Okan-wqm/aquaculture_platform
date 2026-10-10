@@ -108,6 +108,30 @@ BYPASS_SPELLINGS = {
     "settrace": "import sys\nsys.settrace(lambda *a: None)",
     "proc_self_mem_write": "open('/proc/self/mem', 'r+b')",
     "rebound_builtin_then_import": "import sys\nsys.modules['builtins'].ImportError = None\n__import__('subprocess')",
+    # sandbox's review of fa29eea45: CPython does not verify bytecode, and an
+    # out-of-bounds LOAD_CONST (RESUME; LOAD_CONST 200; RETURN_VALUE) was a
+    # SIGSEGV under the launcher — the road to native code no hook sees.
+    "crafted_bytecode": (
+        "f = lambda: None\n"
+        "bad = f.__code__.replace(co_code=bytes([151, 0, 100, 200, 83, 0]), co_consts=(None,), co_stacksize=4)\n"
+        "type(f)(bad, {})()\n"
+    ),
+    "code_type_constructor": (
+        "c = (lambda: None).__code__\n"
+        "type(c)(0, 0, 0, 0, 4, 0, bytes([151, 0, 100, 200, 83, 0]), (None,), (), (), 'x', 'x', 'x', 1, b'', b'')\n"
+    ),
+    "marshal_loads": "import sys\nm = sys.modules['marshal']\nm.loads(m.dumps((lambda: None).__code__))",
+    "frozen_object_unmarshal": (
+        "import sys\n"
+        "sys.modules['_imp'].get_frozen_object('x', sys.modules['marshal'].dumps((lambda: None).__code__))"
+    ),
+    # A loader re-runs a stdlib FILE without the import statement; the C
+    # module that file needs cannot be built, so it is refused there.
+    "loader_runs_subprocess_source": (
+        "import sys\nboot = sys.modules['_frozen_importlib_external']\n"
+        "spec = boot.spec_from_file_location('sp', sys.modules['os'].path.dirname(sys.modules['os'].__file__) + '/subprocess.py')\n"
+        "module = sys.modules['_frozen_importlib'].module_from_spec(spec)\nspec.loader.exec_module(module)\n"
+    ),
 }
 # What a refusal looks like: the launcher's named events, or the import
 # machinery with its native constructors removed.
@@ -116,6 +140,10 @@ REFUSAL_MARKERS = (
     "genesis_adapter_capability_refused:",
     "module '_imp' has no attribute 'create_",
     "'NoneType' object is not callable",  # a rebound ImportError still refuses
+    # `_imp.get_frozen_object` replaces the hook's refusal of `marshal.loads`
+    # with its own ImportError; without the hook the same call returns a code
+    # object (test_the_frozen_object_refusal_is_the_hook).
+    "Frozen object named 'x' is invalid",
 )
 
 
@@ -200,6 +228,16 @@ class LauncherAllowlistTests(unittest.TestCase):
                 completed = _run_launcher_directly(source)
                 self.assertNotEqual(completed.returncode, 0, f"{name} ran: {completed.stdout!r}")
                 self.assertTrue(any(marker in completed.stderr for marker in REFUSAL_MARKERS), completed.stderr[-400:])
+
+    def test_the_frozen_object_refusal_is_the_hook(self) -> None:
+        # The same bytes, no launcher: `_imp` unmarshals them into a code object.
+        unhooked = subprocess.run(
+            [sys.executable, "-c", BYPASS_SPELLINGS["frozen_object_unmarshal"].replace(
+                "sys.modules['_imp'].get_frozen_object", "print(type(sys.modules['_imp'].get_frozen_object",
+            ) + ").__name__)"],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        self.assertEqual(unhooked.stdout.strip(), "code", unhooked.stderr)
 
     def test_an_allowlisted_adapter_runs_and_reads_its_input(self) -> None:
         completed = _run_launcher_directly(GOOD_SOURCE, payload='{"fixtures": []}')

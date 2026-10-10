@@ -159,6 +159,9 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   recordSparePartStockMovement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordTreatmentApplication: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordWelfareAssessment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // FARM-MEDIUM-402: ending a quarantine hold is a biosecurity decision and
+  // the gate the harvest writer relies on (FARM-MEDIUM-401) — managers only.
+  releaseBatchFromQuarantine: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   // Presign step of regulatory field capture (escape/welfare/lice photo
   // upload): operator-recordable, same audience as the record* mutations
   // whose payloads carry the minted storageKey.

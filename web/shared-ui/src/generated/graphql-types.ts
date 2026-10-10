@@ -2450,6 +2450,19 @@ export type CompetencyRatingInput = {
   rating: Scalars['Float']['input'];
 };
 
+export type CompleteHarvestPlanInput = {
+  /** Average weight in grams (at most 2 decimals) */
+  actualAvgWeight: Scalars['Float']['input'];
+  /** Harvested biomass in kg (at most 2 decimals) */
+  actualBiomass: Scalars['Float']['input'];
+  /** Counted number of fish harvested */
+  actualQuantity: Scalars['Int']['input'];
+  /** Harvest plan ID */
+  id: Scalars['ID']['input'];
+  /** Norwegian quality class (kvalitetsklasse) of the harvest — the stored SSoT. */
+  qualityClass: QualityClass;
+};
+
 export type CompleteMaintenanceInput = {
   meterReading?: InputMaybe<Scalars['Float']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
@@ -9957,6 +9970,7 @@ export type Mutation = {
   rejectLeaveRequest: LeaveRequest;
   rejectProgram: AutomationProgram;
   rejectVfdChangeSet: VfdChangeSet;
+  releaseBatchFromQuarantine: Batch;
   /** Remove a member from a channel */
   removeChannelMember: Scalars['Boolean']['output'];
   removeChemicalDocument: Scalars['Boolean']['output'];
@@ -10914,10 +10928,7 @@ export type MutationCompleteGoalArgs = {
 
 
 export type MutationCompleteHarvestPlanArgs = {
-  actualAvgWeight: Scalars['Float']['input'];
-  actualBiomass: Scalars['Float']['input'];
-  actualQuantity: Scalars['Int']['input'];
-  id: Scalars['ID']['input'];
+  input: CompleteHarvestPlanInput;
 };
 
 
@@ -12216,6 +12227,11 @@ export type MutationRejectProgramArgs = {
 
 export type MutationRejectVfdChangeSetArgs = {
   input: RejectVfdChangeSetInput;
+};
+
+
+export type MutationReleaseBatchFromQuarantineArgs = {
+  input: ReleaseBatchFromQuarantineInput;
 };
 
 
@@ -19386,6 +19402,12 @@ export type RelatedAssetInput = {
   assetId: Scalars['ID']['input'];
   assetName?: InputMaybe<Scalars['String']['input']>;
   assetType: AssetType;
+};
+
+export type ReleaseBatchFromQuarantineInput = {
+  batchId: Scalars['ID']['input'];
+  /** Why the quarantine hold ends (5-500 characters) */
+  reason: Scalars['String']['input'];
 };
 
 export type RemoveCleanerFishInput = {

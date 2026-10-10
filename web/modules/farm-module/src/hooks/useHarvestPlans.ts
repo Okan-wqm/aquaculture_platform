@@ -28,6 +28,7 @@ import {
   POSTPONE_HARVEST_PLAN_MUTATION,
 } from '../graphql/harvestPlan.operations';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type { QualityClass } from './useBatches';
 
 // ============================================================================
 // TYPES
@@ -328,6 +329,19 @@ export interface UpdateHarvestPlanInput {
   actualAvgWeight?: number;
   notes?: string;
   attachments?: string[];
+}
+
+/**
+ * completeHarvestPlan input (FARM-HIGH-395): the counted results plus the
+ * quality class the operator assigns — the backend never defaults it
+ * (FARM-HIGH-396). Mirrors the backend CompleteHarvestPlanInput.
+ */
+export interface CompleteHarvestPlanInput {
+  id: string;
+  actualQuantity: number;
+  actualBiomass: number;
+  actualAvgWeight: number;
+  qualityClass: QualityClass;
 }
 
 export interface HarvestPlanFilterInput {
@@ -716,17 +730,7 @@ export function useCompleteHarvestPlan() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({
-      id,
-      actualQuantity,
-      actualBiomass,
-      actualAvgWeight,
-    }: {
-      id: string;
-      actualQuantity: number;
-      actualBiomass: number;
-      actualAvgWeight: number;
-    }) => {
+    mutationFn: async (input: CompleteHarvestPlanInput) => {
       if (!token) {
         throw new Error('Authentication required. Please login first.');
       }
@@ -735,7 +739,7 @@ export function useCompleteHarvestPlan() {
       }
       const data = await graphqlClient.request<{ completeHarvestPlan: HarvestPlan }>(
         COMPLETE_HARVEST_PLAN_MUTATION,
-        { id, actualQuantity, actualBiomass, actualAvgWeight }
+        { input }
       );
       return data.completeHarvestPlan;
     },

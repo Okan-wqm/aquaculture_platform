@@ -23,16 +23,17 @@ import {
 import { UseGuards, Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
-import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
+import {
+  StandardPaginatedResponse,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
 // Entities
 import { HarvestPlan, HarvestPlanStatus } from '../entities/harvest-plan.entity';
 
 // Service
-import {
-  HarvestPlanService,
-  HarvestPlanStats,
-} from '../services/harvest-plan.service';
+import { HarvestPlanService, HarvestPlanStats } from '../services/harvest-plan.service';
 import { QueryBus } from '@platform/cqrs';
 import { GetHarvestPlanQuery } from '../queries/get-harvest-plan.query';
 import { GetHarvestPlanByCodeQuery } from '../queries/get-harvest-plan-by-code.query';
@@ -46,6 +47,7 @@ import { GetHarvestPlanStatsQuery } from '../queries/get-harvest-plan-stats.quer
 import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
+import { CompleteHarvestPlanInput } from '../dto/complete-harvest-plan.input';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -191,9 +193,7 @@ export class HarvestPlanResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('activeOnly', { nullable: true, defaultValue: false }) activeOnly: boolean,
   ): Promise<HarvestPlan[]> {
-    return this.queryBus.execute(
-      new ListHarvestPlansByBatchQuery(tenantId, batchId, activeOnly),
-    );
+    return this.queryBus.execute(new ListHarvestPlansByBatchQuery(tenantId, batchId, activeOnly));
   }
 
   /**
@@ -213,9 +213,7 @@ export class HarvestPlanResolver {
    */
   @Query(() => [HarvestPlan], { description: 'Get overdue harvest plans' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  async overdueHarvestPlans(
-    @Tenant() tenantId: string,
-  ): Promise<HarvestPlan[]> {
+  async overdueHarvestPlans(@Tenant() tenantId: string): Promise<HarvestPlan[]> {
     return this.queryBus.execute(new ListOverdueHarvestPlansQuery(tenantId));
   }
 
@@ -224,9 +222,7 @@ export class HarvestPlanResolver {
    */
   @Query(() => HarvestPlanStatsResponse, { description: 'Get harvest plan statistics' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  async harvestPlanStats(
-    @Tenant() tenantId: string,
-  ): Promise<HarvestPlanStats> {
+  async harvestPlanStats(@Tenant() tenantId: string): Promise<HarvestPlanStats> {
     return this.queryBus.execute(new GetHarvestPlanStatsQuery(tenantId));
   }
 
@@ -329,20 +325,28 @@ export class HarvestPlanResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async completeHarvestPlan(
     @Tenant() tenantId: string,
-    @CurrentUser('sub') userId: string,
-    @Args('id', { type: () => ID }) id: string,
-    @Args('actualQuantity', { type: () => Int }) actualQuantity: number,
-    @Args('actualBiomass', { type: () => Float }) actualBiomass: number,
-    @Args('actualAvgWeight', { type: () => Float }) actualAvgWeight: number,
+    // SEC-HIGH-188: the caller goes to the command unchanged — no filtering,
+    // no defaulting. Its roles come from the gateway's HMAC-bound verified-user
+    // assertion; VerifiedUserAssertionMiddleware checks only that they are
+    // strings, and @Roles admits the request. CompleteHarvestPlanHandler
+    // re-checks them against the permission matrix through the role
+    // hierarchy, so an empty set or a role outside it reaches no authority.
+    @CurrentUser() user: SiteScopeCaller,
+    // FARM-HIGH-395: one validated input instead of bare scalars the
+    // ValidationPipe never saw.
+    @Args('input') input: CompleteHarvestPlanInput,
   ): Promise<HarvestPlan> {
-    this.logger.log(`Completing harvest for plan ${id}`);
+    this.logger.log(`Completing harvest for plan ${input.id}`);
     return this.harvestPlanService.completeHarvest(
       tenantId,
-      id,
-      actualQuantity,
-      actualBiomass,
-      actualAvgWeight,
-      userId,
+      input.id,
+      {
+        actualQuantity: input.actualQuantity,
+        actualBiomass: input.actualBiomass,
+        actualAvgWeight: input.actualAvgWeight,
+        qualityClass: input.qualityClass,
+      },
+      user,
     );
   }
 
@@ -416,10 +420,7 @@ export class HarvestPlanResolver {
    */
   @ResolveField(() => Boolean)
   canEdit(@Parent() plan: HarvestPlan): boolean {
-    return ![
-      HarvestPlanStatus.COMPLETED,
-      HarvestPlanStatus.CANCELLED,
-    ].includes(plan.status);
+    return ![HarvestPlanStatus.COMPLETED, HarvestPlanStatus.CANCELLED].includes(plan.status);
   }
 
   /**
@@ -508,8 +509,7 @@ export class HarvestPlanResolver {
     if (!plan.actualBiomassHarvested || !plan.estimates?.estimatedBiomass) {
       return null;
     }
-    const accuracy =
-      (Number(plan.actualBiomassHarvested) / plan.estimates.estimatedBiomass) * 100;
+    const accuracy = (Number(plan.actualBiomassHarvested) / plan.estimates.estimatedBiomass) * 100;
     return Math.round(accuracy * 100) / 100; // Round to 2 decimal places
   }
 }

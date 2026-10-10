@@ -7479,6 +7479,7 @@ type Mutation {
   createBatch(input: CreateBatchInput!): Batch!
   updateBatch(input: UpdateBatchInput!): Batch!
   updateBatchStatus(id: ID!, status: BatchStatus!, reason: String): Batch!
+  releaseBatchFromQuarantine(input: ReleaseBatchFromQuarantineInput!): Batch!
   recordMortality(input: RecordMortalityInput!): Batch!
   recordCull(input: RecordCullInput!): Batch!
   allocateBatchToTank(input: AllocateToTankInput!): Batch!
@@ -7694,7 +7695,7 @@ type Mutation {
   startHarvestPlan(id: ID!): HarvestPlan!
 
   """Complete harvest for a plan"""
-  completeHarvestPlan(id: ID!, actualQuantity: Int!, actualBiomass: Float!, actualAvgWeight: Float!): HarvestPlan!
+  completeHarvestPlan(input: CompleteHarvestPlanInput!): HarvestPlan!
 
   """Cancel a harvest plan"""
   cancelHarvestPlan(id: ID!): HarvestPlan!
@@ -10230,6 +10231,13 @@ input UpdateBatchInput {
   notes: String
 }
 
+input ReleaseBatchFromQuarantineInput {
+  batchId: ID!
+
+  """Why the quarantine hold ends (5-500 characters)"""
+  reason: String!
+}
+
 input RecordMortalityInput {
   clientCommandId: ID!
 
@@ -11794,6 +11802,25 @@ input UpdateHarvestPlanInput {
 
   """Attachment URLs"""
   attachments: [String!]
+}
+
+input CompleteHarvestPlanInput {
+  """Harvest plan ID"""
+  id: ID!
+
+  """Counted number of fish harvested"""
+  actualQuantity: Int!
+
+  """Harvested biomass in kg (at most 2 decimals)"""
+  actualBiomass: Float!
+
+  """Average weight in grams (at most 2 decimals)"""
+  actualAvgWeight: Float!
+
+  """
+  Norwegian quality class (kvalitetsklasse) of the harvest — the stored SSoT.
+  """
+  qualityClass: QualityClass!
 }
 
 input CreateHarvestRecordInput {

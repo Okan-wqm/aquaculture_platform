@@ -55,6 +55,40 @@ export interface TankMeta {
   volumeM3?: number;
 }
 
+/**
+ * A tank's per-batch composition, as {@link TankBatchService.applyBatchDelta}
+ * reads it — the ONE definition every reader of "how many fish of batch X are
+ * in tank Y" shares, so a planner can never count a tank the writer would
+ * then refuse to debit (or the reverse).
+ *
+ * Self-heals pre-SSoT rows: a single-batch tank stocked before batchDetails[]
+ * became the SSoT carries empty details but a populated total + primaryBatchId.
+ * That single entry is reconstructed from the totals so a (negative) delta
+ * applies to it, instead of being treated as "batch not present" (a silent
+ * no-op that would skip mortality/cull/transfer/harvest on every pre-existing
+ * tank). The returned array is the row's own array when it has entries (the
+ * writer mutates it and assigns it back) and a fresh one when it was seeded,
+ * so a reader that only inspects it never changes the row.
+ */
+export function tankCompositionOf(tankBatch: TankBatch): BatchDetail[] {
+  const details: BatchDetail[] = tankBatch.batchDetails ?? [];
+  if (details.length === 0 && Number(tankBatch.totalQuantity) > 0 && tankBatch.primaryBatchId) {
+    const seededQty = Number(tankBatch.totalQuantity);
+    const seededBiomass = Number(tankBatch.totalBiomassKg);
+    return [
+      {
+        batchId: tankBatch.primaryBatchId,
+        batchNumber: tankBatch.primaryBatchNumber ?? '',
+        quantity: seededQty,
+        biomassKg: seededBiomass,
+        avgWeightG: seededQty > 0 ? (seededBiomass * 1000) / seededQty : 0,
+        percentageOfTank: 100,
+      },
+    ];
+  }
+  return details;
+}
+
 @Injectable()
 export class TankBatchService {
   /**
@@ -99,24 +133,7 @@ export class TankBatchService {
       tankBatch.tankName = tankMeta.name;
     }
 
-    const details: BatchDetail[] = tankBatch.batchDetails ?? [];
-    // Self-heal pre-SSoT rows: a single-batch tank stocked before batchDetails[]
-    // became the SSoT carries empty details but a populated total + primaryBatchId.
-    // Reconstruct that single entry from the totals so a (negative) delta applies
-    // to it, instead of being treated as "batch not present" (a silent no-op that
-    // would skip mortality/cull/transfer on every pre-existing tank).
-    if (details.length === 0 && Number(tankBatch.totalQuantity) > 0 && tankBatch.primaryBatchId) {
-      const seededQty = Number(tankBatch.totalQuantity);
-      const seededBiomass = Number(tankBatch.totalBiomassKg);
-      details.push({
-        batchId: tankBatch.primaryBatchId,
-        batchNumber: tankBatch.primaryBatchNumber ?? '',
-        quantity: seededQty,
-        biomassKg: seededBiomass,
-        avgWeightG: seededQty > 0 ? (seededBiomass * 1000) / seededQty : 0,
-        percentageOfTank: 100,
-      });
-    }
+    const details: BatchDetail[] = tankCompositionOf(tankBatch);
     const idx = details.findIndex((d) => d.batchId === delta.batchId);
 
     if (idx >= 0) {

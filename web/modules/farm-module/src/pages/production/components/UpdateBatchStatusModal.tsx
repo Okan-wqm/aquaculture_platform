@@ -12,7 +12,7 @@
  * Phase 3 Tier 1 of the "Farm modülü kalan kör noktalar" plan.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, Button, useToast, Select, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Select, Textarea, useI18n } from '@aquaculture/shared-ui';
 
 import { BatchStatus, useUpdateBatchStatus } from '../../../hooks/useBatches';
 
@@ -49,6 +49,12 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
   const [reason, setReason] = useState<string>('');
 
   const updateStatus = useUpdateBatchStatus();
+  const { t } = useI18n();
+  // FARM-MEDIUM-402: QUARANTINE -> ACTIVE is not a plain status update; the
+  // backend refuses it here and the batch's "Release from quarantine" action
+  // owns it.
+  const isDedicated = (target: BatchStatus): boolean =>
+    currentStatus === 'QUARANTINE' && target === 'ACTIVE';
   const { toast } = useToast();
 
   const errors = useMemo(() => {
@@ -110,8 +116,13 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
             onChange={(e) => setStatus(e.target.value as BatchStatus)}
             options={STATUS_OPTIONS.map((opt) => ({
               value: opt.value,
-              label: opt.value === currentStatus ? `${opt.label} (current)` : opt.label,
-              disabled: opt.value === currentStatus,
+              label:
+                opt.value === currentStatus
+                  ? `${opt.label} (current)`
+                  : isDedicated(opt.value)
+                    ? `${opt.label} — ${t('batch.quarantineRelease.optionHint')}`
+                    : opt.label,
+              disabled: opt.value === currentStatus || isDedicated(opt.value),
             }))}
           />
 

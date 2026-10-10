@@ -16,20 +16,27 @@
 import { BadRequestException, Logger } from '@nestjs/common';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { createMockDataSource, createMockRepository, stub } from '@aquaculture/testing';
+import { collaborator, createMockDataSource, stub } from '@aquaculture/testing';
 import { getMetadataStorage } from 'class-validator';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
 
 import { CloseBatchCommand, BatchCloseReason } from '../../../batch/commands/close-batch.command';
 import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
-import { TankOperation } from '../../../batch/entities/tank-operation.entity';
 import { BatchWithdrawalBlockedError } from '../../../common/errors/farm-errors';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { CreateHarvestRecordCommand } from '../../commands/create-harvest-record.command';
 import { CreateHarvestRecordInput } from '../../dto/create-harvest-record.input';
 import { HarvestRecord, QualityClass } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../handlers/create-harvest-record.handler';
+import { HarvestRecordWriter } from '../../services/harvest-record-writer.service';
+import type { HarvestPolicyService } from '../../services/harvest-policy.service';
+import type { TankBatchService } from '../../../batch/services/tank-batch.service';
+import type { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
+import type { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
+import type { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+import type { BatchHarvestEligibilityService } from '../../../fish-health/services/batch-harvest-eligibility.service';
+import type { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
 import type {
   MobileCommandReceiptService,
   MobileCommandReceiptState,
@@ -40,6 +47,8 @@ const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 interface HarnessOpts {
   /** Fish currently in the batch (default 1000). */
   currentQuantity?: number;
+  /** Batch lifecycle status (default HARVESTING). */
+  status?: BatchStatus;
   /** Reject the auto-close dispatch. */
   closeBatchError?: Error;
 }
@@ -50,7 +59,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     tenantId: TENANT_ID,
     currentQuantity: opts.currentQuantity ?? 1000,
     harvestedQuantity: 0,
-    status: BatchStatus.HARVESTING,
+    status: opts.status ?? BatchStatus.HARVESTING,
     isActive: true,
     getRetentionRate: jest.fn().mockReturnValue(95),
   };
@@ -171,26 +180,29 @@ function makeHarness(opts: HarnessOpts = {}) {
     getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
   };
 
-  const handler = new CreateHarvestRecordHandler(
-    dataSource,
+  // The harvest write is owned by HarvestRecordWriter (FARM-HIGH-394); the
+  // handler drives it inside its own transaction boundary.
+  const writer = new HarvestRecordWriter(
     outboxPublisher,
     // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-    { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+    collaborator<DayPlanRecalcService>(
+      { recalcForUnit: jest.fn().mockResolvedValue(null) },
+      'DayPlanRecalcService',
+    ),
     commandBus,
-    harvestEligibility as never,
-    backdatePolicy as never,
-    harvestPolicy as never,
-    createMockRepository<HarvestRecord>(),
-    createMockRepository<Batch>(),
-    createMockRepository<TankOperation>(),
-    createMockRepository<TankBatch>(),
-    createMockRepository<Tank>(),
-    tankBatchService as never,
-    financeSettings as never,
+    collaborator<BatchHarvestEligibilityService>(harvestEligibility, 'BatchHarvestEligibilityService'),
+    collaborator<HarvestPolicyService>(harvestPolicy, 'HarvestPolicyService'),
+    collaborator<TankBatchService>(tankBatchService, 'TankBatchService'),
     // SEC-HIGH-051: the real fail-closed SSoT; commands below pass MODULE_MANAGER
     // so site authz bypasses for these final-harvest-chain domain tests.
     new SiteAuthorizationService(),
-    farmStockProjection as never,
+    collaborator<FarmStockProjectionService>(farmStockProjection, 'FarmStockProjectionService'),
+  );
+  const handler = new CreateHarvestRecordHandler(
+    dataSource,
+    collaborator<BackdatePolicyService>(backdatePolicy, 'BackdatePolicyService'),
+    collaborator<FinanceSettingsService>(financeSettings, 'FinanceSettingsService'),
+    writer,
     mobileCommandReceipts,
   );
 
@@ -342,6 +354,31 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
 
     debugSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe('CreateHarvestRecordHandler — lifecycle gate (FARM-MEDIUM-401)', () => {
+  it('refuses to harvest a quarantined batch and writes nothing', async () => {
+    const { handler, batch, enqueuedEvents, createdHarvestRecords, rollback } = makeHarness({
+      status: BatchStatus.QUARANTINE,
+    });
+
+    await expect(handler.execute(makeCommand({ quantityHarvested: 400 }))).rejects.toThrow(
+      /QUARANTINE and cannot be harvested/,
+    );
+    expect(createdHarvestRecords).toHaveLength(0);
+    expect(enqueuedEvents).toHaveLength(0);
+    expect(batch.currentQuantity).toBe(1000);
+    expect(rollback).toHaveBeenCalled();
+  });
+
+  it('harvests part of a growing batch', async () => {
+    const { handler, batch, enqueuedEvents } = makeHarness({ status: BatchStatus.GROWING });
+
+    await handler.execute(makeCommand({ quantityHarvested: 400 }));
+
+    expect(batch.currentQuantity).toBe(600);
+    expect(enqueuedEvents[0]?.isFinal).toBe(false);
   });
 });
 

@@ -37,6 +37,7 @@ import { Tank } from '../tank/entities/tank.entity';
 import { HarvestPlan } from './entities/harvest-plan.entity';
 import { GetHarvestOverviewResponder } from './responders/get-harvest-overview.responder';
 import { HarvestRecord } from './entities/harvest-record.entity';
+import { CompleteHarvestPlanHandler } from './handlers/complete-harvest-plan.handler';
 import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
 import { DeleteHarvestRecordHandler } from './handlers/delete-harvest-record.handler';
 import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.handler';
@@ -55,6 +56,7 @@ import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
 import { HarvestResolver } from './resolvers/harvest.resolver';
 import { HarvestPlanService } from './services/harvest-plan.service';
 import { HarvestPolicyService } from './services/harvest-policy.service';
+import { HarvestRecordWriter } from './services/harvest-record-writer.service';
 import { HarvestAiQueryResponder } from './responders/harvest-ai-query.responder';
 
 @Module({
@@ -86,12 +88,16 @@ import { HarvestAiQueryResponder } from './responders/harvest-ai-query.responder
     // Services
     HarvestPlanService,
     HarvestPolicyService,
+    // The single owner of the harvest write (FARM-HIGH-394): direct harvest
+    // records and plan completion both write through it.
+    HarvestRecordWriter,
     MobileCommandReceiptService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
     MobileFeatureGuard,
     // Command Handlers
     CreateHarvestRecordHandler,
+    CompleteHarvestPlanHandler,
     UpdateHarvestRecordHandler,
     DeleteHarvestRecordHandler,
     // Query Handlers

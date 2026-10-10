@@ -19,6 +19,7 @@ import {
   BATCH_FIELDS,
   createTestSpecies,
   createTestBatch,
+  releaseFromQuarantine,
 } from './test-helpers';
 
 describe('Tank Operations E2E', () => {
@@ -44,10 +45,8 @@ describe('Tank Operations E2E', () => {
     });
     batchId = batch.id as string;
 
-    // QUARANTINE -> ACTIVE -> GROWING
-    await gqlExpectSuccess(
-      `mutation { updateBatchStatus(id: "${batchId}", status: ACTIVE) { id status } }`,
-    );
+    // QUARANTINE -> ACTIVE (releaseBatchFromQuarantine, FARM-MEDIUM-402) -> GROWING
+    await releaseFromQuarantine(batchId);
     await gqlExpectSuccess(
       `mutation { updateBatchStatus(id: "${batchId}", status: GROWING) { id status } }`,
     );

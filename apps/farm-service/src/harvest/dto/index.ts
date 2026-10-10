@@ -8,3 +8,4 @@ export * from './harvest-filter.input';
 export * from './create-harvest-plan.input';
 export * from './update-harvest-plan.input';
 export * from './harvest-plan-filter.input';
+export * from './complete-harvest-plan.input';

@@ -227,11 +227,12 @@ export const START_HARVEST_PLAN_MUTATION = `
 `;
 
 /**
- * Complete harvest for a plan with actual results
+ * Complete harvest for a plan with the counted results and their quality class
+ * (one validated input, FARM-HIGH-395 / FARM-HIGH-396).
  */
 export const COMPLETE_HARVEST_PLAN_MUTATION = `
-  mutation CompleteHarvestPlan($id: ID!, $actualQuantity: Int!, $actualBiomass: Float!, $actualAvgWeight: Float!) {
-    completeHarvestPlan(id: $id, actualQuantity: $actualQuantity, actualBiomass: $actualBiomass, actualAvgWeight: $actualAvgWeight) {
+  mutation CompleteHarvestPlan($input: CompleteHarvestPlanInput!) {
+    completeHarvestPlan(input: $input) {
       ${HARVEST_PLAN_FIELDS}
     }
   }

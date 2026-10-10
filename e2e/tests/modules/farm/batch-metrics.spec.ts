@@ -18,6 +18,7 @@ import {
   AVAILABLE_TANK_FIELDS,
   createTestSpecies,
   createTestBatch,
+  releaseFromQuarantine,
 } from './test-helpers';
 
 describe('Batch Performance & Metrics E2E', () => {
@@ -42,15 +43,8 @@ describe('Batch Performance & Metrics E2E', () => {
     });
     batchId = batch.id as string;
 
-    // Status'u ACTIVE yap
-    await gqlExpectSuccess(
-      `
-        mutation UpdateBatchStatus($id: ID!, $status: BatchStatus!) {
-          updateBatchStatus(id: $id, status: $status) { id status }
-        }
-      `,
-      { id: batchId, status: 'ACTIVE' },
-    );
+    // QUARANTINE -> ACTIVE: releaseBatchFromQuarantine is the only path (FARM-MEDIUM-402)
+    await releaseFromQuarantine(batchId);
 
     // Tank al
     const tanks = await gqlExpectSuccess<{

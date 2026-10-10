@@ -346,6 +346,49 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.mealBoard.save': 'Kaydet',
   'feedingV2.mealBoard.cancel': 'Vazgeç',
 
+  // ── Site details (farm-module SitesTab read-only drawer, FE-MEDIUM-310) ──
+  'sites.details.subtitle': 'Saha kaydı (salt okunur)',
+  'sites.details.code': 'Kod',
+  'sites.details.type': 'Tür',
+  'sites.details.status': 'Durum',
+  'sites.details.lokalitetsnummer': 'Lokalitetsnummer',
+  'sites.details.timezone': 'Saat dilimi',
+  'sites.details.timezoneInherited': 'Kiracıdan devralınır',
+  'sites.details.region': 'Bölge',
+  'sites.details.address': 'Adres',
+  'sites.details.location': 'Koordinatlar',
+  'sites.details.totalArea': 'Toplam alan',
+  'sites.details.monitoringRadius': 'İzleme yarıçapı',
+  'sites.details.siteManager': 'Saha yöneticisi',
+  'sites.details.contactEmail': 'İletişim e-postası',
+  'sites.details.contactPhone': 'İletişim telefonu',
+  'sites.details.description': 'Açıklama',
+  'sites.details.createdAt': 'Oluşturulma',
+  'sites.details.notSet': 'Belirtilmemiş',
+
+  // ── Harvest quality class (farm-module harvest-plan completion, FARM-HIGH-396) ──
+  'harvest.qualityClass.label': 'Kalite sınıfı',
+  'harvest.qualityClass.placeholder': 'Kalite sınıfı seçin',
+  'harvest.qualityClass.SUPERIOR': 'Superior (üstün)',
+  'harvest.qualityClass.ORDINAER': 'Ordinær (standart)',
+  'harvest.qualityClass.PRODUKSJONSFISK': 'Produksjonsfisk (işleme balığı)',
+  'harvest.qualityClass.UTKAST': 'Utkast (ıskarta)',
+
+  // ── Batch quarantine release (farm-module, FARM-MEDIUM-402) ──
+  'batch.quarantineRelease.button': 'Karantinadan çıkar',
+  'batch.quarantineRelease.title': 'Partiyi karantinadan çıkar',
+  'batch.quarantineRelease.body':
+    'Karantina sona erer: parti AKTİF olur ve hasat edilebilir. Çıkarma işlemi ve gerekçesi denetim kaydına yazılır.',
+  'batch.quarantineRelease.reason': 'Gerekçe',
+  'batch.quarantineRelease.reasonPlaceholder':
+    'örn. sağlık kontrolü geçti, ilaç arınma süresi doldu',
+  'batch.quarantineRelease.reasonTooShort': 'En az 5 karakterlik bir gerekçe girin.',
+  'batch.quarantineRelease.confirm': 'Partiyi çıkar',
+  'batch.quarantineRelease.cancel': 'Vazgeç',
+  'batch.quarantineRelease.success': 'Parti karantinadan çıkarıldı',
+  'batch.quarantineRelease.failed': 'Karantinadan çıkarma başarısız',
+  'batch.quarantineRelease.optionHint': '"Karantinadan çıkar" eylemini kullanın',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Genel Bakış',
   'messaging.title': 'Mesajlar',

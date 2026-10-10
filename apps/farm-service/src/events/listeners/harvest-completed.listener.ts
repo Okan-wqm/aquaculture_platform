@@ -74,10 +74,11 @@ import {
   type HarvestRegulatoryRecordedEvent,
   type TankClearedEvent,
 } from '@platform/event-contracts';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { PARTIAL_HARVEST_SOURCE_STATUSES } from '../../batch/services/batch-lifecycle-policy.service';
 
 /**
  * Harvest report structure (a subset of the original — fields that depend on
@@ -281,6 +282,32 @@ export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEve
    * so it is the source of truth derived from the aggregate).
    */
   private async updateBatchStatus(event: BatchHarvestedEvent, isFinal: boolean): Promise<number> {
+    if (!isFinal) {
+      // Partial harvest — advance to HARVESTING, but ONLY from a pre-harvest
+      // stage (PARTIAL_HARVEST_SOURCE_STATUSES, owned by the batch lifecycle
+      // policy). The producer moves the batch to HARVESTED on a FINAL harvest
+      // and the close chain may already have CLOSED it by the time this
+      // event drains (FARM-HIGH-399), so the status guard sits in the UPDATE
+      // itself: one conditional statement, no read-modify-write window in
+      // which a concurrent close (or a stock write) could be overwritten.
+      const result = await this.batchRepository.update(
+        {
+          id: event.batchId,
+          tenantId: event.tenantId,
+          status: In([...PARTIAL_HARVEST_SOURCE_STATUSES]),
+        },
+        {
+          status: BatchStatus.HARVESTING,
+          statusChangedAt: new Date(),
+          statusReason: 'Partial harvest in progress',
+          updatedBy: event.userId,
+        },
+      );
+      if (result.affected) {
+        this.logger.log(`Batch ${event.batchId} status updated to HARVESTING`);
+      }
+    }
+
     const batch = await this.batchRepository.findOne({
       where: { id: event.batchId, tenantId: event.tenantId },
     });
@@ -288,20 +315,6 @@ export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEve
     if (!batch) {
       this.logger.warn(`Batch ${event.batchId} not found for status update`);
       return 0;
-    }
-
-    if (!isFinal) {
-      // Partial harvest — advance to HARVESTING if not already there. The
-      // producer already moves the batch to HARVESTED on a FINAL harvest, so
-      // this listener owns ONLY the partial → HARVESTING signal.
-      if (batch.status !== BatchStatus.HARVESTING) {
-        batch.status = BatchStatus.HARVESTING;
-        batch.statusChangedAt = new Date();
-        batch.statusReason = 'Partial harvest in progress';
-        batch.updatedBy = event.userId;
-        await this.batchRepository.save(batch);
-        this.logger.log(`Batch ${event.batchId} status updated to HARVESTING`);
-      }
     }
 
     return batch.currentQuantity ?? 0;

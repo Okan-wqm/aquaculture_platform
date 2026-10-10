@@ -349,6 +349,49 @@ export const en = {
   'feedingV2.mealBoard.save': 'Save',
   'feedingV2.mealBoard.cancel': 'Cancel',
 
+  // ── Site details (farm-module SitesTab read-only drawer, FE-MEDIUM-310) ──
+  'sites.details.subtitle': 'Site record (read-only)',
+  'sites.details.code': 'Code',
+  'sites.details.type': 'Type',
+  'sites.details.status': 'Status',
+  'sites.details.lokalitetsnummer': 'Lokalitetsnummer',
+  'sites.details.timezone': 'Timezone',
+  'sites.details.timezoneInherited': 'Inherited from the tenant',
+  'sites.details.region': 'Region',
+  'sites.details.address': 'Address',
+  'sites.details.location': 'Coordinates',
+  'sites.details.totalArea': 'Total area',
+  'sites.details.monitoringRadius': 'Monitoring radius',
+  'sites.details.siteManager': 'Site manager',
+  'sites.details.contactEmail': 'Contact e-mail',
+  'sites.details.contactPhone': 'Contact phone',
+  'sites.details.description': 'Description',
+  'sites.details.createdAt': 'Created',
+  'sites.details.notSet': 'Not set',
+
+  // ── Harvest quality class (farm-module harvest-plan completion, FARM-HIGH-396) ──
+  'harvest.qualityClass.label': 'Quality class',
+  'harvest.qualityClass.placeholder': 'Select a quality class',
+  'harvest.qualityClass.SUPERIOR': 'Superior',
+  'harvest.qualityClass.ORDINAER': 'Ordinary (ordinær)',
+  'harvest.qualityClass.PRODUKSJONSFISK': 'Production fish (produksjonsfisk)',
+  'harvest.qualityClass.UTKAST': 'Reject (utkast)',
+
+  // ── Batch quarantine release (farm-module, FARM-MEDIUM-402) ──
+  'batch.quarantineRelease.button': 'Release from quarantine',
+  'batch.quarantineRelease.title': 'Release batch from quarantine',
+  'batch.quarantineRelease.body':
+    'Releasing ends the quarantine hold: the batch becomes ACTIVE and can be harvested. The release and its reason are written to the audit log.',
+  'batch.quarantineRelease.reason': 'Reason',
+  'batch.quarantineRelease.reasonPlaceholder':
+    'e.g. health inspection passed, withdrawal period elapsed',
+  'batch.quarantineRelease.reasonTooShort': 'Give a reason of at least 5 characters.',
+  'batch.quarantineRelease.confirm': 'Release batch',
+  'batch.quarantineRelease.cancel': 'Cancel',
+  'batch.quarantineRelease.success': 'Batch released from quarantine',
+  'batch.quarantineRelease.failed': 'Release failed',
+  'batch.quarantineRelease.optionHint': 'use "Release from quarantine"',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Overview',
   'messaging.title': 'Messages',

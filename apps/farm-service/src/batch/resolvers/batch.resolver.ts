@@ -43,6 +43,7 @@ import { RecordCullCommand, CullReason } from '../commands/record-cull.command';
 import { RecordMortalityCommand, MortalityReason } from '../commands/record-mortality.command';
 import { TransferBatchCommand } from '../commands/transfer-batch.command';
 import { RecordGradingCommand } from '../commands/record-grading.command';
+import { ReleaseBatchFromQuarantineCommand } from '../commands/release-batch-from-quarantine.command';
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { UpdateBatchCommand } from '../commands/update-batch.command';
 import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloader';
@@ -61,6 +62,7 @@ import {
   BatchHistoryEntryResponse,
   AvailableTankResponse,
   RecordGradingInput,
+  ReleaseBatchFromQuarantineInput,
 } from '../dto/batch-resolver.dto';
 import { CreateBatchInput as CreateBatchInputDTO } from '../dto/create-batch.dto';
 import {
@@ -351,7 +353,28 @@ export class BatchResolver {
   ): Promise<Batch> {
     this.logger.log(`Updating batch status: ${id} to ${status}`);
     return this.commandBus.execute(
-      new UpdateBatchStatusCommand(tenantId, id, status, user.sub, reason),
+      // Arg sırası komut sözleşmesiyle aynı olmalı: (tenantId, batchId,
+      // newStatus, reason?, updatedBy?) — user.sub'in reason'a, reason'un
+      // updatedBy (uuid kolonu) yerine kaydığı canlı hata düzeltildi.
+      new UpdateBatchStatusCommand(tenantId, id, status, reason, user.sub),
+    );
+  }
+
+  // FARM-MEDIUM-402: the only path out of QUARANTINE (to ACTIVE). Managers
+  // only; the handler re-checks the permission matrix and writes an audit row.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => Batch)
+  async releaseBatchFromQuarantine(
+    @Args('input') input: ReleaseBatchFromQuarantineInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<Batch> {
+    this.logger.log(`Releasing batch ${input.batchId} from quarantine`);
+    return this.commandBus.execute(
+      new ReleaseBatchFromQuarantineCommand(tenantId, input.batchId, input.reason, {
+        sub: user.sub,
+        roles: user.roles,
+      }),
     );
   }
 

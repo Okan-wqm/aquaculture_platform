@@ -124,18 +124,9 @@ export class BatchDomainService {
   // ── Status & Classification ───────────────────────────────────────────────
 
   /**
-   * Validate whether a status transition is allowed.
-   *
-   * State machine:
-   *   QUARANTINE → ACTIVE, FAILED
-   *   ACTIVE → GROWING, TRANSFERRED, FAILED
-   *   GROWING → PRE_HARVEST, TRANSFERRED, FAILED
-   *   PRE_HARVEST → HARVESTING, GROWING, FAILED
-   *   HARVESTING → HARVESTED, FAILED
-   *   HARVESTED → CLOSED
-   *   TRANSFERRED → CLOSED
-   *   FAILED → CLOSED
-   *   CLOSED → (terminal)
+   * Validate whether a status transition is allowed — answered by
+   * BATCH_STATUS_TRANSITIONS in batch-lifecycle-policy.service.ts, the one
+   * table (not copied here, FARM-MEDIUM-401).
    */
   canTransitionTo(batch: Batch, newStatus: BatchStatus): boolean {
     return this.lifecyclePolicy.canTransitionStatus(batch.status, newStatus);

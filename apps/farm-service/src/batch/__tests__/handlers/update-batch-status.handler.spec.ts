@@ -54,36 +54,49 @@ describe('UpdateBatchStatusHandler', () => {
       tenantId: TENANT,
       status,
       isActive: true,
-      canTransitionTo: Batch.prototype.canTransitionTo,
       statusChangedAt: new Date(),
     };
   }
 
-  it('should transition QUARANTINE → ACTIVE', async () => {
-    const batch = makeBatch(BatchStatus.QUARANTINE);
+  it('should transition ACTIVE → GROWING', async () => {
+    const batch = makeBatch(BatchStatus.ACTIVE);
     innerBatchRepo.findOne = jest.fn().mockResolvedValueOnce(batch);
     innerBatchRepo.save = jest.fn().mockImplementation((data: unknown) =>
       Promise.resolve(data),
     );
 
     const result = await handler.execute(
-      new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.ACTIVE, undefined, USER),
+      new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.GROWING, undefined, USER),
     );
 
-    expect(result.status).toBe(BatchStatus.ACTIVE);
+    expect(result.status).toBe(BatchStatus.GROWING);
     expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'BatchStatusChanged',
         tenantId: TENANT,
         batchId: 'batch-1',
-        previousStatus: BatchStatus.QUARANTINE,
-        newStatus: BatchStatus.ACTIVE,
+        previousStatus: BatchStatus.ACTIVE,
+        newStatus: BatchStatus.GROWING,
         userId: USER,
       }),
       mockManager,
     );
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
     expect(mockQueryRunner.release).toHaveBeenCalled();
+  });
+
+  it('refuses QUARANTINE → ACTIVE: only releaseBatchFromQuarantine may end the hold (FARM-MEDIUM-402)', async () => {
+    const batch = makeBatch(BatchStatus.QUARANTINE);
+    innerBatchRepo.findOne = jest.fn().mockResolvedValueOnce(batch);
+    innerBatchRepo.save = jest.fn();
+
+    await expect(
+      handler.execute(
+        new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.ACTIVE, undefined, USER),
+      ),
+    ).rejects.toThrow(/use releaseBatchFromQuarantine/);
+    expect(innerBatchRepo.save).not.toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 
   it('should reject invalid transition ACTIVE → HARVESTED', async () => {

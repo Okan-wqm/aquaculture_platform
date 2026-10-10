@@ -7,8 +7,8 @@
  * 1.  createSpecies (prerequisite)
  * 2.  createBatch(speciesId, inputType=FRY) -> status=QUARANTINE
  * 3.  batchNumber auto-generated dogrula (B-2024-XXXXX pattern)
- * 4.  allocateBatchToTank(batchId, tankId) -> BatchLocation olusur
- * 5.  updateBatchStatus -> ACTIVE (valid transition)
+ * 4.  releaseBatchFromQuarantine -> ACTIVE (the only way out of QUARANTINE)
+ * 5.  allocateBatchToTank(batchId, tankId) -> BatchLocation olusur
  * 6.  updateBatchStatus -> GROWING
  * 7.  recordMortality(batchId, count, cause) -> currentQuantity azalir
  * 8.  transferBatch(sourceTank -> destTank) -> BatchLocation guncellenir
@@ -28,6 +28,7 @@ import {
   USER_B_ID,
   BATCH_FIELDS,
   createTestSpecies,
+  releaseFromQuarantine,
 } from './test-helpers';
 
 describe('Batch Full Lifecycle E2E', () => {
@@ -138,9 +139,31 @@ describe('Batch Full Lifecycle E2E', () => {
   });
 
   // =========================================================================
-  // Step 4: allocateBatchToTank -> BatchLocation olusur
+  // Step 4: releaseBatchFromQuarantine -> ACTIVE
   // =========================================================================
-  describe('Step 4: Allocate batch to tank', () => {
+  // FARM-MEDIUM-402: the only way out of QUARANTINE. It runs BEFORE the tank
+  // allocation: an INITIAL_STOCKING allocation also moves a QUARANTINE batch
+  // to ACTIVE, which would leave nothing to release.
+  describe('Step 4: QUARANTINE -> ACTIVE (releaseBatchFromQuarantine)', () => {
+    it('should release the batch from quarantine to ACTIVE', async () => {
+      const released = await releaseFromQuarantine(
+        batchId,
+        'Quarantine period completed, health check passed',
+      );
+
+      expect(released.id).toBe(batchId);
+      expect(released.status).toBe('ACTIVE');
+      expect(released.statusChangedAt).toBeDefined();
+      expect(released.statusReason).toBe(
+        'Released from quarantine: Quarantine period completed, health check passed',
+      );
+    });
+  });
+
+  // =========================================================================
+  // Step 5: allocateBatchToTank -> BatchLocation olusur
+  // =========================================================================
+  describe('Step 5: Allocate batch to tank', () => {
     beforeAll(async () => {
       // availableTanks sorgula -- bir tank ID al
       const data = await gqlExpectSuccess<{
@@ -196,34 +219,6 @@ describe('Batch Full Lifecycle E2E', () => {
       );
 
       expect(data.allocateBatchToTank.id).toBe(batchId);
-    });
-  });
-
-  // =========================================================================
-  // Step 5: updateBatchStatus -> ACTIVE
-  // =========================================================================
-  describe('Step 5: QUARANTINE -> ACTIVE', () => {
-    it('should transition batch from QUARANTINE to ACTIVE', async () => {
-      const data = await gqlExpectSuccess<{
-        updateBatchStatus: Record<string, unknown>;
-      }>(
-        `
-          mutation UpdateBatchStatus($id: ID!, $status: BatchStatus!, $reason: String) {
-            updateBatchStatus(id: $id, status: $status, reason: $reason) {
-              ${BATCH_FIELDS}
-            }
-          }
-        `,
-        {
-          id: batchId,
-          status: 'ACTIVE',
-          reason: 'Quarantine period completed, health check passed',
-        },
-      );
-
-      expect(data.updateBatchStatus.id).toBe(batchId);
-      expect(data.updateBatchStatus.status).toBe('ACTIVE');
-      expect(data.updateBatchStatus.statusChangedAt).toBeDefined();
     });
   });
 

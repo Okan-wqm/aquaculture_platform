@@ -7,6 +7,7 @@
  * @module Harvest
  */
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { CommandBus } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import {
@@ -23,6 +24,11 @@ import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
+import {
+  CompleteHarvestPlanActuals,
+  CompleteHarvestPlanCommand,
+} from '../commands/complete-harvest-plan.command';
 
 // ============================================================================
 // INTERFACES
@@ -56,6 +62,7 @@ export class HarvestPlanService {
     @InjectRepository(HarvestPlan)
     private readonly harvestPlanRepository: Repository<HarvestPlan>,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly commandBus: CommandBus,
   ) {}
 
   // =========================================================================
@@ -153,7 +160,11 @@ export class HarvestPlanService {
           requiredPersonnel: input.logistics.requiredPersonnel,
           transportType: input.logistics.transportType as 'truck' | 'boat' | 'container',
           transportCapacity: input.logistics.transportCapacity,
-          destinationType: input.logistics.destinationType as 'processing' | 'market' | 'direct_sale' | 'export',
+          destinationType: input.logistics.destinationType as
+            | 'processing'
+            | 'market'
+            | 'direct_sale'
+            | 'export',
           destinationAddress: input.logistics.destinationAddress,
           coldChainRequired: input.logistics.coldChainRequired,
         }
@@ -226,9 +237,7 @@ export class HarvestPlanService {
       plan.status === HarvestPlanStatus.COMPLETED ||
       plan.status === HarvestPlanStatus.CANCELLED
     ) {
-      throw new BadRequestException(
-        `Cannot update harvest plan with status ${plan.status}`,
-      );
+      throw new BadRequestException(`Cannot update harvest plan with status ${plan.status}`);
     }
 
     // Update simple fields
@@ -244,8 +253,10 @@ export class HarvestPlanService {
     if (input.productForm !== undefined) plan.productForm = input.productForm;
     if (input.notes !== undefined) plan.notes = input.notes;
     if (input.attachments !== undefined) plan.attachments = input.attachments;
-    if (input.actualQuantityHarvested !== undefined) plan.actualQuantityHarvested = input.actualQuantityHarvested;
-    if (input.actualBiomassHarvested !== undefined) plan.actualBiomassHarvested = input.actualBiomassHarvested;
+    if (input.actualQuantityHarvested !== undefined)
+      plan.actualQuantityHarvested = input.actualQuantityHarvested;
+    if (input.actualBiomassHarvested !== undefined)
+      plan.actualBiomassHarvested = input.actualBiomassHarvested;
     if (input.actualAvgWeight !== undefined) plan.actualAvgWeight = input.actualAvgWeight;
 
     // Update criteria if provided
@@ -301,7 +312,11 @@ export class HarvestPlanService {
         requiredPersonnel: input.logistics.requiredPersonnel,
         transportType: input.logistics.transportType as 'truck' | 'boat' | 'container',
         transportCapacity: input.logistics.transportCapacity,
-        destinationType: input.logistics.destinationType as 'processing' | 'market' | 'direct_sale' | 'export',
+        destinationType: input.logistics.destinationType as
+          | 'processing'
+          | 'market'
+          | 'direct_sale'
+          | 'export',
         destinationAddress: input.logistics.destinationAddress,
         coldChainRequired: input.logistics.coldChainRequired,
       };
@@ -447,23 +462,18 @@ export class HarvestPlanService {
   async completeHarvest(
     tenantId: string,
     id: string,
-    actualQuantity: number,
-    actualBiomass: number,
-    actualAvgWeight: number,
-    _userId: string,
+    actuals: CompleteHarvestPlanActuals,
+    caller: SiteScopeCaller,
   ): Promise<HarvestPlan> {
-    const plan = await this.findByIdOrFail(tenantId, id);
-
-    if (plan.status !== HarvestPlanStatus.IN_PROGRESS) {
-      throw new BadRequestException(
-        `Cannot complete harvest for plan with status ${plan.status}. Harvest must be in progress.`,
-      );
-    }
-
-    plan.complete(actualQuantity, actualBiomass, actualAvgWeight);
-    const updated = await this.harvestPlanRepository.save(plan);
+    // FARM-HIGH-394: completion moves stock out of every tank holding the
+    // batch, so it is a command — one transaction that locks the plan row,
+    // harvests each tank through the single harvest writer and marks the plan
+    // COMPLETED. The handler also owns the SEC-HIGH-188 authority check.
+    const completed = await this.commandBus.execute<CompleteHarvestPlanCommand, HarvestPlan>(
+      new CompleteHarvestPlanCommand(tenantId, id, actuals, caller),
+    );
     this.logger.log(`Completed harvest for plan ${id}`);
-    return updated;
+    return completed;
   }
 
   /**
@@ -476,9 +486,7 @@ export class HarvestPlanService {
       plan.status === HarvestPlanStatus.COMPLETED ||
       plan.status === HarvestPlanStatus.CANCELLED
     ) {
-      throw new BadRequestException(
-        `Cannot cancel harvest plan with status ${plan.status}.`,
-      );
+      throw new BadRequestException(`Cannot cancel harvest plan with status ${plan.status}.`);
     }
 
     plan.cancel();
@@ -503,9 +511,7 @@ export class HarvestPlanService {
       plan.status === HarvestPlanStatus.CANCELLED ||
       plan.status === HarvestPlanStatus.IN_PROGRESS
     ) {
-      throw new BadRequestException(
-        `Cannot postpone harvest plan with status ${plan.status}.`,
-      );
+      throw new BadRequestException(`Cannot postpone harvest plan with status ${plan.status}.`);
     }
 
     plan.postpone(newDate);
@@ -585,16 +591,22 @@ export class HarvestPlanService {
 
     // Date filters
     if (filter.plannedDateFrom) {
-      query.andWhere('hp.plannedDate >= :plannedDateFrom', { plannedDateFrom: filter.plannedDateFrom });
+      query.andWhere('hp.plannedDate >= :plannedDateFrom', {
+        plannedDateFrom: filter.plannedDateFrom,
+      });
     }
     if (filter.plannedDateTo) {
       query.andWhere('hp.plannedDate <= :plannedDateTo', { plannedDateTo: filter.plannedDateTo });
     }
     if (filter.confirmedDateFrom) {
-      query.andWhere('hp.confirmedDate >= :confirmedDateFrom', { confirmedDateFrom: filter.confirmedDateFrom });
+      query.andWhere('hp.confirmedDate >= :confirmedDateFrom', {
+        confirmedDateFrom: filter.confirmedDateFrom,
+      });
     }
     if (filter.confirmedDateTo) {
-      query.andWhere('hp.confirmedDate <= :confirmedDateTo', { confirmedDateTo: filter.confirmedDateTo });
+      query.andWhere('hp.confirmedDate <= :confirmedDateTo', {
+        confirmedDateTo: filter.confirmedDateTo,
+      });
     }
     if (filter.createdFrom) {
       query.andWhere('hp.createdAt >= :createdFrom', { createdFrom: filter.createdFrom });
@@ -613,7 +625,9 @@ export class HarvestPlanService {
 
     // Customer filters
     if (filter.customerId) {
-      query.andWhere("hp.customerOrder->>'customerId' = :customerId", { customerId: filter.customerId });
+      query.andWhere("hp.customerOrder->>'customerId' = :customerId", {
+        customerId: filter.customerId,
+      });
     }
     if (filter.orderId) {
       query.andWhere("hp.customerOrder->>'orderId' = :orderId", { orderId: filter.orderId });

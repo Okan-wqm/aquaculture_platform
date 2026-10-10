@@ -52,6 +52,8 @@ import { Role } from '@aquaculture/backend-common/decorators';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
+import { HarvestCompletedListener } from '../../../events/listeners/harvest-completed.listener';
+
 import { AllocateToTankCommand } from '../../../batch/commands/allocate-to-tank.command';
 import { CreateBatchCommand } from '../../../batch/commands/create-batch.command';
 import { Batch, BatchInputType } from '../../../batch/entities/batch.entity';
@@ -201,6 +203,18 @@ export const FIXTURE_ENTITIES = [
  * handlers write farm_audit_logs in their transaction. The raw repository it
  * needs is wired here, beside the batch writers', so specs never name one.
  */
+export function createFixtureHarvestCompletedListener(
+  dataSource: DataSource,
+): HarvestCompletedListener {
+  // The production BatchHarvested consumer over the fixture DataSource. No bus
+  // and no Redis: follow-ups are not published and the dedup claim is skipped,
+  // which leaves exactly the batch-status side effect a suite asserts on.
+  return new HarvestCompletedListener(
+    dataSource.getRepository(Batch),
+    dataSource.getRepository(TankBatch),
+  );
+}
+
 export function createFixtureAuditLogService(dataSource: DataSource): AuditLogService {
   return new AuditLogService(dataSource.getRepository(AuditLog));
 }

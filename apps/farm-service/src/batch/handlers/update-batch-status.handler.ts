@@ -41,7 +41,7 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
     const savedBatch = await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const batchRepo = tenantManagerRepo(queryRunner.manager, Batch, tenantId);
       // Pessimistic lock: prevents concurrent status transitions racing through
-      // canTransitionTo() check before either commits (same pattern as CloseBatchHandler).
+      // assertCanTransitionStatus() check before either commits (same pattern as CloseBatchHandler).
       const batch = await batchRepo.findOne({
         where: { id: batchId, tenantId, isActive: true },
         lock: { mode: 'pessimistic_write' },
@@ -52,6 +52,8 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
       }
 
       this.lifecyclePolicy.assertCanTransitionStatus(batch, newStatus);
+      // FARM-MEDIUM-402: QUARANTINE -> ACTIVE belongs to releaseBatchFromQuarantine.
+      this.lifecyclePolicy.assertGenericStatusUpdateAllowed(batch, newStatus);
 
       const previousStatus = batch.status;
       const statusChangedAt = new Date();

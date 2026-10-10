@@ -57,7 +57,9 @@ describe('TankBatchService module wiring (ORPHAN-HIGH-275)', () => {
     // batch-side consumers that always worked — the guard must see them all.
     expect(names).toEqual(
       expect.arrayContaining([
-        'CreateHarvestRecordHandler',
+        // The harvest write moved from CreateHarvestRecordHandler into the
+        // writer both harvest entry points share (FARM-HIGH-394).
+        'HarvestRecordWriter',
         'DeleteHarvestRecordHandler',
         'RecordMortalityHandler',
         'TransferBatchHandler',

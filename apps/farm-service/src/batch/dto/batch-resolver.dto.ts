@@ -9,7 +9,7 @@ import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-c
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { ID, Float, Field, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
 
 /**
@@ -286,4 +286,21 @@ export class AvailableTankResponse implements AvailableTank {
   @Field() departmentName!: string;
   @Field(() => ID, { nullable: true }) siteId?: string;
   @Field({ nullable: true }) siteName?: string;
+}
+
+/**
+ * releaseBatchFromQuarantine input (FARM-MEDIUM-402): the batch and why its
+ * quarantine hold ends — the reason is written to the status and audit log.
+ */
+@InputType()
+export class ReleaseBatchFromQuarantineInput {
+  @Field(() => ID)
+  @IsUUID()
+  batchId!: string;
+
+  @Field({ description: 'Why the quarantine hold ends (5-500 characters)' })
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  reason!: string;
 }

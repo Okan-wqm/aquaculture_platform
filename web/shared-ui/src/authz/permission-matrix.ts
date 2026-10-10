@@ -52,6 +52,7 @@ export type FrontendMutationName =
   // parity test catches any backend role-drift across the whole
   // farm-module surface, not only the Tier 2/3 additions.
   | 'updateBatchStatus'
+  | 'releaseBatchFromQuarantine'
   | 'closeBatch'
   | 'allocateBatchToTank'
   | 'createSubEquipment'
@@ -125,6 +126,8 @@ export const FRONTEND_MUTATION_ROLES: Readonly<Record<FrontendMutationName, read
   Object.freeze({
     // Phase 3 Tier 1
     updateBatchStatus: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    // FARM-MEDIUM-402: ending a quarantine hold is a manager decision.
+    releaseBatchFromQuarantine: ['MODULE_MANAGER', 'TENANT_ADMIN'],
     closeBatch: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
     allocateBatchToTank: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
     createSubEquipment: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],

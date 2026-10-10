@@ -1,3 +1,4 @@
+import { toGraphqlEnumName, fromGraphqlEnumName } from '../../utils/graphql-enum';
 /**
  * HarvestPlansPage
  *
@@ -19,6 +20,8 @@ import {
   Input,
   Select,
   Textarea,
+  useI18n,
+  type MessageKey,
 } from '@aquaculture/shared-ui';
 import {
   useHarvestPlanList,
@@ -35,8 +38,9 @@ import {
   type CreateHarvestPlanInput,
   type UpdateHarvestPlanInput,
   type HarvestPlanFilterInput,
+  type CompleteHarvestPlanInput,
 } from '../../hooks/useHarvestPlans';
-import { useBatchList } from '../../hooks/useBatches';
+import { useBatchList, type QualityClass } from '../../hooks/useBatches';
 import {
   AlertTriangle,
   ArrowRight,
@@ -2072,101 +2076,166 @@ const HarvestPlanFormModal: React.FC<{
 };
 
 // Complete Harvest Modal
+/** The four Norwegian quality classes (RPT-007), in grading order. */
+const QUALITY_CLASSES: readonly QualityClass[] = [
+  'SUPERIOR',
+  'ORDINAER',
+  'PRODUKSJONSFISK',
+  'UTKAST',
+];
+
+const QUALITY_CLASS_LABEL_KEYS: Record<QualityClass, MessageKey> = {
+  SUPERIOR: 'harvest.qualityClass.SUPERIOR',
+  ORDINAER: 'harvest.qualityClass.ORDINAER',
+  PRODUKSJONSFISK: 'harvest.qualityClass.PRODUKSJONSFISK',
+  UTKAST: 'harvest.qualityClass.UTKAST',
+};
+
+function isQualityClass(value: string): value is QualityClass {
+  return QUALITY_CLASSES.some((qualityClass) => qualityClass === value);
+}
+
+/** A positive estimate pre-fills the field; zero means "no estimate", never a counted value. */
+function estimateField(value: number): string {
+  return value > 0 ? String(value) : '';
+}
+
+type CompleteHarvestResults = Omit<CompleteHarvestPlanInput, 'id'>;
+
 const CompleteHarvestModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-  onComplete: (data: {
-    actualQuantity: number;
-    actualBiomass: number;
-    actualAvgWeight: number;
-  }) => void;
+  onComplete: (data: CompleteHarvestResults) => void;
   plan: HarvestPlan | null;
 }> = ({ isOpen, onClose, onComplete, plan }) => {
-  const [formData, setFormData] = useState({
-    actualQuantity: plan?.estimates.estimatedQuantity || 0,
-    actualBiomass: plan?.estimates.estimatedBiomass || 0,
-    actualAvgWeight: plan?.estimates.estimatedAvgWeight || 0,
-  });
-
   if (!plan) return null;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onComplete(formData);
-  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Complete Harvest" size="sm">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-info-50 dark:bg-info-900/20 rounded-md p-3 mb-4">
-          <p className="text-sm text-info-800 dark:text-info-200">
-            Enter the actual harvest results for <strong>{plan.planCode}</strong>
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Actual Quantity Harvested
-          </label>
-          <Input
-            fullWidth
-            type="number"
-            required
-            min="0"
-            value={formData.actualQuantity}
-            onChange={(e) => setFormData({ ...formData, actualQuantity: Number(e.target.value) })}
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Estimated: {formatNumber(plan.estimates.estimatedQuantity)}
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Actual Biomass (kg)
-          </label>
-          <Input
-            fullWidth
-            type="number"
-            required
-            min="0"
-            step="0.1"
-            value={formData.actualBiomass}
-            onChange={(e) => setFormData({ ...formData, actualBiomass: Number(e.target.value) })}
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Estimated: {formatNumber(plan.estimates.estimatedBiomass)} kg
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Actual Average Weight (g)
-          </label>
-          <Input
-            fullWidth
-            type="number"
-            required
-            min="0"
-            step="0.1"
-            value={formData.actualAvgWeight}
-            onChange={(e) => setFormData({ ...formData, actualAvgWeight: Number(e.target.value) })}
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Estimated: {plan.estimates.estimatedAvgWeight}g
-          </p>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 pt-4">
-          <Button variant="secondary" type="button" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" type="submit">
-            Complete Harvest
-          </Button>
-        </div>
-      </form>
+      {/* Keyed by plan: the form state starts from THIS plan's estimates. The
+          modal is mounted before any plan is chosen, so state initialised at
+          mount held the null plan's zeros and submitted a 0 g weight. */}
+      <CompleteHarvestForm key={plan.id} plan={plan} onClose={onClose} onComplete={onComplete} />
     </Modal>
+  );
+};
+
+const CompleteHarvestForm: React.FC<{
+  plan: HarvestPlan;
+  onClose: () => void;
+  onComplete: (data: CompleteHarvestResults) => void;
+}> = ({ plan, onClose, onComplete }) => {
+  const { t } = useI18n();
+  const [formData, setFormData] = useState({
+    actualQuantity: estimateField(plan.estimates.estimatedQuantity),
+    actualBiomass: estimateField(plan.estimates.estimatedBiomass),
+    actualAvgWeight: estimateField(plan.estimates.estimatedAvgWeight),
+    qualityClass: '',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // The inputs are required with positive minimums and the class select is
+    // required, so the browser blocks an incomplete form; this guard keeps the
+    // types honest rather than defaulting anything.
+    if (!isQualityClass(formData.qualityClass)) return;
+    onComplete({
+      actualQuantity: Number(formData.actualQuantity),
+      actualBiomass: Number(formData.actualBiomass),
+      actualAvgWeight: Number(formData.actualAvgWeight),
+      qualityClass: formData.qualityClass,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="bg-info-50 dark:bg-info-900/20 rounded-md p-3 mb-4">
+        <p className="text-sm text-info-800 dark:text-info-200">
+          Enter the actual harvest results for <strong>{plan.planCode}</strong>
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Actual Quantity Harvested
+        </label>
+        <Input
+          fullWidth
+          type="number"
+          required
+          min="1"
+          step="1"
+          value={formData.actualQuantity}
+          onChange={(e) => setFormData({ ...formData, actualQuantity: e.target.value })}
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Estimated: {formatNumber(plan.estimates.estimatedQuantity)}
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Actual Biomass (kg)
+        </label>
+        <Input
+          fullWidth
+          type="number"
+          required
+          min="0.01"
+          step="0.01"
+          value={formData.actualBiomass}
+          onChange={(e) => setFormData({ ...formData, actualBiomass: e.target.value })}
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Estimated: {formatNumber(plan.estimates.estimatedBiomass)} kg
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Actual Average Weight (g)
+        </label>
+        <Input
+          fullWidth
+          type="number"
+          required
+          min="0.01"
+          max="100000"
+          step="0.01"
+          value={formData.actualAvgWeight}
+          onChange={(e) => setFormData({ ...formData, actualAvgWeight: e.target.value })}
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Estimated: {plan.estimates.estimatedAvgWeight}g
+        </p>
+      </div>
+
+      <div>
+        <Select
+          label={t('harvest.qualityClass.label')}
+          required
+          size="sm"
+          value={formData.qualityClass}
+          onChange={(e) => setFormData({ ...formData, qualityClass: e.target.value })}
+          options={[
+            { value: '', label: t('harvest.qualityClass.placeholder') },
+            ...QUALITY_CLASSES.map((qualityClass) => ({
+              value: qualityClass,
+              label: t(QUALITY_CLASS_LABEL_KEYS[qualityClass]),
+            })),
+          ]}
+        />
+      </div>
+
+      <div className="flex items-center justify-end gap-3 pt-4">
+        <Button variant="secondary" type="button" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" type="submit">
+          Complete Harvest
+        </Button>
+      </div>
+    </form>
   );
 };
 
@@ -2364,7 +2433,29 @@ export const HarvestPlansPage: React.FC = () => {
   const { data: statsData } = useHarvestPlanStats();
   const { data: batchesData } = useBatchList(undefined, { fetchAll: true });
 
-  const plans = plansData?.items ?? [];
+  // API enum'ları BÜYÜK harf AD olarak serileşiyor (DRAFT/PARTIAL/PUMP/…),
+  // tüm UI mantığı küçük harf DEĞER bekliyor — normalize edilmeden
+  // grouped[plan.status] undefined kalıp sayfa render'da çöküyordu (canlı
+  // bulgu 2026-09-21: ilk gerçek plan oluşturulduğunda liste patladı).
+  const normalizePlanEnums = (p: HarvestPlan): HarvestPlan => ({
+    ...p,
+    status: p.status ? (fromGraphqlEnumName(String(p.status)) as HarvestPlan['status']) : p.status,
+    harvestType: p.harvestType
+      ? (fromGraphqlEnumName(String(p.harvestType)) as HarvestPlan['harvestType'])
+      : p.harvestType,
+    ...(p.harvestMethod
+      ? {
+          harvestMethod: fromGraphqlEnumName(
+            String(p.harvestMethod),
+          ) as HarvestPlan['harvestMethod'],
+        }
+      : {}),
+    ...(p.productForm
+      ? { productForm: fromGraphqlEnumName(String(p.productForm)) as HarvestPlan['productForm'] }
+      : {}),
+  });
+
+  const plans: HarvestPlan[] = (plansData?.items ?? []).map(normalizePlanEnums);
   const stats: HarvestPlanStats = statsData ?? {
     total: 0,
     draft: 0,
@@ -2415,11 +2506,17 @@ export const HarvestPlansPage: React.FC = () => {
   }, []);
 
   // Helper: convert form data to CreateHarvestPlanInput
+  // GraphQL enum girişleri enumun ADINI bekler (PARTIAL, PUMP, FRESH_WHOLE);
+  // form ise DEĞERİ ('partial', 'pump', 'fresh_whole') tutar. Değer gönderilince
+  // şema doğrulaması reddediyor ve plan hiç oluşturulamıyordu (canlı bulgu
+  // 2026-09-21 — Chemicals/Mortality ile aynı sınıf). Underscore'lu adlar da
+  // toUpperCase ile birebir eşleşiyor.
+
   const toCreateInput = (planData: Partial<HarvestPlan>): CreateHarvestPlanInput => ({
     name: planData.name || '',
     description: planData.description,
     batchId: planData.batchId || '',
-    harvestType: planData.harvestType,
+    harvestType: toGraphqlEnumName(planData.harvestType) as HarvestType,
     plannedDate: planData.plannedDate || '',
     windowStartDate: planData.windowStartDate || undefined,
     windowEndDate: planData.windowEndDate || undefined,
@@ -2432,8 +2529,8 @@ export const HarvestPlansPage: React.FC = () => {
       qualityGrade: planData.criteria?.qualityGrade,
       minimumConditionFactor: planData.criteria?.minimumConditionFactor,
     },
-    harvestMethod: planData.harvestMethod,
-    productForm: planData.productForm,
+    harvestMethod: toGraphqlEnumName(planData.harvestMethod) as HarvestPlan['harvestMethod'],
+    productForm: toGraphqlEnumName(planData.productForm) as HarvestPlan['productForm'],
     estimates: {
       estimatedQuantity: planData.estimates?.estimatedQuantity ?? 0,
       estimatedBiomass: planData.estimates?.estimatedBiomass ?? 0,
@@ -2459,6 +2556,10 @@ export const HarvestPlansPage: React.FC = () => {
       : undefined,
     notes: planData.notes,
     attachments: planData.attachments,
+    // Backend CreateHarvestPlanInput DTO'su status alanını zorunlu tutuyor
+    // ve GraphQL enum ADI bekler ('DRAFT') — form değeri ise küçük harf.
+    // İkisi de eksikken plan UI'dan hiç oluşturulamıyordu (canlıda 0 plan).
+    status: toGraphqlEnumName(planData.status ?? 'draft') as HarvestPlan['status'],
   });
 
   // Handlers
@@ -2494,9 +2595,10 @@ export const HarvestPlansPage: React.FC = () => {
   const handleWorkflowAction = (plan: HarvestPlan, action: string) => {
     switch (action) {
       case 'submit':
-        // Submit for approval = update status to 'planned'
+        // Submit for approval = update status to 'planned' (GraphQL enum
+        // ADI bekler: PLANNED — küçük harf değer şema reddediyordu).
         updateMutation.mutate(
-          { id: plan.id, status: 'planned' },
+          { id: plan.id, status: 'PLANNED' as HarvestPlan['status'] },
           { onError: (err) => console.error('Failed to submit plan:', err) },
         );
         break;
@@ -2538,19 +2640,10 @@ export const HarvestPlansPage: React.FC = () => {
     );
   };
 
-  const handleComplete = (data: {
-    actualQuantity: number;
-    actualBiomass: number;
-    actualAvgWeight: number;
-  }) => {
+  const handleComplete = (data: CompleteHarvestResults) => {
     if (!completingPlan) return;
     completeMutation.mutate(
-      {
-        id: completingPlan.id,
-        actualQuantity: data.actualQuantity,
-        actualBiomass: data.actualBiomass,
-        actualAvgWeight: data.actualAvgWeight,
-      },
+      { id: completingPlan.id, ...data },
       {
         onSuccess: () => setCompletingPlan(null),
         onError: (err) => console.error('Failed to complete harvest:', err),

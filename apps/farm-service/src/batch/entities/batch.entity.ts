@@ -294,6 +294,12 @@ export class Batch {
   // TARİHLER
   // -------------------------------------------------------------------------
 
+  // DATE kolonları TypeORM'dan 'YYYY-MM-DD' string olarak döner; varsayılan
+  // DateTime scalar'ı bu string'i serialize edemeyip null döndürüyor ve
+  // non-null stockedAt tüm batches sorgusunu çökertiyordu (canlı bulgu
+  // 2026-09-21: hasat planının parti seçici dahil hiçbir batch listesi
+  // açılmıyordu). Çözüm alan düzeyinde değil, scalar düzeyinde:
+  // installDateOnlyDateTimeScalar() (libs/backend-common/src/graphql/date-time.scalar.ts).
   @Field()
   @Column({ type: 'date' })
   stockedAt!: Date; // Stoklama tarihi
@@ -486,21 +492,6 @@ export class Batch {
     const stockDate = new Date(this.stockedAt);
     const endDate = this.actualHarvestDate ? new Date(this.actualHarvestDate) : new Date();
     return Math.ceil(Math.abs(endDate.getTime() - stockDate.getTime()) / (1000 * 60 * 60 * 24));
-  }
-
-  canTransitionTo(newStatus: BatchStatus): boolean {
-    const transitions: Record<BatchStatus, BatchStatus[]> = {
-      [BatchStatus.QUARANTINE]: [BatchStatus.ACTIVE, BatchStatus.FAILED],
-      [BatchStatus.ACTIVE]: [BatchStatus.GROWING, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
-      [BatchStatus.GROWING]: [BatchStatus.PRE_HARVEST, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
-      [BatchStatus.PRE_HARVEST]: [BatchStatus.HARVESTING, BatchStatus.GROWING, BatchStatus.FAILED],
-      [BatchStatus.HARVESTING]: [BatchStatus.HARVESTED, BatchStatus.FAILED],
-      [BatchStatus.HARVESTED]: [BatchStatus.CLOSED],
-      [BatchStatus.TRANSFERRED]: [BatchStatus.CLOSED],
-      [BatchStatus.FAILED]: [BatchStatus.CLOSED],
-      [BatchStatus.CLOSED]: [],
-    };
-    return transitions[this.status]?.includes(newStatus) ?? false;
   }
 
   isOperational(): boolean {

@@ -54,28 +54,37 @@ class ManifestFieldTest(unittest.TestCase):
 
 class RunnerCompositionTest(unittest.TestCase):
     def test_node_options_is_composed_not_clobbered(self) -> None:
-        # AST-level pin on the runner: the env the subprocess receives must
-        # carry --max-old-space-size AND preserve pre-existing NODE_OPTIONS.
+        # The adapter's environment is BUILT in one place since
+        # ARIA-CRITICAL-399 (`adapter_room.adapter_environment`); the heap
+        # ceiling must ride it and an operator's own NODE_OPTIONS must survive.
+        import tempfile
+
+        from aria_kernel.adapter_room import adapter_environment
+
+        with tempfile.TemporaryDirectory() as workspace:
+            built = adapter_environment(
+                {"PATH": "/usr/bin", "NODE_OPTIONS": "--enable-source-maps"},
+                workspace_root=workspace, node_heap_mb=3072,
+            )
+        self.assertEqual(built.env["NODE_OPTIONS"], "--enable-source-maps --max-old-space-size=3072")
+
+    def test_the_runner_hands_the_manifest_ceiling_to_the_room(self) -> None:
+        # AST-level pin: run_tool passes `runner.node_max_old_space_mb` to the
+        # one spawn builder, so a manifest's ceiling reaches the adapter.
         import ast
         import inspect
         import textwrap
 
         from aria_kernel import tool_runner
 
-        src = textwrap.dedent(inspect.getsource(tool_runner.run_tool))
-        self.assertIn("max-old-space-size", src)
-        self.assertIn('run_env.get("NODE_OPTIONS", "")', src)
-        tree = ast.parse(src)
-        run_calls = [
+        tree = ast.parse(textwrap.dedent(inspect.getsource(tool_runner.run_tool)))
+        spawns = [
             node for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute) and node.func.attr == "run"
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "prepare_adapter_spawn"
         ]
-        self.assertTrue(
-            any(any(kw.arg == "env" for kw in call.keywords) for call in run_calls),
-            "the tool subprocess must receive the composed environment",
-        )
-
+        self.assertEqual(len(spawns), 1)
+        heap = next(kw.value for kw in spawns[0].keywords if kw.arg == "node_heap_mb")
+        self.assertIn("node_max_old_space_mb", ast.unparse(heap))
 
 if __name__ == "__main__":
     unittest.main()

@@ -162,3 +162,126 @@ A second night wrote 0. No uncertainty was needed.
   this change. There are 0 such beliefs on the archive.
 - The plan's #1906 check (does it appear in change_outcome/reflection on the first cycle after
   PR-7) can only be made on a live night. It stays with `main`.
+
+## ARIA-MEDIUM-428 — the next-cycle queue held 10 pressures in its 32 slots (fix, wave 2)
+
+### Symptom
+
+On a copy of the archive's `queues/` and `governance.jsonl` (f5c5c86a1), the parent code
+(0b88b2ccb) reads:
+
+- `read_pending`: 32 items, `DEFAULT_QUEUE_DEPTH`, holding 10 distinct pressures;
+- `append_pending` of a new pressure: `state: blocked`, `queue_depth_exceeded`,
+  `pending_count: 32`.
+
+The archive's governance already has 3 `next_cycle_queue_overflow_blocked` rows, all for
+`pressure:runtime-signal:unknown` (10-08 16:41Z, 10-08 19:10Z, 10-09 09:19Z).
+
+### Evidence
+
+- 8 items for `pressure:migration-surface-repeat:repetition`, 6 for
+  `pressure:shadow-raw-delta:doc-staleness-adapter`, 6 for `pressure:own-pr-ci:pr-1335`, 5 for
+  `mission:m-94d4bea861b82506`, 2 for `pressure:repo-pr-health:repo-pr-1022`, and 1 for each of
+  the other five.
+- 27 of the 32 items have the history pending → consumed → pending. The second pending row is
+  a re-offer (`reoffered_reason: anchor_stale:AIR-aria-autonomy-planner-…`): 33 such rows,
+  2026-10-07 23:09Z .. 10-10 03:14Z, 27 of them on 10-08 at 12:30Z and 15:40Z.
+- `next_cycle_queue.py:320-363` (parent): `reoffer_item` checks the item's own rows and the row
+  count. It never checks whether the item's pressure is already pending.
+- `next_cycle_queue.py:189-193` (parent): the C10 dedupe returns the standing row, but only
+  ahead of a NEW append. It never folds the duplicates already in the ledger, and the depth cap
+  counts rows.
+- The drain does not empty the queue. Governance has 12 `request_admission_throttled` rows
+  for `next_cycle_queue.projection` (`backlog_at_drain_budget`), one per cycle:
+  - first, `cyc-20261007T225133Z`: backlog 380, budget 32;
+  - last, `cyc-20261010T080114Z`: backlog 180, budget 86.3.
+
+  An item the drain cannot mint stays pending, so the queue is the only holder of that work.
+
+### Root cause
+
+`pressure_id` is the queue's idempotency key, but nothing folded the queue by it. Two writers
+could leave several pending items for one pressure: the pre-C10 appends, and the HIGH-360
+re-offer, which brought September items back beside items of the same pressure. Every reader
+counted rows. So one pressure took up to 8 depth slots, and a pressure new to a cycle (such as
+the one a failed night's reflection plans, ARIA-HIGH-420) was refused.
+
+### Fix (tier 1: the queue cannot hold two live items of one pressure)
+
+- `next_cycle_queue.fold_queue` is the queue's one reading.
+  - Per pressure, the pending item enqueued last is live. It carries the freshest pressure
+    snapshot, which the drain reads through its `source_cycle_id`.
+  - Every other pending item of that pressure is `superseded` by it
+    (`reason: pressure_already_pending`, `superseded_by`).
+  - The live item is `expired` (`reason: queue_item_aged_out`) when its latest offer is older
+    than the request-anchor window, or its stamp cannot be read. An offer is the enqueue or a
+    re-offer; a deferral row does not count.
+- The window is the operator's `agent_request_anchor.max_age_seconds`
+  (`agent_invocations._anchor_max_age_seconds`, also read by `request_drain_capacity`), 7 days
+  live. A queue item is the agent request before its mint, so it ages by the same knob. Past that
+  window, its snapshot is older than any request ARIA would still run. A pressure that still
+  holds is queued again by the next reflection, with that night's snapshot. No work is lost.
+- `read_pending` returns the live items. It is a pure read, so a duplicate is invisible even
+  before anything is written.
+- `append_pending`, `mark_consumed` and `reoffer_item` append the fold's verdicts that the
+  ledger does not hold yet. They do this inside their own transaction, before their own row.
+  Each verdict is therefore written once, and consuming a live item cannot bring back a sibling
+  it superseded. No row is rewritten.
+- The depth cap in `append_pending` and the full check in `reoffer_item` count live pressures.
+- `reoffer_item` on an item whose pressure already has a live item returns
+  `REOFFER_ALREADY_PENDING` and writes nothing. The anchor-stale disposition already records
+  that outcome as re-offered (`queue_item_already_pending`), so no operator item is opened.
+
+### Production evidence (copy of `queues/` + `governance.jsonl` only)
+
+|                                | parent 0b88b2ccb                  | this fix                      |
+| ------------------------------ | --------------------------------- | ----------------------------- |
+| `read_pending`                 | 32 items, 10 pressures            | 10 items, 10 pressures        |
+| `append_pending(new pressure)` | `blocked`, `queue_depth_exceeded` | `pending`                     |
+| rows appended                  | 1 (`blocked`)                     | 22 `superseded` + 1 `pending` |
+
+More results from the same run:
+
+- The old ledger bytes are an exact prefix of the new ledger.
+- `read_pending` wrote nothing.
+- Re-enqueueing a live pressure returned the standing item and appended 0 rows.
+- The window read 604800 s, the live policy's 7 days.
+- No live item has aged out yet: the oldest live offer is 2026-10-07 17:29Z.
+
+### Tests
+
+`tests/test_next_cycle_queue_fold.py`, 12 tests. All are red on the parent; the import of the
+new names was stubbed to run them there.
+
+- The production shape: 12 rows of 3 pressures. A new pressure is admitted under depth 4, and
+  the fifth is blocked at a `pending_count` of 4.
+- The verdicts are written once, and the old bytes are a prefix of the new ledger.
+- A reader sees no duplicate before any writer has run.
+- Consuming the live item does not bring a sibling back.
+- The freshest snapshot is kept over an older re-offered item.
+- A re-offer beside a live sibling writes nothing.
+- The full check counts pressures.
+- An item not offered within the window expires.
+- A re-offer is a new offer.
+- An undateable offer buys no slot.
+- The real anchor-stale sweep records `queue_item_already_pending` as re-offered.
+- The real orchestrator runs two fail-closed nights with the clock moved past the window. The
+  second night's reflection queues the pressure again with its own cycle id, and the first item
+  is recorded `expired`.
+
+The existing suites stay green: `test_next_cycle_queue`, `test_anchor_stale_disposition`,
+`test_anchor_stale_migration`, `test_failed_cycle_reflection` and
+`test_state_manifest_transaction`.
+
+### Not done here
+
+- **Throughput.** This fix ends the saturation: the cap now counts work, and a new pressure is
+  admitted. It does not change how fast the queue drains. The drain is still refused by request
+  admission while the agent-request backlog is over the drain budget: 12 cycles in a row from
+  10-07 to 10-10, with the backlog falling from 380 to 180 and the budget rising from 32 to 86.3.
+  Ten live pressures can still wait for days. That
+  backlog is the executor's capacity question (ARIA-HIGH-425 and the PR-8 diagnosis), not the
+  queue's.
+- **The 22 superseded items' dead requests.** These were already disposed by the anchor-stale
+  sweep on 10-08 (re-offered). Nothing re-mints them: their pressures are live under the kept
+  items.

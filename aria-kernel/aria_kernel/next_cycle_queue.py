@@ -31,7 +31,10 @@ One live item per pressure (ARIA-MEDIUM-428):
   item holds a pressure (``append_pending``, ``mark_consumed``,
   ``reoffer_item``) append the ``superseded`` rows the ledger lacks
   in their own transaction, before their own row, so consuming a
-  live item cannot bring a superseded sibling back. Only
+  live item cannot bring a superseded sibling back; and
+  ``mark_consumed`` supersedes every other pending item of the
+  consumed item's pressure, whatever the clock, because the
+  consumption answered that pressure. Only
   ``append_pending``, the writer that needs the slot back, records
   ``expired``: that verdict depends on the clock, and a drain pass
   that read an item as live must never see it turn expired under
@@ -82,6 +85,7 @@ __all__ = [
     "EXPIRED_REASON",
     "SUPERSEDED",
     "SUPERSEDED_REASON",
+    "ANSWERED_REASON",
     "QueueFold",
     "fold_queue",
     "item_max_age_seconds",
@@ -122,6 +126,9 @@ def queue_path(base_dir: str | Path | None) -> Path:
 # consumption: no request was minted for the item.
 SUPERSEDED: str = "superseded"
 SUPERSEDED_REASON: str = "pressure_already_pending"
+# A sibling of a consumed item: the consumption (a minted request) answered
+# the pressure the sibling was queued for.
+ANSWERED_REASON: str = "pressure_answered_by_consumed_item"
 EXPIRED: str = "expired"
 EXPIRED_REASON: str = "queue_item_aged_out"
 
@@ -447,7 +454,12 @@ def mark_consumed(
 
     The ``superseded`` verdicts are written first (ARIA-MEDIUM-428): once
     the live item is consumed, a sibling it superseded must already read as
-    superseded, or it would be the pressure's live item again.
+    superseded, or it would be the pressure's live item again. The consumed
+    item names its own siblings (``ANSWERED_REASON``) rather than leaving
+    them to the fold: review of b55765234 (zai) — the fold's verdict depends
+    on the clock, and an item the drain read as live could age between that
+    read and this row, so the fold held no verdict for its fresh sibling,
+    which then became live and was projected a second time.
     """
     path = queue_path(base_dir)
     max_age_seconds = item_max_age_seconds(base_dir)
@@ -461,12 +473,37 @@ def mark_consumed(
     }
     with state_transaction([path]) as txn:
         rows = txn.load_declared_jsonl(path, expected_surface="next_cycle_queue")
-        _settled_fold(txn, path, rows, max_age_seconds=max_age_seconds, record_expiry=False)
+        answered = _answered_siblings(rows, queue_item_id=queue_item_id, stamp=row["recorded_at"])
+        for sibling in answered:
+            txn.append_declared_jsonl(path, sibling, expected_surface="next_cycle_queue")
+        _settled_fold(txn, path, [*rows, *answered], max_age_seconds=max_age_seconds, record_expiry=False)
         return txn.append_declared_jsonl(
             path,
             row,
             expected_surface="next_cycle_queue",
         )
+
+
+def _answered_siblings(rows: list[dict[str, Any]], *, queue_item_id: str, stamp: str) -> list[dict[str, Any]]:
+    """``superseded`` rows for the other pending items of ``queue_item_id``'s pressure."""
+    pressure_of: dict[str, str] = {}
+    latest: dict[str, Any] = {}
+    for row in rows:
+        qid = str(row.get("queue_item_id") or "")
+        if not qid:
+            continue
+        latest[qid] = row.get("state")
+        if row.get("state") == "pending" and qid not in pressure_of:
+            pressure_of[qid] = str(row.get("pressure_id") or "")
+    pressure = pressure_of.get(queue_item_id)
+    if not pressure:
+        return []
+    return [
+        {"schema_version": 1, "queue_item_id": qid, "state": SUPERSEDED, "pressure_id": pressure,
+         "superseded_by": queue_item_id, "reason": ANSWERED_REASON, "recorded_at": stamp}
+        for qid, sibling_pressure in pressure_of.items()
+        if qid != queue_item_id and sibling_pressure == pressure and latest[qid] == "pending"
+    ]
 
 
 REOFFERED = "reoffered"

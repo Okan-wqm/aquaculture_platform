@@ -330,3 +330,20 @@ The existing suites stay green: `test_next_cycle_queue`, `test_anchor_stale_disp
   not of any one writer. `expired` is still recorded only by the enqueue. The test
   `test_an_aged_sibling_never_supersedes_a_reoffered_item` is red on a1b060050 and green here.
   The production proof is unchanged: 10 live, 22 superseded, and a new pressure admitted.
+
+### Review of b55765234 (zai)
+
+- **Confirmed (LOW: it needs legacy data and a window crossing during one drain pass), fixed in
+  the next commit.** The fold's choice of live item now depends on the clock. The failing
+  sequence:
+  1. The drain read X as live.
+  2. X aged before its own `consumed` row.
+  3. That row's settle no longer saw X as the holder, so it wrote no verdict for X's fresh legacy
+     sibling Y.
+  4. Y became live and was projected a second time.
+
+  The bound queue has the precondition: 22 unwritten `superseded` verdicts until the first settle.
+  Now the consumption names the holder. `mark_consumed` writes `superseded`
+  (`superseded_by` = the consumed item, reason `pressure_answered_by_consumed_item`) for every
+  other pending item of the consumed item's pressure, whatever the clock. The test
+  `test_a_consumed_item_answers_its_siblings_whatever_the_clock` is red on b55765234.

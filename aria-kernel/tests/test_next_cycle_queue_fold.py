@@ -37,6 +37,7 @@ from aria_kernel import next_cycle_queue as queue_module
 from aria_kernel.anchor_stale_effects import DISPOSITION_REOFFERED
 from aria_kernel.ledger import load_jsonl, state_transaction
 from aria_kernel.next_cycle_queue import (
+    ANSWERED_REASON,
     EXPIRED,
     EXPIRED_REASON,
     QUEUE_DEPTH_ENV,
@@ -300,6 +301,44 @@ class AnItemAgesOutByTheAnchorWindow(_QueueStore):
             self.assertEqual(standing["queue_item_id"], a["queue_item_id"])
         states = {(row["queue_item_id"], row["state"]) for row in self.rows() if row["state"] in (EXPIRED, SUPERSEDED)}
         self.assertEqual(states, {(b["queue_item_id"], EXPIRED)})
+
+    def test_a_consumed_item_answers_its_siblings_whatever_the_clock(self) -> None:
+        # Review of b55765234 (zai): legacy siblings with no recorded verdict;
+        # the drain reads X live, X ages before its consumed row, and the
+        # fresher sibling Y would have become live and been projected again.
+        window = item_max_age_seconds(self.base)
+        start = queue_module._now()
+
+        def stamp(seconds: int) -> str:
+            return (start + timedelta(seconds=seconds)).replace(microsecond=0).isoformat()
+
+        def at(seconds: int) -> Any:
+            moment = start + timedelta(seconds=seconds)
+            return mock.patch.multiple(queue_module, _now=mock.Mock(return_value=moment),
+                                       utc_now=mock.Mock(return_value=stamp(seconds)))
+
+        path = queue_path(self.base)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        legacy = [
+            {"queue_item_id": "qi-y", "state": "pending", "pressure_id": "pressure:a", "source_cycle_id": "c1",
+             "recorded_at": stamp(0)},
+            {"queue_item_id": "qi-x", "state": "pending", "pressure_id": "pressure:a", "source_cycle_id": "c2",
+             "recorded_at": stamp(3600)},
+            {"queue_item_id": "qi-y", "state": "consumed", "recorded_at": stamp(7200)},
+            {"queue_item_id": "qi-y", "state": "pending", "reoffered_reason": "anchor_stale:AIR-y",
+             "recorded_at": stamp(10800)},
+        ]
+        with state_transaction([path]) as txn:
+            for row in legacy:
+                txn.append_declared_jsonl(path, {"schema_version": 1, **row}, expected_surface="next_cycle_queue")
+        with at(3600 + window - 5):
+            self.assertEqual([row["queue_item_id"] for row in read_pending(self.base)], ["qi-x"])
+        with at(3600 + window + 30):
+            mark_consumed(self.base, queue_item_id="qi-x", consumed_by="drain")
+            self.assertEqual(read_pending(self.base), [])
+        answered = [row for row in self.rows() if row.get("state") == SUPERSEDED]
+        self.assertEqual([(row["queue_item_id"], row["superseded_by"], row["reason"]) for row in answered],
+                         [("qi-y", "qi-x", ANSWERED_REASON)])
 
     def test_an_undateable_offer_buys_no_slot(self) -> None:
         path = queue_path(self.base)

@@ -20,6 +20,7 @@ from .plan_convergence import (
 from .plan_round_scope import plan_round_contract
 from .step_request import MAX_STEP_REQUEST_REMINTS, step_request_disposition
 from .planner_lessons import planner_lesson_obligations
+from .system_one_points import rank_candidate_files
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -132,6 +133,13 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         remint_of = disposition.request_id
     from .convergence_drainer import _resolve_workspace_head_sha
     source_refs, revision_hash, context_paths = _planning_source_context(state, [revision_id])
+    # ARIA-LOW-319 — R4's ranked candidate files; [] unless R4 runs in order mode. Ranked
+    # from the STARTING body, the source context both planners share: never a primary's revision,
+    # which the challenger must not see.
+    ranked = rank_candidate_files(
+        plan=lambda: (state.get("plan_started") or {}).get("plan_content"), workspace_root=workspace_root,
+        base_dir=root,
+    )
     target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
     # ARIA-HIGH-345 — the scope and key-change obligations are THIS plan's
     # (`plan_round_scope.plan_round_contract`); the hard-coded kernel scope
@@ -142,7 +150,7 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         role=role,
         convergence_id=plan_id,
         round_number=request_round,
-        suggested_prompt=_prompt_for_role(role, state, architecture_spine=architecture_spine),
+        suggested_prompt=_prompt_for_role(role, state, architecture_spine=architecture_spine, candidate_files=ranked),
         must_satisfy=[
             {
                 "id": f"{role}_material_risk_review",
@@ -310,7 +318,8 @@ def _cross_task(
 
 
 def _prompt_for_role(role: str, state: dict[str, Any], *,
-                     architecture_spine: dict[str, Any] | None = None) -> str:
+                     architecture_spine: dict[str, Any] | None = None,
+                     candidate_files: list[dict[str, Any]] | tuple[()] = ()) -> str:
     latest = state.get("latest_revision")
     if role == "challenger_plan" and isinstance(latest, dict):
         # The challenger receives common source context, never the primary
@@ -326,6 +335,8 @@ def _prompt_for_role(role: str, state: dict[str, Any], *,
     }
     if role == "primary_plan" and architecture_spine is not None:
         payload["architecture_spine"] = architecture_spine
+    if candidate_files:  # ARIA-LOW-319 — absent unless R4 runs in order mode: the payload is unchanged
+        payload["candidate_files"] = list(candidate_files)
     return json.dumps(payload, indent=2, sort_keys=True)
 
 

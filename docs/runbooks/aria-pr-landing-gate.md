@@ -13,13 +13,16 @@ An ARIA-surface PR may be merged (manually or via auto-merge) only when ALL
 of these hold:
 
 1. The scoped local suite gate is green on the PR head:
+
    ```bash
    node scripts/ci/aria-suite-changed.mjs
    ```
+
    (exit 0). Run it from the repo root of the PR branch, after the final
    commit. `ARIA_SUITE_FULL=1` forces the full suite for release-grade
    pushes. The gate takes module paths via the runner — never pass it a mode
    word (`full`, `all`): `scripts/ci/aria-suite-run.sh <module>...`.
+
 2. The `aria-kernel` check (suite+lane+state verifier) is green on the PR.
    It is a REQUIRED context since this change — auto-merge cannot close a
    PR while any kernel lane is red.

@@ -1,0 +1,13 @@
+command: npx nx affected --target=test
+argv: ['npx', 'nx', 'affected', '--target=test']
+--- stdout ---
+
+[7m[1m[38;5;214m NX [39m[22m[27m  [38;5;214mAffected criteria defaulted to --base=[1mmain[22m --head=[1mHEAD[22m[39m
+
+
+
+[7m[1m[90m NX [39m[22m[27m  No tasks were run
+
+
+--- stderr ---
+

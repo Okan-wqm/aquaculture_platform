@@ -1,0 +1,30 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "branch": "aria-impl-2c8db538ad5930a0fdc7efe8389d083d",
+    "change_id": "chg_ee86bb53ad1ad126",
+    "ci": {
+      "checks": 30,
+      "pending": [],
+      "red": [],
+      "state": "green"
+    },
+    "head_sha": "3f5f000d0cc1287e9e969cb9baafe857dcc55694",
+    "kind": "human_merge_pr",
+    "merge_state": "CLEAN",
+    "not_self_mergeable_because": [
+      "merge_route_human:lane=L3:control_plane_or_policy_approval",
+      "merge_authority:merge_lane_not_granted: lane 'L3' under profile 'strict' (grant in force: None)"
+    ],
+    "pr_number": 1946,
+    "pr_url": "https://github.com/Okan-wqm/aquaculture_platform/pull/1946",
+    "self_mergeable_now": false
+  },
+  "reason": "https://github.com/Okan-wqm/aquaculture_platform/pull/1946 needs a human merge",
+  "recorded_at": "2026-10-10T21:00:47Z",
+  "request_id": "human-merge-pr-1946",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-17T21:00:47Z",
+  "status": "open"
+}

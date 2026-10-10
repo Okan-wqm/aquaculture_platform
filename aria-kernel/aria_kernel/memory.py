@@ -1673,17 +1673,22 @@ def _record_experiment_reproduction_beliefs(
 
     "Not answered yet" is keyed on the observation's `validation_run_id`, not
     on this cycle's id (ARIA-MEDIUM-421). A night that skipped this phase
-    (job deadline) loses nothing. Each run is answered exactly once, as a
-    belief or as an uncertainty that names why not. So an observation that
-    can never become a belief does not re-record its refusal, or fail the
-    phase, every night. `cycle_id` stamps the rows this call writes.
+    (job deadline) loses nothing. Each finding-bound red run whose
+    experiment resolves is answered exactly once, as a belief or as an
+    uncertainty that names why not. So a reproduction that can never become a
+    belief does not re-record its refusal, or fail the phase, every night;
+    the refusal is final for that run. A run whose experiment is missing or
+    carries no `finding_ref` is not a finding reproduction: it is passed over
+    every night with no row. `cycle_id` stamps the rows this call writes.
     """
     if workspace_root is None:
         return 0
     from .experiment import get_experiment, list_experiment_observations
 
-    # Read strictly: an observations ledger that does not verify is a failed
-    # phase (record_and_continue), not "nothing was reproduced".
+    # No GovernanceError guard. The strict reader's LedgerIntegrityError
+    # always propagated; the old guard only turned a refused surface
+    # declaration into "nothing was reproduced". Now that is a failed phase
+    # (record_and_continue).
     observations = list_experiment_observations(base_dir=base_dir)
     remembered = _remembered_experiment_runs(root)
     written = 0

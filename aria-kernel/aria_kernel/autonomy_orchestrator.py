@@ -59,6 +59,7 @@ parity.
 from __future__ import annotations
 
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -622,10 +623,27 @@ def _outer_cycle_status(projected: str) -> str:
     return "failed"
 
 
-# The refusal text is published on aria/state. It is scrubbed of secret shapes,
-# made relative to the store and bounded: the rule a failed phase's error
-# follows (cycle._published_error).
+# The refusal text is published on aria/state, and the repository is public.
+# It is scrubbed of secret shapes and bounded, the rule a failed phase's error
+# follows (cycle._published_error), and it carries no host path.
 _REFUSED_REFLECTION_ERROR_MAX_CHARS = 300
+# An absolute POSIX path. The verified reader names the ledger by its absolute
+# path, and a ledger can live outside the store: the committed findings
+# resolve through the workspace or ARIA_REPO_STATE_ROOT. No prefix list
+# covers every root, so any absolute path is reduced to its file name.
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.\-~])/(?:[^\s/:'\"]+/)*([^\s/:'\"]+)")
+
+
+def _published_refusal(error: str, root: Path) -> str:
+    """The refusal text with no host path in it.
+
+    A ledger under the store keeps its store-relative name
+    (``memory/beliefs.jsonl``). Any other absolute path is reduced to its
+    file name (``finding-events.jsonl``).
+    """
+    for prefix in {root.as_posix(), root.resolve().as_posix()}:
+        error = error.replace(f"{prefix}/", "")
+    return scrub_text(_ABSOLUTE_PATH.sub(r"\1", error))[:_REFUSED_REFLECTION_ERROR_MAX_CHARS]
 
 
 def _reflect_on_failed_cycle(
@@ -666,7 +684,10 @@ def _reflect_on_failed_cycle(
       reads that ledger);
     - the summary.
     Nothing else is caught. A policy refusal or any other fault still
-    raises, and the ok/degraded exits' reflection is unchanged.
+    raises, and the ok/degraded exits' reflection is unchanged. The refusal
+    can also come from the reflection's own writes after its row exists:
+    the queue append reads the queue and governance strictly. Either way the
+    error names the ledger that refused.
     """
     try:
         return run_reflection(
@@ -682,13 +703,10 @@ def _reflect_on_failed_cycle(
             ),
         )
     except LedgerIntegrityError as exc:
-        error = str(exc)
-        for prefix in {root.as_posix(), root.resolve().as_posix()}:
-            error = error.replace(f"{prefix}/", "")
         refusal = {
             "status": "refused",
             "reason": "ledger_integrity",
-            "error": scrub_text(error)[:_REFUSED_REFLECTION_ERROR_MAX_CHARS],
+            "error": _published_refusal(str(exc), root),
         }
         AutonomyStateReducer.transition(
             root, cycle_id=cycle_id, phase="failed_cycle_reflection_refused",

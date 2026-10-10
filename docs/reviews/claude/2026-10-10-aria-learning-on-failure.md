@@ -66,11 +66,20 @@ idempotency key (`next_cycle_queue.py:180-190`), so the night added no new row.
   the refusal in two places:
   - an autonomy-state row `failed_cycle_reflection_refused`, written by the same writer, on the
     same ledger, as that night's `cycle_completed` row (reflection never reads that ledger);
-  - the summary (`status: refused`, the error scrubbed, store-relative, ≤300 chars).
-    The exit then proceeds as on the parent. Gating the reflection on `integrity_failed` or
-    `verify_integrity` was rejected: those verdicts cover run artifacts and the cycle lifecycle, which
-    reflection does not read and which drift on exactly the crash nights this finding is about.
-    Anything else still raises, as on the six ok/degraded exits.
+  - the summary (`status: refused`, the error scrubbed and ≤300 chars).
+
+  Review of 5aadb57e0 (dedupe, confirmed): the published error kept the absolute path of a
+  ledger outside the store, for example the committed findings' `finding-events.jsonl` under the
+  workspace or `ARIA_REPO_STATE_ROOT`. Fixed in the next commit: store paths become
+  store-relative, and any other absolute path becomes its file name. The refusal can also come
+  from the reflection's own queue append, after its row exists; the error names the ledger
+  either way.
+
+  The exit then proceeds as on the parent. Gating the reflection on `integrity_failed` or
+  `verify_integrity` was rejected: those verdicts cover run artifacts and the cycle lifecycle, which
+  reflection does not read and which drift on exactly the crash nights this finding is about.
+  Anything else still raises, as on the six ok/degraded exits.
+
 - The archive's next-cycle queue is at its depth cap: 32 pending rows against `DEFAULT_QUEUE_DEPTH` 32. Several are duplicates written before the C10 dedupe, for example 8 rows for
   `pressure:migration-surface-repeat:repetition` from cycles 2026-09-19..10-07. A pressure that is
   genuinely new to a failed night would be overflow-blocked. That block is visible
@@ -113,11 +122,14 @@ reproduction landed after the only reader that would ever look at it.
   keyed on the observation's `validation_run_id`. A belief row that cites the run
   (`source_validation_run_id`, new optional field) answers it. So does an uncertainty row that
   names why no belief could be written. A night whose job deadline skipped the phase loses
-  nothing. Each run is answered exactly once, and a new reproduction re-supports the belief.
+  nothing. Each finding-bound red whose experiment resolves is answered exactly once, and the
+  answer is final for that run. A new reproduction re-supports the belief. A run whose experiment
+  is missing or has no `finding_ref` is passed over each night with no row.
 - The repo-evidence policy is asked before the write. A refusal (scope files gone from HEAD) is
   recorded once as an uncertainty, so a backlog reader cannot fail the phase every night. The
-  observations ledger is now read strictly. An unreadable ledger fails the phase instead of
-  reading as "nothing reproduced".
+  `except GovernanceError: return 0` around the observations read is gone. It never caught
+  `LedgerIntegrityError` (a `RuntimeError`), so the only change is that a refused surface
+  declaration fails the phase instead of reading as "nothing reproduced".
 - The private `_record_experiment_reproduction_beliefs` stays the worker that the bridge tests
   call. The public function adds the gate and the store root.
 - Tests: `tests/test_experiment_finding_bridge.py` replaces the test that pinned the defect

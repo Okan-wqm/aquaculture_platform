@@ -110,6 +110,20 @@ def _tamper_then_crash(
     raise RuntimeError("ledger chain broken: auto-merge-decisions.jsonl")
 
 
+def _tamper_findings_then_crash(
+    *, workspace_root: Any, cycle_id: str, base_dir: Path, defer_reflection: bool = False,
+) -> dict[str, Any]:
+    """dedupe's second repro: the broken chain is in a ledger OUTSIDE the
+    tools root (the committed findings beside the workspace), so the refusal
+    text carries a host path that no tools-root prefix covers."""
+    from aria_kernel.finding import findings_dir
+
+    events = findings_dir(Path(workspace_root)) / "finding-events.jsonl"
+    events.parent.mkdir(parents=True, exist_ok=True)
+    events.write_text('{"event": "finding_emitted"}\n', encoding="utf-8")
+    raise RuntimeError("ledger chain broken: finding-events.jsonl")
+
+
 class FailedCycleReflectionTests(unittest.TestCase):
     # The production-shaped orchestrator kwargs (every REQUIRED runner
     # injected), borrowed rather than copied so the two suites cannot drift.
@@ -213,6 +227,19 @@ class FailedCycleReflectionTests(unittest.TestCase):
             if row.get("kind") == "autonomy_orchestrator_exit"
         ]
         self.assertEqual([row["details"]["exit_reason"] for row in exits], ["cycle_failed"])
+
+    def test_a_refusal_outside_the_store_publishes_no_host_path(self) -> None:
+        # Review of 5aadb57e0 (dedupe): only the tools root was stripped, and
+        # the refusal row is published on aria/state (a public repository).
+        result = self._run(cycle_runner=_tamper_findings_then_crash)
+
+        self.assertEqual(result["exit_reason"], "cycle_failed")
+        refusal = result["per_cycle"][0]["reflection"]
+        self.assertEqual((refusal["status"], refusal["reason"]), ("refused", "ledger_integrity"))
+        self.assertIn("finding-events.jsonl", refusal["error"])
+        for root in {self.tmp.as_posix(), self.tmp.resolve().as_posix()}:
+            self.assertNotIn(root, refusal["error"])
+        self.assertNotRegex(refusal["error"], r"(?<![\w.\-~])/[^\s]", "no absolute path of any root")
 
 
 if __name__ == "__main__":

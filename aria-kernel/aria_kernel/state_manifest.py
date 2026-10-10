@@ -483,6 +483,14 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("pr_lifecycle", "pr-lifecycle.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("pr_lifecycle_plans", "pr-lifecycle-plans.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("pr_split_plans", "pr-split-plans.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
+    # ARIA-LOW-424 — frozen: nothing writes or reads these two since
+    # `pr_tracking` stopped copying pr-lifecycle's merged rows into them, and
+    # tests/invariants/test_merged_single_writer.py fails any module but this
+    # one that names them. They stay declared because every published snapshot
+    # claims them, `state_snapshot.validate_snapshot_manifest` refuses a claim
+    # of an undeclared surface, and the publish validates its parent's snapshot
+    # (`autonomy_evidence.evidence_checkpoints_due`): undeclaring them would
+    # refuse every publish. Their rows are history, never deleted.
     StateSurface("pr_events", "pr-events.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("merge_events", "merge-events.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("auto_merge_decisions", "auto-merge-decisions.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),

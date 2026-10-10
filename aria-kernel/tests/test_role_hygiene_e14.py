@@ -9,7 +9,7 @@ an agent prompt for months (ORPHAN-MEDIUM-280) while no kernel path routed it.
 Three roles get their first production minter here:
 
   * `goldset_curation`   — a proposal that reaches `ready` (goldset.py)
-  * `change_intelligence` — a merge carried into the impact ledger (pr_tracking)
+  * `change_intelligence` — a merge recorded in pr-lifecycle (pr_tracking)
   * `consensus_arbitration` — two judges who disagree (judge_fanout)
 
 and five that no lane could ever mint are removed from the surface. These
@@ -51,7 +51,6 @@ from aria_kernel.pr_tracking import (
     CHANGE_INTELLIGENCE_ROLE,
     change_intelligence_subject_ref,
     dispatch_change_intelligence,
-    ingest_merged_pr_lifecycle,
 )
 from aria_kernel.tool_registry import GovernanceError
 from aria_kernel.request_admission import admit_request
@@ -261,13 +260,11 @@ class ChangeIntelligenceMinterTest(_ToolsDirTest):
             head_lineage="delivered",
         )
 
-    def test_a_merge_becomes_a_merge_event_and_one_envelope(self) -> None:
+    def test_a_merge_becomes_one_envelope(self) -> None:
         self._merge()
 
-        ingest = ingest_merged_pr_lifecycle(base_dir=self.tools)
         dispatch = dispatch_change_intelligence(cycle_id="cyc-1", base_dir=self.tools)
 
-        self.assertEqual(len(ingest["ingested"]), 1)
         self.assertEqual(len(dispatch["minted"]), 1)
         request = self._requests(CHANGE_INTELLIGENCE_ROLE)[0]
         self.assertEqual(request["role"], CHANGE_INTELLIGENCE_ROLE)
@@ -282,15 +279,12 @@ class ChangeIntelligenceMinterTest(_ToolsDirTest):
 
     def test_re_running_the_phase_asks_about_the_merge_once(self) -> None:
         self._merge()
-        ingest_merged_pr_lifecycle(base_dir=self.tools)
         dispatch_change_intelligence(cycle_id="cyc-1", base_dir=self.tools)
 
-        second_ingest = ingest_merged_pr_lifecycle(base_dir=self.tools)
         second_dispatch = dispatch_change_intelligence(cycle_id="cyc-2", base_dir=self.tools)
 
-        self.assertEqual(second_ingest["ingested"], [])
-        self.assertEqual(second_ingest["already_known"], 1)
         self.assertEqual(second_dispatch["minted"], [])
+        self.assertEqual([s["reason"] for s in second_dispatch["skipped"]], ["already_dispatched"])
         self.assertEqual(len(self._requests(CHANGE_INTELLIGENCE_ROLE)), 1)
 
     def test_a_backlog_is_drained_newest_first_under_a_mint_budget(self) -> None:
@@ -299,7 +293,6 @@ class ChangeIntelligenceMinterTest(_ToolsDirTest):
         # LLM bill.
         for pr_number in range(1, 6):
             self._merge(pr_number=pr_number, head_sha=str(pr_number) * 40)
-        ingest_merged_pr_lifecycle(base_dir=self.tools)
 
         first = dispatch_change_intelligence(
             cycle_id="cyc-1", base_dir=self.tools, max_requests=2,
@@ -316,11 +309,9 @@ class ChangeIntelligenceMinterTest(_ToolsDirTest):
 
     def test_a_second_merge_gets_its_own_envelope(self) -> None:
         self._merge()
-        ingest_merged_pr_lifecycle(base_dir=self.tools)
         dispatch_change_intelligence(cycle_id="cyc-1", base_dir=self.tools)
 
         self._merge(pr_number=8, head_sha="d" * 40)
-        ingest_merged_pr_lifecycle(base_dir=self.tools)
         dispatch_change_intelligence(cycle_id="cyc-2", base_dir=self.tools)
 
         self.assertEqual(len(self._requests(CHANGE_INTELLIGENCE_ROLE)), 2)

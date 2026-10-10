@@ -148,3 +148,63 @@ The patch was checked in a scratch tree:
 - red before and green after;
 - the phase was dry-run on a copy of the bound store: `impact_status: no_new_merge`, 0 requests
   minted, and `pr-lifecycle`, `evidence-impact` and both copies byte-identical.
+
+## ARIA-LOW-424 — fixed (wave 2, 2026-10-10)
+
+The designed patch was applied on `0b88b2ccb` and re-proved there. It needed no changes:
+`cycle.py` moved 15 lines since `7ded78260`, and no other touched file had changed.
+
+### Fix (tier 1 for the copy, tier 3 for its return)
+
+- `pr_tracking` reads merges where their one writer records them:
+  `_merges(root) = fold_merged_rows(lifecycle_rows(root))`.
+  - `dispatch_change_intelligence` walks those rows newest first. Its subject is still
+    `merged-pr:<pr>:<head>`.
+  - `plan_pr_impact` plans the newest of them.
+  - The new `plan_new_merge_impact` uses the impact ledger's own `pr_event` (PR and head) as
+    its cursor. An idle night writes nothing, and a plan that failed is planned again next
+    cycle.
+- `observe_pr_event`, `ingest_merged_pr_lifecycle`, `PR_EVENTS` and
+  `_latest_pr_or_merge_event` are deleted. The phase result loses `merges_ingested`; nothing
+  read it.
+- The gateway's PR deliveries route `ignored` with reason `pr_lifecycle_has_one_writer`
+  (`gateway/router.py`), and `pr_event` leaves `ROUTE_ACTIONS`.
+  - One-way door 14 carries the amendment (`docs/aria/v3-one-way-door-decisions.md`).
+  - `docs/runbooks/aria-gateway.md` no longer says PR events become `pr-events.jsonl`.
+- `pr_events` and `merge_events` stay declared and frozen in `state_manifest.py`, with the
+  reason beside them (the proof is above: undeclaring them would refuse every publish).
+- `tests/invariants/test_merged_single_writer.py` pins three things:
+  - any module except `state_manifest` that names either copy (by file name or by surface name)
+    fails;
+  - both copies stay declared;
+  - a forged writer or reader of either spelling is caught.
+
+### Evidence
+
+- **Red before**, in a snapshot of HEAD with only the new tests added: 3 failed.
+  - `test_a_merge_is_planned_and_asked_about_without_a_copy`: the copy was written.
+  - `test_the_copies_stay_as_history_and_do_not_grow`: the copy grew to `[1906, 1907]`.
+  - `test_no_module_keeps_a_copy_of_the_merged_rows`: 10 offenders, starting at
+    `pr_tracking.py:46`.
+- **Green after**, in the same snapshot with the patch, over the 8 touched test files: 143 passed
+  and 2 failed. Neither failure is caused by this change:
+  - `test_phase_v12_f_gateway::test_I_V12_GW_06` reads `infrastructure/aria/aria-gateway.service`,
+    which the snapshot did not hold. It passes in the worktree.
+  - `test_request_admission::AThrottledPanelReMintIsDeferredNotResolved::test_deferred_this_sweep_reminted_the_next`
+    fails the same way on the unpatched HEAD code (`[] != ['AIR-dead-work-1']`). It is red
+    before this change.
+- **Dry run.** The phase ran on a copy of the bound store's needed subtrees (aria/state
+  `f5c5c86a1`: the four ledgers, `agent-invocations/`, `memory/`, `governance.jsonl` and the
+  binding files).
+  - The copy's subjects and the owner's are the same: `[(1906, 1ac2048c…)]`. The impact ledger
+    already names that merge.
+  - Result: `impact_status: no_new_merge`, `change_intelligence_requests_minted: 0`, `blocked: []`.
+  - Admission refused the mint as production did: `backlog_at_drain_budget`, backlog 181.
+  - `pr-lifecycle`, `evidence-impact`, `merge-events` and `pr-events` were byte-identical before
+    and after.
+  - The copy was then deleted.
+
+### Not done here
+
+The two frozen files keep their single row (PR 1906). They are history, and ARIA history is never
+deleted.

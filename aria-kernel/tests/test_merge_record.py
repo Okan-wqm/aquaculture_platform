@@ -189,19 +189,23 @@ class APersonsMergeOfARecordedPlan(unittest.TestCase):
                          [{"plan_id": "plan-r", "status": "not_credited", "head_lineage": LINEAGE_DIVERGED}])
         from aria_kernel.agent_eval import _performance_episodes
         from aria_kernel.failure_attribution import InvocationLedgersSource
-        from aria_kernel.pr_tracking import ingest_merged_pr_lifecycle
+        from aria_kernel.pr_tracking import plan_new_merge_impact
 
         episodes = _performance_episodes(load_jsonl(events_path(self.tools)), {}, InvocationLedgersSource(self.tools))
         self.assertEqual([row for row in episodes if row["role"] == "implementer" and row["outcome"] == "merged"], [])
-        [ingested] = ingest_merged_pr_lifecycle(base_dir=self.tools)["ingested"]
-        self.assertEqual((ingested["pr_number"], ingested["attributed_to_aria"]), (PR, False))
+        # Impact analysis reads the merged row itself (ARIA-LOW-424): it plans
+        # the merge at the head that merged, whose lineage credits nobody.
+        impact = plan_new_merge_impact(cycle_id="cyc-impact", base_dir=self.tools)
+        self.assertEqual((impact["pr_event"]["pr_number"], impact["pr_event"]["head_sha"]), (PR, "7" * 40))
 
-    def test_an_aria_merge_is_ingested_attributed(self) -> None:
+    def test_an_aria_merge_is_planned_at_its_delivered_head(self) -> None:
         self.reconcile(Reader())
-        from aria_kernel.pr_tracking import ingest_merged_pr_lifecycle
+        from aria_kernel.pr_tracking import plan_new_merge_impact
 
-        [ingested] = ingest_merged_pr_lifecycle(base_dir=self.tools)["ingested"]
-        self.assertTrue(ingested["attributed_to_aria"])
+        [row] = _merged_rows(self.tools)
+        self.assertTrue(merged_row_is_arias(row))
+        impact = plan_new_merge_impact(cycle_id="cyc-impact", base_dir=self.tools)
+        self.assertEqual((impact["pr_event"]["pr_number"], impact["pr_event"]["head_sha"]), (PR, row["head_sha"]))
 
     def test_an_unreadable_head_is_retried_then_recorded_unverified(self) -> None:
         # N2 — a head that could not be read (here: no such commit in a

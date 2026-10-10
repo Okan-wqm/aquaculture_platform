@@ -1775,7 +1775,7 @@ def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
     return summary
 
 def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
-    """Carry each merge into the impact ledger, then ask what the globs missed.
+    """Plan the newest merge's impact, then ask what the globs missed.
 
     `pr_tracking` shipped a whole incremental-learning chain — `observe_pr_event`
     → `plan_pr_impact` → `plan_incremental_cycle` — whose only entry point was a
@@ -1783,37 +1783,27 @@ def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     The merges themselves WERE being recorded, in `pr-lifecycle.jsonl` by the
     merge-authority path, so the signal existed and the reader was unreachable
     from it. This phase joins the two and mints the `change_intelligence`
-    envelope on the merge — the role's first production minter.
+    envelope on the merge — the role's first production minter. Both read the
+    merges where their one writer records them (ARIA-LOW-424): the copy this
+    phase used to make first into `pr_tracking`'s own merge ledger is gone.
 
-    Per-step containment: an ingest or impact failure must not cost the mint,
-    and the mint must not cost the cycle (`record_and_continue` on the row).
+    Per-step containment: an impact failure must not cost the mint, and the
+    mint must not cost the cycle (`record_and_continue` on the row).
     """
-    from .pr_tracking import (
-        dispatch_change_intelligence,
-        ingest_merged_pr_lifecycle,
-        plan_pr_impact,
-    )
+    from .pr_tracking import dispatch_change_intelligence, plan_new_merge_impact
 
     blocked: list[dict[str, Any]] = []
-    ingested = 0
-    try:
-        ingest = ingest_merged_pr_lifecycle(base_dir=context.base_dir)
-        ingested = len(ingest.get("ingested") or [])
-    except GovernanceError as exc:
-        blocked.append({"step": "ingest", "reason": str(exc)[:200]})
-    # Only plan impact when this cycle actually carried a merge across. The
-    # planner appends a row unconditionally, so calling it on an idle night
+    # Only a merge the impact ledger does not yet name is planned: the
+    # planner appends a row unconditionally, so planning on an idle night
     # would write a `no_pr_event` row per cycle forever and bury the real
     # transitions under identical repeats — the defect the goldset producer
     # names explicitly.
-    impact_status = "no_new_merge"
-    if ingested:
-        try:
-            impact = plan_pr_impact(cycle_id=context.cycle_id, base_dir=context.base_dir)
-            impact_status = str(impact.get("status") or "")
-        except GovernanceError as exc:
-            blocked.append({"step": "impact", "reason": str(exc)[:200]})
-            impact_status = "blocked"
+    try:
+        impact = plan_new_merge_impact(cycle_id=context.cycle_id, base_dir=context.base_dir)
+        impact_status = str(impact.get("status") or "")
+    except GovernanceError as exc:
+        blocked.append({"step": "impact", "reason": str(exc)[:200]})
+        impact_status = "blocked"
     minted = 0
     try:
         dispatch = dispatch_change_intelligence(
@@ -1824,7 +1814,6 @@ def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
         blocked.append({"step": "dispatch", "reason": str(exc)[:200]})
     return {
         "status": "completed",
-        "merges_ingested": ingested,
         "impact_status": impact_status,
         "change_intelligence_requests_minted": minted,
         "blocked": blocked,

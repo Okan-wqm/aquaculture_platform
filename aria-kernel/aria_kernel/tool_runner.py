@@ -12,6 +12,7 @@ from typing import Any
 from .adapter_room import prepare_adapter_spawn, run_adapter
 from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
+from .genesis_adapter_custody import verify_genesis_dispatch
 from .implementation_safety import (
     BashAllowlistMiss,
     BashDenylistHit,
@@ -75,6 +76,12 @@ def run_tool(
         )
     except (BashAllowlistMiss, BashDenylistHit) as exc:
         raise GovernanceError(f"runner_argv_policy_rejected:{exc}") from exc
+    # ARIA-HIGH-414 — a skill-genesis drafted adapter runs only as the bytes
+    # the kernel holds in custody, re-hashed now against the custody and
+    # calibration digests, through the kernel's own launcher. A gap is a named
+    # refusal before anything starts, like the argv policy above; a curated
+    # tool gets None and runs its manifest argv.
+    genesis = verify_genesis_dispatch(tool, base_dir=tools_root)
 
     repo_snapshot = _input_repo_snapshot(input_payload)
     if repo_snapshot is None:
@@ -144,7 +151,7 @@ def run_tool(
             # travels into the room's NODE_OPTIONS, composed with an
             # operator's own flags.
             spawn = prepare_adapter_spawn(
-                runner["argv"],
+                genesis.argv if genesis is not None else runner["argv"],
                 workspace_root=root,
                 cwd=cwd,
                 node_heap_mb=runner.get("node_max_old_space_mb"),
@@ -152,9 +159,12 @@ def run_tool(
             )
             sandbox_backend = spawn.backend
             spawn_environment = spawn.spawn_environment
+            stdin_text = input_bytes.decode("utf-8") if runner.get("stdin_json") else None
             completed = run_adapter(
                 spawn,
-                input_text=input_bytes.decode("utf-8") if runner.get("stdin_json") else None,
+                # The custody runner reads JSON on stdin (runner equality is
+                # part of the dispatch check); the bytes ride in front of it.
+                input_text=genesis.stdin_header + (stdin_text or "") if genesis is not None else stdin_text,
                 timeout_seconds=runner["timeout_ms"] / 1000,
             )
             stdout = completed.stdout or ""
@@ -272,6 +282,8 @@ def run_tool(
             # adapter ran with, by NAME (never a value, never a host path).
             "sandbox_backend": sandbox_backend,
             "spawn_environment": spawn_environment,
+            # ARIA-HIGH-414 — which custody bytes ran (None: a curated tool).
+            "genesis_adapter_sha256": genesis.sha256 if genesis is not None else None,
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
         "_runtime_artifact_payload": {

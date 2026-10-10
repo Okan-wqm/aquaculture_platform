@@ -40,9 +40,12 @@ from tests.test_enterprise_cycle import shadow_tool
 PROBE = Path(__file__).resolve().parent / "_helpers" / "adapter_room_probe.py"
 TOOL_ID = "room-probe-adapter"
 # A drafted adapter as the genesis calibration executor runs it: reports
-# which job credential names it sees and whether the App key opens.
-_GENESIS_PROBE = """import json, os
-names = sorted(n for n in ("GH_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "GITHUB_ENV") if n in os.environ)
+# which job credential names it sees and whether the App key opens. Drafted
+# code imports only the allowlist (ARIA-HIGH-414), so it reaches the
+# environment through `os.path`'s own `os`, a read the launcher allows.
+_GENESIS_PROBE = """import json
+import os.path as osp
+names = sorted(n for n in ("GH_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "GITHUB_ENV") if n in osp.os.environ)
 try:
     open({pem!r}).read()
     key = "reached"
@@ -184,38 +187,24 @@ class LiveRoomTests(unittest.TestCase):
         self.assertEqual((case["status"], case["passed"]), ("ok", True), case["errors"])
 
 
-    def test_the_genesis_sandbox_runs_a_drafted_adapter_in_the_same_room(self) -> None:
-        from aria_kernel.skill_genesis_sandbox import execute_in_sandbox
-
-        drafted = self.layout.workspace / "drafted_adapter.py"
-        drafted.write_text(
-            "import os\n"
-            "print(sorted(n for n in ('GH_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'GITHUB_ENV') if n in os.environ))\n"
-            "try:\n"
-            f"    open({str(self.layout.pem)!r}).read()\n"
-            "    print('pem:reached')\n"
-            "except OSError:\n"
-            "    print('pem:refused')\n",
-            encoding="utf-8",
-        )
-        with mock.patch.dict(os.environ, self.layout.environment):
-            result = execute_in_sandbox(drafted, workspace_root=self.layout.workspace, timeout_seconds=60)
-        self.assertEqual((result.exit_code, result.stdout), (0, "[]\npem:refused\n"), result.stderr)
-
-
     def test_the_genesis_calibration_executor_runs_the_drafted_adapter_in_the_room(self) -> None:
         # The LIVE genesis SandboxFn (dispatcher_factory.select_sandbox_runner,
         # wired into the nightly orchestrator) — staging's review repro of
         # d188cad26: it saw GH_TOKEN and the OIDC token and read the key.
         from aria_kernel.skill_genesis import execute_adapter_against_corpus
+        from tests.test_genesis_adapter_custody import accept_drafter_result
 
-        drafted = self.layout.workspace / "drafted_adapter.py"
-        drafted.write_text(_GENESIS_PROBE.format(pem=str(self.layout.pem)), encoding="utf-8")
+        # ARIA-HIGH-414 — the executor runs the drafter's ACCEPTED bytes
+        # through the launcher, never a file path.
+        accept_drafter_result(self.layout.tools, "req-room", {
+            "adapter_source": _GENESIS_PROBE.format(pem=str(self.layout.pem)), "adapter_manifest": {"tool_id": "room"},
+        })
         corpus = self.layout.workspace / "fixtures.jsonl"
         corpus.write_text(json.dumps({"finding_fingerprint": "fp-1", "label": "TP"}) + "\n", encoding="utf-8")
         with mock.patch.dict(os.environ, self.layout.environment):
             result = execute_adapter_against_corpus(
-                adapter_path=drafted, adapter_lang="python", corpus_path=corpus, workspace_root=self.layout.workspace,
+                invocation_request_id="req-room", corpus_path=corpus, workspace_root=self.layout.workspace,
+                base_dir=self.layout.tools,
             )
         self.assertEqual(result["exit_code"], 0, result["raw_stderr_tail"])
         probe = json.loads(result["raw_stdout_tail"])["probe"]
@@ -262,13 +251,17 @@ class NoBackendTests(unittest.TestCase):
 
     def test_the_genesis_calibration_executor_refuses_by_name(self) -> None:
         from aria_kernel.skill_genesis import execute_adapter_against_corpus
+        from tests.test_genesis_adapter_custody import accept_drafter_result
 
-        drafted = self.layout.workspace / "drafted_adapter.py"
-        drafted.write_text(f"open({str(self.layout.marker)!r}, 'w').write('ran')\n", encoding="utf-8")
+        accept_drafter_result(self.layout.tools, "req-none", {
+            "adapter_source": "import pathlib\n" f"pathlib.Path({str(self.layout.marker)!r}).write_text('ran')\n",
+            "adapter_manifest": {"tool_id": "room"},
+        })
         corpus = self.layout.workspace / "fixtures.jsonl"
         corpus.write_text(json.dumps({"finding_fingerprint": "fp-1", "label": "TP"}) + "\n", encoding="utf-8")
         result = execute_adapter_against_corpus(
-            adapter_path=drafted, adapter_lang="python", corpus_path=corpus, workspace_root=self.layout.workspace,
+            invocation_request_id="req-none", corpus_path=corpus, workspace_root=self.layout.workspace,
+            base_dir=self.layout.tools,
         )
         self.assertFalse(self.layout.marker.exists(), "the drafted adapter ran without a room")
         self.assertEqual(result["exit_code"], -4)

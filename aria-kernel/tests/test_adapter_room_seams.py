@@ -9,10 +9,16 @@ directly or stops passing through ``adapter_room``:
 
 * ``tool_runner.run_tool`` — every scheduled adapter run;
 * ``fixture_runner.run_fixture_case`` — every fixture/calibration run;
-* ``skill_genesis_sandbox.execute_in_sandbox`` — a drafted adapter's run;
-* ``skill_genesis.execute_adapter_against_corpus`` — the LIVE genesis
-  calibration run (``dispatcher_factory.select_sandbox_runner``, wired into
-  the nightly orchestrator's convergent skill authoring).
+* ``genesis_adapter_custody.run_staged_adapter`` — the one place a drafted
+  adapter's bytes start (ARIA-HIGH-414). The LIVE genesis calibration run
+  (``skill_genesis.execute_adapter_against_corpus``, reached through
+  ``dispatcher_factory.select_sandbox_runner`` from the nightly
+  orchestrator's convergent skill authoring) reaches the room only through
+  it, and starts no process of its own. ``skill_genesis_sandbox.
+  execute_in_sandbox``, which ran a drafted adapter by FILE PATH, is gone.
+
+The two adapter runners also ask custody first (``verify_genesis_dispatch``),
+so a genesis tool runs only as its verified custody bytes.
 
 The other two seams that execute repository or agent code already have their
 own pins and are not repeated here: the validation lane builds its child's
@@ -32,7 +38,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from aria_kernel import adapter_room, fixture_runner, skill_genesis, skill_genesis_sandbox, tool_runner
+from aria_kernel import adapter_room, fixture_runner, genesis_adapter_custody, skill_genesis, tool_runner
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _AUTO_CYCLE = _REPO_ROOT / ".github" / "workflows" / "aria-auto-cycle.yml"
@@ -46,8 +52,13 @@ _PROCESS_STARTS = {
 SEAMS = (
     (tool_runner, "run_tool"),
     (fixture_runner, "run_fixture_case"),
-    (skill_genesis_sandbox, "execute_in_sandbox"),
+    (genesis_adapter_custody, "run_staged_adapter"),
+)
+# The genesis calibration path: it reaches the room only through
+# `run_staged_adapter`, the seam above.
+CALIBRATION_PATH = (
     (skill_genesis, "execute_adapter_against_corpus"),
+    (skill_genesis, "_calibrate_staged"),
 )
 
 
@@ -92,6 +103,18 @@ class SeamPinTests(unittest.TestCase):
             with self.subTest(seam=f"{module.__name__}.{name}"):
                 direct = [_dotted(call) for call in _calls(_function(module, name)) if _dotted(call) in _PROCESS_STARTS]
                 self.assertEqual(direct, [], "an adapter process started outside adapter_room.run_adapter")
+
+    def test_the_genesis_calibration_starts_nothing_and_runs_through_custody(self) -> None:
+        for module, name in CALIBRATION_PATH:
+            with self.subTest(step=f"{module.__name__}.{name}"):
+                direct = [_dotted(call) for call in _calls(_function(module, name)) if _dotted(call) in _PROCESS_STARTS]
+                self.assertEqual(direct, [], "a drafted adapter started outside run_staged_adapter")
+        self.assertIn("run_staged_adapter", _called_names(_function(skill_genesis, "_calibrate_staged")))
+
+    def test_both_adapter_runners_ask_custody_before_they_spawn(self) -> None:
+        for module, name in ((tool_runner, "run_tool"), (fixture_runner, "run_fixture_case")):
+            with self.subTest(seam=f"{module.__name__}.{name}"):
+                self.assertIn("verify_genesis_dispatch", _called_names(_function(module, name)))
 
     def test_the_room_starts_exactly_one_process_with_the_built_environment(self) -> None:
         tree = ast.parse(inspect.getsource(adapter_room))

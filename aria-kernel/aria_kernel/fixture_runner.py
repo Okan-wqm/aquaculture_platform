@@ -11,6 +11,7 @@ from typing import Any, Iterator
 
 from .adapter_fixture_contract import expected_run_status
 from .adapter_room import prepare_adapter_spawn, run_adapter
+from .genesis_adapter_custody import verify_genesis_dispatch
 from .evidence_validator import validate_tool_output_evidence
 from .implementation_safety import (
     BashAllowlistMiss,
@@ -771,6 +772,10 @@ def run_fixture_case(
         )
     except (BashAllowlistMiss, BashDenylistHit) as exc:
         raise GovernanceError(f"runner_argv_policy_rejected:{exc}") from exc
+    # ARIA-HIGH-414 — a fixture case of a skill-genesis drafted adapter runs
+    # the same verified custody bytes, through the same launcher, as the
+    # night's run (`tool_runner.run_tool`); a curated tool gets None.
+    genesis = verify_genesis_dispatch(tool, base_dir=store)
     cwd = (workspace_root / runner["cwd"]).resolve()
     input_bytes = _canonical_json_bytes(input_payload)
     # ARIA-CRITICAL-399 — a fixture case runs the SAME adapter code the
@@ -780,7 +785,7 @@ def run_fixture_case(
     # blocked refresh — rather than written as a verdict on the tool.
     try:
         spawn = prepare_adapter_spawn(
-            runner["argv"],
+            genesis.argv if genesis is not None else runner["argv"],
             workspace_root=workspace_root,
             cwd=cwd,
             node_heap_mb=runner.get("node_max_old_space_mb"),
@@ -797,9 +802,10 @@ def run_fixture_case(
     timed_out = False
 
     try:
+        stdin_text = input_bytes.decode("utf-8") if runner.get("stdin_json") else None
         completed = run_adapter(
             spawn,
-            input_text=input_bytes.decode("utf-8") if runner.get("stdin_json") else None,
+            input_text=genesis.stdin_header + (stdin_text or "") if genesis is not None else stdin_text,
             timeout_seconds=runner["timeout_ms"] / 1000,
         )
         stdout = completed.stdout or ""

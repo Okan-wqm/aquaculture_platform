@@ -98,6 +98,13 @@ def request_skill_genesis(
             "convergent=True needs seed (declared_scope, claim_types, "
             "must_satisfy, calibration_corpus_path)"
         )
+    if convergent and seed.get("adapter_lang", "python") != "python":
+        # ARIA-HIGH-414 — a drafted adapter is Python: the import allowlist
+        # exists, and is enforced at runtime, for Python only.
+        raise GovernanceError(
+            "request_skill_genesis_adapter_lang_unsupported: "
+            f"{str(seed.get('adapter_lang'))[:40]!r} (drafted adapters are python only)"
+        )
     capability_resolution = resolve_capability(
         capability_key=capability_gap_key,
         requested_kind="skill",
@@ -331,10 +338,10 @@ def validate_generated_adapter(
 
 def execute_adapter_against_corpus(
     *,
-    adapter_path: str | Path,
-    adapter_lang: str,
+    invocation_request_id: str,
     corpus_path: str | Path,
     workspace_root: str | Path,
+    base_dir: str | Path | None,
     timeout_seconds: float = 300.0,
 ) -> dict[str, Any]:
     """Plan ARIA-V6 §2d v2 B-V3-2 — sandbox subprocess executor.
@@ -343,9 +350,17 @@ def execute_adapter_against_corpus(
     calibration corpus. Returns precision / recall / TP / FP / FN
     counts + the raw run output.
 
-    Supports:
-      * adapter_lang="typescript" → ``tsx <adapter>``
-      * adapter_lang="python"     → ``python3 <adapter>``
+    ARIA-HIGH-414 — WHICH adapter: the one the primary drafter's ACCEPTED
+    result delivered for ``invocation_request_id``, staged by
+    ``genesis_adapter_custody`` (re-read and re-hashed from the result
+    artifact, Python only, statically pre-checked) and run as those exact
+    bytes through the kernel launcher, which enforces the import allowlist
+    at runtime. It used to take an ``adapter_path``, and the live caller
+    passed a path the drafter named. The digest the run used is recorded
+    (``skill-genesis/sandbox.jsonl``) and returned as ``adapter_sha256`` +
+    ``calibration_ledger_hash``; registration requires exactly that digest.
+    A draft that cannot be staged never runs: its zero-metrics result
+    carries ``exit_code=-6`` and the refusal's name.
 
     The adapter receives JSON on stdin with the corpus fixtures and
     emits JSON on stdout with finding predictions. The function
@@ -364,13 +379,16 @@ def execute_adapter_against_corpus(
         "raw_stdout_tail": str,
         "raw_stderr_tail": str,
         "exit_code": int,
+        "adapter_sha256": str,        # absent when nothing ran
+        "calibration_ledger_hash": str,
       }
 
     Returns precision=recall=0.0 on subprocess failure (the
     convergent loop interprets as imperfect → loop continues OR
     cap-hits to authored_max_rounds).
     """
-    import json as _json
+    from .genesis_adapter_custody import GenesisCustodyRefusal, record_calibration, stage_accepted_draft
+
     corpus = Path(corpus_path)
     fixtures_file = corpus / "fixtures.jsonl" if corpus.is_dir() else corpus
     if not fixtures_file.exists():
@@ -386,28 +404,43 @@ def execute_adapter_against_corpus(
     if not fixtures:
         return _zero_metrics_result(0, exit_code=-1, stderr="corpus_empty")
 
-    if adapter_lang == "typescript":
-        argv = ["tsx", str(adapter_path)]
-    elif adapter_lang == "python":
-        argv = ["python3", str(adapter_path)]
-    else:
-        return _zero_metrics_result(
-            len(fixtures), exit_code=-1,
-            stderr=f"unsupported_adapter_lang: {adapter_lang}",
-        )
+    try:
+        staged = stage_accepted_draft(invocation_request_id, base_dir=base_dir)
+    except GenesisCustodyRefusal as exc:
+        return _zero_metrics_result(len(fixtures), exit_code=-6, stderr=str(exc))
+    result = _calibrate_staged(
+        staged, fixtures, workspace_root=workspace_root, base_dir=base_dir, timeout_seconds=timeout_seconds,
+    )
+    row = record_calibration(staged, metrics=result, corpus_path=fixtures_file, base_dir=base_dir)
+    return {**result, "adapter_sha256": staged.sha256, "calibration_ledger_hash": row["ledger_hash"]}
+
+
+def _calibrate_staged(
+    staged: Any,
+    fixtures: list[dict[str, Any]],
+    *,
+    workspace_root: str | Path,
+    base_dir: str | Path | None,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """Run the staged bytes over the corpus and score them (B-V3-2)."""
+    import json as _json
 
     # ARIA-CRITICAL-399 — a drafted adapter is adapter code: it runs only in
     # the room every adapter runs in (`adapter_room`), never as a bare child
     # holding the night's job token and the App key file. No room is a
-    # refusal by name (-4), never an unconfined run.
-    from .adapter_room import prepare_adapter_spawn, run_adapter
+    # refusal by name (-4), never an unconfined run. ARIA-HIGH-414 — and it
+    # runs as the staged bytes through the launcher, the store masked.
+    from .genesis_adapter_custody import run_staged_adapter
     from .implementation_safety import SandboxUnavailable
 
-    workspace = Path(workspace_root).resolve()
     try:
-        spawn = prepare_adapter_spawn(argv, workspace_root=workspace, cwd=workspace)
-        completed = run_adapter(
-            spawn, input_text=_json.dumps({"fixtures": fixtures}), timeout_seconds=timeout_seconds,
+        completed = run_staged_adapter(
+            staged,
+            workspace_root=workspace_root,
+            input_text=_json.dumps({"fixtures": fixtures}),
+            timeout_seconds=timeout_seconds,
+            store=ensure_tools_dir(base_dir),
         )
     except SandboxUnavailable as exc:
         return _zero_metrics_result(
@@ -442,16 +475,25 @@ def execute_adapter_against_corpus(
             len(fixtures), exit_code=completed.returncode,
             stdout=stdout_text, stderr=stderr_text + "\nadapter_stdout_not_json",
         )
+    # The adapter's stdout is untrusted output: anything but an object whose
+    # `findings` is a list of objects is a shape refusal, never a kernel
+    # AttributeError that ends the authoring run (ARIA-HIGH-414 review).
+    findings = prediction_payload.get("findings") if isinstance(prediction_payload, dict) else None
+    if not isinstance(findings, list) or not all(isinstance(p, dict) for p in findings):
+        return _zero_metrics_result(
+            len(fixtures), exit_code=completed.returncode,
+            stdout=stdout_text, stderr=stderr_text + "\nadapter_stdout_not_findings",
+        )
 
     predicted: set[str] = {
         str(p.get("finding_fingerprint") or "")
-        for p in (prediction_payload.get("findings") or [])
+        for p in findings
         if p.get("finding_fingerprint")
     }
     critical_fps: set[str] = {
         str(p.get("finding_fingerprint") or "")
-        for p in (prediction_payload.get("findings") or [])
-        if p.get("severity", "").upper() == "CRITICAL"
+        for p in findings
+        if str(p.get("severity") or "").upper() == "CRITICAL"
         and p.get("finding_fingerprint")
     }
     operator_labels: dict[str, str] = {

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
+from .artifact_safety import scrub_text
 from .doctor import DoctorCheck
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
@@ -196,20 +197,28 @@ def authority_surface_violations(paths: list[str]) -> list[str]:
     return bad
 
 
+# How much of a failing organ's reason a mission title keeps (ARIA-MEDIUM-417).
+DOCTOR_REASON_TITLE_CHARS = 120
+
+
 def doctor_signals(check: DoctorCheck) -> list[Signal]:
     """The signals one FAILING doctor organ raises: one per cause it names,
     else one for the organ (ARIA-MEDIUM-417).
 
     The key is what the opener hashes into a mission id, so it is ``<organ>``
-    or ``<organ>:<cause key>`` — closed vocabularies only. The title is read
-    once, at the mint, by the agent the mission asks: the cause's summary, or
-    the reason's leading code (``deadlines_lapsed``) — never a slice of a row
-    list that is stale by the next night. The whole reason stays in evidence."""
+    or ``<organ>:<cause key>`` — closed vocabularies only. The title is the one
+    text a minted mission keeps (``open_mission`` persists no evidence) and it
+    reaches the self-change agent's prompt (``self_change_bridge``), so it is
+    built from kernel-composed words only: a cause's KEY, never its summary —
+    a summary carries the cycle's error, and a crashed cycle's error is a raw
+    exception text — and an organ's reason scrubbed and bounded, which keeps
+    its specifics (``breaker_tripped:cost_breaker``) without carrying a
+    200-character row list."""
     kind = DOCTOR_ORGAN_SIGNAL_KINDS.get(check.name, "doctor_fail")
     head = f"Doctor organ {check.name} failing: "
     if not check.causes:
-        return [Signal(kind, check.name, head + check.reason.split(":", 1)[0], {"reason": check.reason}, 1)]
-    return [Signal(kind, f"{check.name}:{cause.key}", head + cause.summary, {"reason": check.reason, "cause": cause.key}, 1)
+        return [Signal(kind, check.name, head + scrub_text(check.reason)[:DOCTOR_REASON_TITLE_CHARS], {"reason": check.reason}, 1)]
+    return [Signal(kind, f"{check.name}:{cause.key}", head + cause.key, {"reason": check.reason, "cause": cause.key}, 1)
             for cause in check.causes]
 
 

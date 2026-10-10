@@ -66,6 +66,24 @@ class NotificationsOrgan(unittest.TestCase):
         self.assertEqual(check.status, "fail")
         self.assertTrue(check.reason.startswith("notify_channel_selector_invalid:none_combined"), check.reason)
 
+    def test_stdout_alone_reaches_nobody_on_a_lane(self) -> None:
+        # Review of cddc6f5ce (P2): a job log is not a person's inbox.
+        check = self.organ(**_LANE, ARIA_NOTIFY_CHANNELS="stdout")
+
+        self.assertEqual((check.status, check.reason), ("fail", "no_notification_channel_in_ci"))
+
+    def test_none_does_not_hide_sends_that_already_failed(self) -> None:
+        # Review of cddc6f5ce (P1): `none` silences the future, not the record.
+        def refuse(_title: str, _body: str, _environ: object) -> dict:
+            raise RuntimeError("gh issue create failed rc=1")
+
+        notify(kind="test", title="t", body="b", base_dir=self.tools, environ={"ARIA_NOTIFY_GITHUB_REPO": "owner/repo"},
+               senders={"github_issue": refuse})
+
+        check = self.organ(ARIA_NOTIFY_CHANNELS="none")
+
+        self.assertEqual((check.status, check.reason), ("warn", "recent_failures:1"))
+
     def test_off_a_lane_no_channel_stays_information(self) -> None:
         check = self.organ()
 

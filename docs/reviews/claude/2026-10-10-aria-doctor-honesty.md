@@ -109,3 +109,38 @@ the doctor.
 - **The doctor runs twice a night** (the doctor step, then inside `self_improve`), costing
   about 7.5 minutes. Sharing one report between them is an optimisation, and the plan puts
   correctness first.
+
+### Independent review of cddc6f5ce, and the fixes
+
+An independent review of the first commit confirmed two defects and three smaller ones. All
+five are fixed in the follow-up commit:
+
+- **C1: free text reached the self-change prompt.** A cause's title carried the cycle's
+  error. On the crash path that error is raw `str(exc)` (`autonomy_orchestrator.py` ~1866).
+  The mission title is the one text a minted mission keeps, and `self_change_bridge` puts it
+  into the agent's prompt. A hostile or secret-bearing exception text would reach both. The
+  title now carries the cause's key only: `cycle:failed`, `pr_lifecycle:phase_failed`.
+  Pinned by `test_a_crashed_cycles_error_never_reaches_the_mission_or_its_prompt`, which
+  also checks the mission ledger holds no trace of it.
+- **C2: titles lost an organ's specifics.** `Signal.evidence` is never persisted, so the
+  title is all the read-only planner gets. Cutting the reason to its leading code dropped
+  breaker and tool names. The title is now the organ's reason, scrubbed and bounded to
+  `DOCTOR_REASON_TITLE_CHARS` (120): specifics stay, and the deadlines row list does not.
+- **P1: `none` hid failed sends.** Sends that already failed now outrank `none` (`warn
+recent_failures:N`). `none` silences the future, not the record.
+- **P2: `stdout` alone passed the lane check.** A job log is not a person's inbox, and
+  notify never implies `stdout` for the same reason. A lane whose only channel is `stdout` is
+  now a FAIL.
+- **P5: an invariant counted re-sightings.** I-V12-SELF-01 now bounds what a call opens, not
+  everything it reports.
+
+Recorded, not changed:
+
+- **P3:** organs other than `orchestrator` still key on the organ name alone. A second tool or
+  breaker failing after the first mission is terminal mints nothing new. It still shows as a
+  doctor FAIL, a notice and an `::error`.
+- **P4:** no cap on open self-improvement missions. The cap is three new per night.
+- **P6:** the gateway daemon's doctor runs off a lane, so a silent channel there reads ok.
+  This is deliberate, and the gateway is not deployed on prod.
+- **P7:** one test uses a queue FAIL shape the queue organ never returns. Its other
+  assertions still discriminate.

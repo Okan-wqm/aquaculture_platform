@@ -394,13 +394,18 @@ def _check_notifications(tools_dir: Path, *, environ: Mapping[str, str] | None =
     except ChannelSelectorInvalid as exc:
         return DoctorCheck("notifications", "fail", str(exc)[:200], detail)
     detail["configured_channels"] = list(channels)
-    if disabled:
-        return DoctorCheck("notifications", "ok", "notifications_disabled_by_operator", detail)
-    if not channels and env.get("GITHUB_ACTIONS") == "true":
+    # `stdout` reaches a job log, never a person — notify never implies it for
+    # the same reason — so a lane whose only channel is stdout is still silent.
+    reaches_a_person = [channel for channel in channels if channel != "stdout"]
+    if not disabled and not reaches_a_person and env.get("GITHUB_ACTIONS") == "true":
         return DoctorCheck("notifications", "fail", "no_notification_channel_in_ci", detail)
+    # Sends that already failed stay visible after an operator turns the
+    # channels off: `none` silences the future, not the record.
     if failed:
         return DoctorCheck("notifications", "warn", f"recent_failures:{len(failed)}", detail)
-    return DoctorCheck("notifications", "ok", "" if channels else "no_channel_configured", detail)
+    if disabled:
+        return DoctorCheck("notifications", "ok", "notifications_disabled_by_operator", detail)
+    return DoctorCheck("notifications", "ok", "" if reaches_a_person else "no_channel_configured", detail)
 
 
 def _check_gateway(tools_dir: Path) -> DoctorCheck:

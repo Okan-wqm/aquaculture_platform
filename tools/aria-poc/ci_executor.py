@@ -2197,11 +2197,15 @@ def invoke_claude_cli(
         if route_model is not None:
             _models: tuple[str, ...] = (route_model,)
         else:
+            from aria_kernel.provider_cooldown import active_provider_cooldowns
             from aria_kernel.runtime_profiles import routed_models
 
+            # ARIA-HIGH-425 — a cooled provider's rungs go last, as the
+            # native admission orders them.
             _models = routed_models(role, subagent_type, profile_model=agent_profile.model,
                                     write_capable=agent_profile.write_capable, environ=os.environ,
-                                    runtimes=_SPAWN_LANE_RUNTIMES)
+                                    runtimes=_SPAWN_LANE_RUNTIMES,
+                                    cooled=active_provider_cooldowns(tools_dir) if tools_dir is not None else ())
         if not _models:
             # Every rung of the role's ladder is suspended or cannot host
             # this profile: nothing may run, and the summary says so.
@@ -2462,6 +2466,21 @@ def invoke_claude_cli(
 
         record_provider_restored(tools_dir, provider=_provider_for_model(completed.model), seam="spawn",
                                  request_id=request_id)
+    if completed.quota_window is not None and tools_dir is not None and claim_id is not None:
+        # ARIA-HIGH-425 — whatever the exit, the run's own quota reading says
+        # a window is spent (a served answer stands): the provider is cooled
+        # until that window's reset, so the NEXT admission routes every role
+        # Z.ai can serve to Z.ai instead of starting it into the hard stop.
+        # After the restore above, so the quota outage this opens is not the
+        # one it closes. A claimless dispatch (the legacy mock-only shape,
+        # see the parameter) holds no claim to cool under.
+        from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+        record_provider_cooldown(
+            tools_dir, provider=_provider_for_model(completed.model), model=str(completed.model),
+            cooldown_seconds=provider_cooldown_seconds(_REPO_ROOT), request_id=request_id,
+            claim_id=claim_id, detection=completed.quota_window,
+        )
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events

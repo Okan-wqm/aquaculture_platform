@@ -33,12 +33,14 @@ import dispatch_failure as _dispatch_failure
 try:
     sys.path.insert(0, str(_POC_DIR.parents[1] / "aria-kernel"))
     from aria_kernel.circuit_breaker import evaluate_breaker, record_failure
+    from aria_kernel.provider_cooldown import active_provider_cooldowns
     from aria_kernel.agent_surface import JUDGE_ROLES as _JUDGE_ROLES
     from aria_kernel.agent_surface import PLANNER_BRIDGE_ROLES as _PLANNER_BRIDGE_ROLES
     from aria_kernel.cross_review_bridge import COMPLETENESS_CRITIC_ROLE as _COMPLETENESS_CRITIC_ROLE
 except ImportError:  # pragma: no cover — kernel-less standalone import
     evaluate_breaker = None  # type: ignore[assignment]
     record_failure = None  # type: ignore[assignment]
+    active_provider_cooldowns = None  # type: ignore[assignment]
     _JUDGE_ROLES = ()  # type: ignore[assignment]
     _PLANNER_BRIDGE_ROLES = frozenset()  # type: ignore[assignment]
     _COMPLETENESS_CRITIC_ROLE = ()  # type: ignore[assignment]
@@ -64,9 +66,16 @@ ENVIRONMENT_FAILURE_CLASSES: frozenset[str] = frozenset(
 # response-schema rejections are request-scoped outcomes, not outages, and
 # deliberately have NO row here; process_exit/unknown stay visible in the
 # aggregate but cannot trip a provider-wide circuit.
+# ARIA-HIGH-425 — a quota exhaustion has no row either: it is answered by the
+# provider cooldown (the next admission routes every seat it can to the next
+# vendor until the window's reset), not by stopping ARIA. Counted as an
+# environment failure, three exhausted windows inside the breaker's window
+# (five-hour windows can do that in a day) tripped the breaker every
+# self-acting profile consults. It still opens the same-run circuit above.
+QUOTA_FAILURE_CLASS = "credit_exhausted"
 PERSISTENT_BREAKER_KIND_BY_CLASS: dict[str, str] = {
     "timeout": "subprocess_timeout",
-    **{cls: "executor_environment_failure" for cls in ENVIRONMENT_FAILURE_CLASSES},
+    **{cls: "executor_environment_failure" for cls in ENVIRONMENT_FAILURE_CLASSES - {QUOTA_FAILURE_CLASS}},
 }
 
 SELECTION_FAILURE_KIND = "executor_selection_failure"
@@ -1102,10 +1111,15 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         # the identity); an open circuit on that (provider, model) skips the
         # request WITHOUT claiming it. Burning the quota slot on a skip is
         # accepted: the request stays pending and the next healthy drain
-        # re-quotas it.
+        # re-quotas it. ARIA-HIGH-425 — the route passes over a cooled
+        # vendor as the child's admission will, so a request the next rung
+        # serves is not skipped on the circuit of the vendor that is out.
+        # Read outside the try: a malformed cooldown row is a refusal by
+        # name that stops the drain, never a route quietly left unresolved.
+        cooled = active_provider_cooldowns(tools_dir) if active_provider_cooldowns is not None else {}
         try:
             route = _dispatch_failure.resolve_dispatch_route(
-                request=request, repo_root=repo_root,
+                request=request, repo_root=repo_root, cooled=cooled,
             )
         except ValueError:
             route = None

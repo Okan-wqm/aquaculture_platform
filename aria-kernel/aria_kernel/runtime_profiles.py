@@ -34,7 +34,7 @@ from __future__ import annotations
 import re
 
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -327,22 +327,28 @@ def load_provider_routing(path: str | Path | None = None) -> ProviderRouting:
 
 def routed_models(
     role: str, target_agent: str, *, profile_model: str, write_capable: bool,
-    environ: Mapping[str, str], runtimes: tuple[str, ...],
+    environ: Mapping[str, str], runtimes: tuple[str, ...], cooled: Collection[str] = (),
 ) -> tuple[str, ...]:
     """The models the SPAWN lane tries for a seat, in its ladder's order.
 
     The spawn lane (no native admission) runs the first and retries ONCE on
     the next for an auth failure; `runtimes` is what its wrapper can run,
     and a write-scope seat keeps only write-capable rungs.
+
+    ARIA-HIGH-425 — `cooled` names the providers under an active cooldown
+    (`provider_cooldown.active_provider_cooldowns`): their rungs move behind
+    every live rung, the order the native admission's no-probe refusal
+    gives, so a cooled Claude puts a read-only seat on Z.ai first. A seat
+    whose every rung is cooled keeps its ladder order and meets the
+    exhaustion it would have met before.
     """
     from .model_fleet import _FLEET, route_model
 
     rows = {provider.key: provider for provider in _FLEET}
-    return tuple(
-        route_model(rows[key], profile_model, environ)
-        for key in load_provider_routing().ladder_for(role, target_agent)
-        if rows[key].runtime_hint in runtimes and (rows[key].admits_writes or not write_capable)
-    )
+    rungs = [key for key in load_provider_routing().ladder_for(role, target_agent)
+             if rows[key].runtime_hint in runtimes and (rows[key].admits_writes or not write_capable)]
+    rungs.sort(key=lambda key: key in cooled)
+    return tuple(route_model(rows[key], profile_model, environ) for key in rungs)
 
 
 def disallowed_tools_for(profile: RuntimeProfile) -> tuple[str, ...]:

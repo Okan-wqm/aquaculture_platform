@@ -326,3 +326,165 @@ The "73 logged-out releases" sentence in `provider_outage_seams.py:4-8` and
 `tests/test_provider_outage_signal.py:5` is left as written. It is history in another PR's
 docstring, and this review records the measurement. The seam itself is right for a logged-out
 session.
+
+## ARIA-HIGH-425 — fix: a spent Claude window moves every read seat to Z.ai until the reset (2026-10-10, wave 2)
+
+### Decision
+
+Operator decision 2026-10-10: "if the Claude quota runs out, switch to Z.ai in every area until
+the window resets, then return to Claude." Z.ai was already registered. The fix extends the one
+owner of provider exhaustion, `provider_cooldown`. There is no second router.
+
+### Why the failover never fired
+
+- **The fleet already failed over on a cooldown.**
+  - `native_admission._native_runtime_admission` refuses a cooled provider without a probe.
+  - Every read-only ladder has `zai` as a rung (`runtime_profiles.json`, `provider_routing`).
+  - Production runs every ci_executor request through that admission:
+    `aria-config/genesis_policy.json` has `adaptive_runtime.enabled: true`, and
+    `ci_executor._admit_native_route` reads `active_provider_cooldowns`.
+- **The cooldown was never written.** The bound governance (f5c5c86a1) holds **zero**
+  `provider_quota_cooldown` rows and zero `model_credit_exhausted` rows, ever.
+  - In August and September (before ARIA-HIGH-290 reached main on 10-04), the native lane mapped
+    a non-zero exit to `provider_nonzero` and released `native_runtime_execution_unavailable`.
+    No cooldown was written, so the next admission re-admitted Anthropic. That is the 226
+    September releases while Z.ai kept succeeding.
+  - Since ARIA-HIGH-290, only the notice's wording is matched (`USAGE_LIMIT_NOTICE_RX`). That
+    match has not fired in production. On 10-08 the window reached 0.99, and ARIA-HIGH-426 hid it.
+  - A 429 whose text is the CLI's `API Error: 429 … rate_limit_error` matches
+    `UNREACHABLE_MARKERS` instead. Its cooldown would be a 900 s `unreachable` back-off,
+    doubling to 3600 s, against a window that resets days later. The red run below shows this.
+- **Nothing read the vendor's own reading.**
+  - The CLI's `rate_limit_event` has this schema, read from the runner's binary
+    (`/home/gharunner/.local/share/claude/versions/2.1.278`) and from 2.1.296:
+    - `status`: allowed | allowed_warning | rejected;
+    - `resetsAt` and `rateLimitType` for the binding window, plus `utilization` when known;
+    - `unifiedWindows.{five_hour, seven_day, seven_day_overage_included}.{utilization, resetsAt}`.
+  - The CLI emits it "when rate limit info changes".
+  - In the store: 339 events in 239 transcripts, 176 `allowed` five_hour and 163
+    `allowed_warning` seven_day. There are no `rejected` samples, because a refused attempt
+    stores no transcript.
+
+### What Z.ai can serve (production `runtime_attempt_*` rows, admission `pending_native_submit`)
+
+- **Served on zai already:** adversarial_judgment 98, maintenance_utility 44,
+  human_required_adjudication 22, challenger_plan 19, cross_review 16, completeness_critique 2.
+- **Not yet served on zai, but zai is their ladder's second rung** (same transport, same
+  admission, same submit path): primary_plan, evidence_judgment, consensus_arbitration,
+  specialist_domain_review, primary_authoring.
+- **glm_first roles never minted in production:** challenger_authoring, verification,
+  change_intelligence, goldset_curation.
+- **The write seats cannot run on Z.ai.** The zai fleet row has `admits_writes=False`
+  (`model_fleet.py:108-116`). `run_zai_chat` is one chat completion with no tool loop
+  (`zai_runtime.py:454-468`). `claude_writer` is `["anthropic"]`. ARIA-HIGH-290's operator
+  decision of 2026-10-02 states this, and the 2026-09-11 key policy forbids the CLI redirect.
+  - This was reported to main with that evidence before any edit.
+  - Decision: write seats wait by name, uncharged. Option (b), a Z.ai write runtime, is
+    **ARIA-HIGH-434** (stub, OPEN). main is asking okan whether to build it.
+- **`aria-drafter` has no spawner in code.** `agent_genesis.py:657` and `draft_intent.py:15`
+  name a spawn that nothing implements; no writer of `drafter-invocations.jsonl` exists.
+  Genesis skill drafting is `primary_authoring` / `challenger_authoring` on the native lane, and
+  those move.
+
+### Fix
+
+1. **The reader** (`claude_runtime.extract_rate_limit_exhaustion`).
+   - The run's newest reading decides.
+   - A window is spent when the status is `rejected` (the binding window), or when its
+     utilization has reached `provider_cooldown.QUOTA_WINDOW_EXHAUSTED_UTILIZATION`.
+   - The threshold is 0.98, a named kernel constant pinned with this design. The CLI rounds to
+     two decimals. In September, 0.98 turned into the hard stop 5.6 h later. The headroom keeps
+     a long run from starting into the wall and leaves the shared interactive sessions room.
+   - The record carries every spent window and `resets_at`, the latest of their resets.
+   - A `rejected` reading is the run's `credit_exhaustion`. It is checked first, before both
+     text shapes, so the existing `ClaudeCreditExhausted` arms do what they already do: cool,
+     release `provider_quota_unavailable:anthropic` (harness-class, no budget burn), and
+     submit nothing.
+   - A threshold reading on any run is `ClaudeRunResult.quota_window`. It is not a failure: a
+     served answer stands.
+2. **The cooldown ends at the window's reset.**
+   - `provider_cooldown.detection_reset` reads the structured `resets_at` before the notice's
+     wording. It keeps the same `(now, now + 7 d]` bound, outside which the policy default
+     applies.
+   - The new signature is `claude_rate_limit_event`, `(anthropic, quota)`, in the closed table.
+   - "Back to Claude" is the existing expiry. `active_provider_cooldowns` drops the row at the
+     reset, the admission probes Anthropic again, and the first served run closes the outage
+     (`record_provider_restored`).
+3. **Both spawn sites write the threshold cooldown under the claim they hold.**
+   - `ci_executor.invoke_claude_cli` covers the native and spawn lanes.
+   - `worker_executor.main` covers the worker lane.
+   - Both write after the restore, so the quota outage the cooldown opens is not the one the
+     restore closes.
+4. **The drain no longer skips a seat the next vendor serves.**
+   - `dispatch_failure.resolve_dispatch_route(cooled=…)`: when the declared head is cooled, the
+     route is the first live rung that is not. That is the admission's no-probe refusal.
+   - The drain reads the cooldowns once per iteration, outside the `ValueError` guard, so a
+     malformed row stops it by name.
+   - Before this, the run that met the exhaustion opened the `(anthropic, opus,
+credit_exhausted)` circuit. It then skipped every claude_first request, and five skips
+     stopped the drain.
+5. **The spawn lane** (`runtime_profiles.routed_models(cooled=…)`, adaptive policy off) orders a
+   cooled vendor's rungs last.
+6. **A quota exhaustion is no longer a persistent breaker failure**
+   (`ci_executor_drain.PERSISTENT_BREAKER_KIND_BY_CLASS`).
+   - The cooldown answers it. As an `executor_environment_failure`, three spent windows inside
+     the breaker's window (five-hour windows can do that in a day) tripped the breaker that
+     every self-acting profile consults.
+   - It still opens the same-run circuit.
+
+### Evidence the fix reads the production signal
+
+- The reader was run over the 239 stored transcripts that carry the event. It fires on 10:
+  - nine September readings at 0.98, the first at 09-21 02:44:56Z, which is 5.6 h before the
+    hard stop;
+  - the 10-08 17:30Z reading at 0.99.
+- It fires on no reading below 0.98.
+- Each would have cooled Anthropic until its window's reset:
+  - 2026-09-25T06:00Z for September, which would have saved the 226 releases;
+  - 2026-10-09T06:00Z for October.
+
+### Tests (`aria-kernel/tests/test_claude_quota_window_failover.py`, 18 tests, 56 subtests)
+
+- **Red on the parent code:**
+  - With the kernel constant missing, the module fails at import.
+  - With only `provider_cooldown.py` changed, 16 of 18 fail for the behaviour under test.
+  - The 429 case releases `provider_unreachable:anthropic`.
+  - The served-at-threshold case writes no cooldown.
+  - The drain dispatches only `AIR-1` and skips the two evidence judges.
+  - The breaker records `executor_environment_failure`.
+- **Green with the fix:** 18 passed.
+- **Route fakes:** the drain's route fakes in `test_executor_drain_mode.py`,
+  `test_executor_drain_plan_progress_first.py` and `test_executor_event_driven_planning.py` take
+  the new `cooled` keyword. That pins the drain's call.
+- **Production shapes:**
+  - The stored events are used verbatim.
+  - Two cases run the real `ci_executor.py` child against the real kernel claims and submit,
+    with a fake `claude` whose stream carries the reading:
+    - a 429 with a `rejected` reading is REQUEUED, uncharged, cooled until the window's reset
+      (not 900 s), and released `provider_quota_unavailable:anthropic`;
+    - a served run at 0.98 is ACCEPTED, and the next request is refused Anthropic by name
+      with no second spawn.
+  - Every seat of the routing table, with its real profile, goes through the real admission:
+    - while cooled, every read seat is admitted on zai/glm-5.3, Anthropic is not probed, and
+      the implementer is `no_eligible_provider`;
+    - after the reset, every seat is back on its own ladder head;
+    - with Z.ai cooled and codex absent too, no seat is admitted.
+  - Worker lane: a served run at the threshold keeps its answer and cools under its claim. The
+    hook then holds the worker with no claim.
+
+### Not done here
+
+- **The write-seat move to Z.ai** is ARIA-HIGH-434 (OPEN, decision with okan).
+- **The live `rejected` emission on a refused 429 is UNVERIFIED.** No refused attempt stores a
+  transcript.
+  - The runner CLI's schema and its own `weekly-limit-reached → unified-status rejected` path say
+    the event carries `rejected`.
+  - If it does not, the threshold reading on the previous served run still cools first, and the
+    notice regex stays as the fallback.
+- **The quota outage still opens one HUMAN_REQUIRED item per transition.** That is the
+  ARIA-HIGH-366 contract, unchanged. A weekly threshold cooldown therefore opens one item a week,
+  and it resolves itself on the first served run after the reset.
+- **The `circuit_breaker.FAILURE_KINDS` comment** still lists "auth/credit/…" as environment
+  failures. That file is not this finding's; the drain's mapping is the authority.
+- **Judges under an Anthropic cooldown now key the drain's batch route on zai.** Batching stays
+  off (`judge_batch_size: 1`), so nothing changes until the operator raises it.

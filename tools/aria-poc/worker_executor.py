@@ -429,6 +429,28 @@ def main(argv: list[str] | None = None) -> int:
         )
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1
+    from aria_kernel.model_fleet import dispatching_provider_for_model
+
+    provider = dispatching_provider_for_model(completed.model or profile.model)
+    if completed.returncode == 0:
+        # ARIA-HIGH-366 — the vendor served this spawn: its open outages end
+        # and their HUMAN_REQUIRED items resolve themselves.
+        from aria_kernel.provider_outage_ledger import record_provider_restored
+
+        record_provider_restored(tools_dir, provider=provider, seam="spawn", request_id=assignment_id)
+    if completed.quota_window is not None:
+        # ARIA-HIGH-425 — whatever the exit, the run's own quota reading says
+        # a window is spent: the provider is cooled until that window's reset
+        # under this claim (after the restore, so the quota outage this opens
+        # is not the one it closes), and the hook's next tick skips worker
+        # assignments by name instead of spawning into the hard stop.
+        from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+        record_provider_cooldown(
+            tools_dir, provider=provider, model=str(completed.model or profile.model),
+            cooldown_seconds=provider_cooldown_seconds(repo), request_id=assignment_id,
+            claim_id=parsed.claim_id, detection=completed.quota_window,
+        )
     if completed.returncode != 0:
         _emit_summary(
             outcome="failed",
@@ -439,13 +461,6 @@ def main(argv: list[str] | None = None) -> int:
             _redact_lease_in_message(completed.stderr, lease_token) + "\n"
         )
         return completed.returncode
-    # ARIA-HIGH-366 — the vendor served this spawn: its open outages end and
-    # their HUMAN_REQUIRED items resolve themselves.
-    from aria_kernel.model_fleet import dispatching_provider_for_model
-    from aria_kernel.provider_outage_ledger import record_provider_restored
-
-    record_provider_restored(tools_dir, provider=dispatching_provider_for_model(completed.model or profile.model),
-                             seam="spawn", request_id=assignment_id)
     submit_rc = _submit_worker_result(
         assignment_id=assignment_id,
         worktree_path=worktree_path,

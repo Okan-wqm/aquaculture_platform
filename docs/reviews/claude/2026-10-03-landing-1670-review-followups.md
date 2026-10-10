@@ -62,3 +62,76 @@ copy that lacks newer exports. The fix needs package resolution instead of the p
 version that tracks the content, and a browser-level federation check in staging. Until it lands,
 farm-module keeps `useLocalConfirm`, which renders shared-ui's `ConfirmModal` from the remote's own
 tree.
+
+## Farm review of PR #1736 (2026-10-10)
+
+The farm review of the landing branch blocked on `completeHarvest`. Each item below was registered with
+the allocator and is fixed on the same branch. The SEC-HIGH-188 authority check moved with the
+completion logic into `CompleteHarvestPlanHandler`, and it behaves as before.
+
+### FARM-HIGH-394
+
+Severity: HIGH. Deadline: 2026-10-17.
+
+`HarvestPlanService.completeHarvest` read the tank stock outside any transaction. It then dispatched one
+`CreateHarvestRecordCommand` per tank, each in its own `runInTenantTransaction`, and saved the plan
+COMPLETED last through the injected repository. Nothing locked the plan row. A failure on tank 2 left
+tank 1 harvested and the plan IN_PROGRESS, so the retry harvested tank 1 again. Two concurrent submits
+both saw IN_PROGRESS and both moved the stock.
+
+Fix: `CompleteHarvestPlanCommand` and its handler run in one tenant transaction. The handler:
+
+1. locks the plan row FOR UPDATE;
+2. checks the plan status: IN_PROGRESS proceeds; COMPLETED with the same figures is an idempotent no-op;
+   COMPLETED with other figures is a 409;
+3. locks the batch row, then the tank-batch rows that hold the batch;
+4. writes every tank through `HarvestRecordWriter`;
+5. marks the plan COMPLETED.
+
+`HarvestRecordWriter` is now the only code that writes a harvest. It was extracted from
+`CreateHarvestRecordHandler` and takes the transaction's `EntityManager`, and the direct harvest uses it
+too. The batch-closure chain still runs after the commit.
+`complete-harvest-plan-atomicity.postgres.spec.ts` proves two cases against a real Postgres: a failure
+on tank 2 rolls tank 1 back, and a concurrent double submit completes the plan and moves the stock only
+once.
+
+### FARM-HIGH-395
+
+Severity: HIGH. Deadline: 2026-10-17.
+
+The mutation took four bare scalars, and the ValidationPipe never sees bare scalars. The farm-module
+modal initialised its form while no plan was selected, so it submitted a 0 g weight. Fix: a
+`CompleteHarvestPlanInput` DTO with the same bounds as `CreateHarvestRecordInput`. The modal form is now
+keyed by plan and pre-fills only positive estimates.
+
+### FARM-HIGH-396
+
+Severity: HIGH. Deadline: 2026-10-17.
+
+Every harvest booked through a plan was recorded as quality class SUPERIOR (RPT-007). Each one also
+carried a fabricated "Plan HP-…" customer delivery. Fix: `qualityClass` is a required input that the
+operator picks in the modal, and plan completion passes no buyer, so it writes no delivery row.
+
+### FARM-MEDIUM-397
+
+Severity: MEDIUM. Deadline: 2026-10-17.
+
+The split of the counted quantity across tanks was not bounded by the book stock, so a count above the
+stock was refused on every retry. The farm has no fish count-variance ledger. A surplus over the total
+book stock is therefore refused, and the error message gives both figures. Within the book stock the
+split is proportional, using the largest-remainder method (`harvest-allocation.ts`).
+
+### FARM-MEDIUM-398
+
+Severity: MEDIUM. Deadline: 2026-10-17.
+
+Three #1670 fixes had no test that would fail if the fix were reverted:
+
+- the create-site quota now skips soft-deleted sites;
+- the create-system and create-site inputs now have bounds;
+- notification-service now mounts `VerifiedUserAssertionMiddleware`.
+
+The `completeHarvestPlan` resolver comment also claimed that the JWT guard validates roles as canonical
+`Role` values. Nothing does: the middleware checks only that the roles are strings. Fix: each fix now has
+a test that pins it; notification-service is in the SEC-HIGH-156 invariant list; the comment describes
+the real trust chain.

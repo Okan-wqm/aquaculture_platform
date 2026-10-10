@@ -258,3 +258,16 @@ the report's new `folded` key.
 
 - **The two production pairs are not changed by this commit.** They fold on the first cycle
   sweep that runs this code. The resolved legacy item keeps all of its content.
+
+### Review of 482252851 (zai): no defects
+
+- **Wording.** "Append-only" holds for the ledgers: `governance.jsonl`, and the legacy item,
+  which `write_kernel_disposition` resolves in place as every kernel disposition does. The kept
+  item's context, though, is replaced in place by the owner API (`refresh_open_record_context`,
+  ARIA-HIGH-373, with its `human_required_context_refreshed` row). The commit message's
+  "append-only" overstates this.
+- **Edge, not reproduced and not changed.** Suppose a pre-fix legacy item is still open while
+  its plan leaves HUMAN_REQUIRED and re-enters it as generation 2, all between two reconciles.
+  The fold would then move generation 1's `last_rejection_class` onto the generation-2 item. The
+  attempts are not affected, because the kept item's own `delivery_attempts` win. Both
+  production legacy items are on generation-1 parkings.

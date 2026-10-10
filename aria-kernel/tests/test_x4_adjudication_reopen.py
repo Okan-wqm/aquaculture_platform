@@ -5,6 +5,11 @@ one-panel-ever pin keeps passing untouched); what changes is the dead
 end: a panel whose every envelope is terminally dead may be re-opened
 at most MAX_PANEL_REOPENS times, after which the sweep discloses
 exhaustion — the honest "a human genuinely must act" terminal.
+
+ARIA-MEDIUM-419 — exhaustion hands the record to the operator the way every
+other panel hand-off does (``_stamp_escalated_to_operator``), so it is folded
+and disclosed once: unstamped, 28 exhausted records on aria/state f5c5c86a1
+were folded every cycle (802 ``reopen_exhausted`` rows since 2026-09-04).
 """
 from __future__ import annotations
 
@@ -14,8 +19,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from aria_kernel.human_required import record_human_required
+from aria_kernel.human_required import list_human_required, record_human_required
+from aria_kernel.notify import read_outbox
 from aria_kernel.human_required_adjudication import (
+    DISPOSITION_ESCALATE_OPERATOR,
     MAX_PANEL_REOPENS,
     _panel_is_terminally_dead,
     _panel_rows_for,
@@ -68,6 +75,32 @@ class ReopenTests(unittest.TestCase):
         self.assertEqual(len(rows), 1 + MAX_PANEL_REOPENS)
         governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
         self.assertIn("human_required_adjudication_reopen_exhausted", governance)
+
+    def test_an_exhausted_escalation_is_the_operators_and_never_folded_again(self) -> None:
+        sweep_human_required_adjudications(base_dir=self.tools)
+        with patch(
+            "aria_kernel.agent_invocations.derive_request_state",
+            return_value="ANCHOR_STALE",
+        ):
+            for _ in range(MAX_PANEL_REOPENS):
+                sweep_human_required_adjudications(base_dir=self.tools)
+            outbox = read_outbox(self.tools)
+            exhausted = sweep_human_required_adjudications(base_dir=self.tools)
+            later = [sweep_human_required_adjudications(base_dir=self.tools) for _ in range(2)]
+        self.assertEqual(exhausted["reopen_exhausted"], ["req-dead-001"])
+        record = list_human_required(base_dir=self.tools)[0]
+        self.assertEqual(
+            (record["status"], record["severity"], record["panel_disposition"], record["panel_escalation_reason"]),
+            ("open", "CRITICAL", DISPOSITION_ESCALATE_OPERATOR, "panel_reopen_exhausted"),
+        )
+        for sweep in later:
+            self.assertEqual((sweep["folded"], sweep["reopen_exhausted"], sweep["reopened"]), ([], [], []))
+            self.assertIn({"request_id": "req-dead-001", "reason": "panel_escalated_to_operator"}, sweep["skipped"])
+        governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(governance.count('"human_required_adjudication_reopen_exhausted"'), 1)
+        self.assertEqual(governance.count('"human_required_escalated_to_operator"'), 1)
+        # The stamp writes the record and one governance row; it notifies no one.
+        self.assertEqual(read_outbox(self.tools), outbox)
 
     def test_live_envelope_blocks_reopen(self) -> None:
         # Fresh envelopes are PENDING — the one-panel-ever discipline holds.

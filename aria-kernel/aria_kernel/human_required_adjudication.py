@@ -1411,6 +1411,12 @@ def sweep_human_required_adjudications(
                                 "budget": MAX_PANEL_REOPENS,
                             },
                         )
+                        # ARIA-MEDIUM-419 — the record is the operator's now,
+                        # stamped as every other panel hand-off is, so
+                        # `panel_skip_reason` stops the fold. Unstamped, the
+                        # 28 exhausted records of 2026-10-10 were folded and
+                        # disclosed again every cycle: 802 rows since 09-04.
+                        _stamp_escalated_to_operator(root, request_id, record, reason="panel_reopen_exhausted")
                         reopen_exhausted.append(request_id)
             elif panel_refusal is not None:
                 skipped.append({"request_id": request_id, "reason": panel_refusal})

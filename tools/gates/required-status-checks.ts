@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { load as yamlLoad } from 'js-yaml';
+
 import { REPO_ROOT } from './lib/repo-root';
 
 interface RequiredStatusChecksManifest {
@@ -184,9 +186,33 @@ function workflowJobBlock(source: string, jobId: string): string | null {
   }
   const afterStart = start + marker.length;
   const rest = source.slice(afterStart);
-  const nextJob = rest.search(/\n  [A-Za-z0-9_-]+:\n/);
+  const nextJob = rest.search(/\n {2}[A-Za-z0-9_-]+:\n/);
   const end = nextJob === -1 ? source.length : afterStart + nextJob;
   return source.slice(start, end);
+}
+
+// INFRA-HIGH-215 — a required context reports only from a run its workflow
+// starts. A `paths`/`paths-ignore` filter on `pull_request` starts no run for a
+// PR outside it, so GitHub waits on the context forever: aria-kernel.yml carried
+// one when #1937 made `aria-kernel` required, and the manifest could not be
+// applied without leaving every non-ARIA PR unmergeable.
+function pullRequestTriggerErrors(workflowPath: string, source: string): string[] {
+  const parsed: unknown = yamlLoad(source);
+  const triggers = isRecord(parsed) ? parsed.on : undefined;
+  if (!isRecord(triggers) || !('pull_request' in triggers)) {
+    return [`${workflowPath} produces a required context but does not run on pull_request`];
+  }
+  const pullRequest = triggers.pull_request;
+  // `pull_request:` with no body runs on every PR.
+  if (!isRecord(pullRequest)) {
+    return [];
+  }
+  return ['paths', 'paths-ignore']
+    .filter((filter) => filter in pullRequest)
+    .map(
+      (filter) =>
+        `${workflowPath} filters pull_request by ${filter}: a PR outside it never reports its required context`,
+    );
 }
 
 function includesNeed(jobBlock: string, dependency: string): boolean {
@@ -391,6 +417,7 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
   const contractedContexts = new Set<string>();
   for (const workflowContract of manifest.workflow_contracts) {
     const workflow = readFileSync(join(REPO_ROOT, workflowContract.workflow), 'utf8');
+    errors.push(...pullRequestTriggerErrors(workflowContract.workflow, workflow));
     for (const contextContract of workflowContract.contexts) {
       contractedContexts.add(contextContract.context);
       const block = workflowJobBlock(workflow, contextContract.job_id);

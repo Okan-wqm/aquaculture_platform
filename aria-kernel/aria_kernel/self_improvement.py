@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
+from .doctor import DoctorCheck
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 SELF_IMPROVEMENT_SOURCE_KIND = "self_improvement"
@@ -50,9 +51,21 @@ SIGNAL_REMEDIES: dict[str, str] = {
     "mcp_quarantine": SELF_CHANGE_REMEDY,
     "doctor_fail": SELF_CHANGE_REMEDY,
     "deadline_due": ANNOUNCE_REMEDY,
+    # ARIA-MEDIUM-417 — a doctor organ failing for want of CONFIGURATION on a
+    # surface ARIA may not write (a lane's env lives in `.github/workflows/`,
+    # an AUTHORITY_SURFACE). Its only answer is an operator's, so it is
+    # announced (the organ's FAIL, `doctor_unhealthy`, the CI step's
+    # `::error`) and never minted: a `propose_self_change` for it could only
+    # be refused at accept time, after its HIGH adjudication was opened.
+    "config_missing": ANNOUNCE_REMEDY,
 }
 SIGNAL_KINDS: tuple[str, ...] = tuple(SIGNAL_REMEDIES)
 SELF_CHANGE_SIGNAL_KINDS: tuple[str, ...] = tuple(kind for kind, remedy in SIGNAL_REMEDIES.items() if remedy == SELF_CHANGE_REMEDY)
+# ARIA-MEDIUM-417 — the kind a FAILING doctor organ raises, when it is not
+# `doctor_fail`. The doctor names what is wrong; the remedy is this module's,
+# so the routing lives here, keyed by organ. `notifications` fails when the
+# lane has no channel or an invalid selector — both answered in the env.
+DOCTOR_ORGAN_SIGNAL_KINDS: dict[str, str] = {"notifications": "config_missing"}
 # Where a self-change may point. Anything else is not ARIA's own code.
 SELF_CHANGE_ALLOWED_PREFIXES: tuple[str, ...] = ("aria-kernel/", "tools/aria-poc/", ".github/workflows/aria-", "aria-config/", ".claude/agents/aria-")
 # The authority surfaces: a self-change naming any of these is refused. These
@@ -183,6 +196,23 @@ def authority_surface_violations(paths: list[str]) -> list[str]:
     return bad
 
 
+def doctor_signals(check: DoctorCheck) -> list[Signal]:
+    """The signals one FAILING doctor organ raises: one per cause it names,
+    else one for the organ (ARIA-MEDIUM-417).
+
+    The key is what the opener hashes into a mission id, so it is ``<organ>``
+    or ``<organ>:<cause key>`` — closed vocabularies only. The title is read
+    once, at the mint, by the agent the mission asks: the cause's summary, or
+    the reason's leading code (``deadlines_lapsed``) — never a slice of a row
+    list that is stale by the next night. The whole reason stays in evidence."""
+    kind = DOCTOR_ORGAN_SIGNAL_KINDS.get(check.name, "doctor_fail")
+    head = f"Doctor organ {check.name} failing: "
+    if not check.causes:
+        return [Signal(kind, check.name, head + check.reason.split(":", 1)[0], {"reason": check.reason}, 1)]
+    return [Signal(kind, f"{check.name}:{cause.key}", head + cause.summary, {"reason": check.reason, "cause": cause.key}, 1)
+            for cause in check.causes]
+
+
 def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> list[Signal]:
     root = ensure_tools_dir(base_dir)
     signals: list[Signal] = []
@@ -226,7 +256,7 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> 
 
         for check in run_doctor(base_dir=root, workspace_root=workspace_root).checks:
             if check.status == "fail":
-                signals.append(Signal("doctor_fail", check.name, f"Doctor organ {check.name} failing: {check.reason}", {"reason": check.reason}, 1))
+                signals.extend(doctor_signals(check))
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -257,21 +287,32 @@ def self_change_signals(signals: list[Signal]) -> list[Signal]:
 
 
 def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_root: str | Path, max_new: int = 3) -> list[dict[str, Any]]:
-    """Self-change signals → missions (idempotent on source id); never more than `max_new` per call."""
+    """Self-change signals → missions (idempotent on source id); never more than `max_new` NEW missions per call.
+
+    ARIA-MEDIUM-417 — the budget counts what this call OPENED. A re-sighting
+    of an existing mission (open or terminal: the id is a hash of the source,
+    so a closed mission's source never mints again) is reported `idempotent`
+    and costs nothing. Counted, it held the budget for good: on the bound
+    store (2026-10-10) six self-change signals minted three missions the first
+    night and none the second, and the other three never would have."""
     from .mission import open_mission
     from .workspace import canonical_identity
 
     root = ensure_tools_dir(base_dir)
     repo_hash = canonical_identity(Path(workspace_root).resolve())
     opened: list[dict[str, Any]] = []
+    new = 0
     for signal in self_change_signals(scan_signals(base_dir=root, workspace_root=workspace_root)):
-        if len(opened) >= max_new:
+        if new >= max_new:
             break
         source_id = f"{signal.kind}:{signal.key}"
         mission = open_mission(source_kind=SELF_IMPROVEMENT_SOURCE_KIND, source_id=source_id, repo_hash=repo_hash, title=signal.title[:200],
                                next_action=SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": source_id},
                                priority=signal.priority, base_dir=root)
-        opened.append({"mission_id": mission.get("mission_id"), "signal": signal.kind, "key": signal.key, "idempotent": bool(mission.get("idempotent"))})
+        idempotent = bool(mission.get("idempotent"))
+        if not idempotent:
+            new += 1
+        opened.append({"mission_id": mission.get("mission_id"), "signal": signal.kind, "key": signal.key, "idempotent": idempotent})
     return opened
 
 
@@ -325,9 +366,9 @@ def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspa
     return {"proposal": proposal, "human_required": adjudication}
 
 
-__all__ = ["ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "SELF_CHANGE_ALLOWED_PREFIXES",
+__all__ = ["ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "DOCTOR_ORGAN_SIGNAL_KINDS", "SELF_CHANGE_ALLOWED_PREFIXES",
            "SELF_CHANGE_MISSION_REFUSALS", "SELF_CHANGE_MISSION_REFUSED_EVENT", "SELF_CHANGE_NEXT_ACTION", "SELF_CHANGE_PROPOSED_EVENT",
            "SELF_CHANGE_REFUSED_EVENT", "SELF_CHANGE_REMEDY", "SELF_CHANGE_SIGNAL_KINDS", "SELF_IMPROVEMENT_SOURCE_KIND",
            "SIGNAL_KINDS", "SIGNAL_REMEDIES", "Signal", "authority_surface_violations", "is_self_change_mission",
-           "open_self_change_adjudication", "open_self_improvement_missions", "propose_self_change", "scan_signals",
-           "self_change_signals"]
+           "doctor_signals", "open_self_change_adjudication", "open_self_improvement_missions", "propose_self_change",
+           "scan_signals", "self_change_signals"]

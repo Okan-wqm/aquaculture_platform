@@ -8,6 +8,7 @@ enforce — three literals, one value.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -29,6 +30,7 @@ from aria_kernel.doctor import (
 )
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.orchestrator_exits import record_cycle_completed, record_exit, record_failed_night
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -396,13 +398,7 @@ class OrchestratorOrgan(unittest.TestCase):
         self._tmp.cleanup()
 
     def _exit(self, reason: str, cycles_completed: int) -> None:
-        from aria_kernel.tool_registry import append_tools_governance
-
-        append_tools_governance(self.tools, "autonomy_orchestrator_exit", {
-            "auto_merges_completed": 0, "cycles_completed": cycles_completed,
-            "daemon_id": "autonomy", "exit_reason": reason,
-            "planner_claims_dispatched": 0, "worker_assignments_dispatched": 0,
-        })
+        record_exit(self.tools, reason, cycles_completed)
 
     def _refused(self, cycle_id: str, source_id: str) -> None:
         from aria_kernel.tool_registry import append_tools_governance
@@ -416,15 +412,7 @@ class OrchestratorOrgan(unittest.TestCase):
         })
 
     def _cycle_completed(self, cycle_id: str, status: str, summary: dict) -> None:
-        from aria_kernel.autonomy_state import AutonomyStateReducer
-
-        AutonomyStateReducer.transition(
-            self.tools, cycle_id=cycle_id, phase="cycle_started", status="ok", profile="standard",
-        )
-        AutonomyStateReducer.transition(
-            self.tools, cycle_id=cycle_id, phase="cycle_completed", status=status,
-            profile="standard", details={"summary": {"schema_version": 2, "cycle_id": cycle_id, **summary}},
-        )
+        record_cycle_completed(self.tools, cycle_id, status, summary)
 
     def _live_streak(self) -> None:
         self._cycle_completed("cyc-20260822T153253Z-auto", "failed", {
@@ -539,6 +527,63 @@ class OrchestratorOrgan(unittest.TestCase):
         self.assertEqual((check.status, check.reason), ("ok", ""))
         self.assertEqual(check.detail["failed_cycles"], [])
 
+    def test_a_failing_streak_names_one_closed_cause_per_phase_and_reason(self) -> None:
+        # ARIA-MEDIUM-417 — the 2026-10-09/10 nights: pr_lifecycle failed by
+        # payload each night with its own refusal text (the PR-1 `error`),
+        # then a night of the store failing integrity with no phase row.
+        record_failed_night(self.tools, "cyc-a", failed_phases=[
+            {"phase": "pr_lifecycle", "status": "failed", "error": "1 of 1 PR previews refused: open_pr_head_sha_unresolvable"}])
+        record_failed_night(self.tools, "cyc-b", failed_phases=[
+            {"phase": "pr_lifecycle", "status": "failed", "error": "2 of 2 PR previews refused: open_pr_head_sha_unresolvable"}])
+        record_failed_night(self.tools, "cyc-c", failed_phases=[], runtime_status="integrity_failed")
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual(check.status, "fail")
+        self.assertEqual([cause.key for cause in check.causes], ["cycle:integrity_failed", "pr_lifecycle:phase_failed"])
+        self.assertEqual(
+            check.causes[1].summary,
+            "pr_lifecycle phase_failed: 2 of 2 PR previews refused: open_pr_head_sha_unresolvable",
+            "the newest sighting writes the summary; the text is never part of the key",
+        )
+
+    def test_a_cause_key_carries_no_free_text_and_no_count(self) -> None:
+        for night, error in enumerate(("1 of 1 PR previews refused: a", "7 of 9 PR previews refused: b: c", "KeyError: 'x'")):
+            record_failed_night(self.tools, f"cyc-{night}", failed_phases=[{"phase": "pr_lifecycle", "status": "failed", "error": error}])
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual([cause.key for cause in check.causes], ["pr_lifecycle:phase_failed"])
+
+    def test_the_live_streak_names_the_phase_and_the_store(self) -> None:
+        self._live_streak()
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual([cause.key for cause in check.causes], ["cycle:integrity_failed", "product_fitness:phase_failed"])
+
+    def test_a_whole_cycle_failure_is_keyed_on_its_runtime_verdict_or_unrecorded(self) -> None:
+        # 2026-09-27: a deadline interrupted the cycle mid-phase; no phase row,
+        # runtime_status failed, the reason in summary.error.
+        record_failed_night(self.tools, "cyc-old", failed_phases=[], runtime_status=None)
+        record_failed_night(self.tools, "cyc-cut", failed_phases=[], runtime_status="failed",
+                            error="the remaining wall-clock entered the close-out margin mid-phase")
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual([cause.key for cause in check.causes], ["cycle:failed", "cycle:unrecorded"])
+        self.assertEqual(check.causes[0].summary, "cycle failed: the remaining wall-clock entered the close-out margin mid-phase")
+
+    def test_a_warn_names_no_causes_and_the_report_carries_them(self) -> None:
+        record_failed_night(self.tools, "cyc-1", failed_phases=[{"phase": "pr_lifecycle", "status": "failed", "error": "e"}])
+        self.assertEqual(doctor._check_orchestrator(self.tools).causes, (), "one bad night is a warn, not a cause to mint")
+        record_failed_night(self.tools, "cyc-2", failed_phases=[{"phase": "pr_lifecycle", "status": "failed", "error": "e"}])
+
+        # As `aria-kernel doctor --json` prints it.
+        report = json.loads(json.dumps(run_doctor(base_dir=self.tools, workspace_root=self.root).to_dict()))
+
+        organ = next(check for check in report["checks"] if check["name"] == "orchestrator")
+        self.assertEqual(organ["causes"], [{"key": "pr_lifecycle:phase_failed", "summary": "pr_lifecycle phase_failed: e"}])
 
 
 class ToolsOrgan(unittest.TestCase):

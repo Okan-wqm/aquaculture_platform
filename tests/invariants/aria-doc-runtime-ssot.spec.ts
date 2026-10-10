@@ -93,20 +93,34 @@ const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
 const KERNEL_SHARD_BUDGET_MINUTES = 30;
 const KERNEL_LANE_BUDGET_MINUTES = 15;
 
-type WorkflowStep = { run?: string; env?: Record<string, string> };
+type WorkflowStep = { id?: string; run?: string; env?: Record<string, string> };
 type PullRequestWorkflow = {
-  on?: { pull_request?: { paths?: string[] } };
+  on?: { pull_request?: null | { paths?: string[] } };
   jobs?: Record<
     string,
     {
       'timeout-minutes'?: number;
-      needs?: string[];
+      needs?: string | string[];
       if?: string;
       strategy?: { 'fail-fast'?: boolean; matrix?: { shard?: number[] } };
       steps?: WorkflowStep[];
     }
   >;
 };
+
+// INFRA-HIGH-215 — the kernel lane runs on every PR (`aria-kernel` is a required
+// context); its `changes` job decides from KERNEL_SURFACE whether the suite runs.
+function kernelScopeStep(workflow: PullRequestWorkflow): WorkflowStep {
+  const step = (workflow.jobs?.changes?.steps ?? []).find((candidate) => candidate.id === 'scope');
+  if (step === undefined) throw new Error('aria-kernel.yml: the `changes` job has no `scope` step');
+  return step;
+}
+
+function kernelSurface(workflow: PullRequestWorkflow): string[] {
+  return (kernelScopeStep(workflow).env?.KERNEL_SURFACE ?? '')
+    .split('\n')
+    .filter((line) => line.trim() !== '');
+}
 
 const ARCHITECTURE_SECTIONS = [
   'Authority Chain / Yetki Zinciri',
@@ -643,15 +657,21 @@ describe('ARIA live runtime/documentation SSoT', () => {
     // ARIA-MEDIUM-135: a second lane over the same suite is drift.
     expect(existsSync(join(REPO_ROOT, '.github/workflows/aria-kernel-fast.yml'))).toBe(false);
     const workflow = yaml.load(read('.github/workflows/aria-kernel.yml')) as PullRequestWorkflow;
-    expect(workflow.on?.pull_request?.paths).toContain(ARIA_SUITE_RUNNER);
+    // INFRA-HIGH-215 — unfiltered, so the required context reports on every PR.
+    expect(workflow.on?.pull_request).toBeNull();
+    expect(kernelSurface(workflow)).toContain(ARIA_SUITE_RUNNER);
     // ARIA-HIGH-098 — the adapter registry contract
     // (aria-kernel/tests/test_adapter_fixture_evidence_contract.py) is a
-    // suite test over tools/aria-adapters/**; a lane that does not fire on
+    // suite test over tools/aria-adapters/**; a lane that does not run on
     // that directory checks an adapters-only PR first on main.
-    expect(workflow.on?.pull_request?.paths).toContain(ARIA_ADAPTERS_DIR + '/**');
+    expect(kernelSurface(workflow)).toContain(ARIA_ADAPTERS_DIR + '/**');
 
     const jobs = workflow.jobs ?? {};
-    expect(Object.keys(jobs)).toEqual(['suite', 'lane', 'state', 'aria-kernel']);
+    expect(Object.keys(jobs)).toEqual(['changes', 'suite', 'lane', 'state', 'aria-kernel']);
+    for (const job of ['suite', 'lane', 'state']) {
+      expect(jobs[job]?.needs).toBe('changes');
+      expect(jobs[job]?.if).toBe("needs.changes.outputs.kernel == 'true'");
+    }
     const runnerSteps = (job: string): WorkflowStep[] =>
       (jobs[job]?.steps ?? []).filter((step) => step.run?.startsWith(`bash ${ARIA_SUITE_RUNNER}`));
 
@@ -688,11 +708,85 @@ describe('ARIA live runtime/documentation SSoT', () => {
     // aria-kernel: the verdict — every job green AND the reports prove the
     // shards ran the whole suite exactly once.
     const verdict = jobs['aria-kernel'];
-    expect(verdict?.needs).toEqual(['suite', 'lane', 'state']);
+    expect(verdict?.needs).toEqual(['changes', 'suite', 'lane', 'state']);
     expect(verdict?.if).toBe('${{ !cancelled() }}');
     expect((verdict?.steps ?? []).map((step) => step.run)).toContain(
       'python3 aria-kernel/tests/_helpers/suite_shards.py verify --reports-dir "${RUNNER_TEMP}/aria-suite-shards"',
     );
+  });
+
+  it('runs the kernel jobs on a PR exactly when it touches the kernel surface', () => {
+    // INFRA-HIGH-215 — the surface moved from the `pull_request.paths` filter into the
+    // `changes` job. This runs that job's own script against a PR-shaped checkout (the
+    // merge of a branch into its base, as actions/checkout hands a pull_request run), so
+    // the globs keep the meaning they had as a filter.
+    const workflow = yaml.load(read('.github/workflows/aria-kernel.yml')) as PullRequestWorkflow;
+    const scope = kernelScopeStep(workflow);
+    const script = scope.run ?? '';
+    const surface = scope.env?.KERNEL_SURFACE ?? '';
+    const fixture = mkdtempSync(join(tmpdir(), 'aria-kernel-scope-'));
+    const gitEnv = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_NAME: 'scope',
+      GIT_AUTHOR_EMAIL: 'scope@example.invalid',
+      GIT_COMMITTER_NAME: 'scope',
+      GIT_COMMITTER_EMAIL: 'scope@example.invalid',
+    };
+    const git = (repo: string, ...args: string[]): void => {
+      execFileSync(REAL_GIT, args, { cwd: repo, env: gitEnv, stdio: 'pipe' });
+    };
+    const decide = (eventName: string, changedPath: string): string => {
+      const repo = mkdtempSync(join(fixture, 'repo-'));
+      git(repo, 'init', '--quiet', '--initial-branch=main');
+      writeFileSync(join(repo, 'README.md'), 'base\n');
+      git(repo, 'add', '-A');
+      git(repo, 'commit', '--quiet', '-m', 'base');
+      git(repo, 'checkout', '--quiet', '-b', 'pr');
+      mkdirSync(join(repo, changedPath, '..'), { recursive: true });
+      writeFileSync(join(repo, changedPath), 'change\n');
+      git(repo, 'add', '-A');
+      git(repo, 'commit', '--quiet', '-m', 'change');
+      git(repo, 'checkout', '--quiet', 'main');
+      writeFileSync(join(repo, 'README.md'), 'base moved on\n');
+      git(repo, 'commit', '--quiet', '-am', 'base moves');
+      git(repo, 'merge', '--quiet', '--no-ff', '--no-edit', 'pr');
+      const output = join(repo, '.github-output');
+      writeFileSync(output, '');
+      execFileSync('bash', ['-e', '-c', script], {
+        cwd: repo,
+        env: { ...gitEnv, EVENT_NAME: eventName, KERNEL_SURFACE: surface, GITHUB_OUTPUT: output },
+        stdio: 'pipe',
+      });
+      return readFileSync(output, 'utf8').trim();
+    };
+    try {
+      for (const changed of [
+        'aria-kernel/aria_kernel/deep/module.py',
+        'scripts/ci/aria-suite-run.sh',
+        'docs/aria/SPEC.md',
+        'docs/adr/033-aria-autonomous-profile.md',
+        '.github/workflows/aria-kernel.yml',
+        'tools/aria-poc/poc.py',
+        'tools/shared/invariants/test_x.py',
+        `${ARIA_ADAPTERS_DIR}/some-adapter/manifest.json`,
+      ]) {
+        expect([changed, decide('pull_request', changed)]).toEqual([changed, 'kernel=true']);
+      }
+      for (const changed of [
+        'apps/farm-service/src/main.ts',
+        'docs/runbooks/aria-pr-landing-gate.md',
+        'scripts/ci/aria-suite-changed.mjs',
+        'tools/aria-poc-notes.md',
+      ]) {
+        expect([changed, decide('pull_request', changed)]).toEqual([changed, 'kernel=false']);
+      }
+      // A main push runs the lane whole, whatever it touched (ARIA-V-007).
+      expect(decide('push', 'apps/farm-service/src/main.ts')).toBe('kernel=true');
+    } finally {
+      removeFixtureTree(fixture);
+    }
   });
 
   it('budgets the operational proof for the package-bound suite and burn-in', () => {

@@ -14,29 +14,14 @@ name: aria-kernel
 
 on:
   workflow_dispatch:
+  # INFRA-HIGH-215 — no `paths:` here. `aria-kernel` is a required context
+  # (.github/manifests/main-required-status-checks.json), and a filtered
+  # trigger starts no run for a PR outside the filter, so GitHub waits on the
+  # context forever and the protection could not be applied. The kernel
+  # surface moved into the `changes` job below; the gate
+  # (tools/gates/required-status-checks.ts) refuses a filter on any workflow
+  # that produces a required context.
   pull_request:
-    paths:
-      - "aria-kernel/**"
-      - "scripts/ci/aria-suite-run.sh"
-      - "docs/aria/**"
-      # ARIA-MEDIUM-135 — inherited from the retired aria-kernel-fast.yml: a
-      # SPEC/ADR amendment fires the kernel lane on the PR, not first on the
-      # push to main (I-V3-31c).
-      - "docs/adr/**"
-      - ".github/workflows/aria-kernel.yml"
-      # Plan ARIA-V2 §3.6 — tools/aria-poc + tools/shared are now
-      # kernel-quality-gate adjacent (I-19..I-22, I-39 land here).
-      - "tools/aria-poc/**"
-      - "tools/shared/**"
-      # ARIA-HIGH-098 — the registry contract lives in the suite
-      # (tests/test_adapter_fixture_evidence_contract.py: every shipped
-      # manifest carries a fixture case expecting ok, and every case runs
-      # ok through the evidence validator). Without this path the pin was
-      # PR-time in name only: a manifest without a case, a case rewritten
-      # to expect evidence_error, or a TS adapter that drops per-finding
-      # evidence touched only tools/aria-adapters/**, ran neither kernel
-      # lane, and was first checked on the push to main.
-      - "tools/aria-adapters/**"
   push:
     branches:
       - main
@@ -65,8 +50,69 @@ jobs:
   #   aria-kernel — the check a reader looks for: green only when every shard,
   #                 the lane and the state gate are green AND the shard
   #                 reports prove the shards ran the whole suite exactly once.
+  # A fifth job, `changes`, decides whether a PR touches the kernel surface at
+  # all (INFRA-HIGH-215); when it does not, the three run nothing and the
+  # verdict passes on their being skipped for that reason alone.
+  changes:
+    runs-on: ubuntu-latest
+    # A two-commit checkout and one `git diff`: seconds. A hang guard.
+    timeout-minutes: 5
+    outputs:
+      kernel: ${{ steps.scope.outputs.kernel }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # A PR run checks out the merge of the PR into its base; its first
+          # parent is the base tip, so depth 2 holds both sides of the diff.
+          fetch-depth: 2
+      - name: Decide whether the kernel surface changed
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          # The paths a PR must touch for the kernel lane to run. This was the
+          # pull_request `paths:` filter, moved here unchanged.
+          #   docs/adr/** — ARIA-MEDIUM-135, inherited from the retired
+          #     aria-kernel-fast.yml: a SPEC/ADR amendment fires the lane on
+          #     the PR, not first on the push to main (I-V3-31c).
+          #   tools/aria-poc/**, tools/shared/** — Plan ARIA-V2 §3.6: kernel-
+          #     quality-gate adjacent (I-19..I-22, I-39 land here).
+          #   tools/aria-adapters/** — ARIA-HIGH-098: the registry contract
+          #     lives in the suite
+          #     (tests/test_adapter_fixture_evidence_contract.py), so an
+          #     adapters-only PR must run it before merge, not on main.
+          KERNEL_SURFACE: |
+            aria-kernel/**
+            scripts/ci/aria-suite-run.sh
+            docs/aria/**
+            docs/adr/**
+            .github/workflows/aria-kernel.yml
+            tools/aria-poc/**
+            tools/shared/**
+            tools/aria-adapters/**
+        run: |
+          set -euo pipefail
+          # A main push and a manual run always run the whole lane (ARIA-V-007).
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "kernel=true" >> "$GITHUB_OUTPUT"
+            echo "${EVENT_NAME}: the kernel lane runs whole."
+            exit 0
+          fi
+          # `:(glob)` gives `**` and `*` the meaning they had in the filter.
+          mapfile -t pathspecs < <(printf '%s\n' "$KERNEL_SURFACE" | sed -e '/^$/d' -e 's/^/:(glob)/')
+          changed="$(git diff --name-only HEAD^1 HEAD -- "${pathspecs[@]}")"
+          if [ -n "$changed" ]; then
+            echo "kernel=true" >> "$GITHUB_OUTPUT"
+            printf 'kernel surface changed:\n%s\n' "$changed"
+          else
+            echo "kernel=false" >> "$GITHUB_OUTPUT"
+            echo "no kernel surface changed: suite, lane and state are skipped and the verdict passes."
+          fi
+
   suite:
     name: suite (${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.kernel == 'true'
     # ARIA-MEDIUM-134/139 — the suite proves the REAL sandbox, and the
     # hosted 24.04 image cannot host it: bubblewrap installs cleanly there
     # and every invocation dies `loopback: Failed RTM_NEWADDR: Operation not
@@ -164,6 +210,8 @@ jobs:
           fi
 
   lane:
+    needs: changes
+    if: needs.changes.outputs.kernel == 'true'
     # Same image and sandbox backend as `suite` (ARIA-MEDIUM-134/139): the
     # pytest half and the discovery run spawn through the same wrapper.
     runs-on: ubuntu-22.04
@@ -333,6 +381,8 @@ jobs:
     # byte (name, id, env, run); tests/test_state_compaction_gate.py fails
     # the build when they differ, so the gate cannot drift from the path it
     # stands in for.
+    needs: changes
+    if: needs.changes.outputs.kernel == 'true'
     runs-on: ubuntu-latest
     # 10: restore 4 s, compact 8 s, verify 6 s on the maintenance run
     # 36527583572 (2026-09-29), plus ~1 min of checkout and setup. A hang
@@ -401,6 +451,7 @@ jobs:
     # superseded run (concurrency cancel-in-progress) stays cancelled instead
     # of reporting a missing shard as a failure.
     needs:
+      - changes
       - suite
       - lane
       - state
@@ -411,23 +462,38 @@ jobs:
       # Runs no kernel code — the verifier reads shard reports with the
       # standard library — so a depth-1 checkout is the honest one.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.kernel == 'true'
         with:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.changes.outputs.kernel == 'true'
         with:
           pattern: aria-kernel-suite-shard-*
           path: ${{ runner.temp }}/aria-suite-shards
           merge-multiple: true
       - name: Verify the shards ran the whole suite once
+        if: needs.changes.outputs.kernel == 'true'
         run: python3 aria-kernel/tests/_helpers/suite_shards.py verify --reports-dir "${RUNNER_TEMP}/aria-suite-shards"
+      # The scope decision must itself have succeeded: a failed `changes` job
+      # leaves `kernel` empty, every other job skipped, and this step red.
+      # Skipped is accepted only for `kernel=false`; on a kernel change every
+      # job must be green.
       - name: Require every kernel job
         if: ${{ !cancelled() }}
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          KERNEL: ${{ needs.changes.outputs.kernel }}
           SUITE_RESULT: ${{ needs.suite.result }}
           LANE_RESULT: ${{ needs.lane.result }}
           STATE_RESULT: ${{ needs.state.result }}
         run: |
-          echo "suite=${SUITE_RESULT} lane=${LANE_RESULT} state=${STATE_RESULT}"
-          test "${SUITE_RESULT}" = success
-          test "${LANE_RESULT}" = success
-          test "${STATE_RESULT}" = success
+          echo "changes=${CHANGES_RESULT} kernel=${KERNEL} suite=${SUITE_RESULT} lane=${LANE_RESULT} state=${STATE_RESULT}"
+          test "${CHANGES_RESULT}" = success
+          case "${KERNEL}" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *) echo "::error::changes reported kernel='${KERNEL}'"; exit 1 ;;
+          esac
+          test "${SUITE_RESULT}" = "${expected}"
+          test "${LANE_RESULT}" = "${expected}"
+          test "${STATE_RESULT}" = "${expected}"

@@ -19,6 +19,8 @@ verdict job requires the gate.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import unittest
 from pathlib import Path
 from typing import Any
@@ -110,13 +112,49 @@ class TheGatePublishesNothing(unittest.TestCase):
 
 
 class TheLaneVerdictRequiresTheGate(unittest.TestCase):
-    def test_the_aria_kernel_job_needs_the_gate_and_requires_its_success(self) -> None:
+    def _verdict_step(self) -> dict[str, Any]:
         verdict = _workflow(KERNEL)["jobs"]["aria-kernel"]
         self.assertIn("state", verdict["needs"])
         required = [step for step in verdict["steps"] if "STATE_RESULT" in (step.get("env") or {})]
         self.assertEqual(len(required), 1)
         self.assertEqual(required[0]["env"]["STATE_RESULT"], "${{ needs.state.result }}")
-        self.assertIn('test "${STATE_RESULT}" = success', required[0]["run"])
+        return required[0]
+
+    def _verdict(self, *, changes: str, kernel: str, suite: str, lane: str, state: str) -> int:
+        env = {
+            "PATH": os.environ["PATH"],
+            "CHANGES_RESULT": changes,
+            "KERNEL": kernel,
+            "SUITE_RESULT": suite,
+            "LANE_RESULT": lane,
+            "STATE_RESULT": state,
+        }
+        # GitHub runs a `run:` block under `bash -e`.
+        return subprocess.run(
+            ["bash", "-e", "-c", self._verdict_step()["run"]],
+            env=env, capture_output=True, text=True, check=False,
+        ).returncode
+
+    def test_a_kernel_change_needs_the_gate_green(self) -> None:
+        self.assertEqual(self._verdict(changes="success", kernel="true", suite="success", lane="success",
+                                       state="success"), 0)
+        for state in ("failure", "skipped", "cancelled"):
+            with self.subTest(state=state):
+                self.assertNotEqual(self._verdict(changes="success", kernel="true", suite="success",
+                                                  lane="success", state=state), 0)
+
+    def test_skipped_passes_only_when_no_kernel_surface_changed(self) -> None:
+        # INFRA-HIGH-215 — the lane reports on every PR; a PR outside the
+        # kernel surface skips the jobs and the verdict passes on that alone.
+        self.assertEqual(self._verdict(changes="success", kernel="false", suite="skipped", lane="skipped",
+                                       state="skipped"), 0)
+        self.assertNotEqual(self._verdict(changes="success", kernel="false", suite="skipped", lane="skipped",
+                                          state="failure"), 0)
+        # A failed or empty scope decision is never read as "nothing changed".
+        self.assertNotEqual(self._verdict(changes="failure", kernel="", suite="skipped", lane="skipped",
+                                          state="skipped"), 0)
+        self.assertNotEqual(self._verdict(changes="success", kernel="", suite="skipped", lane="skipped",
+                                          state="skipped"), 0)
 
 
 if __name__ == "__main__":

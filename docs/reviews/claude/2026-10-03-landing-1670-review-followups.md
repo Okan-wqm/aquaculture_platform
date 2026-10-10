@@ -211,3 +211,42 @@ A harvest of a quarantined or finished batch is now refused with a clear error.
 Note: `CreateBatchHandler` stores every new batch as QUARANTINE. Only `AllocateToTankHandler` with
 INITIAL_STOCKING advances it to ACTIVE. A batch stocked through its creation-time initial locations stays
 QUARANTINE until someone updates its status, and it cannot be harvested until then.
+
+## Quarantine release (2026-10-10)
+
+### FARM-MEDIUM-402
+
+Severity: MEDIUM. Deadline: 2026-10-17.
+
+Production holds exactly one QUARANTINE batch with fish. Since FARM-MEDIUM-401 that batch cannot be
+harvested until it is released. The only release path was the generic `updateBatchStatus` mutation. It
+is open to MODULE_USER, it writes no audit row, and neither its UI nor the harvest refusal message told
+the operator what to do.
+
+Already in place before this fix:
+
+- `updateBatchStatus` went through the status table and emitted a `BatchStatusChanged` event.
+- farm-module's "Durum Güncelle" modal could call it.
+
+Added:
+
+- **`releaseBatchFromQuarantine(input: { batchId, reason })`.** MODULE_MANAGER and TENANT_ADMIN only,
+  in both the permission matrix and its frontend mirror. In one transaction,
+  `ReleaseBatchFromQuarantineHandler`:
+  - locks the batch;
+  - requires QUARANTINE;
+  - moves it to ACTIVE through the status table;
+  - writes a `farm_audit_logs` UPDATE row (before/after status and the reason);
+  - emits `BatchStatusChanged`.
+- **No release through the generic mutation.** `updateBatchStatus` now refuses QUARANTINE → ACTIVE and
+  names `releaseBatchFromQuarantine` (`BatchLifecyclePolicyService.assertGenericStatusUpdateAllowed`).
+  The farm-module status modal disables that option and shows the same hint.
+- **farm-module action.** The batch overview shows "Release from quarantine" for a QUARANTINE batch to
+  callers that pass the gate. It asks for a reason (5–500 characters) before calling the mutation; texts
+  are in en and tr.
+- **Clearer harvest refusal.** The message now says to release the batch from quarantine first, and
+  names the batch-detail action.
+
+Unchanged: allocating a batch to a tank with INITIAL_STOCKING still moves QUARANTINE to ACTIVE
+automatically, as it did before. A batch stocked through its creation-time initial locations stays in
+QUARANTINE until a manager releases it.

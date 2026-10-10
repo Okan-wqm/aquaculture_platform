@@ -24,8 +24,9 @@ import {
   truncateSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { BUILTIN_PROTECTED, classifyLocation, isAriaStatePath, readConfig } from './gc-config.ts';
 import { addWorktree, fixture, git, reportFor, runGc, wrappedGit } from './gc-test-fixture.ts';
@@ -381,4 +382,49 @@ void test('archives are private, carry their own hash, and failed attempts leave
     body.archive_sha256,
     createHash('sha256').update(readFileSync(archive)).digest('hex'),
   );
+});
+
+void test('a quarantine leftover is re-checked after its archive, before --force', () => {
+  const fx = fixture();
+  const quarantine = join(fx.roots, '.gc-quarantine');
+  mkdirSync(quarantine);
+  const wt = addWorktree(fx, 'leftover');
+  const moved = join(quarantine, 'leftover');
+  git(['-C', fx.repo, 'worktree', 'move', wt, moved]);
+  execFileSync('rm', [join(moved, 'README.md')]);
+  mkdirSync(join(moved, '.aria-ci'));
+  writeFileSync(join(moved, '.aria-ci', 'ledger.jsonl'), '{"n":1}\n');
+  // tar archives the ledger; the ledger is appended to right after.
+  const realTar = execFileSync('sh', ['-c', 'command -v tar'], { encoding: 'utf8' }).trim();
+  const appending = join(fx.tmp, 'appending-tar');
+  writeFileSync(
+    appending,
+    [
+      '#!/bin/sh',
+      `"${realTar}" "$@" || exit $?`,
+      'case "$*" in *-cf*)',
+      '  prev=""; for a in "$@"; do [ "$prev" = "-C" ] && dir="$a"; prev="$a"; done',
+      `  echo '{"n":2}' >> "$dir/.aria-ci/ledger.jsonl" ;;`,
+      'esac',
+      'exit 0',
+    ].join('\n') + '\n',
+    { mode: 0o755 },
+  );
+
+  const run = runGc(fx, [], { WORKTREE_GC_TAR_BIN: appending });
+
+  const report = reportFor(run, moved);
+  assert.equal(report.reason, 'changed_during_removal');
+  assert.equal(readFileSync(join(moved, '.aria-ci', 'ledger.jsonl'), 'utf8'), '{"n":1}\n{"n":2}\n');
+});
+
+void test('the unit sets no UMask, so git fetch keeps writing shared-readable objects', () => {
+  const unit = readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../infrastructure/host-maintenance/aqua-worktree-gc.service',
+    ),
+    'utf8',
+  );
+  assert.doesNotMatch(unit, /^\s*UMask=/m);
 });

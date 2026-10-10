@@ -150,7 +150,11 @@ records re-hashed against the manifest, `/proc` re-scanned; any change moves the
 `changed_during_removal`); a 200 MB per-worktree cap (`aria_large`); a free-space floor of
 twice the records plus 2 GiB (`low_space`); streamed hashing; `.partial` files renamed only
 after verification, failed attempts deleted; the archive's own sha256 in the manifest; 0700
-directories and 0600 files with `UMask=0077`; `MemoryMax=1G` and `TasksMax=64` on the unit.
+directories and 0600 files, set by the tool; `MemoryMax=1G` and `TasksMax=64` on the unit.
+
+The final review (aa9c6593c) removed the unit's `UMask=0077`, which would also have made the
+hourly `git fetch` write root-only packs and refs into the shared repository, and added the
+quarantine re-check to the `--force` path for a leftover as well.
 
 ### Not done here
 

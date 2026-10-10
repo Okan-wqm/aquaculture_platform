@@ -72,8 +72,9 @@ Safeguards around the archive:
 - The archive is written as `<name>.partial` and renamed only after it verified; a failed
   attempt's `.partial` is deleted, so every file without that suffix is an archive of record.
   The manifest records the archive's own sha256.
-- Directories are 0700, archives and manifests 0600 (the unit also sets `UMask=0077`): ARIA
-  records may include key material.
+- Directories are 0700, archives and manifests 0600, set by the tool itself: ARIA records may
+  include key material. The unit has no `UMask=`: it would also make the hourly `git fetch`
+  write root-only packs and refs into the shared repository.
 - After the move into quarantine the ARIA records are hashed again against the manifest and
   `/proc` is scanned again; any difference moves the tree back (`changed_during_removal`), so a
   ledger appended to after the archive is never lost.

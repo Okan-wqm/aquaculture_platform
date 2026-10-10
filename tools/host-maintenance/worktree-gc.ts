@@ -526,8 +526,9 @@ function quarantineRecheck(
   quarantine: string,
   planned: ManifestEntry[],
   pass: Pass,
+  allowDeleted: boolean,
 ): Verdict | null {
-  const content = contentVerdict(pass, quarantine, false);
+  const content = contentVerdict(pass, quarantine, allowDeleted);
   if (content.keep) return content.keep;
   const current = planArchive(quarantine, content.aria, true);
   const drift = current.ok ? sameEntries(planned, current.plan.files) : current.detail;
@@ -574,7 +575,7 @@ function removeViaQuarantine(
   // deletes ignored files silently: an ARIA ledger appended to, or a new
   // ignored file, would be lost. Re-read it in quarantine; any difference,
   // or a process now inside it, moves it back.
-  const changed = quarantineRecheck(quarantine, planned, pass);
+  const changed = quarantineRecheck(quarantine, planned, pass, false);
   if (changed) {
     const undo = git(config.gitBin, [
       '-C',
@@ -740,7 +741,14 @@ function act(
     return true;
   }
   if (verdict.reason === 'quarantine_leftover' && real !== null) {
-    // Judged above to hold nothing but what the interrupted removal left.
+    // Judged above to hold nothing but what the interrupted removal left;
+    // judged again now, after its archive, because --force deletes all of it.
+    const changed = quarantineRecheck(real, planned, pass, true);
+    if (changed) {
+      report.reason = changed.reason;
+      report.detail = changed.detail;
+      return true;
+    }
     const removal = git(
       config.gitBin,
       ['-C', config.repo, 'worktree', 'remove', '--force', real],

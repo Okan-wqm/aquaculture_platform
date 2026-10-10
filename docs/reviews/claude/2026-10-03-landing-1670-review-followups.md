@@ -177,3 +177,37 @@ shows that while completion waits for that tank, the tank's tank-batch row is st
 The idempotency check compared the resent figures with the stored `decimal(12,2)` and `decimal(10,2)`
 columns. An identical resend with 3 decimals therefore got a 409. `actualBiomass` and `actualAvgWeight`
 are now limited to 2 decimals (`@IsNumber({ maxDecimalPlaces: 2 })`), which matches the storage.
+
+## Farm verdict on PR #1736 (2026-10-10)
+
+The verdict was MERGEABLE, with one non-blocking MEDIUM to fix in this PR.
+
+### FARM-MEDIUM-401
+
+Severity: MEDIUM. Deadline: 2026-10-17.
+
+The batch lifecycle gave two answers to the same question: which statuses may be harvested.
+
+- The hand-written partial-harvest list moved QUARANTINE, ACTIVE and GROWING batches to HARVESTING.
+- The transition table allowed HARVESTING only from PRE_HARVEST. `Batch.canTransitionTo` carried a third
+  copy of that table.
+- The harvest writer checked only `isActive`, so a quarantined batch could be harvested.
+
+Fix: `BATCH_STATUS_TRANSITIONS` in `batch-lifecycle-policy.service.ts` is now the only table. ACTIVE → HARVESTING and
+GROWING → HARVESTING were added on purpose, because partial harvests of growing batches are normal.
+QUARANTINE has no edge to HARVESTING: quarantined fish (biosecurity hold, medication withdrawal) may not
+be harvested.
+
+These are all derived from that table:
+
+- `BatchLifecyclePolicyService.canTransitionStatus` (the copy in `Batch.canTransitionTo` was removed, and
+  `farm-batch-policy-transaction-ssot.spec` now refuses any second copy);
+- `PARTIAL_HARVEST_SOURCE_STATUSES`;
+- `isHarvestableStatus`, the single predicate shared by the listener and `HarvestRecordWriter`
+  (through `assertBatchHarvestable`).
+
+A harvest of a quarantined or finished batch is now refused with a clear error.
+
+Note: `CreateBatchHandler` stores every new batch as QUARANTINE. Only `AllocateToTankHandler` with
+INITIAL_STOCKING advances it to ACTIVE. A batch stocked through its creation-time initial locations stays
+QUARANTINE until someone updates its status, and it cannot be harvested until then.

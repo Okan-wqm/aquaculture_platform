@@ -30,6 +30,7 @@ from .memory import (
     decay_beliefs_by_head_distance,
     decay_beliefs_by_runtime_signals,
     decay_stale_beliefs_by_age,
+    record_experiment_reproduction_beliefs,
     update_memory,
 )
 from .observability import generate_observability_dashboard, record_cycle_metrics
@@ -1121,6 +1122,20 @@ def _phase_experiment_night(context: PhaseContext) -> dict[str, Any]:
         context.workspace_root,
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
+    )
+
+
+def _phase_experiment_beliefs(context: PhaseContext) -> dict[str, Any]:
+    """ARIA-MEDIUM-421 — tonight's reproductions become beliefs tonight.
+
+    Registered directly after `experiment_night`, which writes them. The
+    writer is memory.py's (İ1), and it takes every reproduction memory has not
+    answered yet, so a night that skipped this phase loses nothing.
+    """
+    return record_experiment_reproduction_beliefs(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        workspace_root=context.workspace_root,
     )
 
 
@@ -3533,7 +3548,18 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="experiment_night",
     ),
-    # G-4 — immediately after the bench, because the bench is what
+    # ARIA-MEDIUM-421 — directly after the bench, because the bench writes
+    # the reproductions this phase remembers. Inside `memory` (which runs
+    # before the bench) the writer never saw a night's own reproductions.
+    # WRITES_PERMITTED and standard-only like the bench: a shadow or burn-in
+    # night runs no bench, so it has nothing new to remember.
+    # record_and_continue like every bench organ.
+    CyclePhase(
+        "experiment_beliefs", "post_tool", _phase_experiment_beliefs,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="experiment_beliefs",
+    ),
+    # G-4 — right after the bench and its belief phase, because the bench is what
     # produces the evidence this phase reads: a regression detected
     # tonight is a verdict tonight, not tomorrow. WRITES_PERMITTED (the
     # existing closed-set member) because it appends the fourth

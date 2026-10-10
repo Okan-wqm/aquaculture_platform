@@ -66,4 +66,78 @@ idempotency key (`next_cycle_queue.py:180-190`), so the night added no new row.
   `pressure:migration-surface-repeat:repetition` from cycles 2026-09-19..10-07. A pressure that is
   genuinely new to a failed night would be overflow-blocked. That block is visible
   (`next_cycle_queue_overflow_blocked`), but no work gets queued. Draining or deduping the stale
-  rows is not in this PR's plan section; it is reported to `main` for registration.
+  rows is not in this PR's plan section. It is ARIA-MEDIUM-428 (stub to `main`, owner claude,
+  deadline 2026-10-24).
+
+## ARIA-MEDIUM-421 — an executed reproduction never became a belief
+
+### Symptom
+
+The archive's `experiments/observations.jsonl` holds 63 rows, and exactly one matched its
+contract with a red run: `exp-auto-f-020` → F-020, cycle `cyc-20261008T151306Z`, recorded
+15:56:12Z. `memory/beliefs.jsonl` (237 rows) holds no `finding-reproduced-*` belief. The
+experiment lane confirmed the finding (E21-c), but memory never learned it.
+
+### Evidence
+
+- `aria_kernel/memory.py:194` (base 2b8385600): `update_memory` calls the writer, so it runs in
+  the `memory` phase.
+- `aria_kernel/cycle.py:3381` and `:3516` (base): `memory` runs before `experiment_night`, which
+  writes the observations.
+- `aria_kernel/memory.py:1630` (base): the writer keeps only `row.cycle_id == cycle_id`.
+- That cycle's memory phase wrote its rows at 15:28:41Z, 27 minutes before the reproduction
+  existed. None of the 8 later cycles on the archive passes the filter.
+
+### Root cause
+
+The only reader of the bench's output ran before the bench, and it was keyed on "this cycle". The
+reproduction landed after the only reader that would ever look at it.
+
+### Fix (tier 1: the reader runs after the writer and cannot miss a row)
+
+- `memory.record_experiment_reproduction_beliefs` is the new post_tool phase
+  `experiment_beliefs`, registered directly after `experiment_night`. It is `WRITES_PERMITTED`,
+  standard-only and `record_and_continue`, like the bench. Belief writing stays in memory.py (İ1).
+  The frozen-profile gate `update_memory` applied (`enforce_profile_for_write("observation")`)
+  moves with it. `update_memory` no longer calls the writer.
+- The filter is now "a matched-red, finding-bound observation that memory has not answered yet",
+  keyed on the observation's `validation_run_id`. A belief row that cites the run
+  (`source_validation_run_id`, new optional field) answers it. So does an uncertainty row that
+  names why no belief could be written. A night whose job deadline skipped the phase loses
+  nothing. Each run is answered exactly once, and a new reproduction re-supports the belief.
+- The repo-evidence policy is asked before the write. A refusal (scope files gone from HEAD) is
+  recorded once as an uncertainty, so a backlog reader cannot fail the phase every night. The
+  observations ledger is now read strictly. An unreadable ledger fails the phase instead of
+  reading as "nothing reproduced".
+- The private `_record_experiment_reproduction_beliefs` stays the worker that the bridge tests
+  call. The public function adds the gate and the store root.
+- Tests: `tests/test_experiment_finding_bridge.py` replaces the test that pinned the defect
+  (`test_memory_leg_ignores_other_cycles_and_green_runs`) with three tests: an earlier cycle's
+  reproduction, exactly once plus re-support, and refusal answered once. All three fail on the
+  parent (0 ≠ 1; KeyError on the missing provenance; the GovernanceError escapes).
+  `tests/test_experiment_beliefs_phase.py` covers the table position, the same-night path through
+  the real phase runner, and the frozen gate. Its import fails on the parent: there is no phase.
+  The pins at `test_x2_experiment_author.py:194-201` and `test_change_outcome.py:395-406` are kept
+  (index order only).
+
+### Production evidence
+
+`record_experiment_reproduction_beliefs` was run for `cyc-20261010T080114Z` on a copy of the
+archive (workspace = this checkout, `ARIA_REPO_STATE_ROOT` = the archive's `findings/`). It wrote
+`finding-reproduced-f-020`:
+
+- `supported` / `verified`, confidence 0.755;
+- evidence `apps/alert-engine/src/rules-engine/safe-regex.util.ts`;
+- `source_validation_run_id` `vrun-34f42790552f93ae`.
+
+A second night wrote 0. No uncertainty was needed.
+
+### Not done here
+
+- An observation whose experiment row is missing, or whose experiment has no `finding_ref`, is
+  not a finding reproduction. It is passed over each night with no row written, as before.
+- If an operator has withdrawn the belief, `_record_belief` returns the withdrawn row unchanged.
+  That run is then re-read each night and counted in `beliefs_written`, a miscount that predates
+  this change. There are 0 such beliefs on the archive.
+- The plan's #1906 check (does it appear in change_outcome/reflection on the first cycle after
+  PR-7) can only be made on a live night. It stays with `main`.

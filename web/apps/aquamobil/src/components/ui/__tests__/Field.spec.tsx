@@ -46,6 +46,27 @@ describe('Field primitives', () => {
     expect(screen.getByLabelText('Notes').tagName).toBe('TEXTAREA');
   });
 
+  it('Input keeps a trailing control inside the field and clears room for it', () => {
+    const clear = vi.fn();
+    render(
+      <Input
+        label="Search conversations"
+        hideLabel
+        value="pen 4"
+        onChange={vi.fn()}
+        trailing={
+          <button type="button" onClick={clear}>
+            Clear search
+          </button>
+        }
+      />,
+    );
+    const control = screen.getByLabelText('Search conversations');
+    expect(control.className).toContain('pr-12');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+
   it('Switch is a named switch on the touch floor and reports the next state', () => {
     const onChange = vi.fn();
     render(<Switch label="Half Day" checked={false} onChange={onChange} />);

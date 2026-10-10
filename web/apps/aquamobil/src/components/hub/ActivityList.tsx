@@ -1,7 +1,8 @@
-import { clsx } from 'clsx';
 import type { LucideIcon } from 'lucide-react';
 import { Inbox } from 'lucide-react';
 import type { ReactElement } from 'react';
+
+import { EmptyState, ListRow, type RowTone } from '@/components/ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -10,8 +11,13 @@ import type { ReactElement } from 'react';
 interface ActivityItem {
   id: string;
   icon: LucideIcon;
-  iconColor: string; // Tailwind text color, e.g. "text-red-500"
-  iconBg: string; // Tailwind bg color, e.g. "bg-red-50 dark:bg-red-900/20"
+  /**
+   * The hue the icon tile wears. Log types (mortality, feeding, water …) carry
+   * their own colour; everything else takes a semantic tone. Replaces the
+   * free-form `iconColor`/`iconBg` class pair, which could name any palette in
+   * Tailwind and so could not be theme-correct.
+   */
+  tone?: RowTone;
   title: string;
   subtitle?: string;
   timestamp: string; // ISO 8601 date string
@@ -70,18 +76,8 @@ function LoadingSkeleton(): ReactElement {
   return (
     <div className="space-y-2" aria-busy="true" aria-label="Loading activity">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="h-14 rounded-xl skeleton" />
+        <div key={i} className="h-14 rounded-2xl skeleton" />
       ))}
-    </div>
-  );
-}
-
-/** Empty state -- icon + message, following the existing empty state pattern. */
-function EmptyState({ message }: { message: string }): ReactElement {
-  return (
-    <div className="text-center py-8 text-gray-400 dark:text-gray-500">
-      <Inbox size={36} className="mx-auto mb-2 opacity-30" />
-      <p className="text-sm font-medium">{message}</p>
     </div>
   );
 }
@@ -113,50 +109,33 @@ export function ActivityList({
 
   return (
     <section aria-label={title}>
-      <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
-        {title}
-      </h2>
+      <h2 className="text-body font-semibold text-ink-3 mb-2 px-1">{title}</h2>
 
       {isLoading ? (
         <LoadingSkeleton />
       ) : displayItems.length === 0 ? (
-        <EmptyState message={emptyMessage} />
+        <EmptyState icon={<Inbox size={22} />} title={emptyMessage} className="py-8" />
       ) : (
         <ul className="space-y-2">
           {displayItems.map((item) => {
             const Icon = item.icon;
             return (
-              <li
-                key={item.id}
-                className="bg-white dark:bg-gray-900 rounded-xl shadow-card border border-gray-100 dark:border-gray-800 p-3 flex items-center gap-3"
-              >
-                {/* WHY: Colored icon badge provides instant visual categorization
-                    (red = mortality, green = feeding, blue = water quality) without
-                    reading the text -- important for quick scanning. */}
-                <div
-                  className={clsx(
-                    'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0',
-                    item.iconBg,
-                  )}
-                >
-                  <Icon size={18} className={item.iconColor} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-                    {item.title}
-                  </p>
-                  {item.subtitle && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {item.subtitle}
-                    </p>
-                  )}
-                </div>
-                <time
-                  dateTime={item.timestamp}
-                  className="text-xs text-gray-400 dark:text-gray-500 tabular-nums flex-shrink-0"
-                >
-                  {formatRelativeTime(item.timestamp)}
-                </time>
+              <li key={item.id}>
+                {/* WHY: the tone'd icon tile provides instant visual
+                    categorization (coral = mortality, green = harvest, blue =
+                    water quality) without reading the text -- important for
+                    quick scanning. */}
+                <ListRow
+                  leading={<Icon size={18} />}
+                  tone={item.tone ?? 'neutral'}
+                  title={item.title}
+                  subtitle={item.subtitle}
+                  trailing={
+                    <time dateTime={item.timestamp} className="font-mono tabular-nums">
+                      {formatRelativeTime(item.timestamp)}
+                    </time>
+                  }
+                />
               </li>
             );
           })}

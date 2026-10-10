@@ -42,6 +42,7 @@ import {
 } from './operation-registry';
 
 import type { OperationPayload, OperationType } from '@/types';
+import { resolveRequestTenantId } from '@/utils/jwt-claims';
 import { logger } from '@/utils/logger';
 
 /**
@@ -57,6 +58,8 @@ const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' } as const;
  * Minimal refresh document — deliberately NOT a copy of useAuth's
  * REFRESH_MUTATION: the SW needs only the token and the tenant identity, so it
  * selects only those fields (a narrower selection is always schema-compatible).
+ * `user.tenantId` is only the fallback for a token without a tenant claim —
+ * see resolveRequestTenantId.
  * The `input.refreshToken` argument is an empty string by contract — the real
  * refresh token is the httpOnly cookie the request carries.
  */
@@ -102,8 +105,17 @@ async function refreshViaCookie(): Promise<SwAuthIdentity | null> {
       data?: { refreshToken?: { accessToken?: string; user?: { tenantId?: string | null } } };
     };
     const accessToken = result.data?.refreshToken?.accessToken;
-    const tenantId = result.data?.refreshToken?.user?.tenantId;
-    if (!accessToken || !tenantId) return null;
+    if (!accessToken) return null;
+    // MOB-MEDIUM-005: the drained tenant is decided by the SAME resolver as the
+    // foreground lane — the signed token's claim first; the response's
+    // `user.tenantId` copy (null for some sessions whose token carries the
+    // claim) only for a token without one. Reading the copy alone made
+    // Background Sync a silent no-op for exactly those sessions.
+    const tenantId = resolveRequestTenantId(
+      accessToken,
+      result.data?.refreshToken?.user?.tenantId,
+    );
+    if (tenantId === null) return null;
     return { accessToken, tenantId };
   } catch (error) {
     logger.warn('[sw-replay] cookie refresh failed — queue left for next foreground', error);

@@ -48,6 +48,174 @@
 
 import type { QueryRunner } from 'typeorm';
 
+import { MODULE_SCHEMAS } from './schema-manager.service';
+import { validateSqlIdentifier } from './sql-identifier.util';
+import { TENANT_AWARE_SCHEMAS } from './tenant-aware-schemas';
+
+/**
+ * The narrow runner surface the DDL pair helpers need: one statement at a
+ * time, and whether a transaction is open (``CREATE INDEX CONCURRENTLY``
+ * cannot run inside one). A real TypeORM QueryRunner satisfies this
+ * structurally, and tests record statements without any cast (the
+ * `as unknown as` pattern is banned).
+ */
+export interface SqlStatementRunner {
+  readonly isTransactionActive: boolean;
+  query(statement: string, parameters?: unknown[]): Promise<unknown>;
+}
+
+/**
+ * The column types the helper adds: a fixed vocabulary, optionally an array.
+ * There is no free-text SQL here — no NOT NULL, DEFAULT, REFERENCES or `;` can
+ * ride in a type — so the helper only ever adds a NULLABLE column: step 1 of
+ * the blue-green sequence (nullable column → backfill → NOT NULL) by
+ * construction, which migration-sql-lint's single-step NOT NULL rule (R2)
+ * therefore never has to see through.
+ */
+const COLUMN_TYPE_RE =
+  /^(?:uuid|text|boolean|smallint|integer|bigint|date|timestamptz|jsonb|numeric\(\d{1,3},\s?\d{1,3}\)|character varying\(\d{1,5}\)|char\(\d{1,5}\))(?:\[\])?$/;
+
+/** A column type from the allowlist, or an enum type by validated name. */
+export type MigrationColumnType = string | { readonly enumType: string };
+
+function columnTypeSql(type: MigrationColumnType): string {
+  if (typeof type === 'object') {
+    // Unqualified, like the table: search_path routes it per tenant.
+    return `"${validateSqlIdentifier(type.enumType, 'type')}"`;
+  }
+  if (!COLUMN_TYPE_RE.test(type)) {
+    throw new Error(
+      `addColumnWithIndex: column type ${JSON.stringify(type)} is not in the helper's vocabulary ` +
+        '(a nullable column of a known type only; NOT NULL / DEFAULT / REFERENCES belong to a later step)',
+    );
+  }
+  return type;
+}
+
+/**
+ * The qualified target, refused when `schema` would pin a PER-TENANT table to
+ * its source schema. Tenant provisioning replays migrations with search_path
+ * pinned to the tenant; only unqualified DDL follows it, and
+ * tenant-aware-migration-ddl-guard can only see a literal `"schema"."table"`
+ * in migration text — not one the helper builds. So the helper refuses it: in
+ * a tenant-aware source schema, only the module's `infrastructureTables`
+ * (cross-tenant by declaration) may be named with their schema.
+ */
+function qualifiedTarget(
+  table: string,
+  schema: string | undefined,
+): { target: string; schema?: string } {
+  if (schema === undefined) {
+    return { target: `"${table}"` };
+  }
+  const safeSchema = validateSqlIdentifier(schema, 'schema');
+  if (TENANT_AWARE_SCHEMAS.has(safeSchema)) {
+    const infrastructure = MODULE_SCHEMAS.filter(
+      (module) => module.sourceSchema === safeSchema,
+    ).flatMap((module) => module.infrastructureTables ?? []);
+    if (!infrastructure.includes(table)) {
+      throw new Error(
+        `addColumnWithIndex: "${safeSchema}"."${table}" is a per-tenant table in a tenant-aware schema; ` +
+          'leave it unqualified so tenant provisioning routes it (only MODULE_SCHEMAS infrastructureTables take a schema)',
+      );
+    }
+  }
+  return { target: `"${safeSchema}"."${table}"`, schema: safeSchema };
+}
+
+export interface AddColumnWithIndexOptions {
+  /** Unqualified table name (search_path routes it) unless `schema` is set. */
+  table: string;
+  /** The column being added — always NULLABLE. */
+  column: string;
+  /** A type from the helper's vocabulary, or `{ enumType }`. */
+  columnType: MigrationColumnType;
+  /** Convention: IDX_<table>_<cols>. */
+  indexName: string;
+  /** Index columns; defaults to the added column. Order is preserved. */
+  indexColumns?: string[];
+  /**
+   * Explicit schema — only for cross-tenant infrastructure tables
+   * (MODULE_SCHEMAS `infrastructureTables`) or a platform service's own
+   * schema. A per-tenant table in a tenant-aware schema is refused.
+   */
+  schema?: string;
+  /**
+   * `CREATE INDEX CONCURRENTLY`, for a table large enough that the
+   * write lock matters. Requires a runner with no open transaction (set
+   * `transaction = false` on the migration); refused otherwise. Without it
+   * the index build locks writes, which is meant for small tables only.
+   */
+  concurrently?: boolean;
+}
+
+/**
+ * DEBT-2026-05-07-001 — the shared add-column-then-index pair.
+ *
+ * The TypeORM generator copies the idempotent `ADD COLUMN IF NOT
+ * EXISTS` + `CREATE INDEX IF NOT EXISTS` boilerplate verbatim into
+ * every service migration; the pairs drifted and the maintenance cost
+ * multiplied. One helper enforces the contract: both halves guarded,
+ * identifiers validated and quoted, a NULLABLE column of an allowlisted
+ * type, unqualified DDL by default (tenant search_path routing), and a
+ * schema only where the table is cross-tenant by declaration.
+ */
+export async function addColumnWithIndex(
+  queryRunner: SqlStatementRunner,
+  options: AddColumnWithIndexOptions,
+): Promise<void> {
+  const table = validateSqlIdentifier(options.table, 'table');
+  const column = validateSqlIdentifier(options.column, 'column');
+  const indexName = validateSqlIdentifier(options.indexName, 'index');
+  const indexColumns = (options.indexColumns ?? [options.column]).map((c) =>
+    validateSqlIdentifier(c, 'column'),
+  );
+  const type = columnTypeSql(options.columnType);
+  const { target } = qualifiedTarget(table, options.schema);
+  if (options.concurrently === true && queryRunner.isTransactionActive) {
+    throw new Error(
+      'addColumnWithIndex: CREATE INDEX CONCURRENTLY cannot run inside a transaction ' +
+        '(declare `transaction = false` on the migration)',
+    );
+  }
+  await queryRunner.query(`ALTER TABLE ${target} ADD COLUMN IF NOT EXISTS "${column}" ${type}`);
+  await queryRunner.query(
+    `CREATE INDEX ${options.concurrently === true ? 'CONCURRENTLY ' : ''}IF NOT EXISTS "${indexName}" ON ${target} (${indexColumns
+      .map((c) => `"${c}"`)
+      .join(', ')})`,
+  );
+}
+
+export interface DropColumnWithIndexOptions {
+  table: string;
+  column: string;
+  indexName: string;
+  schema?: string;
+}
+
+/**
+ * The down() counterpart of addColumnWithIndex — the guarded drop pair in
+ * reverse order (index first, then the column it reads), qualified exactly as
+ * the create was (an index lives in its table's schema).
+ *
+ * Use it only in the down() of a migration whose up() ADDED this column with
+ * addColumnWithIndex: `ADD COLUMN IF NOT EXISTS` is a no-op for a column that
+ * already existed, but this drop is not — it would remove a column the
+ * migration never created.
+ */
+export async function dropColumnWithIndex(
+  queryRunner: SqlStatementRunner,
+  options: DropColumnWithIndexOptions,
+): Promise<void> {
+  const table = validateSqlIdentifier(options.table, 'table');
+  const column = validateSqlIdentifier(options.column, 'column');
+  const indexName = validateSqlIdentifier(options.indexName, 'index');
+  const { target, schema } = qualifiedTarget(table, options.schema);
+  const index = schema === undefined ? `"${indexName}"` : `"${schema}"."${indexName}"`;
+  await queryRunner.query(`DROP INDEX IF EXISTS ${index}`);
+  await queryRunner.query(`ALTER TABLE ${target} DROP COLUMN IF EXISTS "${column}"`);
+}
+
 /**
  * Returns true when the given column exists on the given table in the
  * current schema (per `current_schema()`). Use to guard ALTER COLUMN /
@@ -84,10 +252,7 @@ export async function columnExists(
  * @param queryRunner active migration QueryRunner
  * @param table       unqualified table name
  */
-export async function tableExists(
-  queryRunner: QueryRunner,
-  table: string,
-): Promise<boolean> {
+export async function tableExists(queryRunner: QueryRunner, table: string): Promise<boolean> {
   const rows: Array<{ exists: boolean }> = await queryRunner.query(
     `SELECT EXISTS (
        SELECT 1 FROM information_schema.tables

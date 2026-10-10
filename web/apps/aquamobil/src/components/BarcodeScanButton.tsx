@@ -29,7 +29,11 @@ function getBarcodeDetectorCtor(): BarcodeDetectorConstructor | null {
 
 const DETECT_INTERVAL_MS = 300;
 
-export function BarcodeScanButton({ onScan }: { onScan: (value: string) => void }): ReactElement | null {
+export function BarcodeScanButton({
+  onScan,
+}: {
+  onScan: (value: string) => void;
+}): ReactElement | null {
   const [isScanning, setIsScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -94,7 +98,7 @@ export function BarcodeScanButton({ onScan }: { onScan: (value: string) => void 
         type="button"
         onClick={() => void startScanning()}
         aria-label="Scan barcode"
-        className="min-h-touch min-w-touch flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-teal-600 touch-feedback"
+        className="min-h-touch min-w-touch flex items-center justify-center rounded-xl border border-line bg-surface-1 text-acc touch-feedback"
       >
         <ScanLine size={20} />
       </button>
@@ -107,12 +111,18 @@ export function BarcodeScanButton({ onScan }: { onScan: (value: string) => void 
                 honestly instead of suppressing the rule. */}
             <track kind="captions" />
           </video>
-          <p className="text-white text-sm font-medium mt-4">Point the camera at a barcode or QR code</p>
+          {/* WHY plain white here and not `text-ink-1`: the ink ramp is defined
+              against the app's surfaces, and this text sits on a live camera
+              feed behind a near-opaque black scrim. White-on-scrim is legible in
+              all three themes precisely because it does NOT follow them. */}
+          <p className="text-media text-body font-medium mt-4">
+            Point the camera at a barcode or QR code
+          </p>
           <button
             type="button"
             onClick={stopScanning}
             aria-label="Cancel scan"
-            className="mt-4 min-h-touch px-6 flex items-center gap-2 rounded-xl bg-white/15 dark:bg-gray-900/15 text-white font-semibold touch-feedback"
+            className="mt-4 min-h-touch px-6 flex items-center gap-2 rounded-xl bg-media/15 text-media font-semibold touch-feedback"
           >
             <X size={18} />
             Cancel

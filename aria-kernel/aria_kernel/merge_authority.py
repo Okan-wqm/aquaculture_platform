@@ -12,7 +12,6 @@ from .auto_merge import (
     evaluate_auto_merge,
     human_merge_decision,
     merge_outcome,
-    record_pr_lifecycle,
 )
 from .autonomous_host_lease import release_remote_cas_lease
 from .autonomy_unlock import assert_autonomy_unlocked
@@ -25,6 +24,7 @@ from .incident_ledger import (
 )
 from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .merge_lane_merge_state import route_unmergeable_merge_state
+from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, record_merge
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
@@ -37,6 +37,7 @@ from .runtime_profile import (
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 from .self_merge_freeze import assert_self_merge_not_frozen
+from .system_one_points import shadow_merge
 from .watchdog_freeze import assert_merge_not_watchdog_frozen
 
 
@@ -314,6 +315,9 @@ def merge_pr_if_ready(
                     )
                     _append_decision(base_dir, result)
                 else:
+                    # ARIA-LOW-319 — System One J0, SHADOW: one row per Closes:
+                    # trailer x changed file at the moment of merge; it decides nothing.
+                    shadow_merge(base_dir=base_dir, workspace_root=workspace_root, pr=fresh_pr, diff_text=fresh_diff)
                     # ARIA-HIGH-219 — mutual exclusion is taken HERE, at the
                     # point of merge, after every gate and the perimeter have
                     # passed: one writer per target ref for the span of one
@@ -465,7 +469,11 @@ def _record_merge_result(
             merge_result=merge_result,
             base_dir=base_dir,
         )
-        record_pr_lifecycle(fresh_pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
+        # ARIA-HIGH-390 — the one writer of "merged" (`merge_record`).
+        # It merged at the head it checked: the one writer of `delivered`
+        # without a classification (review of #1910, N4).
+        record_merge(pr=fresh_pr, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir, cycle_id=cycle_id,
+                     head_lineage=LINEAGE_DELIVERED)
         return result
     if merge_result.get("enqueued") is True:
         result.update({"decision": "enqueued", "eligible": True})
@@ -553,7 +561,10 @@ def reconcile_enqueued_merges(
                 merge_result=row["merge_result"],
                 base_dir=base_dir,
             )
-            record_pr_lifecycle(pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
+            # Review of #1910, F9 — the queue entry names the PR; a payload
+            # missing its number never loses the merged row.
+            record_merge(pr={**pr, "number": number}, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir,
+                         cycle_id=cycle_id, head_lineage=LINEAGE_DELIVERED)
         else:
             observed = str(state.get("state") or "")
             if state.get("head_sha") != head_sha:

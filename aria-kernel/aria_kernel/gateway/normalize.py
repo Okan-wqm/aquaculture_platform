@@ -97,7 +97,8 @@ def normalize_github(event_name: str, delivery_id: str, payload: Mapping[str, An
         run = payload.get("workflow_run") or {}
         return _event(
             "github.workflow_run_failed", delivery_id, "github", occurred_at=run.get("updated_at"), actor=sender, payload=payload,
-            subject={"repo": repo, "run_id": run.get("id"), "workflow": run.get("name"), "head_sha": run.get("head_sha"),
+            subject={"repo": repo, "run_id": run.get("id"), "workflow": run.get("name"), "workflow_path": run.get("path"),
+                     "head_sha": run.get("head_sha"),
                      "head_branch": run.get("head_branch"), "conclusion": run.get("conclusion"), "url": run.get("html_url")},
         )
     return None

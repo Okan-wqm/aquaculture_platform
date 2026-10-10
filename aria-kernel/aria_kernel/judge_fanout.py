@@ -25,6 +25,7 @@ from .ledger import load_segments
 from .must_satisfy import must_satisfy_item, product_defect_obligation, rule_premise_obligation
 from .request_admission import Admission, admit_request
 from .rule_contract import RuleContract, resolve_rule_contract
+from .system_one_points import shadow_judge_fanout
 from .tool_registry import ensure_tools_dir
 
 
@@ -363,6 +364,11 @@ def dispatch_judges_for_sample(
             existing.add((group, agent))
             if max_pending_per_role is not None:
                 pending[role] = pending.get(role, 0) + 1
+    # ARIA-LOW-319 — System One, SHADOW: each judge_fanout question (J1 per rule
+    # family) about every finding minted here; recorded, read by nothing.
+    groups = {row["judgment_group_id"] for row in minted}
+    shadow_judge_fanout(base_dir=root, repo_root=repo_root,
+                        items=[item for item in items if isinstance(item, dict) and _group_id(item) in groups])
     return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}
 
 

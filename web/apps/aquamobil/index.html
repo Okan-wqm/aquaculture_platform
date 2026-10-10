@@ -1,29 +1,33 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <!-- Dark mode flash prevention: synchronously applies the stored theme
-         preference before any CSS is parsed, preventing a visible flash of
-         the wrong theme. This MUST be inline and synchronous -- external
-         scripts load asynchronously and would cause FOUC (Flash of Unstyled Content). -->
-    <script>
-      (function() {
-        var pref = localStorage.getItem('aquamobil_dark_mode') || 'system';
-        var isDark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (isDark) document.documentElement.classList.add('dark');
-        var themeMeta = document.querySelector('meta[name="theme-color"]');
-        if (themeMeta) themeMeta.setAttribute('content', themeMeta.getAttribute(isDark ? 'data-theme-color-dark' : 'data-theme-color-light'));
-      })();
-    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/icons/icon-192x192.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
 
     <!-- PWA Meta Tags -->
-    <!-- WHY placeholders and two data attributes: vite.config.ts fills them from
-         the Tailwind palette (ocean-600, gray-950), and the pre-paint script above
-         and useDarkMode read the light/dark chrome colours from this tag, so the
-         brand is recorded once, in tailwind.config.js. -->
-    <meta name="theme-color" content="%THEME_COLOR_LIGHT%" data-theme-color-light="%THEME_COLOR_LIGHT%" data-theme-color-dark="%THEME_COLOR_DARK%" />
+    <!-- WHY placeholders and one data attribute per theme: vite.config.ts fills
+         them from each theme's --bg-solid in src/styles/tokens.css, and the
+         pre-paint script below and useTheme read the colour for the active
+         theme from this tag, so a theme's ground is recorded once. -->
+    <meta
+      name="theme-color"
+      content="%THEME_COLOR_NIGHT%"
+      data-theme-color-night="%THEME_COLOR_NIGHT%"
+      data-theme-color-day="%THEME_COLOR_DAY%"
+      data-theme-color-colour="%THEME_COLOR_COLOUR%"
+    />
+    <!-- Theme + density pre-paint. EXTERNAL and same-origin ON PURPOSE:
+         production nginx serves `script-src 'self'` with no 'unsafe-inline'
+         (D14-SC-02), so an inline script here is blocked in production and the
+         whole theme + touch-density layer silently never applies. Blocking
+         <script src> keeps it ahead of first paint. Logic lives in
+         public/theme-init.js; keep it in step with useTheme/useDensity. It sits
+         after the theme-color tag so it can set that tag's colour. -->
+    <script src="/mobile/theme-init.js"></script>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

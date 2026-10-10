@@ -57,13 +57,8 @@ function countOccurrences(pattern: RegExp): number {
   return count;
 }
 
-/**
- * RATCHET BASELINE for 10–11px arbitrary text (86 at introduction, 2026-07-12
- * — badge counters, KPI sublabels, tab captions). Shrink freely; never grow.
- * If you legitimately reduced occurrences, lower this number in the same
- * commit. Adding a new sub-12px label is a failing build by design.
- */
-const TINY_TEXT_BASELINE = 86;
+/** Both spellings of the sub-12px sizes the ban below covers. */
+const TINY_TEXT_PATTERN = /text-\[1[01]px\]|\btext-(?:micro|caption)\b/g;
 
 describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
   it('declares the 44px touch spacing token in the Tailwind config', () => {
@@ -72,10 +67,7 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
   });
 
   it('shared header icon buttons carry the touch floor', () => {
-    for (const component of [
-      'components/NotificationBell.tsx',
-      'components/AlertsBell.tsx',
-    ]) {
+    for (const component of ['components/NotificationBell.tsx', 'components/AlertsBell.tsx']) {
       const source = readFileSync(join(SRC_DIR, component), 'utf8');
       expect(source, `${component} lost its touch floor`).toContain('min-h-touch');
       expect(source, `${component} lost its touch floor`).toContain('min-w-touch');
@@ -93,13 +85,23 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
     expect(countOccurrences(/text-white\/(?:[1-6][0-9]|7[0-4])\b/g)).toBe(0);
   });
 
-  it('ratchets 10–11px arbitrary text — shrink only, never grow', () => {
-    const current = countOccurrences(/text-\[1[01]px\]/g);
+  it('BANS 10–11px text outright, in both spellings', () => {
+    // HISTORY: this began as a shrink-only ratchet frozen at 86 (badge counters,
+    // KPI sublabels, tab captions) while the v4 conversion ran. The count reached
+    // ZERO, so the gate is promoted from "never grow" to "never" — Tier 3 becomes
+    // Tier 1. There is no sub-12px text left in the app and no way to add any.
+    //
+    // It counts BOTH spellings: the arbitrary text-[10px]/text-[11px] AND the
+    // named text-micro/text-caption steps in tailwind.config.js. Naming a size
+    // does not make it readable at arm's length in sunlight, so the gate measures
+    // rendered size, not spelling.
+    const current = countOccurrences(TINY_TEXT_PATTERN);
     expect(
       current,
-      `text-[10px]/text-[11px] occurrences grew from the frozen baseline (${TINY_TEXT_BASELINE}). ` +
-        'Use text-xs (12px) or larger for new labels — sunlight readability floor.',
-    ).toBeLessThanOrEqual(TINY_TEXT_BASELINE);
+      'sub-12px text is banned. This counts text-[10px]/text-[11px] AND the named ' +
+        'text-micro/text-caption steps — renaming a size does not make it readable at ' +
+        "arm's length in sunlight. Use text-meta (12px) or larger.",
+    ).toBe(0);
   });
 
   it('ships the IconButton touch-floor primitive with the 44px floor baked in', () => {
@@ -145,35 +147,51 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
       const source = readFileSync(file, 'utf8');
       for (const match of source.matchAll(ICON_ONLY)) {
         if (!/aria-label/.test(match[1] ?? '')) {
-          offenders.push(`${file.replace(SRC_DIR, 'src')}:${source.slice(0, match.index).split('\n').length}`);
+          offenders.push(
+            `${file.replace(SRC_DIR, 'src')}:${source.slice(0, match.index).split('\n').length}`,
+          );
         }
       }
     }
-    expect(offenders, `icon-only buttons with no accessible name — use IconButton with aria-label:\n${offenders.join('\n')}`).toEqual([]);
+    expect(
+      offenders,
+      `icon-only buttons with no accessible name — use IconButton with aria-label:\n${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 
-  it('has one component vocabulary — no konsta import, no global !important focus rule, gray-400 assigned per theme', () => {
+  it('has one component vocabulary — no konsta import, no global !important focus rule, tertiary ink assigned per theme', () => {
     // FE-MEDIUM-091: Konsta survived in 8 files beside 62 hand-rolled files (two
     // vocabularies on one screen, a postinstall patch of node_modules to keep it
     // importable); a global input:focus !important rule outranked every field
     // state; gray-400 was Tailwind's #9ca3af (2.85:1) in 355 uses of body copy.
-    const konstaImports = walkSources(SRC_DIR).filter((file) => /from ['"]konsta/.test(readFileSync(file, 'utf8')));
+    // v4: body copy is the tertiary ink token, assigned per theme in tokens.css,
+    // and the design-token invariant bans the stock gray ramps outright, so the
+    // per-theme gray-400 override has nothing left to override.
+    const konstaImports = walkSources(SRC_DIR).filter((file) =>
+      /from ['"]konsta/.test(readFileSync(file, 'utf8')),
+    );
     expect(konstaImports.map((file) => file.replace(SRC_DIR, 'src'))).toEqual([]);
     // Specs stubbed the kit too; a stub of a package nobody imports is dead
     // weight that keeps the old vocabulary in the tree.
-    const konstaMocks = walkSpecs(SRC_DIR).filter((file) => /vi\.mock\(['"]konsta/.test(readFileSync(file, 'utf8')));
+    const konstaMocks = walkSpecs(SRC_DIR).filter((file) =>
+      /vi\.mock\(['"]konsta/.test(readFileSync(file, 'utf8')),
+    );
     expect(konstaMocks.map((file) => file.replace(SRC_DIR, 'src'))).toEqual([]);
     expect(readFileSync(join(APP_DIR, 'vite.config.ts'), 'utf8')).not.toContain('konsta');
-    expect(readFileSync(join(APP_DIR, '../../../infrastructure/docker/Dockerfile.aquamobil'), 'utf8')).not.toContain('konsta');
+    expect(
+      readFileSync(join(APP_DIR, '../../../infrastructure/docker/Dockerfile.aquamobil'), 'utf8'),
+    ).not.toContain('konsta');
     const pkg = readFileSync(join(APP_DIR, 'package.json'), 'utf8');
     expect(pkg).not.toContain('"konsta"');
     expect(pkg).not.toContain('patch-konsta');
     const css = readFileSync(join(SRC_DIR, 'styles/main.css'), 'utf8');
     expect(css).not.toMatch(/:focus[^{]*\{[^}]*!important/);
-    expect(css).toMatch(/:root\s*\{[^}]*--am-gray-400:\s*107 114 128/);
-    expect(css).toMatch(/\.dark\s*\{[^}]*--am-gray-400:\s*156 163 175/);
+    const tokens = readFileSync(join(SRC_DIR, 'styles/tokens.css'), 'utf8');
+    for (const theme of ['night', 'day', 'colour']) {
+      expect(tokens).toMatch(new RegExp(`\\[data-theme='${theme}'\\]\\s*\\{[^}]*--ink3:`));
+    }
     const config = readFileSync(join(APP_DIR, 'tailwind.config.js'), 'utf8');
-    expect(config).toContain("400: 'rgb(var(--am-gray-400) / <alpha-value>)'");
+    expect(config).not.toMatch(/\bgray:\s*\{/);
     expect(config).not.toContain('konsta');
   });
 
@@ -184,7 +202,9 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
     const config = readFileSync(join(APP_DIR, 'tailwind.config.js'), 'utf8');
     expect(config).toMatch(/nav: 'calc\(4rem \+ env\(safe-area-inset-bottom\)\)'/);
     expect(config).toMatch(/'nav-gap': 'calc\(5\.5rem \+ env\(safe-area-inset-bottom\)\)'/);
-    expect(config).toMatch(/'screen-nav': 'calc\(100dvh - 5\.5rem - env\(safe-area-inset-bottom\)\)'/);
+    expect(config).toMatch(
+      /'screen-nav': 'calc\(100dvh - 5\.5rem - env\(safe-area-inset-bottom\)\)'/,
+    );
 
     const layout = readFileSync(join(SRC_DIR, 'layouts/MobileLayout.tsx'), 'utf8');
     expect(layout).toContain('pb-nav-gap');
@@ -197,9 +217,13 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
       const rel = file.replace(SRC_DIR, 'src');
       if (/className="h-2[04]"\s*\/>/.test(source)) offenders.push(`${rel}: spacer div`);
       if (/\bpb-2[48]\b/.test(source)) offenders.push(`${rel}: pb-24/pb-28`);
-      if (/className="[^"]*\bfixed\b[^"]*\bbottom-(?:16|20|24|28)\b/.test(source)) offenders.push(`${rel}: fixed bottom-N`);
-      if (/(?<![-\w])h-screen(?![-\w])/.test(source)) offenders.push(`${rel}: h-screen (h-screen-nav ends above the tab bar)`);
+      if (/className="[^"]*\bfixed\b[^"]*\bbottom-(?:16|20|24|28)\b/.test(source))
+        offenders.push(`${rel}: fixed bottom-N`);
+      if (/(?<![-\w])h-screen(?![-\w])/.test(source))
+        offenders.push(`${rel}: h-screen (h-screen-nav ends above the tab bar)`);
     }
-    expect(offenders, `nav clearance belongs to MobileLayout:\n${offenders.join('\n')}`).toEqual([]);
+    expect(offenders, `nav clearance belongs to MobileLayout:\n${offenders.join('\n')}`).toEqual(
+      [],
+    );
   });
 });

@@ -112,7 +112,7 @@ def _seed(root: Path, source_type: str, finding_id: str, surfaces: list[str]) ->
 
 def _body(seed: dict, surfaces: list[str], **extra: object) -> dict:
     return dict(seed, affected_surfaces=surfaces, architectural_tier=2, summary="revised",
-                key_changes=[{"id": "kc-1", "description": "fix the drift", "paths": surfaces}], **extra)
+                key_changes=[{"id": "kc-1", "description": "fix the drift", "paths": surfaces, "imports": []}], **extra)
 
 
 class _ScopeBoundFixture(unittest.TestCase):
@@ -197,7 +197,7 @@ class RevisionScopeBoundTests(_ScopeBoundFixture):
         self.assertEqual(self._refusals(), [{"plan_id": plan_id, "stage": "plan_submission",
                                              "offending_paths": offending}])
         # A path only a key change names is a path the body names.
-        hidden = dict(_body(seed, [FARM]), key_changes=[{"id": "kc-1", "description": "d", "paths": [AUTH]}])
+        hidden = dict(_body(seed, [FARM]), key_changes=[{"id": "kc-1", "description": "d", "paths": [AUTH], "imports": []}])
         with self.assertRaisesRegex(GovernanceError, REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE):
             self._revise(plan_id, hidden)
         self.assertEqual(plan_status(plan_id=plan_id, base_dir=self.tools)["state"], "CRITIQUED")
@@ -271,7 +271,7 @@ class ImplementationScopeNeverExceedsTheBoundTests(unittest.TestCase):
             plan_content=converging_plan_content(
                 "Bounded plan", finding_id="F-007",
                 affected_surfaces=[{"paths": [FARM, "aria-kernel/aria_kernel/cli.py"]}],
-                key_changes=[{"id": "kc-1", "description": "fix", "paths": [FARM]}],
+                key_changes=[{"id": "kc-1", "description": "fix", "paths": [FARM], "imports": []}],
             ),
         )
         self.scope = fold_plan_state(plan_id="plan-impl", base_dir=self.tools)["plan_started"]["admission_scope"]

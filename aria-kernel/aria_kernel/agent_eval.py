@@ -59,6 +59,7 @@ from .failure_attribution import (
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
+from .merge_record import attested_plan_lineages, fold_lineage, lineage_credits_aria
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -928,7 +929,11 @@ def _performance_episodes(
     drafters: dict[str, str] = {}
     implementers: dict[str, str] = {}
     converged_episodes: dict[str, dict[str, Any]] = {}
+    rejected_episodes: dict[str, dict[str, Any]] = {}
     episodes: list[dict[str, Any]] = []
+    # ARIA-HIGH-409 — a merge recorded without a lineage is credited by its
+    # later attestation; the episode is still the merge event's, one per merge.
+    attested = attested_plan_lineages(events)
     for event in events:
         plan_id, kind, payload = str(event["plan_id"]), event["event_type"], event["payload"]
         source = {"surface": "plan_convergence_events", "id": str(event["event_id"])}
@@ -962,12 +967,24 @@ def _performance_episodes(
             episodes.append(_episode("drafter", drafter, plan_id, source, at, "abandoned", reason))
         elif kind == "implementation_rejected":
             rejection = str(payload["rejection_class"])
-            episodes.append(_episode(
+            rejected = _episode(
                 "implementer", implementers[plan_id], plan_id, source, at, "rejected", rejection,
                 attribution=attribute_implementation_failure(rejection, implementer=implementers[plan_id]),
-            ))
+            )
+            rejected_episodes[plan_id] = rejected
+            episodes.append(rejected)
         elif kind == "implementation_merged":
-            merged = _episode("implementer", implementers[plan_id], plan_id, source, at, "merged", None)
+            # Review of #1910, N5 — a merge whose head is not ARIA's change (a
+            # person's commits, an unread head, a backfilled row) folds the
+            # plan MERGED but is no implementer's merged episode.
+            if not lineage_credits_aria(fold_lineage(payload.get("head_lineage"), attested.get(plan_id))):
+                continue
+            # ARIA-HIGH-390 (review of #1910, F6) — a person merged the PR of a
+            # plan the kernel had ended: the merge supersedes the rejection,
+            # so the implementer is not scored both ways for one change.
+            prior = rejected_episodes.pop(plan_id, None) if payload.get("merged_after_rejection") else None
+            merged = _episode("implementer", implementers[plan_id], plan_id, source, at, "merged", None,
+                              supersedes=prior["episode_id"] if prior else None)
             episodes.append(merged)
             revert = reverts.get(str(payload["merge_sha"]))
             if revert is not None:

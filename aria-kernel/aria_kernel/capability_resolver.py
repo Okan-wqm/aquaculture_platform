@@ -10,6 +10,56 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 CapabilityDecision = Literal["reuse", "extend", "request", "reject_duplicate"]
 
+#: The capability every service-hardening mission carries
+#: (``cycle._phase_service_mission_seed`` mints it for each service).
+SERVICE_HARDENING_CAPABILITY = "service_hardening"
+#: Capabilities the KERNEL provides itself. A mission carrying one needs no
+#: capability-resolution ledger row: the kernel that mints the mission is the
+#: one that implements it, so the declaration here is its standing
+#: resolution. The set is closed and lives beside the resolver — the one
+#: place a mission step's capability is decided — so neither the minter nor
+#: the mission gate holds a copy or an exemption of its own.
+KERNEL_NATIVE_CAPABILITIES: frozenset[str] = frozenset({SERVICE_HARDENING_CAPABILITY})
+#: Ledger decisions that let a mission step proceed: reuse (the capability
+#: exists), extend / request (it is being built on a tracked lane).
+#: ``reject_duplicate`` does not.
+MISSION_ACCEPTED_DECISIONS: frozenset[str] = frozenset({"reuse", "extend", "request"})
+
+
+def mission_capability_resolution(
+    *,
+    capability_key: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """The resolution a mission needs before it may enter IMPLEMENTING, or a GovernanceError.
+
+    A kernel-native capability resolves by declaration
+    (:data:`KERNEL_NATIVE_CAPABILITIES`); any other capability needs an
+    accepted ledger decision for it as a skill or as an agent.
+    """
+    if capability_key in KERNEL_NATIVE_CAPABILITIES:
+        return {
+            "capability_key": capability_key,
+            "decision": "reuse",
+            "source": "kernel_native_declaration",
+        }
+    reasons: list[str] = []
+    for requested_kind in ("skill", "agent"):
+        try:
+            return require_capability_resolution(
+                capability_key=capability_key,
+                requested_kind=requested_kind,
+                allowed_decisions=set(MISSION_ACCEPTED_DECISIONS),
+                base_dir=base_dir,
+            )
+        except GovernanceError as exc:
+            reasons.append(f"{requested_kind}: {exc}")
+    raise GovernanceError(
+        "capability_resolution_required_for_mission_step: "
+        f"capability={capability_key!r} has no accepted decision in "
+        f"capability-resolution/decisions.jsonl ({'; '.join(reasons)})"
+    )
+
 
 def resolve_capability(
     *,

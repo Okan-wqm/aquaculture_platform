@@ -70,7 +70,11 @@ vi.mock('@/services/authenticated-fetch', () => ({
 // error under strict mode. Declaring the rest parameter makes mock.calls a
 // variadic tuple, so reading the second argument typechecks.
 const getTokenSpy = vi.fn((..._args: unknown[]) => Promise.resolve('fcm-token-123'));
-const onMessageSpy = vi.fn((..._args: unknown[]) => () => undefined);
+const onMessageSpy = vi.fn(
+  (..._args: unknown[]) =>
+    () =>
+      undefined,
+);
 
 vi.mock('firebase/app', () => ({
   initializeApp: vi.fn(() => ({ name: 'app' })),

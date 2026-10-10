@@ -90,7 +90,7 @@ class ImplementerMergeSeamTests(unittest.TestCase):
             plan_content=converging_plan_content(
                 "ARIA-HIGH-104 seam plan",
                 affected_surfaces=[{"paths": [SOURCE]}],
-                key_changes=[{"id": "kc-1", "description": KEY_CHANGE_TEXT, "paths": [SOURCE]}],
+                key_changes=[{"id": "kc-1", "description": KEY_CHANGE_TEXT, "paths": [SOURCE], "imports": []}],
                 evidence_refs=[SOURCE],
                 finding_id=FINDING,
             ),

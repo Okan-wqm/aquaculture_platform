@@ -408,7 +408,13 @@ def assert_reacts_to_scenarios() -> dict[str, Any]:
     """Seed synthetic stimuli and assert ARIA's documented reactions."""
     from datetime import datetime, timedelta, timezone
     from aria_kernel.tool_registry import ensure_tools_dir
-    from aria_kernel.memory import append_jsonl as mem_append, decay_stale_beliefs_by_age, latest_beliefs, load_jsonl
+    from aria_kernel.memory import (
+        append_jsonl as mem_append,
+        decay_beliefs_by_runtime_signals,
+        decay_stale_beliefs_by_age,
+        latest_beliefs,
+        load_jsonl,
+    )
     from aria_kernel.feedback_store import _consensus_uncertainty
     from aria_kernel.human_required import sweep_consensus_uncertainties_for_human_required
     from aria_kernel.runtime_signal_bridge import ingest_runtime_signal
@@ -450,6 +456,24 @@ def assert_reacts_to_scenarios() -> dict[str, Any]:
         rt = [p for p in pressure["pressures"] if p["source"] == "runtime_signal"]
         checks.append({"scenario": "runtime_signal_becomes_pressure",
                        "passed": len(rt) == 1 and "UNVERIFIED" in rt[0]["recommended_action"]})
+
+        # Scenario 4 (ARIA-MEDIUM-393) — an open runtime signal referencing a
+        # supported belief's evidence must re-open the belief: the world moved
+        # with no local diff.
+        mem_append(tools / "memory" / "beliefs.jsonl", {
+            "schema_version": 2, "belief_id": "b-signal", "claim": "y holds", "confidence": 0.9,
+            "status": "supported", "evidence_refs": ["src/a.ts:1"], "needs_revalidation_cycles": 0,
+            "verified_at": old, "recorded_at": old, "updated_at": old,
+            "first_seen_cycle": "c0", "support_count": 1,
+        })
+        ingest_runtime_signal(source="incident", service="farm-service", summary="feed stall",
+                              code_refs=["src/a.ts"], base_dir=tools)
+        event_decay = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=tools)
+        reopened = next((b for b in latest_beliefs(load_jsonl(tools / "memory" / "beliefs.jsonl"))
+                         if b.get("belief_id") == "b-signal"), {})
+        checks.append({"scenario": "runtime_signal_reopens_belief",
+                       "passed": (event_decay["decayed_count"] == 1
+                                  and reopened.get("status") == "needs_revalidation")})
 
     return {"check": "scenario_reactions", "passed": all(c["passed"] for c in checks),
             "scenarios": checks}

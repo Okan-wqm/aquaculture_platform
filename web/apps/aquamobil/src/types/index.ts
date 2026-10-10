@@ -101,9 +101,38 @@ export interface Tank {
   name: string;
   code: string;
   volume: number;
-  status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'QUARANTINE' | 'PREPARING' | 'HARVESTING';
+  /**
+   * Mirrors the backend `TankStatus` enum (apps/farm-service .../tank.entity.ts),
+   * which has EIGHT members. This union was missing CLEANING and FALLOW, and the
+   * wire type is a free-form String that useTanks casts blind — so a fallowing
+   * pen (routine between cycles) reached the render tree as a status no lookup
+   * table had, and the unit detail crashed on it.
+   */
+  status:
+    | 'ACTIVE'
+    | 'PREPARING'
+    | 'CLEANING'
+    | 'MAINTENANCE'
+    | 'HARVESTING'
+    | 'FALLOW'
+    | 'QUARANTINE'
+    | 'INACTIVE';
+  /**
+   * The CONTAINER's own totals — every fish in the unit, across every batch in
+   * it. Use these for anything unit- or farm-level: totals, stock ceilings,
+   * capacity. `batchMetrics` below is the PRIMARY BATCH only and understates a
+   * mixed pen, which is what made farm aggregates too low and made the log
+   * sheet reject valid entries (ORPHAN-HIGH-585).
+   */
+  currentQuantity: number;
   currentBiomass: number;
   maxBiomass: number;
+  /**
+   * The container's PRIMARY batch only — batch id, number and species for field
+   * attribution, plus that batch's own figures. NOT a unit total: a mixed pen
+   * has more fish than this reports. Unit- and farm-level numbers must come
+   * from currentQuantity / currentBiomass above.
+   */
   batchMetrics: BatchMetrics | null;
   /** FARM-HIGH-214: the tank's siteId (from the inventory container snapshot) —
    * the regulatory field-capture inputs (lice/welfare/escape) are site-scoped,
@@ -130,7 +159,6 @@ export interface BatchMetrics {
 // ============================================================================
 // Regulatory field-capture types (FARM-HIGH-214 / RPT-019)
 // ============================================================================
-
 
 // Attendance types
 export interface GeoLocation {
@@ -166,8 +194,6 @@ export type LeaveType = LeaveTypesQuery['leaveTypes'][number];
  */
 export type LeaveBalance = MyLeaveBalancesQuery['myLeaveBalances'][number];
 export type LeaveRequest = MyLeaveRequestsQuery['myLeaveRequests'][number];
-
-
 
 /**
  * MSG-MEDIUM-055 — binary offline lane payload (`uploadAndSendMessage`).

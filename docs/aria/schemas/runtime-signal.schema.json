@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria/runtime-signal/v1",
+  "title": "ARIA runtime signal record",
+  "description": "One external runtime lead persisted by aria-kernel/aria_kernel/runtime_signal_bridge.py at <tools-root>/runtime-signals/<signal_id>.json. A lead is NEVER evidence: trust_grade is pinned to runtime_unverified and consumers must not repo-grade it. The enums here mirror the bridge's module constants; tests/test_runtime_signal_schema_sync.py fails the suite when the two drift apart.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "schema_version",
+    "signal_id",
+    "source",
+    "service",
+    "summary",
+    "code_refs",
+    "severity",
+    "trust_grade",
+    "status",
+    "recorded_at"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "$schema": { "const": "aria/runtime-signal/v1" },
+    "schema_version": { "const": 1 },
+    "signal_id": { "type": "string", "pattern": "^runtime-[0-9a-f]{16}$" },
+    "source": {
+      "enum": ["sentry", "incident", "prod_log", "telemetry", "operator", "external_scanner"]
+    },
+    "service": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "code_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "severity": { "enum": ["low", "medium", "high", "critical"] },
+    "reported_severity": {
+      "description": "Present only when the bridge capped an outside-authored source's claimed severity (UNTRUSTED_CONTENT_SOURCES): the value the source reported, kept beside the bounded severity.",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "trust_grade": { "const": "runtime_unverified" },
+    "status": { "enum": ["open", "resolved", "quarantined"] },
+    "quarantine_reason": {
+      "description": "Why the reader moved an open record out of the open set: one of its refs fails the bridge's current ref law (canonical_runtime_signal_ref).",
+      "type": "string"
+    },
+    "quarantined_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "recorded_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "resolved_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "resolution_note": { "type": "string" }
+  }
+}

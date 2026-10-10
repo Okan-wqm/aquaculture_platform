@@ -38,7 +38,13 @@ describe('farm-realtime-invalidation', () => {
   });
 
   it('every count-affecting event invalidates the tank cache (the 719-vs-900 class)', async () => {
-    for (const eventName of ['mortalityRecorded', 'cullRecorded', 'batchTransferred', 'batchAllocatedToTank', 'feedingRecorded'] as const) {
+    for (const eventName of [
+      'mortalityRecorded',
+      'cullRecorded',
+      'batchTransferred',
+      'batchAllocatedToTank',
+      'feedingRecorded',
+    ] as const) {
       const { client, keys } = mockClient();
       await invalidateFarmEventQueries(client, TENANT, eventName);
       const segments = keys().map((k) => k.slice(2));
@@ -68,7 +74,14 @@ describe('farm-realtime-invalidation', () => {
 
   it('the map covers the FarmGateway count/feeding/tank events', () => {
     const mapped = Object.keys(FARM_REALTIME_INVALIDATION_SEGMENTS);
-    for (const required of ['mortalityRecorded', 'cullRecorded', 'batchTransferred', 'batchAllocatedToTank', 'feedingRecorded', 'tankUpdated']) {
+    for (const required of [
+      'mortalityRecorded',
+      'cullRecorded',
+      'batchTransferred',
+      'batchAllocatedToTank',
+      'feedingRecorded',
+      'tankUpdated',
+    ]) {
       expect(mapped).toContain(required);
     }
   });

@@ -55,7 +55,14 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { planArchive, restoreArchive, writeArchive } from './gc-archive.ts';
+import {
+  freeBytes,
+  planArchive,
+  restoreArchive,
+  sameEntries,
+  writeArchive,
+  type ManifestEntry,
+} from './gc-archive.ts';
 import {
   ConfigError,
   HOUR_MS,
@@ -111,7 +118,10 @@ export type Reason =
   | 'status_failed'
   | 'unreachable_reflog'
   | 'aria_store'
+  | 'aria_large'
+  | 'low_space'
   | 'archive_failed'
+  | 'changed_during_removal'
   | 'process_held'
   | 'proc_unreadable'
   | 'symlink_target'
@@ -511,6 +521,24 @@ function quarantineOrphans(pass: Pass): WorktreeReport[] {
   return orphans;
 }
 
+/** What changed in a quarantined tree since its final check, or null. */
+function quarantineRecheck(
+  quarantine: string,
+  planned: ManifestEntry[],
+  pass: Pass,
+): Verdict | null {
+  const content = contentVerdict(pass, quarantine, false);
+  if (content.keep) return content.keep;
+  const current = planArchive(quarantine, content.aria, true);
+  const drift = current.ok ? sameEntries(planned, current.plan.files) : current.detail;
+  if (drift) return { reason: 'changed_during_removal', detail: `ARIA records: ${drift}` };
+  const real = canonical(quarantine) ?? quarantine;
+  const scan = scanProcessPaths(pass.config.procRoot);
+  if (!scan.ok) return { reason: 'proc_unreadable', detail: scan.detail };
+  if (heldWorktrees(scan.paths, [real]).size > 0) return { reason: 'process_held' };
+  return null;
+}
+
 /** Removes a fresh candidate through the quarantine; a refusal moves it back. */
 function removeViaQuarantine(
   report: WorktreeReport,
@@ -519,6 +547,7 @@ function removeViaQuarantine(
   pass: Pass,
   timeoutMs: number,
   ariaUntracked: string[],
+  planned: ManifestEntry[],
 ): void {
   const { config } = pass;
   const quarantine = quarantineTarget(real, config.roots, Date.now());
@@ -539,6 +568,29 @@ function removeViaQuarantine(
   if (!move.ok) {
     report.decision = 'remove_failed';
     report.detail = `move to quarantine failed: ${firstLine(move.stderr)}`;
+    return;
+  }
+  // Nothing re-checked the tree between the archive and this point, and git
+  // deletes ignored files silently: an ARIA ledger appended to, or a new
+  // ignored file, would be lost. Re-read it in quarantine; any difference,
+  // or a process now inside it, moves it back.
+  const changed = quarantineRecheck(quarantine, planned, pass);
+  if (changed) {
+    const undo = git(config.gitBin, [
+      '-C',
+      config.repo,
+      'worktree',
+      'move',
+      quarantine,
+      record.path,
+    ]);
+    if (undo.ok) {
+      report.reason = changed.reason;
+      report.detail = changed.detail;
+    } else {
+      report.decision = 'remove_failed';
+      report.detail = `${changed.detail ?? changed.reason}; could not move back from ${quarantine}: ${firstLine(undo.stderr)}`;
+    }
     return;
   }
   // Untracked ARIA records would make git refuse; they are in the verified
@@ -618,21 +670,41 @@ function act(
     }
   }
   const aria = verdict.aria ?? [];
+  let planned: ManifestEntry[] = [];
   if (aria.length > 0 && real !== null) {
     // Preserve, don't keep: ARIA's records are archived and verified before
     // the worktree can go; any failure keeps it (gc-archive.ts).
-    const plan = planArchive(real, aria, !config.dryRun);
+    const sizes = planArchive(real, aria, false);
+    if (!sizes.ok) {
+      report.reason = 'archive_failed';
+      report.detail = sizes.detail;
+      return true;
+    }
+    report.archive_bytes = sizes.plan.bytes;
+    if (sizes.plan.bytes > config.ariaMaxBytes) {
+      report.reason = 'aria_large';
+      report.detail = `${sizes.plan.bytes} bytes of ARIA records exceed ${config.ariaMaxBytes}`;
+      return false;
+    }
+    const free = freeBytes(config.archiveRoot);
+    const needed = 2 * sizes.plan.bytes + config.archiveReserveBytes;
+    if (free === null || free < needed) {
+      report.reason = 'low_space';
+      report.detail = `archive filesystem has ${free ?? 'unknown'} bytes free, needs ${needed}`;
+      return false;
+    }
+    if (config.dryRun) {
+      report.decision = 'would_remove_with_archive';
+      report.detail = `would archive ${sizes.plan.files.length} ARIA file(s) under ${config.archiveRoot}`;
+      return true;
+    }
+    const plan = planArchive(real, aria, true);
     if (!plan.ok) {
       report.reason = 'archive_failed';
       report.detail = plan.detail;
       return true;
     }
-    report.archive_bytes = plan.plan.bytes;
-    if (config.dryRun) {
-      report.decision = 'would_remove_with_archive';
-      report.detail = `would archive ${plan.plan.files.length} ARIA file(s) under ${config.archiveRoot}`;
-      return true;
-    }
+    planned = plan.plan.files;
     const written = writeArchive({
       root: config.archiveRoot,
       worktree: real,
@@ -680,7 +752,7 @@ function act(
     return true;
   }
   if (real === null) return false;
-  removeViaQuarantine(report, record, real, pass, timeoutMs, verdict.ariaUntracked ?? []);
+  removeViaQuarantine(report, record, real, pass, timeoutMs, verdict.ariaUntracked ?? [], planned);
   return true;
 }
 
@@ -806,6 +878,8 @@ export function run(config: GcConfig, now: number = Date.now()): PassResult {
       (r) =>
         r.decision === 'remove_failed' ||
         r.reason === 'remove_refused' ||
+        r.reason === 'changed_during_removal' ||
+        r.reason === 'low_space' ||
         r.reason === 'archive_failed',
     ) || summary.prune === 'failed';
   return { summary, reports, exitCode: partial ? 3 : 0 };

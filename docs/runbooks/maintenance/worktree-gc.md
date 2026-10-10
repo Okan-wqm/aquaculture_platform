@@ -64,8 +64,22 @@ failure keeps the worktree (`archive_failed`, exit 3). The worktree is then remo
 `removed_with_archive`, and the journal line names the archive. Tracked, unmodified files under
 those paths are ARIA's committed code, preserved in git, and are not archived.
 
-The collector never deletes anything under the archive root. Retention is manual: review and
-delete old day directories by hand once their contents are no longer needed.
+Safeguards around the archive:
+
+- Records over 200 MB per worktree (`WORKTREE_GC_ARIA_MAX_BYTES`) keep the worktree unarchived
+  (`aria_large`); the archive filesystem must have twice the records' size plus 2 GiB free
+  (`WORKTREE_GC_ARCHIVE_RESERVE_BYTES`), else `low_space` (exit 3).
+- The archive is written as `<name>.partial` and renamed only after it verified; a failed
+  attempt's `.partial` is deleted, so every file without that suffix is an archive of record.
+  The manifest records the archive's own sha256.
+- Directories are 0700, archives and manifests 0600 (the unit also sets `UMask=0077`): ARIA
+  records may include key material.
+- After the move into quarantine the ARIA records are hashed again against the manifest and
+  `/proc` is scanned again; any difference moves the tree back (`changed_during_removal`), so a
+  ledger appended to after the archive is never lost.
+
+The collector never deletes an archive of record. Retention is manual: review and delete old
+day directories by hand once their contents are no longer needed.
 
 Every check runs once for the report and again for each candidate immediately before it is
 touched. Its size is measured (`du`) before that final re-check, so nothing slow sits between
@@ -101,33 +115,36 @@ next pass judges it as above.
 
 Every check that cannot be answered keeps the worktree. Each worktree's line names the reason.
 
-| Reason                  | Meaning                                                               |
-| ----------------------- | --------------------------------------------------------------------- |
-| `merged_but_dirty`      | Merged, but holds uncommitted or untracked files: someone's work.     |
-| `ignored_content`       | Ignored files that are not rebuildable caches; `detail` names them.   |
-| `aria_store`            | A real ARIA store (`state.git`, `.aria-state-store`, over 50 MB).     |
-| `archive_failed`        | ARIA records not archived and verified; nothing removed.              |
-| `unreachable_reflog`    | The reflog holds a commit nothing else does.                          |
-| `operation_in_progress` | A rebase, merge, cherry-pick, revert or bisect is unfinished.         |
-| `worktree_refs`         | It has refs of its own under `refs/worktree/` or `refs/bisect/`.      |
-| `symlink_target`        | Another worktree links into it (shared `node_modules`).               |
-| `unmerged`              | HEAD is not in `origin/main` (open PR, abandoned or squashed).        |
-| `recently_active`       | HEAD reflog or index changed inside the grace period.                 |
-| `process_held`          | A live process has its cwd or a file inside it.                       |
-| `proc_unreadable`       | `/proc` could not be read in full; nothing is removed.                |
-| `locked`                | `git worktree lock` was used on it.                                   |
-| `outside_roots`         | Not under an allow-listed root (`/tmp` scratchpads, `/var/...`).      |
-| `protected_path`        | Deploy state, canonical ARIA state, or `WORKTREE_GC_EXTRA_PROTECTED`. |
-| `contains_worktree`     | Another worktree lives inside it; collected on a later pass.          |
-| `missing`               | git records it but the directory is gone (prune cleans it).           |
-| `pass_cap`              | Eligible, but this pass reached its removal cap.                      |
-| `pass_budget`           | Eligible, but this pass had too little time left.                     |
-| `remove_refused`        | git refused the removal; moved back to its original path.             |
-| `quarantine_orphan`     | An interrupted move; repaired now, judged on the next pass.           |
-| `activity_unknown`      | Neither the reflog nor the index could be read.                       |
-| `status_failed`         | `git status` failed (for example a dubious-ownership refusal).        |
-| `merge_check_failed`    | HEAD could not be read or `git merge-base --is-ancestor` errored.     |
-| `ref_check_failed`      | The reflog or per-worktree refs could not be read.                    |
+| Reason                   | Meaning                                                               |
+| ------------------------ | --------------------------------------------------------------------- |
+| `merged_but_dirty`       | Merged, but holds uncommitted or untracked files: someone's work.     |
+| `ignored_content`        | Ignored files that are not rebuildable caches; `detail` names them.   |
+| `aria_store`             | A real ARIA store (`state.git`, `.aria-state-store`, over 50 MB).     |
+| `archive_failed`         | ARIA records not archived and verified; nothing removed.              |
+| `aria_large`             | ARIA records over the per-worktree cap; not archived, kept.           |
+| `low_space`              | Too little free space on the archive filesystem; kept.                |
+| `changed_during_removal` | Changed after the archive or final check; moved back, kept.           |
+| `unreachable_reflog`     | The reflog holds a commit nothing else does.                          |
+| `operation_in_progress`  | A rebase, merge, cherry-pick, revert or bisect is unfinished.         |
+| `worktree_refs`          | It has refs of its own under `refs/worktree/` or `refs/bisect/`.      |
+| `symlink_target`         | Another worktree links into it (shared `node_modules`).               |
+| `unmerged`               | HEAD is not in `origin/main` (open PR, abandoned or squashed).        |
+| `recently_active`        | HEAD reflog or index changed inside the grace period.                 |
+| `process_held`           | A live process has its cwd or a file inside it.                       |
+| `proc_unreadable`        | `/proc` could not be read in full; nothing is removed.                |
+| `locked`                 | `git worktree lock` was used on it.                                   |
+| `outside_roots`          | Not under an allow-listed root (`/tmp` scratchpads, `/var/...`).      |
+| `protected_path`         | Deploy state, canonical ARIA state, or `WORKTREE_GC_EXTRA_PROTECTED`. |
+| `contains_worktree`      | Another worktree lives inside it; collected on a later pass.          |
+| `missing`                | git records it but the directory is gone (prune cleans it).           |
+| `pass_cap`               | Eligible, but this pass reached its removal cap.                      |
+| `pass_budget`            | Eligible, but this pass had too little time left.                     |
+| `remove_refused`         | git refused the removal; moved back to its original path.             |
+| `quarantine_orphan`      | An interrupted move; repaired now, judged on the next pass.           |
+| `activity_unknown`       | Neither the reflog nor the index could be read.                       |
+| `status_failed`          | `git status` failed (for example a dubious-ownership refusal).        |
+| `merge_check_failed`     | HEAD could not be read or `git merge-base --is-ancestor` errored.     |
+| `ref_check_failed`       | The reflog or per-worktree refs could not be read.                    |
 
 The collector never resolves these. A `merged_but_dirty` or `ignored_content` worktree needs
 its owner: commit, move or delete the files, then the next pass collects it.

@@ -14,10 +14,13 @@ import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
+  statSync,
   truncateSync,
   writeFileSync,
 } from 'node:fs';
@@ -204,7 +207,7 @@ void test('an archive that does not verify keeps the worktree and its ARIA recor
     [
       '#!/bin/sh',
       `"${realTar}" "$@" || exit $?`,
-      'case "$*" in *-cf*) for a in "$@"; do case "$a" in *.tar.zst|*.tar.gz) printf garbage > "$a" ;; esac; done ;; esac',
+      'case "$*" in *-cf*) for a in "$@"; do case "$a" in *.partial) printf garbage > "$a" ;; esac; done ;; esac',
       'exit 0',
     ].join('\n') + '\n',
     { mode: 0o755 },
@@ -233,11 +236,12 @@ void test('an archive whose content differs from the manifest keeps the worktree
       '#!/bin/sh',
       `"${realTar}" "$@" || exit $?`,
       'case "$*" in *-cf*)',
-      '  for a in "$@"; do case "$a" in *.tar.zst|*.tar.gz) arch="$a" ;; esac; done',
+      '  for a in "$@"; do case "$a" in *.partial) arch="$a" ;; esac; done',
+      '  case "$arch" in *.tar.zst.partial) z=--zstd ;; *) z=--gzip ;; esac',
       '  d=$(mktemp -d)',
-      `  "${realTar}" -xf "$arch" -C "$d"`,
+      `  "${realTar}" $z -xf "$arch" -C "$d"`,
       '  echo tampered >> "$d/aria-tools/cycles.jsonl"',
-      `  "${realTar}" -a -cf "$arch" -C "$d" aria-tools ;;`,
+      `  "${realTar}" $z -cf "$arch" -C "$d" aria-tools ;;`,
       'esac',
       'exit 0',
     ].join('\n') + '\n',
@@ -287,4 +291,94 @@ void test('the archive root may not overlap a root, the deploy tree or ARIA stat
   for (const root of ['/root/wt/archive', '/var/lib/aqua/deploy/x', '/var/lib/aria/archive']) {
     assert.throws(() => readConfig([], { WORKTREE_GC_ARCHIVE_ROOT: root }), root);
   }
+});
+
+void test('ARIA records that change after the archive move the tree back, losing nothing', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'late-append');
+  mkdirSync(join(wt, '.aria-ci'));
+  writeFileSync(join(wt, '.aria-ci', 'ledger.jsonl'), '{"n":1}\n');
+  // An ARIA ledger is appended to right after the tree reaches quarantine:
+  // the archive no longer holds it, and git would delete the ignored file.
+  const appending = wrappedGit(
+    fx,
+    'appending-git',
+    '*"worktree move"*',
+    'for last; do :; done; case "$last" in *.gc-quarantine*) "$REAL_GIT" "$@" || exit $?; ' +
+      'echo \'{"n":2}\' >> "$last/.aria-ci/ledger.jsonl"; exit 0 ;; esac',
+  );
+
+  const run = runGc(fx, [], { AQUA_GIT_BIN: appending });
+
+  const report = reportFor(run, wt);
+  assert.equal(report.reason, 'changed_during_removal');
+  assert.equal(report.decision, 'kept');
+  assert.equal(run.exitCode, 3);
+  assert.equal(readFileSync(join(wt, '.aria-ci', 'ledger.jsonl'), 'utf8'), '{"n":1}\n{"n":2}\n');
+});
+
+void test('too many ARIA bytes keep the worktree unarchived', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'heavy');
+  writeFileSync(join(wt, 'aria-tools', 'big.jsonl'), 'x'.repeat(64));
+
+  const report = reportFor(runGc(fx, [], { WORKTREE_GC_ARIA_MAX_BYTES: '32' }), wt);
+
+  assert.equal(report.reason, 'aria_large');
+  assert.ok(existsSync(join(wt, 'aria-tools', 'big.jsonl')));
+  assert.equal(existsSync(fx.archive), false);
+});
+
+void test('too little free space for the archive keeps the worktree', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'no-space');
+  writeFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), '{}\n');
+
+  const run = runGc(fx, [], { WORKTREE_GC_ARCHIVE_RESERVE_BYTES: String(2 ** 62) });
+
+  assert.equal(reportFor(run, wt).reason, 'low_space');
+  assert.equal(run.exitCode, 3);
+  assert.equal(existsSync(fx.archive), false);
+});
+
+void test('archives are private, carry their own hash, and failed attempts leave nothing', () => {
+  const fx = fixture();
+  const first = addWorktree(fx, 'retry');
+  writeFileSync(join(first, 'aria-tools', 'cycles.jsonl'), '{"cycle":1}\n');
+  const realTar = execFileSync('sh', ['-c', 'command -v tar'], { encoding: 'utf8' }).trim();
+  const corrupting = join(fx.tmp, 'corrupting-tar');
+  writeFileSync(
+    corrupting,
+    [
+      '#!/bin/sh',
+      `"${realTar}" "$@" || exit $?`,
+      'case "$*" in *-cf*) for a in "$@"; do case "$a" in *.partial) printf garbage > "$a" ;; esac; done ;; esac',
+      'exit 0',
+    ].join('\n') + '\n',
+    { mode: 0o755 },
+  );
+
+  // A pre-existing, too-open archive root is tightened, not trusted.
+  mkdirSync(fx.archive, { mode: 0o755 });
+  chmodSync(fx.archive, 0o755);
+  const failed = runGc(fx, [], { WORKTREE_GC_TAR_BIN: corrupting });
+  assert.equal(reportFor(failed, first).reason, 'archive_failed');
+  const [day] = readdirSync(fx.archive);
+  assert.ok(day);
+  assert.deepEqual(readdirSync(join(fx.archive, day)), []);
+
+  const done = runGc(fx);
+  const archive = String(reportFor(done, first).archive);
+  assert.doesNotMatch(archive, /-2\.tar/);
+  const manifest = archive.replace(/\.tar\.(zst|gz)$/, '.manifest.json');
+  const mode = (p: string): number => statSync(p).mode & 0o777;
+  assert.equal(mode(fx.archive), 0o700);
+  assert.equal(mode(join(fx.archive, day)), 0o700);
+  assert.equal(mode(archive), 0o600);
+  assert.equal(mode(manifest), 0o600);
+  const body = JSON.parse(readFileSync(manifest, 'utf8')) as { archive_sha256: string };
+  assert.equal(
+    body.archive_sha256,
+    createHash('sha256').update(readFileSync(archive)).digest('hex'),
+  );
 });

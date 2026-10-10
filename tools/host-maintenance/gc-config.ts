@@ -25,6 +25,10 @@ export interface GcConfig {
   archiveRoot: string;
   /** The tar executable. Tests point it at a wrapper that corrupts an archive. */
   tarBin: string;
+  /** ARIA records above this per worktree keep it instead of being archived. */
+  ariaMaxBytes: number;
+  /** Free space an archive must leave on the archive filesystem, beyond twice its size. */
+  archiveReserveBytes: number;
 }
 
 /** The deploy checkout and its rollback worktrees. Not configurable away. */
@@ -140,5 +144,7 @@ export function readConfig(argv: string[], env: NodeJS.ProcessEnv): GcConfig {
     textfilePath: textfilePathFrom(env),
     archiveRoot,
     tarBin: env.WORKTREE_GC_TAR_BIN ?? 'tar',
+    ariaMaxBytes: numberEnv(env, 'WORKTREE_GC_ARIA_MAX_BYTES', 200 * 1024 * 1024, 0),
+    archiveReserveBytes: numberEnv(env, 'WORKTREE_GC_ARCHIVE_RESERVE_BYTES', 2 * 1024 ** 3, 0),
   };
 }

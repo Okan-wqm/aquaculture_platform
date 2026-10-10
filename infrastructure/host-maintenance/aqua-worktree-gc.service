@@ -56,6 +56,13 @@ IOSchedulingClass=idle
 # (WORKTREE_GC_PASS_BUDGET_SECONDS), so this limit only ever stops a hung
 # git, and what it interrupts sits in quarantine for the next pass.
 TimeoutStartSec=30min
+# Archives may hold aria-tools key material: everything the pass creates is
+# private to root (the tool also sets 0700/0600 explicitly).
+UMask=0077
+# Bounded resources on the production host: git, du, tar and zstd children
+# included. A pass that needs more is a bug, not a reason to starve services.
+MemoryMax=1G
+TasksMax=64
 NoNewPrivileges=yes
 ProtectSystem=full
 # NO ProtectHome= and NO PrivateTmp=, on purpose. The collector writes under

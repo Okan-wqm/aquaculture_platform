@@ -145,6 +145,13 @@ keeps the worktree (`archive_failed`). A real ARIA store (`state.git`, `.aria-st
 aria-tools over 50 MB) is kept (`aria_store`) and never archived. The archive root is outside
 the roots and ARIA state, and the tool never deletes it; retention is manual.
 
+An infra review of the archive path (67fe1707a) then added: a re-check in quarantine (ARIA
+records re-hashed against the manifest, `/proc` re-scanned; any change moves the tree back as
+`changed_during_removal`); a 200 MB per-worktree cap (`aria_large`); a free-space floor of
+twice the records plus 2 GiB (`low_space`); streamed hashing; `.partial` files renamed only
+after verification, failed attempts deleted; the archive's own sha256 in the manifest; 0700
+directories and 0600 files with `UMask=0077`; `MemoryMax=1G` and `TasksMax=64` on the unit.
+
 ### Not done here
 
 - The units are not installed on the droplet; installation is the runbook's first dry-run

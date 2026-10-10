@@ -142,18 +142,22 @@ def _plan_ledger_scan(base_dir: Path) -> tuple[list[str], list[str]]:
     path = events_path(base_dir)
     if not path.exists():
         return [], []
-    converged_at: dict[str, str] = {}
+    # The plan ledger is append-only and written under the plan lock, so an
+    # event's position IS when the plan converged. `recorded_at` has second
+    # resolution: ordering by it fell back to the plan id on a tie and offered
+    # a newer plan first. The position is the order.
+    converged_at: dict[str, int] = {}
     exhausted: set[str] = set()
-    for event in load_declared_jsonl(path, expected_surface="plan_convergence_events"):
+    for position, event in enumerate(load_declared_jsonl(path, expected_surface="plan_convergence_events")):
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         if event.get("event_type") != "plan_evaluated":
             continue
         plan_id = str(event.get("plan_id"))
         if payload.get("terminal_state") == "CONVERGED":
-            converged_at[plan_id] = str(event.get("recorded_at") or "")
+            converged_at[plan_id] = position
         elif DELIVERY_EXHAUSTED_REASON in (payload.get("reason_codes") or []):
             exhausted.add(plan_id)
-    ordered = sorted(converged_at, key=lambda plan_id: (converged_at[plan_id], plan_id))
+    ordered = sorted(converged_at, key=converged_at.__getitem__)
     converged = [
         plan_id for plan_id in ordered
         if fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("state") == "CONVERGED"

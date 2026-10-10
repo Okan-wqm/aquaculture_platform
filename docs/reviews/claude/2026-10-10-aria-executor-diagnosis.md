@@ -620,3 +620,16 @@ scan. The step comes before the lease gate, so the abort-gate contract is untouc
 - **The `.pyc` vector stays detect-only,** for the reason above. The cycle job sets
   `PYTHONDONTWRITEBYTECODE` (`aria-auto-cycle.yml:203`), but an operator shell does not. That is
   why the remedy names `sudo -u <runner>`.
+
+### Review of 44ce28427 (zai): no defects; one operator-visible effect
+
+- **By design, now stated.** The aria-gateway service's store, `/var/aqua-saas/aria-tools`, is
+  owned by `gharunner` (`stat` on 2026-10-11; the service is inactive). A root session in the main
+  checkout that resolves it is now refused with `write_root_foreign_owner`. That covers
+  `/aria-status` and `/aria-cycle` (`.claude/commands/`, `--tools-dir aria-tools`). Before this
+  commit, those commands wrote root-owned files into the gateway's store, which is the hazard this
+  finding closes. Run them as the store's owner: `sudo -u gharunner …`. zai measured 0
+  non-gharunner files in that store today.
+- **Wording, fixed in the next commit.** The refusal said that the runner's workspace reset fails
+  on such files, whatever the tree. It now says that the owner's processes could not remove or
+  reopen them, and gives the runner's reset as the case that happened.

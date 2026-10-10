@@ -94,9 +94,10 @@ def refuse_foreign_owned_root(path: str | os.PathLike[str], *, role: str) -> Non
             raise GovernanceError(
                 f"{FOREIGN_OWNER_TOKEN}: the {role} {root.as_posix()} is in a tree owned by {owner} "
                 f"({anchor.as_posix()}, uid {owner_uid}), and this process runs as {me} (uid {euid}). "
-                f"Files it wrote there would belong to {me}, and {owner}'s own lanes could not remove "
-                f"them: the runner's workspace reset fails on them (ARIA-HIGH-426). Run the command as "
-                f"{owner} (sudo -u {owner} ...), or bind a store of your own."
+                f"Files it wrote there would belong to {me}, and {owner}'s own processes could not "
+                f"remove or reopen them (the runner's workspace reset failed on exactly that, "
+                f"ARIA-HIGH-426). Run the command as {owner} (sudo -u {owner} ...), or bind a store "
+                f"of your own."
             )
     _VERIFIED.add(key)
 

@@ -148,7 +148,11 @@ class _TwoCandidateCycle(unittest.TestCase):
             "challenger_agent": "aria-challenger-planner", "challenger_revision_id": f"{PLAN_ID}-c1",
             "source_revision_id": state["latest_revision"]["revision_id"],
             "source_plan_content_hash": state["latest_revision"]["content_hash"],
-            "plan_content": {**self.f_plan, "summary": "An independent challenger proposal.", "architectural_tier": 2},
+            # An agent-authored body declares the imports of every source file it
+            # writes (plan contract 2, ARIA-HIGH-397); the kernel seed it starts
+            # from is held to no such rule.
+            "plan_content": {**self.f_plan, "summary": "An independent challenger proposal.", "architectural_tier": 2,
+                             "key_changes": [{**change, "imports": []} for change in self.f_plan["key_changes"]]},
         }, base_dir=self.tools)
         self.assertEqual(fold_plan_state(plan_id=PLAN_ID, base_dir=self.tools)["state"], "CHALLENGER_DRAFTED")
 

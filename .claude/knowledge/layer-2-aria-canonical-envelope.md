@@ -30,7 +30,7 @@ agent-authored body.
 | `title`               | string | Non-empty; one-line summary of the plan                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `summary`             | string | Non-empty; 2–5 sentence narrative                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `affected_surfaces`   | array  | Each entry is `{paths: [<repo-relative POSIX>...]}` — no leading `/`, no `\`, no `..`                                                                                                                                                                                                                                                                                                                                                                                     |
-| `key_changes`         | array  | Non-empty; each entry is a string (one numbered plan step) or an object `{id?, description, paths?}` — `description` the step, `paths` the repo-relative files it touches (`plan_convergence.KEY_CHANGE_FIELDS`; the ONE shape the implementer reads — there is no `file` field)                                                                                                                                                                                          |
+| `key_changes`         | array  | Non-empty; each entry is a string (one numbered plan step) or an object `{id?, description, paths?, imports?}` — `description` the step, `paths` the repo-relative files it touches, `imports` the `{from_path, specifier}` each written source file imports (required under plan contract 2+) (`plan_convergence.KEY_CHANGE_FIELDS`; the ONE shape the implementer reads — there is no `file` field)                                                                     |
 | `validation_commands` | array  | Each entry is `{cmd: <non-empty string>, expected_exit?: int, timeout_ms?: int}` or `{recipe_id: <registered recipe>}`; `cmd` must name one of the admissible commands in the request's `plan_contract` block (matched after whitespace is collapsed; the bare `nx ...` form of a canonical command is read as its `npx nx ...` spelling — plan contract, below)                                                                                                          |
 | `evidence_refs`       | array  | Each entry MUST be `<repo-relative path>[:<line>]` resolvable to an existing file at the workspace SHA. To cite a finding as evidence, use the path form `aria-findings/F-NNN.json[:<line>]` — bare finding ids (`F-019`) are rejected by `evidence_validator._check_agent_ref` because they do not resolve to a file.                                                                                                                                                    |
 
@@ -75,8 +75,11 @@ ten, 2026-09-12) died at staging because no contract had stated either.
   outside the implementer sandbox, so the set is operator-declared, never
   plan-declared.
 - Every `plan_content.key_changes[]` entry is a string or
-  `{id?, description, paths?}` (above); any other object shape is refused
-  as `plan_key_change_shape`.
+  `{id?, description, paths?, imports?}` (above); any other object shape is
+  refused as `plan_key_change_shape`. Under plan contract 2+ (the version
+  `plan_started` records) an agent-authored entry that writes a TS/JS source
+  file declares `imports` (`[]` when it adds none), else
+  `plan_key_change_imports_undeclared`.
 - `plan_content.finding_id`, when present, names an origin the kernel
   derives a commit contract for (`ORPHAN-<SEV>-NNN` or `F-NNN` /
   `F-AUTO-V<x.y>-<TOPIC>`, above); any other id — a registry-form
@@ -85,7 +88,8 @@ ten, 2026-09-12) died at staging because no contract had stated either.
 - Refusal reasons, in the vocabulary the kernel and the executor emit:
   `plan_architectural_tier_missing`, `plan_architectural_tier_invalid`,
   `plan_validation_command_not_declared`, `plan_validation_recipe_unknown`,
-  `plan_key_change_shape`, `plan_origin_unrecognised`.
+  `plan_key_change_shape`, `plan_key_change_imports_undeclared`,
+  `plan_origin_unrecognised`.
   A violating envelope is REJECTED at submit (released for retry) and a
   body that reaches evaluation without the contract fails the
   `plan_contract_complete` gate row, so the next primary revision envelope

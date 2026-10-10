@@ -1529,9 +1529,12 @@ The two rules, in the one wording the refusals use:
   `plan_validation_recipe_unknown`. `resolve_declared_validation_command` is the ONE matching rule;
   staging reads it too, so what a planner was told is what staging runs.
 - Every `plan_content.key_changes[]` entry is a string (one step) or an object
-  `{id?, description, paths?}` (`plan_convergence.KEY_CHANGE_FIELDS`); any other object shape is
-  refused as `plan_key_change_shape` (ARIA-HIGH-104 (3) — the implementer prompt used to read a
-  `file` field no producer wrote).
+  `{id?, description, paths?, imports?}` (`plan_convergence.KEY_CHANGE_FIELDS`); any other object
+  shape is refused as `plan_key_change_shape` (ARIA-HIGH-104 (3) — the implementer prompt used to
+  read a `file` field no producer wrote). A plan started under plan contract 2+
+  (`plan_started.plan_contract_version`) refuses an agent-authored entry that writes a TS/JS source
+  file and declares no `imports` (`[]` when it adds none) as `plan_key_change_imports_undeclared`
+  (ARIA-HIGH-397); a plan started under contract 1 keeps the rule it started with.
 - `plan_content.finding_id`, when present, names an origin `plan_origin` derives a commit contract
   for — `ORPHAN-<SEV>-NNN` or `F-NNN` / `F-AUTO-V<x.y>-<TOPIC>`; any other id is refused as
   `plan_origin_unrecognised` at submission and at the `plan_contract_complete` gate, the same read
@@ -1746,7 +1749,7 @@ format:check`, since ARIA-HIGH-149 `node tools/quality/quality.mjs format check-
   at the branch HEAD). `tests/test_validation_suite_ssot.py` pins that every command the merge gate
   requires is one the plan contract admits, the implementer contract names, and the implementer's
   own gate (kernel matcher, hook and Claude projection) allows.
-- **One `key_changes[]` shape.** `plan_convergence.KEY_CHANGE_FIELDS` = `(id, description, paths)`
+- **One `key_changes[]` shape.** `plan_convergence.KEY_CHANGE_FIELDS` = `(id, description, paths, imports)`
   with `key_change_description` / `key_change_paths` / `key_change_violation`; the plan contract
   refuses any other object (`plan_key_change_shape`), staging's `intended_affected_files` and the
   envelope's per-change obligations read `paths`, and the implementer prompt cites only fields in

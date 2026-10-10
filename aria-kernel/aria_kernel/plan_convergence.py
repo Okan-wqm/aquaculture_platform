@@ -188,10 +188,16 @@ def start_plan(
     _validate_id(plan_id, "plan_id")
     _validate_id(initial_revision_id, "initial_revision_id")
     _validate_plan_content(plan_content)
+    from .plan_contract import PLAN_CONTRACT_SCHEMA_VERSION
+
     payload = {
         "plan_content": plan_content,
         "content_hash": content_hash(plan_content),
         "initial_revision_id": initial_revision_id,
+        # ARIA-HIGH-397 — the contract version the plan's bodies are held to,
+        # fixed at its start: a rule a later contract adds (declared imports)
+        # binds the plans that start under it, never one already in flight.
+        "plan_contract_version": PLAN_CONTRACT_SCHEMA_VERSION,
     }
     admission_scope = compute_admission_scope(plan_content, workspace_root=workspace_root, base_dir=base_dir)
     if admission_scope is not None:
@@ -656,7 +662,14 @@ def _validate_submitted_plan(
     evidence_refusals = plan_body_evidence_refusals(state, body, root=root)
     if evidence_refusals:
         raise GovernanceError("; ".join(f"{code}: {ref}" for code, ref in evidence_refusals))
-    require_plan_contract(body, base_dir=root)
+    require_plan_contract(body, base_dir=root, contract_version=started_contract_version(state))
+
+
+def started_contract_version(state: Any) -> int:
+    """The plan contract version recorded at the plan's start (1 for a plan started before it was recorded)."""
+    started = state.get("plan_started") if isinstance(state, dict) else None
+    version = started.get("plan_contract_version") if isinstance(started, dict) else None
+    return version if type(version) is int and version >= 1 else 1
 
 
 PLAN_EVIDENCE_STATE_STORE_RECORD = "plan_evidence_state_store_record"
@@ -2383,7 +2396,10 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         # globally-accumulating resolved_review_risk_ids set cannot mask a
         # re-detected gap in a later round.
         surfaced = state["cross_review_risks_by_round"].setdefault(round_number, [])
-        for risk in payload.get("synthetic_risks", []):
+        # ARIA-HIGH-397 — an unresolved prescribed import rides the same
+        # channel (IMP-R{N}-… ids, round-scoped like coverage gaps).
+        import_risks = (payload.get("import_resolution") or {}).get("synthetic_risks", [])
+        for risk in [*payload.get("synthetic_risks", []), *import_risks]:
             surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
     elif event_type == "plan_evaluated":
         state["state"] = payload["terminal_state"]
@@ -2881,6 +2897,19 @@ def _validate_coverage_record(state: dict[str, Any], payload: dict[str, Any]) ->
         raise GovernanceError("synthetic_risks must be an array within the risk limit")
     for risk in synthetic_risks:
         _validate_cross_review_risk(risk)
+    # ARIA-HIGH-397 — the prescribed-imports block (absent on events recorded
+    # before it existed). Its risks are validated like any risk and must name
+    # exactly the unresolved specifiers.
+    if "import_resolution" in payload:
+        from .plan_import_resolution import validate_import_resolution
+
+        imports = payload["import_resolution"]
+        validate_import_resolution(imports)
+        import_risks = imports.get("synthetic_risks")
+        if not isinstance(import_risks, list) or len(import_risks) != len(imports["unresolved"]):
+            raise GovernanceError("import_resolution synthetic_risks must name each unresolved specifier once")
+        for risk in import_risks:
+            _validate_cross_review_risk(risk)
     # Verdict/content consistency — a "gaps" verdict without named nodes (or
     # vice versa) is a witness bug and must not enter the ledger.
     if verdict == "gaps":
@@ -3055,6 +3084,9 @@ def _validate_event(event: dict[str, Any]) -> None:
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("initial_revision_id"), "initial_revision_id")
+        if "plan_contract_version" in payload and (type(payload["plan_contract_version"]) is not int
+                                                   or payload["plan_contract_version"] < 1):
+            raise GovernanceError("plan_contract_version must be a positive integer")
         if "admission_scope" in payload:
             from .plan_origin import validate_admission_scope
 
@@ -3272,6 +3304,50 @@ def _evaluate_state(state: dict[str, Any], round_number: int) -> dict[str, Any]:
     }
 
 
+PRESCRIBED_IMPORTS_GATE = "prescribed_imports_resolve"
+PRESCRIBED_IMPORTS_UNRESOLVED = "prescribed_imports_unresolved"
+PRESCRIBED_IMPORTS_UNCHECKED = "prescribed_imports_unchecked"
+PRESCRIBED_IMPORTS_ENVIRONMENT_UNABLE = "prescribed_imports_environment_unable"
+
+
+def _prescribed_imports_gate(
+    state: dict[str, Any], coverage: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """(the gate decision or None when the converging body declares no import, an escalation reason or None).
+
+    Judged on the body that would CONVERGE (the latest revision; in round 1
+    the primary, not the challenger the coverage closure measured): the
+    round's block must name that revision, or the body counts as unchecked.
+    """
+    from .plan_import_resolution import (
+        VERDICT_ENVIRONMENT_UNABLE,
+        VERDICT_UNRESOLVED,
+        converging_body,
+        prescribed_imports,
+    )
+
+    if coverage is None:
+        return None, None
+    revision_id, content_hash, body = converging_body(state)
+    block = coverage.get("import_resolution")
+    if not prescribed_imports(body):
+        return None, None
+    if (not isinstance(block, dict) or block.get("target_revision_id") != revision_id
+            or block.get("target_plan_content_hash") != content_hash):
+        gate = {"gate": PRESCRIBED_IMPORTS_GATE, "verdict": "unchecked", "passed": False}
+        return gate, PRESCRIBED_IMPORTS_UNCHECKED
+    verdict = block.get("verdict")
+    gate = {
+        "gate": PRESCRIBED_IMPORTS_GATE,
+        "verdict": verdict,
+        "passed": verdict not in (VERDICT_UNRESOLVED, VERDICT_ENVIRONMENT_UNABLE),
+        "unresolved": [f"{item.get('specifier')} @ {item.get('from_path')}" for item in block.get("unresolved") or []],
+    }
+    if verdict == VERDICT_ENVIRONMENT_UNABLE:
+        return gate, PRESCRIBED_IMPORTS_ENVIRONMENT_UNABLE
+    return gate, None
+
+
 def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, max_rounds: int) -> dict[str, Any]:
     cross = state["cross_reviews"][round_number]
     risks = list(state.get("cross_review_risks_by_round", {}).get(round_number, []))
@@ -3331,6 +3407,24 @@ def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, ma
             }
         if coverage_verdict == "gaps":
             blockers.append("coverage_gaps_present")
+        # ARIA-HIGH-397 — the round's target prescribes module specifiers:
+        # the compiler-backed witness must have answered, and every one must
+        # resolve. A missing or unusable answer is HUMAN_REQUIRED (the
+        # environment does not heal round over round); an unresolved one is
+        # a blocker the next revision addresses through its IMP risk.
+        imports_gate, imports_escalation = _prescribed_imports_gate(state, coverage)
+        if imports_gate is not None:
+            gate_decisions.append(imports_gate)
+            summary["prescribed_imports"] = imports_gate["verdict"]
+        if imports_escalation is not None:
+            return {
+                "terminal_state": "HUMAN_REQUIRED",
+                "risks_rollup_summary": summary,
+                "gate_decisions": gate_decisions,
+                "reason_codes": sorted(set(blockers + [imports_escalation])),
+            }
+        if imports_gate is not None and not imports_gate["passed"]:
+            blockers.append(PRESCRIBED_IMPORTS_UNRESOLVED)
     if blockers:
         if round_number >= max_rounds:
             return {
@@ -3487,7 +3581,11 @@ def _validate_id(value: str, field: str) -> None:
 # derives its check from this tuple), what staging reads for
 # ``intended_affected_files`` and what the envelope's per-change obligations
 # carry.
-KEY_CHANGE_FIELDS: tuple[str, ...] = ("id", "description", "paths")
+# ARIA-HIGH-397 — `imports`: the module specifiers the change adds or changes,
+# each bound to one of the change's own source files, judged against the
+# compiler before CONVERGED (`plan_import_resolution`). Structured, never
+# parsed out of the description.
+KEY_CHANGE_FIELDS: tuple[str, ...] = ("id", "description", "paths", "imports")
 
 
 def key_change_description(change: Any) -> str:
@@ -3532,6 +3630,27 @@ def key_change_violation(change: Any) -> str | None:
     paths = change.get("paths")
     if paths is not None and (not isinstance(paths, list) or not all(_valid_repo_path(path) for path in paths)):
         return "paths must be a list of repo-relative POSIX paths"
+    return _key_change_imports_violation(change.get("imports"), key_change_paths(change))
+
+
+def _key_change_imports_violation(imports: Any, paths: list[str]) -> str | None:
+    """ARIA-HIGH-397 — ``imports`` is a list of ``{from_path, specifier}``; each
+    ``from_path`` is one of the change's own source files."""
+    from .plan_import_resolution import MAX_CHECKS, SOURCE_SUFFIXES
+
+    if imports is None:
+        return None
+    if not isinstance(imports, list) or len(imports) > MAX_CHECKS:
+        return f"imports must be a list of at most {MAX_CHECKS} {{from_path, specifier}} objects"
+    for entry in imports:
+        if not isinstance(entry, dict) or set(entry) != {"from_path", "specifier"}:
+            return "each imports[] entry is exactly {from_path, specifier}"
+        specifier, from_path = entry["specifier"], entry["from_path"]
+        if (not isinstance(specifier, str) or not specifier.strip() or len(specifier) > 200
+                or any(char.isspace() for char in specifier)):
+            return "imports[].specifier must be one module specifier"
+        if from_path not in paths or not str(from_path).endswith(SOURCE_SUFFIXES):
+            return "imports[].from_path must be one of the change's own source paths"
     return None
 
 

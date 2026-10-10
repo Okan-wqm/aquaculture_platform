@@ -418,7 +418,7 @@ function planFromWire<T extends HarvestPlan>(plan: T): T {
   };
 }
 
-function plansFromWire(plans: HarvestPlan[]): HarvestPlan[] {
+function plansFromWire(plans: readonly HarvestPlan[]): HarvestPlan[] {
   return plans.map(planFromWire);
 }
 

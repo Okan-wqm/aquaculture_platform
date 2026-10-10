@@ -277,7 +277,7 @@ export const HealthEventsPage: React.FC = () => {
       eventType: event.eventType,
       eventDate: event.eventDate?.split('T')[0] || '',
       eventTime: event.eventTime || '',
-      diseaseCategory: event.diseaseCategory || 'unknown',
+      diseaseCategory: event.diseaseCategory || 'UNKNOWN',
       diseaseName: event.diseaseName || '',
       severity: event.severity,
       affectedCount: event.affectedPopulation?.estimatedAffected || 0,

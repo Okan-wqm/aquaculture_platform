@@ -40,6 +40,7 @@ from .merge_record import (
     MergeLineageUnverified,
     MergeNotProven,
     attest_merge_lineage,
+    attestation_binds,
     classify_merged_head,
     fold_merged_rows,
     closed_recheck_due,
@@ -244,7 +245,7 @@ def _settle_merged_lineage(
     if pr is None:
         return {"skipped": {"plan_id": plan_id, "pr_number": pr_number, "reason": "no_opened_row"}}
     merge_sha, merged_at = str(impl.get("merge_sha") or ""), str(impl.get("merged_at") or "") or None
-    if recorded is not None and recorded.get("merge_sha") not in (None, merge_sha):
+    if recorded is not None and not attestation_binds(recorded, merge_sha):
         # The row and the plan name different merge commits: a named
         # disagreement, never attested over and never re-read.
         return {"error": {"plan_id": plan_id, "reason": "attested_merge_is_not_the_recorded_merge"}}
@@ -253,6 +254,12 @@ def _settle_merged_lineage(
         # stopped between the two): the row is the evidence, nothing is read.
         lineage = str(recorded["head_lineage"])
         head = (recorded.get("lineage_attested") or {}).get("merged_head_sha") or recorded.get("head_sha")
+    elif not plan_unclassified:
+        # Review of #1932, F2 — the plan's lineage was classified when it
+        # merged: the row takes it, unread. A read now could only disagree
+        # (a later head, a different checkout) and never upgrades it.
+        lineage = str(impl["head_lineage"])
+        head = (impl.get("head_lineage_attested") or {}).get("merged_head_sha")
     else:
         if not readable:
             return {"waiting": {"plan_id": plan_id, "pr_number": pr_number}}
@@ -370,7 +377,7 @@ def reconcile_recorded_implementations(
     for plan_id, state in states.items():
         if state.get("state") != "IMPLEMENTATION_MERGED":
             continue
-        # ARIA-HIGH-390/411 — a merge recorded before the one owner existed
+        # ARIA-HIGH-390/409 — a merge recorded before the one owner existed
         # is classified first, so this pass's learning already folds it.
         settled = _settle_merged_lineage(plan_id, state, lifecycle=lifecycle, reader=reader, readable=readable,
                                          workspace=checkout, root=root)

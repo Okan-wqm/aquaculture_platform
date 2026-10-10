@@ -140,19 +140,20 @@ class APersonsMergeOfARecordedPlan(unittest.TestCase):
                                      idempotency_key_hash="sha256:" + "a" * 64, head_lineage=LINEAGE_DELIVERED,
                                      base_dir=self.tools)
         self.assertEqual(_merged_rows(self.tools), [])
-        # ARIA-HIGH-409 — the backfill reads the head it records: with GitHub
-        # unreadable it waits, it does not stamp the row unverified at once.
-        self.assertEqual(self.reconcile(Unreadable())["lifecycle_backfilled"], [])
-        self.assertEqual(_merged_rows(self.tools), [])
-        first = self.reconcile(Reader())
+        # ARIA-HIGH-409 (review of #1932, F2) — the plan's lineage was
+        # classified when it merged, so the backfill takes it with no GitHub
+        # read (a plan with none is read; tests/test_merge_lineage_attestation).
+        first = self.reconcile(Unreadable())
         self.assertEqual(first["lifecycle_backfilled"], [{"plan_id": "plan-r", "pr_number": PR}])
         [row] = _merged_rows(self.tools)
         # F2 — the plan's own merge facts, never "merged today".
         self.assertEqual((row["merged_at"], row["merge_sha"]), ("2026-10-09T12:00:00Z", MERGE_SHA))
-        # N4 — the row says what the head IS, read by the merge's classifier.
+        # N4 — the row carries the classified lineage, never a stamp.
         self.assertEqual(row["head_lineage"], LINEAGE_DELIVERED)
         self.assertTrue(merged_row_is_arias(row))
-        self.assertEqual(self.reconcile(Reader())["lifecycle_backfilled"], [])
+        reader = Reader()
+        self.assertEqual(self.reconcile(reader)["lifecycle_backfilled"], [])
+        self.assertEqual(reader.asked, [])
         self.assertEqual(len(_merged_rows(self.tools)), 1)
 
     def test_an_unmerged_pr_changes_nothing(self) -> None:

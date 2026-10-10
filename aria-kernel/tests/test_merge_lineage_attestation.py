@@ -48,6 +48,7 @@ from aria_kernel.merge_record import (
 )
 from aria_kernel.plan_convergence import (
     _append_event,
+    _record_implementation_merged,
     _idempotency_key,
     _record_implementation_merge_lineage_attested,
     events_path,
@@ -209,12 +210,14 @@ class TheLiveShape(_LegacyMerge):
         self.assertEqual((len(_merged_rows(self.tools)), len(_attested_rows(self.tools))), (1, 1))
         self.assertEqual(len(_plan_events(self.tools, "implementation_merge_lineage_attested")), 1)
         self.assertEqual(len(_merged_episodes(self.tools)), 1)
-        # The owner, asked again with another verdict, writes nothing.
-        written = attest_merge_lineage(pr=opened_row(lifecycle_rows(self.tools), pr_number=PR), plan_id="plan-r",
-                                       head_lineage=LINEAGE_DIVERGED, merge_sha=self.merge_sha, merged_at=MERGED_AT,
-                                       merged_head_sha=self.head, base_dir=self.tools)
+        # The owner, asked again, writes nothing; asked with another verdict, it refuses by name.
+        attest = dict(pr=opened_row(lifecycle_rows(self.tools), pr_number=PR), plan_id="plan-r",
+                      merge_sha=self.merge_sha, merged_at=MERGED_AT, merged_head_sha=self.head, base_dir=self.tools)
+        written = attest_merge_lineage(head_lineage=LINEAGE_BASE_MERGED, **attest)
         self.assertEqual((written["lifecycle_row"], written["attested_row"], written["plan_event"]),
                          (False, False, None))
+        with self.assertRaisesRegex(MergeNotProven, "lineage_disagrees"):
+            attest_merge_lineage(head_lineage=LINEAGE_DIVERGED, **attest)
         self.assertEqual(fold_merged_rows(lifecycle_rows(self.tools))[0]["head_lineage"], LINEAGE_BASE_MERGED)
 
 
@@ -308,6 +311,124 @@ class AMergedPlanWithNoRow(_LegacyMerge):
         self.assertEqual(result["merge_errors"],
                          [{"plan_id": "plan-r", "reason": "attested_merge_is_not_the_recorded_merge"}])
         self.assertEqual((reader.asked, _attested_rows(self.tools)), ([], []))
+
+
+class ARowWithoutAMergeSha(_LegacyMerge):
+    """Review of #1932, F1 — the writer and the fold must agree on a merged row that names no merge commit."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        record_merge(pr=opened_row(lifecycle_rows(self.tools), pr_number=PR), merged_by=MERGED_BY_OBSERVED,
+                     base_dir=self.tools, head_lineage=LINEAGE_BACKFILLED_UNVERIFIED)
+        self.assertNotIn("merge_sha", _merged_rows(self.tools)[0])
+
+    def test_its_attestation_is_folded_and_the_merge_settles(self) -> None:
+        reader = Reader()
+        result = self.reconcile(reader)
+        self.assertEqual([row["head_lineage"] for row in result["lineage_attested"]], [LINEAGE_DELIVERED])
+        [row] = fold_merged_rows(lifecycle_rows(self.tools))
+        self.assertEqual(row["head_lineage"], LINEAGE_DELIVERED)
+        self.assertTrue(merged_row_is_arias(row))
+        self.assertEqual(self.plan()["implementation"]["head_lineage"], LINEAGE_DELIVERED)
+        again = self.reconcile(reader)
+        self.assertEqual((again["lineage_attested"], reader.asked), ([], [PR]))
+
+    def test_an_unreadable_head_reaches_the_bound(self) -> None:
+        reader = Reader(headRefOid="7" * 40)
+        for _ in range(MAX_LINEAGE_CHECKS + 2):
+            self.reconcile(reader)
+        self.assertEqual(lineage_checks(lifecycle_rows(self.tools), PR), MAX_LINEAGE_CHECKS - 1)
+        self.assertEqual(fold_merged_rows(lifecycle_rows(self.tools))[0]["head_lineage"], LINEAGE_UNVERIFIABLE)
+        self.assertEqual(len(reader.asked), MAX_LINEAGE_CHECKS)
+
+
+class APlanThatNamedItsLineage(unittest.TestCase):
+    """Review of #1932, F2 — a classified plan lineage is the evidence; GitHub is not asked again."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory(prefix="aria-lineage-plan-")
+        self.addCleanup(tmp.cleanup)
+        self.tools, self.root = Path(tmp.name) / "aria-tools", Path(tmp.name) / "workspace"
+        seed_reviewer_agent(self.root)
+        drive_plan_to_implementation_requested(plan_id="plan-r", tools=self.tools, workspace_root=self.root)
+        record_implementation_started(plan_id="plan-r", claim_id="claim-1", implementer_agent="aria-implementer",
+                                      started_at="2026-10-09T10:00:00Z", base_dir=self.tools)
+        record_implementation_outcome(
+            plan_id="plan-r", claim_id="claim-1", pr_url=f"https://github.com/o/r/pull/{PR}",
+            diff_hash="sha256:" + "c" * 64, branch_tip_sha=TIP, base_branch_sha="e" * 40,
+            validation_results=[], signer_key_fp="fp-1", completed_at="2026-10-09T10:00:13Z", base_dir=self.tools)
+        _opened(self.tools, change_id="chg-r")
+        _record_implementation_merged(plan_id="plan-r", merge_sha=MERGE_SHA, merged_at=MERGED_AT,
+                                      idempotency_key_hash="sha256:" + "a" * 64, head_lineage=LINEAGE_DIVERGED,
+                                      base_dir=self.tools)
+
+    def reconcile(self, reader: Any) -> dict:
+        return reconcile_recorded_implementations(base_dir=self.tools, workspace_root=self.root, reader=reader)
+
+    def test_a_missing_row_takes_the_plans_diverged_lineage_unread(self) -> None:
+        reader = Reader()  # GitHub's head == delivered: a read would say `delivered`
+        self.reconcile(reader)
+        self.assertEqual(reader.asked, [])
+        [row] = fold_merged_rows(lifecycle_rows(self.tools))
+        self.assertEqual(row["head_lineage"], LINEAGE_DIVERGED)
+        self.assertFalse(merged_row_is_arias(row))
+
+    def test_a_backfilled_row_is_attested_with_the_plans_lineage(self) -> None:
+        _backfilled_row(self.tools, merge_sha=MERGE_SHA)
+        reader = Reader()
+        self.reconcile(reader)
+        self.assertEqual(reader.asked, [])
+        self.assertEqual(fold_merged_rows(lifecycle_rows(self.tools))[0]["head_lineage"], LINEAGE_DIVERGED)
+
+    def test_the_owner_never_contradicts_a_classified_lineage(self) -> None:
+        with self.assertRaisesRegex(MergeNotProven, "lineage_disagrees_with_the_plan"):
+            attest_merge_lineage(pr=opened_row(lifecycle_rows(self.tools), pr_number=PR), plan_id="plan-r",
+                                 head_lineage=LINEAGE_DELIVERED, merge_sha=MERGE_SHA, merged_at=MERGED_AT,
+                                 merged_head_sha=TIP, base_dir=self.tools)
+        self.assertEqual(_merged_rows(self.tools), [])
+
+
+class TheReducerIsTheLastGuard(_LegacyMerge):
+    """Review of #1932, M5/M11 — the plan event has no runtime owner token, so a hand-appended
+    attestation is refused when the plan is folded, not only when the owner writes it."""
+
+    def append(self, *, plan_id: str = "plan-r", merge_sha: str = MERGE_SHA, key: str = "1") -> None:
+        payload = {"head_lineage": LINEAGE_BASE_MERGED, "merge_sha": merge_sha, "pr_number": PR,
+                   "delivered_head_sha": TIP, "merged_head_sha": None}
+        _append_event(root=ensure_tools_dir(self.tools), plan_id=plan_id,
+                      event_type="implementation_merge_lineage_attested", payload=payload,
+                      idempotency_key="sha256:" + key * 64)
+
+    def test_an_attestation_over_a_classified_lineage_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tools, root = Path(tmp) / "aria-tools", Path(tmp) / "workspace"
+            seed_reviewer_agent(root)
+            drive_plan_to_implementation_requested(plan_id="plan-c", tools=tools, workspace_root=root)
+            record_implementation_started(plan_id="plan-c", claim_id="claim-1", implementer_agent="aria-implementer",
+                                          started_at="2026-10-09T10:00:00Z", base_dir=tools)
+            record_implementation_outcome(
+                plan_id="plan-c", claim_id="claim-1", pr_url=f"https://github.com/o/r/pull/{PR}",
+                diff_hash="sha256:" + "c" * 64, branch_tip_sha=TIP, base_branch_sha="e" * 40,
+                validation_results=[], signer_key_fp="fp-1", completed_at="2026-10-09T10:00:13Z", base_dir=tools)
+            _record_implementation_merged(plan_id="plan-c", merge_sha=MERGE_SHA, merged_at=MERGED_AT,
+                                          idempotency_key_hash="sha256:" + "a" * 64, head_lineage=LINEAGE_DIVERGED,
+                                          base_dir=tools)
+            self.tools = tools
+            self.append(plan_id="plan-c")
+            with self.assertRaisesRegex(GovernanceError, "already names its lineage"):
+                fold_plan_state(plan_id="plan-c", base_dir=tools)
+
+    def test_a_replayed_attestation_is_refused(self) -> None:
+        self.append(key="1")
+        self.assertEqual(self.plan()["implementation"]["head_lineage"], LINEAGE_BASE_MERGED)
+        self.append(key="2")
+        with self.assertRaisesRegex(GovernanceError, "already names its lineage"):
+            self.plan()
+
+    def test_an_attestation_of_another_merge_is_refused(self) -> None:
+        self.append(merge_sha="8" * 40)
+        with self.assertRaisesRegex(GovernanceError, "another merge"):
+            self.plan()
 
 
 class TheAttestationsOwnRules(_LegacyMerge):

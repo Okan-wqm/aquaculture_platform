@@ -103,8 +103,48 @@ One owner and one classifier. Nothing is rewritten and every reader folds the at
   - a new rule that every module calling `merged_row_is_arias` or `lineage_credits_aria` also
     calls one of the folds.
 
-Tier: 1 for the writers (closed doors and owner token) and 3 for the readers (the fold
-invariant).
+Tiers, stated exactly:
+
+- **Lifecycle row: tier 1.** `record_pr_lifecycle` refuses `merge_lineage_attested` at runtime
+  without `auto_merge._MERGED_ROW_OWNER`, so no other module can write it.
+- **Plan event: tier 3 at the writer, tier 1 at the fold.** The plan event has no runtime owner
+  token. `_record_implementation_merge_lineage_attested` is private only by name, and
+  `test_merged_single_writer` matches literal names and literal event types. The adversarial
+  review of PR 1932 showed that `pc._mutate(event_type=<built string>)` and
+  `getattr(pc, "_record_" + ...)` both pass that invariant. The reducer is therefore the last
+  guard against a hand-appended plan event: `_require_lineage_attestable` runs in `_apply_event`
+  on every fold, so a forged, replayed or contradicting attestation makes the plan unfoldable
+  rather than credited. The same gap already existed for `implementation_merged`, and this
+  change does not widen or close it.
+- **Readers: tier 3** (the fold invariant).
+
+## Review of PR 1932 (adversarial), fixed in the same PR
+
+- **F1 (MEDIUM): the writer and the fold disagreed on a row with no merge commit.**
+  - The owner accepted a recorded `merged` row whose `merge_sha` is None. The fold only applied
+    an attestation whose `merge_sha` was None or equal to the row's.
+  - Result: the plan was credited, the folded row stayed `backfilled_unverified`, and every
+    cycle re-read GitHub and reported a no-op attestation. `_lineage_settled` treated the
+    unapplied attestation row as settled, so an unreadable head stopped counting at one check
+    and never reached `MAX_LINEAGE_CHECKS`.
+  - Fix: one predicate, `merge_record.attestation_binds`. A PR merges once, so a row naming no
+    merge commit is bound by its PR, and a row naming one is bound only by that commit. The
+    owner, the fold and the reconciler's pre-check all use it.
+  - `_lineage_settled` now judges the folded rows, so an attestation the fold would not apply
+    settles nothing.
+- **F2 (LOW): a classified plan lineage was ignored when the row was missing or unclassified.**
+  - The reconciler re-read GitHub instead. In the probe, a plan at `head_diverged` with GitHub's
+    head equal to the delivered head ended with a credited `delivered` row.
+  - Fix: the reconciler reuses the plan's classified lineage without a read, as it already did
+    in the row-to-plan direction.
+  - The owner now refuses, by name (`lineage_disagrees_with_the_plan_or_row`), any attestation
+    that contradicts a classified lineage on either side. A classified non-ARIA lineage can
+    never be upgraded.
+- **Surviving mutations M5 (the reducer accepts an attestation over a classified lineage) and M11
+  (the reducer check is removed).** Three reducer tests now hand-append the plan event and
+  require the fold to refuse it: over a classified lineage, a replay, and another merge commit.
+  Both mutations are now killed (M5: 2 failures, M11: 3).
+- **Nit:** the comment citing ARIA-HIGH-411 now cites ARIA-HIGH-409.
 
 ## Not changed
 

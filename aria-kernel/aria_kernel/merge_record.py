@@ -218,6 +218,17 @@ def fold_lineage(recorded: Any, attested: Any) -> Any:
     return attested if recorded in UNCLASSIFIED_LINEAGES and attested in ATTESTABLE_LINEAGES else recorded
 
 
+def attestation_binds(row: Mapping[str, Any], merge_sha: Any) -> bool:
+    """Whether an attestation of ``merge_sha`` is about merged ``row`` — the ONE rule the owner and the fold share.
+
+    Review of #1932, F1: the owner wrote attestations the fold then ignored
+    (a row naming no merge commit), so the plan was credited, the row was
+    not, and every cycle re-read GitHub. A PR merges once, so a row naming
+    no merge commit is bound by its PR; a row naming one, only by that one.
+    """
+    return bool(merge_sha) and row.get("merge_sha") in (None, merge_sha)
+
+
 def lineage_attestation(rows: list[dict[str, Any]], pr_number: int) -> dict[str, Any] | None:
     """The PR's ``merge_lineage_attested`` row: the first, the only one the owner writes."""
     return next((row for row in rows if row.get("event") == EVENT_LINEAGE_ATTESTED
@@ -237,7 +248,7 @@ def fold_merged_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if row.get("event") != "merged":
             continue
         attested = lineage_attestation(rows, row.get("pr_number"))
-        if attested is not None and attested.get("merge_sha") in (None, row.get("merge_sha")):
+        if attested is not None and attestation_binds(row, attested.get("merge_sha")):
             lineage = fold_lineage(row.get("head_lineage"), attested.get("head_lineage"))
             if lineage != row.get("head_lineage"):
                 row = {**row, "head_lineage": lineage, "lineage_attested": {
@@ -506,11 +517,14 @@ def record_pr_unmergeable(
 
 
 def _lineage_settled(rows: list[dict[str, Any]], number: Any) -> bool:
-    """Whether ``number``'s merge lineage needs no more reads: refused, attested, or recorded classified."""
-    return any(row.get("pr_number") == number and (
-        row.get("event") in (EVENT_MERGE_UNPROVEN, EVENT_LINEAGE_ATTESTED)
-        or (row.get("event") == "merged" and row.get("head_lineage") not in UNCLASSIFIED_LINEAGES))
-        for row in rows)
+    """Whether ``number``'s merge lineage needs no more reads: refused, or a merged row classified once folded.
+
+    Judged on the folded rows (review of #1932, F1): an attestation the fold
+    would not apply settles nothing, so the retry count still runs to its bound.
+    """
+    return (any(row.get("event") == EVENT_MERGE_UNPROVEN and row.get("pr_number") == number for row in rows)
+            or any(row.get("pr_number") == number and row.get("head_lineage") not in UNCLASSIFIED_LINEAGES
+                   for row in fold_merged_rows(rows)))
 
 
 def attest_merge_lineage(
@@ -544,8 +558,17 @@ def attest_merge_lineage(
         raise MergeNotProven("attestation_needs_pr_merge_and_delivered_head")
     rows = lifecycle_rows(base_dir)
     recorded = next((row for row in rows if row.get("event") == "merged" and row.get("pr_number") == number), None)
-    if recorded is not None and recorded.get("merge_sha") not in (None, merge_sha):
+    if recorded is not None and not attestation_binds(recorded, merge_sha):
         raise MergeNotProven("attested_merge_is_not_the_recorded_merge")
+    # Review of #1932, F2 — a lineage already classified (the row's, once
+    # folded, or the plan's) is the record; the owner never contradicts it.
+    classified = [lineage for lineage in (
+        next((row.get("head_lineage") for row in fold_merged_rows(rows) if row.get("pr_number") == number), None),
+        ((fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("implementation") or {}).get("head_lineage")
+         if plan_id is not None else None),
+    ) if lineage not in UNCLASSIFIED_LINEAGES]
+    if any(lineage != head_lineage for lineage in classified):
+        raise MergeNotProven(f"lineage_disagrees_with_the_plan_or_row:{sorted(set(classified))}")
     written: dict[str, Any] = {"pr_number": number, "lifecycle_row": False, "attested_row": False, "plan_event": None}
     if recorded is None:
         written["lifecycle_row"] = record_merge(
@@ -597,6 +620,7 @@ __all__ = [
     "classify_merged_head",
     "closed_recheck_due",
     "attest_merge_lineage",
+    "attestation_binds",
     "attested_plan_lineages",
     "fold_lineage",
     "fold_merged_rows",

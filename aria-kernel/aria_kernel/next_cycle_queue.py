@@ -28,11 +28,15 @@ One live item per pressure (ARIA-MEDIUM-428):
   pressure that still holds is queued again, with a fresh snapshot,
   by the next reflection.
 * ``read_pending`` returns the fold's live items, so a reader never
-  sees a duplicate. Every writer appends the fold's verdicts it does
-  not yet hold (``superseded`` / ``expired`` transition rows) in its
-  own transaction before its own row, so the ledger records each
-  verdict once and consuming a live item cannot bring a superseded
-  sibling back.
+  sees a duplicate or an aged item. The writers that change which
+  item holds a pressure (``append_pending``, ``mark_consumed``,
+  ``reoffer_item``) append the ``superseded`` rows the ledger lacks
+  in their own transaction, before their own row, so consuming a
+  live item cannot bring a superseded sibling back. Only
+  ``append_pending``, the writer that needs the slot back, records
+  ``expired``: that verdict depends on the clock, and a drain pass
+  that read an item as live must never see it turn expired under
+  the row it writes for it.
 
 Depth bound:
 
@@ -222,10 +226,22 @@ def fold_queue(rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: in
     return QueueFold(live=[row for _, row in live], transitions=transitions)
 
 
-def _settled_fold(txn: Any, path: Path, rows: list[dict[str, Any]], *, max_age_seconds: int) -> QueueFold:
-    """Fold ``rows`` and append the verdicts the ledger lacks, inside the caller's transaction."""
+def _settled_fold(
+    txn: Any, path: Path, rows: list[dict[str, Any]], *, max_age_seconds: int, record_expiry: bool,
+) -> QueueFold:
+    """Fold ``rows`` and append the verdicts the ledger lacks, inside the caller's transaction.
+
+    ``superseded`` depends only on the ledger's order, so every caller
+    records it. ``expired`` depends on the clock, so only the enqueue
+    records it (``record_expiry``). Review of 314c6a18e: a consumer that
+    recorded it could write an item expired between the drain's read and
+    its own row for that item (expired, then consumed), and a deferral
+    row then made the item pending again, so its expiry was written twice.
+    """
     fold = fold_queue(rows, now=_now(), max_age_seconds=max_age_seconds)
     for row in fold.transitions:
+        if row["state"] == EXPIRED and not record_expiry:
+            continue
         txn.append_declared_jsonl(path, row, expected_surface="next_cycle_queue")
     return fold
 
@@ -289,7 +305,7 @@ def append_pending(
         # ARIA-MEDIUM-428 — the depth cap and the dedupe below read the fold:
         # one live item per pressure, the verdicts written first.
         pending = _settled_fold(
-            txn, path, queue_rows, max_age_seconds=max_age_seconds,
+            txn, path, queue_rows, max_age_seconds=max_age_seconds, record_expiry=True,
         ).live
         # C10/E8 — pressure_id IS the queue's idempotency key (reflection.py
         # names it so), but every row was keyed on a fresh uuid, so a
@@ -416,8 +432,8 @@ def mark_consumed(
 ) -> dict[str, Any]:
     """Append a state=consumed transition row for ``queue_item_id``.
 
-    The fold's verdicts are written first (ARIA-MEDIUM-428): once the live
-    item is consumed, a sibling it superseded must already read as
+    The ``superseded`` verdicts are written first (ARIA-MEDIUM-428): once
+    the live item is consumed, a sibling it superseded must already read as
     superseded, or it would be the pressure's live item again.
     """
     path = queue_path(base_dir)
@@ -432,7 +448,7 @@ def mark_consumed(
     }
     with state_transaction([path]) as txn:
         rows = txn.load_declared_jsonl(path, expected_surface="next_cycle_queue")
-        _settled_fold(txn, path, rows, max_age_seconds=max_age_seconds)
+        _settled_fold(txn, path, rows, max_age_seconds=max_age_seconds, record_expiry=False)
         return txn.append_declared_jsonl(
             path,
             row,
@@ -477,7 +493,7 @@ def reoffer_item(
         mine = [row for row in rows if str(row.get("queue_item_id") or "") == queue_item_id]
         if not any(row.get("state") == "pending" for row in mine):
             return REOFFER_NEVER_QUEUED
-        live = _settled_fold(txn, path, rows, max_age_seconds=max_age_seconds).live
+        live = _settled_fold(txn, path, rows, max_age_seconds=max_age_seconds, record_expiry=False).live
         pressure_id = next(row for row in mine if row.get("state") == "pending").get("pressure_id")
         if any(
             row.get("queue_item_id") == queue_item_id

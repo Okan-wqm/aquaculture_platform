@@ -46,6 +46,7 @@ from aria_kernel.next_cycle_queue import (
     SUPERSEDED,
     SUPERSEDED_REASON,
     append_pending,
+    defer_projection,
     item_max_age_seconds,
     mark_consumed,
     queue_path,
@@ -232,6 +233,27 @@ class AnItemAgesOutByTheAnchorWindow(_QueueStore):
         self.assertEqual(
             (expired[0]["queue_item_id"], expired[0]["reason"], expired[0]["max_age_seconds"]),
             (queued["queue_item_id"], EXPIRED_REASON, window),
+        )
+
+    def test_a_drain_pass_across_the_window_never_ages_what_it_acts_on(self) -> None:
+        # Review of 314c6a18e (zai): the drain reads, then writes one row per
+        # item; the window can close in between.
+        window = item_max_age_seconds(self.base)
+        x = append_pending(self.base, source_cycle_id="cyc-1", pressure_id="pressure:x")
+        y = append_pending(self.base, source_cycle_id="cyc-1", pressure_id="pressure:y")
+        assert x is not None and y is not None
+        with self.later(window - 5):
+            self.assertEqual(len(read_pending(self.base)), 2)
+        with self.later(window + 5):
+            mark_consumed(self.base, queue_item_id=y["queue_item_id"], consumed_by="drain")
+            self.assertEqual(defer_projection(self.base, queue_item_id=x["queue_item_id"],
+                                              reason="host_fault", budget=3), 1)
+            mark_consumed(self.base, queue_item_id=x["queue_item_id"], consumed_by="drain")
+        self.assertEqual(
+            [(row["queue_item_id"], row["state"]) for row in self.rows()],
+            [(x["queue_item_id"], "pending"), (y["queue_item_id"], "pending"),
+             (y["queue_item_id"], "consumed"), (x["queue_item_id"], "pending"),
+             (x["queue_item_id"], "consumed")],
         )
 
     def test_a_reoffer_is_a_new_offer(self) -> None:

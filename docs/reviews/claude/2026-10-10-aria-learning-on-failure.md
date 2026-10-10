@@ -285,3 +285,31 @@ The existing suites stay green: `test_next_cycle_queue`, `test_anchor_stale_disp
 - **The 22 superseded items' dead requests.** These were already disposed by the anchor-stale
   sweep on 10-08 (re-offered). Nothing re-mints them: their pressures are live under the kept
   items.
+
+### Review of 314c6a18e (zai)
+
+- **Confirmed, fixed in the next commit.** The claim "every queue writer settles" was wrong in
+  two ways.
+  - `defer_projection` did not settle.
+  - The consumers recorded `expired`, a verdict that depends on the clock. A drain pass reads
+    first and writes one row per item afterwards. If the window closed in between, the pass
+    could record an item `expired` and then `consumed`. A deferral row made the item pending
+    again, so its expiry was written a second time. The repro, on 314c6a18e, gives the ledger
+    tail: X expired, Y expired, Y consumed, X pending, X expired, X consumed.
+
+  Now only `append_pending`, the writer that needs the slot back, records `expired`.
+  `mark_consumed` and `reoffer_item` record only `superseded`, which depends on the ledger's
+  order alone. `defer_projection` records nothing, because it does not change which item holds a
+  pressure. The test `test_a_drain_pass_across_the_window_never_ages_what_it_acts_on` is red on
+  314c6a18e.
+
+- **Kept by design.** Aging runs from the kept item's own offer, not from a superseded sibling's
+  fresher re-offer. That affects 5 of the 10 pressures on the archive, by 3 to 22 h. A re-offer
+  says that the request for the sibling's older snapshot died. It does not make the kept
+  snapshot fresher. A pressure that still holds is re-enqueued in the same `append_pending` call
+  that records the expiry. zai's forecast on the archive: at 10-15 11:00Z, 5 live and 5 expired;
+  at 10-16 00:00Z, 1 live and 9 expired. Each expired pressure that reflection still plans comes
+  back as a fresh item.
+- **Not done.** `anchor_stale_effects.reoffer_queue_item` records the re-offered item's id with
+  `queue_item_already_pending`, not the live sibling that carries the work. This is a wording
+  gap in a file outside this finding.

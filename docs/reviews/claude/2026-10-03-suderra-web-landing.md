@@ -95,7 +95,7 @@ re-expression on main's primitives and tokens, not a file copy.
 
 ### FE-HIGH-314 — The tenant-admin Suderra restyle exists only in the production build
 
-#1569 restyles thirteen tenant-admin files (dashboard, activity, roles, users, role and status
+PR #1569 restyles thirteen tenant-admin files (dashboard, activity, roles, users, role and status
 badges, user modals and filters). On main the same files moved to DataTable, shared-ui form
 controls, Badge and dark variants, and the settings pages gained the `canEdit` gate; #1569's
 restyle carries 194 static inline style blocks and 89 raw hex colours that main's design-system

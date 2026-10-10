@@ -47,8 +47,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-# The checkout root is adapter_room's: the one place it is derived.
-from .adapter_room import _KERNEL_CHECKOUT_ROOT, prepare_adapter_spawn, run_adapter
+from .adapter_room import prepare_adapter_spawn, run_adapter
+# The checkout root is implementation_safety's: the one place it is derived
+# (ARIA-HIGH-431, the anchor of the trusted-code rule).
+from .implementation_safety import KERNEL_CHECKOUT_ROOT
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .skill_genesis_sandbox import ALLOWED_ADAPTER_IMPORTS, UnsafeAdapterImport, verify_adapter_imports
 from .tool_registry import (
@@ -122,7 +124,7 @@ def launcher_command(source: str, sha256: str) -> GenesisCommand:
     # ensure_ascii keeps the header one ASCII line whatever the locale encodes.
     header = json.dumps({"source": source, "allowed_imports": sorted(ALLOWED_ADAPTER_IMPORTS)}) + "\n"
     return GenesisCommand(
-        argv=["python3", str(_KERNEL_CHECKOUT_ROOT / GENESIS_LAUNCHER_RELPATH), sha256],
+        argv=["python3", str(KERNEL_CHECKOUT_ROOT / GENESIS_LAUNCHER_RELPATH), sha256],
         stdin_header=header,
         sha256=sha256,
     )

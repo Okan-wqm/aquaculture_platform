@@ -30,6 +30,7 @@ from aria_kernel.doctor import (
 )
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.git_fixtures import track_existing
 from tests._helpers.orchestrator_exits import record_cycle_completed, record_exit, record_failed_night
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -596,6 +597,8 @@ class ToolsOrgan(unittest.TestCase):
         ensure_tools_dir(self.tools)
         (self.root / "src").mkdir()
         (self.root / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
+        # A checkout: the adapter room shows what git tracks (ARIA-MEDIUM-432).
+        track_existing(self.root, "src")
 
     def tearDown(self) -> None:
         self._tmp.cleanup()

@@ -1166,7 +1166,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # contained.
         for row in self._recorded_gate_runs(implementation):
             argv = row["argv"]
-            self.assertEqual(argv[0], "bwrap", argv[:3])
+            self.assertEqual((os.path.isabs(argv[0]), os.path.basename(argv[0])), (True, "bwrap"), argv[:3])
             self.assertIn("--unshare-net", argv)
             self.assertEqual(argv[argv.index("--") + 1:][:2], row["cmd"].split()[:2])
             bind_sources = {argv[i + 1] for i, token in enumerate(argv) if token in ("--bind", "--ro-bind")}
@@ -1601,7 +1601,8 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # The recorded run of that command is the sandbox's argv, and the
         # other three commands were the fixture suite at the tip, contained.
         runs = {row["cmd"]: row["argv"] for row in self._recorded_gate_runs(implementation)}
-        self.assertEqual(runs["npm run type-check"][0], "bwrap")
+        self.assertEqual(os.path.basename(runs["npm run type-check"][0]), "bwrap")
+        self.assertTrue(os.path.isabs(runs["npm run type-check"][0]))
         self.assertIn("--unshare-net", runs["npm run type-check"])
         self.assertEqual([call.get("head") for call in self._gate_calls(implementation) if "head" in call], [tip] * 3)
         self.assertEqual(self._governance("implementation_delivery_refused"), [])

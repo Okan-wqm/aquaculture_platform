@@ -24,6 +24,7 @@ from aria_kernel import fixture_runner, register_tool, run_fixture_suite
 from aria_kernel.ledger import LEDGER_ROW_MAX_BYTES
 from aria_kernel.ledger_inline import INLINE_ROW_FIELD_MAX_BYTES
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.git_fixtures import commit_files, make_local_git_repo
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -61,8 +62,9 @@ class FixtureRunRowCapTests(unittest.TestCase):
         self._saved_env = {key: os.environ.get(key) for key in ("ARIA_TOOLS_DIR", "ARIA_REPO_ROOT")}
         os.environ.pop("ARIA_REPO_ROOT", None)
         os.environ.pop("ARIA_TOOLS_DIR", None)
-        self.workspace = Path(tempfile.mkdtemp(prefix="aria-034-workspace-"))
-        (self.workspace / ".git").mkdir()
+        # A checkout, as every workspace an adapter runs in is: the room
+        # shows what git tracks (ARIA-MEDIUM-432).
+        self.workspace = make_local_git_repo(Path(tempfile.mkdtemp(prefix="aria-034-")), name="workspace", initial_commit=False)
         self.tools = self.workspace / ".aria-state-store" / "tools"
         ensure_tools_dir(self.tools)
         self.fixture_dir = self.workspace / "tools" / "aria-adapters" / "fixtures" / "x-adapter"
@@ -71,8 +73,7 @@ class FixtureRunRowCapTests(unittest.TestCase):
             json.dumps({"input": {}, "expected": {"status": "ok", "max_findings": 0}}),
             encoding="utf-8",
         )
-        (self.workspace / "src").mkdir()
-        (self.workspace / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
+        commit_files(self.workspace, {"src/app.ts": "export const app = true;\n"})
         register_tool(
             {
                 "tool_id": "x-adapter",
@@ -113,7 +114,7 @@ class FixtureRunRowCapTests(unittest.TestCase):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-        shutil.rmtree(self.workspace, ignore_errors=True)
+        shutil.rmtree(self.workspace.parent, ignore_errors=True)
 
     def _run_with_inventory(self, validation: dict) -> tuple[dict, str]:
         with mock.patch.object(fixture_runner, "validate_tool_output_evidence", return_value=validation):

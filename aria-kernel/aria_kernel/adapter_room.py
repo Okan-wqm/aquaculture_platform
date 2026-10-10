@@ -21,14 +21,20 @@ second copy of either policy:
   names: ``NODE_OPTIONS`` carrying the manifest's heap contract, and
   ``ARIA_REPO_ROOT`` naming the workspace the adapter scans (the Python
   adapters' root override, otherwise derived by walking up from the cwd);
-* the ROOM is ``implementation_safety.wrap_bash_in_sandbox`` with no network
-  and a READ-ONLY workspace, the toolchain prefixes the command resolves to
-  bound read-only (``validation_executable_binds``), the checkout's read-only
-  git shape (``derive_git_containment``), private PID/IPC/UTS namespaces and
-  a new session (``MANAGED_SPAWN_ISOLATION_FLAGS`` — no host process, the
-  kernel included, is visible in ``/proc``), and an empty tmpfs over every
-  ARIA-owned directory inside the workspace: the durable store, the signing
-  keys, and ``RUNNER_TEMP`` should a lane ever place it there.
+* the ROOM is ``implementation_safety.wrap_bash_in_sandbox`` with:
+  - no network;
+  - the toolchain prefixes the command resolves to, bound read-only
+    (``validation_executable_binds``);
+  - the checkout's read-only git shape (``derive_git_containment``);
+  - private PID/IPC/UTS namespaces and a new session
+    (``MANAGED_SPAWN_ISOLATION_FLAGS``), so no host process, the kernel
+    included, is visible in ``/proc``;
+  - the TRACKED VIEW of the workspace (``workspace_view``): what git tracks,
+    read-only, plus the installed dependency trees. Whatever git does not
+    track is not in the room: the store, the signing keys, the request
+    worktrees, the tools root and an operator's gitignored ``.env``, keys and
+    deploy secrets alike, with no list naming them (ARIA-MEDIUM-432; the
+    room hid a fixed list of ARIA's own directories before).
 
 Read-only, not the validation room's writable workspace: an adapter is a
 scanner and the shipped roster writes nothing (measured in and out of the
@@ -51,13 +57,14 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .git_containment import GitContainmentRefusal, derive_git_containment
-from .gh_token_factory import signing_keys_dir
 from .implementation_safety import (
+    KERNEL_CHECKOUT_ROOT,
     MANAGED_SPAWN_ISOLATION_FLAGS,
-    TRUSTED_PYTHON_SCRIPT_PREFIXES,
+    BashAllowlistMiss,
     SandboxUnavailable,
     sandbox_backend,
     sandbox_unavailable_detail,
+    trusted_python_script,
     validation_executable_binds,
     wrap_bash_in_sandbox,
 )
@@ -65,9 +72,7 @@ from .state_store import STORE_DIRNAME
 from .request_worktree import REQUEST_WORKTREES_DIR
 from .tool_registry import GovernanceError, tools_dir
 from .validation_env import ValidationEnv, build_validation_env
-
-# The checkout this kernel runs from (aria-kernel/aria_kernel/<this file>).
-_KERNEL_CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
+from .workspace_view import WorkspaceView, WorkspaceViewRefused, build_workspace_view
 
 # The heap every Node adapter gets unless its manifest declares one
 # (`runner.node_max_old_space_mb`): Node's own default (~1 GB) OOM-crashed
@@ -160,62 +165,48 @@ def _toolchain_binds(
         program = Path(str(argv[1]))
         if program.is_absolute() and program.suffix == ".py" and program.is_file():
             resolved = program.resolve()
-            # Only kernel-shipped code under the argv policy's trusted
-            # prefixes: the path must sit under THIS checkout's root with the
-            # prefix at its start. A substring test accepted
-            # /tmp/x/tools/aria-poc/evil.py (review of the repair stack), and
-            # a path an agent chose — a drafted adapter's `adapter_path` — must
-            # never be bound into the room.
-            trusted = resolved.is_relative_to(_KERNEL_CHECKOUT_ROOT) and any(
-                resolved.relative_to(_KERNEL_CHECKOUT_ROOT).as_posix().startswith(prefix)
-                for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES
-            )
-            if trusted and not resolved.is_relative_to(workspace) and resolved not in binds:
+            # Only the running kernel's own code, by the argv policy's one
+            # rule (`trusted_python_script`, ARIA-HIGH-431): a path an agent
+            # chose — a drafted adapter's `adapter_path` — is never bound.
+            try:
+                trusted_python_script(str(resolved), checkout_root=KERNEL_CHECKOUT_ROOT)
+            except BashAllowlistMiss:
+                return binds
+            if not resolved.is_relative_to(workspace) and resolved not in binds:
                 binds.append(resolved)
     return binds
 
 
-def _masked_directories(workspace: Path, *, store: Path | None, base: Mapping[str, str]) -> list[Path]:
-    """ARIA-owned directories inside the workspace the room hides behind an
-    empty tmpfs: the durable store (its canonical checkout directory and the
-    tools root this run writes), the RUNNER_TEMP that holds the App key, and
-    the signing keys directory every sandbox masks (created when absent,
-    because bwrap cannot make a mountpoint under a read-only bind)."""
-    # Also the request worktrees (an implementer's signing keys live in
-    # `<checkout>/aria-worktrees/req-*/aria-debts/keys` until revoked; a killed
-    # executor leaves them) and the tools root the kernel resolves for this
-    # process even when no `store` is passed (genesis passes none; off CI it is
-    # `<checkout>/aria-tools`, with `secrets/` in it).
+def _refuse_a_private_root_workspace(workspace: Path, *, store: Path | None, base: Mapping[str, str]) -> None:
+    """A workspace that IS one of ARIA's private directories is no room.
+
+    The private directories are the durable store (its canonical checkout
+    directory and the tools root this run writes), the request worktrees,
+    the tools root the kernel resolves even when no ``store`` is passed, and
+    the RUNNER_TEMP that holds the App key. Inside a workspace the view
+    hides whatever of them git does not track, so no list of them shapes the
+    room any more. But a view OF one would show its tracked files, the
+    store's ledgers among them, and hiding it would hide the tree being
+    scanned. (A workspace strictly INSIDE one exposes only its own subtree.)
+    """
     candidates = [workspace / STORE_DIRNAME, workspace / REQUEST_WORKTREES_DIR]
     if store is not None:
         candidates.append(Path(store))
     try:
         candidates.append(tools_dir())
     except GovernanceError:
-        pass  # no tools root is bound on this host: there is nothing of it to hide
+        pass  # no tools root is bound on this host
     runner_temp = base.get(RUNNER_TEMP_ENV)
     if runner_temp:
         candidates.append(Path(runner_temp))
-    masks: list[Path] = []
     for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved == workspace:
-            # Masking it would hide the tree being scanned; binding it would
-            # hand the adapter the store or the key. Neither is a room. (A
-            # workspace strictly INSIDE one exposes only its own subtree.)
+        if candidate.resolve() == workspace:
             raise SandboxUnavailable(f"adapter_room_workspace_is_private_root:{candidate.name}")
-        if not resolved.is_relative_to(workspace) or not resolved.is_dir():
-            continue
-        if any(resolved.is_relative_to(mask) for mask in masks):
-            continue  # already hidden by an enclosing mask
-        masks = [mask for mask in masks if not mask.is_relative_to(resolved)] + [resolved]
-    masks.append(signing_keys_dir(workspace))
-    return masks
 
 
-def _refuse_binds_reaching_runner_temp(command: Sequence[str], *, masks: Sequence[Path], base: Mapping[str, str]) -> None:
-    """No bind of the finished room may contain RUNNER_TEMP unless the room
-    masks it: a toolchain prefix resolved there (an action that unpacks a
+def _refuse_binds_reaching_runner_temp(command: Sequence[str], *, view: WorkspaceView, base: Mapping[str, str]) -> None:
+    """No bind of the finished room may contain RUNNER_TEMP unless the view
+    hides it. A toolchain prefix resolved there (an action that unpacks a
     binary into the temp dir), the interpreter's prefix or a dependency tree
     would mount the App key file beside it. Read off the argv, so every bind
     the builders added is covered, not only the ones this module chose."""
@@ -223,7 +214,7 @@ def _refuse_binds_reaching_runner_temp(command: Sequence[str], *, masks: Sequenc
     if not runner_temp:
         return
     secret_root = Path(runner_temp).resolve()
-    if any(secret_root == mask or secret_root.is_relative_to(mask) for mask in masks):
+    if secret_root.is_relative_to(view.root) and secret_root != view.root and view.hides(secret_root):
         return
     for index, flag in enumerate(command[:-2]):
         if flag in ("--bind", "--ro-bind"):
@@ -247,22 +238,22 @@ def wrap_adapter_in_sandbox(
     run_dir = Path(cwd).resolve()
     store_root = Path(store).resolve() if store is not None else None
     binds = _toolchain_binds(argv, workspace=workspace, cwd=run_dir, environment=environment, store=store_root)
+    _refuse_a_private_root_workspace(workspace, store=store_root, base=base)
+    try:
+        view = build_workspace_view(workspace)
+    except WorkspaceViewRefused as exc:
+        raise SandboxUnavailable(f"adapter_room_{exc.reason}") from exc
     try:
         git = derive_git_containment(workspace, commit_capable=False)
     except GitContainmentRefusal as exc:
         raise SandboxUnavailable(f"git_containment_refused:{exc.reason}") from exc
     command = wrap_bash_in_sandbox(
         list(argv), workspace_root=workspace, allow_network=False, write_scope=(),
-        extra_ro_binds=tuple(binds), git=git, chdir=run_dir,
+        extra_ro_binds=tuple(binds), git=git, chdir=run_dir, workspace_view=view,
     )
     separator = command.index("--")
-    masked = _masked_directories(workspace, store=store_root, base=base)
-    _refuse_binds_reaching_runner_temp(command[:separator], masks=masked, base=base)
-    # After every workspace bind (a later mount shadows an earlier one).
-    masks: list[str] = []
-    for directory in masked:
-        masks.extend(["--tmpfs", str(directory)])
-    return command[:separator] + masks + list(MANAGED_SPAWN_ISOLATION_FLAGS) + command[separator:]
+    _refuse_binds_reaching_runner_temp(command[:separator], view=view, base=base)
+    return command[:separator] + list(MANAGED_SPAWN_ISOLATION_FLAGS) + command[separator:]
 
 
 def prepare_adapter_spawn(

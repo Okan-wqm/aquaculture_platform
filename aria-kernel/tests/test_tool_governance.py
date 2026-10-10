@@ -23,6 +23,7 @@ from aria_kernel import (
 )
 from aria_kernel.cli import main
 from aria_kernel.feedback_store import record_operator_feedback
+from tests._helpers.git_fixtures import track_existing
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -192,6 +193,8 @@ class ToolGovernanceTests(unittest.TestCase):
         app_module = self.root / "apps/farm-service/src/app.module.ts"
         app_module.parent.mkdir(parents=True, exist_ok=True)
         app_module.write_text("export const app = true;\n", encoding="utf-8")
+        # A checkout: the adapter room shows what git tracks (ARIA-MEDIUM-432).
+        track_existing(self.root, "apps")
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
 
     def tearDown(self):

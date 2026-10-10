@@ -503,7 +503,7 @@ class AdmissionTests(_DeliveredBranch):
             ["npx", "nx", "affected", "--target=test"], workspace_root=self.repo, git=None,
             environment=environment, store=self.tools,
         )
-        self.assertEqual(argv[0], "bwrap")
+        self.assertEqual((os.path.isabs(argv[0]), os.path.basename(argv[0])), (True, "bwrap"))
         self.assertEqual(argv[argv.index("--") + 1:], ["npx", "nx", "affected", "--target=test"])
         self.assertIn("--unshare-net", argv)
         sources = {argv[i + 1] for i, token in enumerate(argv) if token in ("--bind", "--ro-bind")}

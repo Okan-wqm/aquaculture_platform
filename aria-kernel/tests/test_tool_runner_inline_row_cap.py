@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _helpers.git_fixtures import commit_files, make_local_git_repo  # noqa: E402
 from test_enterprise_cycle import (  # noqa: E402
     FAKE_RUNNER,
     fake_tool_argv,
@@ -40,9 +41,10 @@ class InlineRowCapTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
-        self.workspace = self.root / "work"
-        (self.workspace / "src").mkdir(parents=True)
-        (self.workspace / "src" / "app.ts").write_text("x\n", encoding="utf-8")
+        # A checkout, as every workspace an adapter runs in is: the room
+        # shows what git tracks (ARIA-MEDIUM-432).
+        self.workspace = make_local_git_repo(self.root, name="work", initial_commit=False)
+        commit_files(self.workspace, {"src/app.ts": "x\n"})
         self.tools_dir = self.root / "tools"
         self.tools_dir.mkdir()
 

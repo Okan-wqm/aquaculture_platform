@@ -40,6 +40,7 @@ One property per test:
 """
 from __future__ import annotations
 
+import os
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -282,7 +283,7 @@ class AvailabilityFoldsTheProbeTests(_NeedsBwrap):
         with mock.patch.object(impl, "_sandbox_argv", spy):
             self.assertIsNone(impl._git_containment_probe_reason())
         self.assertEqual(len(seen), 1)
-        self.assertEqual(seen[0][0], "bwrap")
+        self.assertEqual((os.path.isabs(seen[0][0]), os.path.basename(seen[0][0])), (True, "bwrap"))
         # The managed route's network setting, not a smaller argv: the probe
         # proves what the implementer gets.
         self.assertTrue(impl.MANAGED_SPAWN_ALLOW_NETWORK)

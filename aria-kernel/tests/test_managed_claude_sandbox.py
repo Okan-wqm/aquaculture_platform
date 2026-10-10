@@ -24,6 +24,7 @@ What this pins, one property per test:
 """
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -167,7 +168,7 @@ class TheBaseSandboxIsKept(_Fixture):
         self.assertIn(("--tmpfs", "/tmp"), list(zip(command, command[1:])))
         self.assertIn(("--tmpfs", SANDBOX_HOME), list(zip(command, command[1:])))
         self.assertNotIn("--unshare-net", command)
-        self.assertEqual(command[0], "bwrap")
+        self.assertEqual((os.path.isabs(command[0]), os.path.basename(command[0])), (True, "bwrap"))
 
     def test_the_git_binds_and_the_broker_socket_reach_the_base_wrapper_unchanged(self) -> None:
         """ARIA-HIGH-123 — both routes derive ONE set of git binds: the

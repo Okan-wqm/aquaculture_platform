@@ -11,7 +11,11 @@ Reaches attempted: the job credential names in its own environment, the App
 key file at the path the nightly lane writes it to (``--pem``), any
 ``/proc/<pid>/environ`` carrying ``GH_TOKEN=`` (the kernel's own process
 included), the durable store directory (``--store``), a write into the
-workspace, and an off-host connection.
+workspace, an off-host connection, and every ``--secret`` file (a gitignored
+``.env``, key or deploy secret in the checkout, ARIA-MEDIUM-432).
+``--visible`` files are only reported: what a scanner must still read. Both
+take the path hex-encoded: the argv policy refuses a command that spells
+``.env`` (``dotenv_access``), before any room exists.
 """
 from __future__ import annotations
 
@@ -48,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pem", required=True)
     parser.add_argument("--store", required=True)
     parser.add_argument("--touch")
+    parser.add_argument("--secret", action="append", default=[])
+    parser.add_argument("--visible", action="append", default=[])
     args = parser.parse_args(argv)
     if args.touch:
         with open(args.touch, "w", encoding="utf-8") as marker:
@@ -79,7 +85,16 @@ def main(argv: list[str] | None = None) -> int:
         # anywhere and the attempt only distinguishes "no route" from a wait.
         socket.create_connection(("203.0.113.1", 443), timeout=1).close()
 
+    def reader(path: str):
+        def read() -> None:
+            with open(path, "rb") as handle:
+                if not handle.read():
+                    raise FileNotFoundError(path)  # an empty cover is not the file
+        return read
+
     facts = {
+        "secrets": {bytes.fromhex(raw).decode(): _attempt(reader(bytes.fromhex(raw).decode())) for raw in args.secret},
+        "visible": {bytes.fromhex(raw).decode(): _attempt(reader(bytes.fromhex(raw).decode())) for raw in args.visible},
         "forbidden_env": sorted(name for name in FORBIDDEN_ENV_NAMES if name in os.environ),
         "env_names": sorted(os.environ),
         "pem": _attempt(read_pem),
@@ -102,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     reached = (
         facts["forbidden_env"] or facts["pem"] == "reached" or facts["proc_environ_leaks"]
         or facts["store_entries"] or facts["workspace_write"] == "reached"
+        or "reached" in facts["secrets"].values()
     )
     return 3 if reached else 0
 

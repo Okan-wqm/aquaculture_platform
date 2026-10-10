@@ -6,13 +6,18 @@ job's GH_TOKEN, the OIDC request token, GITHUB_ENV, the App private key the
 nightly lane writes into RUNNER_TEMP, the kernel's own ``/proc/<pid>/environ``,
 the durable store, and could write the workspace.
 
-The live tests build the RUNNER's layout — workspace ``_work/<repo>/<repo>``
-with the store checked out inside it, RUNNER_TEMP its sibling ``_work/_temp``
-holding the key file — under ``/var/tmp``, not ``/tmp``: the room mounts its
-own ``/tmp``, which would hide a key under ``/tmp`` for the wrong reason. The
-probe adapter (``_helpers/adapter_room_probe.py``) tries every reach and exits
-non-zero when any one lands, so an ``ok`` run IS the proof; its reported facts
-are asserted as well.
+The live tests build the RUNNER's layout — workspace ``_work/<repo>/<repo>``,
+a git checkout as the runner's is, with the store checked out inside it,
+RUNNER_TEMP its sibling ``_work/_temp`` holding the key file — under
+``/var/tmp``, not ``/tmp``: the room mounts its own ``/tmp``, which would hide
+a key under ``/tmp`` for the wrong reason. The probe adapter
+(``_helpers/adapter_room_probe.py``) tries every reach and exits non-zero when
+any one lands, so an ``ok`` run IS the proof; its reported facts are asserted
+as well.
+
+ARIA-MEDIUM-432 — the room shows the TRACKED view of the workspace
+(``workspace_view``): an operator's gitignored ``.env``, key and deploy
+secret are not in it, with no list naming them.
 """
 from __future__ import annotations
 
@@ -35,6 +40,7 @@ from aria_kernel.fixture_runner import refresh_fixture_suites, run_fixture_suite
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError, register_tool
 from aria_kernel.tool_runner import run_tool
+from tests._helpers.git_fixtures import commit_files, make_local_git_repo
 from tests.test_enterprise_cycle import shadow_tool
 
 PROBE = Path(__file__).resolve().parent / "_helpers" / "adapter_room_probe.py"
@@ -67,15 +73,15 @@ JOB_ENVIRONMENT = {
 
 
 class RunnerLayout:
-    """``_work/repo/repo`` (+ the store inside it) and ``_work/_temp`` (+ the key)."""
+    """``_work/repo/repo`` — a checkout, with the store inside it, untracked —
+    and ``_work/_temp`` (+ the key)."""
 
     def __init__(self, test: unittest.TestCase) -> None:
         base = Path(tempfile.mkdtemp(prefix="aria-room-", dir="/var/tmp"))
         test.addCleanup(shutil.rmtree, base, True)
         work = base / "_work"
-        self.workspace = work / "repo" / "repo"
-        (self.workspace / "src").mkdir(parents=True)
-        (self.workspace / "src" / "app.ts").write_text("export const app = 1;\n", encoding="utf-8")
+        self.workspace = make_local_git_repo(work / "repo", name="repo", initial_commit=False)
+        commit_files(self.workspace, {"src/app.ts": "export const app = 1;\n"})
         self.runner_temp = work / "_temp"
         self.runner_temp.mkdir()
         self.pem = self.runner_temp / "aria-gh-app-private-key-1-1.pem"
@@ -93,16 +99,16 @@ class RunnerLayout:
             "ARIA_TOOLS_DIR": str(self.tools),
         }
 
-    def probe_argv(self, *, touch: bool = False) -> list[str]:
-        argv = ["python3", PROBE.as_posix(), "--pem", str(self.pem), "--store", str(self.store)]
+    def probe_argv(self, *, touch: bool = False, extra: tuple[str, ...] = ()) -> list[str]:
+        argv = ["python3", PROBE.as_posix(), "--pem", str(self.pem), "--store", str(self.store), *extra]
         return [*argv, "--touch", str(self.marker)] if touch else argv
 
-    def tool(self, *, touch: bool = False, cwd: str = "src") -> dict:
+    def tool(self, *, touch: bool = False, cwd: str = "src", extra: tuple[str, ...] = ()) -> dict:
         tool = shadow_tool()
         tool.update({"tool_id": TOOL_ID, "fixture_set": f"fixtures/{TOOL_ID}"})
         tool["runner"] = {
             **tool["runner"],
-            "argv": self.probe_argv(touch=touch),
+            "argv": self.probe_argv(touch=touch, extra=extra),
             "cwd": cwd,
             "timeout_ms": 60000,
             "stdin_json": False,
@@ -175,6 +181,60 @@ class LiveRoomTests(unittest.TestCase):
         self.assertIn("ARIA_TOOLS_DIR", runner["spawn_environment"]["dropped_store_bindings"])
         self.assertNotIn("GITHUB_ENV", runner["spawn_environment"]["passed"])
         self.assertNotIn("roomprobe", json.dumps(runner["spawn_environment"]), "names only, never values")
+
+    def test_what_git_does_not_track_is_not_in_the_room_and_what_it_tracks_is(self) -> None:
+        # ARIA-MEDIUM-432 — an operator checkout: gitignored secrets beside
+        # the code, and the installed tree the adapters resolve.
+        workspace = self.layout.workspace
+        commit_files(workspace, {
+            ".gitignore": ".env\n*.pem\n*.key\ndeploy/**/secret.yaml\nnode_modules/\n",
+            "deploy/prod/values.yaml": "replicas: 1\n",
+        })
+        secrets = {
+            ".env": "API_SECRET=roomprobe\n",
+            "certs/server.pem": "-----BEGIN RSA PRIVATE KEY-----\nroomprobe\n",
+            "src/local.key": "roomprobe\n",
+            "deploy/prod/secret.yaml": "token: roomprobe\n",
+            "src/untracked-notes.txt": "not ignored, not tracked\n",
+        }
+        for relative, content in secrets.items():
+            (workspace / relative).parent.mkdir(parents=True, exist_ok=True)
+            (workspace / relative).write_text(content, encoding="utf-8")
+        library = workspace / "node_modules" / "@fixture" / "lib"
+        library.mkdir(parents=True)
+        (library / "index.js").write_text("module.exports = 1;\n", encoding="utf-8")
+        visible = ("src/app.ts", "deploy/prod/values.yaml", "node_modules/@fixture/lib/index.js")
+        extra = tuple(token for relative in secrets for token in ("--secret", str(workspace / relative).encode().hex()))
+        extra += tuple(token for relative in visible for token in ("--visible", str(workspace / relative).encode().hex()))
+        register_tool(self.layout.tool(extra=extra), base_dir=self.layout.tools)
+        envelope = self.layout.run_tool()["envelope"]
+        facts = _probe_facts(envelope)
+        self.assertEqual(envelope["status"], "ok", f"the probe reached something: {facts or envelope['runner']['stderr_sample']}")
+        # Absent at the top; beneath a tracked directory the name stays and
+        # opening it is refused (an empty, nodev cover), never the content.
+        self.assertTrue(all(value.startswith("refused:") for value in facts["secrets"].values()), facts["secrets"])
+        self.assertEqual(facts["secrets"][str(workspace / ".env")], "refused:FileNotFoundError")
+        self.assertEqual(set(facts["visible"].values()), {"reached"}, facts["visible"])
+        # The kernel, outside, still reads every one of them.
+        self.assertTrue(all((workspace / relative).read_text(encoding="utf-8") for relative in secrets))
+
+    def test_a_symlinked_tree_is_mounted_in_place_and_resolves_into_this_checkout(self) -> None:
+        # The repair host's layout: `node_modules` is a symlink into another
+        # checkout, whose workspace links are relative. Mounted at the
+        # workspace's own path, a link resolves against THIS checkout's code.
+        workspace = self.layout.workspace
+        commit_files(workspace, {"libs/lib/index.js": "module.exports = 'this checkout';\n"})
+        elsewhere = self.layout.runner_temp.parent / "elsewhere"
+        (elsewhere / "node_modules" / "@fixture").mkdir(parents=True)
+        (elsewhere / "node_modules" / "@fixture" / "lib").symlink_to("../../libs/lib")
+        (workspace / "node_modules").symlink_to(elsewhere / "node_modules")
+        target = str(workspace / "node_modules" / "@fixture" / "lib" / "index.js")
+        self.assertFalse(Path(target).exists(), "outside the room the link resolves into the other checkout")
+        register_tool(self.layout.tool(extra=("--visible", target.encode().hex())), base_dir=self.layout.tools)
+        envelope = self.layout.run_tool()["envelope"]
+        facts = _probe_facts(envelope)
+        self.assertEqual(envelope["status"], "ok", envelope["runner"]["stderr_sample"])
+        self.assertEqual(facts["visible"], {target: "reached"})
 
     def test_the_fixture_runner_runs_the_adapter_in_the_same_room(self) -> None:
         register_tool(self.layout.tool(), base_dir=self.layout.tools)
@@ -314,26 +374,46 @@ class RoomShapeTests(unittest.TestCase):
         flags = ("--bind", "--ro-bind")
         return [(argv[i], argv[i + 1], argv[i + 2]) for i in range(len(argv) - 2) if argv[i] in flags]
 
-    def test_the_workspace_is_read_only_the_network_and_pids_are_private(self) -> None:
+    @staticmethod
+    def _mounted(argv: list[str]) -> list[str]:
+        """Every path the room mounts something AT."""
+        separator = argv.index("--")
+        targets = [argv[i + 2] for i in range(separator - 2) if argv[i] in ("--bind", "--ro-bind", "--symlink")]
+        return targets + [argv[i + 1] for i in range(separator - 1) if argv[i] == "--tmpfs"]
+
+    def test_the_workspace_is_the_tracked_view_read_only_the_network_and_pids_are_private(self) -> None:
         argv = self._room()
         workspace = str(self.layout.workspace.resolve())
-        self.assertIn(("--ro-bind", workspace, workspace), self._binds(argv))
-        self.assertNotIn(("--bind", workspace, workspace), self._binds(argv))
         separator = argv.index("--")
+        # ARIA-MEDIUM-432 — no bind of the whole workspace: an empty root at
+        # its path, what git tracks bound into it, remounted read-only after
+        # the last mount inside it.
+        self.assertNotIn(("--ro-bind", workspace, workspace), self._binds(argv))
+        self.assertNotIn(("--bind", workspace, workspace), self._binds(argv))
+        self.assertIn(workspace, [argv[i + 1] for i in range(separator) if argv[i] == "--tmpfs"])
+        self.assertIn(("--ro-bind", f"{workspace}/src", f"{workspace}/src"), self._binds(argv))
+        remount = [i for i in range(separator) if argv[i] == "--remount-ro" and argv[i + 1] == workspace]
+        self.assertEqual(len(remount), 1)
+        inside = [i for i in range(separator - 2) if argv[i] in ("--bind", "--ro-bind", "--tmpfs", "--symlink")
+                  and (argv[i + 1 if argv[i] == "--tmpfs" else i + 2] + "/").startswith(workspace + "/")]
+        self.assertLess(max(inside), remount[0])
         for flag in ("--unshare-net", *impl.MANAGED_SPAWN_ISOLATION_FLAGS):
             self.assertIn(flag, argv[:separator])
         chdirs = [argv[i + 1] for i, flag in enumerate(argv[:separator]) if flag == "--chdir"]
         self.assertEqual(chdirs, [str((self.layout.workspace / "src").resolve())])
 
-    def test_the_store_and_keys_are_masked_after_the_workspace_bind(self) -> None:
+    def test_the_store_and_keys_are_not_in_the_room(self) -> None:
+        # Untracked, so not in the view: nothing is mounted at or under the
+        # store, and the keys beneath a tracked `aria-debts/` are covered.
+        commit_files(self.layout.workspace, {"aria-debts/_index.json": "{}\n"})
+        keys = self.layout.workspace / "aria-debts" / "keys"
+        keys.mkdir()
+        (keys / "cycle.key").write_text("roomprobe\n", encoding="utf-8")
         argv = self._room()
-        tmpfs = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--tmpfs"]
-        self.assertIn(str(self.layout.store.resolve()), tmpfs)
-        self.assertIn(str((self.layout.workspace / "aria-debts" / "keys").resolve()), tmpfs)
-        # The tools root lies inside the store: one mask hides both.
-        self.assertNotIn(str(self.layout.tools.resolve()), tmpfs)
-        workspace_bind = argv.index(str(self.layout.workspace.resolve()))
-        self.assertGreater(argv.index(str(self.layout.store.resolve())), workspace_bind)
+        store = str(self.layout.store.resolve())
+        self.assertEqual([m for m in self._mounted(argv) if (m + "/").startswith(store + "/")], [])
+        separator = argv.index("--")
+        self.assertIn(str(keys.resolve()), [argv[i + 1] for i in range(separator) if argv[i] == "--tmpfs"])
 
     def test_no_bind_reaches_runner_temp(self) -> None:
         argv = self._room()
@@ -341,12 +421,16 @@ class RoomShapeTests(unittest.TestCase):
         for _, source, _ in self._binds(argv):
             self.assertFalse(runner_temp == Path(source) or runner_temp.is_relative_to(source), source)
 
-    def test_a_runner_temp_inside_the_workspace_is_masked(self) -> None:
-        inside = self.layout.workspace / "_temp"
-        inside.mkdir()
-        argv = self._room(base={**self.layout.environment, "RUNNER_TEMP": str(inside)})
-        tmpfs = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--tmpfs"]
-        self.assertIn(str(inside.resolve()), tmpfs)
+    def test_a_runner_temp_inside_the_workspace_is_not_in_the_room(self) -> None:
+        # At the top (never bound) and under a tracked directory (covered).
+        for inside in (self.layout.workspace / "_temp", self.layout.workspace / "src" / "_temp"):
+            with self.subTest(runner_temp=str(inside)):
+                inside.mkdir()
+                argv = self._room(base={**self.layout.environment, "RUNNER_TEMP": str(inside)})
+                separator = argv.index("--")
+                bound = [m for m in self._mounted(argv) if (m + "/").startswith(str(inside.resolve()) + "/")]
+                covers = [argv[i + 1] for i in range(separator) if argv[i] == "--tmpfs"]
+                self.assertTrue(bound == [] or bound == [str(inside.resolve())] and str(inside.resolve()) in covers, bound)
 
     def test_a_toolchain_prefix_holding_runner_temp_is_refused(self) -> None:
         toolchain_bin = self.layout.runner_temp / "bin"
@@ -392,7 +476,7 @@ class RoomShapeTests(unittest.TestCase):
         )
         self.assertNotIn(str(planted.resolve()), [source for _, source, _ in self._binds(argv)])
 
-    def test_request_worktrees_and_the_resolved_tools_root_are_masked(self) -> None:
+    def test_request_worktrees_and_the_resolved_tools_root_are_not_in_the_room(self) -> None:
         # Review of the repair stack (security C2): an implementer's signing
         # keys sit in <checkout>/aria-worktrees/req-*/aria-debts/keys until
         # revoked, and a room built with no `store` (genesis) left the tools
@@ -408,9 +492,41 @@ class RoomShapeTests(unittest.TestCase):
                 self.layout.probe_argv(), workspace_root=self.layout.workspace, cwd=self.layout.workspace,
                 environment=built.env, store=None, base=environ,
             )
-        tmpfs = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--tmpfs"]
-        self.assertIn(str((self.layout.workspace / "aria-worktrees").resolve()), tmpfs)
-        self.assertIn(str(tools_root.resolve()), tmpfs)
+        for private in (self.layout.workspace / "aria-worktrees", tools_root):
+            prefix = str(private.resolve()) + "/"
+            self.assertEqual([m for m in self._mounted(argv) if (m + "/").startswith(prefix)], [], private)
+
+    def test_a_tools_root_holding_tracked_files_shows_them_and_hides_the_rest(self) -> None:
+        # Off CI the tools root is `<checkout>/aria-tools`, which carries
+        # tracked fixtures beside the run's ledgers and `secrets/`: the
+        # tracked files are in the view, the rest is covered.
+        commit_files(self.layout.workspace, {"aria-tools/agent-evals/fixtures/case.json": "{}\n"})
+        tools_root = self.layout.workspace / "aria-tools"
+        (tools_root / "secrets").mkdir()
+        (tools_root / "runs.jsonl").write_text("{}\n", encoding="utf-8")
+        environ = {**self.layout.environment, "PATH": os.environ.get("PATH", os.defpath)}
+        built = adapter_environment(environ, workspace_root=self.layout.workspace)
+        with mock.patch.dict(os.environ, {"ARIA_TOOLS_DIR": str(tools_root)}):
+            argv = wrap_adapter_in_sandbox(
+                self.layout.probe_argv(), workspace_root=self.layout.workspace, cwd=self.layout.workspace,
+                environment=built.env, store=None, base=environ,
+            )
+        separator = argv.index("--")
+        root = str(tools_root.resolve())
+        self.assertIn(("--ro-bind", root, root), self._binds(argv))
+        self.assertIn(f"{root}/secrets", [argv[i + 1] for i in range(separator) if argv[i] == "--tmpfs"])
+        self.assertIn(("--ro-bind", os.devnull, f"{root}/runs.jsonl"), self._binds(argv))
+
+    def test_a_workspace_that_is_not_a_checkout_has_no_view_and_no_room(self) -> None:
+        plain = Path(tempfile.mkdtemp(prefix="aria-room-plain-", dir="/var/tmp"))
+        self.addCleanup(shutil.rmtree, plain, True)
+        environ = {**self.layout.environment, "PATH": os.environ.get("PATH", os.defpath)}
+        built = adapter_environment(environ, workspace_root=plain)
+        with self.assertRaisesRegex(impl.SandboxUnavailable, "adapter_room_workspace_view_not_a_checkout"):
+            wrap_adapter_in_sandbox(
+                self.layout.probe_argv(), workspace_root=plain, cwd=plain,
+                environment=built.env, store=None, base=environ,
+            )
 
     def test_a_store_that_is_the_workspace_is_refused(self) -> None:
         built = adapter_environment(self.layout.environment, workspace_root=self.layout.workspace)

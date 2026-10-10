@@ -19,7 +19,7 @@ from .ledger import (
     write_index,
 )
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
-from .implementation_safety import verify_bash_command_allowed
+from .implementation_safety import KERNEL_CHECKOUT_ROOT, verify_bash_command_allowed
 
 
 # Plan ARIA-V2 §3.2 — contract v3 introduces canonical-identity-bound
@@ -958,7 +958,9 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     if cwd_path.is_absolute() or ".." in cwd_path.parts:
         raise GovernanceError("runner.cwd must be relative to the workspace root and must not escape it")
     try:
-        verify_bash_command_allowed(list(candidate["argv"]), cwd=cwd)
+        # ARIA-HIGH-431 — an absolute program is trusted only as the running
+        # kernel's own code: the checkout this kernel runs from anchors it.
+        verify_bash_command_allowed(list(candidate["argv"]), cwd=cwd, checkout_root=KERNEL_CHECKOUT_ROOT)
     except Exception as exc:
         raise GovernanceError(f"runner.argv_rejected_by_command_policy:{exc}") from exc
     timeout_ms = candidate.get("timeout_ms")

@@ -440,3 +440,209 @@ static check and are refused at runtime
 - The calibration corpus reader scores only `label`. `finalize_corpus` writes `verdict` and
   `legacy_label`, so a finalized corpus scores every prediction as a false positive. That fails
   closed, and it is reported here, not changed.
+
+## Wave 2 (sandbox, 2026-10-10): ARIA-HIGH-431 and ARIA-MEDIUM-432 fixed
+
+### ARIA-HIGH-431: trusted repo code is anchored to the checkout's root
+
+#### Symptom
+
+Measured on 0b88b2ccb through `hooks.decide_pre_tool`, the gate the implementer's Bash
+actually meets, with the workspace set to the checkout:
+
+- **Allowed:**
+  - `python3 /tmp/x/tools/aria-poc/evil.py`;
+  - `python3 <checkout>/apps/x/tools/aria-poc/e.py`;
+  - `python3 /etc/x/aria-kernel/tests/_helpers/e.py`;
+  - `python3 <checkout>/tools/aria-poc/../../apps/x/tools/aria-poc/e.py`.
+- **Refused:**
+  - `python3 tools/aria-poc/poc.py --help`, which is `command_policy`'s own allow
+    example (`command_policy.py:180`), with "python runner cwd must be workspace-relative";
+  - every other relative trusted script.
+
+The gate was exactly backwards.
+
+#### Root cause
+
+`verify_bash_command_allowed`'s `cwd` meant two things, depending on the caller:
+
+- `hooks.py:135` and the hard-fail check (`implementation_safety.py:2390`) passed the
+  absolute checkout root.
+- `tool_runner`, `fixture_runner` and `tool_registry` passed the runner's checkout-relative
+  cwd.
+
+The function never received a root. So it trusted an absolute path by substring, and it
+refused every relative path whenever the root came in as `cwd`.
+
+The write scope is not the hole. All three trusted prefixes sit under `READONLY_PATHS`
+(`tools/aria-poc/`, `tools/aria-adapters/`, `aria-kernel/tests/`). Those are ro-bound in
+the implementer's sandbox and refused by the Edit/Write hook, so an implementer cannot
+create a file under a trusted prefix of its own checkout.
+
+#### Fix (tier 1: an untrusted path cannot carry a trusted spelling)
+
+- `verify_bash_command_allowed(argv, *, cwd=".", checkout_root=None)`: `cwd` is always
+  checkout-relative, and `checkout_root` is the caller's own fact.
+- `implementation_safety.trusted_python_script` is the one owner of the rule. The argv
+  policy and the adapter room's program bind both ask it; the room's own copy at
+  `adapter_room.py:169-172` is gone. The rule:
+  - the path relative to the root must start with a trusted prefix, with no `..`;
+  - the resolved path must answer the same, so a symlink cannot carry the trust elsewhere;
+  - an absolute path with no root is refused by name.
+- `FORBIDDEN_ABSOLUTE_PYTHON_SCRIPT_PREFIXES` is gone, because the anchor subsumes it.
+- Callers:
+  - The hook passes the broker's own workspace (`hook_broker.serve_hook_broker`, from the
+    settings the kernel compiled), never a path from the payload. The command runs at
+    that root, because `cd` is not in the policy (`cd apps` is refused, measured).
+  - The hard-fail check passes `context.workspace_root`.
+  - `tool_runner`, `fixture_runner` and `tool_registry` pass
+    `implementation_safety.KERNEL_CHECKOUT_ROOT`. An adapter's absolute program is
+    trusted only as the running kernel's own code, the rule the room already bound by.
+    The constant moved there from `adapter_room`.
+  - `verification_gate` passes no root, so it refuses absolute programs.
+
+Consequence: the implementer may now run `python3 tools/aria-poc/poc.py --help`, as the
+policy always stated.
+
+#### Evidence
+
+- `tests/test_python_script_trust.py`, run against 0b88b2ccb's kernel: 6 of the 8 gate
+  subtests fail. The reviewer's four repros are allowed and the two relative trusted
+  scripts are refused (`scratchpad/sandbox/red-head.log`). On this change all of them pass.
+- The invariant `TrustedPrefixesAreReadOnlyTests` pins that every trusted prefix is a
+  tracked directory under a `READONLY_PATHS` entry.
+
+### ARIA-MEDIUM-432: the adapter room shows what git tracks
+
+#### Fix (tier 1: what git does not track is not in the room)
+
+`aria_kernel/workspace_view.py` assembles the room's workspace from git's own listing:
+`ls-files --stage` plus `ls-files --others --directory`. It uses hermetic git (no
+caller `GIT_*`, no fsmonitor, no untracked cache). That helper moved there from
+`fixture_runner._git`, so there is one owner. The view is built like this:
+
+- an empty tmpfs at the workspace path;
+- each tracked top-level entry bound read-only into it (a tracked symlink is recreated as
+  a symlink);
+- every untracked path beneath a bound entry covered:
+  - a directory by an empty tmpfs;
+  - a file by `/dev/null`, so its name stays and opening it is refused, because the bind is
+    `nodev`;
+- `.git` bound;
+- the root remounted read-only after the last mount inside it.
+
+`_sandbox_argv(workspace_view=...)` uses the view in place of the workspace bind and the
+`READONLY_PATHS` overlays. Each overlay re-binds a host path whole, `.env` among them, and
+a view is read-only by definition (`write_scope` must be `()`).
+
+The installed dependency trees come back where the adapters resolve them
+(`_view_dependency_binds`):
+
+- **A workspace whose tree is installed in place** (the runner) gets its own trees from
+  their resolved source. Nothing is created in them.
+- **A nested workspace** gets the ancestor checkout's tree, exactly as every other room
+  binds it.
+
+The fixed list of directories (`_masked_directories`) is gone. The store, the request
+worktrees, the tools root's ledgers and `secrets/`, the signing keys and a `RUNNER_TEMP`
+inside the workspace are hidden because git does not track them. Two refusals remain:
+
+- a workspace that IS a private root is still refused by name;
+- a bind that would contain an unhidden `RUNNER_TEMP` is still refused.
+
+A workspace that is not a git checkout has no view, so it gets no room
+(`adapter_room_workspace_view_not_a_checkout`). A submodule is refused as well, because
+its untracked files are another repository's answer.
+
+Test fixtures that ran adapters in a bare directory, or in one with an empty `.git/`
+standing in for a checkout, are real checkouts now. They use one new helper,
+`tests/_helpers/git_fixtures.track_existing`, which tracks only the named paths, so a store
+inside stays untracked as on the runner. The fixtures are:
+
+- `test_tool_governance`;
+- `test_doctor.ToolsOrgan`;
+- `test_incremental_learning`;
+- `test_fixture_dir_state_store_layout`;
+- `test_fixture_runner_row_cap`;
+- `test_tool_runner_inline_row_cap`;
+- `test_adapter_room`'s `RunnerLayout`.
+
+bwrap is now launched by the absolute path the kernel resolved
+(`implementation_safety._bwrap_executable`):
+
+- only absolute `PATH` entries are searched, on the kernel's `PATH`;
+- the probe and every room exec that path.
+
+A bare `bwrap` in the argv used to be resolved again at exec time on the child's `PATH`,
+because `subprocess` with `env=` searches that environment. So the probe could verify one
+binary while a room ran another. Six tests that pinned `argv[0] == "bwrap"` now pin an
+absolute path ending in `bwrap`.
+
+#### Evidence
+
+- **Red at 0b88b2ccb.** Two live tests fail, the first with the probe's `crash` (exit 3):
+  - `test_what_git_does_not_track_is_not_in_the_room_and_what_it_tracks_is`: the room read
+    a gitignored `.env`, `certs/server.pem`, `src/local.key`, `deploy/prod/secret.yaml`
+    and an untracked note (all `reached`);
+  - `test_a_symlinked_tree_is_mounted_in_place_and_resolves_into_this_checkout`: the
+    symlinked tree's workspace link dangled.
+- **Green on this change.** The secrets are refused, while the tracked `src/app.ts`, the
+  tracked `deploy/prod/values.yaml` and `node_modules` are read. A symlinked tree is
+  mounted in place, and its relative workspace link resolves into THIS checkout's
+  `libs/`.
+- **Cost, measured on this host.** Building the view runs two git listings (about 50 ms).
+  A `bwrap /bin/true` with the view (140 mounts) takes 138-140 ms, against 18-19 ms for the
+  whole-workspace bind. One bind per tracked file was measured too and rejected: 1,598
+  binds took 6.7-7.3 s per start, because bwrap re-reads the mount table on every bind.
+  A copy of HEAD would be 137 MB per run.
+
+#### Parity: all 15 registered adapters, old room vs the tracked view
+
+Run back-to-back per adapter on this worktree. The old room is 0b88b2ccb's, with wave 1's
+local adaptation for the symlinked `node_modules`. The new room runs unadapted.
+
+| Adapter                        | Exit old / new | Findings | Observations | read_paths | evidence_sources | stdout identical | Seconds old / new |
+| ------------------------------ | -------------- | -------- | ------------ | ---------- | ---------------- | ---------------- | ----------------- |
+| agent-harness-security-adapter | 0 / 0          | 49       | 0            | 657        | 46               | yes              | 2.19 / 2.67       |
+| banned-phrase-adapter          | 0 / 0          | 16       | 16           | 12         | 12               | yes              | 4.75 / 4.88       |
+| bundle-budget-adapter          | 0 / 0          | 10       | 10           | 1915       | 1915             | yes              | 1.05 / 1.06       |
+| cqrs-adapter                   | 0 / 0          | 6        | 0            | 92         | 3                | yes              | 0.31 / 0.46       |
+| doc-staleness-adapter          | 0 / 0          | 250      | 333          | 1615       | 1615             | yes              | 1.28 / 1.32       |
+| dual-alias-adapter             | 0 / 0          | 0        | 0            | 223        | 0                | yes              | 0.22 / 0.25       |
+| event-contracts-adapter        | 0 / 0          | 0        | 254          | 76         | 0                | yes              | 6.02 / 2.31       |
+| fe-dto-parity-adapter          | 0 / 0          | 0        | 0            | 2458       | 2458             | yes              | 3.58 / 3.50       |
+| kernel-dead-wire-adapter       | 0 / 0          | 12       | 7            | 429        | 429              | yes              | 0.89 / 1.21       |
+| outbox-adapter                 | 0 / 0          | 15       | 0            | 3102       | 12               | yes              | 1.89 / 1.77       |
+| security-boundary-adapter      | 0 / 0          | 13       | 1722         | 5950       | 7                | yes              | 9.84 / 10.39      |
+| typeorm-entity-schema-adapter  | 0 / 0          | 0        | 4282         | 397        | 0                | yes              | 1.43 / 1.80       |
+| tenant-scoping-adapter         | 0 / 0          | 49       | 5309         | 4145       | 17               | no, see below    | 28.70 / 16.45     |
+| test-gap-adapter               | 0 / 0          | 220      | 2623         | 7782       | 220              | yes              | 66.34 / 67.47     |
+| lint-rules-adapter             | 0 / 0          | 5654     | 1            | 5746       | 5746             | yes              | 238.51 / 258.39   |
+
+All 15 exit 0 with identical counts. 14 of the 15 outputs are byte-identical.
+
+tenant-scoping differs in the one field wave 1 traced to this host:
+`metadata.observations_truncated.tenant_repository_call` is 6762 in the old room and 6776 in the
+view. The view's output is byte-identical to the unconfined control (the pre-399 spawn, same
+run). Wave 1 attributed the 14 to the symlinked tree's workspace links, which dangled in the
+old room. The view mounts the tree at the workspace's own path, so they resolve, now
+inside the room.
+
+The room has 186-188 mounts where the old room had 68; the number rises with each
+untracked path a concurrent session adds. The durations stay within the host's load noise
+(load 2-3 on 8 cores).
+
+#### Semantics, and what is not done
+
+- **The view is what git TRACKS, not what it does not ignore.** On a dirty operator
+  checkout, an untracked file that is not ignored is in the snapshot's `allowed_paths`
+  (`snapshot.py` working-tree mode lists `--others --exclude-standard`) but not in the room.
+  Opening it is refused, as for any covered file. On the runner, the reset step's
+  `git clean -ffdx -e node_modules` (`aria-auto-cycle.yml`) leaves no such file.
+  Narrowing the snapshot to the same set is `snapshot.py`'s owner's decision, and it is
+  recorded here, not changed.
+- **A path created after the listing**, inside a bound directory, is visible until the
+  room exits. The listing is taken immediately before the spawn.
+- **The validation room and the implementer room are unchanged.** In a worktree whose
+  `node_modules` is a symlink they still abort on the ancestor's tree. Adapter rooms no
+  longer do: their own tree is bound in place.

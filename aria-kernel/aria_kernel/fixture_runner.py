@@ -16,6 +16,7 @@ from .evidence_validator import validate_tool_output_evidence
 from .implementation_safety import (
     BashAllowlistMiss,
     BashDenylistHit,
+    KERNEL_CHECKOUT_ROOT,
     SandboxUnavailable,
     verify_bash_command_allowed,
 )
@@ -31,6 +32,7 @@ from .ledger_inline import spill_evidence_validation
 from .state_manifest import surface_for_path
 from .tool_registry import GovernanceError, declared_bound_repo_root, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
+from .workspace_view import hermetic_git
 
 
 SEMANTIC_FIXTURE_REQUIRED_TOOLS = {
@@ -333,12 +335,7 @@ def _git(workspace_root: str | os.PathLike[str], *args: str, timeout: int = 60) 
     or GIT_INDEX_FILE from the caller's environment, or an fsmonitor hook from
     the repository config, would let a caller decide what `git status` reports.
     """
-    hermetic = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    return subprocess.run(
-        ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
-         "-C", str(workspace_root), *args],
-        capture_output=True, text=True, timeout=timeout, check=False, env=hermetic,
-    )
+    return hermetic_git(workspace_root, *args, timeout=timeout)
 
 
 def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
@@ -766,9 +763,12 @@ def run_fixture_case(
     if not runner:
         raise GovernanceError(f"tool has no runner configuration: {tool['tool_id']}")
     try:
+        # An adapter's absolute program is trusted only as the running
+        # kernel's own code (ARIA-HIGH-431; the room binds by the same rule).
         verify_bash_command_allowed(
             list(runner.get("argv") or []),
             cwd=str(runner.get("cwd") or "."),
+            checkout_root=KERNEL_CHECKOUT_ROOT,
         )
     except (BashAllowlistMiss, BashDenylistHit) as exc:
         raise GovernanceError(f"runner_argv_policy_rejected:{exc}") from exc

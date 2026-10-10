@@ -16,6 +16,7 @@ from .genesis_adapter_custody import verify_genesis_dispatch
 from .implementation_safety import (
     BashAllowlistMiss,
     BashDenylistHit,
+    KERNEL_CHECKOUT_ROOT,
     SandboxUnavailable,
     verify_bash_command_allowed,
 )
@@ -70,9 +71,12 @@ def run_tool(
     if runner.get("type") != "subprocess":
         raise GovernanceError(f"unsupported runner type: {runner.get('type')}")
     try:
+        # An adapter's absolute program is trusted only as the running
+        # kernel's own code (ARIA-HIGH-431; the room binds by the same rule).
         verify_bash_command_allowed(
             list(runner.get("argv") or []),
             cwd=str(runner.get("cwd") or "."),
+            checkout_root=KERNEL_CHECKOUT_ROOT,
         )
     except (BashAllowlistMiss, BashDenylistHit) as exc:
         raise GovernanceError(f"runner_argv_policy_rejected:{exc}") from exc

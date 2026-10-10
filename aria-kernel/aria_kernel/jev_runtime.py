@@ -1,0 +1,287 @@
+"""System One transport — one bounded HTTPS call to TypeSafe Jev (ARIA-LOW-252).
+
+PRIVATE to ``system_one``: no other module may import or name this one, and
+``system_one`` binds the call under a private alias only
+(``tests/test_jev_runtime.py`` pins both), because ``system_one`` is where the
+egress law lives — what may be sent, built from references, and checked as
+the exact bytes that leave. This module only moves those bytes:
+
+* the endpoint is pinned (``https`` and ``api.typesafe.ai``) and checked at
+  every call; no caller can name another;
+* the request goes over ``http.client``: no redirect is followed (any 3xx
+  is refused), no environment proxy is read, and TLS is verified with the
+  default context — the bearer key can reach no other host;
+* one monotonic deadline (``TIMEOUT_CEILING_SECONDS``) bounds both attempts
+  together; a watchdog shuts the socket at it, the body is read in chunks
+  against it, and a reply completing after it is refused; the response is
+  capped by Content-Length and by the read;
+* the key comes ONLY from the file ``ARIA_JEV_API_KEY_FILE`` names, opened
+  without following a symlink and accepted only as a regular file owned by
+  this euid with no group/other bits, of a fixed charset — so it can never
+  inject a header;
+* every failure is a RETURNED, named ``JevUnavailable`` carrying an
+  exception CLASS name at most, never a message (a message can carry the
+  request, and the request carries the key).
+"""
+from __future__ import annotations
+
+import http.client
+import json
+import os
+import re
+import socket
+import ssl
+import stat
+import threading
+import time
+import urllib.request
+from dataclasses import dataclass, field
+from typing import Any, Callable, Mapping
+from urllib.parse import urlsplit
+
+JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+JEV_HOST = "api.typesafe.ai"
+# Not a `model_fleet` row (those host roles; Jev hosts none). Secret-shaped: agent children never see it.
+JEV_CREDENTIAL_FILE_ENV = "ARIA_JEV_API_KEY_FILE"
+TIMEOUT_CEILING_SECONDS = 5.0  # the WHOLE call, both attempts included
+MAX_ATTEMPTS = 2
+RETRY_BACKOFF_SECONDS = 0.2
+MAX_RESPONSE_BYTES = 64 * 1024
+MAX_KEY_FILE_BYTES = 4096
+_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{16,256}$")
+_MODEL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+Opener = Callable[[urllib.request.Request, float], tuple[int, bytes]]
+
+
+@dataclass(frozen=True)
+class JevReply:
+    model: str  # the EXACT model id the vendor ran (jev-1.13.0), never the alias
+    answers: Mapping[str, Any]
+    input_tokens: int | None
+
+
+@dataclass(frozen=True)
+class JevUnavailable:
+    reason: str
+
+
+@dataclass
+class CircuitBreaker:
+    """Open for ``cooldown_seconds`` after ``threshold`` consecutive failures; per process by design."""
+
+    threshold: int = 3
+    cooldown_seconds: float = 60.0
+    clock: Callable[[], float] = time.monotonic
+    _failures: int = field(default=0, repr=False)
+    _open_until: float | None = field(default=None, repr=False)
+
+    def allow(self) -> bool:
+        if self._open_until is not None and self.clock() >= self._open_until:
+            self._open_until, self._failures = None, 0
+        return self._open_until is None
+
+    def record(self, ok: bool) -> None:
+        self._failures = 0 if ok else self._failures + 1
+        if self._failures >= self.threshold:
+            self._open_until = self.clock() + self.cooldown_seconds
+
+
+_DEFAULT_BREAKER = CircuitBreaker()
+
+
+class _Refused(Exception):
+    def __init__(self, reason: str, *, retryable: bool = False) -> None:
+        super().__init__(reason)
+        self.reason, self.retryable = reason, retryable
+
+
+def _read_key(environ: Mapping[str, str]) -> str:
+    file_path = str(environ.get(JEV_CREDENTIAL_FILE_ENV) or "").strip()
+    if not file_path:
+        raise _Refused("credential_not_configured")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(file_path, flags)
+    except OSError as exc:  # a symlink (ELOOP), absent, or unreadable
+        raise _Refused("credential_file_unreadable") from exc
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise _Refused("credential_file_unreadable")
+        if info.st_uid != os.geteuid():
+            raise _Refused("credential_file_owner")
+        if info.st_mode & 0o077:  # readable beyond its owner: every process on the host has a copy
+            raise _Refused("credential_file_permissions")
+        data = os.read(descriptor, MAX_KEY_FILE_BYTES + 1)
+    except OSError as exc:
+        raise _Refused("credential_file_unreadable") from exc
+    finally:
+        os.close(descriptor)
+    if len(data) > MAX_KEY_FILE_BYTES:
+        raise _Refused("credential_file_too_large")
+    try:
+        secret = data.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise _Refused("credential_file_malformed") from exc
+    secret = secret[:-1] if secret.endswith("\n") else secret
+    if not secret:
+        raise _Refused("credential_file_empty")
+    if not _KEY_RE.match(secret):
+        raise _Refused("credential_file_malformed")
+    return secret
+
+
+READ_CHUNK_BYTES = 4096
+
+
+def _http_opener(request: urllib.request.Request, timeout_seconds: float) -> tuple[int, bytes]:
+    """One request over ``http.client``, held to ``timeout_seconds`` as a DEADLINE for the whole exchange.
+
+    ``http.client`` follows no redirect (a 3xx comes back as its status, which
+    ``_attempt`` refuses) and reads no proxy from the environment; TLS is
+    verified with the default context. A socket timeout bounds each read, not
+    the exchange: a server trickling headers or body just inside it held a
+    call for 16.1 s. A watchdog therefore shuts the socket at the deadline,
+    and the body is read in chunks with the clock checked between them; an
+    exchange still running at the deadline is refused.
+    """
+    target = urlsplit(request.full_url)
+    if target.scheme == "https":
+        connection: http.client.HTTPConnection = http.client.HTTPSConnection(
+            target.hostname or "", target.port, timeout=timeout_seconds, context=ssl.create_default_context(),
+        )
+    elif target.scheme == "http":  # only ever a local test vendor: _post pins https before any call
+        connection = http.client.HTTPConnection(target.hostname or "", target.port, timeout=timeout_seconds)
+    else:
+        raise _Refused("endpoint_not_pinned")
+    deadline = time.monotonic() + timeout_seconds
+    expired = threading.Event()
+
+    def _cut() -> None:
+        expired.set()
+        sock = connection.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    watchdog = threading.Timer(timeout_seconds, _cut)
+    watchdog.daemon = True
+    watchdog.start()
+    try:
+        path = target.path or "/"
+        if target.query:
+            path += "?" + target.query
+        connection.request(request.get_method(), path, body=request.data, headers=dict(request.header_items()))
+        response = connection.getresponse()
+        declared = response.getheader("Content-Length")
+        if declared is not None and (not declared.strip().isdigit() or int(declared) > MAX_RESPONSE_BYTES):
+            raise _Refused("response_too_large")
+        chunks: list[bytes] = []
+        received = 0
+        while True:
+            if expired.is_set() or time.monotonic() > deadline:
+                raise _Refused("deadline_exceeded")
+            # read1: what has arrived, up to the chunk size — read(n) on a
+            # buffered response blocks until n bytes or the end.
+            chunk = response.read1(READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            received += len(chunk)
+            if received > MAX_RESPONSE_BYTES:
+                raise _Refused("response_too_large")
+            chunks.append(chunk)
+        if expired.is_set():
+            raise _Refused("deadline_exceeded")
+        return int(response.status), b"".join(chunks)
+    except (OSError, http.client.HTTPException) as exc:
+        if expired.is_set():
+            raise _Refused("deadline_exceeded") from exc
+        raise _Refused(f"transport_error:{type(exc).__name__}", retryable=True) from exc
+    finally:
+        watchdog.cancel()
+        connection.close()
+
+
+def _attempt(key: str, body: bytes, *, timeout: float, opener: Opener) -> JevReply:
+    request = urllib.request.Request(
+        JEV_ENDPOINT, data=body, method="POST",
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json",
+                 "Accept": "application/json", "User-Agent": "aria-kernel-jev-runtime/1"},
+    )
+    status, raw = opener(request, timeout)
+    if 300 <= status < 400:
+        raise _Refused(f"redirect_refused_http_{status}")
+    if status in (401, 403):
+        raise _Refused(f"auth_rejected_http_{status}")
+    if status == 429 or status >= 500:
+        raise _Refused(f"{'rate_limited' if status == 429 else 'vendor_error'}_http_{status}", retryable=True)
+    if status != 200:
+        raise _Refused(f"request_refused_http_{status}")
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise _Refused("response_too_large")
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise _Refused("response_malformed") from exc
+    model, answers = (parsed.get("model"), parsed.get("answers")) if isinstance(parsed, dict) else (None, None)
+    if not (isinstance(model, str) and _MODEL_RE.match(model) and isinstance(answers, dict)):
+        raise _Refused("response_malformed")
+    usage = parsed.get("usage")
+    tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
+    bounded = tokens if type(tokens) is int and 0 <= tokens <= 10_000_000 else None
+    return JevReply(model=model, answers=answers, input_tokens=bounded)
+
+
+def post_systemone(
+    payload: Mapping[str, Any], *, environ: Mapping[str, str] | None = None, opener: Opener | None = None,
+    breaker: CircuitBreaker | None = None, timeout_seconds: float = TIMEOUT_CEILING_SECONDS,
+    sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+) -> JevReply | JevUnavailable:
+    """POST one ``{model, state, questions}`` body to the pinned endpoint; the reply or a named ``JevUnavailable``."""
+    try:
+        return _post(payload, environ=environ, opener=opener, breaker=breaker,
+                     timeout_seconds=timeout_seconds, sleep=sleep, clock=clock)
+    except Exception as exc:  # noqa: BLE001 — the CLASS only; a message can carry the key
+        return JevUnavailable(f"transport_raised:{type(exc).__name__}")
+
+
+def _post(
+    payload: Mapping[str, Any], *, environ: Mapping[str, str] | None, opener: Opener | None,
+    breaker: CircuitBreaker | None, timeout_seconds: float, sleep: Callable[[float], None],
+    clock: Callable[[], float],
+) -> JevReply | JevUnavailable:
+    target = urlsplit(JEV_ENDPOINT)
+    if target.scheme != "https" or target.hostname != JEV_HOST:
+        return JevUnavailable("endpoint_not_pinned")
+    gate = _DEFAULT_BREAKER if breaker is None else breaker
+    if not gate.allow():
+        return JevUnavailable("circuit_open")
+    try:
+        key = _read_key(os.environ if environ is None else environ)
+    except _Refused as refused:
+        # Configuration, not an outage: never opens the breaker, so a fixed file works at once.
+        return JevUnavailable(refused.reason)
+    body = json.dumps(payload).encode("utf-8")
+    deadline = clock() + max(0.1, min(float(timeout_seconds), TIMEOUT_CEILING_SECONDS))
+    attempt = 1
+    while True:
+        remaining = deadline - clock()
+        if remaining <= 0:
+            gate.record(False)
+            return JevUnavailable("deadline_exceeded")
+        try:
+            reply = _attempt(key, body, timeout=remaining, opener=opener or _http_opener)
+            if clock() > deadline:
+                # A reply that completed after the deadline is not accepted.
+                raise _Refused("deadline_exceeded")
+        except _Refused as refused:
+            if refused.retryable and attempt < MAX_ATTEMPTS and deadline - clock() > RETRY_BACKOFF_SECONDS:
+                attempt += 1
+                sleep(RETRY_BACKOFF_SECONDS)
+                continue
+            gate.record(False)
+            return JevUnavailable(refused.reason)
+        gate.record(True)
+        return reply

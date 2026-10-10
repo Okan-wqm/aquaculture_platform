@@ -373,3 +373,13 @@ class APullRequestThatExistsIsNotACandidate(_PrPhaseFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnUnboundStoreHasNoPullRequests(unittest.TestCase):
+    """Review of #1930: the reader must answer for a store no writer has bound yet."""
+
+    def test_lifecycle_rows_of_an_unbound_store_is_empty(self) -> None:
+        from aria_kernel.merge_record import lifecycle_rows
+
+        with tempfile.TemporaryDirectory(prefix="aria-unbound-") as tmp:
+            self.assertEqual(lifecycle_rows(tmp), [])

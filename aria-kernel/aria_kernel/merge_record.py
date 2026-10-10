@@ -97,7 +97,14 @@ def lifecycle_rows(base_dir: str | Path) -> list[dict[str, Any]]:
     from .ledger import load_declared_jsonl
     from .tool_registry import ensure_tools_dir_readonly
 
-    path = ensure_tools_dir_readonly(base_dir) / "pr-lifecycle.jsonl"
+    # An unbound store (no repo identity) has had no PR lifecycle written to it:
+    # every writer binds the store first. So the ledger is empty, and a reader
+    # asking which PRs exist gets none, which keeps a proposal a PR candidate
+    # rather than hiding it (review of #1930).
+    root = ensure_tools_dir_readonly(base_dir)
+    if root is None:
+        return []
+    path = root / "pr-lifecycle.jsonl"
     return load_declared_jsonl(path, expected_surface="pr_lifecycle") if path.is_file() else []
 
 

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
 
+from aria_kernel.autonomy_state import autonomy_state_path
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.next_cycle_queue import read_pending
 from aria_kernel.runtime_profile import set_profile
@@ -97,6 +98,16 @@ def _completed_cycle_runner(
 
 def _stuck_bridge_drainer(*, base_dir: Path, max_iterations: int) -> dict[str, Any]:
     return {"status": "ok", "iterations": 1, "pending_after": 2}
+
+
+def _tamper_then_crash(
+    *, workspace_root: Any, cycle_id: str, base_dir: Path, defer_reflection: bool = False,
+) -> dict[str, Any]:
+    """dedupe's repro: an out-of-band write leaves a row with no ledger_hash
+    in a ledger reflection reads strictly, and the cycle crashes on it."""
+    root = ensure_tools_dir(base_dir)
+    (root / "auto-merge-decisions.jsonl").write_text('{"decision": "blocked"}\n', encoding="utf-8")
+    raise RuntimeError("ledger chain broken: auto-merge-decisions.jsonl")
 
 
 class FailedCycleReflectionTests(unittest.TestCase):
@@ -172,6 +183,36 @@ class FailedCycleReflectionTests(unittest.TestCase):
         )
         self.assertEqual([item["pressure_id"] for item in read_pending(self.base)], [_PRESSURE_ID])
         self.assertEqual(row["cycle_runner"]["status"], "completed")
+
+    def test_a_store_that_refuses_verification_still_exits_cycle_failed(self) -> None:
+        # Review of 0c9fd8f35 (dedupe): the reflection's strict read raised
+        # LedgerIntegrityError out of the orchestrator. There was no return,
+        # no exit row, and the night exited worse than on the parent.
+        result = self._run(cycle_runner=_tamper_then_crash)
+
+        self.assertEqual(result["exit_reason"], "cycle_failed")
+        self.assertFalse(result["exits_clean"])
+        refusal = result["per_cycle"][0]["reflection"]
+        self.assertEqual((refusal["status"], refusal["reason"]), ("refused", "ledger_integrity"))
+        self.assertIn("auto-merge-decisions.jsonl", refusal["error"])
+        self.assertNotIn(self.base.resolve().as_posix(), refusal["error"], "published text carries no host path")
+        self.assertEqual(self._reflections(), [])
+        # In order on the orchestrator's own ledger: the cycle's verdict, then
+        # the refusal, both written by the same writer on the same night.
+        cycle_id = result["per_cycle"][0]["cycle_id"]
+        phases = [
+            (row["phase"], row["status"]) for row in load_jsonl(autonomy_state_path(self.base))
+            if row.get("cycle_id") == cycle_id
+        ]
+        self.assertEqual(
+            phases[-2:], [("cycle_completed", "failed"), ("failed_cycle_reflection_refused", "refused")],
+        )
+        # The exit row the parent wrote is still written.
+        exits = [
+            row for row in load_jsonl(self.base / "governance.jsonl")
+            if row.get("kind") == "autonomy_orchestrator_exit"
+        ]
+        self.assertEqual([row["details"]["exit_reason"] for row in exits], ["cycle_failed"])
 
 
 if __name__ == "__main__":

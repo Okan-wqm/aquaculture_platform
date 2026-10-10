@@ -64,6 +64,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
+from .artifact_safety import scrub_text
 from .autonomy_state import (
     FUNNEL_RECORDED_DETAIL,
     PLAN_MINTED_PHASE,
@@ -72,6 +73,7 @@ from .autonomy_state import (
 )
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
+from .ledger import LedgerIntegrityError
 from .next_cycle_queue import defer_projection, mark_consumed, read_pending
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
@@ -587,10 +589,17 @@ def _outer_cycle_status(projected: str) -> str:
     return "failed"
 
 
+# The refusal text is published on aria/state. It is scrubbed of secret shapes,
+# made relative to the store and bounded: the rule a failed phase's error
+# follows (cycle._published_error).
+_REFUSED_REFLECTION_ERROR_MAX_CHARS = 300
+
+
 def _reflect_on_failed_cycle(
     *,
     root: Path,
     cycle_id: str,
+    profile: str,
     workspace_root: str | Path | None,
     cycle_summary: dict[str, Any],
     cycle_result: dict[str, Any] | None,
@@ -611,19 +620,48 @@ def _reflect_on_failed_cycle(
     pure observer. It writes the daily report and queues the cycle's
     schedulable pressures for the next cycle. On a failed night that queueing
     is the intended self-repair entry (tests/test_failed_cycle_reflection.py).
+
+    The one exception: a ledger that refuses strict verification. The
+    verified reader raises ``LedgerIntegrityError``, and that reader is the
+    single owner of "this ledger cannot be trusted". Before this reflection
+    existed, such a night still exited cleanly as ``cycle_failed`` with its
+    exit row, and a failed night must not exit worse than that. So the
+    refusal is recorded as a second fact about the night, then the exit
+    proceeds. The record has two places:
+    - an autonomy-state row, by the same writer, on the same ledger, as the
+      ``cycle_completed`` row written moments earlier (reflection never
+      reads that ledger);
+    - the summary.
+    Nothing else is caught. A policy refusal or any other fault still
+    raises, and the ok/degraded exits' reflection is unchanged.
     """
-    return run_reflection(
-        cycle_id=cycle_id,
-        base_dir=root,
-        repo_root=workspace_root,
-        convergence_result=None,
-        review_result=None,
-        **producer_reflection_kwargs(
-            cycle_summary=cycle_summary,
-            cycle_result=cycle_result,
-            pedagogy_lint_result=pedagogy_snapshot,
-        ),
-    )
+    try:
+        return run_reflection(
+            cycle_id=cycle_id,
+            base_dir=root,
+            repo_root=workspace_root,
+            convergence_result=None,
+            review_result=None,
+            **producer_reflection_kwargs(
+                cycle_summary=cycle_summary,
+                cycle_result=cycle_result,
+                pedagogy_lint_result=pedagogy_snapshot,
+            ),
+        )
+    except LedgerIntegrityError as exc:
+        error = str(exc)
+        for prefix in {root.as_posix(), root.resolve().as_posix()}:
+            error = error.replace(f"{prefix}/", "")
+        refusal = {
+            "status": "refused",
+            "reason": "ledger_integrity",
+            "error": scrub_text(error)[:_REFUSED_REFLECTION_ERROR_MAX_CHARS],
+        }
+        AutonomyStateReducer.transition(
+            root, cycle_id=cycle_id, phase="failed_cycle_reflection_refused",
+            status="refused", profile=profile, details=refusal,
+        )
+        return refusal
 
 
 def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
@@ -1830,7 +1868,8 @@ def run_autonomy_orchestrator(
                     # reflection still runs, so a failed night writes its
                     # report and queues the next cycle's work.
                     cycle_summary["reflection"] = _reflect_on_failed_cycle(
-                        root=root, cycle_id=cycle_id, workspace_root=workspace_root,
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
                         cycle_summary=cycle_summary, cycle_result=cycle_result,
                         pedagogy_snapshot=pedagogy_snapshot,
                     )
@@ -1944,7 +1983,8 @@ def run_autonomy_orchestrator(
                     # ARIA-HIGH-420 — the second failed exit reflects like
                     # the first one does.
                     cycle_summary["reflection"] = _reflect_on_failed_cycle(
-                        root=root, cycle_id=cycle_id, workspace_root=workspace_root,
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
                         cycle_summary=cycle_summary, cycle_result=cycle_result,
                         pedagogy_snapshot=pedagogy_snapshot,
                     )

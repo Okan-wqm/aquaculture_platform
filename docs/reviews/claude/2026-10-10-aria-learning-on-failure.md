@@ -58,10 +58,19 @@ idempotency key (`next_cycle_queue.py:180-190`), so the night added no new row.
 
 ### Not done here
 
-- A reflection that raises still propagates out of the orchestrator, as it does on the six
-  existing exits. This happens when a ledger that `run_reflection` reads strictly fails
-  verification. Catching it would hide a store that cannot be verified. The operator notification
-  has already been sent by then.
+- Review of 0c9fd8f35 (dedupe, confirmed): a ledger that fails strict verification made the
+  failed-exit reflection raise `LedgerIntegrityError` out of the orchestrator. That night lost its
+  return value and its `autonomy_orchestrator_exit` row, both of which the parent kept. Fixed in
+  the follow-up commit. On the two failed exits only, `_reflect_on_failed_cycle` catches exactly
+  that class: the verified reader is the one owner of "this ledger cannot be trusted". It records
+  the refusal in two places:
+  - an autonomy-state row `failed_cycle_reflection_refused`, written by the same writer, on the
+    same ledger, as that night's `cycle_completed` row (reflection never reads that ledger);
+  - the summary (`status: refused`, the error scrubbed, store-relative, ≤300 chars).
+    The exit then proceeds as on the parent. Gating the reflection on `integrity_failed` or
+    `verify_integrity` was rejected: those verdicts cover run artifacts and the cycle lifecycle, which
+    reflection does not read and which drift on exactly the crash nights this finding is about.
+    Anything else still raises, as on the six ok/degraded exits.
 - The archive's next-cycle queue is at its depth cap: 32 pending rows against `DEFAULT_QUEUE_DEPTH` 32. Several are duplicates written before the C10 dedupe, for example 8 rows for
   `pressure:migration-surface-repeat:repetition` from cycles 2026-09-19..10-07. A pressure that is
   genuinely new to a failed night would be overflow-blocked. That block is visible

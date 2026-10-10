@@ -270,6 +270,37 @@ class AnItemAgesOutByTheAnchorWindow(_QueueStore):
         with self.later(window + 60):
             self.assertEqual([row["queue_item_id"] for row in read_pending(self.base)], [queued["queue_item_id"]])
 
+    def test_an_aged_sibling_never_supersedes_a_reoffered_item(self) -> None:
+        # Review of a1b060050 (zai): A consumed; B enqueued for the same
+        # pressure an hour later and never drained; past the window, A's
+        # request dies and the anchor-stale disposition re-offers A. Nothing
+        # recorded B's expiry, and B (the newer enqueue) superseded A.
+        window = item_max_age_seconds(self.base)
+        start = queue_module._now()
+
+        def at(seconds: int) -> Any:
+            moment = start + timedelta(seconds=seconds)
+            return mock.patch.multiple(queue_module, _now=mock.Mock(return_value=moment),
+                                       utc_now=mock.Mock(return_value=moment.replace(microsecond=0).isoformat()))
+
+        with at(0):
+            a = append_pending(self.base, source_cycle_id="cyc-1", pressure_id="pressure:a")
+            assert a is not None
+            mark_consumed(self.base, queue_item_id=a["queue_item_id"], consumed_by="drain")
+        with at(3600):
+            b = append_pending(self.base, source_cycle_id="cyc-2", pressure_id="pressure:a")
+            assert b is not None
+        with at(3600 + window + 60):
+            self.assertEqual(reoffer_item(self.base, queue_item_id=a["queue_item_id"], reason="anchor_stale:AIR-a"),
+                             REOFFERED)
+            self.assertEqual([row["queue_item_id"] for row in read_pending(self.base)], [a["queue_item_id"]])
+            # The next enqueue records B aged, and A stays the pressure's item.
+            standing = append_pending(self.base, source_cycle_id="cyc-3", pressure_id="pressure:a")
+            assert standing is not None
+            self.assertEqual(standing["queue_item_id"], a["queue_item_id"])
+        states = {(row["queue_item_id"], row["state"]) for row in self.rows() if row["state"] in (EXPIRED, SUPERSEDED)}
+        self.assertEqual(states, {(b["queue_item_id"], EXPIRED)})
+
     def test_an_undateable_offer_buys_no_slot(self) -> None:
         path = queue_path(self.base)
         path.parent.mkdir(parents=True, exist_ok=True)

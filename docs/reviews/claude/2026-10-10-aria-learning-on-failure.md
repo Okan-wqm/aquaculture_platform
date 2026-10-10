@@ -313,3 +313,20 @@ The existing suites stay green: `test_next_cycle_queue`, `test_anchor_stale_disp
 - **Not done.** `anchor_stale_effects.reoffer_queue_item` records the re-offered item's id with
   `queue_item_already_pending`, not the live sibling that carries the work. This is a wording
   gap in a file outside this finding.
+
+### Review of a1b060050 (zai)
+
+- **Confirmed regression, fixed in the next commit.** `fold_queue` chose a pressure's item among
+  ALL its pending items, and only aged the chosen one afterwards. With `reoffer_item` no longer
+  recording expiry, the following happened:
+  1. A was consumed.
+  2. B was enqueued for the same pressure an hour later and was never drained.
+  3. Past the window, the anchor-stale disposition re-offered A.
+  4. The next fold kept B, the newer enqueue, and superseded A. Then B aged out.
+
+  Nothing was live, yet the disposition recorded `queue_item_reoffered`. Now an aged item, whose
+  latest offer falls outside the window or cannot be read, is `expired` and never holds its
+  pressure. The live item is chosen among the fresh items only. This is a property of the fold,
+  not of any one writer. `expired` is still recorded only by the enqueue. The test
+  `test_an_aged_sibling_never_supersedes_a_reoffered_item` is red on a1b060050 and green here.
+  The production proof is unchanged: 10 live, 22 superseded, and a new pressure admitted.

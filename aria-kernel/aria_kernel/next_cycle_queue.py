@@ -20,13 +20,12 @@ Queue shape:
 One live item per pressure (ARIA-MEDIUM-428):
 
 * ``pressure_id`` is the queue's idempotency key, so the queue's
-  unit of work is the pressure, not the row. ``fold_queue`` keeps,
-  per pressure, the pending item enqueued last (the freshest
-  snapshot of the pressure); every other pending item of that
-  pressure is ``superseded`` by it. A live item not offered (enqueued
-  or re-offered) within the request-anchor window is ``expired``: a
-  pressure that still holds is queued again, with a fresh snapshot,
-  by the next reflection.
+  unit of work is the pressure, not the row. An item not offered
+  (enqueued or re-offered) within the request-anchor window is
+  ``expired``: a pressure that still holds is queued again, with a
+  fresh snapshot, by the next reflection. Among a pressure's other
+  pending items, ``fold_queue`` keeps the one enqueued last (the
+  freshest snapshot); the rest are ``superseded`` by it.
 * ``read_pending`` returns the fold's live items, so a reader never
   sees a duplicate or an aged item. The writers that change which
   item holds a pressure (``append_pending``, ``mark_consumed``,
@@ -168,13 +167,20 @@ def fold_queue(rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: in
     one pressure, 27 of them re-offered on 2026-10-08), so the depth cap
     blocked every new pressure while it held ten.
 
-    Per pressure, the pending item ENQUEUED last is live: the drain reads
-    the pressure as stored by the item's ``source_cycle_id``, so the newest
-    enqueue is the freshest evidence. Its siblings are superseded by it. An
-    item's OFFER is its enqueue row or a re-offer row (a deferral row keeps
-    it pending but offers nothing new); the live item is expired when its
-    latest offer is older than ``max_age_seconds`` or carries no readable
-    stamp (a corrupt stamp must not buy a slot forever).
+    An item's OFFER is its enqueue row or a re-offer row (a deferral row
+    keeps it pending but offers nothing new). An item whose latest offer is
+    older than ``max_age_seconds``, or carries no readable stamp (a corrupt
+    stamp must not buy a slot forever), is aged: ``expired``, never live,
+    and never the item that holds its pressure. Per pressure, the fresh item
+    ENQUEUED last is live: the drain reads the pressure as stored by the
+    item's ``source_cycle_id``, so the newest enqueue is the freshest
+    evidence. Its fresh siblings are superseded by it.
+
+    Review of a1b060050 (zai): the live item used to be chosen among ALL
+    pending items and aged after. An aged sibling whose expiry no writer had
+    recorded yet then superseded an item the anchor-stale disposition had
+    just re-offered, and nothing was live: the re-offer reported success and
+    the work was gone.
     """
     enqueued: dict[str, tuple[int, dict[str, Any]]] = {}
     offered: dict[str, int] = {}
@@ -201,26 +207,30 @@ def fold_queue(rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: in
     stamp = now.replace(microsecond=0).isoformat()
     live: list[tuple[int, dict[str, Any]]] = []
     transitions: list[dict[str, Any]] = []
-    for pressure, qids in by_pressure.items():
-        keep = max(qids, key=lambda qid: enqueued[qid][0])
-        pressure_id = enqueued[keep][1].get("pressure_id")
+    for qids in by_pressure.values():
+        fresh: list[str] = []
         for qid in qids:
-            if qid != keep:
-                transitions.append({
-                    "schema_version": 1, "queue_item_id": qid, "state": SUPERSEDED,
-                    "pressure_id": pressure_id, "superseded_by": keep,
-                    "reason": SUPERSEDED_REASON, "recorded_at": stamp,
-                })
-        offered_at = str(rows[offered[keep]].get("recorded_at") or "")
-        offered_stamp = parse_utc_stamp(offered_at)
-        if offered_stamp is None or offered_stamp < horizon:
+            offered_at = str(rows[offered[qid]].get("recorded_at") or "")
+            offered_stamp = parse_utc_stamp(offered_at)
+            if offered_stamp is not None and offered_stamp >= horizon:
+                fresh.append(qid)
+                continue
             transitions.append({
-                "schema_version": 1, "queue_item_id": keep, "state": EXPIRED,
-                "pressure_id": pressure_id, "reason": EXPIRED_REASON,
+                "schema_version": 1, "queue_item_id": qid, "state": EXPIRED,
+                "pressure_id": enqueued[qid][1].get("pressure_id"), "reason": EXPIRED_REASON,
                 "offered_at": offered_at or None, "max_age_seconds": max_age_seconds,
                 "recorded_at": stamp,
             })
+        if not fresh:
             continue
+        keep = max(fresh, key=lambda qid: enqueued[qid][0])
+        for qid in fresh:
+            if qid != keep:
+                transitions.append({
+                    "schema_version": 1, "queue_item_id": qid, "state": SUPERSEDED,
+                    "pressure_id": enqueued[qid][1].get("pressure_id"), "superseded_by": keep,
+                    "reason": SUPERSEDED_REASON, "recorded_at": stamp,
+                })
         live.append(enqueued[keep])
     live.sort(key=lambda entry: entry[0])
     return QueueFold(live=[row for _, row in live], transitions=transitions)
@@ -231,9 +241,12 @@ def _settled_fold(
 ) -> QueueFold:
     """Fold ``rows`` and append the verdicts the ledger lacks, inside the caller's transaction.
 
-    ``superseded`` depends only on the ledger's order, so every caller
-    records it. ``expired`` depends on the clock, so only the enqueue
-    records it (``record_expiry``). Review of 314c6a18e: a consumer that
+    ``superseded`` names a fresh sibling of the pressure's live item.
+    Every caller records it, since that is what keeps a consumed live item
+    from bringing the sibling back. ``expired`` is the clock's verdict, so
+    only the enqueue records it (``record_expiry``); an unrecorded aged item
+    is still never live and never holds its pressure (``fold_queue``).
+    Review of 314c6a18e: a consumer that
     recorded it could write an item expired between the drain's read and
     its own row for that item (expired, then consumed), and a deferral
     row then made the item pending again, so its expiry was written twice.

@@ -963,7 +963,7 @@ def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
     return active
 
 
-_IMPLEMENTATION_PHASE_STATES = {
+IMPLEMENTATION_PHASE_STATES = {
     "IMPLEMENTATION_REQUESTED",
     "IMPLEMENTATION_IN_FLIGHT",
     "IMPLEMENTATION_RECORDED",
@@ -1084,7 +1084,7 @@ def decide_orphan_reap(
     says False for both. Combined with sparing the undateable, that made a
     plan with an unreadable clock IMMORTAL — spared by the reaper forever,
     and never seen by `resume_candidate_plan_id`, which skips
-    `_IMPLEMENTATION_PHASE_STATES` outright and so was never the backstop an
+    `IMPLEMENTATION_PHASE_STATES` outright and so was never the backstop an
     earlier version of this comment claimed it was.
 
     So the age is established here, once, from the two stamps the scanner
@@ -1172,7 +1172,7 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
         if not isinstance(state, dict):
             continue
-        if state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+        if state.get("state") in IMPLEMENTATION_PHASE_STATES:
             continue
         stamp = last_seen.get(plan_id)
         if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
@@ -1217,7 +1217,7 @@ def in_flight_plan_id(*, base_dir: str | Path | None = None) -> str | None:
     last_seen = _last_event_at_by_plan(root)
     for plan_id in reversed(list_active_plans(base_dir=base_dir)):
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-        if not isinstance(state, dict) or state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+        if not isinstance(state, dict) or state.get("state") in IMPLEMENTATION_PHASE_STATES:
             continue
         stamp = last_seen.get(plan_id)
         if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
@@ -1363,7 +1363,7 @@ def force_plan_human_required(
         _require_started(state, "force human required")
         current = state.get("state")
         allowed = (current in from_states) if from_states is not None else (
-            current not in TERMINAL_STATES and current not in _IMPLEMENTATION_PHASE_STATES
+            current not in TERMINAL_STATES and current not in IMPLEMENTATION_PHASE_STATES
         )
         if not allowed:
             raise PlanStateRefused(

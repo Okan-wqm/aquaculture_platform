@@ -362,7 +362,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         cycle_id = native["cycle_id"]
         memory_call.assert_called_once_with(cycle_id=cycle_id, base_dir=self.base, workspace_root=repo)
         self.assertEqual(native["status"], "failed")
-        self.assertEqual(native["runtime_status"], "ok")
+        # ARIA-MEDIUM-413 — a phase that declared itself failed is the
+        # cycle's runtime verdict too (cycle_runtime_status: "failed — a phase
+        # raised or declared itself failed"); it used to read `ok` beside a
+        # FAILED terminal row.
+        self.assertEqual(native["runtime_status"], "failed")
         self.assertEqual(native["phase_failures"], ["architecture_postcheck"])
         self.assertTrue(native["artifact_integrity"]["valid"])
         self.assertEqual(native["non_ok_tools"], [])
@@ -414,7 +418,10 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(summary["overall_status"], "failed")
         self.assertEqual(summary["exit_code"], 1)
         self.assertEqual(summary["cycles_completed"], 0)
-        self.assertEqual(summary["failed_phases"], [{"phase": "architecture_postcheck", "status": "failed"}])
+        self.assertEqual(summary["failed_phases"], [{
+            "phase": "architecture_postcheck", "status": "failed",
+            "error": "1 architecture regression(s) against the cycle baseline",
+        }])
 
     def test_native_clean_postcheck_preserves_outer_progression_and_summary(self) -> None:
         from unittest.mock import Mock
@@ -2231,7 +2238,7 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
 
         Sparing it was the defect: the earlier note claimed
         `resume_candidate_plan_id` would eventually abandon such a plan, and
-        it cannot — it `continue`s past `_IMPLEMENTATION_PHASE_STATES`, the
+        it cannot — it `continue`s past `IMPLEMENTATION_PHASE_STATES`, the
         only states this scanner returns, so nothing in the kernel would ever
         have collected it. A machine with no clock cannot honestly choose
         between "abandoned" and "in flight", so it stops choosing: the plan is

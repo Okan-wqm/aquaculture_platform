@@ -1340,7 +1340,7 @@ def run_autonomy_orchestrator(
                 # means the ledger was corrupted or hand-written. Sparing that
                 # made it IMMORTAL — the earlier note here claimed
                 # `resume_candidate_plan_id` was the backstop, and it is not:
-                # it `continue`s past `_IMPLEMENTATION_PHASE_STATES`, the only
+                # it `continue`s past `IMPLEMENTATION_PHASE_STATES`, the only
                 # states this scanner ever returns, so no mechanism would ever
                 # have collected it. A machine cannot honestly decide between
                 # "abandoned" and "in flight" without a clock, so it stops

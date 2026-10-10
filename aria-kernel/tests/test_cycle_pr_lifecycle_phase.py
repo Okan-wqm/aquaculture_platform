@@ -47,6 +47,11 @@ class _PrPhaseFixture(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _seed_proposal(self, *, proposal_id: str, status: str) -> None:
+        """An OPERATOR approval — the only lane this phase previews.
+
+        A machine approval is a converged plan's staging and its plan owns
+        it; see test_pr_lifecycle_plan_ownership.py.
+        """
         proposals_path = self.tools_root / "proposals" / "proposals.jsonl"
         proposals_path.parent.mkdir(parents=True, exist_ok=True)
         row = {
@@ -55,6 +60,8 @@ class _PrPhaseFixture(unittest.TestCase):
             "proposal_id": proposal_id,
             "kind": "test_proposal",
             "status": status,
+            "approval_source": "operator",
+            "operator_approval_ref": f"gh:Okan-wqm/aquaculture_platform#1/review/{proposal_id}",
             "blocked_by": [],
             "recorded_at": datetime.now(timezone.utc).isoformat().replace(
                 "+00:00", "Z"
@@ -64,6 +71,32 @@ class _PrPhaseFixture(unittest.TestCase):
             proposals_path,
             row,
             expected_surface="proposals",
+        )
+
+    def _seed_apply_action(self, *, proposal_id: str, status: str) -> None:
+        """An OPERATOR-lane action (``plan_apply_worktree``: no plan_id).
+
+        Only the operator lane is previewed by this phase; a machine-lane
+        staging (with ``plan_id``) is its plan's — see
+        test_pr_lifecycle_plan_ownership.py.
+        """
+        actions_path = self.tools_root / "apply" / "actions.jsonl"
+        actions_path.parent.mkdir(parents=True, exist_ok=True)
+        append_declared_fixture(
+            actions_path,
+            {
+                "$schema": "aria/apply-action/v1",
+                "schema_version": 1,
+                "proposal_id": proposal_id,
+                "status": status,
+                "branch": "aria-impl-0123456789abcdef",
+                "base_sha": "0" * 40,
+                "workspace_root": str(self.tmp),
+                "recorded_at": datetime.now(timezone.utc).isoformat().replace(
+                    "+00:00", "Z",
+                ),
+            },
+            expected_surface="apply_actions",
         )
 
 
@@ -83,6 +116,7 @@ class PrLifecyclePhaseTests(_PrPhaseFixture):
 
     def test_approved_proposal_invokes_action_pass(self) -> None:
         self._seed_proposal(proposal_id="prop-A", status="approved_for_apply")
+        self._seed_apply_action(proposal_id="prop-A", status="ready_for_pr")
         # Plus one ineligible proposal (status=open) — must be filtered out.
         self._seed_proposal(proposal_id="prop-OPEN", status="open")
         with patch(
@@ -113,11 +147,12 @@ class PrLifecyclePhaseTests(_PrPhaseFixture):
 
     def test_failed_action_status_fail_with_per_proposal_error(self) -> None:
         self._seed_proposal(proposal_id="prop-FAIL", status="approved_for_apply")
+        self._seed_apply_action(proposal_id="prop-FAIL", status="ready_for_pr")
         with patch(
             "aria_kernel.pr_manager.open_pr_for_action"
         ) as mock_action:
             mock_action.side_effect = GovernanceError(
-                "no apply action exists for proposal"
+                "open_pr_branch_missing: aria-impl-0123456789abcdef"
             )
             context = build_phase_context(
                 cycle_id="cyc-pr-3",
@@ -130,30 +165,54 @@ class PrLifecyclePhaseTests(_PrPhaseFixture):
         self.assertEqual(result["pr_lifecycle"]["fail"], 1)
         per_prop = result["pr_lifecycle"]["proposals"][0]
         self.assertEqual(per_prop["passed"], False)
-        self.assertIn("apply action", per_prop["error"])
-
-    def _seed_apply_action(self, *, proposal_id: str, status: str) -> None:
-        actions_path = self.tools_root / "apply" / "actions.jsonl"
-        actions_path.parent.mkdir(parents=True, exist_ok=True)
-        append_declared_fixture(
-            actions_path,
-            {
-                "$schema": "aria/apply-action/v1",
-                "schema_version": 1,
-                "proposal_id": proposal_id,
-                "status": status,
-                "branch": "aria-impl-0123456789abcdef",
-                "base_sha": "0" * 40,
-                "workspace_root": str(self.tmp),
-                "recorded_at": datetime.now(timezone.utc).isoformat().replace(
-                    "+00:00", "Z",
-                ),
-            },
-            expected_surface="apply_actions",
+        self.assertIn("open_pr_branch_missing", per_prop["error"])
+        # The reason rides the payload, so the cycle row can say why.
+        self.assertEqual(
+            result["pr_lifecycle"]["error"],
+            "1 of 1 PR previews refused: open_pr_branch_missing: aria-impl-0123456789abcdef",
         )
 
-    def test_staged_work_is_in_flight_not_a_cycle_failure(self) -> None:
+    def test_an_approval_with_no_apply_action_is_awaiting_apply_not_a_failure(self) -> None:
+        """Previewing it could only be refused ("no apply action exists") and fail the night."""
+        self._seed_proposal(proposal_id="prop-UNAPPLIED", status="approved_for_apply")
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            context = build_phase_context(
+                cycle_id="cyc-pr-3b",
+                workspace_root=self.tmp,
+                base_dir=self.tools_root,
+                cycle_started_at=datetime.now(timezone.utc),
+            )
+            payload = _run_pr_lifecycle_phase(context)
+        self.assertEqual(mock_action.call_count, 0)
+        self.assertEqual(payload["status"], "no_op")
+        self.assertEqual(payload["awaiting_apply"], [{"proposal_id": "prop-UNAPPLIED"}])
+
+    def test_a_gate_refused_action_is_reported_not_previewed(self) -> None:
+        self._seed_proposal(proposal_id="prop-BLOCKED", status="approved_for_apply")
+        self._seed_apply_action(proposal_id="prop-BLOCKED", status="blocked")
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            context = build_phase_context(
+                cycle_id="cyc-pr-3c",
+                workspace_root=self.tmp,
+                base_dir=self.tools_root,
+                cycle_started_at=datetime.now(timezone.utc),
+            )
+            payload = _run_pr_lifecycle_phase(context)
+        self.assertEqual(mock_action.call_count, 0)
+        self.assertEqual(payload["status"], "no_op")
+        self.assertEqual(
+            payload["gate_blocked"],
+            [{"proposal_id": "prop-BLOCKED", "approval_source": "operator",
+              "apply_action_status": "blocked"}],
+        )
+
+    def test_work_still_being_built_is_in_flight_not_a_cycle_failure(self) -> None:
         """ORPHAN-CRITICAL-728 — the defect that made every later cycle FAILED.
+
+        Operator-lane shape (``plan_apply_worktree`` writes ``planned`` /
+        ``worktree_created``); the machine-lane shape this docstring tells —
+        a converged plan's ``staged_for_implementation`` action — is pinned
+        against a real plan ledger in test_pr_lifecycle_plan_ownership.py.
 
         `stage_converged_plan_for_pr` approves the proposal and opens its
         apply action in `staged_for_implementation`, because the implementer
@@ -168,7 +227,7 @@ class PrLifecyclePhaseTests(_PrPhaseFixture):
         """
         self._seed_proposal(proposal_id="prop-STAGED", status="approved_for_apply")
         self._seed_apply_action(
-            proposal_id="prop-STAGED", status="staged_for_implementation",
+            proposal_id="prop-STAGED", status="worktree_created",
         )
         with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
             context = build_phase_context(
@@ -187,7 +246,8 @@ class PrLifecyclePhaseTests(_PrPhaseFixture):
             payload["in_flight"],
             [{
                 "proposal_id": "prop-STAGED",
-                "apply_action_status": "staged_for_implementation",
+                "approval_source": "operator",
+                "apply_action_status": "worktree_created",
             }],
         )
 
@@ -239,7 +299,8 @@ class APullRequestThatExistsIsNotACandidate(_PrPhaseFixture):
     """
 
     def _seed_live_action(self, *, proposal_id: str = _LIVE_PROPOSAL,
-                          change_id: str | None = _LIVE_CHANGE) -> None:
+                          change_id: str | None = _LIVE_CHANGE,
+                          plan_id: str | None = "plan-cyc-20261008T175911Z-auto") -> None:
         append_declared_fixture(
             self.tools_root / "apply" / "actions.jsonl",
             {
@@ -249,7 +310,7 @@ class APullRequestThatExistsIsNotACandidate(_PrPhaseFixture):
                 "branch": "aria-impl-7c52b7f387ab21ab5550aa4148a71306",
                 "base_sha": "83cc73af44cfa6d6be11acadf89dbf8e2689e259",
                 "change_id": change_id,
-                "plan_id": "plan-cyc-20261008T175911Z-auto",
+                "plan_id": plan_id,
                 "validation_gate_ref": "sha256:" + "7" * 64,
                 "validation_gate_status": "ready_for_pr",
                 "workspace_root": str(self.tmp),
@@ -332,9 +393,9 @@ class APullRequestThatExistsIsNotACandidate(_PrPhaseFixture):
                          [{"pr_number": _LIVE_PR, "pr_state": "closed_unmerged"}])
 
     def test_a_pr_for_another_change_of_the_proposal_does_not_hide_this_one(self) -> None:
-        """Binding is by the action's change: a newer staging is still a candidate."""
+        """Binding is by the action's change: a newer operator-lane change is still a candidate."""
         self._seed_proposal(proposal_id=_LIVE_PROPOSAL, status="approved_for_apply")
-        self._seed_live_action(change_id="chg_newer")
+        self._seed_live_action(change_id="chg_newer", plan_id=None)
         self._open(change_id=_LIVE_CHANGE)
         with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
             payload = self._phase(mock_action)
@@ -347,7 +408,7 @@ class APullRequestThatExistsIsNotACandidate(_PrPhaseFixture):
         self._seed_live_action()
         self._open()
         self._seed_proposal(proposal_id="prop-WAITING", status="approved_for_apply")
-        self._seed_live_action(proposal_id="prop-WAITING", change_id="chg_waiting")
+        self._seed_live_action(proposal_id="prop-WAITING", change_id="chg_waiting", plan_id=None)
         with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
             mock_action.return_value = {"event": "pr_dry_run"}
             context = build_phase_context(

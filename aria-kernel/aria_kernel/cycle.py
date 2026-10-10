@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from .artifact_safety import scrub_text
 from .feedback import derive_pressure
 from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
@@ -780,14 +781,8 @@ def run_enterprise_cycle(
     # was called unconditionally, so a failed validation_matrix or
     # pr_lifecycle silently passed through as a "completed" cycle,
     # defeating the purpose of running the gate.
-    phase_failures = [
-        phase.name for phase in CYCLE_PHASES
-        if isinstance(context.result(phase.name), dict)
-        and context.result(phase.name).get("status") == "fail"
-    ]
-    failed_phases: list[dict[str, Any]] = [
-        {"phase": name, "status": "failed"} for name in phase_failures
-    ]
+    failed_phases: list[dict[str, Any]] = _payload_failed_phases(context)
+    phase_failures = [row["phase"] for row in failed_phases]
     if post_tool_failure is not None:
         failed_phases.append(post_tool_failure)
     # PLAN Wave 2 PR 1.2 — "no plan silently half-done", checked where the
@@ -2717,6 +2712,19 @@ def _phase_artifact_integrity(context: PhaseContext) -> dict[str, Any]:
     return verify_artifacts(base_dir=context.base_dir)
 
 
+def _ran_result(context: PhaseContext, name: str) -> Any:
+    """A phase's payload only when the phase RAN; None when skipped, interrupted or raised.
+
+    A skipped or raising phase stores ``phase.absent()`` — ``{}`` by default —
+    and ``_phase_digest_of({})`` is a digest of zeros, i.e. "ran empty". The
+    digest's whole point is telling those apart (X3 / ORPHAN-700), so the
+    outcome ledger, not the payload's shape, decides whether it ran.
+    """
+    if context.outcomes.get(name, {}).get("outcome") != "ran":
+        return None
+    return context.result(name)
+
+
 def _phase_digest_of(payload: Any, fields: tuple[str, ...]) -> dict[str, Any] | None:
     """X3 (ORPHAN-700) — compact, count-shaped digest of a phase payload.
 
@@ -2749,7 +2757,7 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
     # projection boundary now ride the metrics row the publish carries.
     phase_digests: dict[str, dict[str, Any]] = {}
     night = _phase_digest_of(
-        context.result("experiment_night"),
+        _ran_result(context, "experiment_night"),
         ("planned_problem", "planned_regression", "reproduced", "refuted",
          "regressions", "still_fixed", "skipped_problem", "skipped_regression",
          "unresolvable_bindings", "errors"),
@@ -2757,7 +2765,7 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
     if night is not None:
         phase_digests["experiment_night"] = night
     watchdog = _phase_digest_of(
-        context.result("watchdog_sweep"),
+        _ran_result(context, "watchdog_sweep"),
         # run_watchdog_sweep's REAL return keys (aria_watchdog.py: candidates/
         # emitted/suppressed). Two prior digests shipped with wrong names —
         # first invented fields, then the DAEMON's termination keys — and both
@@ -2769,11 +2777,21 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
     if watchdog is not None:
         phase_digests["watchdog_sweep"] = watchdog
     author = _phase_digest_of(
-        context.result("experiment_author"),
+        _ran_result(context, "experiment_author"),
         ("authored", "deduped", "unauthorable", "capped"),
     )
     if author is not None:
         phase_digests["experiment_author"] = author
+    # Which approved proposals the phase previewed, and who holds the rest —
+    # the counts gate (c) of the repair plan reads; the phase runs before
+    # this one (CYCLE_PHASES tail order).
+    pr_items = _phase_digest_of(
+        _ran_result(context, "pr_lifecycle"),
+        ("status", "total", "ok", "fail", "delivered", "settled", "in_flight",
+         "gate_blocked", "awaiting_apply", "unowned"),
+    )
+    if pr_items is not None:
+        phase_digests["pr_lifecycle"] = pr_items
     return record_cycle_metrics(
         cycle_id=context.cycle_id,
         phase_durations_ms={"cycle": int((time.monotonic() - context.started_monotonic) * 1000)},
@@ -2945,7 +2963,10 @@ def _phase_architecture_postcheck(context: PhaseContext) -> dict[str, Any]:
     # regressions into the existing cycle failure contract without changing
     # persisted details or the status vocabulary of other phases.
     if result["regression_count"] > 0:
-        return {**result, "status": "fail"}
+        return {
+            **result, "status": "fail",
+            "error": f"{result['regression_count']} architecture regression(s) against the cycle baseline",
+        }
     return result
 
 
@@ -3043,11 +3064,14 @@ def _run_validation_matrix_phase(context: PhaseContext) -> dict[str, Any]:
         status = "ok"
     else:
         status = "fail"
-    return {
+    payload: dict[str, Any] = {
         "status": status, "total": total,
         "ok": ok, "fail": total - ok,
         "change_ids": per_change,
     }
+    if status == "fail":
+        payload["error"] = _refusal_summary(per_change, total=total, noun="validation gates")
+    return payload
 
 
 def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
@@ -3084,10 +3108,8 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
     # symbol importable while the call is gone is exactly what made
     # ORPHAN-HIGH-499's mutation invisible to a `hasattr` test, and it would let
     # a future reader conclude the edge is still here.
-    from .apply_engine import IN_FLIGHT_APPLY_STATUSES, latest_apply_action
-    from .merge_record import lifecycle_rows, pull_requests_for_change
+    from .pr_lifecycle_items import classify_pr_lifecycle_items
     from .pr_manager import open_pr_for_action
-    from .proposal import list_proposals
 
     workspace_root = context.workspace_root
     base_dir = context.base_dir
@@ -3118,35 +3140,14 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
     # every cycle terminated FAILED. A closed-unmerged PR is that delivery's
     # outcome, not a reason to open a second PR for the same change: a new
     # attempt is a new staging, with a new change.
-    lifecycle = lifecycle_rows(base_dir)
-    candidates: list[dict[str, Any]] = []
-    in_flight: list[dict[str, Any]] = []
-    delivered: list[dict[str, Any]] = []
-    for prop in list_proposals(base_dir=base_dir):
-        if prop.get("status") != "approved_for_apply":
-            continue
-        proposal_id = str(prop.get("proposal_id") or "")
-        action = latest_apply_action(proposal_id=proposal_id, base_dir=base_dir)
-        status = (action or {}).get("status")
-        if status in IN_FLIGHT_APPLY_STATUSES:
-            in_flight.append({
-                "proposal_id": prop.get("proposal_id"),
-                "apply_action_status": status,
-            })
-            continue
-        change_id = (action or {}).get("change_id")
-        pull_requests = pull_requests_for_change(
-            lifecycle, proposal_id=proposal_id, change_id=change_id,
-        ) if action else []
-        if pull_requests:
-            delivered.append({
-                "proposal_id": proposal_id,
-                "change_id": change_id,
-                "pull_requests": pull_requests,
-            })
-            continue
-        candidates.append(prop)
-    eligible = candidates
+    #
+    # And a machine-lane staging is never this phase's to preview: its PR is
+    # the executor's to open and its refusals are the executor's to settle on
+    # the plan, so its plan's state — not the action's frozen status — says
+    # whether it is still in flight or finished. `pr_lifecycle_items` reads
+    # each fact from its one owner and is where the buckets are defined.
+    items = classify_pr_lifecycle_items(base_dir=base_dir)
+    eligible = items.candidates
     per_proposal: list[dict[str, Any]] = []
     ok = 0
     for prop in eligible:
@@ -3222,17 +3223,32 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
         status = "ok"
     else:
         status = "fail"
-    return {
+    payload: dict[str, Any] = {
         "status": status, "total": total,
         "ok": ok, "fail": total - ok,
         "proposals": per_proposal,
-        # Reported, never counted: an operator reading the cycle row must be
-        # able to see the staged work that is waiting for its implementer.
-        "in_flight": in_flight,
-        # Reported, never counted: the gated changes whose PRs exist, with
-        # where each PR's lifecycle stands (open / merged / closed_unmerged).
-        "delivered": delivered,
+        # Everything below is reported, never counted — an operator reading
+        # the cycle row must see every approved proposal and who holds it.
+        # Staged work waiting for its implementer, or a plan the executor
+        # still owns.
+        "in_flight": items.in_flight,
+        # Gated changes whose PRs exist, with where each PR's lifecycle
+        # stands (open / merged / closed_unmerged).
+        "delivered": items.delivered,
+        # Machine-lane stagings whose plan the kernel has finished
+        # (merged, rejected, HUMAN_REQUIRED, abandoned).
+        "settled": items.settled,
+        # Operator-lane actions the apply gate refused.
+        "gate_blocked": items.gate_blocked,
+        # Operator-lane approvals with no apply action yet.
+        "awaiting_apply": items.awaiting_apply,
+        # Machine-lane stagings whose plan is in no state a staging can
+        # produce (no events, or pre-convergence) — an inconsistency to see.
+        "unowned": items.unowned,
     }
+    if status == "fail":
+        payload["error"] = _refusal_summary(per_proposal, total=total, noun="PR previews")
+    return payload
 
 
 # =====================================================================
@@ -3598,6 +3614,31 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "learning_post_evidence_closure", "post_tool", _phase_learning_post_evidence_closure,
         on_error="record_and_continue", error_payload=_learning_post_error_payload,
     ),
+    # The three phases that can declare the cycle failed by payload run BEFORE
+    # the close-out pair, so the metrics row and `_runtime_status` describe
+    # the cycle that is sealed — not the cycle as it stood before its last
+    # verdicts. Run after metrics, a pr_lifecycle failure sealed the night
+    # FAILED beside a metrics row saying `ok` (2026-10-09..10). Integrity
+    # verification now also covers the run artifacts architecture_postcheck's
+    # spine adapters write (run_tool → write_run_artifact), which it used to
+    # leave for the next cycle — a strengthening; validation_matrix and
+    # pr_lifecycle write none. The dashboard stays after metrics because it
+    # reads the newest row.
+    CyclePhase(
+        "architecture_postcheck", "post_tool", _phase_architecture_postcheck,
+        precondition=PLAN_ID_PRESENT, on_error="record_and_continue",
+        state_key="architecture_postcheck",
+    ),
+    CyclePhase(
+        "validation_matrix", "post_tool", _run_validation_matrix_phase,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="validation_matrix",
+    ),
+    CyclePhase(
+        "pr_lifecycle", "post_tool", _run_pr_lifecycle_phase,
+        precondition=PROFILE_PERMITS_PR_OPEN, on_error="record_and_continue",
+        state_key="pr_lifecycle",
+    ),
     CyclePhase(
         "artifact_integrity", "post_tool", _phase_artifact_integrity,
         on_error="propagate", state_key="artifact_integrity", closeout=True,
@@ -3616,21 +3657,6 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "observability_dashboard", "post_tool", _phase_observability_dashboard,
         on_error="record_and_continue", state_key="observability_dashboard",
         error_payload=_observability_error_payload,
-    ),
-    CyclePhase(
-        "architecture_postcheck", "post_tool", _phase_architecture_postcheck,
-        precondition=PLAN_ID_PRESENT, on_error="record_and_continue",
-        state_key="architecture_postcheck",
-    ),
-    CyclePhase(
-        "validation_matrix", "post_tool", _run_validation_matrix_phase,
-        precondition=WRITES_PERMITTED, on_error="record_and_continue",
-        state_key="validation_matrix",
-    ),
-    CyclePhase(
-        "pr_lifecycle", "post_tool", _run_pr_lifecycle_phase,
-        precondition=PROFILE_PERMITS_PR_OPEN, on_error="record_and_continue",
-        state_key="pr_lifecycle",
     ),
 )
 
@@ -3997,8 +4023,63 @@ def _first_phase_failure(context: PhaseContext) -> dict[str, Any] | None:
     """
     for name, outcome in context.outcomes.items():
         if outcome.get("outcome") == "failed":
-            return {"phase": name, "status": "failed", "error": outcome.get("error")}
+            return {"phase": name, "status": "failed", "error": _published_error(outcome.get("error"))}
     return None
+
+
+# The verdict text a failed phase carries onto the cycle row. The row is
+# published on aria/state, so the text is scrubbed of secret shapes and
+# bounded; the phase's full payload stays in the cycle's own result.
+_FAILED_PHASE_ERROR_MAX_CHARS = 300
+
+
+def _published_error(text: Any) -> str | None:
+    """A phase failure's reason as it may appear on the published cycle row."""
+    if text is None:
+        return None
+    return scrub_text(str(text))[:_FAILED_PHASE_ERROR_MAX_CHARS]
+
+
+def _payload_failed_phases(context: PhaseContext) -> list[dict[str, Any]]:
+    """The phases that RETURNED a ``status == "fail"`` payload, with their reason.
+
+    Plan 025 §C: a phase may report failure by its payload rather than by
+    raising (validation_matrix, architecture_postcheck, pr_lifecycle). The
+    seal reads this to downgrade the terminal row and ``_runtime_status``
+    reads it for the verdict, so the two can no longer disagree. Before this
+    helper the seal listed these phases with no ``error`` — the field
+    ``orchestrator_exit_history`` reads — and ``_runtime_status`` did not see
+    them at all, so every pr_lifecycle-failed night between 2026-10-09 and
+    2026-10-10 sealed FAILED with ``runtime_status: ok`` and a metrics row
+    saying ``ok``, and no record of why. Each such phase states its own
+    ``error``: only the phase knows what its refusals mean.
+    """
+    rows: list[dict[str, Any]] = []
+    for phase in CYCLE_PHASES:
+        payload = context.result(phase.name)
+        if not isinstance(payload, dict) or payload.get("status") != "fail":
+            continue
+        rows.append({
+            "phase": phase.name,
+            "status": "failed",
+            "error": _published_error(payload.get("error") or "payload_declared_fail"),
+        })
+    return rows
+
+
+def _refusal_summary(rows: list[dict[str, Any]], *, total: int, noun: str) -> str:
+    """``"<n> of <total> <noun> refused: <first reason>"`` for a payload-failed phase.
+
+    A refusal is either raised (the row's ``error``) or returned by the gate
+    (``gate_result.reason`` — validation_matrix's common case, e.g.
+    ``regression_anchor_required``); both are the reason.
+    """
+    refused = [row for row in rows if not row.get("passed")]
+    first = ""
+    if refused:
+        gate = refused[0].get("gate_result") or {}
+        first = str(refused[0].get("error") or gate.get("reason") or gate.get("blocked_by") or "")
+    return f"{len(refused)} of {total} {noun} refused: {first}"
 
 
 def _first_blocking_pre_phase(context: PhaseContext) -> str | None:
@@ -4050,7 +4131,10 @@ def _runtime_status(context: PhaseContext) -> str:
     # phase's verdict counts only when the phase ran.
     integrity_valid = bool(integrity.get("valid")) if integrity_outcome == "ran" else None
     return runtime_status(
-        phase_failed=_first_phase_failure(context) is not None,
+        phase_failed=(
+            _first_phase_failure(context) is not None
+            or bool(_payload_failed_phases(context))
+        ),
         integrity_valid=integrity_valid,
         non_ok=_non_ok_runs(context),
         phase_interrupted=_first_interrupted_phase(context) is not None,

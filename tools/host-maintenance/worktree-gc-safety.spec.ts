@@ -58,6 +58,8 @@ void test('only named build and dependency caches count as rebuildable', () => {
     '.nx/',
     'a/__pycache__/',
     'x.tsbuildinfo',
+    '.husky/_/',
+    '.husky/_/.gitignore',
   ]) {
     assert.ok(isRebuildableCache(path), path);
   }
@@ -67,6 +69,8 @@ void test('only named build and dependency caches count as rebuildable', () => {
     'aria-findings/',
     '.env',
     'keys/id_ed25519',
+    '.husky/pre-commit',
+    'apps/x/.husky/_/husky.sh',
   ]) {
     assert.equal(isRebuildableCache(path), false, path);
   }

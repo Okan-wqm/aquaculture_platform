@@ -118,11 +118,22 @@ const REBUILDABLE_DIRS = new Set([
   '.turbo',
 ]);
 const REBUILDABLE_FILE = /(\.pyc|\.tsbuildinfo|^\.eslintcache)$/;
+/**
+ * Root-relative directories a tool regenerates whole. `.husky/_` is written by
+ * `husky install` (the root `prepare` script) and ignores itself with a `*`
+ * .gitignore, so every worktree that ran `npm ci` carries it.
+ */
+const REBUILDABLE_ROOT_DIRS = ['.husky/_'];
 
 export function isRebuildableCache(path: string): boolean {
-  const segments = path.replace(/\/$/, '').split('/');
+  const clean = path.replace(/\/$/, '');
+  const segments = clean.split('/');
   const base = segments[segments.length - 1] ?? '';
-  return segments.some((s) => REBUILDABLE_DIRS.has(s)) || REBUILDABLE_FILE.test(base);
+  return (
+    segments.some((s) => REBUILDABLE_DIRS.has(s)) ||
+    REBUILDABLE_FILE.test(base) ||
+    REBUILDABLE_ROOT_DIRS.some((dir) => clean === dir || clean.startsWith(`${dir}/`))
+  );
 }
 
 /**

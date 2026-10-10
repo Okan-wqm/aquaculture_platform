@@ -7,7 +7,7 @@
   "capability_contract_versions": {
     "autonomy_unlock": 1,
     "cycle_runtime": 1,
-    "enterprise_readiness": 1,
+    "enterprise_readiness": 2,
     "executor": 1,
     "finding_funnel": 1,
     "fixture_calibration": 1,

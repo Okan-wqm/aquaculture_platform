@@ -28,6 +28,7 @@ from .proposal import (
 )
 from .risk_policy import HUMAN_MERGE_LABEL, merge_route_for_change
 from .runtime_profile import enforce_profile_for_action
+from .system_one_points import shadow_pr_open
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
 from .worker_dispatch import mission_for_assignment
@@ -602,6 +603,13 @@ def open_prepared_pr(
             f"{prepared.head_sha} and reads {(moved.stdout or '').strip() or moved.returncode!r}"
         )
     proposal_id = prepared.proposal_id
+    # ARIA-LOW-319 — System One, SHADOW: J0 per claimed finding x file and R5
+    # for this PR's text, recorded on its own ledger; nothing below reads an
+    # answer. ARIA-HIGH-371 moved the live open here, so the shadow reflex
+    # follows the single chokepoint; the diff and the Closes:-bearing commits
+    # are derived from the workspace at the judged head, the same shape
+    # shadow_merge uses.
+    _shadow_system_one_pre_pr_open(prepared, base_dir=base_dir)
     return _create_pull_request(
         payload=dict(prepared.payload),
         branch=prepared.branch,
@@ -614,6 +622,37 @@ def open_prepared_pr(
         command_environment=command_environment,
         base_dir=base_dir,
         assignment_id=prepared.assignment_id,
+    )
+
+
+def _shadow_system_one_pre_pr_open(prepared: PreparedPrOpen, *, base_dir: str | Path | None) -> None:
+    """Derive the diff and commit list the shadow asks need, then ask (SHADOW).
+
+    The PR's title and body no longer travel: a decision point hands
+    references, never text, so R5's message is the head commit's own
+    message, built by ``system_one`` from ``head_sha``.
+    """
+
+    def _git(*args: str) -> str:
+        completed = subprocess.run(
+            ["git", *args], cwd=prepared.workspace_path,
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        return completed.stdout if completed.returncode == 0 else ""
+
+    base = str(prepared.payload.get("base_branch") or ARIA_PR_BASE)
+    diff_text = _git("diff", f"{base}...{prepared.head_sha}")
+    commits = [
+        {"subject": subject, "body": body}
+        for subject, body in (
+            chunk.split("\x00", 1) for chunk in _git(
+                "log", f"{base}..{prepared.head_sha}", "--format=%s%x00%b%x1e",
+            ).split("\x1e") if chunk.strip()
+        )
+    ]
+    shadow_pr_open(
+        base_dir=base_dir, workspace_root=prepared.workspace_path, diff_text=diff_text,
+        head_sha=prepared.head_sha, commits=commits,
     )
 
 

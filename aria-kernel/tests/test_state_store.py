@@ -3002,7 +3002,7 @@ class LearnedConventionContinuity(StateStoreTestCase):
                         raise AssertionError(f"unexpected PR: {pr_number}")
                     return {
                         "state": "MERGED", "mergedAt": "2026-09-10T00:30:00Z",
-                        "mergeCommit": {"oid": source_sha},
+                        "mergeCommit": {"oid": source_sha}, "headRefOid": source_sha,
                     }
 
             def fail_promotion(transaction, path, row, surface, previous) -> None:

@@ -69,6 +69,7 @@ from .plan_origin import (
     record_admission_scope_refusal,
 )
 from .planner_lessons import planner_lesson_obligations
+from .system_one_points import rank_candidate_files, render_candidate_files
 from .tool_registry import GovernanceError
 
 
@@ -515,6 +516,7 @@ def _implementation_suggested_prompt(
     cross_review_revision_id: str,
     cross_review_summary_text: str,
     implementation_ids: dict[str, str],
+    candidate_files: list[dict[str, Any]] | tuple[()] = (),
 ) -> str:
     """Plan ARIA-V9.3 + V3.1-B-2 — build the implementation agent
     prompt with Tier-1 base64-encoded untrusted delimiters (closes
@@ -645,6 +647,9 @@ def _implementation_suggested_prompt(
         f"<untrusted_cross_review_summary revision_id=\"{cross_review_revision_id}\" encoding=\"base64\">\n"
         f"{encoded_review}\n"
         f"</untrusted_cross_review_summary>\n"
+        # ARIA-LOW-319 — R4's ranked reading order; "" unless R4 runs in order mode,
+        # so the prompt (and its bound hash) is otherwise byte-identical.
+        + render_candidate_files(candidate_files)
     )
 
 
@@ -922,6 +927,10 @@ def issue_implementation_envelope(
         cross_review_revision_id=cross_review_revision_id,
         cross_review_summary_text=cross_review_summary_text,
         implementation_ids=implementation_ids,
+        candidate_files=rank_candidate_files(
+            plan=lambda: plan_content, workspace_root=None, base_dir=base_dir,
+            rev=implementation_ids["base_sha"],
+        ),
     )
     # round_number=0 for the implementation envelope (not part of
     # the P+C+CR round-based debate; it's a post-convergence single

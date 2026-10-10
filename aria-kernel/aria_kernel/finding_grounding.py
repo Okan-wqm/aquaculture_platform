@@ -404,7 +404,10 @@ def _fold_plans(tools_root: Path, now: datetime) -> tuple[PlanRecord, ...]:
             continue
         elif kind == "implementation_merged":
             sha = payload.get("merge_sha")
-            plans[plan_id].update(merged_at=at, merge_sha=sha if isinstance(sha, str) and sha else None)
+            # ARIA-HIGH-390 (review of #1910, F6) — a merge after the kernel
+            # ended the plan supersedes that ending: the plan did not fail.
+            plans[plan_id].update(merged_at=at, merge_sha=sha if isinstance(sha, str) and sha else None,
+                                  failed_at=None, unverified_failed_at=None)
         elif kind in _FAILED_PLAN_EVENTS or (
                 kind == "plan_evaluated" and payload.get("terminal_state") == "HUMAN_REQUIRED"):
             # ARIA-HIGH-367 — a plan the LANE killed (a provider outage, a

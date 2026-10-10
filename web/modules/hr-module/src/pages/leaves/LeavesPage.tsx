@@ -38,6 +38,25 @@ import { LEAVE_STATUS_CONFIG, LEAVE_CATEGORY_CONFIG } from '../../types';
 import { sanitizeColor } from '../../components/leave/LeaveBalanceWidget';
 import { NewLeaveRequestModal } from '../../components/leave';
 
+// F-015: derive the filter vocabulary from LEAVE_STATUS_CONFIG, the exhaustive
+// Record<LeaveRequestStatus, …> that mirrors hr-service's GraphQL enum. A
+// hand-copied list dropped DRAFT and WITHDRAWN and lower-cased the rest, which the
+// enum input rejects; derived, a new backend status breaks type-check at the record
+// until it has a label and then reaches this filter with no edit here. Module scope
+// keeps the array identity stable across renders.
+const LEAVE_STATUS_FILTER_OPTIONS = [
+  { value: '', label: 'All Statuses' },
+  ...Object.entries(LEAVE_STATUS_CONFIG).map(([status, config]) => ({
+    value: status,
+    label: config.label,
+  })),
+];
+
+// F-015: a checked narrowing grounded in the same record, so it cannot drift from
+// the option list above.
+const isLeaveRequestStatus = (value: string): value is LeaveRequestStatus =>
+  Object.prototype.hasOwnProperty.call(LEAVE_STATUS_CONFIG, value);
+
 export function LeavesPage() {
   // BUG-011: use centralised hook for consistent auth→employeeId mapping
   const employeeId = useCurrentEmployeeId();
@@ -207,6 +226,17 @@ export function LeavesPage() {
     setFilter((prev) => ({
       ...prev,
       [key]: value || undefined,
+    }));
+    setPagination({ ...pagination, page: 1 });
+  };
+
+  // F-015: 'status' is a literal key here, so TypeScript checks the assigned value
+  // against LeaveRequestStatus | undefined — nothing asserts between the DOM string
+  // and the enum member GetLeaveRequests' $status variable requires.
+  const handleStatusFilterChange = (value: string): void => {
+    setFilter((prev) => ({
+      ...prev,
+      status: isLeaveRequestStatus(value) ? value : undefined,
     }));
     setPagination({ ...pagination, page: 1 });
   };
@@ -386,16 +416,10 @@ export function LeavesPage() {
               </label>
               <Select
                 fullWidth
-                options={[
-                  { value: '', label: 'All Statuses' },
-                  { value: 'pending', label: 'Pending' },
-                  { value: 'approved', label: 'Approved' },
-                  { value: 'rejected', label: 'Rejected' },
-                  { value: 'cancelled', label: 'Cancelled' },
-                ]}
+                options={LEAVE_STATUS_FILTER_OPTIONS}
                 id="leave-filter-status"
                 value={filter.status || ''}
-                onChange={(e) => handleFilterChange('status', e.target.value as LeaveRequestStatus)}
+                onChange={(e) => handleStatusFilterChange(e.target.value)}
               />
             </div>
 

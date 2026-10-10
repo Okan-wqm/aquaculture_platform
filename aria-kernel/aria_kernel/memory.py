@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import fnmatch
+import functools
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -834,6 +835,421 @@ def decay_stale_beliefs_by_age(
         "decayed_count": len(decayed),
         "decayed": decayed,
     }
+
+
+# ARIA-MEDIUM-393 review — runtime-signal decay is driven by outside-authored
+# leads, so its reach is bounded: a signal older than the TTL no longer
+# decays anything, one signal moves at most MAX_DECAYS_PER_SIGNAL beliefs per
+# cycle, and one cycle moves at most MAX_RUNTIME_SIGNAL_DECAYS_PER_CYCLE. What
+# a cap holds back stays `supported` and is reported, so the next cycle picks
+# it up; nothing is silently dropped.
+RUNTIME_SIGNAL_DECAY_TTL_DAYS = 14
+MAX_DECAYS_PER_SIGNAL = 20
+MAX_RUNTIME_SIGNAL_DECAYS_PER_CYCLE = 100
+
+_GLOB_METACHARACTERS = ("*", "?", "[")
+
+
+def _match_path(raw: Any) -> str:
+    """The path a ref names, for matching: a trailing ``:line`` dropped, backslashes to slashes, leading ``./`` dropped.
+
+    Only a NUMERIC suffix is a line; ``alert:X`` keeps its colon, so a
+    non-path token never collapses to a bare word every other token shares.
+    """
+    ref = str(raw).strip().replace("\\", "/")
+    head, sep, tail = ref.rpartition(":")
+    if sep and head and tail.isdigit():
+        ref = head
+    while ref.startswith("./"):
+        ref = ref[2:]
+    return ref
+
+
+def _is_glob(ref: str) -> bool:
+    return any(ch in ref for ch in _GLOB_METACHARACTERS)
+
+
+#: A belief-side glob is matched only under this many literal leading path
+#: segments: `apps/**` names nearly the whole repo, `apps/hr-service/**` one
+#: service.
+MIN_LITERAL_GLOB_SEGMENTS = 2
+#: A belief-side glob longer than this, or with more segments, is treated as
+#: unbounded: it is never compiled or matched, only reported.
+MAX_GLOB_PATTERN_CHARS = 256
+MAX_GLOB_SEGMENTS = 16
+
+
+# One compiled glob token: ("lit", char), ("one", None) for ``?``,
+# ("any", None) for ``*``, or ("cls", (negated, members)) for ``[...]``.
+_GlobToken = tuple[str, Any]
+
+
+def _compile_segment(segment: str) -> tuple[_GlobToken, ...]:
+    """One path segment of a glob as tokens (fnmatch syntax; ``/`` never appears inside a segment)."""
+    tokens: list[_GlobToken] = []
+    index = 0
+    while index < len(segment):
+        char = segment[index]
+        if char == "*":
+            if not tokens or tokens[-1][0] != "any":
+                tokens.append(("any", None))
+        elif char == "?":
+            tokens.append(("one", None))
+        elif char == "[":
+            # A leading ! or ^ negates; a ] right after the opening (or after
+            # the negation) is a literal member; no closing ] means a literal [.
+            body_start = index + 1
+            negated = segment[body_start:body_start + 1] in ("!", "^")
+            if negated:
+                body_start += 1
+            search_from = body_start + 1 if segment[body_start:body_start + 1] == "]" else body_start
+            close = segment.find("]", search_from)
+            if close < 0:
+                tokens.append(("lit", char))
+            else:
+                tokens.append(("cls", (negated, _class_members(segment[body_start:close]))))
+                index = close
+        else:
+            tokens.append(("lit", char))
+        index += 1
+    return tuple(tokens)
+
+
+def _class_members(body: str) -> tuple[tuple[str, str], ...]:
+    """``a-z0`` as ranges ``(("a", "z"), ("0", "0"))``."""
+    members: list[tuple[str, str]] = []
+    index = 0
+    while index < len(body):
+        if index + 2 < len(body) and body[index + 1] == "-":
+            members.append((body[index], body[index + 2]))
+            index += 3
+        else:
+            members.append((body[index], body[index]))
+            index += 1
+    return tuple(members)
+
+
+def _token_accepts(token: _GlobToken, char: str) -> bool:
+    kind, value = token
+    if kind == "one":
+        return True
+    if kind == "lit":
+        return char == value
+    negated, members = value
+    inside = any(low <= char <= high for low, high in members)
+    return inside != negated
+
+
+def _segment_matches(tokens: tuple[_GlobToken, ...], text: str) -> bool:
+    """Wildcard match of one segment by dynamic programming: O(len(tokens) * len(text)), no backtracking."""
+    reachable = [False] * (len(text) + 1)
+    reachable[0] = True
+    for token in tokens:
+        nxt = [False] * (len(text) + 1)
+        if token[0] == "any":
+            seen = False
+            for position in range(len(text) + 1):
+                seen = seen or reachable[position]
+                nxt[position] = seen
+        else:
+            for position in range(len(text)):
+                if reachable[position] and _token_accepts(token, text[position]):
+                    nxt[position + 1] = True
+        reachable = nxt
+        if not any(reachable):
+            return False
+    return reachable[len(text)]
+
+
+@functools.lru_cache(maxsize=4096)
+def _compiled_glob(pattern: str) -> "tuple[tuple[_GlobToken, ...] | None, ...] | None":
+    """``pattern`` compiled ONCE into per-segment tokens (None marks ``**``), or None over the size caps.
+
+    Gitignore semantics: ``**`` is special only as a WHOLE segment and spans
+    zero or more directories (``a/**/c`` matches ``a/c`` and ``a/x/y/c``; a
+    trailing ``a/**`` matches everything under ``a/``); ``*`` and ``?`` never
+    cross ``/``; ``a/b**/c`` is an ordinary segment and does not match
+    ``a/bc``. Consecutive ``**`` collapse into one. Matching is dynamic
+    programming over segments and characters (``_glob_matches``), never a
+    backtracking regex: the previous expansion built 2^k fnmatch variants
+    for k ``**/`` segments per match (k=22: 3.3 s and 664 MB per pair), and a
+    translated regex backtracks exponentially on non-matching paths.
+    """
+    if len(pattern) > MAX_GLOB_PATTERN_CHARS:
+        return None
+    segments = pattern.split("/")
+    if len(segments) > MAX_GLOB_SEGMENTS:
+        return None
+    compiled: list[tuple[_GlobToken, ...] | None] = []
+    for segment in segments:
+        if segment == "**":
+            if compiled and compiled[-1] is None:
+                continue
+            compiled.append(None)
+        else:
+            compiled.append(_compile_segment(segment))
+    return tuple(compiled)
+
+
+def _glob_matches(compiled: "tuple[tuple[_GlobToken, ...] | None, ...]", path: str) -> bool:
+    """Segment-level dynamic programming: O(pattern segments * path segments) segment matches."""
+    parts = path.split("/")
+    reachable = [False] * (len(parts) + 1)
+    reachable[0] = True
+    for tokens in compiled:
+        nxt = [False] * (len(parts) + 1)
+        if tokens is None:
+            seen = False
+            for position in range(len(parts) + 1):
+                seen = seen or reachable[position]
+                nxt[position] = seen
+        else:
+            for position in range(len(parts)):
+                if reachable[position] and _segment_matches(tokens, parts[position]):
+                    nxt[position + 1] = True
+        reachable = nxt
+        if not any(reachable):
+            return False
+    return reachable[len(parts)]
+
+
+def _bounded_glob(pattern: str) -> bool:
+    """A belief-side glob may name a class of files only under a literal directory.
+
+    ``apps/hr-service/src/**/*.ts`` and ``src/adapters/*.ts`` are bounded;
+    ``*``, ``*/*``, ``**/x`` and ``apps/**`` are not — one such
+    adapter-emitted belief would be touched by nearly every signal — and
+    neither is a pattern over the size caps.
+    """
+    segments = pattern.split("/")
+    leading = segments[:MIN_LITERAL_GLOB_SEGMENTS]
+    return (
+        len(segments) > MIN_LITERAL_GLOB_SEGMENTS
+        and all(segment and not _is_glob(segment) for segment in leading)
+        and _compiled_glob(pattern) is not None
+    )
+
+
+def _refs_touch(signal_ref: str, evidence_ref: str) -> bool:
+    """Does a runtime signal's match path touch a belief's evidence match path?
+
+    The signal side is outside-authored, so it is only ever a CONCRETE ref: a
+    glob there is never a pattern (one `*/*` would touch every belief). The
+    bridge refuses glob refs at ingest and the reader withholds pre-law
+    records; this refusal is the matcher's own, so the amplifier cannot come
+    back through any other writer. The belief side is ADAPTER-emitted
+    (``update_memory`` records each candidate's ``evidence_refs``), so its glob
+    is matched only when bounded under a literal directory.
+    """
+    if _is_glob(signal_ref):
+        return False
+    if _is_glob(evidence_ref):
+        if not _bounded_glob(evidence_ref):
+            return False
+        compiled = _compiled_glob(evidence_ref)
+        return compiled is not None and _glob_matches(compiled, signal_ref)
+    return signal_ref == evidence_ref
+
+
+#: Clock skew a signal's ``recorded_at`` may run ahead of the decay clock.
+#: A stamp further in the future is invalid: it would never age out.
+SIGNAL_CLOCK_SKEW = timedelta(hours=1)
+
+
+def _signal_age_days(signal: dict[str, Any], now: datetime) -> float | None:
+    """Days since the signal was recorded; None when the stamp is unparseable or beyond the skew allowance in the future."""
+    try:
+        recorded = datetime.strptime(str(signal.get("recorded_at")), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    if recorded - now > SIGNAL_CLOCK_SKEW:
+        return None
+    return max(0.0, (now - recorded).total_seconds() / 86400.0)
+
+
+RUNTIME_SIGNAL_DECAYED_AT = "runtime_signal_decayed_at"
+
+
+def _last_runtime_decay(rows: list[dict[str, Any]]) -> dict[str, str]:
+    """Per belief, the latest ``runtime_signal_decayed_at`` anywhere in its history.
+
+    Adapters re-support a decayed belief every cycle, so its LATEST row does
+    not carry the stamp; the history does.
+    """
+    last: dict[str, str] = {}
+    for row in rows:
+        stamp = row.get(RUNTIME_SIGNAL_DECAYED_AT)
+        belief_id = str(row.get("belief_id") or "")
+        if isinstance(stamp, str) and belief_id and stamp > last.get(belief_id, ""):
+            last[belief_id] = stamp
+    return last
+
+
+def decay_beliefs_by_runtime_signals(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """ARIA-MEDIUM-393 (Plan 028 §D's event trigger) — an OPEN runtime
+    signal referencing a belief's evidence re-opens the belief.
+
+    Age decay covers time and head-distance decay covers other people's
+    commits; neither covers the world moving with no local diff. A runtime
+    signal (Sentry error, incident lead, log anomaly — ingested through
+    runtime_signal_bridge as an UNVERIFIED external lead) whose path refs
+    touch a supported belief's evidence_refs moves that belief to
+    ``needs_revalidation`` through the same in-row transition the other decay
+    paths use, so run_pressure surfaces it with zero new plumbing.
+
+    Only PATH refs match (a ref the agent evidence law accepts); non-path
+    tokens such as ``alert:X`` are reported, never matched. A belief's evidence
+    ref may be a bounded glob naming a class of files; a signal's ref never
+    is (``_refs_touch``). Signals the reader withholds (pre-law records),
+    signals past ``RUNTIME_SIGNAL_DECAY_TTL_DAYS``, and decays held back by
+    the per-signal and per-cycle caps are each REPORTED, as are refs that
+    match nothing: a signal nobody's beliefs speak to is an observation gap,
+    not a zero. Only OPEN signals decay; resolution is the signal lane's own
+    lifecycle. The matched (signal ref, evidence ref) pair is recorded in the
+    belief's ``stale_reason``.
+    """
+    from .evidence_validator import agent_ref_shape_refusal
+    from .runtime_signal_bridge import scan_open_runtime_signals
+
+    root = ensure_tools_dir(base_dir)
+    moment = now or datetime.now(timezone.utc)
+    scan = scan_open_runtime_signals(base_dir=root)
+    report: dict[str, Any] = {
+        "schema_version": 1, "cycle_id": cycle_id,
+        "signal_count": 0, "decayed_count": 0, "decayed": [],
+        "unmatched_refs": [], "refused_glob_refs": [], "non_path_refs": [],
+        "withheld_signals": [row["signal_id"] for row in scan["refused"]],
+        "aged_out_signals": [], "invalid_stamp_signals": [], "unbounded_belief_globs": [],
+        "held_by_signal_cap": {}, "held_by_cycle_cap": 0,
+    }
+    live: list[dict[str, Any]] = []
+    non_path: set[str] = set()
+    glob_refs: set[str] = set()
+    for signal in scan["open"]:
+        signal_id = str(signal.get("signal_id") or "")
+        age = _signal_age_days(signal, moment)
+        if age is None:
+            # Unparseable, or stamped beyond the clock-skew allowance in the
+            # future — such a record would never age out.
+            report["invalid_stamp_signals"].append(signal_id)
+            continue
+        if age > RUNTIME_SIGNAL_DECAY_TTL_DAYS:
+            report["aged_out_signals"].append(signal_id)
+            continue
+        refs: list[str] = []
+        for raw in signal.get("code_refs") or []:
+            if agent_ref_shape_refusal(raw) is not None:
+                non_path.add(str(raw))
+                continue
+            ref = _match_path(raw)
+            if _is_glob(ref):
+                glob_refs.add(ref)
+                continue
+            refs.append(ref)
+        live.append({"signal_id": signal_id, "source": str(signal.get("source") or ""), "refs": refs})
+    report["signal_count"] = len(live)
+    report["non_path_refs"] = sorted(non_path)
+    report["refused_glob_refs"] = sorted(glob_refs)
+    if not live:
+        return report
+
+    history = load_jsonl(root / "memory" / "beliefs.jsonl")
+    last_decayed = _last_runtime_decay(history)
+    matched_refs: set[str] = set()
+    unbounded: set[str] = set()
+    # Every supported belief some signal touches, with EVERY touching signal
+    # (first matching ref per signal), so a capped signal never holds a
+    # belief another touching signal still has room for.
+    candidates: list[tuple[dict[str, Any], list[tuple[dict[str, Any], str, str]]]] = []
+    for belief in latest_beliefs(history):
+        if belief.get("status") != "supported":
+            continue
+        evidence = [_match_path(e) for e in (belief.get("evidence_refs") or []) if str(e).strip()]
+        if not evidence:
+            continue
+        unbounded.update(e for e in evidence if _is_glob(e) and not _bounded_glob(e))
+        touches: list[tuple[dict[str, Any], str, str]] = []
+        for signal in live:
+            for ref in signal["refs"]:
+                touched = next((e for e in evidence if _refs_touch(ref, e)), None)
+                if touched is not None:
+                    touches.append((signal, ref, touched))
+                    matched_refs.add(ref)
+                    break
+        if touches:
+            candidates.append((belief, touches))
+    # Least-recently runtime-decayed first (never-decayed before any stamp),
+    # belief_id as the deterministic tiebreak. Adapters re-support decayed
+    # beliefs every cycle; ordering by belief_id alone made the caps decay
+    # the same head every cycle and starve the tail forever.
+    candidates.sort(key=lambda pair: (last_decayed.get(str(pair[0].get("belief_id") or ""), ""),
+                                      str(pair[0].get("belief_id") or "")))
+
+    per_signal: dict[str, int] = {}
+    decayed: list[dict[str, Any]] = []
+    repo_state = _repo_state(root, cycle_id)
+    stamp = moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+    for belief, touches in candidates:
+        if len(decayed) >= MAX_RUNTIME_SIGNAL_DECAYS_PER_CYCLE:
+            report["held_by_cycle_cap"] += 1
+            continue
+        chosen = next(
+            (touch for touch in touches if per_signal.get(touch[0]["signal_id"], 0) < MAX_DECAYS_PER_SIGNAL),
+            None,
+        )
+        if chosen is None:
+            held = report["held_by_signal_cap"]
+            for signal, _, _ in touches:
+                held[signal["signal_id"]] = held.get(signal["signal_id"], 0) + 1
+            continue
+        signal, signal_ref, evidence_ref = chosen
+        per_signal[signal["signal_id"]] = per_signal.get(signal["signal_id"], 0) + 1
+        revalidation_cycles = int(belief.get("needs_revalidation_cycles", 0)) + 1
+        status = "stale" if revalidation_cycles >= STALE_AFTER_REVALIDATION_CYCLES else "needs_revalidation"
+        row = dict(belief)
+        row.update(
+            {
+                "status": status,
+                "confidence": _decayed_confidence(belief, status),
+                "needs_revalidation_cycles": revalidation_cycles,
+                "stale_reason": (
+                    f"open runtime signal references belief evidence "
+                    f"(runtime-signal decay, source={signal['source']}, "
+                    f"signal={signal['signal_id']}, signal_ref={signal_ref}, "
+                    f"evidence_ref={evidence_ref})"
+                ),
+                "verification_status": "needs_revalidation",
+                RUNTIME_SIGNAL_DECAYED_AT: stamp,
+            },
+        )
+        _stamp_belief_freshness(
+            row,
+            cycle_id=cycle_id,
+            repo_state=repo_state,
+            status=status,
+            prior_verified_at=belief.get("verified_at"),
+        )
+        append_jsonl(root / "memory" / "beliefs.jsonl", row)
+        decayed.append({
+            "belief_id": belief.get("belief_id"),
+            "signal_id": signal["signal_id"],
+            "source": signal["source"],
+            "signal_ref": signal_ref,
+            "evidence_ref": evidence_ref,
+            "status": status,
+        })
+    report["decayed"] = decayed
+    report["decayed_count"] = len(decayed)
+    report["unbounded_belief_globs"] = sorted(unbounded)
+    report["unmatched_refs"] = sorted({
+        ref for signal in live for ref in signal["refs"] if ref not in matched_refs
+    })
+    return report
 
 
 def _changed_files_since(repo_root: Path, base_sha: str) -> list[str] | None:

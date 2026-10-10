@@ -696,6 +696,29 @@ class HumanRequiredRecordUnavailable(RuntimeError):
     must say so (`_release_unescalated`), never release as if it did."""
 
 
+def _close_replanned_refusal(
+    *, tools_dir: Path, repo: Path, request: dict[str, Any], request_id: str, target_agent: str,
+    claim_id: str, agent_id: str, lease_token: str, reason_class: str, plan_id: str,
+) -> int:
+    """ARIA-HIGH-397 — the terminal of a refusal the kernel re-planned: no HUMAN_REQUIRED.
+
+    The claim is released under the agent's class; the predecessor plan was
+    settled while the claim was held, so once the request is unheld its ended
+    plan closes it (`plan_request_closure`) and no drain claims it again; the
+    child's summary names the by-design refusal.
+    """
+    from aria_kernel.plan_request_closure import close_abandoned_plan_requests
+
+    _release_claim(
+        tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+        agent_id=agent_id, lease_token=lease_token,
+        reason=f"agent_refused:{reason_class}",
+    )
+    close_abandoned_plan_requests(tools_dir, plan_ids=[plan_id])
+    return _refuse_dispatch(request=request, request_id=request_id, target_agent=target_agent,
+                            reason="agent_refused")
+
+
 def _hand_over_after_delivery(*, tools_dir: Path, request_id: str, delivered: Any, cause: str) -> None:
     """ARIA-HIGH-389 — a refusal after THIS run's delivery opened the PR.
 
@@ -2722,10 +2745,16 @@ def _agent_refusal_block(parsed: Any) -> dict[str, Any] | None:
     # agent-written class outside the contract's closed set is `unspecified`,
     # never free text on the ledger.
     raw_class = str(parsed.get("reason_class") or "")
+    # ARIA-HIGH-397 — the surfaces an implementer names as needed: paths only,
+    # bounded, and checked by the kernel against the signed write roots
+    # before any of them reaches a plan (`implementation_replan`).
+    from aria_kernel.implementation_replan import implementer_surfaces
+
     return {
         "$schema": REFUSAL_SCHEMA,
         "reason_class": raw_class if raw_class in REASON_CLASSES else "unspecified",
         "reason_summary": _safe_agent_text_excerpt(summary, limit=AGENT_REFUSAL_SUMMARY_MAX_CHARS),
+        "enabling_surfaces": list(implementer_surfaces(parsed.get("enabling_surfaces"))),
     }
 
 
@@ -5503,6 +5532,31 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             _reason_class = _inner_refusal["reason_class"]
             _reason_summary = _inner_refusal["reason_summary"]
             _stage(f"agent_refusal_detected class={_reason_class!r} request_id={request_id}")
+            _replan: dict[str, Any] | None = None
+            if request_envelope.get("role") == "implementation":
+                # ARIA-HIGH-397 — a scope/law refusal whose enabling surface
+                # lies inside the operator-signed write roots goes back to
+                # planning as a bounded successor plan, not to a person.
+                from aria_kernel.executor_convergence import executor_cycle_id
+                from aria_kernel.implementation_replan import REPLANNED, replan_after_refusal
+
+                _replan = replan_after_refusal(
+                    request_id=request_id, reason_class=_reason_class,
+                    implementer_named=tuple(_inner_refusal.get("enabling_surfaces") or ()),
+                    base_dir=tools_dir, workspace_root=_REPO_ROOT,
+                    # The same cycle id the drain's in-run planning advances
+                    # under (`executor_convergence`): one job attempt.
+                    cycle_id=executor_cycle_id(
+                        f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"),
+                )
+                _stage(f"implementation_replan status={_replan['status']} reason={_replan.get('reason')} "
+                       f"successor={_replan.get('successor_plan_id')}")
+                if _replan["status"] == REPLANNED:
+                    return _close_replanned_refusal(
+                        tools_dir=tools_dir, repo=repo, request=request_envelope, request_id=request_id,
+                        target_agent=subagent_type, claim_id=claim_id, agent_id=agent_id,
+                        lease_token=lease_token, reason_class=_reason_class, plan_id=str(_replan["plan_id"]),
+                    )
             # Persist HUMAN_REQUIRED through the kernel's recorder (one
             # recorder, shared with the delivery refusals — ARIA-HIGH-124)
             # so the operator sees the structured triage row and the state
@@ -5516,7 +5570,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                     tools_dir=tools_dir, request_id=request_id, severity="MEDIUM",
                     reason=f"agent_refused:{_reason_class}: the agent refused the request; its summary is on the record",
                     context={"code": f"agent_refused:{_reason_class}", "stage": "agent_refusal",
-                             "claim_id": claim_id, "reason_class": _reason_class, "reason_summary": _reason_summary},
+                             "claim_id": claim_id, "reason_class": _reason_class, "reason_summary": _reason_summary,
+                             # ARIA-HIGH-397 — why this refusal was not re-planned.
+                             **({"replan": {key: _replan.get(key) for key in ("status", "reason", "refused_surfaces")
+                                            if key in _replan}} if _replan is not None else {})},
                 )
             except HumanRequiredRecordUnavailable as record_error:
                 return _release_unescalated(

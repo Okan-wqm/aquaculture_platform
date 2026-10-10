@@ -76,7 +76,7 @@ const DURATIONS_FILE = 'aria-suite-durations.json';
 const DURATIONS_SCHEMA = 'aria-suite-durations/v1';
 const GRAPH_CACHE_FILE = 'aria-import-graph-cache.json';
 const NICE = ['nice', '-n', '10'];
-const TIERS = ['changed', 'owner', 'direct', 'indirect'];
+const TIERS = ['changed', 'owner', 'direct', 'indirect', 'floor'];
 const CI_LANE = '.github/workflows/aria-kernel.yml';
 const GATE_RUN_ENV = 'ARIA_SUITE_GATE_RUN';
 
@@ -90,6 +90,40 @@ class Refusal extends Error {
     super(message);
     this.status = status;
   }
+}
+
+/**
+ * INVARIANT FLOOR (2026-10-08, evidence: PR #1892 merged with suite shard 7
+ * red and main stayed red 8h46m, fixed by #1897). The import graph cannot
+ * reach tests that assert over the WHOLE discovered surface set — the
+ * capability-roster and surface-reachability modules discover surfaces at
+ * runtime instead of importing what they cover, so a kernel-code change can
+ * break them with zero import edges. Any aria_kernel/ code change selects
+ * them at tier `floor` (last priority, inside the budget-prefix discipline,
+ * so the changed-first ordering and the run+skipped==selected invariant are
+ * untouched). The hard guarantee is the required `aria-kernel` check, which
+ * runs the full suite; this floor makes the LOCAL gate see the class too.
+ */
+const INVARIANT_FLOOR_MODULES = [
+  'aria-kernel/tests/test_autonomy_evidence_status.py',
+  'aria-kernel/tests/test_surface_reachability.py',
+];
+
+function applyInvariantFloor(files, selected) {
+  if (!files.some((file) => file.startsWith('aria-kernel/aria_kernel/'))) return 0;
+  let pinned = 0;
+  for (const path of INVARIANT_FLOOR_MODULES) {
+    if (selected.some((entry) => entry.path === path)) continue;
+    selected.push({
+      path,
+      tier: 4,
+      tier_name: 'floor',
+      reason: 'invariant floor: discovery-based surface test (PR #1892/#1897)',
+      tests: 0,
+    });
+    pinned += 1;
+  }
+  return pinned;
 }
 
 // The only place this module ends the process: see EXIT above.
@@ -123,6 +157,7 @@ function main(planOnly) {
   const durationsFile = cacheDir === null ? null : join(cacheDir, DURATIONS_FILE);
   const graph = files.length === 0 || forceFull ? null : selectTests(files, cacheDir);
   const selected = graph === null ? [] : graph.selected;
+  const pinned = applyInvariantFloor(files, selected);
   const plan = planRun(selected, loadDurations(durationsFile), budgetS);
 
   if (planOnly) {
@@ -147,6 +182,12 @@ function main(planOnly) {
         `imports or references them, kernel suite skipped (CI runs the full suite: ${CI_LANE}).`,
     );
   } else {
+    if (pinned > 0) {
+      say(
+        `invariant floor pinned into the selection (discovery-based, the import graph cannot ` +
+          `reach them): ${pinned} module(s), tier changed`,
+      );
+    }
     report(files.length, base, budgetS, selected, plan);
     const input = JSON.stringify({ budgetS, durationsFile, run: plan.run });
     const self = fileURLToPath(import.meta.url);

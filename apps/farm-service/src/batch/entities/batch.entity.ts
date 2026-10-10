@@ -494,21 +494,6 @@ export class Batch {
     return Math.ceil(Math.abs(endDate.getTime() - stockDate.getTime()) / (1000 * 60 * 60 * 24));
   }
 
-  canTransitionTo(newStatus: BatchStatus): boolean {
-    const transitions: Record<BatchStatus, BatchStatus[]> = {
-      [BatchStatus.QUARANTINE]: [BatchStatus.ACTIVE, BatchStatus.FAILED],
-      [BatchStatus.ACTIVE]: [BatchStatus.GROWING, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
-      [BatchStatus.GROWING]: [BatchStatus.PRE_HARVEST, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
-      [BatchStatus.PRE_HARVEST]: [BatchStatus.HARVESTING, BatchStatus.GROWING, BatchStatus.FAILED],
-      [BatchStatus.HARVESTING]: [BatchStatus.HARVESTED, BatchStatus.FAILED],
-      [BatchStatus.HARVESTED]: [BatchStatus.CLOSED],
-      [BatchStatus.TRANSFERRED]: [BatchStatus.CLOSED],
-      [BatchStatus.FAILED]: [BatchStatus.CLOSED],
-      [BatchStatus.CLOSED]: [],
-    };
-    return transitions[this.status]?.includes(newStatus) ?? false;
-  }
-
   isOperational(): boolean {
     return [
       BatchStatus.ACTIVE,

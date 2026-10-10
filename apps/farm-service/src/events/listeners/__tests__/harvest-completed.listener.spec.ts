@@ -212,7 +212,7 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
   });
 
   it.each([BatchStatus.HARVESTED, BatchStatus.CLOSED, BatchStatus.TRANSFERRED, BatchStatus.FAILED])(
-    'never reopens a finished %s batch on a late partial-harvest event (FARM-HIGH-399)',
+    'never moves a %s batch on a partial-harvest event (FARM-HIGH-399, FARM-MEDIUM-401)',
     async (finished) => {
       // A plan completion across two tanks emits a non-final event for tank 1
       // and a final one for tank 2; the final one closes the batch before the

@@ -11,18 +11,9 @@ import { registerEnumType } from '@nestjs/graphql';
 // ============================================================================
 
 /**
- * Batch durumu — state machine for production lifecycle.
- *
- * Valid transitions:
- *   QUARANTINE → ACTIVE, FAILED
- *   ACTIVE → GROWING, TRANSFERRED, FAILED
- *   GROWING → PRE_HARVEST, TRANSFERRED, FAILED
- *   PRE_HARVEST → HARVESTING, GROWING, FAILED
- *   HARVESTING → HARVESTED, FAILED
- *   HARVESTED → CLOSED
- *   TRANSFERRED → CLOSED
- *   FAILED → CLOSED
- *   CLOSED → (terminal)
+ * Batch durumu — state machine for production lifecycle. The legal
+ * transitions are BATCH_STATUS_TRANSITIONS in
+ * batch/services/batch-lifecycle-policy.service.ts, the one table.
  */
 export enum BatchStatus {
   QUARANTINE = 'QUARANTINE',

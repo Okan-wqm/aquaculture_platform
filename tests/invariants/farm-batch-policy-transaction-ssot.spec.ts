@@ -65,10 +65,17 @@ describe('INVARIANT: farm batch lifecycle and transaction SSOT', () => {
   const lifecyclePolicySource = read(paths.lifecyclePolicy);
   const mortalityCullPolicySource = read(paths.mortalityCullPolicy);
   const batchDomainServiceSource = read(paths.batchDomainService);
+  const batchEntitySource = read('apps/farm-service/src/batch/entities/batch.entity.ts');
+  const batchTypesSource = read('apps/farm-service/src/batch/entities/batch.types.ts');
 
   it('keeps batch lifecycle rules in BatchLifecyclePolicyService', () => {
     expect(lifecyclePolicySource).toMatch(/class BatchLifecyclePolicyService/);
-    expect(lifecyclePolicySource).toMatch(/statusTransitions/);
+    // The status state machine is ONE table, owned here (FARM-MEDIUM-401);
+    // neither the entity nor its types module may carry a second copy.
+    expect(lifecyclePolicySource).toMatch(/export const BATCH_STATUS_TRANSITIONS\b/);
+    expect(batchEntitySource).not.toMatch(/canTransitionTo\(/);
+    expect(batchEntitySource).not.toMatch(/\[BatchStatus\.[A-Z_]+\]:\s*\[/);
+    expect(batchTypesSource).not.toMatch(/\[BatchStatus\.[A-Z_]+\]:\s*\[/);
     expect(lifecyclePolicySource).toMatch(/closeReasonPreviousStatuses/);
     expect(lifecyclePolicySource).toMatch(/assertCanTransitionStatus/);
     expect(lifecyclePolicySource).toMatch(/assertCanCloseForReason/);

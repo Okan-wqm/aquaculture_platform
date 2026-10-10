@@ -47,6 +47,8 @@ const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 interface HarnessOpts {
   /** Fish currently in the batch (default 1000). */
   currentQuantity?: number;
+  /** Batch lifecycle status (default HARVESTING). */
+  status?: BatchStatus;
   /** Reject the auto-close dispatch. */
   closeBatchError?: Error;
 }
@@ -57,7 +59,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     tenantId: TENANT_ID,
     currentQuantity: opts.currentQuantity ?? 1000,
     harvestedQuantity: 0,
-    status: BatchStatus.HARVESTING,
+    status: opts.status ?? BatchStatus.HARVESTING,
     isActive: true,
     getRetentionRate: jest.fn().mockReturnValue(95),
   };
@@ -352,6 +354,31 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
 
     debugSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe('CreateHarvestRecordHandler — lifecycle gate (FARM-MEDIUM-401)', () => {
+  it('refuses to harvest a quarantined batch and writes nothing', async () => {
+    const { handler, batch, enqueuedEvents, createdHarvestRecords, rollback } = makeHarness({
+      status: BatchStatus.QUARANTINE,
+    });
+
+    await expect(handler.execute(makeCommand({ quantityHarvested: 400 }))).rejects.toThrow(
+      /QUARANTINE and cannot be harvested/,
+    );
+    expect(createdHarvestRecords).toHaveLength(0);
+    expect(enqueuedEvents).toHaveLength(0);
+    expect(batch.currentQuantity).toBe(1000);
+    expect(rollback).toHaveBeenCalled();
+  });
+
+  it('harvests part of a growing batch', async () => {
+    const { handler, batch, enqueuedEvents } = makeHarness({ status: BatchStatus.GROWING });
+
+    await handler.execute(makeCommand({ quantityHarvested: 400 }));
+
+    expect(batch.currentQuantity).toBe(600);
+    expect(enqueuedEvents[0]?.isFinal).toBe(false);
   });
 });
 

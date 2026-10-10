@@ -2,7 +2,8 @@
  * UpdateBatchStatusCommand
  *
  * Batch durumunu değiştirir.
- * Status geçişleri batch entity'deki canTransitionTo metoduyla valide edilir.
+ * Status geçişleri BatchLifecyclePolicyService.assertCanTransitionStatus ile
+ * (tek geçiş tablosu: BATCH_STATUS_TRANSITIONS) valide edilir.
  *
  * @module Batch/Commands
  */

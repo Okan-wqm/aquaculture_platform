@@ -45,6 +45,7 @@ import { BatchCloseReason, CloseBatchCommand } from '../../batch/commands/close-
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { OperationType, TankOperation } from '../../batch/entities/tank-operation.entity';
+import { assertBatchHarvestable } from '../../batch/services/batch-lifecycle-policy.service';
 import { TankBatchService } from '../../batch/services/tank-batch.service';
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
@@ -122,6 +123,10 @@ export class HarvestRecordWriter {
     if (!batch) {
       throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
     }
+    // Lifecycle gate (FARM-MEDIUM-401): only a batch whose status the state
+    // machine allows to be harvested — never QUARANTINE, never a finished
+    // cycle. The same predicate decides the partial-harvest status signal.
+    assertBatchHarvestable(batch);
 
     // ── COMPLIANCE GATE: medicine withdrawal period ─────────────────────
     //

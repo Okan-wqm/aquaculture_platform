@@ -4,41 +4,85 @@ import { BatchCloseReason } from '../commands/close-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 
 /**
- * The statuses a PARTIAL-harvest signal (BatchHarvested with isFinal=false)
- * may advance to HARVESTING — the batch still holds live stock in a
- * pre-harvest stage (FARM-HIGH-399).
+ * The batch status state machine — the ONE table every status rule derives
+ * from (FARM-MEDIUM-401): manual status updates (canTransitionStatus), the
+ * statuses a harvest may run in and the statuses a partial-harvest signal
+ * advances to HARVESTING. Batch carries no copy (its canTransitionTo table was
+ * removed); farm-batch-policy-transaction-ssot.spec keeps it that way.
  *
- * WHY a set and not "anything but HARVESTING": the signal arrives
- * asynchronously, after the harvest committed. A plan completion across two
- * tanks emits a non-final event for the first tank and a final one for the
- * last, and the final one closes the batch (HARVESTED -> CLOSED, isActive
- * false) before the listener drains the non-final one. Moving any status but
- * HARVESTING reopened that CLOSED batch as HARVESTING, which also let a
- * second close through the HARVEST_COMPLETED guard. A finished cycle
- * (HARVESTED, TRANSFERRED, FAILED, CLOSED) never leaves its status on a
- * partial-harvest signal; HARVESTING is already the target.
+ * ACTIVE and GROWING -> HARVESTING are legal: a partial harvest of a growing
+ * batch (thinning, size-graded harvest) is normal aquaculture practice.
+ * QUARANTINE has no edge to HARVESTING: quarantined fish (biosecurity hold,
+ * medication withdrawal) may not be harvested until released to ACTIVE.
  */
-export const PARTIAL_HARVEST_SOURCE_STATUSES: readonly BatchStatus[] = Object.freeze([
-  BatchStatus.QUARANTINE,
-  BatchStatus.ACTIVE,
-  BatchStatus.GROWING,
-  BatchStatus.PRE_HARVEST,
-]);
-
-@Injectable()
-export class BatchLifecyclePolicyService {
-  private readonly statusTransitions: Readonly<Record<BatchStatus, readonly BatchStatus[]>> = {
+export const BATCH_STATUS_TRANSITIONS: Readonly<Record<BatchStatus, readonly BatchStatus[]>> =
+  Object.freeze({
     [BatchStatus.QUARANTINE]: [BatchStatus.ACTIVE, BatchStatus.FAILED],
-    [BatchStatus.ACTIVE]: [BatchStatus.GROWING, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
-    [BatchStatus.GROWING]: [BatchStatus.PRE_HARVEST, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
+    [BatchStatus.ACTIVE]: [
+      BatchStatus.GROWING,
+      BatchStatus.HARVESTING,
+      BatchStatus.TRANSFERRED,
+      BatchStatus.FAILED,
+    ],
+    [BatchStatus.GROWING]: [
+      BatchStatus.PRE_HARVEST,
+      BatchStatus.HARVESTING,
+      BatchStatus.TRANSFERRED,
+      BatchStatus.FAILED,
+    ],
     [BatchStatus.PRE_HARVEST]: [BatchStatus.HARVESTING, BatchStatus.GROWING, BatchStatus.FAILED],
     [BatchStatus.HARVESTING]: [BatchStatus.HARVESTED, BatchStatus.FAILED],
     [BatchStatus.HARVESTED]: [BatchStatus.CLOSED],
     [BatchStatus.TRANSFERRED]: [BatchStatus.CLOSED],
     [BatchStatus.FAILED]: [BatchStatus.CLOSED],
     [BatchStatus.CLOSED]: [],
-  };
+  });
 
+
+/**
+ * The statuses a PARTIAL-harvest signal (BatchHarvested with isFinal=false)
+ * advances to HARVESTING — derived from {@link BATCH_STATUS_TRANSITIONS}: every
+ * status with an edge to HARVESTING (FARM-HIGH-399, FARM-MEDIUM-401).
+ *
+ * WHY derived and not "anything but HARVESTING": the signal arrives
+ * asynchronously, after the harvest committed. A plan completion across two
+ * tanks emits a non-final event for the first tank and a final one for the
+ * last, and the final one closes the batch (HARVESTED -> CLOSED, isActive
+ * false) before the listener drains the non-final one. A finished cycle has
+ * no edge to HARVESTING, so it never leaves its status on such a signal.
+ */
+export const PARTIAL_HARVEST_SOURCE_STATUSES: readonly BatchStatus[] = Object.freeze(
+  Object.values(BatchStatus).filter((status) =>
+    BATCH_STATUS_TRANSITIONS[status].includes(BatchStatus.HARVESTING),
+  ),
+);
+
+/**
+ * May fish of a batch in `status` be harvested? Yes in HARVESTING and in every
+ * status the table lets advance to HARVESTING; never in QUARANTINE or a
+ * finished cycle. The one predicate the harvest writer and the partial-harvest
+ * listener share (FARM-MEDIUM-401).
+ */
+export function isHarvestableStatus(status: BatchStatus): boolean {
+  return status === BatchStatus.HARVESTING || PARTIAL_HARVEST_SOURCE_STATUSES.includes(status);
+}
+
+/** Refuse a harvest of a batch whose status {@link isHarvestableStatus} rejects. */
+export function assertBatchHarvestable(batch: Pick<Batch, 'batchNumber' | 'status'>): void {
+  if (isHarvestableStatus(batch.status)) {
+    return;
+  }
+  const reason =
+    batch.status === BatchStatus.QUARANTINE
+      ? 'quarantined fish may not be harvested; release the batch to ACTIVE first'
+      : 'the batch has no harvestable stock in this status';
+  throw new BadRequestException(
+    `Batch ${batch.batchNumber} is ${batch.status} and cannot be harvested: ${reason}.`,
+  );
+}
+
+@Injectable()
+export class BatchLifecyclePolicyService {
   private readonly closeReasonPreviousStatuses: Readonly<Record<BatchCloseReason, readonly BatchStatus[]>> = {
     [BatchCloseReason.HARVEST_COMPLETED]: [BatchStatus.HARVESTED, BatchStatus.HARVESTING],
     [BatchCloseReason.TRANSFERRED]: [BatchStatus.TRANSFERRED],
@@ -48,7 +92,7 @@ export class BatchLifecyclePolicyService {
   };
 
   canTransitionStatus(currentStatus: BatchStatus, nextStatus: BatchStatus): boolean {
-    return this.statusTransitions[currentStatus]?.includes(nextStatus) ?? false;
+    return BATCH_STATUS_TRANSITIONS[currentStatus].includes(nextStatus);
   }
 
   assertCanTransitionStatus(batch: Batch, nextStatus: BatchStatus): void {

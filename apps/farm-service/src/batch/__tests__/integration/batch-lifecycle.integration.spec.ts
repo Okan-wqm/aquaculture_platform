@@ -11,6 +11,7 @@ import {
   BatchInputType,
   BatchStatus,
 } from '../../entities/batch.entity';
+import { BatchLifecyclePolicyService } from '../../services/batch-lifecycle-policy.service';
 
 describe('Batch Lifecycle Contract', () => {
   const createBatch = (overrides: Partial<Batch> = {}): Batch =>
@@ -122,16 +123,22 @@ describe('Batch Lifecycle Contract', () => {
     expect(batch.getCurrentBiomass()).toBe(450); // 9000 × 50 / 1000
   });
 
-  it('enforces the current lifecycle transition matrix', () => {
-    expect(createBatch({ status: BatchStatus.QUARANTINE }).canTransitionTo(BatchStatus.ACTIVE)).toBe(true);
-    expect(createBatch({ status: BatchStatus.ACTIVE }).canTransitionTo(BatchStatus.GROWING)).toBe(true);
-    expect(createBatch({ status: BatchStatus.GROWING }).canTransitionTo(BatchStatus.PRE_HARVEST)).toBe(true);
-    expect(createBatch({ status: BatchStatus.PRE_HARVEST }).canTransitionTo(BatchStatus.HARVESTING)).toBe(true);
-    expect(createBatch({ status: BatchStatus.HARVESTING }).canTransitionTo(BatchStatus.HARVESTED)).toBe(true);
-    expect(createBatch({ status: BatchStatus.HARVESTED }).canTransitionTo(BatchStatus.CLOSED)).toBe(true);
+  it('enforces the current lifecycle transition matrix (BatchLifecyclePolicyService is its one owner)', () => {
+    const policy = new BatchLifecyclePolicyService();
+    const allowed = (from: BatchStatus, to: BatchStatus): boolean =>
+      policy.canTransitionStatus(from, to);
+    expect(allowed(BatchStatus.QUARANTINE, BatchStatus.ACTIVE)).toBe(true);
+    expect(allowed(BatchStatus.ACTIVE, BatchStatus.GROWING)).toBe(true);
+    expect(allowed(BatchStatus.GROWING, BatchStatus.PRE_HARVEST)).toBe(true);
+    expect(allowed(BatchStatus.PRE_HARVEST, BatchStatus.HARVESTING)).toBe(true);
+    expect(allowed(BatchStatus.HARVESTING, BatchStatus.HARVESTED)).toBe(true);
+    expect(allowed(BatchStatus.HARVESTED, BatchStatus.CLOSED)).toBe(true);
+    // Partial harvests of a growing batch are legal; quarantined fish are not harvested.
+    expect(allowed(BatchStatus.GROWING, BatchStatus.HARVESTING)).toBe(true);
+    expect(allowed(BatchStatus.QUARANTINE, BatchStatus.HARVESTING)).toBe(false);
 
-    expect(createBatch({ status: BatchStatus.QUARANTINE }).canTransitionTo(BatchStatus.CLOSED)).toBe(false);
-    expect(createBatch({ status: BatchStatus.CLOSED }).canTransitionTo(BatchStatus.ACTIVE)).toBe(false);
+    expect(allowed(BatchStatus.QUARANTINE, BatchStatus.CLOSED)).toBe(false);
+    expect(allowed(BatchStatus.CLOSED, BatchStatus.ACTIVE)).toBe(false);
   });
 
   it('treats only active production states as operational', () => {

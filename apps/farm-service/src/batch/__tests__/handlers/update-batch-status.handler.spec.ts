@@ -54,7 +54,6 @@ describe('UpdateBatchStatusHandler', () => {
       tenantId: TENANT,
       status,
       isActive: true,
-      canTransitionTo: Batch.prototype.canTransitionTo,
       statusChangedAt: new Date(),
     };
   }

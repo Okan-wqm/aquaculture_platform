@@ -466,6 +466,9 @@
     "ARIA-MEDIUM-398",
     "ARIA-MEDIUM-400",
     "ARIA-MEDIUM-402",
+    "ARIA-MEDIUM-403",
+    "ARIA-MEDIUM-410",
+    "ARIA-MEDIUM-411",
     "AUDIT-CRITICAL-001",
     "AUDIT-CRITICAL-002",
     "AUDIT-CRITICAL-003",
@@ -1445,6 +1448,7 @@
     "INFRA-HIGH-189",
     "INFRA-HIGH-191",
     "INFRA-HIGH-199",
+    "INFRA-HIGH-212",
     "INFRA-HIGH-213",
     "INFRA-HIGH-214",
     "INFRA-LOW-196",
@@ -2531,6 +2535,6 @@
     "ULTRA-MEDIUM-052",
     "ULTRA-MEDIUM-053"
   ],
-  "rebuilt_at": "2026-10-10T08:51:27Z",
+  "rebuilt_at": "2026-10-10T11:42:50Z",
   "schema_version": 1
 }

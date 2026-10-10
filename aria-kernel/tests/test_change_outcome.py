@@ -126,7 +126,7 @@ class OutcomeBase(unittest.TestCase):
             path,
             {
                 "schema_version": 1, "recorded_at": _iso(merged_at),
-                "event": "merged", "pr_number": pr_number, "change_id": None,
+                "event": "merged", "pr_number": pr_number, "change_id": None, "head_lineage": "delivered",
             },
             expected_surface="pr_lifecycle",
         )
@@ -517,10 +517,12 @@ class AssessmentHotEvidenceTests(unittest.TestCase):
                 {"number": 9901, "change_id": self.change_id, "head_sha": self.commit_sha,
                  "changed_files": self.scope_paths}, event="pr_open", base_dir=self.tools,
             )
-            merge_row = record_pr_lifecycle(
-                {"number": 9901, "head_sha": self.commit_sha},
-                event="merged", base_dir=self.tools,
-            )
+            # ARIA-HIGH-390 — the merged row has one writer.
+            from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, lifecycle_rows, record_merge
+
+            record_merge(pr={"number": 9901, "head_sha": self.commit_sha}, merged_by=MERGED_BY_MERGE_LANE,
+                         base_dir=self.tools, head_lineage="delivered")
+            merge_row = lifecycle_rows(self.tools)[-1]
         self.assertIsNone(merge_row["change_id"])
         self.first = emit_change_outcome(
             change_id=self.change_id, repo_root=self.repo, base_dir=self.tools,
@@ -914,7 +916,10 @@ class AssessmentAdverseAccountingTests(unittest.TestCase):
                 {"number": 9902, "change_id": change_id, "head_sha": commit_sha, "changed_files": scope},
                 event="pr_open", base_dir=tools,
             )
-            record_pr_lifecycle({"number": 9902, "head_sha": commit_sha}, event="merged", base_dir=tools)
+            from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
+
+            record_merge(pr={"number": 9902, "head_sha": commit_sha}, merged_by=MERGED_BY_MERGE_LANE, base_dir=tools,
+                         head_lineage="delivered")
         first = emit_change_outcome(change_id=change_id, repo_root=repo, base_dir=tools)
         self.assertEqual(first["verdict"], "unknown")
         outcome_path = tools / "change-ledger/outcome.jsonl"

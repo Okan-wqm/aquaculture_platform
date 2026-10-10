@@ -27,7 +27,9 @@ from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 
 
-class PrLifecyclePhaseTests(unittest.TestCase):
+class _PrPhaseFixture(unittest.TestCase):
+    """A bound tools root, a cwd inside it, and the proposal seeder."""
+
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-pr-phase-"))
         self.tools_root = ensure_tools_dir(self.tmp / "aria-tools")
@@ -64,6 +66,8 @@ class PrLifecyclePhaseTests(unittest.TestCase):
             expected_surface="proposals",
         )
 
+
+class PrLifecyclePhaseTests(_PrPhaseFixture):
     def test_no_open_proposals_returns_no_op(self) -> None:
         # No seed; phase returns no_op.
         context = build_phase_context(
@@ -205,5 +209,177 @@ class PrLifecyclePhaseTests(unittest.TestCase):
         self.assertEqual(payload["in_flight"], [])
 
 
+# ARIA-HIGH-408 — the live shape that failed every cycle after PR #1906.
+# Field values are the ones on aria/state (2026-10-10): the F-015 proposal,
+# its gated action's change, and the PR the executor opened and a person merged.
+_LIVE_PROPOSAL = "proposal-cc0c546b-c10b-48fc-9b97-50995d1f0243"
+_LIVE_CHANGE = "chg_8c3e6311c4475b1b"
+_LIVE_PR = 1906
+_LIVE_HEAD = "1ac2048c2a7adf14f0e62505caeacb68447d68a9"
+_LIVE_MERGE = "528c63c0d0921af1645f027dc76e4a594431f5c6"
+# What `open_pr_for_action` raised for it on a fresh runner checkout (the
+# executor's local branch does not exist there): reproduced against an
+# archive of aria/state.
+_LIVE_REFUSAL = (
+    "open_pr_head_sha_unresolvable: git rev-parse "
+    "'aria-impl-7c52b7f387ab21ab5550aa4148a71306' failed with returncode=128"
+)
+
+
+class APullRequestThatExistsIsNotACandidate(_PrPhaseFixture):
+    """A gated change whose PR the kernel already opened is delivered, not pending.
+
+    `ready_for_pr` is the gate's verdict on the change, and it stays true after
+    the PR opens; whether the PR exists, merged or closed is the
+    ``pr-lifecycle`` ledger's fact (``opened`` by the one ``gh pr create``,
+    ``merged`` / ``closed_unmerged`` by ``merge_record``). The phase used to
+    read only the first, so the executor's PR #1906 — opened, then merged by
+    a person — was "opened" again by every cycle, refused, and every cycle
+    terminated FAILED.
+    """
+
+    def _seed_live_action(self, *, proposal_id: str = _LIVE_PROPOSAL,
+                          change_id: str | None = _LIVE_CHANGE) -> None:
+        append_declared_fixture(
+            self.tools_root / "apply" / "actions.jsonl",
+            {
+                "schema_version": 1,
+                "proposal_id": proposal_id,
+                "status": "ready_for_pr",
+                "branch": "aria-impl-7c52b7f387ab21ab5550aa4148a71306",
+                "base_sha": "83cc73af44cfa6d6be11acadf89dbf8e2689e259",
+                "change_id": change_id,
+                "plan_id": "plan-cyc-20261008T175911Z-auto",
+                "validation_gate_ref": "sha256:" + "7" * 64,
+                "validation_gate_status": "ready_for_pr",
+                "workspace_root": str(self.tmp),
+                "worktree_path": None,
+                "recorded_at": "2026-10-09T09:59:13+00:00",
+            },
+            expected_surface="apply_actions",
+        )
+
+    def _open(self, *, proposal_id: str = _LIVE_PROPOSAL, change_id: str = _LIVE_CHANGE,
+              number: int = _LIVE_PR) -> dict:
+        # The writer `pr_manager._create_pull_request` calls after `gh pr create`.
+        from aria_kernel.auto_merge import record_pr_lifecycle
+        return record_pr_lifecycle(
+            {
+                "number": number, "base_branch": "main", "head_sha": _LIVE_HEAD,
+                "task_id": "plan-cyc-20261008T175911Z-auto", "proposal_id": proposal_id,
+                "change_id": change_id,
+                "changed_files": ["web/modules/hr-module/src/pages/leaves/LeavesPage.tsx"],
+            },
+            event="opened", base_dir=self.tools_root,
+        )
+
+    def _phase(self, mock_action) -> dict:
+        mock_action.side_effect = GovernanceError(_LIVE_REFUSAL)
+        context = build_phase_context(
+            cycle_id="cyc-20261010T025128Z-auto",
+            workspace_root=self.tmp,
+            base_dir=self.tools_root,
+            cycle_started_at=datetime.now(timezone.utc),
+        )
+        return _run_pr_lifecycle_phase(context)
+
+    def test_the_live_shape_opened_by_the_executor_and_merged_by_a_person(self) -> None:
+        from aria_kernel.merge_record import (
+            LINEAGE_BACKFILLED_UNVERIFIED, MERGED_BY_OBSERVED, record_merge,
+        )
+        self._seed_proposal(proposal_id=_LIVE_PROPOSAL, status="approved_for_apply")
+        self._seed_live_action()
+        opened = self._open()
+        record_merge(
+            pr=opened, merged_by=MERGED_BY_OBSERVED, base_dir=self.tools_root,
+            merge_sha=_LIVE_MERGE, merged_at="2026-10-10T01:03:06Z",
+            head_lineage=LINEAGE_BACKFILLED_UNVERIFIED,
+        )
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            payload = self._phase(mock_action)
+        # Never asked to open a PR that exists: the refusal is not provoked.
+        self.assertEqual(mock_action.call_count, 0)
+        self.assertEqual(payload["status"], "no_op")
+        self.assertEqual((payload["total"], payload["fail"]), (0, 0))
+        self.assertEqual(payload["delivered"], [{
+            "proposal_id": _LIVE_PROPOSAL, "change_id": _LIVE_CHANGE,
+            "pull_requests": [{"pr_number": _LIVE_PR, "pr_state": "merged"}],
+        }])
+
+    def test_a_pr_opened_and_still_in_review_is_not_opened_again(self) -> None:
+        self._seed_proposal(proposal_id=_LIVE_PROPOSAL, status="approved_for_apply")
+        self._seed_live_action()
+        self._open()
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            payload = self._phase(mock_action)
+        self.assertEqual(mock_action.call_count, 0)
+        self.assertEqual(payload["status"], "no_op")
+        self.assertEqual(payload["delivered"][0]["pull_requests"],
+                         [{"pr_number": _LIVE_PR, "pr_state": "open"}])
+
+    def test_a_pr_closed_unmerged_is_an_outcome_not_a_reason_to_open_another(self) -> None:
+        from aria_kernel.merge_record import EVENT_CLOSED_UNMERGED, record_pr_unmergeable
+        self._seed_proposal(proposal_id=_LIVE_PROPOSAL, status="approved_for_apply")
+        self._seed_live_action()
+        opened = self._open()
+        record_pr_unmergeable(pr=opened, event=EVENT_CLOSED_UNMERGED, reason="closed",
+                              base_dir=self.tools_root)
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            payload = self._phase(mock_action)
+        self.assertEqual(mock_action.call_count, 0)
+        self.assertEqual(payload["status"], "no_op")
+        self.assertEqual(payload["delivered"][0]["pull_requests"],
+                         [{"pr_number": _LIVE_PR, "pr_state": "closed_unmerged"}])
+
+    def test_a_pr_for_another_change_of_the_proposal_does_not_hide_this_one(self) -> None:
+        """Binding is by the action's change: a newer staging is still a candidate."""
+        self._seed_proposal(proposal_id=_LIVE_PROPOSAL, status="approved_for_apply")
+        self._seed_live_action(change_id="chg_newer")
+        self._open(change_id=_LIVE_CHANGE)
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            payload = self._phase(mock_action)
+        self.assertEqual(mock_action.call_count, 1)
+        self.assertEqual(payload["status"], "fail")
+        self.assertEqual(payload["delivered"], [])
+
+    def test_a_change_without_a_pr_is_still_a_candidate_beside_a_delivered_one(self) -> None:
+        self._seed_proposal(proposal_id=_LIVE_PROPOSAL, status="approved_for_apply")
+        self._seed_live_action()
+        self._open()
+        self._seed_proposal(proposal_id="prop-WAITING", status="approved_for_apply")
+        self._seed_live_action(proposal_id="prop-WAITING", change_id="chg_waiting")
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            mock_action.return_value = {"event": "pr_dry_run"}
+            context = build_phase_context(
+                cycle_id="cyc-pr-6", workspace_root=self.tmp, base_dir=self.tools_root,
+                cycle_started_at=datetime.now(timezone.utc),
+            )
+            payload = _run_pr_lifecycle_phase(context)
+        self.assertEqual([c.kwargs["proposal_id"] for c in mock_action.call_args_list], ["prop-WAITING"])
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual([d["proposal_id"] for d in payload["delivered"]], [_LIVE_PROPOSAL])
+
+    def test_an_operator_lane_action_without_a_change_binds_by_proposal(self) -> None:
+        """`plan_apply_worktree` mints no change_id; its PR is the proposal's."""
+        self._seed_proposal(proposal_id="prop-OPERATOR", status="approved_for_apply")
+        self._seed_live_action(proposal_id="prop-OPERATOR", change_id=None)
+        self._open(proposal_id="prop-OPERATOR", change_id="chg_operator", number=77)
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            payload = self._phase(mock_action)
+        self.assertEqual(mock_action.call_count, 0)
+        self.assertEqual(payload["delivered"][0]["pull_requests"],
+                         [{"pr_number": 77, "pr_state": "open"}])
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnUnboundStoreHasNoPullRequests(unittest.TestCase):
+    """Review of #1930: the reader must answer for a store no writer has bound yet."""
+
+    def test_lifecycle_rows_of_an_unbound_store_is_empty(self) -> None:
+        from aria_kernel.merge_record import lifecycle_rows
+
+        with tempfile.TemporaryDirectory(prefix="aria-unbound-") as tmp:
+            self.assertEqual(lifecycle_rows(tmp), [])

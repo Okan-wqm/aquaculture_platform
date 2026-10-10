@@ -45,7 +45,7 @@ from aria_kernel.ledger import (
 )
 from aria_kernel.state_manifest import memory_surfaces, surface_by_name
 from aria_kernel.tool_registry import ensure_tools_dir
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import append_declared_fixture, rewrite_declared_fixture
 
 BELIEFS = "memory_beliefs"
 LEARNING = "memory_learning_events"
@@ -383,6 +383,30 @@ class WorkspaceMemoryIsMemory(MemoryStoreTestCase):
             path, {"schema_version": 1, "unknown": "u-3"}, expected_surface="workspace_memory_unknowns",
         )
         self.assertEqual(len(load_declared_jsonl(path, expected_surface="workspace_memory_unknowns")), 4)
+
+
+class FixturesBuildMemoryLegitimately(MemoryStoreTestCase):
+    def test_the_rewrite_fixture_refuses_every_memory_surface_by_name(self) -> None:
+        """2026-10-09 main-red: two fixtures still rewrote memory ledgers
+        through the kernel after the law landed, and failed deep inside the
+        writer. The helper refuses a memory surface up front and names the
+        two legitimate roads; it still rewrites a non-memory ledger."""
+        path = self.tools / "change-ledger" / "committed.jsonl"
+        append_declared_fixture(path, {"change_id": "chg-0", "commit_sha": "e" * 40}, expected_surface="change_committed")
+        before = _sha(path)
+        for surface in memory_surfaces():
+            with self.subTest(surface=surface.name), self.assertRaises(AssertionError) as refused:
+                rewrite_declared_fixture(path, [], expected_surface=surface.name)
+            self.assertIn("append_declared_fixture", str(refused.exception))
+            self.assertIn("rewrite_declared_out_of_band", str(refused.exception))
+        self.assertEqual(_sha(path), before, "a refused fixture rewrite writes nothing")
+
+        cycles = self.tools / "cycles.jsonl"
+        append_declared_fixture(cycles, {"schema_version": 3, "cycle_id": "c-0"}, expected_surface="cycles")
+        rewrite_declared_fixture(cycles, [{"schema_version": 3, "cycle_id": "c-1"}], expected_surface="cycles")
+        self.assertEqual(
+            [row["cycle_id"] for row in load_declared_jsonl(cycles, expected_surface="cycles")], ["c-1"],
+        )
 
 
 if __name__ == "__main__":

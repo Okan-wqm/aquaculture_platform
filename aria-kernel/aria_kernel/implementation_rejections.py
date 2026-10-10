@@ -34,6 +34,10 @@ PUSH_REFUSED = "push_refused"
 PR_OPEN_REFUSED = "pr_open_refused"
 # ARIA-HIGH-389 — a result refused AFTER its delivery opened the PR.
 IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY = "implementation_result_refused_after_delivery"
+# ARIA-HIGH-397 — the implementer proved the converged plan needs one more
+# surface inside the operator-signed write roots; the plan was handed back to
+# planning as a bounded successor (`implementation_replan`).
+IMPLEMENTATION_REPLANNED = "implementation_replanned"
 
 
 # Closed set of rejection classes accepted by
@@ -88,6 +92,8 @@ VALID_IMPLEMENTATION_REJECTION_CLASSES: frozenset[str] = frozenset(
         PR_OPEN_REFUSED,
         # ARIA-HIGH-389 — the submit refused a result whose PR is already open.
         IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
+        # ARIA-HIGH-397 — re-planned as a bounded successor, never a failure.
+        IMPLEMENTATION_REPLANNED,
     }
 )
 
@@ -261,3 +267,25 @@ def settlement_for_post_delivery(*, request_id: str, cause: str, pr_number: int)
     return ImplementationSettlement(IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
                                     POST_DELIVERY_FAULT_DOMAINS.get(cause, FAULT_UNCLASSIFIED),
                                     POST_DELIVERY_STAGE, _cause(cause), request_id, pr_number)
+
+
+def settlement_for_replan(*, request_id: str, reason_class: str) -> ImplementationSettlement:
+    """The implementer's refusal sent the plan back to planning (ARIA-HIGH-397).
+
+    ``harness``: the plan's own write set was short of a surface the signed
+    roots allow, which is the lane's planning, never the work's or the
+    finding's; it cools nothing off and is transparent to the loop guard's
+    streak, and the successor plan carries the finding on.
+    """
+    return ImplementationSettlement(IMPLEMENTATION_REPLANNED, FAULT_HARNESS, AGENT_REFUSAL_STAGE,
+                                    _cause(reason_class), request_id)
+
+
+# ARIA-HIGH-390 — the classes that end a plan after its PR existed: a person
+# may still merge that PR, and the plan ledger then records the merge
+# (`merge_record`, `plan_convergence._record_implementation_merged`). Every
+# other rejection ended the plan before anything was published to merge.
+MERGEABLE_AFTER_REJECTION: frozenset[str] = frozenset({
+    IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
+    ORPHAN_REAPED,
+})

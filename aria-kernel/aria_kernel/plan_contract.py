@@ -39,7 +39,12 @@ from .change_ledger import ARCHITECTURAL_TIERS
 from .implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, executable_spelling
 from .tool_registry import GovernanceError
 
-PLAN_CONTRACT_SCHEMA_VERSION = 1
+PLAN_CONTRACT_SCHEMA_VERSION = 2
+# ARIA-HIGH-397 — from contract version 2 on, a key change that writes a
+# TypeScript/JavaScript source file DECLARES its imports (`imports`, an empty
+# list when it adds none): an omission is no longer silently "nothing to
+# check" for the compiler-backed gate, it is a refused body.
+IMPORTS_DECLARED_FROM_VERSION = 2
 PLAN_CONTRACT_GATE = "plan_contract_complete"
 # The roles whose response carries a plan body the contract binds. The
 # cross-reviewer verifies the claim; it authors none.
@@ -62,16 +67,17 @@ REASON_TIER_INVALID = "plan_architectural_tier_invalid"
 REASON_COMMAND_NOT_DECLARED = "plan_validation_command_not_declared"
 REASON_RECIPE_UNKNOWN = "plan_validation_recipe_unknown"
 # ARIA-HIGH-104 (3) — a key_changes[] entry that is not a string step or a
-# {id?, description, paths?} object (plan_convergence.KEY_CHANGE_FIELDS).
+# {id?, description, paths?, imports?} object (plan_convergence.KEY_CHANGE_FIELDS).
 REASON_KEY_CHANGE_SHAPE = "plan_key_change_shape"
 # ARIA-HIGH-104 (4) — a `finding_id` naming an origin the kernel derives no
 # commit contract for (`plan_origin.plan_origin`): the same read the
 # implementation mint makes, applied at submission, so a plan cannot reach
 # CONVERGED — and be staged — carrying an origin the mint would refuse.
 REASON_ORIGIN_UNRECOGNISED = "plan_origin_unrecognised"
+REASON_IMPORTS_UNDECLARED = "plan_key_change_imports_undeclared"
 PLAN_CONTRACT_REASONS: tuple[str, ...] = (
     REASON_TIER_MISSING, REASON_TIER_INVALID, REASON_COMMAND_NOT_DECLARED, REASON_RECIPE_UNKNOWN,
-    REASON_KEY_CHANGE_SHAPE, REASON_ORIGIN_UNRECOGNISED,
+    REASON_KEY_CHANGE_SHAPE, REASON_ORIGIN_UNRECOGNISED, REASON_IMPORTS_UNDECLARED,
 )
 
 
@@ -210,6 +216,7 @@ def architectural_tier_violation(tier: Any, *, required: bool) -> str | None:
 
 def plan_contract_violations(
     plan_content: Any, *, base_dir: str | Path | None, require_tier: bool = True,
+    contract_version: int = 1,
 ) -> list[str]:
     """Every contract rule the body breaks, each in the reason vocabulary.
 
@@ -232,11 +239,22 @@ def plan_contract_violations(
     from .plan_convergence import key_change_violation
     from .plan_origin import plan_origin
 
+    from .plan_convergence import key_change_paths
+    from .plan_import_resolution import SOURCE_SUFFIXES
+
     changes = plan_content.get("key_changes")
     for index, change in enumerate(changes if isinstance(changes, list) else []):
         shape_violation = key_change_violation(change)
         if shape_violation is not None:
             violations.append(f"{REASON_KEY_CHANGE_SHAPE}:key_changes[{index}] {shape_violation}")
+        # An agent-authored body (a seed is the kernel's: `require_tier=False`)
+        # of a plan started under contract 2+ declares the imports of every
+        # key change that writes a source file.
+        if (require_tier and contract_version >= IMPORTS_DECLARED_FROM_VERSION and isinstance(change, dict)
+                and "imports" not in change
+                and any(path.endswith(SOURCE_SUFFIXES) for path in key_change_paths(change))):
+            violations.append(f"{REASON_IMPORTS_UNDECLARED}:key_changes[{index}] writes a source file and "
+                              "declares no `imports` (an empty list when it adds or changes none)")
     try:
         plan_origin(plan_content)
     except GovernanceError as exc:
@@ -245,10 +263,11 @@ def plan_contract_violations(
 
 
 def require_plan_contract(
-    plan_content: Any, *, base_dir: str | Path | None, require_tier: bool = True,
+    plan_content: Any, *, base_dir: str | Path | None, require_tier: bool = True, contract_version: int = 1,
 ) -> None:
     """Refuse a body that breaks the contract, naming every rule it breaks."""
-    violations = plan_contract_violations(plan_content, base_dir=base_dir, require_tier=require_tier)
+    violations = plan_contract_violations(plan_content, base_dir=base_dir, require_tier=require_tier,
+                                          contract_version=contract_version)
     if violations:
         raise GovernanceError("plan_contract_violation: " + "; ".join(violations))
 
@@ -261,14 +280,14 @@ def plan_contract_gate(state: dict[str, Any], *, base_dir: str | Path | None) ->
     reach CONVERGED: neither could be staged, and a CONVERGED plan that cannot
     be staged is a dead plan the ledger calls done.
     """
-    from .plan_convergence import plan_body_from_state
+    from .plan_convergence import plan_body_from_state, started_contract_version
 
     try:
         body = plan_body_from_state(state)["plan_content"]
     except GovernanceError as exc:
         reasons = ["plan_body_unavailable:" + str(exc).split(":", 1)[0]]
     else:
-        reasons = plan_contract_violations(body, base_dir=base_dir)
+        reasons = plan_contract_violations(body, base_dir=base_dir, contract_version=started_contract_version(state))
     return {"gate": PLAN_CONTRACT_GATE, "passed": not reasons, "reasons": reasons}
 
 
@@ -334,8 +353,13 @@ def render_plan_contract_rules(plan_contract: dict[str, Any] | None = None) -> l
         lines.append("  - registered recipes for this store: none; only the canonical suite is admissible")
     lines.append(
         "- Every `plan_content.key_changes[]` entry is a string (one step) or an object"
-        " `{id?, description, paths?}` — `description` the step, `paths` the repo-relative files it"
-        " touches; the implementer reads `paths`, never any other field."
+        " `{id?, description, paths?, imports?}` — `description` the step, `paths` the repo-relative files it"
+        " touches; the implementer reads `paths`, never any other field. `imports` lists every module"
+        " specifier the change adds or changes, as `{from_path, specifier}` with `from_path` one of its own"
+        " source `paths`: the kernel asks the compiler whether each resolves for that file and refuses"
+        " CONVERGED while one does not (gate `prescribed_imports_resolve`). `imports` is REQUIRED on"
+        " every entry whose `paths` include a TypeScript/JavaScript source file — `[]` when it adds or"
+        " changes no import; an entry without it is refused (`plan_key_change_imports_undeclared`)."
     )
     lines.append(
         "- `plan_content.finding_id`, when present, names the finding the plan addresses in a form the"

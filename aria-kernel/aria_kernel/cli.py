@@ -1265,6 +1265,17 @@ def build_parser() -> argparse.ArgumentParser:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+    # ARIA-MEDIUM-395 — the standalone fixture runner. refresh_fixture_suite
+    # was reachable only through the superseded heartbeat phase, so with that
+    # driver dead no fixture suite ran and SHADOW->ACTIVE promotion evidence
+    # could only rot.
+    tool_fixture_refresh = add_subparser(tool_sub, "fixture-refresh")
+    tool_fixture_refresh.add_argument("--tool-id", default=None,
+        help="Refresh one tool's fixture suite; without it every registered tool is walked.")
+    tool_fixture_refresh.add_argument("--cycle-id", required=True)
+    # Required and pinned: the verb writes promotion evidence, so it runs
+    # only against the store's own checkout at a clean HEAD.
+    tool_fixture_refresh.add_argument("--workspace-root", required=True)
     # C1 (E4) — the promotion verb the registry never had. promote_tool has
     # existed with every gate (fixture pass, readiness, operator approval)
     # and ZERO command surface, so no adapter could ever leave SHADOW and
@@ -1412,6 +1423,15 @@ def build_parser() -> argparse.ArgumentParser:
     comp_list.add_argument("--claim-id", default=None)
     comp_list.add_argument("--rejected-only", action="store_true")
     comp_list.add_argument("--limit", type=int, default=None)
+
+    # ARIA-025-D1 — judge replay operator verb (gold-set recall).
+    judge_parser = add_subparser(sub, "judge")
+    judge_sub = judge_parser.add_subparsers(dest="judge_command", required=True)
+    judge_replay = add_subparser(judge_sub, "replay")
+    judge_replay.add_argument("--tool-id", default=None,
+        help="Replay one tool's gold corpus; without it every registered tool is walked.")
+    judge_replay.add_argument("--target-sha", default=None)
+    judge_replay.add_argument("--cycle-id", default=None)
 
     # ORPHAN-HIGH-573 — whole-inventory workflow registry verdict verb.
     # The caller that always sees the real repo (preflight legitimately
@@ -4231,6 +4251,30 @@ def _main(argv: list[str] | None = None) -> int:
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
 
+    # ARIA-MEDIUM-395 — standalone fixture runner dispatch: the cycle phase's
+    # own refresh lane, behind the pinned-workspace check.
+    if args.command == "tool" and args.tool_command == "fixture-refresh":
+        from .fixture_runner import refresh_fixture_suites, require_pinned_fixture_workspace
+
+        try:
+            # The RESOLVED checkout from the check is the only path handed on,
+            # so a symlink swapped after the check cannot redirect the run.
+            workspace, head = require_pinned_fixture_workspace(args.workspace_root, base_dir=args.tools_dir)
+            payload = refresh_fixture_suites(
+                workspace_root=workspace,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+                tool_ids=[args.tool_id] if args.tool_id else None,
+            )
+        except GovernanceError as exc:
+            print(json.dumps({"status": "refused", "reason": str(exc)[:300]}, indent=2, sort_keys=True))
+            return 1
+        payload["workspace_commit_sha"] = head
+        print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+        # A blocked or non-current suite is a per-tool signal in the payload;
+        # the exit code carries the aggregate for operator scripts.
+        return 0 if all(row.get("status") == "current" for row in payload["tools"]) else 1
+
     if args.command == "merge-lane" and args.merge_command == "run":
         from .auto_merge_runners import (
             enumerate_prs_with_readiness_claims,
@@ -4397,6 +4441,54 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(rows, indent=2, sort_keys=True))
         return 0
+
+    # ARIA-025-D1 — judge replay operator verb dispatch.
+    if args.command == "judge" and args.judge_command == "replay":
+        from .judge_calibration import score_judges
+        from .judge_replay import REPLAY_GROUP_PREFIX, replay_judges_on_goldset
+
+        if args.tool_id:
+            tool_ids = [args.tool_id]
+        else:
+            tool_ids = [
+                str(tool.get("tool_id") or "")
+                for tool in list_tools(base_dir=args.tools_dir)
+            ]
+            tool_ids = [tool_id for tool_id in tool_ids if tool_id]
+        replayed: list[dict[str, Any]] = []
+        for tool_id in tool_ids:
+            try:
+                result = replay_judges_on_goldset(
+                    tool_id=tool_id,
+                    base_dir=args.tools_dir,
+                    target_sha=args.target_sha,
+                    cycle_id=args.cycle_id,
+                )
+                replayed.append({"tool_id": tool_id, **result})
+            except GovernanceError as exc:
+                replayed.append({
+                    "tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200],
+                })
+        # The read path is score_judges (pure): compute_judge_calibration
+        # appends an audit row per call and the cycle phase owns that append.
+        recall_prefix = (
+            f"{REPLAY_GROUP_PREFIX}{args.tool_id}:" if args.tool_id else REPLAY_GROUP_PREFIX
+        )
+        recall = score_judges(
+            base_dir=args.tools_dir, judgment_group_prefix=recall_prefix,
+        )
+        # Every tool blocked — refused outright, or throttled before a single
+        # judge was admitted — is a failed replay, and the exit code says so
+        # for operator scripts; a partial replay reports per tool and exits 0.
+        blocked = [
+            row for row in replayed
+            if row.get("status") == "blocked"
+            or (row.get("request_admission_throttled") and not row.get("minted"))
+        ]
+        status = "blocked" if replayed and len(blocked) == len(replayed) else "completed"
+        payload = {"status": status, "replayed": replayed, "replay_recall": recall}
+        print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+        return 1 if status == "blocked" else 0
 
     # ORPHAN-HIGH-573 — whole-inventory workflow registry verdict verb.
     if args.command == "workflow" and args.workflow_command == "verify-registry":

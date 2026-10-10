@@ -155,39 +155,6 @@ class TestV9PollPrChecks(unittest.TestCase):
             self.assertEqual(status, "gh_cli_unavailable")
 
 
-class TestV9BranchTipVerification(unittest.TestCase):
-    """sec HIGH-002 + ai HIGH-007 — headRefOid drift detection."""
-
-    def test_branch_tip_match_returns_true(self):
-        payload = json.dumps({"headRefOid": "abc123def456"})
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
-                        return_value=mock.MagicMock(stdout=payload, returncode=0)):
-            self.assertTrue(_am.verify_branch_tip(
-                pr_number=42, expected_branch_tip_sha="abc123def456",
-            ))
-
-    def test_v9_merge_path_disabled_use_merge_if_green_returns_false(self):
-        payload = json.dumps({"headRefOid": "DIFFERENT_SHA"})
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
-                        return_value=mock.MagicMock(stdout=payload, returncode=0)):
-            self.assertFalse(_am.verify_branch_tip(
-                pr_number=42, expected_branch_tip_sha="abc123def456",
-            ))
-
-    def test_gh_unavailable_fails_closed(self):
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value=None):
-            self.assertFalse(_am.verify_branch_tip(
-                pr_number=42, expected_branch_tip_sha="abc",
-            ))
-
-    def test_empty_expected_fails_closed(self):
-        self.assertFalse(_am.verify_branch_tip(
-            pr_number=42, expected_branch_tip_sha="",
-        ))
-
-
 class TestV9MergeOrchestration(unittest.TestCase):
     """4-gate evaluation: profile, checks, branch_tip, evaluate_auto_merge."""
 
@@ -231,7 +198,7 @@ class TestV9MergeOrchestration(unittest.TestCase):
                 # First call = poll_pr_checks
                 return mock.MagicMock(stdout=json.dumps(green_rows), returncode=0)
             else:
-                # Second call = verify_branch_tip
+                # Second call = the headRefOid recheck
                 return mock.MagicMock(stdout=json.dumps(drift_payload), returncode=0)
 
         with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
@@ -252,7 +219,7 @@ class TestV9PublicApi(unittest.TestCase):
 
     def test_v96_exports(self):
         canonical_additions = {
-            "compute_v9_idempotency_key", "verify_branch_tip",
+            "compute_v9_idempotency_key",
             "poll_pr_checks", "evaluate_v9_implementation_merge",
             "V9MergeDecision", "PR_CHECK_POLL_MAX_ATTEMPTS",
             "PR_CHECK_POLL_INTERVAL_SECONDS",

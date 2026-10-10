@@ -38,15 +38,25 @@ from unittest import mock
 from aria_kernel import autonomy_evidence as evidence
 from aria_kernel import ledger, state_store
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl, rewrite_declared_jsonl
+from aria_kernel.state_snapshot import (
+    MEMORY_REWRITE_STATUS,
+    SnapshotError,
+    build_snapshot,
+    compute_manifest_root,
+    serialize_snapshot_json,
+)
 from aria_kernel.state_store import (
     BOOTSTRAP_ACK_ENV,
     StateStoreRefusal,
     checkout_state_store,
     publish_with_contention_replay,
+    read_published_snapshot,
+    snapshot_path,
     tools_root,
 )
 from aria_kernel.tool_registry import append_tools_governance
 from tests.test_state_store import REPO_HASH, _EnvPatch, _git as _git_raw
+from tests._helpers.declared_fixtures import rewrite_declared_out_of_band
 from tests._helpers.writer_lease import leased_publish
 
 OCT = datetime(2026, 10, 15, 12, tzinfo=timezone.utc)
@@ -260,17 +270,41 @@ class EvidenceCheckpointTests(unittest.TestCase):
             for row in rows
         ]
         stripped[1]["role"] = "planner"
-        rewrite_declared_jsonl(
-            sealed, stripped, expected_surface=SEGMENTS, migration_id="tamper", bypass_profile_gate=True,
-        )
+        # The tamper arrives the way an attacker's would: bytes written to
+        # the sealed segment directly, re-chained so the file is internally
+        # valid. The kernel's writer refuses this edit (memory_class — the
+        # segments are memory), so only an out-of-band write can produce it.
+        rewrite_declared_out_of_band(sealed, stripped, expected_surface=SEGMENTS)
         self._append_requests(store, 1)
-        with self.assertRaises(StateStoreRefusal) as refused:
+        head = _git(store.root, "rev-parse", "HEAD")
+        key = f"{SEGMENTS}:agent-invocations/requests/{sealed.name}"
+
+        # The lane's publish refuses it at the snapshot builder: the segment
+        # is memory, and its rows are no longer the published claim's prefix
+        # (ARIA-HIGH-263, which the segments joined with the memory laws).
+        with self.assertRaisesRegex(SnapshotError, f"^snapshot_{MEMORY_REWRITE_STATUS}:{key}:"):
             self._publish(store)
-        self.assertIn(
-            f"state_commit_evidence_checkpoint_mismatch:{SEGMENTS}:"
-            f"agent-invocations/requests/{sealed.name}",
-            str(refused.exception),
+        self.assertEqual(_git(store.root, "rev-parse", "HEAD"), head)
+
+        # The checkpoint is the second, independent wall, and the one every
+        # READER of the state branch meets: a commit that reached the branch
+        # without the publish (an out-of-band push, the attacker's road)
+        # carries a snapshot that truthfully claims the tampered bytes, so
+        # the claim checks pass and only the trusted checkpoint of the
+        # sealed segment can refuse it.
+        tip = read_published_snapshot(store)
+        snapshot = build_snapshot(
+            snapshot_id="snap-out-of-band", cycle_id="cycle-out-of-band", lane="test",
+            roots=state_store.store_roots(store, REPO_HASH),
         )
+        snapshot["prev_snapshot_id"] = tip["snapshot_id"]
+        snapshot["prev_manifest_root"] = tip["manifest_root"]
+        snapshot["manifest_root"] = compute_manifest_root(snapshot)
+        snapshot_path(store).write_bytes(serialize_snapshot_json(snapshot))
+        _git(store.root, "add", "--update")
+        _git(store.root, "commit", "-q", "-m", "out-of-band state commit")
+        with self.assertRaisesRegex(RuntimeError, f"^state_commit_evidence_checkpoint_mismatch:{key}$"):
+            self._verify(store)
 
     def test_budget_refuses_exactly_when_the_unconsumed_rows_exceed_it(self) -> None:
         store = self._carried_world(3)

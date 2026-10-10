@@ -107,7 +107,7 @@ def ingest_sarif(document: Mapping[str, Any], *, service: str, base_dir: str | P
     """Parse + emit each lead to the external_scanner lane. Returns a summary; a malformed
     document is quarantined (recorded as governance, not counted clean)."""
     from ..runtime_signal_bridge import ingest_runtime_signal
-    from ..tool_registry import append_tools_governance, ensure_tools_dir
+    from ..tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
     root = ensure_tools_dir(base_dir)
     try:
@@ -116,17 +116,32 @@ def ingest_sarif(document: Mapping[str, Any], *, service: str, base_dir: str | P
         append_tools_governance(root, "security_sarif_quarantined", {"service": service, "reason": str(exc)[:200], "tool_hint": tool_hint})
         return {"status": "quarantined", "reason": str(exc), "ingested": 0}
     ingested = 0
+    refused = 0
     for lead in leads:
         if source_status(lead.tool) == "not_configured" and tool_hint is None:
             continue  # a scanner we do not trust as a live source is never counted
-        ingest_runtime_signal(
-            source="external_scanner", service=service,
-            summary=f"[sarif:{lead.tool}/{lead.rule_id}] {lead.message}"[:300],
-            code_refs=[lead.location] if lead.location else [f"sarif:{lead.tool}"],
-            severity=lead.severity, base_dir=root,
-        )
+        # A lead with no location names its tool as the code area: a token,
+        # never prose, so the tool's display name is slugged.
+        tool_token = "-".join(lead.tool.split()) or "unknown"
+        try:
+            ingest_runtime_signal(
+                source="external_scanner", service=service,
+                summary=f"[sarif:{lead.tool}/{lead.rule_id}] {lead.message}"[:300],
+                code_refs=[lead.location] if lead.location else [f"sarif:{tool_token}"],
+                severity=lead.severity, base_dir=root,
+            )
+        except GovernanceError as exc:
+            # The bridge refused this lead's shape (a glob or prose location, a
+            # control character): reported per lead, never counted, and the
+            # document's other leads still land.
+            refused += 1
+            append_tools_governance(root, "security_sarif_lead_refused", {
+                "service": service, "tool": lead.tool, "rule_id": lead.rule_id, "reason": str(exc)[:200],
+            })
+            continue
         ingested += 1
-    return {"status": "ingested", "tools": sorted({l.tool for l in leads}), "leads": len(leads), "ingested": ingested}
+    return {"status": "ingested", "tools": sorted({l.tool for l in leads}), "leads": len(leads),
+            "ingested": ingested, "refused": refused}
 
 
 __all__ = [

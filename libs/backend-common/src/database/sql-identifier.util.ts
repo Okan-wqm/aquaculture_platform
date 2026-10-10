@@ -34,7 +34,7 @@ import { BadRequestException } from '@nestjs/common';
  *
  * Closes: docs/reviews/data-expert/2026-04-28-core-platform-review.md#DATA-CRITICAL-002 (sql-injection surface)
  */
-export type SqlIdentifierKind = 'schema' | 'table' | 'column' | 'index' | 'role';
+export type SqlIdentifierKind = 'schema' | 'table' | 'column' | 'index' | 'role' | 'type';
 
 const POSTGRES_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const POSTGRES_NAMEDATALEN = 63;
@@ -43,10 +43,7 @@ export function validateSqlIdentifier(
   identifier: string,
   kind: SqlIdentifierKind = 'schema',
 ): string {
-  if (
-    !POSTGRES_IDENTIFIER_REGEX.test(identifier) ||
-    identifier.length > POSTGRES_NAMEDATALEN
-  ) {
+  if (!POSTGRES_IDENTIFIER_REGEX.test(identifier) || identifier.length > POSTGRES_NAMEDATALEN) {
     throw new BadRequestException(
       `SECURITY: Invalid ${kind} identifier "${identifier}": only alphanumeric and underscore allowed, must start with letter or underscore, max ${POSTGRES_NAMEDATALEN} characters.`,
     );

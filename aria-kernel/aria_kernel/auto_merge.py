@@ -525,6 +525,15 @@ def _label_names(pr: dict[str, Any]) -> set[str]:
     }
 
 
+# ARIA-HIGH-390 — the terminal events of an ARIA PR have ONE writer
+# (`merge_record`); this token is what it alone passes, and
+# tests/invariants/test_merged_single_writer.py fails the build on any other
+# module naming it.
+_MERGED_ROW_OWNER = object()
+_OWNED_LIFECYCLE_EVENTS = frozenset({"merged", "closed_unmerged", "merge_unproven", "merge_lineage_unverified",
+                                     "merge_lineage_attested"})
+
+
 def record_pr_lifecycle(
     pr: dict[str, Any],
     *,
@@ -532,6 +541,7 @@ def record_pr_lifecycle(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     assignment_id: str | None = None,
+    _owner: object = None,
 ) -> dict[str, Any]:
     """Append a row to pr-lifecycle.jsonl describing a PR event.
 
@@ -546,6 +556,10 @@ def record_pr_lifecycle(
     worker_dispatch.pr_for_assignment, which fail-closes the merge
     path (verified_pending_merge).
     """
+    if event in _OWNED_LIFECYCLE_EVENTS and _owner is not _MERGED_ROW_OWNER:
+        raise GovernanceError(
+            f"pr_lifecycle_{event}_has_one_writer: merge_record.record_merge writes it (ARIA-HIGH-390)"
+        )
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),

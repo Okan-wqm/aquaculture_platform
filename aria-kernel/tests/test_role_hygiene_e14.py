@@ -30,7 +30,6 @@ from aria_kernel.agent_invocations import (
     list_agent_invocation_requests,
 )
 from aria_kernel.agent_surface import REQUEST_ROLES, ROLE_TARGET_PAIRING
-from aria_kernel.auto_merge import record_pr_lifecycle
 from aria_kernel.context_budget_gate import ROLE_CAP_MAP
 from aria_kernel.feedback_store import generate_ai_consensus, record_operator_feedback
 from aria_kernel.goldset import (
@@ -247,15 +246,19 @@ class GoldsetCurationMinterTest(_ToolsDirTest):
 
 class ChangeIntelligenceMinterTest(_ToolsDirTest):
     def _merge(self, *, pr_number: int = 7, head_sha: str = "c" * 40) -> None:
-        record_pr_lifecycle(
-            {
+        # ARIA-HIGH-390 — the merged row has one writer.
+        from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
+
+        record_merge(
+            pr={
                 "number": pr_number,
                 "head_sha": head_sha,
                 "base_branch": "main",
                 "changed_files": ["apps/farm-service/src/batch/batch.service.ts"],
             },
-            event="merged",
+            merged_by=MERGED_BY_MERGE_LANE,
             base_dir=self.tools,
+            head_lineage="delivered",
         )
 
     def test_a_merge_becomes_a_merge_event_and_one_envelope(self) -> None:

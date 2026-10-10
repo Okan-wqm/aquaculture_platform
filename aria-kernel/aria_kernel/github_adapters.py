@@ -574,7 +574,9 @@ class RealChecksReader:
 
         completed = _subprocess.run(
             ["gh", "pr", "view", str(pr_number),
-             "--json", "state,mergedAt,mergeCommit,number"],
+             # ARIA-HIGH-390 — headRefOid: a merge after rejection must be
+             # the kernel's delivered head (`merge_record`).
+             "--json", "state,mergedAt,mergeCommit,number,headRefOid"],
             cwd=self._cwd, capture_output=True, text=True, check=False,
         )
         if completed.returncode != 0:

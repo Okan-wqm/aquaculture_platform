@@ -227,6 +227,15 @@ _CYCLE_PROFILE_GATE_STEP = "Resolve the cycle profile within the operator ceilin
 _CYCLE_RESOLVED_PREFLIGHT_STEP = (
     "Persist enterprise workflow preflight for the resolved profile"
 )
+# ARIA-HIGH-415 — the observation steps that read the night: the doctor's
+# failing organs, the self-improvement missions they open, and the daily
+# summary with the HUMAN_REQUIRED backlog. Contracted because their position
+# is the point: after the work step (they read what it left), before the
+# integrity verify and the publish (their rows ride the night's publish).
+_CYCLE_DOCTOR_STEP = "Doctor - record the failing organs"
+_CYCLE_SELF_IMPROVE_STEP = "Self-improve - open missions for failing organs"
+_CYCLE_DELIVER_STEP = "Deliver - the daily summary with the human-required backlog"
+_CYCLE_VERIFY_STEP = "Verify ARIA state integrity"
 
 # The store worktree, as the workflow path allowlist spells it. One constant
 # because four contract fields and two YAMLs have to agree on it.
@@ -496,6 +505,10 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     _CYCLE_PROFILE_GATE_STEP,
                     _CYCLE_RESOLVED_PREFLIGHT_STEP,
                     _CYCLE_WORK_STEP,
+                    _CYCLE_DOCTOR_STEP,
+                    _CYCLE_SELF_IMPROVE_STEP,
+                    _CYCLE_DELIVER_STEP,
+                    _CYCLE_VERIFY_STEP,
                     _PUBLISH_STEP,
                     "Quarantine unverified ARIA state",
                     "Fail on unverified ARIA state",
@@ -511,6 +524,11 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     (_CYCLE_WORK_STEP, _PUBLISH_STEP),
                     (_CYCLE_WORK_STEP, "Quarantine unverified ARIA state"),
                     (_CYCLE_WORK_STEP, "Fail on unverified ARIA state"),
+                    (_CYCLE_WORK_STEP, _CYCLE_DOCTOR_STEP),
+                    (_CYCLE_DOCTOR_STEP, _CYCLE_SELF_IMPROVE_STEP),
+                    (_CYCLE_SELF_IMPROVE_STEP, _CYCLE_DELIVER_STEP),
+                    (_CYCLE_DELIVER_STEP, _CYCLE_VERIFY_STEP),
+                    (_CYCLE_VERIFY_STEP, _PUBLISH_STEP),
                 ),
                 abort_gate=WorkflowAbortGate(
                     gate_step=_CYCLE_LEASE_STEP,

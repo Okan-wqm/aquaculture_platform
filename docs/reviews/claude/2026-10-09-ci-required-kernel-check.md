@@ -2,6 +2,8 @@
 
 Owner: claude (implementation), okan (review). Recorded after the 2026-10-08 night.
 
+## INFRA-HIGH-212 — no kernel lane gated a merge, and the local gate was invoked wrong
+
 ## CI-HIGH-001
 
 PR #1892 auto-merged at 21:27 while its `aria-kernel` check was FAIL (11s) and

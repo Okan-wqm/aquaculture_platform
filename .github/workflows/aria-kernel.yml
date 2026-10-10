@@ -400,7 +400,10 @@ jobs:
     # The kernel lane's verdict. `!cancelled()` rather than `always()`: a
     # superseded run (concurrency cancel-in-progress) stays cancelled instead
     # of reporting a missing shard as a failure.
-    needs: [suite, lane, state]
+    needs:
+      - suite
+      - lane
+      - state
     if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10

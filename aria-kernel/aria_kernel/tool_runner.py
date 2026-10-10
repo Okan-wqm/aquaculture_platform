@@ -9,9 +9,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .adapter_room import prepare_adapter_spawn, run_adapter
 from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
-from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
+from .implementation_safety import (
+    BashAllowlistMiss,
+    BashDenylistHit,
+    SandboxUnavailable,
+    verify_bash_command_allowed,
+)
 from .ledger_inline import (
     INLINE_ROW_FIELD_MAX_BYTES,
     spill_evidence_validation,
@@ -108,6 +114,10 @@ def run_tool(
     # succeeded or did not run); populated with codes from
     # PARSE_ERROR_CODES on rejection.
     parse_error: str | None = None
+    # ARIA-CRITICAL-399 — the room the adapter ran in and the environment it
+    # saw, by name; both stay None when the adapter never started.
+    sandbox_backend: str | None = None
+    spawn_environment: dict[str, Any] | None = None
 
     try:
         if _runner_missing_node_deps(cwd, runner["argv"]):
@@ -122,29 +132,30 @@ def run_tool(
             exit_code = None
             output = {}
         else:
-            # The tool's memory budget is a CONTRACT, not an accident of the
-            # host. Node's default old-space (~1 GB) OOM-crashed the two
-            # widest-scope adapters (tenant-scoping, test-gap: apps/** +
-            # libs/**) the first time they ever executed — a resource the
-            # manifest never declared, enforced by a runtime the manifest
-            # never chose. `runner.node_max_old_space_mb` (default 2048)
-            # makes the budget explicit per tool; NODE_OPTIONS is composed,
-            # not overwritten, so an operator's own flags survive.
-            run_env = dict(os.environ)
-            node_heap_mb = int(runner.get("node_max_old_space_mb") or 2048)
-            existing_node_options = run_env.get("NODE_OPTIONS", "")
-            run_env["NODE_OPTIONS"] = (
-                f"{existing_node_options} --max-old-space-size={node_heap_mb}"
-            ).strip()
-            completed = subprocess.run(
+            # ARIA-CRITICAL-399 — the adapter runs ONLY inside the room
+            # (`adapter_room`): an environment BUILT from the validation
+            # allowlist (it used to be `dict(os.environ)`: the job token,
+            # the OIDC request token and GITHUB_ENV), no network, a
+            # read-only workspace with the store masked, private PID
+            # namespace. The tool's memory budget is a CONTRACT, not an
+            # accident of the host: Node's default old-space (~1 GB)
+            # OOM-crashed the two widest-scope adapters the first time they
+            # executed, so `runner.node_max_old_space_mb` (default 2048)
+            # travels into the room's NODE_OPTIONS, composed with an
+            # operator's own flags.
+            spawn = prepare_adapter_spawn(
                 runner["argv"],
+                workspace_root=root,
                 cwd=cwd,
-                input=input_bytes.decode("utf-8") if runner.get("stdin_json") else None,
-                capture_output=True,
-                text=True,
-                timeout=runner["timeout_ms"] / 1000,
-                shell=False,
-                env=run_env,
+                node_heap_mb=runner.get("node_max_old_space_mb"),
+                store=tools_root,
+            )
+            sandbox_backend = spawn.backend
+            spawn_environment = spawn.spawn_environment
+            completed = run_adapter(
+                spawn,
+                input_text=input_bytes.decode("utf-8") if runner.get("stdin_json") else None,
+                timeout_seconds=runner["timeout_ms"] / 1000,
             )
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""
@@ -159,6 +170,14 @@ def run_tool(
                 output, parse_error = _parse_tool_output(stdout, tool)
                 if output is None:
                     status = "schema_error"
+    except SandboxUnavailable as exc:
+        # No room, no run: the adapter never started. Like a missing node
+        # dependency above, the HOST could not run the tool, so the run is
+        # environment_unavailable — it never quarantines the tool — and the
+        # reason is named for the night's degraded-tool record.
+        stderr = f"adapter_sandbox_unavailable: {exc}"
+        status = "environment_unavailable"
+        output = {}
     except subprocess.TimeoutExpired as exc:
         stdout = _decode_timeout_stream(exc.stdout)
         stderr = _decode_timeout_stream(exc.stderr)
@@ -249,6 +268,10 @@ def run_tool(
             # PARSE_ERROR_CODES (plus dynamic missing_field:<f> /
             # field_not_list:<f> shapes for minimum-output fields).
             "parse_error": parse_error,
+            # ARIA-CRITICAL-399 — the containment and the environment the
+            # adapter ran with, by NAME (never a value, never a host path).
+            "sandbox_backend": sandbox_backend,
+            "spawn_environment": spawn_environment,
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
         "_runtime_artifact_payload": {

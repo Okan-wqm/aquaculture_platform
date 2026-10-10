@@ -94,16 +94,21 @@ def detect(payload: str) -> dict:
             self.assertNotIn("secret_in_comment", msg)
 
     def test_i_v9_skill_03_sandbox_refuses_without_tool(self):
-        """When no bwrap/firejail available, execute_in_sandbox
-        MUST raise RuntimeError (refusal not passthrough)."""
-        if _sb._bwrap_available() or _sb._firejail_available():
-            self.skipTest("sandbox tool available; refusal path not reachable")
-        with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as tmp:
-            tmp.write(b"print('hello')")
-            adapter = tmp.name
+        """When no VERIFIED backend exists, execute_in_sandbox MUST raise
+        RuntimeError (refusal not passthrough). ARIA-CRITICAL-399: the
+        verdict is the shared probe's (`sandbox_backend()`, which builds the
+        namespaces), forced here so the refusal is exercised on every host
+        rather than skipped wherever bwrap is installed."""
+        from unittest import mock
+
+        from aria_kernel import implementation_safety
+
         with tempfile.TemporaryDirectory() as workspace:
-            with self.assertRaises(RuntimeError):
-                _sb.execute_in_sandbox(adapter, workspace_root=workspace)
+            adapter = Path(workspace) / "adapter.py"
+            adapter.write_text("print('hello')\n", encoding="utf-8")
+            with mock.patch.object(implementation_safety, "_bwrap_available", return_value=False):
+                with self.assertRaises(RuntimeError):
+                    _sb.execute_in_sandbox(adapter, workspace_root=workspace)
 
     def test_i_v9_skill_03_sandbox_result_frozen(self):
         result = _sb.SandboxedResult(

@@ -35,11 +35,13 @@ from __future__ import annotations
 
 import ast
 import json
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from .adapter_room import prepare_adapter_spawn, run_adapter
+from .tool_runner import _decode_timeout_stream
 
 
 # Plan ARIA-V9.0-E — Python stdlib imports permitted inside skill
@@ -169,14 +171,6 @@ def verify_adapter_imports(source: str) -> None:
         )
 
 
-def _bwrap_available() -> bool:
-    return shutil.which("bwrap") is not None
-
-
-def _firejail_available() -> bool:
-    return shutil.which("firejail") is not None
-
-
 def execute_in_sandbox(
     adapter_path: str | Path,
     stdin_payload: str | bytes | None = None,
@@ -185,88 +179,47 @@ def execute_in_sandbox(
     timeout_seconds: int = 60,
     python: str = "python3",
 ) -> SandboxedResult:
-    """Run an adapter inside a network-isolated sandbox.
+    """Run an adapter inside the adapter room (``adapter_room``).
 
-    Sandbox layout (bwrap preferred, firejail fallback, else
-    refuses):
-      * --unshare-net           — no network egress (CRIT-006)
-      * --tmpfs /tmp            — writable but workspace-scoped
-      * --ro-bind /usr /usr     — Python stdlib read-only
-      * --bind workspace        — adapter can read repo
-      * No /root, /home, /etc/secrets, /etc/ssh, /var/run/secrets
+    ARIA-CRITICAL-399 — this function used to build a room of its own: bwrap
+    chosen by ``shutil.which`` (installed, not proven usable), a firejail
+    fallback that applied none of the read-only binds (the backend
+    ORPHAN-CRITICAL-451 refused for exactly that), the workspace — and the
+    durable store checked out inside it — bound, and the runner's whole
+    environment inherited. It is now the room every adapter runs in: no
+    network, a read-only workspace, the store and the signing keys masked,
+    private PID/IPC/UTS namespaces, and an environment built from the
+    validation allowlist. One room, so a drafted adapter cannot be run with
+    less containment than a curated one.
 
     Adapter receives stdin_payload on stdin; emits result on stdout.
-
     Returns SandboxedResult(exit_code, stdout, stderr, timed_out).
 
-    When neither bwrap nor firejail are available, raises RuntimeError
-    (sandbox refusal is hard-fail — adapter MUST run sandboxed).
+    Raises ``SandboxUnavailable`` (a ``RuntimeError``) when no verified
+    backend exists — refusal, never passthrough.
     """
     adapter_p = Path(adapter_path).resolve()
     workspace_p = Path(workspace_root).resolve()
-
-    if isinstance(stdin_payload, str):
-        stdin_bytes: bytes | None = stdin_payload.encode("utf-8")
-    elif isinstance(stdin_payload, (bytes, bytearray)):
-        stdin_bytes = bytes(stdin_payload)
+    if isinstance(stdin_payload, (bytes, bytearray)):
+        stdin_text: str | None = bytes(stdin_payload).decode("utf-8")
     else:
-        stdin_bytes = None
-
-    if _bwrap_available():
-        argv = [
-            "bwrap",
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/etc/alternatives", "/etc/alternatives",
-            "--ro-bind", "/lib", "/lib",
-            "--ro-bind", "/lib64", "/lib64",
-            "--ro-bind", "/bin", "/bin",
-            "--proc", "/proc",
-            "--dev", "/dev",
-            "--tmpfs", "/tmp",
-            "--ro-bind", str(workspace_p), str(workspace_p),
-            "--chdir", str(workspace_p),
-            "--unshare-net",
-            "--unshare-user",
-            "--unshare-pid",
-            "--",
-            python, str(adapter_p),
-        ]
-    elif _firejail_available():
-        argv = [
-            "firejail",
-            "--quiet",
-            "--private-tmp",
-            "--net=none",
-            f"--whitelist={workspace_p}",
-            "--noroot",
-            python, str(adapter_p),
-        ]
-    else:
-        raise RuntimeError(
-            "no sandbox tool available (need bwrap or firejail); "
-            "refusing to execute adapter unsandboxed"
-        )
-
+        stdin_text = stdin_payload
+    spawn = prepare_adapter_spawn([python, str(adapter_p)], workspace_root=workspace_p, cwd=workspace_p)
     try:
-        proc = subprocess.run(
-            argv,
-            input=stdin_bytes,
-            capture_output=True,
-            timeout=timeout_seconds,
-        )
-        return SandboxedResult(
-            exit_code=proc.returncode,
-            stdout=proc.stdout.decode("utf-8", errors="replace"),
-            stderr=proc.stderr.decode("utf-8", errors="replace"),
-            timed_out=False,
-        )
+        completed = run_adapter(spawn, input_text=stdin_text, timeout_seconds=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         return SandboxedResult(
             exit_code=124,
-            stdout=(exc.stdout or b"").decode("utf-8", errors="replace"),
-            stderr=(exc.stderr or b"").decode("utf-8", errors="replace"),
+            stdout=_decode_timeout_stream(exc.stdout),
+            stderr=_decode_timeout_stream(exc.stderr),
             timed_out=True,
         )
+    return SandboxedResult(
+        exit_code=completed.returncode,
+        stdout=completed.stdout or "",
+        stderr=completed.stderr or "",
+        timed_out=False,
+    )
 
 
 def verify_adapter_signature(adapter_path: str | Path, sigstore_bundle: str | Path) -> bool:

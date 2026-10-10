@@ -474,21 +474,28 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(decision["action"], "none")
         self.assertEqual(self.latest_run()["status"], "budget_exceeded")
 
-    def test_tool_runner_repository_mutation_quarantines_tool(self):
+    def test_tool_runner_repository_mutation_cannot_land(self):
+        """ARIA-CRITICAL-399 — the adapter room mounts the workspace read-only,
+        so the write is refused by the kernel (EROFS) and the file never
+        appears: there is no mutation left to detect after the fact. The run
+        is the adapter's crash. The post-run detector stays as the second line
+        (its partition is unit-pinned in test_tool_runner_scope_out_mutation)."""
         register_active_for_test(
             valid_tool(runner=runner(fake_tool_argv(valid_tool_output(), mutate=True))),
             base_dir=self.tools_dir,
         )
-        decision = run_tool(
+        run_tool(
             "ts-adapter",
             {},
             "cycle-1",
             workspace_root=self.root,
             base_dir=self.tools_dir,
         )
-        self.assertEqual(decision["action"], "quarantine")
         run = self.latest_run()
-        self.assertTrue(run["evidence_validation"]["repository_mutation_attempt"])
+        self.assertFalse((self.root / "apps/farm-service/src/mutated.ts").exists())
+        self.assertEqual(run["status"], "crash")
+        self.assertFalse(run["evidence_validation"]["repository_mutation_attempt"])
+        self.assertIn("Read-only file system", run["runner"]["stderr_sample"])
 
     def test_tool_runner_shadow_and_calibrate_do_not_emit_operator_facing_output(self):
         register_active_for_test(valid_tool(status="SHADOW"), base_dir=self.tools_dir)

@@ -1071,6 +1071,7 @@ def wrap_bash_in_sandbox(
     git: GitContainment | None = None,
     hook_broker_socket: str | Path | None = None,
     mcp_broker_socket: str | Path | None = None,
+    chdir: str | Path | None = None,
 ) -> list[str]:
     """Hard-fail check 8c — Bash sandbox wrapper.
 
@@ -1123,7 +1124,7 @@ def wrap_bash_in_sandbox(
         return _sandbox_argv(
             argv, workspace_root=workspace_root, allow_network=allow_network, write_scope=write_scope,
             extra_ro_binds=extra_ro_binds, git=git, hook_broker_socket=hook_broker_socket,
-            mcp_broker_socket=mcp_broker_socket,
+            mcp_broker_socket=mcp_broker_socket, chdir=chdir,
         )
     probe_reason = _LAST_CONTAINMENT_PROBE_REASON[0]
     raise SandboxUnavailable(
@@ -1146,12 +1147,16 @@ def _sandbox_argv(
     git: GitContainment | None = None,
     hook_broker_socket: str | Path | None = None,
     mcp_broker_socket: str | Path | None = None,
+    chdir: str | Path | None = None,
 ) -> list[str]:
     """The bwrap argv, built without consulting availability — the one
     builder the wrapper AND the containment probe use, so the probe proves
     the argv a spawn gets (ORPHAN-MEDIUM-452 for the system binds; the
     same rule for the git binds, ARIA-HIGH-123)."""
     workspace = Path(workspace_root).resolve()
+    start_dir = workspace if chdir is None else Path(chdir).resolve()
+    if not start_dir.is_relative_to(workspace):
+        raise SandboxUnavailable(f"sandbox_chdir_outside_workspace:{start_dir}")
     if git is not None and git.workspace_root != workspace:
         raise SandboxUnavailable(
             f"git_containment_workspace_mismatch: derived for {git.workspace_root}, spawning in {workspace}"
@@ -1166,7 +1171,7 @@ def _sandbox_argv(
         *SANDBOX_TMP_MOUNT,
         *_workspace_binds(workspace, write_scope),
         *_dependency_tree_binds(workspace),
-        "--chdir", str(workspace),
+        "--chdir", str(start_dir),
         # The agent runtime needs a HOME it can WRITE.
         #
         # Without this the sandbox left $HOME resolvable but read-only — it

@@ -587,6 +587,45 @@ def _outer_cycle_status(projected: str) -> str:
     return "failed"
 
 
+def _reflect_on_failed_cycle(
+    *,
+    root: Path,
+    cycle_id: str,
+    workspace_root: str | Path | None,
+    cycle_summary: dict[str, Any],
+    cycle_result: dict[str, Any] | None,
+    pedagogy_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-420 — the reflection of a night that ended on a failed exit.
+
+    WHY: the cycle runs with ``defer_reflection=True``, so the orchestrator
+    is the only writer of the reflection row. Before this, the two failed
+    exits (fail-closed ``cycle_failed`` and ``bridge_replay_required``) wrote
+    none: aria/state f5c5c86a1 has a reflection for each of the 22 completed
+    cycles since 2026-10-01 and for none of the 5 failed ones. Those were the
+    nights with neither a daily report nor a next-cycle plan.
+
+    WHAT: the post-drain shape the no-pressure exit already uses. The work
+    lanes did not run, so there is no Gate A/B verdict, and ``None`` is the
+    legitimately-skipped sentinel the report renders. Reflection is not a
+    pure observer. It writes the daily report and queues the cycle's
+    schedulable pressures for the next cycle. On a failed night that queueing
+    is the intended self-repair entry (tests/test_failed_cycle_reflection.py).
+    """
+    return run_reflection(
+        cycle_id=cycle_id,
+        base_dir=root,
+        repo_root=workspace_root,
+        convergence_result=None,
+        review_result=None,
+        **producer_reflection_kwargs(
+            cycle_summary=cycle_summary,
+            cycle_result=cycle_result,
+            pedagogy_lint_result=pedagogy_snapshot,
+        ),
+    )
+
+
 def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
     artifact_refs = [
@@ -1777,18 +1816,27 @@ def run_autonomy_orchestrator(
                         "summary": cycle_summary.get("cycle"),
                     },
                 )
+                # C5/E8 — one warn-mode pedagogy snapshot per cycle,
+                # taken ONCE here (not inside the kwargs builder) so
+                # every reflection exit reports the same scan instead of
+                # divergent re-scans. It is taken before the fail-closed
+                # branch because the failed exits reflect too
+                # (ARIA-HIGH-420).
+                pedagogy_snapshot = pedagogy_lint_snapshot(workspace_root)
                 if cycle_status in {"ok", "degraded"}:
                     cycles_completed += 1
                 elif fail_closed_on_cycle_failure:
+                    # ARIA-HIGH-420 — the work lanes are skipped and the
+                    # reflection still runs, so a failed night writes its
+                    # report and queues the next cycle's work.
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
                     per_cycle_results.append(cycle_summary)
                     exit_reason = "cycle_failed"
                     break
-
-                # C5/E8 — one warn-mode pedagogy snapshot per cycle,
-                # taken ONCE here (not inside the kwargs builder) so
-                # the five post-drain reflection exits all report the
-                # same scan instead of five divergent re-scans.
-                pedagogy_snapshot = pedagogy_lint_snapshot(workspace_root)
 
                 # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
                 # sentinel. V10.3-B endurance showed cycle 1 challenger
@@ -1893,6 +1941,13 @@ def run_autonomy_orchestrator(
                             "pending_after": pending_after,
                         },
                     ]
+                    # ARIA-HIGH-420 — the second failed exit reflects like
+                    # the first one does.
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
                     per_cycle_results.append(cycle_summary)
                     exit_reason = "bridge_replay_required"
                     break

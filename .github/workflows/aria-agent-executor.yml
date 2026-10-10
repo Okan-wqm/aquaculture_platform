@@ -214,7 +214,7 @@ jobs:
 
       - uses: ./.github/actions/setup-aria-kernel
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -750,7 +750,7 @@ jobs:
         # `if-no-files-found: error` would turn "no work" into a red.
         # Targeted runs never set `drained`, so the guard is a no-op there.
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && steps.executor.outputs.drained != '0'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           # Limited scope — response envelope plus its transcript anchor. claims.jsonl +
           # runs.jsonl deliberately excluded (lease token / over-disclosure
@@ -877,7 +877,7 @@ jobs:
       # it cannot become a second source of truth for one hash-chained ledger.
       - name: Cache ARIA state tree (non-authoritative)
         if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: aria-state-cache-${{ github.run_id }}
           path: |
@@ -908,7 +908,7 @@ jobs:
         # and an unguarded `!= 'true'` would quarantine a tree this run never
         # touched — turning every blocked night into a forensics artifact.
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quarantine-evidence-${{ github.run_id }}
           path: |

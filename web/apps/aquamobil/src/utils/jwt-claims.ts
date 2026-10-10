@@ -54,3 +54,24 @@ export function decodeTenantId(token: string | null | undefined): string | null 
   const claim = decodeClaims(token)?.tenantId;
   return typeof claim === 'string' && claim.length > 0 ? claim : null;
 }
+
+/**
+ * The tenant a request is sent for — the ONE resolver every request lane uses
+ * (foreground authenticatedFetch and the service worker's Background Sync
+ * replay alike), so the two cannot disagree about which tenant a write lands in.
+ *
+ * WHY the token claim first: the access token is what the server signed and
+ * what the gateway trusts. Any separately carried tenant id (the auth store
+ * copy, an auth response's `user.tenantId`) is a copy that can lag the token or
+ * arrive null while the token carries the claim (MOB-MEDIUM-024). The copy only
+ * fills in for a token that carries no tenant claim; with neither, the result
+ * is null and the caller sends no tenant rather than a guessed one.
+ */
+export function resolveRequestTenantId(
+  accessToken: string | null | undefined,
+  carriedTenantId: string | null | undefined,
+): string | null {
+  const claim = decodeTenantId(accessToken);
+  if (claim !== null) return claim;
+  return typeof carriedTenantId === 'string' && carriedTenantId.length > 0 ? carriedTenantId : null;
+}

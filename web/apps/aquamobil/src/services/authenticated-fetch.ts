@@ -17,7 +17,7 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { print } from 'graphql';
 
 import { type GraphQLErrorPayload, readGraphQLResponse } from '@/utils/graphql-response';
-import { decodeTenantId } from '@/utils/jwt-claims';
+import { resolveRequestTenantId } from '@/utils/jwt-claims';
 
 // ---------------------------------------------------------------------------
 // Module-level auth store — kept in sync by AuthProvider via syncAuthStore()
@@ -38,20 +38,16 @@ const authStore: AuthStore = {
 };
 
 /**
- * The tenant a request is sent for — the ONE place the X-Tenant-Id header value
- * is decided.
- *
- * WHY the token claim first: the access token is what the server signed and what
- * the gateway trusts; `authStore.tenantId` is a copy that AuthProvider pushes in
- * through syncAuthStore after React commits its state, so it can lag the token
- * (or arrive null from an auth response that omits it). Boot-time queries fired
- * in that gap reached the subgraphs with no tenant and failed with "Tenant ID is
- * required" (2026-09-17 field finding, GetMyNotifications and peers). Reading
- * the claim makes the header agree with the token by construction; the stored
- * id only fills in for a token that carries no tenant claim.
+ * The tenant this lane's requests are sent for. The decision itself is owned
+ * by `resolveRequestTenantId` (token claim first, the stored copy only for a
+ * token without one) — shared with the service worker's replay lane so the
+ * two cannot drift (MOB-MEDIUM-024, MOB-MEDIUM-005). `authStore.tenantId` is
+ * the copy AuthProvider pushes in through syncAuthStore after React commits,
+ * so it can lag the token; boot-time queries fired in that gap used to reach
+ * the subgraphs with no tenant (2026-09-17 field finding).
  */
 function currentTenantId(): string | null {
-  return decodeTenantId(authStore.accessToken) ?? authStore.tenantId;
+  return resolveRequestTenantId(authStore.accessToken, authStore.tenantId);
 }
 
 // ---------------------------------------------------------------------------

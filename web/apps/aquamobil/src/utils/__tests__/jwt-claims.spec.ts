@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { decodeResourcePermissions, decodeTenantId } from '../jwt-claims';
+import { decodeResourcePermissions, decodeTenantId, resolveRequestTenantId } from '../jwt-claims';
 
 /** Build an unsigned JWT-shaped string whose payload is `claims`, base64url-encoded. */
 function tokenWith(claims: unknown): string {
@@ -38,6 +38,29 @@ describe('decodeTenantId', () => {
     ['a non-string claim', tokenWith({ tenantId: 42 })],
   ])('fails closed to null for %s', (_label, token) => {
     expect(decodeTenantId(token)).toBeNull();
+  });
+});
+
+describe('resolveRequestTenantId (MOB-MEDIUM-024 / MOB-MEDIUM-005)', () => {
+  it('takes the signed claim over a carried copy that disagrees', () => {
+    expect(resolveRequestTenantId(tokenWith({ tenantId: 'claim-t' }), 'copy-t')).toBe('claim-t');
+  });
+
+  it('takes the signed claim when the carried copy is null', () => {
+    expect(resolveRequestTenantId(tokenWith({ tenantId: 'claim-t' }), null)).toBe('claim-t');
+  });
+
+  it('falls back to the carried copy only for a token without the claim', () => {
+    expect(resolveRequestTenantId(tokenWith({ sub: 'u1' }), 'copy-t')).toBe('copy-t');
+    expect(resolveRequestTenantId('opaque-token', 'copy-t')).toBe('copy-t');
+  });
+
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['an empty string', ''],
+  ])('is null with no claim and a carried copy of %s', (_label, carried) => {
+    expect(resolveRequestTenantId(tokenWith({ sub: 'u1' }), carried)).toBeNull();
   });
 });
 

@@ -62,6 +62,13 @@ fail-closed payload decoder with `decodeResourcePermissions`), and the stored id
 without the claim. Pinned by `authenticated-fetch-tenant-header.spec.ts` (three of five cases
 fail on the old code) and `jwt-claims.spec.ts`.
 
+The service worker's closed-app replay (`src/pwa/sw-replay.ts`) read the same kind of copy, the
+refresh response's `user.tenantId`, and returned without draining when it was `null` (review
+finding MOB-MEDIUM-005 on #1737). The resolver now lives in `jwt-claims.ts` as
+`resolveRequestTenantId(accessToken, carriedTenantId)`; `currentTenantId()` and the SW refresh
+both call it, so the two lanes cannot pick different tenants. Pinned by three `sw-replay.spec.ts`
+cases (two fail on the old code) and the resolver cases in `jwt-claims.spec.ts`.
+
 Not covered: the 2026-09-17 notes also record one boot-time caller that still fires before any
 tenant exists; it was not identified then and is not addressed here.
 

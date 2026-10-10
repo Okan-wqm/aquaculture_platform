@@ -140,15 +140,19 @@ jobs:
         env:
           SHARD_INDEX: ${{ strategy.job-index }}
           SHARD_TOTAL: ${{ strategy.job-total }}
-        run: bash scripts/ci/aria-suite-run.sh --shard "$((SHARD_INDEX + 1))/${SHARD_TOTAL}" "${RUNNER_TEMP}/aria-suite-shards/shard-$((SHARD_INDEX + 1)).json"
+        run: bash scripts/ci/aria-suite-run.sh --shard "$((SHARD_INDEX + 1))/${SHARD_TOTAL}" "${RUNNER_TEMP}/aria-suite-shards/shard-$((SHARD_INDEX + 1)).attempt-${GITHUB_RUN_ATTEMPT}.json"
       - name: Upload shard report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aria-kernel-suite-shard-${{ matrix.shard }}
+          # One artifact per attempt (ARIA-MEDIUM-411): the verdict job reads every
+          # attempt's report and keeps each shard's latest.
+          name: aria-kernel-suite-shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/aria-suite-shards/
-          # A shard that died before writing its report is named by the
-          # aria-kernel job's verify step, not by this upload.
+          # A shard that died before writing its report is caught by the
+          # aria-kernel job: on a first attempt its verify step names the
+          # missing shard; on a re-run an earlier attempt's report may fill
+          # the gap, and "Require every kernel job" (needs.suite.result) fails.
           if-no-files-found: ignore
           retention-days: 14
       - name: Verify post-run clean worktree

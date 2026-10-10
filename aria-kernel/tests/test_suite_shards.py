@@ -152,6 +152,48 @@ class Case(unittest.TestCase):
 """
 
 
+class RerunAttemptTests(unittest.TestCase):
+    """A re-run shard's report supersedes the attempt it re-ran (ARIA-MEDIUM-411).
+
+    Every attempt of a run uploaded its report under one artifact name and file
+    name, and the verdict job downloads all attempts into one directory, so which
+    attempt's report survived was arbitrary. A shard that failed once and passed
+    on "re-run failed jobs" was still read as failed (PR 1932, run 38031162176).
+    """
+
+    def _write(self, directory: Path, name: str, report: dict[str, Any]) -> None:
+        (directory / name).write_text(json.dumps(report), encoding="utf-8")
+
+    def test_the_latest_attempt_of_each_shard_is_the_one_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reports = Path(tmp)
+            self._write(reports, "shard-1.attempt-1.json", _report(1, 2, {"m.a": 1, "m.b": 2}, run_attempt=1))
+            self._write(reports, "shard-2.attempt-1.json",
+                        _report(2, 2, {"m.c": 3}, run_attempt=1, successful=False))
+            self._write(reports, "shard-2.attempt-2.json", _report(2, 2, {"m.c": 3}, run_attempt=2))
+            current = shards.read_reports(reports)
+        self.assertEqual(sorted((r["shard"], r["run_attempt"]) for r in current), [(1, 1), (2, 2)])
+        self.assertEqual(shards.verify_reports(current), [])
+
+    def test_a_later_failed_attempt_is_not_hidden_by_an_earlier_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reports = Path(tmp)
+            self._write(reports, "shard-1.attempt-1.json", _report(1, 1, {"m.a": 1, "m.b": 2, "m.c": 3}, run_attempt=1))
+            self._write(reports, "shard-1.attempt-2.json",
+                        _report(1, 1, {"m.a": 1, "m.b": 2, "m.c": 3}, run_attempt=2, successful=False))
+            current = shards.read_reports(reports)
+        self.assertEqual(shards.verify_reports(current), ["shard 1 was not successful"])
+
+    def test_two_reports_for_one_shard_and_attempt_are_both_kept_and_named(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reports = Path(tmp)
+            self._write(reports, "a.json", _report(1, 1, {"m.a": 1, "m.b": 2, "m.c": 3}, run_attempt=1))
+            self._write(reports, "b.json", _report(1, 1, {"m.a": 1, "m.b": 2, "m.c": 3}, run_attempt=1))
+            current = shards.read_reports(reports)
+        self.assertEqual(len(current), 2)
+        self.assertIn("shard indices [1, 1] are not exactly 1..1", shards.verify_reports(current))
+
+
 class ShardCliTests(unittest.TestCase):
     """The CLI the lane invokes, over a fixture suite, in child interpreters."""
 

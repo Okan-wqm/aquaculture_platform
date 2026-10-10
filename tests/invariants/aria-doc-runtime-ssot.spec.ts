@@ -667,7 +667,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(shardSteps).toHaveLength(1);
     expect(shardSteps[0]?.run).toBe(
       `bash ${ARIA_SUITE_RUNNER} --shard "$((SHARD_INDEX + 1))/` +
-        '${SHARD_TOTAL}" "${RUNNER_TEMP}/aria-suite-shards/shard-$((SHARD_INDEX + 1)).json"',
+        '${SHARD_TOTAL}" "${RUNNER_TEMP}/aria-suite-shards/shard-$((SHARD_INDEX + 1)).attempt-${GITHUB_RUN_ATTEMPT}.json"',
     );
     expect(shardSteps[0]?.env).toEqual({
       SHARD_INDEX: '${{ strategy.job-index }}',

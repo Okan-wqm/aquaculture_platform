@@ -233,11 +233,14 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(isRecord(parsed.required_status_checks)).toBe(true);
     if (!isRecord(parsed.required_status_checks)) return;
     expect(parsed.required_status_checks.strict).toBe(true);
+    // INFRA-HIGH-212 (2026-10-09): the kernel lane joined the required
+    // contexts after PR #1892 auto-merged with aria-kernel red.
     expect(parsed.required_status_checks.contexts).toEqual([
       'sens-enterprise-summary',
       'merge-gate',
       'aria-merge-authority',
       'build-status',
+      'aria-kernel',
     ]);
   });
 

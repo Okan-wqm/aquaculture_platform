@@ -18,11 +18,17 @@ BRANCH_PROTECTION_SCHEMA = "aria/branch-protection-proof/v3"
 # SSOT, findings EDGE-CRITICAL-001 / INFRA-CRITICAL-044 / INFRA-HIGH-084).
 # The kernel rejected every readiness claim since INFRA-HIGH-084 added
 # `build-status` to the manifest but this tuple was left behind.
+# `aria-kernel` joined on 2026-10-08: PR #1892 auto-merged with the
+# aria-kernel lane red (suite shard 7 — a real capability-roster regression,
+# fixed by #1897) because that lane was not a required context; main stayed
+# red for 8h46m. The aria-kernel job already folds the suite+lane+state
+# results, so requiring it gates the whole kernel lane.
 REQUIRED_MERGE_STATUS_CHECKS: tuple[str, ...] = (
     "sens-enterprise-summary",
     "merge-gate",
     "aria-merge-authority",
     "build-status",
+    "aria-kernel",
 )
 REQUIRED_DLP_SCANNED_SURFACES: tuple[str, ...] = (
     "diff",

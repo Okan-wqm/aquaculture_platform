@@ -29,16 +29,8 @@ A worktree is removed only when every one of these holds:
    worktrees), not canonical ARIA state (`/root/aria-8b`, `/var/lib/aria*`,
    `/home/gharunner/**`, or any path through a `.aria-state-store` directory), and not
    `locked`. The deploy and ARIA guards are hard-coded; no root setting widens past them.
-3. It holds no ARIA record of its own (`aria`). By the user's decisions — 2026-10-09 "ARIA'ya
-   özgü yapılar silinmemeli" (ARIA's structures are never deleted) and 2026-10-10 "bitmiş ARIA
-   worktree'leri silinsin" (finished ARIA worktrees may be removed) — a worktree is kept, never
-   removed or quarantined, while it holds an untracked or ignored file, something only it has,
-   under `aria-findings`, `.aria-ci`, `aria-tools`, `aria-worktrees`, `.aria-state-store`,
-   `state.git`, `.claude/agents/.dispatch-log.jsonl` or a top-level `aria-agent-outputs*` entry.
-   A tracked modification there keeps it as `merged_but_dirty`. Tracked, unmodified files there
-   are ARIA's committed code, preserved in git, and do not keep a worktree. An ARIA branch or
-   directory name keeps nothing by itself: a finished ARIA worktree goes through every other
-   rule like any worktree.
+3. It is not a real ARIA store (`aria_store`): no `.aria-state-store` or `state.git` at the top
+   level or under the ARIA paths, and an `aria-tools/` of at most 50 MB.
 4. It contains no other worktree.
 5. Its HEAD is an ancestor of `origin/main`, after a `git fetch origin --prune` that succeeded.
 6. Its HEAD reflog and its index have not changed for the grace period (default 6 h).
@@ -55,6 +47,25 @@ A worktree is removed only when every one of these holds:
 10. No process has its cwd, an open file, or a mapped file inside it (`/proc/*/cwd`, `fd`,
     `maps`).
 11. No other worktree's top-level symlinks or npm-workspace `node_modules` links point into it.
+
+## ARIA records: preserve, don't keep
+
+Two user decisions apply. 2026-10-09: "ARIA'ya özgü yapılar silinmemeli" — ARIA's structures
+must not be deleted. 2026-10-10: "bitmiş ARIA worktree'leri silinsin" — finished ARIA worktrees
+should be deleted. The resolution (2026-10-10): an ARIA branch or directory name keeps nothing;
+a worktree that passes every other rule but holds untracked or ignored files under
+`aria-findings/`, `.aria-ci/`, `aria-tools/`, `aria-worktrees/`, `aria-agent-outputs*/` or
+`.claude/agents/.dispatch-log.jsonl` has exactly those files archived first, to
+`/var/lib/aqua/worktree-gc/archive/<YYYY-MM-DD>/<worktree-dir>-<HEAD12>.tar.zst` (`.tar.gz` when
+`zstd` is missing), with a `.manifest.json` beside it (worktree path, branch, HEAD, every file
+with size and sha256, created_at). Symlinks are stored, not followed. The archive is fsynced,
+extracted again and compared with the manifest entry by entry before anything is removed; any
+failure keeps the worktree (`archive_failed`, exit 3). The worktree is then removed as
+`removed_with_archive`, and the journal line names the archive. Tracked, unmodified files under
+those paths are ARIA's committed code, preserved in git, and are not archived.
+
+The collector never deletes anything under the archive root. Retention is manual: review and
+delete old day directories by hand once their contents are no longer needed.
 
 Every check runs once for the report and again for each candidate immediately before it is
 touched. Its size is measured (`du`) before that final re-check, so nothing slow sits between
@@ -94,7 +105,8 @@ Every check that cannot be answered keeps the worktree. Each worktree's line nam
 | ----------------------- | --------------------------------------------------------------------- |
 | `merged_but_dirty`      | Merged, but holds uncommitted or untracked files: someone's work.     |
 | `ignored_content`       | Ignored files that are not rebuildable caches; `detail` names them.   |
-| `aria`                  | Holds an untracked or ignored ARIA record of its own (rule 3).        |
+| `aria_store`            | A real ARIA store (`state.git`, `.aria-state-store`, over 50 MB).     |
+| `archive_failed`        | ARIA records not archived and verified; nothing removed.              |
 | `unreachable_reflog`    | The reflog holds a commit nothing else does.                          |
 | `operation_in_progress` | A rebase, merge, cherry-pick, revert or bisect is unfinished.         |
 | `worktree_refs`         | It has refs of its own under `refs/worktree/` or `refs/bisect/`.      |
@@ -171,8 +183,11 @@ journalctl -u aqua-worktree-gc.service --since today -o cat | tail -1 | jq '.att
 | `WORKTREE_GC_SIZE_BUDGET_SECONDS` | `120` (`0` = do not measure)         |
 | `WORKTREE_GC_EXTRA_PROTECTED`     | unset (colon-separated paths)        |
 | `WORKTREE_GC_TEXTFILE_PATH`       | node exporter textfile (empty = off) |
+| `WORKTREE_GC_ARCHIVE_ROOT`        | `/var/lib/aqua/worktree-gc/archive`  |
 
-`WORKTREE_GC_PROC_ROOT` and `AQUA_GIT_BIN` exist for the test suite. Do not set them on a host.
+`WORKTREE_GC_PROC_ROOT`, `AQUA_GIT_BIN` and `WORKTREE_GC_TAR_BIN` exist for the test suite. Do
+not set them on a host. The archive root may not overlap a collection root, the deploy tree or
+ARIA's canonical state; such a configuration is refused.
 
 Claude Code session worktrees live under `<repo>/.claude/worktrees`. They are not a default
 root; add it to `WORKTREE_GC_ROOTS` only after confirming the same rules suit them.

@@ -126,30 +126,102 @@ export function isRebuildableCache(path: string): boolean {
 }
 
 /**
- * ARIA's own records are never deleted - the user's decision of 2026-10-09
- * ("ARIA'ya özgü yapılar silinmemeli"), which replaced an earlier allow-list
- * that had treated some ARIA paths as disposable inside <repo>/.worktrees.
- * On 2026-10-10 the user added "bitmiş ARIA worktree'leri silinsin":
- * finished ARIA worktrees may go, so an ARIA branch or directory name no
- * longer keeps a worktree by itself. A worktree is kept when it holds content
- * under one of these paths that only it has: an untracked or ignored file
- * (worktree-gc.ts asks git), or a tracked modification (kept as dirty).
- * Tracked, unmodified files there are ARIA's committed code, preserved in
- * git, and do not keep a worktree.
+ * ARIA's own records in a worktree: untracked or ignored files under these
+ * paths, which only that worktree holds. The user decided on 2026-10-09
+ * that ARIA's structures must not be deleted ("ARIA'ya özgü yapılar
+ * silinmemeli") and on 2026-10-10 that finished ARIA worktrees should be
+ * ("bitmiş ARIA worktree'leri silinsin"). Resolution, 2026-10-10: preserve,
+ * don't keep - these files are archived and verified (gc-archive.ts) before
+ * the worktree is removed. Tracked, unmodified files here are ARIA's
+ * committed code, preserved in git, and need no archive.
  */
-export const ARIA_ARTIFACT_PATHS = [
+export const ARIA_ARCHIVE_PATHS = [
   'aria-findings',
   '.aria-ci',
   'aria-tools',
   'aria-worktrees',
-  '.aria-state-store',
-  'state.git',
   '.claude/agents/.dispatch-log.jsonl',
 ];
-/** ...or a top-level entry whose name starts with `aria-agent-outputs`. */
-const ARIA_ARTIFACT_PREFIX = 'aria-agent-outputs';
-/** The same set as git pathspecs. */
-export const ARIA_PATHSPECS = [...ARIA_ARTIFACT_PATHS, `${ARIA_ARTIFACT_PREFIX}*`];
+/** ...and every top-level entry whose name starts with `aria-agent-outputs`. */
+const ARIA_ARCHIVE_PREFIX = 'aria-agent-outputs';
+
+export function isAriaArchivePath(path: string): boolean {
+  const clean = path.replace(/\/$/, '');
+  return (
+    ARIA_ARCHIVE_PATHS.some((p) => clean === p || clean.startsWith(`${p}/`)) ||
+    (clean.split('/')[0] ?? '').startsWith(ARIA_ARCHIVE_PREFIX)
+  );
+}
+
+/**
+ * A real ARIA store is never archived and removed; it keeps its worktree
+ * (aria_store): a `.aria-state-store` or `state.git` at the top level or
+ * anywhere under the ARIA paths, or an aria-tools/ over 50 MB (byproducts
+ * are tens of kilobytes). Symlinks are not followed; a tree too big or too
+ * unreadable to judge keeps it too.
+ */
+const ARIA_STORE_MARKERS = new Set(['state.git', '.aria-state-store']);
+const ARIA_STORE_LIMIT_BYTES = 50 * 1024 * 1024;
+const ARIA_STORE_MAX_ENTRIES = 100_000;
+
+function errorCode(error: unknown): string {
+  return error instanceof Error && 'code' in error ? String(error.code) : 'UNKNOWN';
+}
+
+function lexists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function ariaStoreEvidence(worktree: string): string | null {
+  for (const marker of ARIA_STORE_MARKERS) {
+    if (lexists(join(worktree, marker))) return `${marker} at the top level`;
+  }
+  let tops: string[];
+  try {
+    tops = readdirSync(worktree).filter((e) => e.startsWith(ARIA_ARCHIVE_PREFIX));
+  } catch (error) {
+    return `${worktree}: ${errorCode(error)}`;
+  }
+  let entries = 0;
+  for (const top of [...ARIA_ARCHIVE_PATHS, ...tops]) {
+    const root = join(worktree, top);
+    if (!lexists(root) || !lstatSync(root).isDirectory()) continue;
+    const stack = [root];
+    let bytes = 0;
+    for (let dir = stack.pop(); dir !== undefined; dir = stack.pop()) {
+      let names: string[];
+      try {
+        names = readdirSync(dir);
+      } catch (error) {
+        return `${dir}: ${errorCode(error)}`;
+      }
+      for (const name of names) {
+        const full = join(dir, name);
+        if (ARIA_STORE_MARKERS.has(name)) return `${full.slice(worktree.length + 1)} present`;
+        entries += 1;
+        if (entries > ARIA_STORE_MAX_ENTRIES) {
+          return `ARIA paths hold over ${ARIA_STORE_MAX_ENTRIES} entries`;
+        }
+        try {
+          const stat = lstatSync(full);
+          if (stat.isDirectory()) stack.push(full);
+          else bytes += stat.size;
+        } catch (error) {
+          return `${full}: ${errorCode(error)}`;
+        }
+        if (top === 'aria-tools' && bytes > ARIA_STORE_LIMIT_BYTES) {
+          return 'aria-tools exceeds 50 MB';
+        }
+      }
+    }
+  }
+  return null;
+}
 
 function symlinkTarget(link: string): string | null {
   try {

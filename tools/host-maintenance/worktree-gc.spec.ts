@@ -186,6 +186,7 @@ void test('the deploy state tree is protected even when a root covers it', () =>
   const config = readConfig([], {
     WORKTREE_GC_ROOTS: '/var/lib/aqua',
     WORKTREE_GC_EXTRA_PROTECTED: '',
+    WORKTREE_GC_ARCHIVE_ROOT: '/srv/worktree-gc-archive',
   });
   assert.ok(config.protectedPaths.includes('/var/lib/aqua/deploy'));
 });

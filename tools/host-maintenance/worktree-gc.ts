@@ -51,10 +51,11 @@
  * fetch failed, bad configuration) - nothing is removed in that case.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { planArchive, restoreArchive, writeArchive } from './gc-archive.ts';
 import {
   ConfigError,
   HOUR_MS,
@@ -80,8 +81,9 @@ import {
   type WorktreeRecord,
 } from './worktree-list.ts';
 import {
-  ARIA_PATHSPECS,
+  ariaStoreEvidence,
   canonical,
+  isAriaArchivePath,
   isRebuildableCache,
   isStrictlyWithin,
   lastActivityMs,
@@ -108,7 +110,8 @@ export type Reason =
   | 'ignored_content'
   | 'status_failed'
   | 'unreachable_reflog'
-  | 'aria'
+  | 'aria_store'
+  | 'archive_failed'
   | 'process_held'
   | 'proc_unreadable'
   | 'symlink_target'
@@ -120,7 +123,13 @@ export type Reason =
   | 'quarantine_stranded'
   | 'eligible';
 
-export type Decision = 'kept' | 'would_remove' | 'removed' | 'remove_failed';
+export type Decision =
+  | 'kept'
+  | 'would_remove'
+  | 'would_remove_with_archive'
+  | 'removed'
+  | 'removed_with_archive'
+  | 'remove_failed';
 
 export interface WorktreeReport {
   path: string;
@@ -130,6 +139,10 @@ export interface WorktreeReport {
   reason: Reason;
   detail?: string;
   bytes?: number | null;
+  /** The verified archive of ARIA records written before removal. */
+  archive?: string;
+  /** Bytes of ARIA records archived (or, in a dry run, to be archived). */
+  archive_bytes?: number;
 }
 
 const BASE_REF = 'refs/remotes/origin/main';
@@ -158,6 +171,10 @@ const ROUTINE_REASONS: ReadonlySet<Reason> = new Set<Reason>([
 interface Verdict {
   reason: Reason;
   detail?: string;
+  /** ARIA records (untracked or ignored, git status paths) to archive before removal. */
+  aria?: string[];
+  /** The untracked ones among them, which `git worktree remove` would refuse. */
+  ariaUntracked?: string[];
 }
 
 interface Pass {
@@ -196,12 +213,20 @@ function refsVerdict(pass: Pass, real: string, gitDir: string): Verdict | null {
   return null;
 }
 
+interface Content {
+  keep: Verdict | null;
+  aria: string[];
+  ariaUntracked: string[];
+}
+
 /**
  * What `git status` shows. `allowDeleted` accepts ` D` (tracked file deleted
  * from the tree): that is what an interrupted `git worktree remove` leaves,
- * and is accepted only for a tree in quarantine.
+ * and is accepted only for a tree in quarantine. Untracked or ignored files
+ * under ARIA paths are not judged here: they are ARIA's records, archived
+ * before removal (gc-archive.ts).
  */
-function contentVerdict(pass: Pass, real: string, allowDeleted: boolean): Verdict | null {
+function contentVerdict(pass: Pass, real: string, allowDeleted: boolean): Content {
   const status = gitIn(pass, real, [
     '--no-optional-locks',
     'status',
@@ -209,28 +234,67 @@ function contentVerdict(pass: Pass, real: string, allowDeleted: boolean): Verdic
     '--ignored=matching',
     '--untracked-files=all',
   ]);
-  if (!status.ok) return { reason: 'status_failed', detail: firstLine(status.stderr) };
+  if (!status.ok) {
+    return {
+      keep: { reason: 'status_failed', detail: firstLine(status.stderr) },
+      aria: [],
+      ariaUntracked: [],
+    };
+  }
   const lines = status.stdout.split('\n').filter(Boolean);
-  const changes = lines.filter(
+  const own = (l: string): boolean =>
+    (l.startsWith('?? ') || l.startsWith('!! ')) && isAriaArchivePath(l.slice(3));
+  const aria = lines.filter(own).map((l) => l.slice(3));
+  const ariaUntracked = lines.filter((l) => own(l) && l.startsWith('?? ')).map((l) => l.slice(3));
+  const rest = lines.filter((l) => !own(l));
+  const changes = rest.filter(
     (l) => !l.startsWith('!! ') && !(allowDeleted && l.startsWith(' D ')),
   );
   if (changes.length > 0) {
     return {
-      reason: 'merged_but_dirty',
-      detail: `${changes.length} uncommitted or untracked path(s): ${changes.slice(0, 3).join(', ')}`,
+      keep: {
+        reason: 'merged_but_dirty',
+        detail: `${changes.length} uncommitted or untracked path(s): ${changes.slice(0, 3).join(', ')}`,
+      },
+      aria,
+      ariaUntracked,
     };
   }
-  const keep = lines
+  const ignored = rest
     .filter((l) => l.startsWith('!! '))
     .map((l) => l.slice(3))
     .filter((p) => !isRebuildableCache(p));
-  if (keep.length > 0) {
+  if (ignored.length > 0) {
     return {
-      reason: 'ignored_content',
-      detail: `${keep.length} ignored non-cache path(s): ${keep.slice(0, 3).join(', ')}`,
+      keep: {
+        reason: 'ignored_content',
+        detail: `${ignored.length} ignored non-cache path(s): ${ignored.slice(0, 3).join(', ')}`,
+      },
+      aria,
+      ariaUntracked,
     };
   }
-  return null;
+  return { keep: null, aria, ariaUntracked };
+}
+
+/** The final checks shared by fresh candidates and quarantine leftovers. */
+function finalVerdict(
+  pass: Pass,
+  real: string,
+  gitDir: string,
+  allowDeleted: boolean,
+  outcome: Reason,
+): Verdict {
+  const refs = refsVerdict(pass, real, gitDir);
+  if (refs) return refs;
+  // A real ARIA store is never archived away: it keeps its worktree.
+  const store = ariaStoreEvidence(real);
+  if (store) return { reason: 'aria_store', detail: store };
+  const content = contentVerdict(pass, real, allowDeleted);
+  if (content.keep) return content.keep;
+  const reflog = reflogOnlyCommit(pass, real);
+  if (reflog) return reflog;
+  return { reason: outcome, aria: content.aria, ariaUntracked: content.ariaUntracked };
 }
 
 /** Commits the HEAD reflog reaches that no branch, tag or remote-tracking ref does. */
@@ -269,40 +333,7 @@ function reflogOnlyCommit(pass: Pass, real: string): Verdict | null {
 function classifyLeftover(pass: Pass, real: string): Verdict {
   const gitDir = worktreeGitDir(real);
   if (!gitDir) return { reason: 'activity_unknown', detail: 'no readable .git file' };
-  return (
-    headVerdict(pass, real) ??
-    refsVerdict(pass, real, gitDir) ??
-    contentVerdict(pass, real, true) ??
-    reflogOnlyCommit(pass, real) ?? { reason: 'quarantine_leftover' }
-  );
-}
-
-/**
- * ARIA's own records are never removed or quarantined (user decisions of
- * 2026-10-09 and 2026-10-10): an untracked or ignored file under an ARIA
- * artifact path that only this worktree holds keeps it. A finished ARIA
- * worktree - named for ARIA but holding no such file - is judged like any
- * other (worktree-state.ts lists the paths).
- */
-function ariaVerdict(real: string | null, pass: Pass): Verdict | null {
-  if (real === null) return null;
-  // No .git file: only a tree this collector moved into quarantine after it
-  // passed this same check (then readable by git) ends up like this.
-  if (isStranded(real)) return null;
-  const status = gitIn(pass, real, [
-    '--no-optional-locks',
-    'status',
-    '--porcelain',
-    '--ignored=matching',
-    '--untracked-files=all',
-    '--',
-    ...ARIA_PATHSPECS,
-  ]);
-  if (!status.ok) return { reason: 'status_failed', detail: firstLine(status.stderr) };
-  const own = status.stdout.split('\n').find((l) => l.startsWith('?? ') || l.startsWith('!! '));
-  return own
-    ? { reason: 'aria', detail: `holds ${own.slice(3)}, which only this worktree has` }
-    : null;
+  return headVerdict(pass, real) ?? finalVerdict(pass, real, gitDir, true, 'quarantine_leftover');
 }
 
 /** Every check except the process scan and symlink dependents. Re-run before each removal. */
@@ -312,8 +343,6 @@ function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
   const location = classifyLocation(record.path, real, config.roots, config.protectedPaths);
   if (location) return { reason: location };
   if (record.locked) return { reason: 'locked' };
-  const aria = ariaVerdict(real, pass);
-  if (aria) return aria;
   if (quarantineOf(record.path, config.roots)) {
     if (real === null || isStranded(real)) return { reason: 'quarantine_stranded' };
     return classifyLeftover(pass, real);
@@ -335,11 +364,7 @@ function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
       detail: `last activity ${new Date(activity).toISOString()}`,
     };
   }
-  return (
-    refsVerdict(pass, real, gitDir) ??
-    contentVerdict(pass, real, false) ??
-    reflogOnlyCommit(pass, real) ?? { reason: 'eligible' }
-  );
+  return finalVerdict(pass, real, gitDir, false, 'eligible');
 }
 
 /** Another worktree whose symlinks resolve into the candidate, if any. */
@@ -388,7 +413,16 @@ export interface Summary {
   prune: 'ok' | 'failed' | 'skipped_dry_run' | 'skipped_prunable_outside_roots' | 'not_run';
   counts: Record<string, number>;
   bytes_reclaimed_estimate: number | null;
-  removals: Array<{ path: string; decision: Decision; bytes: number | null; detail?: string }>;
+  removals: Array<{
+    path: string;
+    decision: Decision;
+    bytes: number | null;
+    archive?: string;
+    archive_bytes?: number;
+    detail?: string;
+  }>;
+  /** Bytes of ARIA records archived (or, in a dry run, to be archived) on this pass. */
+  archive_bytes_estimate: number;
   attention: Array<{ path: string; reason: Reason; detail?: string }>;
 }
 
@@ -413,6 +447,7 @@ function emptySummary(config: GcConfig, now: number): Summary {
     counts: {},
     bytes_reclaimed_estimate: null,
     removals: [],
+    archive_bytes_estimate: 0,
     attention: [],
   };
 }
@@ -483,6 +518,7 @@ function removeViaQuarantine(
   real: string,
   pass: Pass,
   timeoutMs: number,
+  ariaUntracked: string[],
 ): void {
   const { config } = pass;
   const quarantine = quarantineTarget(real, config.roots, Date.now());
@@ -505,13 +541,18 @@ function removeViaQuarantine(
     report.detail = `move to quarantine failed: ${firstLine(move.stderr)}`;
     return;
   }
+  // Untracked ARIA records would make git refuse; they are in the verified
+  // archive, so they go here, inside the quarantined tree only.
+  for (const entry of ariaUntracked) {
+    rmSync(join(quarantine, entry.replace(/\/$/, '')), { recursive: true, force: true });
+  }
   const removal = git(
     config.gitBin,
     ['-C', config.repo, 'worktree', 'remove', quarantine],
     timeoutMs,
   );
   if (removal.ok) {
-    report.decision = 'removed';
+    report.decision = report.archive ? 'removed_with_archive' : 'removed';
     return;
   }
   if (removal.timedOut) {
@@ -535,6 +576,10 @@ function removeViaQuarantine(
   if (back.ok) {
     report.reason = 'remove_refused';
     report.detail = firstLine(removal.stderr);
+    // Put back the untracked ARIA records removed for the attempt.
+    if (report.archive && !restoreArchive(report.archive, record.path, config.tarBin)) {
+      report.detail += `; ARIA records not restored into the tree, they are in ${report.archive}`;
+    }
     return;
   }
   report.decision = 'remove_failed';
@@ -572,6 +617,39 @@ function act(
       return false;
     }
   }
+  const aria = verdict.aria ?? [];
+  if (aria.length > 0 && real !== null) {
+    // Preserve, don't keep: ARIA's records are archived and verified before
+    // the worktree can go; any failure keeps it (gc-archive.ts).
+    const plan = planArchive(real, aria, !config.dryRun);
+    if (!plan.ok) {
+      report.reason = 'archive_failed';
+      report.detail = plan.detail;
+      return true;
+    }
+    report.archive_bytes = plan.plan.bytes;
+    if (config.dryRun) {
+      report.decision = 'would_remove_with_archive';
+      report.detail = `would archive ${plan.plan.files.length} ARIA file(s) under ${config.archiveRoot}`;
+      return true;
+    }
+    const written = writeArchive({
+      root: config.archiveRoot,
+      worktree: real,
+      dirName: basename(record.path),
+      head: record.head ?? 'unknown',
+      branch: shortBranch(record.branch),
+      plan: plan.plan,
+      tarBin: config.tarBin,
+      now: Date.now(),
+    });
+    if (!written.ok) {
+      report.reason = 'archive_failed';
+      report.detail = written.detail;
+      return true;
+    }
+    report.archive = written.archive;
+  }
   if (config.dryRun) {
     report.decision = 'would_remove';
     return true;
@@ -596,12 +674,13 @@ function act(
       ['-C', config.repo, 'worktree', 'remove', '--force', real],
       timeoutMs,
     );
-    report.decision = removal.ok ? 'removed' : 'remove_failed';
+    const done = report.archive ? 'removed_with_archive' : 'removed';
+    report.decision = removal.ok ? done : 'remove_failed';
     report.detail = removal.ok ? 'finished an interrupted removal' : firstLine(removal.stderr);
     return true;
   }
   if (real === null) return false;
-  removeViaQuarantine(report, record, real, pass, timeoutMs);
+  removeViaQuarantine(report, record, real, pass, timeoutMs, verdict.ariaUntracked ?? []);
   return true;
 }
 
@@ -708,8 +787,11 @@ export function run(config: GcConfig, now: number = Date.now()): PassResult {
     path: r.path,
     decision: r.decision,
     bytes: r.bytes ?? null,
+    ...(r.archive ? { archive: r.archive } : {}),
+    ...(r.archive_bytes !== undefined ? { archive_bytes: r.archive_bytes } : {}),
     ...(r.detail ? { detail: r.detail } : {}),
   }));
+  summary.archive_bytes_estimate = reclaimed.reduce((sum, r) => sum + (r.archive_bytes ?? 0), 0);
   summary.attention = reports
     .filter((r) => r.decision === 'kept' && !ROUTINE_REASONS.has(r.reason))
     .map((r) => ({ path: r.path, reason: r.reason, ...(r.detail ? { detail: r.detail } : {}) }));
@@ -720,8 +802,12 @@ export function run(config: GcConfig, now: number = Date.now()): PassResult {
   }
   summary.counts = counts;
   const partial =
-    reports.some((r) => r.decision === 'remove_failed' || r.reason === 'remove_refused') ||
-    summary.prune === 'failed';
+    reports.some(
+      (r) =>
+        r.decision === 'remove_failed' ||
+        r.reason === 'remove_refused' ||
+        r.reason === 'archive_failed',
+    ) || summary.prune === 'failed';
   return { summary, reports, exitCode: partial ? 3 : 0 };
 }
 
@@ -730,8 +816,8 @@ function outcomes(
 ): Record<'removed' | 'would_remove' | 'remove_failed' | 'remove_refused' | 'attention', number> {
   const c = result.summary.counts;
   return {
-    removed: c.removed ?? 0,
-    would_remove: c.would_remove ?? 0,
+    removed: (c.removed ?? 0) + (c.removed_with_archive ?? 0),
+    would_remove: (c.would_remove ?? 0) + (c.would_remove_with_archive ?? 0),
     remove_failed: c.remove_failed ?? 0,
     remove_refused: c.kept_remove_refused ?? 0,
     attention: result.summary.attention.length,

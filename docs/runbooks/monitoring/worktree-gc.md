@@ -30,6 +30,8 @@ journalctl -u aqua-worktree-gc.service --since today -o cat \
   | jq -c 'select(.decision=="remove_failed" or .reason=="remove_refused")'
 ```
 
+`archive_failed` means ARIA records could not be archived and verified; the worktree was left
+untouched — check free space and permissions under `/var/lib/aqua/worktree-gc/archive`.
 `remove_refused` means git found new files at the last moment; the tree was moved back to its
 original path and kept, which is the safe outcome. `remove_failed` names git's error; a tree
 left in `.gc-quarantine` is judged again on the next pass.

@@ -41,6 +41,7 @@ export interface Fixture {
   roots: string;
   procRoot: string;
   textfile: string;
+  archive: string;
 }
 
 export interface GcRun {
@@ -111,7 +112,14 @@ export function fixture(opts: { bareMain?: boolean } = {}): Fixture {
 
   const roots = join(tmp, 'wt');
   mkdirSync(roots);
-  const fx = { tmp, repo, roots, procRoot: join(tmp, 'proc'), textfile: join(tmp, 'gc.prom') };
+  const fx = {
+    tmp,
+    repo,
+    roots,
+    procRoot: join(tmp, 'proc'),
+    textfile: join(tmp, 'gc.prom'),
+    archive: join(tmp, 'archive'),
+  };
   // A readable process table holding none of the fixture's worktrees.
   fakeProcess(fx, 1);
   return fx;
@@ -173,6 +181,7 @@ export function runGc(
     WORKTREE_GC_ROOTS: fx.roots,
     WORKTREE_GC_PROC_ROOT: fx.procRoot,
     WORKTREE_GC_TEXTFILE_PATH: fx.textfile,
+    WORKTREE_GC_ARCHIVE_ROOT: fx.archive,
     WORKTREE_GC_ARMED: '1',
     ...env,
   };

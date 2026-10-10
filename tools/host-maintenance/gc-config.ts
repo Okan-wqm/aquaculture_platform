@@ -21,6 +21,10 @@ export interface GcConfig {
   /** The git executable. Tests point it at a wrapper that makes one subcommand misbehave. */
   gitBin: string;
   textfilePath: string | null;
+  /** Where ARIA records are archived before a worktree goes. Never pruned by the tool. */
+  archiveRoot: string;
+  /** The tar executable. Tests point it at a wrapper that corrupts an archive. */
+  tarBin: string;
 }
 
 /** The deploy checkout and its rollback worktrees. Not configurable away. */
@@ -29,6 +33,7 @@ export const BUILTIN_PROTECTED = ['/var/lib/aqua/deploy'];
 const ARIA_STATE_TREES = ['/root/aria-8b', '/home/gharunner'];
 export const HOUR_MS = 60 * 60 * 1000;
 export const DEFAULT_TEXTFILE = '/var/lib/node_exporter/textfile/aqua_worktree_gc.prom';
+export const DEFAULT_ARCHIVE_ROOT = '/var/lib/aqua/worktree-gc/archive';
 
 /**
  * Canonical ARIA state is never collected, whatever WORKTREE_GC_ROOTS says:
@@ -108,6 +113,18 @@ export function readConfig(argv: string[], env: NodeJS.ProcessEnv): GcConfig {
     throw new ConfigError('WORKTREE_GC_MAX_REMOVALS must be an integer');
   }
   const armed = env.WORKTREE_GC_ARMED === '1';
+  const archiveRoot = resolve(env.WORKTREE_GC_ARCHIVE_ROOT ?? DEFAULT_ARCHIVE_ROOT);
+  // The archive must never be something the collector could collect, nor
+  // ARIA's canonical state, nor the deploy tree.
+  const archiveClash = [...roots.map((r) => resolve(r)), ...BUILTIN_PROTECTED].find(
+    (p) =>
+      archiveRoot === p || isStrictlyWithin(archiveRoot, p) || isStrictlyWithin(p, archiveRoot),
+  );
+  if (archiveClash || isAriaStatePath(archiveRoot)) {
+    throw new ConfigError(
+      `WORKTREE_GC_ARCHIVE_ROOT=${archiveRoot} overlaps ${archiveClash ?? 'ARIA state'}`,
+    );
+  }
   return {
     repo: resolve(repo),
     roots: roots.map((r) => resolve(r)),
@@ -121,5 +138,7 @@ export function readConfig(argv: string[], env: NodeJS.ProcessEnv): GcConfig {
     procRoot: env.WORKTREE_GC_PROC_ROOT ?? '/proc',
     gitBin: env.AQUA_GIT_BIN ?? 'git',
     textfilePath: textfilePathFrom(env),
+    archiveRoot,
+    tarBin: env.WORKTREE_GC_TAR_BIN ?? 'tar',
   };
 }

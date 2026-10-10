@@ -11,14 +11,22 @@
  * Run: npm run tools:test
  */
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { BUILTIN_PROTECTED, classifyLocation, isAriaStatePath } from './gc-config.ts';
-import { QUARANTINE_DIR } from './gc-quarantine.ts';
-import { addWorktree, fixture, git, reportFor, runGc } from './gc-test-fixture.ts';
-import { ARIA_ARTIFACT_PATHS } from './worktree-state.ts';
+import { BUILTIN_PROTECTED, classifyLocation, isAriaStatePath, readConfig } from './gc-config.ts';
+import { addWorktree, fixture, git, reportFor, runGc, wrappedGit } from './gc-test-fixture.ts';
+import { ARIA_ARCHIVE_PATHS } from './worktree-state.ts';
 
 void test('canonical ARIA state is never collectable, however wide the roots', () => {
   const cases: Array<[string, string]> = [
@@ -64,43 +72,77 @@ void test('tracked, unmodified ARIA code does not keep a worktree', () => {
   assert.equal(git(['-C', fx.repo, 'show', 'origin/main:aria-tools/repo_identity.json']), '{}\n');
 });
 
-void test('an untracked file under aria-tools keeps the worktree', () => {
+interface Manifest {
+  worktree: string;
+  head: string;
+  branch: string | null;
+  created_at: string;
+  files: Array<{ path: string; type: string; size: number; sha256?: string }>;
+}
+
+function manifestOf(archive: string): Manifest {
+  return JSON.parse(
+    readFileSync(archive.replace(/\.tar\.(zst|gz)$/, '.manifest.json'), 'utf8'),
+  ) as Manifest;
+}
+
+function extract(archive: string, into: string): void {
+  const flag = archive.endsWith('.tar.zst') ? '--zstd' : '--gzip';
+  execFileSync('tar', [flag, '-xf', archive, '-C', into]);
+}
+
+void test('ARIA records are archived and verified, then the worktree is removed', () => {
   const fx = fixture();
-  const wt = addWorktree(fx, 'untracked-ledger');
-  writeFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), '{}\n');
-
-  const report = reportFor(runGc(fx), wt);
-
-  assert.equal(report.reason, 'aria');
-  assert.match(String(report.detail), /aria-tools\/cycles\.jsonl/);
-  assert.ok(existsSync(join(wt, 'aria-tools', 'cycles.jsonl')));
-});
-
-void test('an ignored file under .aria-ci keeps the worktree', () => {
-  const fx = fixture();
-  const wt = addWorktree(fx, 'ignored-evidence');
+  const wt = addWorktree(fx, 'aria-finished', { branch: 'fix/aria-plan' });
+  // untracked (aria-tools is not ignored in the fixture) and ignored (.aria-ci)
+  writeFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), '{"cycle":1}\n');
   mkdirSync(join(wt, '.aria-ci'));
-  writeFileSync(join(wt, '.aria-ci', 'evidence.json'), '{}\n');
+  writeFileSync(join(wt, '.aria-ci', 'evidence.json'), '{"ok":true}\n');
+
+  const run = runGc(fx);
+
+  const report = reportFor(run, wt);
+  assert.equal(report.decision, 'removed_with_archive');
+  assert.equal(existsSync(wt), false);
+  const archive = String(report.archive);
+  assert.ok(archive.startsWith(fx.archive));
+  assert.ok(run.summary.removals.some((r) => r.archive === archive));
+  const manifest = manifestOf(archive);
+  assert.deepEqual(
+    manifest.files.map((f) => f.path),
+    ['.aria-ci/evidence.json', 'aria-tools/cycles.jsonl'],
+  );
+  assert.equal(manifest.branch, 'fix/aria-plan');
+  const out = mkdtempSync(join(fx.tmp, 'out-'));
+  extract(archive, out);
+  assert.equal(readFileSync(join(out, 'aria-tools', 'cycles.jsonl'), 'utf8'), '{"cycle":1}\n');
+  const digest = createHash('sha256').update('{"ok":true}\n').digest('hex');
+  assert.equal(manifest.files.find((f) => f.path === '.aria-ci/evidence.json')?.sha256, digest);
+  // Tracked ARIA code is not archived: git keeps it.
+  assert.equal(existsSync(join(out, 'aria-tools', 'repo_identity.json')), false);
+});
+
+void test('a finished ARIA worktree with no ARIA records is removed without an archive', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'train', { branch: 'train/aria-2026-10-07' });
 
   const report = reportFor(runGc(fx), wt);
 
-  assert.equal(report.reason, 'aria');
-  assert.match(String(report.detail), /\.aria-ci/);
-  assert.ok(existsSync(join(wt, '.aria-ci', 'evidence.json')));
+  assert.equal(report.decision, 'removed');
+  assert.equal(report.archive, undefined);
+  assert.equal(existsSync(fx.archive), false);
 });
 
-void test('every ARIA artifact path keeps a worktree that alone holds content there', () => {
+void test('every ARIA archive path is archived before removal', () => {
   const fx = fixture();
   const files = [
     'aria-findings/F-001.json',
     'aria-worktrees/lane-1/x',
-    '.aria-state-store/HEAD',
-    'state.git',
     '.claude/agents/.dispatch-log.jsonl',
     'aria-agent-outputs-2026-10-09/out.json',
   ];
   assert.ok(
-    ARIA_ARTIFACT_PATHS.every(
+    ARIA_ARCHIVE_PATHS.every(
       (p) => p === 'aria-tools' || p === '.aria-ci' || files.some((f) => f.startsWith(p)),
     ),
   );
@@ -114,39 +156,135 @@ void test('every ARIA artifact path keeps a worktree that alone holds content th
   const run = runGc(fx);
 
   holders.forEach((wt, i) => {
-    assert.equal(reportFor(run, wt).reason, 'aria', files[i]);
-    assert.ok(existsSync(join(wt, files[i] ?? '')), files[i]);
+    const report = reportFor(run, wt);
+    assert.equal(report.decision, 'removed_with_archive', files[i]);
+    assert.deepEqual(
+      manifestOf(String(report.archive)).files.map((f) => f.path),
+      [files[i]],
+    );
   });
-  const quarantine = join(fx.roots, QUARANTINE_DIR);
-  assert.deepEqual(existsSync(quarantine) ? readdirSync(quarantine) : [], []);
 });
 
-void test('a finished ARIA worktree is removable; one holding its own ARIA record is kept', () => {
+void test('a real ARIA store keeps its worktree and is never archived', () => {
   const fx = fixture();
-  // User decision 2026-10-10: finished ARIA worktrees may be removed. The
-  // name alone keeps nothing; ARIA's own records still do.
-  const named = [
-    addWorktree(fx, 'aria-lane-1', { branch: 'fix/aria-plan-write-scope' }),
-    addWorktree(fx, 'train', { branch: 'train/aria-2026-10-07' }),
-    addWorktree(fx, 'ARIA-dir', { branch: 'lane/ARIA-hardening' }),
-  ];
-  const withRecord = addWorktree(fx, 'aria-with-record', { branch: 'claude/aria-fix' });
-  mkdirSync(join(withRecord, 'aria-findings'));
-  writeFileSync(join(withRecord, 'aria-findings', 'F-001.json'), '{}\n');
+  const stateGit = addWorktree(fx, 'state-git');
+  mkdirSync(join(stateGit, 'aria-tools', 'nested', 'state.git'), { recursive: true });
+  const topStore = addWorktree(fx, 'top-store');
+  mkdirSync(join(topStore, '.aria-state-store'));
+  writeFileSync(join(topStore, '.aria-state-store', 'HEAD'), 'ref: refs/heads/state\n');
+  const large = addWorktree(fx, 'large');
+  writeFileSync(join(large, 'aria-tools', 'ledger.jsonl'), '');
+  truncateSync(join(large, 'aria-tools', 'ledger.jsonl'), 51 * 1024 * 1024);
 
   const run = runGc(fx);
 
-  for (const wt of named) {
-    assert.equal(reportFor(run, wt).decision, 'removed', wt);
-    assert.equal(existsSync(wt), false, wt);
+  for (const [wt, why] of [
+    [stateGit, /state\.git/],
+    [topStore, /\.aria-state-store/],
+    [large, /50 MB/],
+  ] as const) {
+    const report = reportFor(run, wt);
+    assert.equal(report.reason, 'aria_store', wt);
+    assert.match(String(report.detail), why);
+    assert.ok(existsSync(wt));
   }
-  assert.equal(reportFor(run, withRecord).reason, 'aria');
-  assert.ok(existsSync(join(withRecord, 'aria-findings', 'F-001.json')));
-  for (const branch of [
-    'fix/aria-plan-write-scope',
-    'train/aria-2026-10-07',
-    'lane/ARIA-hardening',
-  ]) {
-    git(['-C', fx.repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
+  assert.equal(existsSync(fx.archive), false);
+});
+
+void test('an archive that does not verify keeps the worktree and its ARIA records', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'bad-archive');
+  writeFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), '{"cycle":1}\n');
+  // The real tar writes the archive; the wrapper then damages it before the
+  // collector reads it back. Extraction goes to the real tar unchanged.
+  const realTar = execFileSync('sh', ['-c', 'command -v tar'], { encoding: 'utf8' }).trim();
+  const corrupting = join(fx.tmp, 'corrupting-tar');
+  writeFileSync(
+    corrupting,
+    [
+      '#!/bin/sh',
+      `"${realTar}" "$@" || exit $?`,
+      'case "$*" in *-cf*) for a in "$@"; do case "$a" in *.tar.zst|*.tar.gz) printf garbage > "$a" ;; esac; done ;; esac',
+      'exit 0',
+    ].join('\n') + '\n',
+    { mode: 0o755 },
+  );
+
+  const run = runGc(fx, [], { WORKTREE_GC_TAR_BIN: corrupting });
+
+  const report = reportFor(run, wt);
+  assert.equal(report.reason, 'archive_failed');
+  assert.equal(report.decision, 'kept');
+  assert.equal(run.exitCode, 3);
+  assert.equal(readFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), 'utf8'), '{"cycle":1}\n');
+});
+
+void test('an archive whose content differs from the manifest keeps the worktree', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'tampered-archive');
+  writeFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), '{"cycle":1}\n');
+  // A readable archive with the wrong bytes: only the manifest comparison
+  // can tell it from a good one.
+  const realTar = execFileSync('sh', ['-c', 'command -v tar'], { encoding: 'utf8' }).trim();
+  const tampering = join(fx.tmp, 'tampering-tar');
+  writeFileSync(
+    tampering,
+    [
+      '#!/bin/sh',
+      `"${realTar}" "$@" || exit $?`,
+      'case "$*" in *-cf*)',
+      '  for a in "$@"; do case "$a" in *.tar.zst|*.tar.gz) arch="$a" ;; esac; done',
+      '  d=$(mktemp -d)',
+      `  "${realTar}" -xf "$arch" -C "$d"`,
+      '  echo tampered >> "$d/aria-tools/cycles.jsonl"',
+      `  "${realTar}" -a -cf "$arch" -C "$d" aria-tools ;;`,
+      'esac',
+      'exit 0',
+    ].join('\n') + '\n',
+    { mode: 0o755 },
+  );
+
+  const report = reportFor(runGc(fx, [], { WORKTREE_GC_TAR_BIN: tampering }), wt);
+
+  assert.equal(report.reason, 'archive_failed');
+  assert.match(String(report.detail), /differs from the manifest/);
+  assert.ok(existsSync(join(wt, 'aria-tools', 'cycles.jsonl')));
+});
+
+void test('an unwritable archive root keeps the worktree', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'no-archive-room');
+  mkdirSync(join(wt, '.aria-ci'));
+  writeFileSync(join(wt, '.aria-ci', 'evidence.json'), '{}\n');
+  writeFileSync(fx.archive, 'a file where the archive root should be\n');
+
+  const report = reportFor(runGc(fx), wt);
+
+  assert.equal(report.reason, 'archive_failed');
+  assert.ok(existsSync(join(wt, '.aria-ci', 'evidence.json')));
+});
+
+void test('a refused removal puts the archived ARIA records back into the tree', () => {
+  const fx = fixture();
+  const wt = addWorktree(fx, 'refused-aria');
+  writeFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), '{"cycle":1}\n');
+  const intruding = wrappedGit(
+    fx,
+    'intruding-git',
+    '*"worktree remove"*',
+    'for last; do :; done; echo work > "$last/notes.txt"',
+  );
+
+  const run = runGc(fx, [], { AQUA_GIT_BIN: intruding });
+
+  const report = reportFor(run, wt);
+  assert.equal(report.reason, 'remove_refused');
+  assert.equal(readFileSync(join(wt, 'aria-tools', 'cycles.jsonl'), 'utf8'), '{"cycle":1}\n');
+  assert.ok(existsSync(join(wt, 'notes.txt')));
+});
+
+void test('the archive root may not overlap a root, the deploy tree or ARIA state', () => {
+  for (const root of ['/root/wt/archive', '/var/lib/aqua/deploy/x', '/var/lib/aria/archive']) {
+    assert.throws(() => readConfig([], { WORKTREE_GC_ARCHIVE_ROOT: root }), root);
   }
 });

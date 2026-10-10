@@ -135,15 +135,15 @@ name rule is gone; an ARIA-named worktree is judged by every other rule (current
 clean, idle, no process, no reflog-only commit, no git operation, no symlink dependents). ARIA's
 own records still keep a worktree: any untracked or ignored file under an ARIA artifact path.
 
-### Status of INFRA-HIGH-208: not resolved
+### Resolution of the two ARIA decisions, 2026-10-10: preserve, don't keep
 
-The unarmed dry run on 2026-10-10 still frees nothing. Of 159 worktrees, 71 are `kept_aria`:
-the merged agent worktrees all hold ignored `aria-findings/` (35), `.aria-ci/` (31) or
-`.claude/agents/.dispatch-log.jsonl` (5) files of their own, which the 2026-10-09 rule keeps.
-The other 88 are outside the roots, protected, unmerged or dirty. The ARIA owner said on
-2026-10-09 that inside `<repo>/.worktrees` these paths are byproducts of local runs; the user's
-rule treats them as ARIA's records. Until the user settles which applies, the collector
-removes nothing here and the finding stays OPEN.
+The coordinator resolved the two decisions as "preserve, don't keep". A worktree that passes
+every other rule but holds untracked or ignored ARIA records is removed only after exactly those
+files are archived to `/var/lib/aqua/worktree-gc/archive/<day>/<dir>-<HEAD12>.tar.zst` with a
+manifest (sizes, sha256), fsynced, and verified by extraction against the manifest; any failure
+keeps the worktree (`archive_failed`). A real ARIA store (`state.git`, `.aria-state-store`,
+aria-tools over 50 MB) is kept (`aria_store`) and never archived. The archive root is outside
+the roots and ARIA state, and the tool never deletes it; retention is manual.
 
 ### Not done here
 

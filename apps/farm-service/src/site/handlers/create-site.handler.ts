@@ -54,17 +54,20 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
 
       // SSOT-C-13: fail-closed per-plan farm-count quota. Skipped when the caller
       // carries no plan ordinal (platform SUPER_ADMIN). Counted inside the tx so
-      // two concurrent creates cannot both slip past the limit.
+      // two concurrent creates cannot both slip past the limit. Soft-deleted
+      // sites do not consume plan allowance (FARM-CRITICAL-405).
       if (planLevel !== undefined) {
         const maxFarms = resolvePlanLimits(tenantPlanFromLevel(planLevel)).maxFarms;
         if (maxFarms !== -1) {
-          const currentFarms = await siteRepository.count({ where: { tenantId } });
+          const currentFarms = await siteRepository.count({
+            where: { tenantId, isDeleted: false },
+          });
           assertWithinQuota('farms', currentFarms, maxFarms);
         }
       }
 
       const existingByName = await siteRepository.findOne({
-        where: { name: input.name, tenantId },
+        where: { name: input.name, tenantId, isDeleted: false },
       });
       if (existingByName) {
         throw new ConflictException(`Site with name "${input.name}" already exists`);
@@ -72,7 +75,7 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
 
       const code = input.code.toUpperCase();
       const existingByCode = await siteRepository.findOne({
-        where: { code, tenantId },
+        where: { code, tenantId, isDeleted: false },
       });
       if (existingByCode) {
         throw new ConflictException(`Site with code "${input.code}" already exists`);

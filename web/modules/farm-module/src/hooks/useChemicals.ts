@@ -23,7 +23,8 @@ export enum ChemicalType {
   VITAMIN = 'VITAMIN',
   MINERAL = 'MINERAL',
   ANESTHETIC = 'ANESTHETIC',
-  PH_ADJUSTER = 'PH_ADJUSTER',
+  // Wire value is the schema enum name 'pH_ADJUSTER' (lowercase p) — FARM-CRITICAL-409.
+  PH_ADJUSTER = 'pH_ADJUSTER',
   ALGAECIDE = 'ALGAECIDE',
   ANTIFUNGAL = 'ANTIFUNGAL',
   VACCINE = 'VACCINE',

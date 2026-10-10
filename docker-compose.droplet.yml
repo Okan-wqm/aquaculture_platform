@@ -976,6 +976,12 @@ services:
       <<: *nats-farm-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      # FARM-CRITICAL-407: farm_workers PII columns (AES-256-GCM email/phone +
+      # email blind index) refuse to operate without these keys — every Workers
+      # list/create/update/delete returned INTERNAL_SERVER_ERROR while they
+      # were missing from the deployment env.
+      EMPLOYEE_PII_ENCRYPTION_KEY: ${EMPLOYEE_PII_ENCRYPTION_KEY:?EMPLOYEE_PII_ENCRYPTION_KEY required}
+      EMPLOYEE_PII_BLIND_INDEX_KEY: ${EMPLOYEE_PII_BLIND_INDEX_KEY:?EMPLOYEE_PII_BLIND_INDEX_KEY required}
       # Legacy provider credentials are decrypted during the blocking startup
       # cutover; all ongoing provider reads come from config-service.
       SENTINEL_HUB_ENCRYPTION_KEY: ${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}
@@ -1433,6 +1439,10 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-hr-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
+      # FARM-CRITICAL-407: hr.employees PII columns share the farm_workers key pair
+      # (see worker.entity.ts) — without them every hr employee read/write
+      # fails the same way the farm Workers tab did.
+      EMPLOYEE_PII_ENCRYPTION_KEY: ${EMPLOYEE_PII_ENCRYPTION_KEY:?EMPLOYEE_PII_ENCRYPTION_KEY required}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:

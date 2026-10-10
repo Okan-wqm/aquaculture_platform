@@ -52,27 +52,29 @@ export type BatchDocumentType =
   | 'TRANSPORT_DOCUMENT'
   | 'OTHER';
 
-// Tank Operation Types - lowercase to match backend enum values
+// Tank Operation Types — wire values are the UPPERCASE GraphQL enum names
+// (registerEnumType exposes the TS keys as SDL names; lowercase exists only
+// as database values). FARM-CRITICAL-409.
 export type MortalityReason =
-  | 'disease'
-  | 'water_quality'
-  | 'stress'
-  | 'handling'
-  | 'temperature'
-  | 'oxygen'
-  | 'predation'
-  | 'cannibalism'
-  | 'unknown'
-  | 'other';
+  | 'DISEASE'
+  | 'WATER_QUALITY'
+  | 'STRESS'
+  | 'HANDLING'
+  | 'TEMPERATURE'
+  | 'OXYGEN'
+  | 'PREDATION'
+  | 'CANNIBALISM'
+  | 'UNKNOWN'
+  | 'OTHER';
 
 export type CullReason =
-  | 'small_size'
-  | 'deformed'
-  | 'sick'
-  | 'poor_growth'
-  | 'grading'
-  | 'quality'
-  | 'other';
+  | 'SMALL_SIZE'
+  | 'DEFORMED'
+  | 'SICK'
+  | 'POOR_GROWTH'
+  | 'GRADING'
+  | 'QUALITY'
+  | 'OTHER';
 
 /**
  * DEPRECATED legacy display grade — the backend retired the stored grade in

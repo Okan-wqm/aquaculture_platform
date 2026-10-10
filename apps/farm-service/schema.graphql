@@ -740,6 +740,12 @@ type EquipmentResponse {
 
   """Physical location info"""
   location: JSON
+
+  """Cumulative operating hours"""
+  operatingHours: Float
+
+  """Maintenance schedule config"""
+  maintenanceSchedule: JSON
   supplierId: ID
   isActive: Boolean!
   isVisibleInSensor: Boolean

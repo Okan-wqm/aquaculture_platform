@@ -3,6 +3,7 @@
  */
 import { Field, ID, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
+import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 import { ReportPrefillType } from '../assembly/report-assembly.service';
 import { ReportFieldProvenance } from '../assembly/provenance.types';
@@ -21,18 +22,31 @@ registerEnumType(ReportFieldProvenance, {
 @InputType()
 export class ReportPrefillInput {
   @Field(() => ReportPrefillType)
+  @IsEnum(ReportPrefillType)
   reportType!: ReportPrefillType;
 
   @Field(() => ID)
+  @IsUUID('4')
   siteId!: string;
 
   @Field(() => Int)
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
   periodYear!: number;
 
   @Field(() => Int, { nullable: true, description: 'ISO week (weekly report types)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(53)
   periodWeek?: number;
 
   @Field(() => Int, { nullable: true, description: 'Month 1-12 (monthly report types)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(12)
   periodMonth?: number;
 }
 

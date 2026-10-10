@@ -86,18 +86,19 @@ const documentTypeLabels: Record<string, string> = {
   other: 'Other',
 };
 
-// Fallback feed types when API data is not available
+// Fallback feed types when API data is not available. Codes mirror the
+// backend FeedType enum exactly — HATCHERY/NURSERY are NOT enum members, and
+// a fallback option the schema rejects made feed creation fail silently for
+// whoever picked it (FARM-HIGH-413).
 const FALLBACK_FEED_TYPES = [
-  { id: '1', code: 'HATCHERY', name: 'Hatchery', isActive: true, sortOrder: 1 },
-  { id: '2', code: 'NURSERY', name: 'Nursery', isActive: true, sortOrder: 2 },
-  { id: '3', code: 'GROWER', name: 'Grower', isActive: true, sortOrder: 3 },
-  { id: '4', code: 'FINISHER', name: 'Finisher', isActive: true, sortOrder: 4 },
-  { id: '5', code: 'BROODSTOCK', name: 'Broodstock', isActive: true, sortOrder: 5 },
-  { id: '6', code: 'STARTER', name: 'Starter', isActive: true, sortOrder: 6 },
-  { id: '7', code: 'MEDICATED', name: 'Medicated', isActive: true, sortOrder: 7 },
-  { id: '8', code: 'LARVAL', name: 'Larval', isActive: true, sortOrder: 8 },
-  { id: '9', code: 'FRY', name: 'Fry', isActive: true, sortOrder: 9 },
-  { id: '10', code: 'OTHER', name: 'Other', isActive: true, sortOrder: 10 },
+  { id: '1', code: 'STARTER', name: 'Starter', isActive: true, sortOrder: 1 },
+  { id: '2', code: 'GROWER', name: 'Grower', isActive: true, sortOrder: 2 },
+  { id: '3', code: 'FINISHER', name: 'Finisher', isActive: true, sortOrder: 3 },
+  { id: '4', code: 'BROODSTOCK', name: 'Broodstock', isActive: true, sortOrder: 4 },
+  { id: '5', code: 'MEDICATED', name: 'Medicated', isActive: true, sortOrder: 5 },
+  { id: '6', code: 'LARVAL', name: 'Larval', isActive: true, sortOrder: 6 },
+  { id: '7', code: 'FRY', name: 'Fry', isActive: true, sortOrder: 7 },
+  { id: '8', code: 'OTHER', name: 'Other', isActive: true, sortOrder: 8 },
 ];
 
 interface FeedFormData {

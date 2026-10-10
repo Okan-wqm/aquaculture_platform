@@ -350,6 +350,12 @@ export class EquipmentResponse {
   @Field(() => GraphQLJSON, { nullable: true, description: 'Physical location info' })
   location?: Record<string, unknown>;
 
+  @Field(() => Float, { nullable: true, description: 'Cumulative operating hours' })
+  operatingHours?: number;
+
+  @Field(() => GraphQLJSON, { nullable: true, description: 'Maintenance schedule config' })
+  maintenanceSchedule?: Record<string, unknown>;
+
   @Field(() => ID, { nullable: true })
   supplierId?: string;
 

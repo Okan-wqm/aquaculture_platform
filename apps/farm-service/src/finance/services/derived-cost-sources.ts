@@ -38,7 +38,7 @@ import { Batch } from '../../batch/entities/batch.entity';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { HarvestRecord } from '../../harvest/entities/harvest-record.entity';
 import { HealthEvent } from '../../fish-health/entities/health-event.entity';
-import { WorkOrder } from '../../maintenance/entities/work-order.entity';
+import { WorkOrder, WorkOrderStatus } from '../../maintenance/entities/work-order.entity';
 import { FinanceCategoryKind } from '../entities/finance-category.entity';
 
 export interface DerivedCostSource {
@@ -127,7 +127,7 @@ export const DERIVED_COST_SOURCES: readonly DerivedCostSource[] = [
     baseWhere:
       `COALESCE((wo."costSummary"->>'totalCost')::numeric, wo."estimatedCost") IS NOT NULL` +
       ` AND COALESCE((wo."costSummary"->>'totalCost')::numeric, wo."estimatedCost") > 0` +
-      ` AND wo."status" != 'CANCELLED'`,
+      ` AND wo."status" != '${WorkOrderStatus.CANCELLED}'`,
     requiredColumns: ['costSummary', 'estimatedCost', 'completedAt', 'createdAt', 'currency', 'status'],
   },
   {

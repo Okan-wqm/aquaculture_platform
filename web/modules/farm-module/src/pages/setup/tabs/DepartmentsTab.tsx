@@ -28,26 +28,40 @@ import { useSiteList } from '../../../hooks/useSites';
 import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { Plus, Search as SearchIcon, Square, TriangleAlert } from 'lucide-react';
 
+// Keys mirror the backend DepartmentType enum exactly — a key the enum does
+// not define (the removed STORAGE entry) made department creation fail schema
+// validation for every tenant that picked it, and the enum values missing
+// here were unselectable (FARM-HIGH-412).
 const typeLabels: Record<string, string> = {
+  PRODUCTION: 'Production',
+  MAINTENANCE: 'Maintenance',
+  QUALITY_CONTROL: 'Quality Control',
+  FEED: 'Feed',
+  ADMINISTRATION: 'Administration',
   HATCHERY: 'Hatchery',
   NURSERY: 'Nursery',
   GROW_OUT: 'Grow-out',
   BROODSTOCK: 'Broodstock',
   QUARANTINE: 'Quarantine',
   PROCESSING: 'Processing',
-  STORAGE: 'Storage',
   LABORATORY: 'Laboratory',
+  OTHER: 'Other',
 };
 
 const typeColors: Record<string, string> = {
+  PRODUCTION: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  QUALITY_CONTROL: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  FEED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  ADMINISTRATION: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   HATCHERY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   NURSERY: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   GROW_OUT: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   BROODSTOCK: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   PROCESSING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  STORAGE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   LABORATORY: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 interface DepartmentFormData {

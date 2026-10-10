@@ -37,11 +37,10 @@ export * from './query-result-normalizer';
 // Tenant-Scoped Repository (AsyncLocalStorage-based, works in HTTP + MQTT + cron + NATS)
 export * from './tenant-scoped-repository';
 export * from './tenant-scoped-repository.module';
+export * from './decimal-transformer';
+export * from './date-column.transformer';
 export * from './tenant-transaction';
 export * from './tenant-context-error';
-
-// Transformers
-export * from './decimal-transformer';
 
 // Schema LRU Cache (for tenant-schema middleware)
 export * from './schema-lru-cache';

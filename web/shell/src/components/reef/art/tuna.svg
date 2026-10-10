@@ -1,0 +1,31 @@
+<svg viewBox="0 0 250 86" style="width:100%;height:100%;overflow:visible">
+    <defs>
+      <linearGradient id="tn-__ID__" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#0F2B46"/><stop offset="34%" stop-color="#2E5578"/><stop offset="56%" stop-color="#7E9CB2"/><stop offset="76%" stop-color="#C3D2DC"/><stop offset="92%" stop-color="#DCE6EC"/><stop offset="100%" stop-color="#B4C4CE"/>
+      </linearGradient>
+      <linearGradient id="tnt-__ID__" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#17395C"/><stop offset="100%" stop-color="#3E6486"/></linearGradient>
+    </defs>
+    <g class="pitchg" style="transform-origin:140px 43px">
+      <g class="tailg" style="transform-origin:58px 43px">
+        <path d="M58 36 C44 27 30 18 14 10 C25 22 30 33 30 43 C30 53 25 64 14 76 C30 68 44 59 58 50 Z" fill="url(#tnt-__ID__)"/>
+        <path d="M52 39 C40 32 30 25 20 18 M52 47 C40 54 30 61 20 68" stroke="rgba(210,230,238,0.12)" stroke-width="1" fill="none"/>
+      </g>
+      <path d="M58 40 l7 3 l-7 3 Z" fill="rgba(20,44,66,0.7)"/>
+      <path d="M244 43 C238 32 224 24 204 19 C172 11 130 11 96 20 C78 25 64 32 56 40 L56 46 C64 54 78 61 96 66 C130 75 172 75 204 67 C224 62 238 54 244 43 Z" fill="url(#tn-__ID__)"/>
+      <path d="M144 18 C138 11 128 9.5 120 12 C127 15.5 135 17.5 144 18 Z" fill="rgba(16,42,66,0.9)"/>
+      <path d="M184 17 C178 5 166 2.5 158 6 C166 11.5 175 15.5 184 17 Z" fill="rgba(20,50,78,0.9)"/>
+      <path d="M196 67.5 C190 79.5 178 83 170 79 C178 73.5 187 69.5 196 67.5 Z" fill="rgba(60,88,110,0.7)"/>
+      <path d="M142 11.5 l-5 -4 l1 4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M128 12.5 l-5 -4 l1 4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M114 14.5 l-5 -4 l1 4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M100 18 l-5 -4 l1 4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M86 22.5 l-5 -4 l1 4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M74 27.5 l-5 -4 l1 4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M142 74.5 l-5 4 l1 -4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M128 73.5 l-5 4 l1 -4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M114 71.5 l-5 4 l1 -4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M100 68 l-5 4 l1 -4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M86 63.5 l-5 4 l1 -4.6 Z" fill="rgba(226,196,90,0.7)"/><path d="M74 58.5 l-5 4 l1 -4.6 Z" fill="rgba(226,196,90,0.7)"/>
+      <path d="M94 19 C132 11 178 11 208 19" stroke="rgba(200,240,238,0.11)" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+      <path d="M100 64 C136 71 176 71 202 65" stroke="rgba(220,240,245,0.16)" stroke-width="1.1" fill="none"/>
+      <path d="M70 43 C130 40 180 40 226 42" stroke="rgba(190,215,225,0.14)" stroke-width="0.9" fill="none"/>
+      <path d="M206 25 C198 32 197 55 205 62" stroke="rgba(8,22,36,0.5)" stroke-width="1.6" fill="none"/>
+      <path d="M212 24 C206 30 205 52 211 59" stroke="rgba(8,22,36,0.25)" stroke-width="1" fill="none"/>
+      <path d="M244 43 C238 45.5 232 47 227 47" stroke="rgba(6,16,24,0.6)" stroke-width="1.2" fill="none"/>
+      <g class="pectg" style="transform-origin:196px 50px">
+        <path d="M196 49 C186 57 172 63 158 65 C170 68 186 64 198 55 Z" fill="rgba(70,100,125,0.6)" stroke="rgba(200,230,240,0.14)" stroke-width="0.5"/>
+      </g>
+      <circle cx="222" cy="36" r="4.8" fill="none" stroke="rgba(200,240,238,0.3)" stroke-width="0.9"/>
+      <circle cx="222" cy="36" r="4" fill="#0A151D"/>
+      <circle cx="223.4" cy="34.6" r="1.2" fill="rgba(230,245,248,0.85)"/>
+    </g></svg>

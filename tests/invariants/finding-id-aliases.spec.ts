@@ -26,9 +26,12 @@ import * as path from 'node:path';
 
 import {
   loadFindingIdAliases,
+  findingIdAliasesBeside,
   findingIdAliasesPath,
   type FindingIdAlias,
 } from '../../tools/gates/finding-id-aliases';
+import { claimedIdsForDomain } from '../../tools/gates/finding-registry';
+import { nextFindingId } from '../../tools/gates/finding-registry-store';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const REGISTRY_PATH = path.join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
@@ -132,5 +135,26 @@ describe('INVARIANT: finding-id alias sidecar', () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it('the allocator never hands an aliased id out again (sequence claimed like a ledger row)', () => {
+    const entries = [...ids].map((id) => ({ id }));
+    const reissued: string[] = [];
+    for (const entry of aliases) {
+      const match = /^([A-Z][A-Z0-9]*)-(?:CRITICAL|HIGH|MEDIUM|LOW)-(\d{3})$/.exec(entry.alias);
+      if (!match?.[1] || !match[2]) continue;
+      const claimed = claimedIdsForDomain(
+        match[1],
+        entries,
+        undefined,
+        undefined,
+        findingIdAliasesBeside(REGISTRY_PATH).map((alias) => alias.alias),
+      );
+      const next = nextFindingId(match[1], 'HIGH', claimed);
+      if (Number.parseInt(next.slice(-3), 10) <= Number.parseInt(match[2], 10)) {
+        reissued.push(`${entry.alias}: next ${match[1]} id would be ${next}`);
+      }
+    }
+    expect(reissued).toEqual([]);
   });
 });

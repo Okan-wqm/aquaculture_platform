@@ -1,0 +1,33 @@
+<svg viewBox="0 0 190 62" style="width:100%;height:100%;overflow:visible">
+    <defs>
+      <linearGradient id="bb-__ID__" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#1E3547"/><stop offset="40%" stop-color="#4E6A7B"/><stop offset="66%" stop-color="#9AB1BD"/><stop offset="85%" stop-color="#CFDDE3"/><stop offset="100%" stop-color="#A8BCC6"/>
+      </linearGradient>
+      <linearGradient id="bt-__ID__" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2A4658"/><stop offset="100%" stop-color="#4E6B7C"/></linearGradient>
+    </defs>
+    <g class="pitchg" style="transform-origin:105px 31px">
+      <g class="tailg" style="transform-origin:45px 31px">
+        <path d="M45 25.5 C35 20 26 17 15 16.5 C19 23 20.5 27.5 20.5 31 C20.5 34.5 19 39 15 45.5 C26 45 35 42 45 36.5 Z" fill="url(#bt-__ID__)"/>
+        <path d="M42 28 C33 24 27 21.5 19 20" stroke="rgba(210,230,238,0.1)" stroke-width="0.7" fill="none"/>
+        <path d="M42 34 C33 38 27 40.5 19 42" stroke="rgba(210,230,238,0.1)" stroke-width="0.7" fill="none"/>
+      </g>
+      <path d="M136 47.5 C130 52 122 53 116 51 C122 48.5 129 47 133 46 Z" fill="rgba(60,85,100,0.55)"/>
+      <path d="M108 46.5 C104 51 98 52.5 94 51.5 C98 48.5 102 46.5 105 45.5 Z" fill="rgba(60,85,100,0.5)"/>
+      <path d="M186 31 C180 24 169 19 152 16 C127 11 95 11 69 18 C57 21.5 47 27 42 30 L42 32 C47 35 57 40.5 69 44 C95 51 127 51 152 46 C169 43 180 38 186 31 Z" fill="url(#bb-__ID__)"/>
+      <path d="M86 13.5 L90 6 L94 12.5 L99 5.5 L103 12 L108 6 L111 12 L115 7.5 L117 13 C107 15 96 15.5 86 15.5 Z" fill="rgba(26,45,58,0.85)"/>
+      <path d="M122 13 C130 9 141 9 147 12 C141 15 130 16 123 15.5 Z" fill="rgba(26,45,58,0.72)"/>
+      <path d="M68 17 C98 11 134 11 160 17.5" stroke="rgba(200,240,238,0.09)" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+      <path d="M52 31 C92 29 138 29 172 30.5" stroke="rgba(190,215,225,0.2)" stroke-width="0.9" fill="none"/>
+      <path d="M70 24 C100 20.5 140 20.5 164 24" stroke="rgba(210,230,240,0.07)" stroke-width="2.4" fill="none"/>
+      <path d="M72 38 C102 41.5 138 41.5 162 38" stroke="rgba(210,230,240,0.05)" stroke-width="2.4" fill="none"/>
+      <ellipse cx="156" cy="24" rx="3" ry="4" fill="rgba(8,18,26,0.35)"/>
+      <path d="M158 20.5 C151 26 150 37 157 43.5" stroke="rgba(8,22,32,0.45)" stroke-width="1.3" fill="none"/>
+      <path d="M160 21 C154 26 153 36 159 42" stroke="rgba(200,240,238,0.14)" stroke-width="0.8" fill="none"/>
+      <path d="M186 31 C181 33 176.5 34 172.5 34" stroke="rgba(6,16,24,0.6)" stroke-width="1.1" fill="none"/>
+      <g class="pectg" style="transform-origin:148px 38px">
+        <path d="M148 37 C141 43 132 47 124 48.5 C131 50 141 48 149 42 Z" fill="rgba(140,168,182,0.5)" stroke="rgba(200,230,240,0.14)" stroke-width="0.5"/>
+      </g>
+      <circle cx="173.5" cy="26" r="3.7" fill="none" stroke="rgba(200,240,238,0.26)" stroke-width="0.8"/>
+      <circle cx="173.5" cy="26" r="3" fill="#0A151D"/>
+      <circle cx="174.5" cy="25" r="0.9" fill="rgba(230,245,248,0.85)"/>
+    </g></svg>

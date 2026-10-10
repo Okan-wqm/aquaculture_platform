@@ -45,7 +45,11 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         <div className="flex min-w-0 items-center gap-3">
           {leading && <div className="shrink-0">{leading}</div>}
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
+            {/* The face is a token: inside the Suderra scope (`sd-page`) the title is
+                the display serif, elsewhere the bold sans it always was. */}
+            <h1 className="text-2xl text-gray-900 dark:text-white [font-family:var(--page-title-font,inherit)] [font-weight:var(--page-title-weight,700)]">
+              {title}
+            </h1>
             {description && (
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{description}</p>
             )}

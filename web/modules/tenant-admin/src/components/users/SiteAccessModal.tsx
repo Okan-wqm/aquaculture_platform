@@ -312,6 +312,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
       isOpen={dialogIsOpen}
       onClose={handleClose}
       size="lg"
+      surface="suderra"
       className="max-h-[85vh] overflow-hidden flex flex-col"
       bodyClassName="flex-1 min-h-0 flex flex-col"
       showCloseButton={!operationPending}

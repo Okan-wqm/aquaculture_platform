@@ -38,7 +38,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { loadFindingIdAliasMap } from './finding-id-aliases';
+import { loadFindingIdAliases } from './finding-id-aliases';
 import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
 import {
   commitMessageClosesFindingExactly,
@@ -438,13 +438,20 @@ function run(cmd: string): string {
  */
 function loadRegistryIds(): Map<string, FindingTrailerTarget> {
   const targets = loadLedgerTargets();
-  for (const [alias, canonical] of loadFindingIdAliasMap(REPO_ROOT)) {
+  for (const { alias, canonical, review_file: aliasReviewFile } of loadFindingIdAliases(
+    REPO_ROOT,
+  )) {
     const target = targets.get(canonical);
     if (target === undefined) continue;
     // The alias resolves to the SAME target, so a trailer naming a renumbered
-    // finding's historical id is bound to the canonical row's review file
-    // rather than escaping the binding by wearing an old name.
-    targets.set(alias, target);
+    // finding's historical id is bound to the canonical row's review file — or
+    // to the one review file the sidecar records for that alias (where its
+    // heading lives) — rather than escaping the binding by wearing an old name.
+    targets.set(alias, {
+      ...target,
+      aliases: [alias],
+      alias_review_files: new Map([[alias, aliasReviewFile]]),
+    });
   }
   return targets;
 }

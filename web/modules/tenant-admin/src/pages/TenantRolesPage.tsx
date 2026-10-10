@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useMemo, memo } from 'react';
-import { Modal, PageHeader, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, PageHeader, Button, Input, Textarea, useI18n } from '@aquaculture/shared-ui';
 import { Shield, Plus, Trash2, RefreshCw, AlertCircle, Check, Star, Palette } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
@@ -25,6 +25,7 @@ import {
 } from '../hooks/useTenantRoles';
 import { logError } from '../utils/error-handling';
 import { DEFAULT_ROLE_COLOR, ROLE_COLORS } from '../lib/constants';
+import { SD_CARD } from '../components/ui/suderra';
 
 // ============================================================================
 // Sub-Components
@@ -180,6 +181,7 @@ const RoleModal = memo<RoleModalProps>(
         isOpen={isOpen}
         onClose={onClose}
         size="xl"
+        surface="suderra"
         className="max-h-[90vh] overflow-hidden flex flex-col"
         bodyClassName="flex-1 min-h-0 flex flex-col"
         title={isEditing ? 'Edit Role' : 'Create New Role'}
@@ -353,6 +355,7 @@ const DeleteModal = memo<DeleteModalProps>(
         isOpen={isOpen && !!role}
         onClose={onClose}
         size="sm"
+        surface="suderra"
         title={
           <span className="flex items-center gap-3">
             <span className="p-2 rounded-full bg-error-100 dark:bg-error-900/40" aria-hidden="true">
@@ -418,6 +421,7 @@ const TenantRolesPage: React.FC = () => {
   // the controls, which the previous role check silently blocked (the delegation
   // feature was inert on this screen).
   const { hasPermission } = useAuth();
+  const { t } = useI18n();
   const canCreateRoles = hasPermission('roles:create');
   const canEditRoles = hasPermission('roles:edit');
   const canDeleteRoles = hasPermission('roles:delete');
@@ -525,9 +529,10 @@ const TenantRolesPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="sd-page sd-stack">
       {/* Page Header */}
       <PageHeader
+        eyebrow={<span className="sd-eyebrow">{t('nav.section.people')}</span>}
         title="Roles & Permissions"
         description="Define custom roles with granular permission control"
         actions={
@@ -607,8 +612,11 @@ const TenantRolesPage: React.FC = () => {
         </div>
       ) : error ? null : (
         // Empty State (confirmed empty — the query succeeded with zero roles)
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 py-16 text-center">
-          <Shield className="w-16 h-16 text-gray-200 mx-auto" />
+        <div className={`${SD_CARD} py-16 text-center`}>
+          <Shield
+            className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto"
+            aria-hidden="true"
+          />
           <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
             No roles defined
           </h3>

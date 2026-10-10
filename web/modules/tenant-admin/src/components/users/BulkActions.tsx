@@ -193,6 +193,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
         variant="warning"
         isLoading={isAssigningRole}
         loadingText="Processing..."
+        surface="suderra"
       />
     </div>
   );

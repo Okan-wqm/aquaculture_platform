@@ -1,0 +1,446 @@
+/**
+ * SUDERRA surface — the tenant console's page skin (FE-HIGH-313 / FE-HIGH-314).
+ *
+ * WHAT: three things, all keyed on classes the federated pages already carry.
+ *   1. A token scope. `.sd-page` (a page root) and `.sd-surface` (anything
+ *      else — a dialog panel rendered through a portal) re-assign the theme
+ *      scales Tailwind's utilities and shared-ui's primitives paint from:
+ *      white → parchment, gray → an ink ramp, primary → teal, and the semantic
+ *      scales → the Suderra mint / amber / rust / sea. Card, Button, Badge,
+ *      DataTable, Input inside the scope therefore render Suderra with no
+ *      per-component skin, and their own `dark:` classes keep working because
+ *      the dark theme re-assigns the same scales to a deep-water ramp.
+ *   2. The shell's content column (`sd-content`, `sd-main`).
+ *   3. The `sd-*` page classes messaging-module's pages are written against
+ *      (page head, card, banner, empty state, the chat surface).
+ *
+ * WHY tokens and not class overrides: production's stylesheet (PR #1569's
+ * tree) re-coloured `.sd-page .bg-white`, `.sd-page .text-gray-700`, … one
+ * utility at a time, unlayered so it beat the utilities layer — which also
+ * beat every `dark:` sibling, so the skin had no dark theme, and every utility
+ * it did not list kept the old palette. Re-assigning the variable the utility
+ * reads covers every utility at once and lets the cascade stay as Tailwind
+ * built it.
+ *
+ * One owner for colour: every value here is a `var()` of a theme.css token
+ * (the scope ramps are `--color-sd-{ink,deep,teal,mint,amber,rust,sea}-*`).
+ * web-theme-token-parity.spec.ts fails on a colour literal in this file and
+ * pins the contrast the scope relies on (WCAG AA 4.5:1 for text, 3:1 for
+ * icons, both themes). */
+
+@layer components {
+  /* ── 1. Token scope ─────────────────────────────────────────────────────── */
+  :where(.sd-page, .sd-surface) {
+    --color-white: var(--color-sd-cream);
+
+    --color-gray-50: var(--color-sd-ink-50);
+    --color-gray-100: var(--color-sd-ink-100);
+    --color-gray-200: var(--color-sd-ink-200);
+    --color-gray-300: var(--color-sd-ink-300);
+    --color-gray-400: var(--color-sd-ink-400);
+    --color-gray-500: var(--color-sd-ink-500);
+    --color-gray-600: var(--color-sd-ink-600);
+    --color-gray-700: var(--color-sd-ink-700);
+    --color-gray-800: var(--color-sd-ink-800);
+    --color-gray-900: var(--color-sd-ink-900);
+
+    --color-primary-50: var(--color-sd-teal-50);
+    --color-primary-100: var(--color-sd-teal-100);
+    --color-primary-200: var(--color-sd-teal-200);
+    --color-primary-300: var(--color-sd-teal-300);
+    --color-primary-400: var(--color-sd-teal-400);
+    --color-primary-500: var(--color-sd-teal-500);
+    --color-primary-600: var(--color-sd-teal-600);
+    --color-primary-700: var(--color-sd-teal-700);
+    --color-primary-800: var(--color-sd-teal-800);
+    --color-primary-900: var(--color-sd-teal-900);
+
+    --color-success-50: var(--color-sd-mint-50);
+    --color-success-100: var(--color-sd-mint-100);
+    --color-success-200: var(--color-sd-mint-200);
+    --color-success-300: var(--color-sd-mint-300);
+    --color-success-400: var(--color-sd-mint-400);
+    --color-success-500: var(--color-sd-mint-500);
+    --color-success-600: var(--color-sd-mint-600);
+    --color-success-700: var(--color-sd-mint-700);
+    --color-success-800: var(--color-sd-mint-800);
+    --color-success-900: var(--color-sd-mint-900);
+
+    --color-warning-50: var(--color-sd-amber-50);
+    --color-warning-100: var(--color-sd-amber-100);
+    --color-warning-200: var(--color-sd-amber-200);
+    --color-warning-300: var(--color-sd-amber-300);
+    --color-warning-400: var(--color-sd-amber-400);
+    --color-warning-500: var(--color-sd-amber-500);
+    --color-warning-600: var(--color-sd-amber-600);
+    --color-warning-700: var(--color-sd-amber-700);
+    --color-warning-800: var(--color-sd-amber-800);
+    --color-warning-900: var(--color-sd-amber-900);
+
+    --color-error-50: var(--color-sd-rust-50);
+    --color-error-100: var(--color-sd-rust-100);
+    --color-error-200: var(--color-sd-rust-200);
+    --color-error-300: var(--color-sd-rust-300);
+    --color-error-400: var(--color-sd-rust-400);
+    --color-error-500: var(--color-sd-rust-500);
+    --color-error-600: var(--color-sd-rust-600);
+    --color-error-700: var(--color-sd-rust-700);
+    --color-error-800: var(--color-sd-rust-800);
+    --color-error-900: var(--color-sd-rust-900);
+
+    --color-info-50: var(--color-sd-sea-50);
+    --color-info-100: var(--color-sd-sea-100);
+    --color-info-200: var(--color-sd-sea-200);
+    --color-info-300: var(--color-sd-sea-300);
+    --color-info-400: var(--color-sd-sea-400);
+    --color-info-500: var(--color-sd-sea-500);
+    --color-info-600: var(--color-sd-sea-600);
+    --color-info-700: var(--color-sd-sea-700);
+    --color-info-800: var(--color-sd-sea-800);
+    --color-info-900: var(--color-sd-sea-900);
+
+    /* PageHeader reads these for its h1: the display serif inside the scope. */
+    --page-title-font: var(--font-display);
+    --page-title-weight: 400;
+  }
+
+  /* The dark theme's ink ramp: deep water instead of neutral grey, so a
+     `dark:bg-gray-900` card sits on the same sea as the rail. */
+  [data-theme='dark'] :where(.sd-page, .sd-surface) {
+    --color-gray-50: var(--color-sd-deep-50);
+    --color-gray-100: var(--color-sd-deep-100);
+    --color-gray-200: var(--color-sd-deep-200);
+    --color-gray-300: var(--color-sd-deep-300);
+    --color-gray-400: var(--color-sd-deep-400);
+    --color-gray-500: var(--color-sd-deep-500);
+    --color-gray-600: var(--color-sd-deep-600);
+    --color-gray-700: var(--color-sd-deep-700);
+    --color-gray-800: var(--color-sd-deep-800);
+    --color-gray-900: var(--color-sd-deep-900);
+  }
+
+  /* ── 2. Shell content column ────────────────────────────────────────────── */
+  .sd-content {
+    position: relative;
+    isolation: isolate;
+    background: linear-gradient(
+      180deg,
+      var(--color-sd-parchment) 0%,
+      var(--color-sd-paper) 32%,
+      var(--color-sd-paper) 100%
+    );
+  }
+  .sd-content::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 58% 42% at 86% -10%, color-mix(in srgb, var(--color-sd-sand) 26%, transparent), transparent 66%),
+      radial-gradient(ellipse 48% 30% at 8% -6%, color-mix(in srgb, var(--color-sd-foam) 24%, transparent), transparent 70%);
+  }
+  [data-theme='dark'] .sd-content::before {
+    background:
+      radial-gradient(ellipse 58% 42% at 86% -10%, color-mix(in srgb, var(--color-sd-sea) 10%, transparent), transparent 66%),
+      radial-gradient(ellipse 48% 30% at 8% -6%, color-mix(in srgb, var(--color-sd-mint) 7%, transparent), transparent 70%);
+  }
+
+  .sd-main {
+    padding: 26px 20px 56px;
+  }
+  @media (min-width: 768px) {
+    .sd-main {
+      padding-inline: 28px;
+    }
+  }
+
+  /* ── 3. Page classes ────────────────────────────────────────────────────── */
+  /* `sd-page` is a colour and type scope only — no layout, so a page root
+     that brings its own (a full-height flex column, a `space-y-*` stack) keeps
+     it. A page that wants the Suderra 22px rhythm adds `sd-stack`. */
+  .sd-page {
+    color: var(--color-sd-ink);
+  }
+  .sd-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    width: 100%;
+    max-width: 1920px;
+    margin-inline: auto;
+  }
+
+  .sd-pagehead {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sd-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--color-sd-teal-deep);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .sd-eyebrow::before {
+    content: '';
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-sd-sea);
+  }
+  .sd-page-title {
+    color: var(--color-sd-ink);
+    font-family: var(--font-display);
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    line-height: 1.26;
+  }
+  .sd-page-sub {
+    overflow: hidden;
+    color: var(--color-sd-ink-muted);
+    font-size: 12.5px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+  }
+
+  .sd-card {
+    border: 1px solid var(--color-sd-rule);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--color-sd-parchment) 86%, transparent);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--color-sd-rail-bottom) 6%, transparent);
+  }
+  .sd-card--flush {
+    overflow: hidden;
+  }
+  .sd-card-label {
+    color: var(--color-sd-teal-deep);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .sd-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 15px 18px;
+    border-radius: 12px;
+  }
+  .sd-banner--success {
+    border: 1px solid color-mix(in srgb, var(--color-sd-mint-deep) 36%, transparent);
+    background: color-mix(in srgb, var(--color-sd-mint-deep) 16%, transparent);
+    color: var(--color-sd-mint-ink);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .sd-banner--error {
+    border: 1px solid color-mix(in srgb, var(--color-sd-danger) 26%, transparent);
+    background: color-mix(in srgb, var(--color-sd-danger) 7%, transparent);
+    color: var(--color-sd-danger-ink);
+  }
+
+  .sd-empty {
+    padding: 44px 24px;
+    color: var(--color-sd-ink-muted);
+    font-size: 13.5px;
+    text-align: center;
+  }
+  .sd-hint {
+    margin: 7px 0 0;
+    color: var(--color-sd-ink-hint);
+    font-size: 11px;
+  }
+
+  /* Chat surface (messaging-module) */
+  .sd-chan-row {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 0;
+    border-top: 1px solid var(--color-sd-rule);
+    border-left: 3px solid transparent;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+  .sd-chan-row:hover {
+    background: color-mix(in srgb, var(--color-sd-sea) 8%, transparent);
+  }
+  .sd-chan-row--active {
+    border-left-color: var(--color-sd-mint-deep);
+    background: color-mix(in srgb, var(--color-sd-mint-deep) 9%, transparent);
+  }
+  .sd-chan-icon {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    color: var(--color-sd-ink-muted);
+    background: var(--color-sd-rule);
+  }
+  .sd-chan-icon--ai {
+    color: var(--color-sd-violet-ink);
+    background: color-mix(in srgb, var(--color-sd-violet) 18%, transparent);
+  }
+  .sd-chan-title {
+    overflow: hidden;
+    color: var(--color-sd-ink);
+    font-size: 13.5px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sd-chan-preview {
+    overflow: hidden;
+    color: var(--color-sd-ink-hint);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sd-unread {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    color: var(--color-sd-mint-paper);
+    background: var(--color-sd-teal-deep);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
+  .sd-chat-card {
+    display: flex;
+    flex-direction: column;
+    height: 560px;
+  }
+  .sd-chat-head {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 9px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--color-sd-rule);
+  }
+  .sd-chat-head-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--color-sd-rule);
+  }
+  .sd-chat-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 15px 16px;
+  }
+  .sd-msg-row {
+    display: flex;
+    justify-content: flex-start;
+  }
+  .sd-msg-row--mine {
+    justify-content: flex-end;
+  }
+  .sd-msg {
+    max-width: 80%;
+    padding: 9px 13px;
+    border: 1px solid transparent;
+    border-radius: 16px 16px 16px 4px;
+    color: var(--color-sd-ink);
+    background: var(--color-sd-rule);
+    font-size: 13.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .sd-msg--mine {
+    border-radius: 16px 16px 4px 16px;
+    color: var(--color-sd-mint-paper);
+    background: var(--color-sd-teal-deep);
+  }
+  .sd-msg--ai {
+    border-color: color-mix(in srgb, var(--color-sd-violet) 30%, transparent);
+    background: color-mix(in srgb, var(--color-sd-violet) 13%, transparent);
+  }
+  .sd-msg-author {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 3px;
+    color: var(--color-sd-ink-hint);
+    font-size: 11.5px;
+  }
+  .sd-msg-time {
+    display: block;
+    margin-top: 3px;
+    color: var(--color-sd-ink-hint);
+    font-size: 11px;
+  }
+  /* On the teal own-bubble the hint colour would fall to 3:1; the time takes
+     the bubble's own text colour (mint-paper on teal-deep, 8.5:1 / 10.5:1). */
+  .sd-msg--mine .sd-msg-time {
+    color: inherit;
+  }
+  .sd-msg-row--mine .sd-msg-time {
+    text-align: right;
+  }
+  .sd-composer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: flex-end;
+    gap: 9px;
+  }
+  .sd-composer textarea {
+    flex: 1;
+    min-width: 0;
+    max-height: 120px;
+    padding: 9px 12px;
+    border: 1px solid var(--color-sd-rule);
+    border-radius: 10px;
+    color: var(--color-sd-ink);
+    background: var(--color-sd-parchment);
+    font: inherit;
+    font-size: 13.5px;
+    resize: none;
+  }
+  .sd-composer textarea:focus-visible {
+    border-color: var(--color-sd-mint-deep);
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-sd-mint-deep) 18%, transparent);
+  }
+  .sd-send {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 10px;
+    color: var(--color-sd-mint-paper);
+    background: var(--color-sd-teal-deep);
+    cursor: pointer;
+  }
+  .sd-send:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}

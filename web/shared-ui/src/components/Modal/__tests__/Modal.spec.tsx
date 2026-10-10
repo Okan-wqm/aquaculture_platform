@@ -43,6 +43,29 @@ describe('Modal — theme', () => {
   });
 });
 
+describe('Modal — Suderra surface (FE-HIGH-313/314)', () => {
+  it('paints its panel from the sd-* tokens, which follow the dark theme on their own', () => {
+    render(
+      <Modal isOpen onClose={() => {}} title="Users">
+        <p>body</p>
+      </Modal>,
+    );
+    const panel = screen.getByText('body').closest('[tabindex="-1"]');
+    expect(panel?.className).toContain('bg-sd-parchment');
+    expect(panel?.className).not.toContain('sd-surface');
+  });
+
+  it('carries the page scope into the portal for surface="suderra"', () => {
+    render(
+      <Modal isOpen onClose={() => {}} title="Users" surface="suderra">
+        <p>body</p>
+      </Modal>,
+    );
+    const panel = screen.getByText('body').closest('[tabindex="-1"]');
+    expect(panel?.className).toContain('sd-surface');
+  });
+});
+
 describe('Modal — stacking', () => {
   it('labels two open dialogs apart', () => {
     render(

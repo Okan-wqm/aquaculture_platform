@@ -107,6 +107,48 @@ void test('commitHasFindingCloseTrailer admits a trailer that names the finding 
   assert.match(withoutAlias.reason ?? '', /trailer for EDGE-HIGH-029\./);
 });
 
+void test('an alias trailer is bound to the canonical review file or the one the sidecar records for the alias', () => {
+  // A branch registered a gap under its own id before the canonical row reached
+  // main; its pushed trailers cite the branch's review note, where the alias
+  // heading lives (finding-id-aliases.yaml records that file).
+  const canonical = {
+    id: 'FE-HIGH-313',
+    review_file: 'docs/reviews/claude/landing.md',
+    aliases: ['FE-HIGH-321'],
+    alias_review_files: new Map([['FE-HIGH-321', 'docs/reviews/claude/port.md']]),
+  };
+  assert.equal(
+    commitMessageClosesFindingExactly(
+      'feat: x\n\nCloses: docs/reviews/claude/port.md#FE-HIGH-321\n',
+      canonical,
+    ),
+    true,
+  );
+  assert.equal(
+    commitMessageClosesFindingExactly(
+      'feat: x\n\nCloses: docs/reviews/claude/landing.md#FE-HIGH-321\n',
+      canonical,
+    ),
+    true,
+  );
+  assert.equal(
+    commitMessageClosesFindingExactly(
+      'feat: x\n\nCloses: docs/reviews/other/elsewhere.md#FE-HIGH-321\n',
+      canonical,
+    ),
+    false,
+    'any other anchored file is still a different finding',
+  );
+  assert.equal(
+    commitMessageClosesFindingExactly(
+      'feat: x\n\nCloses: docs/reviews/claude/port.md#FE-HIGH-313\n',
+      canonical,
+    ),
+    false,
+    "the alias's file does not bind the canonical id itself",
+  );
+});
+
 void test('commitMessageClosesFindingExactly binds the id and the anchored review file', () => {
   const finding = { id: 'INFRA-CRITICAL-009', review_file: 'docs/reviews/data-expert/review.md' };
   assert.equal(

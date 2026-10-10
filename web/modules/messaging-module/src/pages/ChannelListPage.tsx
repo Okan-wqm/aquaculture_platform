@@ -57,7 +57,7 @@ const ChannelListPage: React.FC = () => {
   const canUseAi = hasPermission('ai_assistant:use');
 
   return (
-    <div className="sd-page max-w-[520px]">
+    <div className="sd-page sd-stack max-w-[520px]">
       <div className="sd-pagehead">
         <span className="sd-eyebrow">{t('messaging.overview')}</span>
         <h1 className="sd-page-title">{t('messaging.title')}</h1>

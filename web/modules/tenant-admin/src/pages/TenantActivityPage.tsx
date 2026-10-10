@@ -37,7 +37,8 @@ import {
 } from '../hooks/useTenantActivity';
 import { formatRelativeTime } from '../utils/date-utils';
 import { UserAvatar } from '../components/ui/UserAvatar';
-import { PageHeader, Button } from '@aquaculture/shared-ui';
+import { PageHeader, Button, useI18n } from '@aquaculture/shared-ui';
+import { SD_CARD, SD_CARD_LABEL, SD_STAT_TITLE, SD_STAT_VALUE } from '../components/ui/suderra';
 
 // ============================================================================
 // Utilities
@@ -75,15 +76,13 @@ const StatCard: React.FC<{
   color: string;
   subtext?: string;
 }> = ({ label, value, icon, color, subtext }) => (
-  <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5">
-    <div className="flex items-center gap-4">
-      <div className={`p-3 rounded-xl ${color}`}>{icon}</div>
-      <div>
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
-        {subtext && <p className="text-xs text-gray-500 dark:text-gray-400">{subtext}</p>}
-      </div>
+  <div className={`${SD_CARD} flex flex-col gap-2 px-5 py-4`}>
+    <div className="flex items-start justify-between gap-2.5">
+      <p className={SD_STAT_TITLE}>{label}</p>
+      <div className={`rounded-lg p-1.5 ${color}`}>{icon}</div>
     </div>
+    <p className={SD_STAT_VALUE}>{value}</p>
+    {subtext && <p className="text-[13px] text-gray-600 dark:text-gray-300">{subtext}</p>}
   </div>
 );
 
@@ -101,7 +100,7 @@ const PeriodSelector: React.FC<{
         onClick={() => onChange(p)}
         className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
           value === p
-            ? 'bg-white dark:bg-gray-900 text-success-700 shadow-sm'
+            ? 'bg-white dark:bg-gray-900 text-primary-700 dark:text-primary-300 shadow-sm'
             : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
         }`}
       >
@@ -141,7 +140,7 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
             {/* Bar */}
             <div
               className={`w-full rounded-t transition-all duration-200 ${
-                isToday ? 'bg-success-500' : 'bg-success-300 group-hover:bg-success-400'
+                isToday ? 'bg-primary-600' : 'bg-success-300 group-hover:bg-success-400'
               }`}
               style={{ height: `${Math.max(heightPercent, 2)}%`, minHeight: '2px' }}
             />
@@ -204,15 +203,17 @@ const TenantActivityPage: React.FC = () => {
   }, [recentLogins]);
 
   const failedLogins = useMemo(() => recentLogins.filter((l) => !l.success).length, [recentLogins]);
+  const { t } = useI18n();
 
   if (isLoading) {
     return <ActivitySkeleton />;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="sd-page sd-stack">
       {/* Page Header */}
       <PageHeader
+        eyebrow={<span className="sd-eyebrow">{t('nav.section.people')}</span>}
         title="User Activity"
         description="Monitor user logins, sessions, and activity trends"
         actions={
@@ -279,12 +280,10 @@ const TenantActivityPage: React.FC = () => {
       </div>
 
       {/* Daily Active Users Chart */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
+      <div className={`${SD_CARD} p-6`}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              Daily Active Users
-            </h2>
+            <h2 className={SD_CARD_LABEL}>Daily Active Users</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {period === '7d' ? 'Last 7 days' : 'Last 30 days'} trend
             </p>
@@ -297,11 +296,9 @@ const TenantActivityPage: React.FC = () => {
       {/* Recent Logins & User Summary - Two Column */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Logins */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              Recent Logins
-            </h2>
+        <div className={`${SD_CARD} overflow-hidden`}>
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className={SD_CARD_LABEL}>Recent Logins</h2>
           </div>
           {recentLogins.length > 0 ? (
             <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
@@ -350,11 +347,9 @@ const TenantActivityPage: React.FC = () => {
         </div>
 
         {/* User Activity Summary */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              User Activity Summary
-            </h2>
+        <div className={`${SD_CARD} overflow-hidden`}>
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className={SD_CARD_LABEL}>User Activity Summary</h2>
           </div>
           {userSummaries.length > 0 ? (
             <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">

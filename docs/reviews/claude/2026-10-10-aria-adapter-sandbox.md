@@ -14,6 +14,13 @@ Every adapter run started as a bare child of the kernel:
 - `skill_genesis_sandbox.execute_in_sandbox` built its own bwrap argv, but chose it with
   `shutil.which`, fell back to firejail (which applied none of the read-only binds), bound the
   whole workspace and passed no `env=` either. It has no production caller.
+- `skill_genesis.execute_adapter_against_corpus`, the LIVE genesis calibration run, passed no
+  `env=` and had no room at all. It is the `SandboxFn` that
+  `dispatcher_factory.select_sandbox_runner` (`:253-272`) returns, which the nightly
+  orchestrator wires into convergent skill authoring (`autonomy_orchestrator.py:2014-2025` →
+  `convergent_skill_authoring.py:474`). It is reached only by a `convergent=True` genesis
+  request, which today only the operator CLI seeds, so it is latent rather than proven live.
+  Found by `staging`'s review of d188cad26, which missed it.
 
 On the nightly lane the cycle step holds `GH_TOKEN` (job token: contents, issues and
 id-token write), the OIDC request variables and `GITHUB_ENV`. It also writes the GitHub App
@@ -51,7 +58,7 @@ environment alone would not have closed this, for two reasons:
 
 `aria_kernel/adapter_room.py` is the one place adapter code starts:
 `prepare_adapter_spawn` builds the run and `run_adapter` executes it. The tool runner, the
-fixture runner and the genesis sandbox all go through it. It reuses the owners that already
+fixture runner, the genesis sandbox and the genesis calibration executor all go through it. It reuses the owners that already
 exist:
 
 - **Environment.** `validation_env.build_validation_env`, the closed allowlist the validation
@@ -69,8 +76,10 @@ exist:
   - `allow_network=False`;
   - a read-only workspace (`write_scope=()`);
   - the command's toolchain prefixes bound read-only (`validation_executable_binds`) for its
-    `argv[0]`, for `node` (banned-phrase is `python3` but spawns ts-node), and for a `.py`
-    program outside the workspace;
+    `argv[0]` and for `node` (banned-phrase is `python3` but spawns ts-node). A `.py` program
+    outside the workspace is bound only under the argv policy's trusted prefixes (a kernel
+    test helper), so a path an agent chose, such as a drafted adapter's `adapter_path`, is
+    never bound;
   - the checkout's read-only git shape (`derive_git_containment(commit_capable=False)`);
   - `MANAGED_SPAWN_ISOLATION_FLAGS`: private PID, IPC and UTS namespaces, `--new-session` and
     `--die-with-parent`;
@@ -78,7 +87,9 @@ exist:
     signing keys (`signing_keys_dir`), and over `RUNNER_TEMP` should it ever lie inside the
     workspace.
 
-  A toolchain bind that would contain `RUNNER_TEMP` refuses the room by name. One new keyword
+  Any bind of the finished room that would contain an unmasked `RUNNER_TEMP` (toolchain,
+  interpreter, dependency tree or git) refuses the room by name. The check reads the argv, so
+  every builder's binds are covered. One new keyword
   on `wrap_bash_in_sandbox`, `chdir`, starts the room in the runner's cwd. It defaults to the
   workspace, so existing callers get a byte-identical argv (pinned), and a directory outside
   the workspace is refused.
@@ -89,7 +100,10 @@ exist:
     quarantined, the existing precedent at `tool_runner.py:123-133`);
   - a fixture suite is refused with `adapter_sandbox_unavailable`, which
     `refresh_fixture_suites` records as `fixture_refresh_blocked`;
-  - the genesis sandbox raises `SandboxUnavailable`.
+  - the genesis sandbox raises `SandboxUnavailable`;
+  - the genesis calibration executor returns its zero-metrics result with `exit_code=-4` and
+    `adapter_sandbox_unavailable` (the drafted adapter does not calibrate, so it cannot
+    converge).
 
   A mock night on a host without bwrap completes as degraded and names the tool
   (`MockNightWithoutBackendTests`).
@@ -103,7 +117,10 @@ After the change, the same probe in the same layout passes as an `ok` run:
 - the workspace write and the network connect are refused;
 - `cwd` is the runner's.
 
-The genesis sandbox runs a drafted adapter in the same room.
+The genesis sandbox and the genesis calibration executor run a drafted adapter in the same
+room. Before this fix, `staging`'s repro (`GH_TOKEN` and the OIDC token visible, the fake key
+read) reproduced on d188cad26; after it, the drafted adapter sees neither name and the key is
+refused.
 
 ### Deviation from the plan, with evidence: read-only workspace, not `write_scope=None`
 
@@ -184,7 +201,8 @@ no ancestor of the workspace has one (checked up to `/`).
 ### Seams
 
 `tests/test_adapter_room_seams.py` pins only the functions that start untrusted code, not the
-whole kernel. Each seam (`run_tool`, `run_fixture_case`, `execute_in_sandbox`) must call
+whole kernel. Each seam (`run_tool`, `run_fixture_case`, `execute_in_sandbox`,
+`execute_adapter_against_corpus`) must call
 `prepare_adapter_spawn` and `run_adapter`, and must start no process of its own. The room has
 exactly one process start, and its `env` is the built environment. The other two seams that run
 repository or agent code were already pinned and are unchanged:
@@ -193,10 +211,9 @@ repository or agent code were already pinned and are unchanged:
 - agent spawns: `I_V12_ENV_03`.
 
 The nightly lane must verify the backend whatever the mock mode, because a mock night still runs
-every adapter. `notify` drops the `effective_mock` clause from the "Ensure a verified sandbox
-backend" step in its PR-3 yml commit, using the wording agreed with `security`. The pin
-(`LaneProvisioningTests`) lands in a second PR-2 commit, after that change is in the tree, so no
-commit carries a red test.
+every adapter. `notify` dropped the `effective_mock` clause from the "Ensure a verified
+sandbox backend" step in 5b3970b05, using the wording agreed with `security`.
+`LaneProvisioningTests` pins it from the second PR-2 commit on, so no commit carried a red test.
 
 `state_store` is not touched. Its push identity rides `GIT_CONFIG_*` on purpose (yml publish
 steps).

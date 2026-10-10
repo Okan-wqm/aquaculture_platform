@@ -396,15 +396,22 @@ def execute_adapter_against_corpus(
             stderr=f"unsupported_adapter_lang: {adapter_lang}",
         )
 
-    stdin_payload = _json.dumps({"fixtures": fixtures}).encode("utf-8")
+    # ARIA-CRITICAL-399 — a drafted adapter is adapter code: it runs only in
+    # the room every adapter runs in (`adapter_room`), never as a bare child
+    # holding the night's job token and the App key file. No room is a
+    # refusal by name (-4), never an unconfined run.
+    from .adapter_room import prepare_adapter_spawn, run_adapter
+    from .implementation_safety import SandboxUnavailable
+
+    workspace = Path(workspace_root).resolve()
     try:
-        completed = subprocess.run(
-            argv,
-            cwd=str(Path(workspace_root).resolve()),
-            input=stdin_payload,
-            capture_output=True,
-            timeout=timeout_seconds,
-            check=False,
+        spawn = prepare_adapter_spawn(argv, workspace_root=workspace, cwd=workspace)
+        completed = run_adapter(
+            spawn, input_text=_json.dumps({"fixtures": fixtures}), timeout_seconds=timeout_seconds,
+        )
+    except SandboxUnavailable as exc:
+        return _zero_metrics_result(
+            len(fixtures), exit_code=-4, stderr=f"adapter_sandbox_unavailable: {exc}",
         )
     except subprocess.TimeoutExpired:
         return _zero_metrics_result(
@@ -414,9 +421,13 @@ def execute_adapter_against_corpus(
         return _zero_metrics_result(
             len(fixtures), exit_code=-3, stderr=f"runner_not_found: {exc}",
         )
+    except UnicodeDecodeError:
+        return _zero_metrics_result(
+            len(fixtures), exit_code=-5, stderr="adapter_output_not_utf8",
+        )
 
-    stdout_text = completed.stdout.decode("utf-8", errors="replace")
-    stderr_text = completed.stderr.decode("utf-8", errors="replace")
+    stdout_text = completed.stdout or ""
+    stderr_text = completed.stderr or ""
 
     if completed.returncode != 0:
         return _zero_metrics_result(

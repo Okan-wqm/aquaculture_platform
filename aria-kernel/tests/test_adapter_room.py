@@ -39,6 +39,17 @@ from tests.test_enterprise_cycle import shadow_tool
 
 PROBE = Path(__file__).resolve().parent / "_helpers" / "adapter_room_probe.py"
 TOOL_ID = "room-probe-adapter"
+# A drafted adapter as the genesis calibration executor runs it: reports
+# which job credential names it sees and whether the App key opens.
+_GENESIS_PROBE = """import json, os
+names = sorted(n for n in ("GH_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "GITHUB_ENV") if n in os.environ)
+try:
+    open({pem!r}).read()
+    key = "reached"
+except OSError:
+    key = "refused"
+print(json.dumps({{"findings": [], "probe": {{"env": names, "key": key}}}}))
+"""
 # Shaped like the nightly job's environment; none of these values is real.
 JOB_ENVIRONMENT = {
     "GH_TOKEN": "ghs_roomprobe_not_a_real_token",
@@ -192,6 +203,25 @@ class LiveRoomTests(unittest.TestCase):
         self.assertEqual((result.exit_code, result.stdout), (0, "[]\npem:refused\n"), result.stderr)
 
 
+    def test_the_genesis_calibration_executor_runs_the_drafted_adapter_in_the_room(self) -> None:
+        # The LIVE genesis SandboxFn (dispatcher_factory.select_sandbox_runner,
+        # wired into the nightly orchestrator) — staging's review repro of
+        # d188cad26: it saw GH_TOKEN and the OIDC token and read the key.
+        from aria_kernel.skill_genesis import execute_adapter_against_corpus
+
+        drafted = self.layout.workspace / "drafted_adapter.py"
+        drafted.write_text(_GENESIS_PROBE.format(pem=str(self.layout.pem)), encoding="utf-8")
+        corpus = self.layout.workspace / "fixtures.jsonl"
+        corpus.write_text(json.dumps({"finding_fingerprint": "fp-1", "label": "TP"}) + "\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, self.layout.environment):
+            result = execute_adapter_against_corpus(
+                adapter_path=drafted, adapter_lang="python", corpus_path=corpus, workspace_root=self.layout.workspace,
+            )
+        self.assertEqual(result["exit_code"], 0, result["raw_stderr_tail"])
+        probe = json.loads(result["raw_stdout_tail"])["probe"]
+        self.assertEqual((probe["env"], probe["key"]), ([], "refused"))
+
+
 class NoBackendTests(unittest.TestCase):
     """No usable backend: the adapter never starts, in mock mode or real."""
 
@@ -228,6 +258,21 @@ class NoBackendTests(unittest.TestCase):
         self.assertIn("adapter_sandbox_unavailable", refreshed["tools"][0]["reason"])
         blocked = [row for row in load_jsonl(self.layout.tools / "governance.jsonl") if row.get("kind") == "fixture_refresh_blocked"]
         self.assertEqual(len(blocked), 1)
+
+
+    def test_the_genesis_calibration_executor_refuses_by_name(self) -> None:
+        from aria_kernel.skill_genesis import execute_adapter_against_corpus
+
+        drafted = self.layout.workspace / "drafted_adapter.py"
+        drafted.write_text(f"open({str(self.layout.marker)!r}, 'w').write('ran')\n", encoding="utf-8")
+        corpus = self.layout.workspace / "fixtures.jsonl"
+        corpus.write_text(json.dumps({"finding_fingerprint": "fp-1", "label": "TP"}) + "\n", encoding="utf-8")
+        result = execute_adapter_against_corpus(
+            adapter_path=drafted, adapter_lang="python", corpus_path=corpus, workspace_root=self.layout.workspace,
+        )
+        self.assertFalse(self.layout.marker.exists(), "the drafted adapter ran without a room")
+        self.assertEqual(result["exit_code"], -4)
+        self.assertIn("adapter_sandbox_unavailable", result["raw_stderr_tail"])
 
 
 class MockNightWithoutBackendTests(unittest.TestCase):
@@ -318,11 +363,26 @@ class RoomShapeTests(unittest.TestCase):
         fake.chmod(0o755)
         environ = {**self.layout.environment, "PATH": f"{toolchain_bin}:{os.environ.get('PATH', os.defpath)}"}
         built = adapter_environment(environ, workspace_root=self.layout.workspace)
-        with self.assertRaisesRegex(impl.SandboxUnavailable, "adapter_toolchain_bind_contains_runner_temp"):
+        with self.assertRaisesRegex(impl.SandboxUnavailable, "adapter_room_bind_contains_runner_temp"):
             wrap_adapter_in_sandbox(
                 self.layout.probe_argv(), workspace_root=self.layout.workspace, cwd=self.layout.workspace,
                 environment=built.env, store=self.layout.tools, base=environ,
             )
+
+    def test_a_program_outside_the_trusted_prefixes_is_never_bound(self) -> None:
+        # A drafted adapter's `adapter_path` is agent-chosen: the room binds a
+        # program file from outside the workspace only under the argv
+        # policy's trusted prefixes (the kernel's own test helpers).
+        outside = self.layout.runner_temp.parent / "drafted_elsewhere.py"
+        outside.write_text("print('{}')\n", encoding="utf-8")
+        environ = {**self.layout.environment, "PATH": os.environ.get("PATH", os.defpath)}
+        built = adapter_environment(environ, workspace_root=self.layout.workspace)
+        argv = wrap_adapter_in_sandbox(
+            ["python3", str(outside)], workspace_root=self.layout.workspace, cwd=self.layout.workspace,
+            environment=built.env, store=self.layout.tools, base=environ,
+        )
+        self.assertNotIn(str(outside.resolve()), [source for _, source, _ in self._binds(argv)])
+        self.assertIn(PROBE.resolve().as_posix(), [source for _, source, _ in self._binds(self._room())])
 
     def test_a_store_that_is_the_workspace_is_refused(self) -> None:
         built = adapter_environment(self.layout.environment, workspace_root=self.layout.workspace)

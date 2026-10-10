@@ -54,6 +54,7 @@ from .git_containment import GitContainmentRefusal, derive_git_containment
 from .gh_token_factory import signing_keys_dir
 from .implementation_safety import (
     MANAGED_SPAWN_ISOLATION_FLAGS,
+    TRUSTED_PYTHON_SCRIPT_PREFIXES,
     SandboxUnavailable,
     sandbox_backend,
     sandbox_unavailable_detail,
@@ -154,7 +155,11 @@ def _toolchain_binds(
         program = Path(str(argv[1]))
         if program.is_absolute() and program.suffix == ".py" and program.is_file():
             resolved = program.resolve()
-            if not resolved.is_relative_to(workspace) and resolved not in binds:
+            # Only under the argv policy's own trusted prefixes
+            # (`_verify_python_script_target`): a path an agent chose — a
+            # drafted adapter's `adapter_path` — is never bound into the room.
+            trusted = any(f"/{prefix}" in resolved.as_posix() for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES)
+            if trusted and not resolved.is_relative_to(workspace) and resolved not in binds:
                 binds.append(resolved)
     return binds
 
@@ -188,17 +193,23 @@ def _masked_directories(workspace: Path, *, store: Path | None, base: Mapping[st
     return masks
 
 
-def _refuse_binds_reaching(binds: Sequence[Path], *, base: Mapping[str, str]) -> None:
-    """No toolchain bind may contain RUNNER_TEMP: a prefix resolved there
-    (an action that unpacks a binary into the temp dir) would mount the App
-    key file into the room beside it."""
+def _refuse_binds_reaching_runner_temp(command: Sequence[str], *, masks: Sequence[Path], base: Mapping[str, str]) -> None:
+    """No bind of the finished room may contain RUNNER_TEMP unless the room
+    masks it: a toolchain prefix resolved there (an action that unpacks a
+    binary into the temp dir), the interpreter's prefix or a dependency tree
+    would mount the App key file beside it. Read off the argv, so every bind
+    the builders added is covered, not only the ones this module chose."""
     runner_temp = base.get(RUNNER_TEMP_ENV)
     if not runner_temp:
         return
     secret_root = Path(runner_temp).resolve()
-    for path in binds:
-        if secret_root == path or secret_root.is_relative_to(path):
-            raise SandboxUnavailable(f"adapter_toolchain_bind_contains_runner_temp:{path}")
+    if any(secret_root == mask or secret_root.is_relative_to(mask) for mask in masks):
+        return
+    for index, flag in enumerate(command[:-2]):
+        if flag in ("--bind", "--ro-bind"):
+            source = Path(command[index + 1])
+            if secret_root == source or secret_root.is_relative_to(source):
+                raise SandboxUnavailable(f"adapter_room_bind_contains_runner_temp:{source}")
 
 
 def wrap_adapter_in_sandbox(
@@ -216,7 +227,6 @@ def wrap_adapter_in_sandbox(
     run_dir = Path(cwd).resolve()
     store_root = Path(store).resolve() if store is not None else None
     binds = _toolchain_binds(argv, workspace=workspace, cwd=run_dir, environment=environment, store=store_root)
-    _refuse_binds_reaching(binds, base=base)
     try:
         git = derive_git_containment(workspace, commit_capable=False)
     except GitContainmentRefusal as exc:
@@ -226,9 +236,11 @@ def wrap_adapter_in_sandbox(
         extra_ro_binds=tuple(binds), git=git, chdir=run_dir,
     )
     separator = command.index("--")
+    masked = _masked_directories(workspace, store=store_root, base=base)
+    _refuse_binds_reaching_runner_temp(command[:separator], masks=masked, base=base)
     # After every workspace bind (a later mount shadows an earlier one).
     masks: list[str] = []
-    for directory in _masked_directories(workspace, store=store_root, base=base):
+    for directory in masked:
         masks.extend(["--tmpfs", str(directory)])
     return command[:separator] + masks + list(MANAGED_SPAWN_ISOLATION_FLAGS) + command[separator:]
 

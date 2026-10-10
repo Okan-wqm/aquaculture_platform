@@ -9,7 +9,10 @@ directly or stops passing through ``adapter_room``:
 
 * ``tool_runner.run_tool`` — every scheduled adapter run;
 * ``fixture_runner.run_fixture_case`` — every fixture/calibration run;
-* ``skill_genesis_sandbox.execute_in_sandbox`` — a drafted adapter's run.
+* ``skill_genesis_sandbox.execute_in_sandbox`` — a drafted adapter's run;
+* ``skill_genesis.execute_adapter_against_corpus`` — the LIVE genesis
+  calibration run (``dispatcher_factory.select_sandbox_runner``, wired into
+  the nightly orchestrator's convergent skill authoring).
 
 The other two seams that execute repository or agent code already have their
 own pins and are not repeated here: the validation lane builds its child's
@@ -24,10 +27,15 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 import textwrap
 import unittest
+from pathlib import Path
 
-from aria_kernel import adapter_room, fixture_runner, skill_genesis_sandbox, tool_runner
+from aria_kernel import adapter_room, fixture_runner, skill_genesis, skill_genesis_sandbox, tool_runner
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_AUTO_CYCLE = _REPO_ROOT / ".github" / "workflows" / "aria-auto-cycle.yml"
 
 _PROCESS_STARTS = {
     ("subprocess", "run"), ("subprocess", "Popen"), ("subprocess", "call"),
@@ -39,6 +47,7 @@ SEAMS = (
     (tool_runner, "run_tool"),
     (fixture_runner, "run_fixture_case"),
     (skill_genesis_sandbox, "execute_in_sandbox"),
+    (skill_genesis, "execute_adapter_against_corpus"),
 )
 
 
@@ -92,6 +101,24 @@ class SeamPinTests(unittest.TestCase):
         self.assertIn("env", keywords)
         self.assertEqual(ast.unparse(keywords["env"]), "spawn.env")
         self.assertNotIn("os.environ", ast.unparse(starts[0]))
+
+
+class LaneProvisioningTests(unittest.TestCase):
+    """The nightly lane runs adapters in mock nights too, so it verifies the
+    backend on every cycle run — the room has no mock exemption."""
+
+    def test_the_auto_cycle_lane_verifies_the_backend_whatever_the_mock_mode(self) -> None:
+        text = _AUTO_CYCLE.read_text(encoding="utf-8")
+        step = re.search(
+            r"- name: Ensure a verified sandbox backend\n(?P<body>(?:\s{8,}.*\n)+)", text,
+        )
+        self.assertIsNotNone(step, "the auto-cycle lane must verify a sandbox backend")
+        body = step.group("body")
+        self.assertIn("uses: ./.github/actions/ensure-sandbox-backend", body)
+        condition = re.search(r"^\s+if:\s*(?P<expr>.+)$", body, re.MULTILINE)
+        self.assertIsNotNone(condition)
+        self.assertNotIn("mock", condition.group("expr"),
+                         "a mock night still runs every adapter; the room it needs cannot be skipped")
 
 
 if __name__ == "__main__":

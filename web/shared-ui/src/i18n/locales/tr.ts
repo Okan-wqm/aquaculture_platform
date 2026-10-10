@@ -374,6 +374,21 @@ export const tr: Record<MessageKey, string> = {
   'harvest.qualityClass.PRODUKSJONSFISK': 'Produksjonsfisk (işleme balığı)',
   'harvest.qualityClass.UTKAST': 'Utkast (ıskarta)',
 
+  // ── Batch quarantine release (farm-module, FARM-MEDIUM-402) ──
+  'batch.quarantineRelease.button': 'Karantinadan çıkar',
+  'batch.quarantineRelease.title': 'Partiyi karantinadan çıkar',
+  'batch.quarantineRelease.body':
+    'Karantina sona erer: parti AKTİF olur ve hasat edilebilir. Çıkarma işlemi ve gerekçesi denetim kaydına yazılır.',
+  'batch.quarantineRelease.reason': 'Gerekçe',
+  'batch.quarantineRelease.reasonPlaceholder':
+    'örn. sağlık kontrolü geçti, ilaç arınma süresi doldu',
+  'batch.quarantineRelease.reasonTooShort': 'En az 5 karakterlik bir gerekçe girin.',
+  'batch.quarantineRelease.confirm': 'Partiyi çıkar',
+  'batch.quarantineRelease.cancel': 'Vazgeç',
+  'batch.quarantineRelease.success': 'Parti karantinadan çıkarıldı',
+  'batch.quarantineRelease.failed': 'Karantinadan çıkarma başarısız',
+  'batch.quarantineRelease.optionHint': '"Karantinadan çıkar" eylemini kullanın',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Genel Bakış',
   'messaging.title': 'Mesajlar',

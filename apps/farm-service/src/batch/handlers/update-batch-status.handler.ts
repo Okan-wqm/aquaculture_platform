@@ -52,6 +52,8 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
       }
 
       this.lifecyclePolicy.assertCanTransitionStatus(batch, newStatus);
+      // FARM-MEDIUM-402: QUARANTINE -> ACTIVE belongs to releaseBatchFromQuarantine.
+      this.lifecyclePolicy.assertGenericStatusUpdateAllowed(batch, newStatus);
 
       const previousStatus = batch.status;
       const statusChangedAt = new Date();

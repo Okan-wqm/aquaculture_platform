@@ -74,12 +74,28 @@ export function assertBatchHarvestable(batch: Pick<Batch, 'batchNumber' | 'statu
   }
   const reason =
     batch.status === BatchStatus.QUARANTINE
-      ? 'quarantined fish may not be harvested; release the batch to ACTIVE first'
+      ? 'quarantined fish may not be harvested. Release the batch from quarantine first ' +
+        '(batch detail → "Release from quarantine", module manager or tenant admin)'
       : 'the batch has no harvestable stock in this status';
   throw new BadRequestException(
     `Batch ${batch.batchNumber} is ${batch.status} and cannot be harvested: ${reason}.`,
   );
 }
+
+/**
+ * Transitions the table allows but only a dedicated command may perform, with
+ * the mutation that owns each (FARM-MEDIUM-402). QUARANTINE -> ACTIVE ends a
+ * biosecurity hold and makes the batch harvestable, so it goes through
+ * releaseBatchFromQuarantine (MODULE_MANAGER+, reason, audit row), never the
+ * generic updateBatchStatus.
+ */
+const DEDICATED_TRANSITIONS: ReadonlyArray<{
+  from: BatchStatus;
+  to: BatchStatus;
+  mutation: string;
+}> = Object.freeze([
+  { from: BatchStatus.QUARANTINE, to: BatchStatus.ACTIVE, mutation: 'releaseBatchFromQuarantine' },
+]);
 
 @Injectable()
 export class BatchLifecyclePolicyService {
@@ -104,6 +120,21 @@ export class BatchLifecyclePolicyService {
       `Geçersiz status geçişi: ${batch.status} -> ${nextStatus}. ` +
         `Bu batch ${batch.status} durumundan ${nextStatus} durumuna geçemez.`,
     );
+  }
+
+  /**
+   * The generic status update (updateBatchStatus) may perform a table
+   * transition only when no dedicated command owns it.
+   */
+  assertGenericStatusUpdateAllowed(batch: Batch, nextStatus: BatchStatus): void {
+    const dedicated = DEDICATED_TRANSITIONS.find(
+      (transition) => transition.from === batch.status && transition.to === nextStatus,
+    );
+    if (dedicated) {
+      throw new BadRequestException(
+        `${batch.status} -> ${nextStatus} is not a plain status update; use ${dedicated.mutation}.`,
+      );
+    }
   }
 
   allowedCloseStatuses(reason: BatchCloseReason): readonly BatchStatus[] {

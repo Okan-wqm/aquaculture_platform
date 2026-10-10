@@ -9970,6 +9970,7 @@ export type Mutation = {
   rejectLeaveRequest: LeaveRequest;
   rejectProgram: AutomationProgram;
   rejectVfdChangeSet: VfdChangeSet;
+  releaseBatchFromQuarantine: Batch;
   /** Remove a member from a channel */
   removeChannelMember: Scalars['Boolean']['output'];
   removeChemicalDocument: Scalars['Boolean']['output'];
@@ -12226,6 +12227,11 @@ export type MutationRejectProgramArgs = {
 
 export type MutationRejectVfdChangeSetArgs = {
   input: RejectVfdChangeSetInput;
+};
+
+
+export type MutationReleaseBatchFromQuarantineArgs = {
+  input: ReleaseBatchFromQuarantineInput;
 };
 
 
@@ -19396,6 +19402,12 @@ export type RelatedAssetInput = {
   assetId: Scalars['ID']['input'];
   assetName?: InputMaybe<Scalars['String']['input']>;
   assetType: AssetType;
+};
+
+export type ReleaseBatchFromQuarantineInput = {
+  batchId: Scalars['ID']['input'];
+  /** Why the quarantine hold ends (5-500 characters) */
+  reason: Scalars['String']['input'];
 };
 
 export type RemoveCleanerFishInput = {

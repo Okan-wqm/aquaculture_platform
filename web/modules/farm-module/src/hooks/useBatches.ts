@@ -10,6 +10,8 @@ import {
   graphqlClient,
   createTenantQueryKey,
   createTenantInvalidationKey,
+  useFeedbackMutation,
+  useI18n,
 } from '@aquaculture/shared-ui';
 
 import { stableStringify } from '../utils/command-envelope';
@@ -1063,6 +1065,17 @@ const UPDATE_BATCH_STATUS_MUTATION = `
   }
 `;
 
+/** FARM-MEDIUM-402: the only way out of QUARANTINE (managers; audited). */
+const RELEASE_BATCH_FROM_QUARANTINE_MUTATION = `
+  mutation ReleaseBatchFromQuarantine($input: ReleaseBatchFromQuarantineInput!) {
+    releaseBatchFromQuarantine(input: $input) {
+      id
+      batchNumber
+      status
+    }
+  }
+`;
+
 const CLOSE_BATCH_MUTATION = `
   mutation CloseBatch(
     $id: ID!,
@@ -1098,6 +1111,12 @@ export interface UpdateBatchStatusInput {
   id: string;
   status: BatchStatus;
   reason?: string;
+}
+
+export interface ReleaseBatchFromQuarantineInput {
+  batchId: string;
+  /** Why the hold ends — 5 to 500 characters, written to the audit log. */
+  reason: string;
 }
 
 export interface CloseBatchInput {
@@ -1196,6 +1215,40 @@ export function useUpdateBatchStatus() {
         { id: input.id, status: input.status, reason: input.reason },
       );
       return data.updateBatchStatus;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+    },
+  });
+}
+
+/**
+ * Hook to release a QUARANTINE batch to ACTIVE (FARM-MEDIUM-402). A
+ * quarantined batch cannot be harvested; this is the operator's path back.
+ */
+export function useReleaseBatchFromQuarantine() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+  const { t } = useI18n();
+
+  // Outcome feedback lives in the hook (FE-HIGH-086): success / failure toasts.
+  return useFeedbackMutation({
+    feedback: {
+      success: t('batch.quarantineRelease.success'),
+      error: t('batch.quarantineRelease.failed'),
+    },
+    mutationFn: async (input: ReleaseBatchFromQuarantineInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ releaseBatchFromQuarantine: Batch }>(
+        RELEASE_BATCH_FROM_QUARANTINE_MUTATION,
+        { input },
+      );
+      return data.releaseBatchFromQuarantine;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });

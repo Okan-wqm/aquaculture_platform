@@ -13,10 +13,11 @@
  * the disabled button would be poor UX.
  */
 import React, { useState } from 'react';
-import { useCanMutate, Button } from '@aquaculture/shared-ui';
+import { useCanMutate, Button, useI18n } from '@aquaculture/shared-ui';
 
 import type { Batch } from '../../../hooks/useBatches';
 import CloseBatchModal from '../components/CloseBatchModal';
+import ReleaseQuarantineModal from '../components/ReleaseQuarantineModal';
 import UpdateBatchModal from '../components/UpdateBatchModal';
 import UpdateBatchStatusModal from '../components/UpdateBatchStatusModal';
 
@@ -28,10 +29,14 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showReleaseModal, setShowReleaseModal] = useState(false);
+  const { t } = useI18n();
 
   const canUpdate = useCanMutate('updateBatch');
   const canUpdateStatus = useCanMutate('updateBatchStatus');
   const canClose = useCanMutate('closeBatch');
+  // FARM-MEDIUM-402: a quarantined batch cannot be harvested; managers end the hold here.
+  const canRelease = useCanMutate('releaseBatchFromQuarantine');
 
   const closableStatuses = new Set([
     'ACTIVE',
@@ -57,6 +62,11 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
         )}
         {canUpdateStatus && (
           <Button variant="primary" size="sm" type="button" onClick={() => setShowStatusModal(true)}>Durum Güncelle</Button>
+        )}
+        {canRelease && batch.status === 'QUARANTINE' && (
+          <Button variant="primary" size="sm" type="button" onClick={() => setShowReleaseModal(true)}>
+            {t('batch.quarantineRelease.button')}
+          </Button>
         )}
         {canClose && (
           <Button variant="danger" size="sm" type="button" onClick={() => setShowCloseModal(true)} disabled={closeButtonDisabled} title={
@@ -161,6 +171,12 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
         batchId={batch.id}
         batchNumber={batch.batchNumber}
         currentStatus={batch.status}
+      />
+      <ReleaseQuarantineModal
+        isOpen={showReleaseModal}
+        onClose={() => setShowReleaseModal(false)}
+        batchId={batch.id}
+        batchNumber={batch.batchNumber}
       />
       <CloseBatchModal
         isOpen={showCloseModal}

@@ -18,3 +18,4 @@ export * from './deploy-cleaner-fish.command';
 export * from './record-cleaner-mortality.command';
 export * from './transfer-cleaner-fish.command';
 export * from './remove-cleaner-fish.command';
+export * from './release-batch-from-quarantine.command';

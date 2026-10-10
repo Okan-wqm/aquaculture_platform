@@ -7479,6 +7479,7 @@ type Mutation {
   createBatch(input: CreateBatchInput!): Batch!
   updateBatch(input: UpdateBatchInput!): Batch!
   updateBatchStatus(id: ID!, status: BatchStatus!, reason: String): Batch!
+  releaseBatchFromQuarantine(input: ReleaseBatchFromQuarantineInput!): Batch!
   recordMortality(input: RecordMortalityInput!): Batch!
   recordCull(input: RecordCullInput!): Batch!
   allocateBatchToTank(input: AllocateToTankInput!): Batch!
@@ -10228,6 +10229,13 @@ input UpdateBatchInput {
   expectedHarvestDate: DateTime
   targetFCR: Float
   notes: String
+}
+
+input ReleaseBatchFromQuarantineInput {
+  batchId: ID!
+
+  """Why the quarantine hold ends (5-500 characters)"""
+  reason: String!
 }
 
 input RecordMortalityInput {

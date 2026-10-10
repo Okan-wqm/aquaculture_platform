@@ -62,7 +62,7 @@ describe('BatchLifecyclePolicyService', () => {
       expect(isHarvestableStatus(BatchStatus.QUARANTINE)).toBe(false);
       expect(() =>
         assertBatchHarvestable({ batchNumber: 'B-1', status: BatchStatus.QUARANTINE }),
-      ).toThrow(/B-1 is QUARANTINE and cannot be harvested: quarantined fish may not be harvested/);
+      ).toThrow(/B-1 is QUARANTINE and cannot be harvested: .*Release the batch from quarantine first/);
     });
 
     it.each([BatchStatus.HARVESTED, BatchStatus.TRANSFERRED, BatchStatus.FAILED, BatchStatus.CLOSED])(

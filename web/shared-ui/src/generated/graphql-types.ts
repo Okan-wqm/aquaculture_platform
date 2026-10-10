@@ -5752,10 +5752,14 @@ export type EquipmentResponse = {
   isVisibleInSensor?: Maybe<Scalars['Boolean']['output']>;
   /** Physical location info */
   location?: Maybe<Scalars['JSON']['output']>;
+  /** Maintenance schedule config */
+  maintenanceSchedule?: Maybe<Scalars['JSON']['output']>;
   manufacturer?: Maybe<Scalars['String']['output']>;
   model?: Maybe<Scalars['String']['output']>;
   name: Scalars['String']['output'];
   notes?: Maybe<Scalars['String']['output']>;
+  /** Cumulative operating hours */
+  operatingHours?: Maybe<Scalars['Float']['output']>;
   parentEquipment?: Maybe<EquipmentResponse>;
   /** Parent equipment for nested hierarchy */
   parentEquipmentId?: Maybe<Scalars['ID']['output']>;

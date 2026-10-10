@@ -10,7 +10,7 @@ import {
   Index,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DateColumnTransformer, DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 
 export enum StorageItemType {
@@ -76,7 +76,12 @@ export class StorageInventory {
   @Column({ type: 'varchar', length: 100, nullable: true, name: 'lot_number' })
   lotNumber?: string;
 
-  @Column({ type: 'date', nullable: true, name: 'expiry_date' })
+  @Column({
+    type: 'date',
+    nullable: true,
+    name: 'expiry_date',
+    transformer: new DateColumnTransformer(),
+  })
   expiryDate?: Date;
 
   /**

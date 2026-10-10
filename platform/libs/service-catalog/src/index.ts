@@ -503,7 +503,15 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // (entity metadata + migrations check) and the current SLA-defining max.
     startupBudgetSeconds: 120,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY', 'SENTINEL_HUB_ENCRYPTION_KEY'],
+    // EMPLOYEE_PII_* (FARM-CRITICAL-407): the farm_workers PII columns fail
+    // closed without both keys — they are deploy-required, not optional.
+    requiredEnv: [
+      'FARM_SERVICE_DB_PASS',
+      'ENCRYPTION_KEY',
+      'SENTINEL_HUB_ENCRYPTION_KEY',
+      'EMPLOYEE_PII_ENCRYPTION_KEY',
+      'EMPLOYEE_PII_BLIND_INDEX_KEY',
+    ],
     gatewaySubgraph: subgraph(
       'farm',
       'farm-service',
@@ -596,7 +604,9 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['HR_SERVICE_DB_PASS'],
+    // EMPLOYEE_PII_ENCRYPTION_KEY (FARM-CRITICAL-407): hr.employees shares the
+    // farm_workers PII encryption key and fails closed without it.
+    requiredEnv: ['HR_SERVICE_DB_PASS', 'EMPLOYEE_PII_ENCRYPTION_KEY'],
     gatewaySubgraph: subgraph(
       'hr',
       'hr-service',

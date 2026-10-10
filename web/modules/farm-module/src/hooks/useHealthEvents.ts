@@ -15,47 +15,52 @@ import type { PaginationResultV1 } from '@platform/pagination-contracts';
 // TYPES - Health Events
 // ============================================================================
 
+// Wire values are the UPPERCASE GraphQL enum NAMES (registerEnumType uses the
+// TS keys as SDL names, the lowercase values only exist in the database).
+// FARM-CRITICAL-409: sending the lowercase DB values was rejected by the schema
+// (`Value "moderate" does not exist in "HealthSeverity" enum`), which made the
+// whole Health Events tab unusable end to end.
 export type HealthEventType =
-  | 'disease_outbreak'
-  | 'symptom_observed'
-  | 'routine_inspection'
-  | 'treatment_start'
-  | 'treatment_end'
-  | 'vaccination'
-  | 'quarantine_start'
-  | 'quarantine_end'
-  | 'mortality_event'
-  | 'recovery'
-  | 'lab_result'
-  | 'vet_consultation';
+  | 'DISEASE_OUTBREAK'
+  | 'SYMPTOM_OBSERVED'
+  | 'ROUTINE_INSPECTION'
+  | 'TREATMENT_START'
+  | 'TREATMENT_END'
+  | 'VACCINATION'
+  | 'QUARANTINE_START'
+  | 'QUARANTINE_END'
+  | 'MORTALITY_EVENT'
+  | 'RECOVERY'
+  | 'LAB_RESULT'
+  | 'VET_CONSULTATION';
 
 export type DiseaseCategory =
-  | 'bacterial'
-  | 'viral'
-  | 'parasitic'
-  | 'fungal'
-  | 'nutritional'
-  | 'environmental'
-  | 'genetic'
-  | 'unknown';
+  | 'BACTERIAL'
+  | 'VIRAL'
+  | 'PARASITIC'
+  | 'FUNGAL'
+  | 'NUTRITIONAL'
+  | 'ENVIRONMENTAL'
+  | 'GENETIC'
+  | 'UNKNOWN';
 
-export type HealthSeverity = 'minor' | 'moderate' | 'severe' | 'critical';
+export type HealthSeverity = 'MINOR' | 'MODERATE' | 'SEVERE' | 'CRITICAL';
 
 export type HealthEventStatus =
-  | 'active'
-  | 'monitoring'
-  | 'resolved'
-  | 'chronic'
-  | 'cancelled';
+  | 'ACTIVE'
+  | 'MONITORING'
+  | 'RESOLVED'
+  | 'CHRONIC'
+  | 'CANCELLED';
 
 export type TreatmentMethod =
-  | 'bath'
-  | 'in_feed'
-  | 'injection'
-  | 'immersion'
-  | 'topical'
-  | 'environmental'
-  | 'vaccination';
+  | 'BATH'
+  | 'IN_FEED'
+  | 'INJECTION'
+  | 'IMMERSION'
+  | 'TOPICAL'
+  | 'ENVIRONMENTAL'
+  | 'VACCINATION';
 
 export interface ObservedSymptoms {
   behavioral?: string[];

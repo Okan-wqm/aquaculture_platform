@@ -1,7 +1,7 @@
 /**
  * Stock Movement Entity - Audit trail of stock changes
  */
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DateColumnTransformer, DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 
@@ -92,7 +92,12 @@ export class StockMovement {
    * Critical for FEFO compliance verification: auditors can query movements
    * to confirm that earlier-expiring lots were consumed before later ones.
    */
-  @Column({ type: 'date', nullable: true, name: 'expiry_date' })
+  @Column({
+    type: 'date',
+    nullable: true,
+    name: 'expiry_date',
+    transformer: new DateColumnTransformer(),
+  })
   expiryDate?: Date;
 
   /**
@@ -109,7 +114,12 @@ export class StockMovement {
    * backfill could not resolve). Restorers must treat NULL as "no provenance"
    * rather than inventing one.
    */
-  @Column({ type: 'date', nullable: true, name: 'received_date' })
+  @Column({
+    type: 'date',
+    nullable: true,
+    name: 'received_date',
+    transformer: new DateColumnTransformer(),
+  })
   receivedDate?: Date;
 
   /**

@@ -30,8 +30,26 @@ describe('ListStockMovementsHandler', () => {
     expect(result.data).toHaveLength(1);
     expect(result.pagination.total).toBe(1);
     expect(qb.where).toHaveBeenCalledWith('mov.tenantId = :tenantId', { tenantId });
+    // FARM-MEDIUM-414: the response serializes enum names UPPERCASE while the
+    // column stores lowercase values — a client echoing a response value must
+    // still filter correctly, so both spellings normalize to lowercase.
     expect(qb.andWhere).toHaveBeenCalledWith('mov.movementType = :movementType', {
-      movementType: 'INBOUND',
+      movementType: 'inbound',
+    });
+  });
+
+  it('normalizes an uppercase itemType filter to the stored lowercase value', async () => {
+    const { mockDataSource, mockManager } = createMockDataSource();
+    const qb = makeQb([], 0);
+    mockManager.createQueryBuilder = jest
+      .fn()
+      .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
+
+    const handler = new ListStockMovementsHandler(mockDataSource);
+    await handler.execute(new ListStockMovementsQuery(tenantId, { itemType: 'FEED' }));
+
+    expect(qb.andWhere).toHaveBeenCalledWith('mov.itemType = :itemType', {
+      itemType: 'feed',
     });
   });
 

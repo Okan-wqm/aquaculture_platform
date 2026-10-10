@@ -26,12 +26,20 @@ export class ListStockMovementsHandler implements IQueryHandler<ListStockMovemen
       const qb = queryRunner.manager.createQueryBuilder(StockMovement, 'mov');
       qb.where('mov.tenantId = :tenantId', { tenantId });
 
+      // The GraphQL response serializes movement/item enums as their UPPERCASE
+      // enum names while the columns store the lowercase enum values. A client
+      // that echoes a value from a previous response ('WASTE', 'FEED') must
+      // filter correctly, so both spellings are accepted (FARM-MEDIUM-414).
       if (filter?.movementType) {
-        qb.andWhere('mov.movementType = :movementType', { movementType: filter.movementType });
+        qb.andWhere('mov.movementType = :movementType', {
+          movementType: filter.movementType.toLowerCase(),
+        });
       }
 
       if (filter?.itemType) {
-        qb.andWhere('mov.itemType = :itemType', { itemType: filter.itemType });
+        qb.andWhere('mov.itemType = :itemType', {
+          itemType: filter.itemType.toLowerCase(),
+        });
       }
 
       if (filter?.itemId) {

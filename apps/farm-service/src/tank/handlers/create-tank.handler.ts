@@ -62,10 +62,14 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
       // tx so concurrent creates cannot both slip past the limit. This is a count
       // limit on the NUMBER of tanks the plan allows — distinct from per-tank
       // over-capacity stocking, which is legitimately admin-overridable.
+      // isActive=false is the tank soft-delete marker, so deactivated tanks do
+      // not consume plan allowance (FARM-CRITICAL-405).
       if (planLevel !== undefined) {
         const maxPonds = resolvePlanLimits(tenantPlanFromLevel(planLevel)).maxPonds;
         if (maxPonds !== -1) {
-          const currentPonds = await tankRepository.count({ where: { tenantId } });
+          const currentPonds = await tankRepository.count({
+            where: { tenantId, isActive: true },
+          });
           assertWithinQuota('ponds', currentPonds, maxPonds);
         }
       }

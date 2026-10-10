@@ -2,9 +2,13 @@ import 'reflect-metadata';
 
 // Mock the tenant-transaction helper so the responder's DB path runs without a
 // real connection: it simply invokes the callback with a fake QueryRunner whose
-// manager is the one createWithManager receives.
+// manager is the one createWithManager receives. The rest of the module is
+// spread from the actual implementation — task.entity decorates itself with
+// DateColumnTransformer from this module at import time, so a whole-module
+// factory mock leaves it undefined (FARM-CRITICAL-406).
 const mockRunInTenantTransaction = jest.fn();
 jest.mock('@aquaculture/backend-common/database', () => ({
+  ...jest.requireActual('@aquaculture/backend-common/database'),
   runInTenantTransaction: (
     ...args: unknown[]
   ): unknown => mockRunInTenantTransaction(...args),

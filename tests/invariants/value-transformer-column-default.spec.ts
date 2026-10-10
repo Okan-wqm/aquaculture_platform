@@ -60,6 +60,7 @@ import { EncryptedColumnTransformer } from '../../apps/sensor-service/src/infras
 import { EncryptedProtocolConfigTransformer } from '../../apps/sensor-service/src/infrastructure/vault/protocol-config.transformer';
 import { QuantityIdTransformer } from '../../apps/farm-service/src/water-quality/entities/quantity-id.transformer';
 import { DecimalTransformer } from '../../libs/backend-common/src/database/decimal-transformer';
+import { DateColumnTransformer } from '../../libs/backend-common/src/database/date-column.transformer';
 import { DecimalValueTransformer } from '../../libs/backend-common/src/monetary/decimal-column.decorator';
 import { createEncryptedColumnTransformer } from '../../libs/backend-common/src/security/encryption/encrypted-column.transformer';
 
@@ -91,6 +92,13 @@ interface RegisteredTransformer {
 /** Every transformer a column declaration in this repository can install. */
 const TRANSFORMERS: readonly RegisteredTransformer[] = [
   { aliases: ['DecimalTransformer'], create: () => new DecimalTransformer() },
+  // date-column hydration for GraphQL DateTime reads (FARM-CRITICAL-406). The
+  // write side is pass-through, so `undefined` still reaches the INSERT
+  // unmolested and a column `default:` keeps applying.
+  {
+    aliases: ['DateColumnTransformer', 'dateColumnTransformer'],
+    create: () => new DateColumnTransformer(),
+  },
   {
     // RATE_TRANSFORMER is the same implementation under a local name: the
     // billing catalogue entities declare rates (a percentage, a tier

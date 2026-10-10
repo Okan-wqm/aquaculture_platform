@@ -23,6 +23,7 @@ import {
   GraphQLISODateTime,
   registerEnumType,
 } from '@nestjs/graphql';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 
 /**
  * STORED shape of a single item in `Task.checklistItems` (JSONB) — what a row
@@ -227,7 +228,7 @@ export class Task {
   // -------------------------------------------------------------------------
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   dueDate!: Date;
 
   @Field({ nullable: true })

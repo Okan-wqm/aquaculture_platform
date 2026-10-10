@@ -19,3 +19,25 @@ it is the order the plans converged in. The scan now orders by that position. A 
 converges again keeps its latest convergence, as before. The new test
 `ConvergenceOrderIsLedgerOrderTests` pins `recorded_at` to one instant and requires
 `plan-old, plan-new`. It fails on the old ordering.
+
+## ARIA-MEDIUM-411
+
+Re-running the flaky shard did not clear the check. On PR 1932, run 38031162176, `suite (8)`
+passed on attempt 2 at 07:22:22Z. The `aria-kernel` verdict job ran at 07:22:35Z and still read
+shard 8 as `successful=False`.
+
+Every attempt uploaded its shard report under one artifact name and one file name. The verdict
+job downloads all of a run's artifacts with `merge-multiple: true` into one directory, so the
+attempts overwrote each other in an arbitrary order.
+
+Fix:
+
+- Each attempt now uploads its own artifact, `...-attempt-${{ github.run_attempt }}`, with its own
+  file, `shard-N.attempt-K.json`.
+- The report records `run_attempt`.
+- `suite_shards.read_reports` keeps each shard's latest attempt. That is the result GitHub shows
+  for that shard's job, because "re-run failed jobs" re-runs only the failed shards.
+- A later failed attempt is not hidden by an earlier pass. Two reports for one shard in one
+  attempt are both kept, so verify still names the duplicate.
+- `RerunAttemptTests` pins all three cases. The invariant in `aria-doc-runtime-ssot.spec.ts`
+  pins the new report path.

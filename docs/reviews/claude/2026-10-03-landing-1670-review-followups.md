@@ -135,3 +135,45 @@ The `completeHarvestPlan` resolver comment also claimed that the JWT guard valid
 `Role` values. Nothing does: the middleware checks only that the roles are strings. Fix: each fix now has
 a test that pins it; notification-service is in the SEC-HIGH-156 invariant list; the comment describes
 the real trust chain.
+
+## Farm re-review of PR #1736 (2026-10-10)
+
+The re-review confirmed the fixes above and found two new problems plus one LOW. All three are fixed on
+the branch.
+
+### FARM-HIGH-399
+
+Severity: HIGH. Deadline: 2026-10-17.
+
+A full plan completion across two or more tanks emits one `BatchHarvested` event per tank. Every event
+but the last is non-final; the last is final. The final harvest closes the batch: `CloseBatchHandler`
+sets CLOSED and `isActive=false`. `HarvestCompletedListener` then processed the non-final events. On a
+non-final event it moved any status except HARVESTING to HARVESTING, through a read-modify-write. As a
+result, an inactive batch showed HARVESTING, and the CLOSED guard no longer stopped a second close.
+
+Fix: the batch lifecycle policy now owns the rule. `PARTIAL_HARVEST_SOURCE_STATUSES` in
+`batch-lifecycle-policy.service.ts` lists the statuses a partial-harvest signal may move to HARVESTING:
+QUARANTINE, ACTIVE, GROWING and PRE_HARVEST. A finished cycle never leaves its status. The listener
+applies the rule as one conditional UPDATE (`status IN` that set), so it can no longer overwrite a
+concurrent close. The Postgres spec runs a full two-tank completion through the real
+`CloseBatchHandler` and the real listener. It asserts that the batch stays CLOSED and inactive, and
+that a second close is refused.
+
+### FARM-MEDIUM-400
+
+Severity: MEDIUM. Deadline: 2026-10-17.
+
+Plan completion locked tank-batch rows before tank rows. Direct harvest, mortality and cull lock
+batch → tank → tank-batch. The handler comment claimed the opposite of what the code did. With another
+batch on a shared tank, the two paths could deadlock.
+
+Fix: completion now locks plan → batch → tanks → tank-batch rows, with tanks and tank-batch rows each in
+tank-id order. The candidate tank set comes from an unlocked read, which is stable because the batch row
+lock is already held. A two-connection Postgres spec holds a tank lock the way a mortality does. It
+shows that while completion waits for that tank, the tank's tank-batch row is still free.
+
+### LOW (no registry entry)
+
+The idempotency check compared the resent figures with the stored `decimal(12,2)` and `decimal(10,2)`
+columns. An identical resend with 3 decimals therefore got a 409. `actualBiomass` and `actualAvgWeight`
+are now limited to 2 decimals (`@IsNumber({ maxDecimalPlaces: 2 })`), which matches the storage.

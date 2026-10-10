@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { load as yamlLoad } from 'js-yaml';
+import { parse as yamlParse } from 'yaml';
 
 import { REPO_ROOT } from './lib/repo-root';
 
@@ -197,7 +197,7 @@ function workflowJobBlock(source: string, jobId: string): string | null {
 // one when #1937 made `aria-kernel` required, and the manifest could not be
 // applied without leaving every non-ARIA PR unmergeable.
 function pullRequestTriggerErrors(workflowPath: string, source: string): string[] {
-  const parsed: unknown = yamlLoad(source);
+  const parsed: unknown = yamlParse(source);
   const triggers = isRecord(parsed) ? parsed.on : undefined;
   if (!isRecord(triggers) || !('pull_request' in triggers)) {
     return [`${workflowPath} produces a required context but does not run on pull_request`];

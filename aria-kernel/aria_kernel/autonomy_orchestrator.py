@@ -59,13 +59,12 @@ parity.
 from __future__ import annotations
 
 import os
-import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
-from .artifact_safety import scrub_text
+from .artifact_safety import published_text, scrub_text
 from .autonomy_state import (
     FUNNEL_RECORDED_DETAIL,
     PLAN_MINTED_PHASE,
@@ -183,7 +182,7 @@ def _notify_cycle_failed(root: Path, *, cycle_id: str, exit_reason: str, reason:
     notify_best_effort(
         kind="cycle_failed", key=f"{cycle_id}:{exit_reason}", base_dir=root,
         title=CYCLE_FAILED_TITLE,
-        body=f"cycle: {cycle_id}\nexit: {exit_reason}\nreason: {scrub_text(reason)[:_CYCLE_FAILURE_REASON_MAX_CHARS]}",
+        body=f"cycle: {cycle_id}\nexit: {exit_reason}\nreason: {published_text(reason, store_root=root, limit=_CYCLE_FAILURE_REASON_MAX_CHARS)}",
     )
 
 
@@ -623,27 +622,12 @@ def _outer_cycle_status(projected: str) -> str:
     return "failed"
 
 
-# The refusal text is published on aria/state, and the repository is public.
-# It is scrubbed of secret shapes and bounded, the rule a failed phase's error
-# follows (cycle._published_error), and it carries no host path.
+# The refusal text is published on aria/state, and the repository is public:
+# it goes through the one publish sanitizer (artifact_safety.published_text).
+# The verified reader names a ledger by its absolute path, and a ledger can
+# live outside the store (the committed findings resolve through the workspace
+# or ARIA_REPO_STATE_ROOT), so the sanitizer reduces any other path to its name.
 _REFUSED_REFLECTION_ERROR_MAX_CHARS = 300
-# An absolute POSIX path. The verified reader names the ledger by its absolute
-# path, and a ledger can live outside the store: the committed findings
-# resolve through the workspace or ARIA_REPO_STATE_ROOT. No prefix list
-# covers every root, so any absolute path is reduced to its file name.
-_ABSOLUTE_PATH = re.compile(r"(?<![\w.\-~])/(?:[^\s/:'\"]+/)*([^\s/:'\"]+)")
-
-
-def _published_refusal(error: str, root: Path) -> str:
-    """The refusal text with no host path in it.
-
-    A ledger under the store keeps its store-relative name
-    (``memory/beliefs.jsonl``). Any other absolute path is reduced to its
-    file name (``finding-events.jsonl``).
-    """
-    for prefix in {root.as_posix(), root.resolve().as_posix()}:
-        error = error.replace(f"{prefix}/", "")
-    return scrub_text(_ABSOLUTE_PATH.sub(r"\1", error))[:_REFUSED_REFLECTION_ERROR_MAX_CHARS]
 
 
 def _reflect_on_failed_cycle(
@@ -683,11 +667,16 @@ def _reflect_on_failed_cycle(
       ``cycle_completed`` row written moments earlier (reflection never
       reads that ledger);
     - the summary.
-    Nothing else is caught. A policy refusal or any other fault still
-    raises, and the ok/degraded exits' reflection is unchanged. The refusal
-    can also come from the reflection's own writes after its row exists:
-    the queue append reads the queue and governance strictly. Either way the
-    error names the ledger that refused.
+    The same holds for any other fault in the reflection (review of the
+    2026-10-10 repair stack: a torn ``pressure/<cycle>.json`` raises
+    ``JSONDecodeError``, and the night lost its exit row — the one row the
+    doctor's streak reads). On these two exits the reflection is an addition
+    to a night that already failed, so whatever it raises is recorded the
+    same way under its class name and the exit proceeds exactly as the parent
+    did; it is never swallowed silently. The ok/degraded exits' reflection is
+    unchanged and still raises. The refusal can also come from the
+    reflection's own writes after its row exists: the queue append reads the
+    queue and governance strictly. Either way the error names what refused.
     """
     try:
         return run_reflection(
@@ -702,11 +691,11 @@ def _reflect_on_failed_cycle(
                 pedagogy_lint_result=pedagogy_snapshot,
             ),
         )
-    except LedgerIntegrityError as exc:
+    except Exception as exc:  # noqa: BLE001 — recorded below; the failed exit must not get worse
         refusal = {
             "status": "refused",
-            "reason": "ledger_integrity",
-            "error": _published_refusal(str(exc), root),
+            "reason": "ledger_integrity" if isinstance(exc, LedgerIntegrityError) else f"reflection_fault:{type(exc).__name__}",
+            "error": published_text(str(exc), store_root=root, limit=_REFUSED_REFLECTION_ERROR_MAX_CHARS),
         }
         AutonomyStateReducer.transition(
             root, cycle_id=cycle_id, phase="failed_cycle_reflection_refused",
@@ -1881,7 +1870,9 @@ def run_autonomy_orchestrator(
                         "cycle_id": cycle_id,
                         "status": "failed",
                         "runtime_status": "failed",
-                        "error": str(exc),
+                        # Published on aria/state (and quoted by the failure
+                        # notice and the failed night's reflection).
+                        "error": published_text(str(exc), store_root=root, limit=_CYCLE_FAILURE_REASON_MAX_CHARS),
                         "cycle_lifecycle": {
                             "valid": False,
                             "incomplete_count": 0,

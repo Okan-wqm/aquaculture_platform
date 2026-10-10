@@ -1084,8 +1084,10 @@ jobs:
       - name: Self-improve - open missions for failing organs
         if: always() && steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && (github.event.inputs.mode || 'cycle') == 'cycle'
         timeout-minutes: 12
+        # No GH_TOKEN: the opener writes missions and a HIGH adjudication
+        # record, never a GitHub issue. The channel names stay, because the
+        # doctor it runs judges the lane's channel.
         env:
-          GH_TOKEN: ${{ github.token }}
           ARIA_NOTIFY_CHANNELS: github_issue
           ARIA_NOTIFY_GITHUB_REPO: ${{ github.repository }}
         run: |

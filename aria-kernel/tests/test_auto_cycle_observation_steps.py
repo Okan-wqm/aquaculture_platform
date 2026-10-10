@@ -81,7 +81,11 @@ class TheObservationStepsRunInTheLiveLane(unittest.TestCase):
             step = _step(name)
             self.assertEqual(step["if"], _POST_IF, name)
             self.assertIsInstance(step.get("timeout-minutes"), int, name)
-            self.assertEqual(step["env"], _NOTIFY_ENV, name)
+            # Least privilege: only the steps that write an issue hold the token.
+            expected = _NOTIFY_ENV if name != _OBSERVATION_STEPS[1] else {
+                key: value for key, value in _NOTIFY_ENV.items() if key != "GH_TOKEN"
+            }
+            self.assertEqual(step["env"], expected, name)
             self.assertIn("schedule run --action", step["run"], name)
 
     def test_the_cycle_step_names_the_channel_and_the_executor_lane_names_none(self) -> None:

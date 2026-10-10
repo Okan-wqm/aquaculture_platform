@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from .artifact_safety import scrub_text
+from .artifact_safety import published_text
 from .feedback import derive_pressure
 from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
@@ -4049,21 +4049,22 @@ def _first_phase_failure(context: PhaseContext) -> dict[str, Any] | None:
     """
     for name, outcome in context.outcomes.items():
         if outcome.get("outcome") == "failed":
-            return {"phase": name, "status": "failed", "error": _published_error(outcome.get("error"))}
+            return {"phase": name, "status": "failed", "error": _published_error(context, outcome.get("error"))}
     return None
 
 
 # The verdict text a failed phase carries onto the cycle row. The row is
-# published on aria/state, so the text is scrubbed of secret shapes and
-# bounded; the phase's full payload stays in the cycle's own result.
+# published on aria/state, so the text goes through the one publish sanitizer
+# (secret shapes, host paths, bound); the phase's full payload stays in the
+# cycle's own result.
 _FAILED_PHASE_ERROR_MAX_CHARS = 300
 
 
-def _published_error(text: Any) -> str | None:
+def _published_error(context: PhaseContext, text: Any) -> str | None:
     """A phase failure's reason as it may appear on the published cycle row."""
     if text is None:
         return None
-    return scrub_text(str(text))[:_FAILED_PHASE_ERROR_MAX_CHARS]
+    return published_text(text, store_root=context.base_dir, limit=_FAILED_PHASE_ERROR_MAX_CHARS)
 
 
 def _payload_failed_phases(context: PhaseContext) -> list[dict[str, Any]]:
@@ -4088,7 +4089,7 @@ def _payload_failed_phases(context: PhaseContext) -> list[dict[str, Any]]:
         rows.append({
             "phase": phase.name,
             "status": "failed",
-            "error": _published_error(payload.get("error") or "payload_declared_fail"),
+            "error": _published_error(context, payload.get("error") or "payload_declared_fail"),
         })
     return rows
 

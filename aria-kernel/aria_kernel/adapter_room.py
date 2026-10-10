@@ -62,7 +62,12 @@ from .implementation_safety import (
     wrap_bash_in_sandbox,
 )
 from .state_store import STORE_DIRNAME
+from .request_worktree import REQUEST_WORKTREES_DIR
+from .tool_registry import GovernanceError, tools_dir
 from .validation_env import ValidationEnv, build_validation_env
+
+# The checkout this kernel runs from (aria-kernel/aria_kernel/<this file>).
+_KERNEL_CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
 
 # The heap every Node adapter gets unless its manifest declares one
 # (`runner.node_max_old_space_mb`): Node's own default (~1 GB) OOM-crashed
@@ -155,10 +160,16 @@ def _toolchain_binds(
         program = Path(str(argv[1]))
         if program.is_absolute() and program.suffix == ".py" and program.is_file():
             resolved = program.resolve()
-            # Only under the argv policy's own trusted prefixes
-            # (`_verify_python_script_target`): a path an agent chose — a
-            # drafted adapter's `adapter_path` — is never bound into the room.
-            trusted = any(f"/{prefix}" in resolved.as_posix() for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES)
+            # Only kernel-shipped code under the argv policy's trusted
+            # prefixes: the path must sit under THIS checkout's root with the
+            # prefix at its start. A substring test accepted
+            # /tmp/x/tools/aria-poc/evil.py (review of the repair stack), and
+            # a path an agent chose — a drafted adapter's `adapter_path` — must
+            # never be bound into the room.
+            trusted = resolved.is_relative_to(_KERNEL_CHECKOUT_ROOT) and any(
+                resolved.relative_to(_KERNEL_CHECKOUT_ROOT).as_posix().startswith(prefix)
+                for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES
+            )
             if trusted and not resolved.is_relative_to(workspace) and resolved not in binds:
                 binds.append(resolved)
     return binds
@@ -170,9 +181,18 @@ def _masked_directories(workspace: Path, *, store: Path | None, base: Mapping[st
     tools root this run writes), the RUNNER_TEMP that holds the App key, and
     the signing keys directory every sandbox masks (created when absent,
     because bwrap cannot make a mountpoint under a read-only bind)."""
-    candidates = [workspace / STORE_DIRNAME]
+    # Also the request worktrees (an implementer's signing keys live in
+    # `<checkout>/aria-worktrees/req-*/aria-debts/keys` until revoked; a killed
+    # executor leaves them) and the tools root the kernel resolves for this
+    # process even when no `store` is passed (genesis passes none; off CI it is
+    # `<checkout>/aria-tools`, with `secrets/` in it).
+    candidates = [workspace / STORE_DIRNAME, workspace / REQUEST_WORKTREES_DIR]
     if store is not None:
         candidates.append(Path(store))
+    try:
+        candidates.append(tools_dir())
+    except GovernanceError:
+        pass  # no tools root is bound on this host: there is nothing of it to hide
     runner_temp = base.get(RUNNER_TEMP_ENV)
     if runner_temp:
         candidates.append(Path(runner_temp))

@@ -242,5 +242,65 @@ class FailedCycleReflectionTests(unittest.TestCase):
         self.assertNotRegex(refusal["error"], r"(?<![\w.\-~])/[^\s]", "no absolute path of any root")
 
 
+    def test_a_crash_naming_a_host_path_publishes_none_of_it(self) -> None:
+        # Review of the repair stack (integration C1, security C3): the crash
+        # text reached the cycle_completed row, the failure notice and the
+        # reflection row with its absolute host path; the refusal row alone
+        # was stripped. One publish sanitizer now covers all of them.
+        from unittest import mock
+
+        from aria_kernel import notify as notify_module
+
+        host_path = f"{self.tmp.resolve().as_posix()}/elsewhere/claims.jsonl"
+
+        def crash(*, workspace_root: Any, cycle_id: str, base_dir: Path, defer_reflection: bool = False) -> dict[str, Any]:
+            raise RuntimeError(f"Invalid JSONL at {host_path}:17: Expecting value")
+
+        with mock.patch.object(notify_module, "notify_best_effort", wraps=notify_module.notify_best_effort) as sent:
+            result = self._run(cycle_runner=crash)
+
+        self.assertEqual(result["exit_reason"], "cycle_failed")
+        bodies = [call.kwargs["body"] for call in sent.call_args_list if call.kwargs.get("kind") == "cycle_failed"]
+        self.assertEqual(len(bodies), 1)
+        cycle_id = result["per_cycle"][0]["cycle_id"]
+        published = {
+            "notice": bodies[0],
+            "cycle_completed": json.dumps([
+                row for row in load_jsonl(autonomy_state_path(self.base))
+                if row.get("cycle_id") == cycle_id and row.get("phase") == "cycle_completed"
+            ]),
+            "reflection": json.dumps(self._reflections()),
+        }
+        for surface, text in published.items():
+            self.assertIn("claims.jsonl", text, surface)
+            self.assertNotIn(host_path, text, surface)
+            self.assertNotIn(self.tmp.resolve().as_posix(), text, surface)
+
+    def test_any_reflection_fault_on_a_failed_exit_is_recorded_and_the_exit_row_still_lands(self) -> None:
+        # Review of the repair stack (integration P1): only LedgerIntegrityError
+        # was caught, so a torn pressure payload (JSONDecodeError) raised out of
+        # the orchestrator and the night lost the exit row the doctor's streak
+        # reads. The parent always wrote it.
+        def torn_pressure_then_fail(*, workspace_root: Any, cycle_id: str, base_dir: Path,
+                                    defer_reflection: bool = False) -> dict[str, Any]:
+            result = _payload_failed_cycle_runner(
+                workspace_root=workspace_root, cycle_id=cycle_id, base_dir=base_dir,
+                defer_reflection=defer_reflection,
+            )
+            (ensure_tools_dir(base_dir) / "pressure" / f"{cycle_id}.json").write_text('{"pressures": [', encoding="utf-8")
+            return result
+
+        result = self._run(cycle_runner=torn_pressure_then_fail)
+
+        self.assertEqual(result["exit_reason"], "cycle_failed")
+        refusal = result["per_cycle"][0]["reflection"]
+        self.assertEqual(refusal["status"], "refused")
+        self.assertTrue(refusal["reason"].startswith("reflection_fault:"), refusal["reason"])
+        exits = [
+            row for row in load_jsonl(self.base / "governance.jsonl")
+            if row.get("kind") == "autonomy_orchestrator_exit"
+        ]
+        self.assertEqual([row["details"]["exit_reason"] for row in exits], ["cycle_failed"])
+
 if __name__ == "__main__":
     unittest.main()

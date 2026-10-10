@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .agent_invocations import _claims_path, _request_event_count, derive_request_states
-from .artifact_safety import scrub_text
+from .artifact_safety import published_text
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments
 from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
 from .strict_jsonl_reader import read_strict_jsonl
@@ -178,7 +178,7 @@ def record_human_required(
         notify_best_effort(
             kind="human_required_opened", key=request_id, base_dir=root,
             title=f"ARIA HUMAN_REQUIRED [{sev}] {request_id}",
-            body=f"reason: {scrub_text(reason)[:1000]}\nsla_deadline: {record['sla_deadline']}\n"
+            body=f"reason: {published_text(reason, store_root=root, limit=1000)}\nsla_deadline: {record['sla_deadline']}\n"
                  f"resolve: aria-kernel human-required resolve --request-id {request_id}",
         )
     return record

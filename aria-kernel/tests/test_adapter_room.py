@@ -384,6 +384,41 @@ class RoomShapeTests(unittest.TestCase):
         self.assertNotIn(str(outside.resolve()), [source for _, source, _ in self._binds(argv)])
         self.assertIn(PROBE.resolve().as_posix(), [source for _, source, _ in self._binds(self._room())])
 
+    def test_a_trusted_prefix_anywhere_else_in_a_path_is_not_trusted(self) -> None:
+        # Review of the repair stack (security C1): a substring test accepted
+        # /tmp/x/tools/aria-poc/evil.py. Only this checkout's own code, with
+        # the prefix at the start of its checkout-relative path, is bound.
+        planted = self.layout.runner_temp.parent / "x" / "tools" / "aria-poc" / "evil.py"
+        planted.parent.mkdir(parents=True)
+        planted.write_text("print('{}')\n", encoding="utf-8")
+        environ = {**self.layout.environment, "PATH": os.environ.get("PATH", os.defpath)}
+        built = adapter_environment(environ, workspace_root=self.layout.workspace)
+        argv = wrap_adapter_in_sandbox(
+            ["python3", str(planted)], workspace_root=self.layout.workspace, cwd=self.layout.workspace,
+            environment=built.env, store=self.layout.tools, base=environ,
+        )
+        self.assertNotIn(str(planted.resolve()), [source for _, source, _ in self._binds(argv)])
+
+    def test_request_worktrees_and_the_resolved_tools_root_are_masked(self) -> None:
+        # Review of the repair stack (security C2): an implementer's signing
+        # keys sit in <checkout>/aria-worktrees/req-*/aria-debts/keys until
+        # revoked, and a room built with no `store` (genesis) left the tools
+        # root — `secrets/` included — readable.
+        worktrees = self.layout.workspace / "aria-worktrees" / "req-x" / "aria-debts" / "keys"
+        worktrees.mkdir(parents=True)
+        tools_root = self.layout.workspace / "aria-tools"
+        (tools_root / "secrets").mkdir(parents=True)
+        environ = {**self.layout.environment, "PATH": os.environ.get("PATH", os.defpath)}
+        built = adapter_environment(environ, workspace_root=self.layout.workspace)
+        with mock.patch.dict(os.environ, {"ARIA_TOOLS_DIR": str(tools_root)}):
+            argv = wrap_adapter_in_sandbox(
+                self.layout.probe_argv(), workspace_root=self.layout.workspace, cwd=self.layout.workspace,
+                environment=built.env, store=None, base=environ,
+            )
+        tmpfs = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--tmpfs"]
+        self.assertIn(str((self.layout.workspace / "aria-worktrees").resolve()), tmpfs)
+        self.assertIn(str(tools_root.resolve()), tmpfs)
+
     def test_a_store_that_is_the_workspace_is_refused(self) -> None:
         built = adapter_environment(self.layout.environment, workspace_root=self.layout.workspace)
         with self.assertRaisesRegex(impl.SandboxUnavailable, "adapter_room_workspace_is_private_root"):

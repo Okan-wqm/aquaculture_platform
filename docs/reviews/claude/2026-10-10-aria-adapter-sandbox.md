@@ -245,9 +245,11 @@ steps).
   `npm ci`, and on the runner. The new tests build their workspaces under `/var/tmp`, so they
   are unaffected.
 
-- ARIA-HIGH-234 stays OPEN. `GhCliIssueWriter`'s `gh` calls inherit the `GIT_CONFIG_*` push
-  credential triple (`github_adapters.py:267`, evidence below). That class is outside the adapter
-  seams, and `main` has routed the residual to `notify`, who already edits it.
+- ARIA-HIGH-234 stays OPEN. A `gh` call inherits the `GIT_CONFIG_*` push credential triple
+  (evidence below). `notify` traced the call the named test catches to `pr_manager.py:805-818`
+  (`create_env = {**os.environ, ...}` for `gh pr create`), not to `GhCliIssueWriter`, and in CI
+  the triple is set only as the publish/restore/release steps' own env. `main` recorded the
+  residual against ARIA-HIGH-234.
 
 ## ARIA-HIGH-234 — push leg fixed by #1676, a `gh` residual remains (registry decision: `main`)
 
@@ -269,8 +271,30 @@ Evidence, run in this slot on this branch:
   `test_implementation_delivery.py:1688`: the `gh` call's credential names are
   `["GH_TOKEN", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"]`.
 
-So the push leg is fixed. The `gh` leg still inherits the ambient triple:
-`github_adapters.py:267` runs `gh` with no `env=`. That is not a git call the kernel makes, but
-it is the residual the named test catches on a host that sets the triple. Whether HIGH-234
+So the push leg is fixed. The `gh` leg still inherits the ambient triple: the call the named
+test catches is `gh pr create` with `create_env = {**os.environ, ...}` (`pr_manager.py:805-818`).
+That is not a git call the kernel makes, but it is the residual the named test catches on a host
+that sets the triple. Whether HIGH-234
 closes, or this residual is recorded against it, is `main`'s registry decision. It is reported
 here and not changed, because it is outside the adapter seams.
+
+## Integration and security review of the whole stack (main, 2026-10-10)
+
+Fixed in the follow-up commit:
+
+- **Trusted program check.** The room bound a program under a trusted prefix by substring, so
+  `/tmp/x/tools/aria-poc/evil.py` passed. It now requires the path to be under this checkout's
+  root, with the prefix at the start of its checkout-relative path.
+- **More directories hidden.** The room now also hides the request worktrees
+  (`<checkout>/aria-worktrees`, where an implementer's signing keys sit until they are revoked)
+  and the tools root the kernel resolves for the process even when no `store` is passed (genesis
+  passes none; off CI that root holds `secrets/`).
+
+Recorded, not changed here:
+
+- **ARIA-HIGH-431:** the implementer's command policy uses the same substring trust
+  (`implementation_safety.py:571-575`). The fix must anchor to the implementer's worktree root,
+  which that function does not receive today.
+- **ARIA-MEDIUM-432:** the room hides a fixed list of directories and shows the rest of the
+  workspace. A tracked-files view is the tier-1 fix. bwrap should also be launched by its
+  absolute path.

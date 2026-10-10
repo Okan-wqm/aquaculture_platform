@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import * as YAML from 'yaml';
 
@@ -60,7 +60,15 @@ export function findingIdAliasesPath(repoRoot: string): string {
 
 /** Every recorded alias, or an empty list when the sidecar does not exist. */
 export function loadFindingIdAliases(repoRoot: string): readonly FindingIdAlias[] {
-  const path = findingIdAliasesPath(repoRoot);
+  return loadFindingIdAliasesAt(findingIdAliasesPath(repoRoot));
+}
+
+/** The sidecar that sits beside a given findings.jsonl — the aliases that registry answers for. */
+export function findingIdAliasesBeside(registryPath: string): readonly FindingIdAlias[] {
+  return loadFindingIdAliasesAt(resolve(dirname(registryPath), 'finding-id-aliases.yaml'));
+}
+
+function loadFindingIdAliasesAt(path: string): readonly FindingIdAlias[] {
   if (!existsSync(path)) return [];
   const parsed = YAML.parse(readFileSync(path, 'utf8')) as AliasSidecar | null;
   return parsed?.aliases ?? [];

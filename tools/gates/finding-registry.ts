@@ -77,7 +77,7 @@ import {
   findNonCanonicalFindingEvidence,
   requiresCanonicalFindingEvidence,
 } from './finding-evidence-shape';
-import { loadCanonicalToAliases } from './finding-id-aliases';
+import { findingIdAliasesBeside, loadCanonicalToAliases } from './finding-id-aliases';
 import {
   canonicalJson,
   chainTip,
@@ -634,12 +634,22 @@ export function claimedIdsForDomain(
   entries: ReadonlyArray<{ id: string }>,
   authority?: FindingAllocationAuthority,
   reader: ActiveRegistryReader = FILE_REGISTRY_READER,
+  aliasIds: readonly string[] = [],
 ): string[] {
   const claimed = entries.map((entry) => entry.id);
   if (authority) appendAll(claimed, idsFromActiveRegistries(authority, reader));
   if (domain === 'ORPHAN') {
     appendAll(claimed, orphanMarkdownReservedIds(ORPHAN_FINDINGS_MD_PATH));
   }
+  // An alias (the finding-id-aliases.yaml beside the registry) names a merged
+  // trailer whose ledger row lives under another id; the alias itself has no
+  // row. Handing its sequence out again would give a new finding the id old
+  // trailers already resolve to another one — finding-id-aliases.spec.ts would
+  // catch the shadowing, but only after the row was written. Claim it here.
+  appendAll(
+    claimed,
+    aliasIds.filter((id) => id.startsWith(`${domain}-`)),
+  );
   return claimed;
 }
 
@@ -674,7 +684,13 @@ export function appendAllocatedFinding(
 
   const entries = loadRegistry(paths.registryPath);
   const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
-  const existingIds = claimedIdsForDomain(domain, entries, authority);
+  const existingIds = claimedIdsForDomain(
+    domain,
+    entries,
+    authority,
+    FILE_REGISTRY_READER,
+    findingIdAliasesBeside(paths.registryPath).map((alias) => alias.alias),
+  );
   const reserved = reservationLedger?.domains[domain];
   if (reserved) {
     existingIds.push(`${domain}-RESERVED-${String(reserved.sequence).padStart(3, '0')}`);
@@ -731,7 +747,16 @@ export function appendExplicitFinding(
   // severity) and the classifier segment varies with severity anyway, so
   // `ORPHAN-MEDIUM-416` never string-matched the live `416` heading. The
   // sequence is the identity.
-  const claimed = claimedSequences(idParts[1], claimedIdsForDomain(idParts[1], entries, authority));
+  const claimed = claimedSequences(
+    idParts[1],
+    claimedIdsForDomain(
+      idParts[1],
+      entries,
+      authority,
+      FILE_REGISTRY_READER,
+      findingIdAliasesBeside(paths.registryPath).map((alias) => alias.alias),
+    ),
+  );
   if (claimed.has(Number.parseInt(idParts[3], 10))) {
     process.stderr.write(
       `Duplicate id: ${stub.id} — sequence ${idParts[3]} is already claimed in ` +

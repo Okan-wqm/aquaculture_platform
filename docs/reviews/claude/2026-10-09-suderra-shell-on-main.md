@@ -6,13 +6,15 @@ built 2026-09-21 from PR #1569's head `cc65fa4bd` plus uncommitted edits; kept a
 replaced it with main's shell, so tenant users lost the Suderra look. This branch
 (`feat/suderra-shell-on-main`) re-expresses that look on main's primitives and tokens.
 
-The same two gaps are recorded on `feat/land-suderra-web` (#1737) as FE-HIGH-313 and FE-HIGH-314;
-that registry is not on main, so they are registered here under main's next FE numbers. When
-#1737 lands, 313/314 close against the commit that closes 321/322.
+The same two gaps are FE-HIGH-313 and FE-HIGH-314
+(`docs/reviews/claude/2026-10-03-suderra-web-landing.md`), registered by #1737. This branch was
+written before #1737 landed and named them FE-HIGH-321 / FE-HIGH-322; after #1737 merged, the
+branch-only rows were dropped and `finding-id-aliases.yaml` resolves 321 → 313 and 322 → 314
+for the two pushed commits whose trailers name them. The closing commit names 313 and 314.
 
 Owner: claude (implementation), okan (review).
 
-## FE-HIGH-321 — The Suderra shell and shared-ui skin is not on main
+## FE-HIGH-321 (alias of FE-HIGH-313) — The Suderra shell and shared-ui skin is not on main
 
 Ported, as a re-expression (no file copied from `cc65fa4bd`):
 
@@ -51,7 +53,7 @@ Ported, as a re-expression (no file copied from `cc65fa4bd`):
 Main's own features are untouched: the MFA setup screen (ADR-046), `ToastProvider`,
 `ActAsTenantBanner`, `UserLocaleSync`, the AI assistant drawer, the skip link, the theme toggle.
 
-## FE-HIGH-322 — The tenant-admin Suderra restyle is not on main
+## FE-HIGH-322 (alias of FE-HIGH-314) — The tenant-admin Suderra restyle is not on main
 
 Production's restyle is 194 static inline style blocks and 89 raw hex colours. On main the four
 pages (dashboard, users, roles, activity) render inside `sd-page` under a Suderra eyebrow, so the
@@ -86,8 +88,11 @@ tenant-admin, shell and shared-ui stay at zero on both ratchets.
 
 `sd-page` is a colour and type scope only, with no layout of its own, so #1737's tenant-admin
 roots (full-height flex pages, `space-y-6` stacks) keep their layout. A page that wants the
-Suderra 22px rhythm adds `sd-stack`: the four pages here and messaging-module's three do. Class
-names are the same on both branches.
+Suderra 22px rhythm adds `sd-stack`: the four pages here and messaging-module's three do.
+Checked after merging #1737: TenantMessagesPage (`sd-page h-[calc(100dvh-180px)] flex flex-col`),
+TenantSupportPage and TenantAnnouncementsPage (`sd-page h-full flex flex-col`) carry no
+`sd-stack`, so their header/body split is their own flex layout with no added margin.
+`sd-page-scope.spec.ts` (#1737) now lists all thirteen scoped pages.
 
 ## Review of 5435f85ba
 

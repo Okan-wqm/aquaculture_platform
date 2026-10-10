@@ -258,3 +258,30 @@ Added:
 Unchanged: allocating a batch to a tank with INITIAL_STOCKING still moves QUARANTINE to ACTIVE
 automatically, as it did before. A batch stocked through its creation-time initial locations stays
 in QUARANTINE until a manager releases it.
+
+## E2E follow-through (2026-10-10, tracked, OPEN)
+
+Moving the farm e2e specs to `releaseBatchFromQuarantine` exposed two test-reachability gaps. Both
+stay OPEN, owned by okan, deadline 2026-10-24.
+
+### FARM-MEDIUM-403
+
+Severity: MEDIUM. Deadline: 2026-10-24.
+
+`e2e/tests/modules/farm` runs in no CI target. The `@aquaculture/e2e-tests` Nx project declares only
+a lint target, and no root `test:*` script selects these specs, so
+`tests/invariants/test-target-ci-reachability.spec.ts` cannot see them. In PR #1736 they were only
+typechecked. Fix direction: a `test:e2e-farm` target on `@aquaculture/e2e-tests`
+(`jest -c e2e/jest.config.ts --testPathPatterns modules/farm`), invoked from a workflow that brings
+up the stack (in the style of db-migration-check). Once the target exists, the reachability invariant
+requires its CI invocation.
+
+### FARM-MEDIUM-404
+
+Severity: MEDIUM. Deadline: 2026-10-24.
+
+`apps/farm-service/test/*.e2e-spec.ts` targets a GraphQL schema that no longer exists: an
+`updateBatchStatus(tenantId: …)` argument, a STOCKED status and lowercase status values. No target
+runs these files. Fix direction: rewrite them against the current schema, or delete them with a
+justification that `e2e/tests/modules/farm` covers the same flows, and make whatever remains
+reachable from CI.

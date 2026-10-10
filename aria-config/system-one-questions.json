@@ -1,6 +1,6 @@
 {
   "$schema": "aria/system-one-questions/v1",
-  "enabled": false,
+  "enabled": true,
   "model": "jev-1.13.0",
   "questions": [
     {

@@ -123,4 +123,19 @@ describe('BottomSheet', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(document.body.style.overflow).toBe('');
   });
+
+  it('renders the footer pinned outside the scrolling body, so the commit action stays reachable', () => {
+    render(
+      <BottomSheet
+        isOpen
+        onClose={vi.fn()}
+        title="Record mortality"
+        footer={<button type="button">Save</button>}
+      >
+        <p>body</p>
+      </BottomSheet>,
+    );
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save.closest('.overflow-y-auto')).toBeNull();
+  });
 });

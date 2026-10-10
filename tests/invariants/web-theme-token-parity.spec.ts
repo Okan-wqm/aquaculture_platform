@@ -223,7 +223,11 @@ describe('INVARIANT (FE-HIGH-073): colour utilities only name scales and steps a
 
   it('reads both palettes', () => {
     expect(webSteps.get('primary')?.size).toBe(10);
-    expect(mobileSteps.get('ocean')?.has('600')).toBe(true);
+    // AquaMobil v4 paints only from its token scales (tokens.css → tailwind.config.js):
+    // the stepped ones are the surfaces and the ink ramp. Its legacy ocean/sea/coral
+    // palettes are deleted and banned by its own design-token invariant.
+    expect(mobileSteps.get('surface')?.has('1')).toBe(true);
+    expect(mobileSteps.get('ink')?.has('3')).toBe(true);
   });
 
   it('no source file under web/ uses a colour utility that would compile to nothing', () => {
@@ -301,5 +305,162 @@ describe('INVARIANT (FE-HIGH-074): `--color-gray-400` passes WCAG AA on both the
     if (override === undefined)
       throw new Error("theme.css has no [data-theme='dark'] override block");
     expect(contrast(tokenIn(override), DARK_SURFACE)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+/**
+ * INVARIANT (FE-HIGH-321): the Suderra scope paints only from theme.css, and
+ * the contrast it relies on holds in both themes.
+ *
+ * `sd-page` / `sd-surface` (web/shared-ui/src/styles/suderra.css) re-assign the
+ * gray, primary and semantic scales inside the tenant console. The values live
+ * in theme.css as `--color-sd-*` tokens; suderra.css may only reference them,
+ * so theme.css stays the one owner of every colour value and this file is the
+ * one place their contrast is measured. Review of 5435f85ba found a hint token
+ * at 2.7:1 on parchment carrying the dialog close icon and chat timestamps.
+ */
+describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both themes', () => {
+  const SUDERRA_CSS = 'web/shared-ui/src/styles/suderra.css';
+  const suderra = readFileSync(resolve(REPO_ROOT, SUDERRA_CSS), 'utf8');
+  const STEPS = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900'];
+
+  function hexToRgb(hex: string): [number, number, number] {
+    return [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16)) as [
+      number,
+      number,
+      number,
+    ];
+  }
+  function luminance(hex: string): number {
+    const [r, g, b] = hexToRgb(hex).map((value) => {
+      const c = value / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  function contrast(a: string, b: string): number {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  /** `fg` drawn at `alpha` over `bg` — a tinted surface such as a chat bubble. */
+  function over(fg: string, alpha: number, bg: string): string {
+    const f = hexToRgb(fg);
+    const g = hexToRgb(bg);
+    return `#${f
+      .map((value, i) => Math.round(alpha * value + (1 - alpha) * (g[i] ?? 0)))
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('')}`;
+  }
+  function tokenIn(block: string, name: string): string {
+    const match = new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`).exec(block);
+    if (match?.[1] === undefined) throw new Error(`no hex --color-${name} in the block`);
+    return match[1].toLowerCase();
+  }
+  const light = (name: string): string => tokenIn(themeBlock(), name);
+  const darkBlock = (() => {
+    const blocks = THEME_SOURCE.match(/\[data-theme='dark'\]\s*\{[^}]*\}/g) ?? [];
+    const sd = blocks.find((block) => block.includes('--color-sd-paper'));
+    if (sd === undefined) throw new Error("theme.css has no [data-theme='dark'] block for sd-*");
+    return sd;
+  })();
+  const dark = (name: string): string => tokenIn(darkBlock, name);
+
+  it('suderra.css holds no colour value of its own', () => {
+    const code = suderra.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(code.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab)\(/g) ?? []).toEqual([]);
+  });
+
+  it('the scope re-assigns every step of each scale to its theme.css ramp', () => {
+    const scope = /:where\(\.sd-page, \.sd-surface\) \{([^}]*)\}/.exec(suderra)?.[1] ?? '';
+    const darkScope =
+      /\[data-theme='dark'\] :where\(\.sd-page, \.sd-surface\) \{([^}]*)\}/.exec(suderra)?.[1] ??
+      '';
+    const ramps: Record<string, string> = {
+      gray: 'sd-ink',
+      primary: 'sd-teal',
+      success: 'sd-mint',
+      warning: 'sd-amber',
+      error: 'sd-rust',
+      info: 'sd-sea',
+    };
+    const missing: string[] = [];
+    for (const [scale, ramp] of Object.entries(ramps)) {
+      for (const step of STEPS) {
+        light(`${ramp}-${step}`);
+        if (!scope.includes(`--color-${scale}-${step}: var(--color-${ramp}-${step});`))
+          missing.push(`${scale}-${step}`);
+      }
+    }
+    for (const step of STEPS) {
+      light(`sd-deep-${step}`);
+      if (!darkScope.includes(`--color-gray-${step}: var(--color-sd-deep-${step});`))
+        missing.push(`dark gray-${step}`);
+    }
+    expect(missing).toEqual([]);
+    expect(scope).toContain('--color-white: var(--color-sd-cream);');
+  });
+
+  it('both gray ramps run light to dark, step by step', () => {
+    for (const ramp of ['sd-ink', 'sd-deep']) {
+      const lum = STEPS.map((step) => luminance(light(`${ramp}-${step}`)));
+      expect(lum).toEqual([...lum].sort((a, b) => b - a));
+    }
+  });
+
+  it('light theme: text tokens read 4.5:1 on parchment, paper and a chat bubble', () => {
+    const parchment = light('sd-parchment');
+    const paper = light('sd-paper');
+    const bubble = over(light('sd-ink'), 0.09, parchment);
+    for (const text of [
+      'sd-ink',
+      'sd-ink-soft',
+      'sd-ink-muted',
+      'sd-ink-hint',
+      'sd-teal-deep',
+      'sd-danger-ink',
+    ]) {
+      expect({ text, parchment: contrast(light(text), parchment) >= 4.5 }).toEqual({
+        text,
+        parchment: true,
+      });
+      expect({ text, paper: contrast(light(text), paper) >= 4.5 }).toEqual({ text, paper: true });
+    }
+    expect(contrast(light('sd-ink-hint'), bubble)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(light('sd-mint-paper'), light('sd-teal-deep'))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('dark theme: the re-assigned text tokens read 4.5:1 on parchment, paper and a chat bubble', () => {
+    const parchment = dark('sd-parchment');
+    const paper = dark('sd-paper');
+    // sd-rule under the dark theme is rail-item (#c6dde4) at 12%.
+    const bubble = over(light('sd-rail-item'), 0.12, parchment);
+    for (const text of [
+      'sd-ink',
+      'sd-ink-soft',
+      'sd-ink-muted',
+      'sd-ink-hint',
+      'sd-teal-deep',
+      'sd-danger-ink',
+    ]) {
+      expect({ text, parchment: contrast(dark(text), parchment) >= 4.5 }).toEqual({
+        text,
+        parchment: true,
+      });
+      expect({ text, paper: contrast(dark(text), paper) >= 4.5 }).toEqual({ text, paper: true });
+    }
+    expect(contrast(dark('sd-ink-hint'), bubble)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(dark('sd-mint-paper'), dark('sd-teal-deep'))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('inside the scope: muted text and button labels hold 4.5:1 (light ramp and dark ramp)', () => {
+    const cream = light('sd-cream');
+    expect(contrast(light('sd-ink-400'), cream)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(light('sd-ink-400'), light('sd-ink-50'))).toBeGreaterThanOrEqual(4.5);
+    for (const fill of ['sd-teal-600', 'sd-mint-600', 'sd-rust-600', 'sd-amber-600']) {
+      expect({ fill, ok: contrast(cream, light(fill)) >= 4.5 }).toEqual({ fill, ok: true });
+    }
+    expect(contrast(light('sd-deep-400'), light('sd-deep-900'))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(light('sd-deep-400'), light('sd-deep-800'))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(light('sd-deep-300'), light('sd-deep-800'))).toBeGreaterThanOrEqual(4.5);
   });
 });

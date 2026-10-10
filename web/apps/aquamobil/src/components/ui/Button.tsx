@@ -1,49 +1,68 @@
 /**
- * Button — AquaMobil's text button on the touch floor.
+ * Button — the app's only text-button primitive.
  *
- * WHY: 170 raw <button> elements re-derived padding, radius, focus ring and
- * disabled state by hand (IconButton covered the icon-only case). One
- * primitive carries the 44 px floor, the touch affordance, the focus ring, a
- * loading state that keeps the width, and the four intents the app uses.
+ * WHY this exists: before v4 there was no shared button. Every screen wrote a
+ * raw `<button>` with an inline gradient class string, so the same action looked
+ * different on two pages and no change could be made in one place. Worse, each
+ * one re-decided its own height, which is how sub-floor tap targets got in.
+ *
+ * Heights come from the density tokens (src/styles/tokens.css), so the Gloves
+ * switch in Account grows every button in the app at once. `min-h-touch` is
+ * still applied underneath: the density scale can raise a control above the 44px
+ * accessibility floor but never below it.
+ *
+ * `loading` keeps the label and the width, disables the control and announces
+ * the busy state — the retry in ErrorState and the confirm in ConfirmSheet use it.
  */
 import { clsx } from 'clsx';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { type ButtonHTMLAttributes, type ReactElement, type ReactNode } from 'react';
 import { twMerge } from 'tailwind-merge';
 
 import { Spinner } from './Spinner';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  /**
+   * `primary` — the accent action. One per screen; the teal is what the eye
+   *   goes to, so a second one costs the first its meaning.
+   * `secondary` — a real but not-the-point action, on a raised surface.
+   * `ghost` — low-emphasis, no surface until pressed.
+   * `danger` — destructive. Coral is the alarm colour, so this reads as one.
+   */
   variant?: ButtonVariant;
-  size?: 'md' | 'lg';
+  /** `save` is the sheet's full-width commit height; `default` is everything else. */
+  size?: 'default' | 'save';
+  /** Stretch to the container. Sheet CTAs and dialog actions do. */
   block?: boolean;
+  /** Pending: a spinner before the label, the control disabled and aria-busy. */
   loading?: boolean;
-  leading?: ReactNode;
+  children: ReactNode;
 }
 
-const VARIANT: Record<ButtonVariant, string> = {
-  primary: 'bg-ocean-600 text-white shadow-sm hover:bg-ocean-700 active:bg-ocean-700',
-  secondary:
-    'bg-white text-gray-900 border border-gray-200 hover:bg-gray-50 dark:bg-gray-900 dark:text-white dark:border-gray-700 dark:hover:bg-gray-800',
-  danger: 'bg-red-600 text-white shadow-sm hover:bg-red-700',
-  ghost:
-    'bg-transparent text-ocean-600 hover:bg-ocean-50 dark:text-ocean-400 dark:hover:bg-ocean-900/20',
+const VARIANT_CLASS: Record<ButtonVariant, string> = {
+  primary: 'bg-acc text-acc-on shadow-acc',
+  secondary: 'bg-surface-2 text-ink-1',
+  ghost: 'bg-transparent text-ink-2 active:bg-surface-2',
+  danger: 'bg-crit text-white',
 };
-const SIZE = { md: 'min-h-touch px-4 py-2.5 text-sm', lg: 'min-h-[3.25rem] px-5 py-3.5 text-base' };
+
+const SIZE_CLASS: Record<NonNullable<ButtonProps['size']>, string> = {
+  default: 'h-tap-add px-4 rounded-2xl text-title',
+  save: 'h-tap-save px-5 rounded-2xl text-title',
+};
 
 export function Button({
-  variant = 'primary',
-  size = 'md',
+  variant = 'secondary',
+  size = 'default',
   block = false,
   loading = false,
-  leading,
   className,
   type = 'button',
   disabled,
   children,
   ...rest
-}: ButtonProps): ReactNode {
+}: ButtonProps): ReactElement {
   return (
     <button
       type={type}
@@ -51,18 +70,20 @@ export function Button({
       aria-busy={loading || undefined}
       className={twMerge(
         clsx(
-          'inline-flex items-center justify-center gap-2 rounded-xl font-semibold touch-feedback transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900',
-          'disabled:cursor-not-allowed disabled:opacity-50',
-          VARIANT[variant],
-          SIZE[size],
+          'inline-flex items-center justify-center gap-2 font-semibold',
+          // The floor holds even if a density token were ever set too low.
+          'min-h-touch touch-feedback',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
+          'disabled:opacity-50 disabled:pointer-events-none',
+          VARIANT_CLASS[variant],
+          SIZE_CLASS[size],
           block && 'w-full',
         ),
         className,
       )}
       {...rest}
     >
-      {loading ? <Spinner size="sm" color="inherit" /> : leading}
+      {loading && <Spinner size="sm" color="inherit" />}
       {children}
     </button>
   );

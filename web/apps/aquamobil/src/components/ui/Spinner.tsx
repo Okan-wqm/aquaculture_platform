@@ -5,7 +5,7 @@
  * `@aquaculture/shared-ui` (own lockfile, offline-first), so its primitives
  * live under components/ui/ with the web design system's API: `size`,
  * `color`, `block`, `text`. `color="inherit"` takes the surrounding text colour
- * (a button label); `primary` is the ocean brand blue. The arc is the same
+ * (a button label); `primary` is the v4 accent token. The arc is the same
  * path shared-ui draws, so both products spin the same shape. Every other
  * spinner in the app is a hand-rolled ring or a spun icon, and
  * tests/invariants/web-design-system-ratchet.spec.ts keeps that count at zero.
@@ -32,9 +32,9 @@ const SIZE = {
 } as const;
 
 const COLOR = {
-  primary: 'text-ocean-600',
+  primary: 'text-acc',
   white: 'text-white',
-  gray: 'text-gray-500 dark:text-gray-400',
+  gray: 'text-ink-3',
   inherit: 'text-current',
 } as const;
 
@@ -68,7 +68,7 @@ export function Spinner({
           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
         />
       </svg>
-      {text && <span className="ml-2 text-sm text-gray-600 dark:text-gray-300">{text}</span>}
+      {text && <span className="ml-2 text-body text-ink-2">{text}</span>}
       {!text && label && <span className="sr-only">{label}</span>}
     </span>
   );

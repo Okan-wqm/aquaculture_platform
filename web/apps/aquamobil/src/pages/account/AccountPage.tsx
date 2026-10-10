@@ -1,15 +1,38 @@
+/**
+ * AccountPage — the v4 Account screen.
+ *
+ * WHAT CHANGED: the page was a grey ground carrying a grey-gradient profile
+ * banner with an SVG wave, then three "Preferences / Data & Sync / Security"
+ * cards of hand-rolled rows. The banner is gone — it spent the top third of the
+ * screen on an identity the worker already knows, above the two things they
+ * actually come here for (is my work synced, and make the controls bigger).
+ *
+ * The v4 grouping puts those first: a sync card carrying the pending count, the
+ * connection state, then Display (theme + touch targets), then the device data
+ * rows, then who is signed in and the way out. Identity is now a row near the
+ * bottom rather than a banner at the top.
+ *
+ * The theme and density controls themselves are unchanged — they already drive
+ * `data-theme` / `data-density` (src/hooks/useTheme.ts, useDensity.ts); only
+ * their surroundings were restyled, and the hand-rolled segment strips were
+ * swapped for <SegmentedControl>, which brings the 44px touch floor and a
+ * group label the hand-rolled version did not have.
+ */
+import { useI18n, type I18nContextValue } from '@aquaculture/shared-ui/i18n';
 import {
   Moon,
   Sun,
+  Palette,
+  Hand,
   Bell,
-  Cloud,
   Database,
   Trash2,
   HardDrive,
   Fingerprint,
   LogOut,
-  ChevronRight,
   Shield,
+  Wifi,
+  WifiOff,
   X,
   Monitor,
 } from 'lucide-react';
@@ -17,13 +40,26 @@ import type { JSX } from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
-import { Spinner } from '@/components/ui/Spinner';
+import { AppHeader } from '@/components/AppHeader';
+import {
+  Button,
+  Card,
+  Chip,
+  ConfirmSheet,
+  IconButton,
+  Input,
+  ListRow,
+  SegmentedControl,
+  StatusDot,
+  type SegmentedOption,
+} from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
-import { useDarkMode } from '@/hooks/useDarkMode';
-import type { DarkModePreference } from '@/hooks/useDarkMode';
+import { useDensity } from '@/hooks/useDensity';
+import type { Density } from '@/hooks/useDensity';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTheme } from '@/hooks/useTheme';
+import type { ThemePreference } from '@/hooks/useTheme';
 import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
 import type { Role } from '@/types';
@@ -48,27 +84,27 @@ const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? 
 // renaming a backend role a compile-time exhaustiveness error here (tier-3
 // detectable) — the old MANAGER/OPERATOR/VIEWER entries were phantom values the
 // server never emits and have been removed.
+//
+// WHY the `type-*` tokens rather than the semantic ramp: a role badge is
+// CATEGORICAL colour, the same job the per-log-type hues do — four values that
+// must be told apart at a glance, none of which is an alarm, a watch or a
+// success. Reaching for `crit` because the old badge was red would say
+// "something is wrong with this account". These four keep the previous hue
+// relationships (coral / blue / purple / green) and, unlike the raw palette they
+// replace, resolve correctly in all three themes.
 const ROLE_BADGE_CONFIG: Record<Role, { bg: string; text: string; label: string }> = {
   SUPER_ADMIN: {
-    bg: 'bg-red-100 dark:bg-red-900/30',
-    text: 'text-red-700 dark:text-red-300',
+    bg: 'bg-type-mortality-dim',
+    text: 'text-type-mortality',
     label: 'Super Admin',
   },
-  TENANT_ADMIN: {
-    bg: 'bg-blue-100 dark:bg-blue-900/30',
-    text: 'text-blue-700 dark:text-blue-300',
-    label: 'Tenant Admin',
-  },
+  TENANT_ADMIN: { bg: 'bg-type-water-dim', text: 'text-type-water', label: 'Tenant Admin' },
   MODULE_MANAGER: {
-    bg: 'bg-purple-100 dark:bg-purple-900/30',
-    text: 'text-purple-700 dark:text-purple-300',
+    bg: 'bg-type-transfer-dim',
+    text: 'text-type-transfer',
     label: 'Manager',
   },
-  MODULE_USER: {
-    bg: 'bg-emerald-100 dark:bg-emerald-900/30',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    label: 'Operator',
-  },
+  MODULE_USER: { bg: 'bg-type-harvest-dim', text: 'text-type-harvest', label: 'Operator' },
 };
 
 // ============================================================================
@@ -89,13 +125,13 @@ function getInitials(name: string): string {
 }
 
 /**
- * Format a timestamp into a human-readable relative string like "5 min ago".
- * Falls back to "Never" when no timestamp is stored.
+ * Format a timestamp into a human-readable relative string like "5 min ago",
+ * in the reader's language. Falls back to "Never" when no timestamp is stored.
  */
-function formatRelativeTime(isoString: string | null): string {
-  if (!isoString) return 'Never';
+function formatRelativeTime(isoString: string | null, t: I18nContextValue['t']): string {
+  if (!isoString) return t('m.account.relative.never');
   const then = new Date(isoString).getTime();
-  if (isNaN(then)) return 'Never';
+  if (isNaN(then)) return t('m.account.relative.never');
 
   const diffMs = Date.now() - then;
   const diffSec = Math.floor(diffMs / 1000);
@@ -103,91 +139,32 @@ function formatRelativeTime(isoString: string | null): string {
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
 
-  if (diffSec < 60) return 'Just now';
-  if (diffMin < 60) return `${diffMin} min ago`;
-  if (diffHour < 24) return `${diffHour}h ago`;
-  return `${diffDay}d ago`;
-}
-
-/**
- * Retrieve the last sync timestamp from localStorage.
- */
-
-// ============================================================================
-// Section Menu Item Sub-component
-// ============================================================================
-
-interface MenuRowProps {
-  icon: typeof Cloud;
-  iconColor: string;
-  iconBg: string;
-  label: string;
-  subtitle?: string;
-  badge?: number;
-  showChevron?: boolean;
-  destructive?: boolean;
-  rightContent?: React.ReactNode;
-  onClick?: () => void;
-  isLast?: boolean;
-}
-
-function MenuRow({
-  icon: Icon,
-  iconColor,
-  iconBg,
-  label,
-  subtitle,
-  badge,
-  showChevron = true,
-  destructive = false,
-  rightContent,
-  onClick,
-  isLast = false,
-}: MenuRowProps): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-4 p-4 touch-feedback transition-all text-left ${
-        !isLast ? 'border-b border-gray-50 dark:border-gray-800' : ''
-      }`}
-    >
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${iconBg}`}>
-        <Icon size={20} className={iconColor} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <span
-          className={`font-medium ${
-            destructive ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'
-          }`}
-        >
-          {label}
-        </span>
-        {subtitle && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{subtitle}</p>
-        )}
-      </div>
-      {badge != null && badge > 0 && (
-        <span className="bg-red-500 text-white text-[11px] font-bold rounded-full min-w-[22px] h-[22px] flex items-center justify-center px-1.5">
-          {badge > 99 ? '99+' : badge}
-        </span>
-      )}
-      {rightContent}
-      {showChevron && !rightContent && (
-        <ChevronRight size={18} className="text-gray-300 dark:text-gray-600 flex-shrink-0" />
-      )}
-    </button>
-  );
+  if (diffSec < 60) return t('m.account.relative.justNow');
+  if (diffMin < 60) return t('m.account.relative.minutes', { n: diffMin });
+  if (diffHour < 24) return t('m.account.relative.hours', { n: diffHour });
+  return t('m.account.relative.days', { n: diffDay });
 }
 
 // ============================================================================
-// Section Header Sub-component
+// Section Header + count badge
 // ============================================================================
 
 function SectionHeader({ title }: { title: string }): JSX.Element {
+  return <h2 className="text-body font-semibold text-ink-3 px-1">{title}</h2>;
+}
+
+/**
+ * The pending / unread counter carried by a row.
+ *
+ * WHY amber rather than the coral it used to be: unsent work and unread
+ * notifications are things to WATCH, not alarms. Coral is spent on alarms only,
+ * and a permanently-coral badge on this screen would train the eye to ignore it.
+ */
+function CountBadge({ count }: { count: number }): JSX.Element {
   return (
-    <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-5 mb-2">
-      {title}
-    </h2>
+    <span className="text-meta font-semibold tabular-nums px-2 py-0.5 rounded-full bg-warn-dim text-warn">
+      {count > 99 ? '99+' : count}
+    </span>
   );
 }
 
@@ -200,6 +177,7 @@ interface BiometricPanelProps {
 }
 
 function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
+  const { t } = useI18n();
   const { user } = useAuth();
   const {
     isRegistering,
@@ -242,125 +220,129 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
   };
 
   return (
-    <div className="px-5 pt-4">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card overflow-hidden border border-gray-100 dark:border-gray-800 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Shield size={18} className="text-emerald-600" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">
-              Biometric Authentication
-            </h3>
-          </div>
-          <button
-            onClick={() => {
-              onClose();
-              clearBiometricError();
-              setSetupSuccess(false);
-            }}
-            className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            <X size={18} />
-          </button>
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Shield size={18} className="text-acc" aria-hidden />
+          <h3 className="text-title font-semibold text-ink-1">{t('m.account.biometric.title')}</h3>
         </div>
-
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          Use Face ID, Touch ID, or fingerprint to sign in quickly without entering your password.
-        </p>
-
-        {/* Error message */}
-        {biometricError && (
-          <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-600 dark:text-red-300">
-            {biometricError}
-          </div>
-        )}
-
-        {/* Success message */}
-        {setupSuccess && (
-          <div className="mb-4 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-600 dark:text-emerald-300">
-            Biometric login enabled successfully! You can now use biometric authentication on the
-            login screen.
-          </div>
-        )}
-
-        {/* Registered credentials */}
-        {credentials.length > 0 && (
-          <div className="mb-4">
-            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-              Registered Devices
-            </h4>
-            <div className="space-y-2">
-              {credentials.map((cred) => (
-                <div
-                  key={cred.credentialId}
-                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl"
-                >
-                  <div className="flex items-center gap-3">
-                    <Fingerprint size={18} className="text-emerald-600" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        {cred.deviceName}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Last used: {new Date(cred.lastUsedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      void handleRemove(cred.credentialId);
-                    }}
-                    className="p-2 text-red-400 hover:text-red-600 transition-colors"
-                    title="Remove credential"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Add new credential */}
-        <div className="space-y-3">
-          <input
-            type="text"
-            value={deviceName}
-            onChange={(e) => setDeviceName(e.target.value)}
-            placeholder="Device name (e.g., My iPhone)"
-            maxLength={100}
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 text-sm"
-          />
-          <input
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            placeholder="Confirm with your password"
-            maxLength={128}
-            autoComplete="current-password"
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 text-sm"
-          />
-          <button
-            onClick={() => {
-              void handleEnable();
-            }}
-            disabled={isRegistering || !currentPassword}
-            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-          >
-            {isRegistering ? (
-              <>
-                <Spinner size="sm" color="white" />
-                Setting up...
-              </>
-            ) : (
-              <>
-                <Fingerprint size={18} />
-                {credentials.length > 0 ? 'Add Another Device' : 'Enable Biometric Login'}
-              </>
-            )}
-          </button>
-        </div>
+        <IconButton
+          aria-label={t('m.account.biometric.close')}
+          onClick={() => {
+            onClose();
+            clearBiometricError();
+            setSetupSuccess(false);
+          }}
+          className="bg-surface-2 rounded-xl"
+        >
+          <X size={18} className="text-ink-2" />
+        </IconButton>
       </div>
-    </div>
+
+      <p className="text-body text-ink-2 mb-4">{t('m.account.biometric.intro')}</p>
+
+      {/* Error message */}
+      {biometricError && (
+        <div className="mb-4 p-3 bg-crit-dim border border-crit rounded-xl text-body text-crit">
+          {biometricError}
+        </div>
+      )}
+
+      {/* Success message — green confirms. There is no `ok-dim` token, so the
+          confirmation sits on the recessed surface and carries the green in its
+          text, the way the "All clear" badge does. */}
+      {setupSuccess && (
+        <div className="mb-4 p-3 bg-surface-2 border border-line rounded-xl text-body text-ok">
+          {t('m.account.biometric.enabled')}
+        </div>
+      )}
+
+      {/* Registered credentials */}
+      {credentials.length > 0 && (
+        <div className="mb-4">
+          <h4 className="text-meta font-semibold text-ink-3 mb-2">
+            {t('m.account.biometric.devices')}
+          </h4>
+          <div className="space-y-2">
+            {credentials.map((cred) => (
+              <div
+                key={cred.credentialId}
+                className="flex items-center justify-between gap-3 p-3 bg-surface-2 rounded-xl"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Fingerprint size={18} className="text-ok shrink-0" aria-hidden />
+                  <div className="min-w-0">
+                    <p className="text-body font-medium text-ink-1 truncate">{cred.deviceName}</p>
+                    <p className="text-meta text-ink-3">
+                      {t('m.account.biometric.lastUsed', {
+                        date: new Date(cred.lastUsedAt).toLocaleDateString(),
+                      })}
+                    </p>
+                  </div>
+                </div>
+                {/* Removing an enrolled device is destructive, hence coral. It
+                    was a ~32px target; IconButton bakes the 44px floor in. */}
+                <IconButton
+                  aria-label={t('m.account.biometric.remove', { device: cred.deviceName })}
+                  title={t('m.account.biometric.removeTitle')}
+                  onClick={() => {
+                    void handleRemove(cred.credentialId);
+                  }}
+                  className="text-crit shrink-0"
+                >
+                  <Trash2 size={16} />
+                </IconButton>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add new credential. The password re-confirms the account before a new
+          authenticator is bound to it — a borrowed, unlocked phone must not be
+          able to enrol its owner's biometrics. */}
+      <div className="space-y-3">
+        <Input
+          label={t('m.account.biometric.deviceName')}
+          hideLabel
+          type="text"
+          value={deviceName}
+          onChange={(e) => setDeviceName(e.target.value)}
+          placeholder={t('m.account.biometric.deviceNamePlaceholder')}
+          maxLength={100}
+        />
+        <Input
+          label={t('m.account.biometric.currentPassword')}
+          hideLabel
+          type="password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          placeholder={t('m.account.biometric.currentPasswordPlaceholder')}
+          maxLength={128}
+          autoComplete="current-password"
+        />
+        <Button
+          variant="primary"
+          block
+          onClick={() => {
+            void handleEnable();
+          }}
+          disabled={!currentPassword}
+          loading={isRegistering}
+        >
+          {isRegistering ? (
+            t('m.account.biometric.settingUp')
+          ) : (
+            <>
+              <Fingerprint size={18} />
+              {credentials.length > 0
+                ? t('m.account.biometric.addAnother')
+                : t('m.account.biometric.enable')}
+            </>
+          )}
+        </Button>
+      </div>
+    </Card>
   );
 }
 
@@ -369,19 +351,25 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
 // ============================================================================
 
 export function AccountPage(): JSX.Element {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { user, tenantId: authTenantId, logout } = useAuth();
   const { pendingCount, isOnline, isSyncing, syncNow } = useOfflineQueue();
   const { unreadCount } = useNotifications();
   const { isSupported: biometricSupported, hasCredentials } = useWebAuthn();
-  const { preference: themePreference, setPreference: setThemePreference } = useDarkMode();
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
+  const { density, setDensity } = useDensity();
 
   // UI state for confirmation dialogs and expandable panels
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [showClearQueueDialog, setShowClearQueueDialog] = useState(false);
   const [showBiometricPanel, setShowBiometricPanel] = useState(false);
   const [storageMb, setStorageMb] = useState<string | null>(null);
-  const [lastSyncLabel, setLastSyncLabel] = useState(() => formatRelativeTime(getLastSyncAt()));
+  // The stamp is state; the label is derived at render so it follows the
+  // language. The tick re-renders the relative label while the stamp is unchanged.
+  const [lastSyncAt, setLastSyncAt] = useState(() => getLastSyncAt());
+  const [, setLabelTick] = useState(0);
+  const lastSyncLabel = formatRelativeTime(lastSyncAt, t);
 
   // Estimate storage usage via the Storage API — only available in secure
   // contexts (HTTPS / localhost). Display as "X.X MB" for operator awareness.
@@ -404,7 +392,8 @@ export function AccountPage(): JSX.Element {
   // Refresh the "last synced" label every 30 seconds so it stays up to date
   useEffect(() => {
     const timer = setInterval(() => {
-      setLastSyncLabel(formatRelativeTime(getLastSyncAt()));
+      setLastSyncAt(getLastSyncAt());
+      setLabelTick((tick) => tick + 1);
     }, 30_000);
     return () => clearInterval(timer);
   }, []);
@@ -414,7 +403,7 @@ export function AccountPage(): JSX.Element {
     const result = await syncNow();
     if (result.success > 0) {
       // syncNow already recorded the shared last-sync stamp (MOB-LOW-011).
-      setLastSyncLabel(formatRelativeTime(getLastSyncAt()));
+      setLastSyncAt(getLastSyncAt());
     }
   }, [syncNow]);
 
@@ -480,220 +469,275 @@ export function AccountPage(): JSX.Element {
   const initials = getInitials(userName);
   const roleBadge = ROLE_BADGE_CONFIG[userRole];
 
-  // Three-way theme options for the segmented control
-  const themeOptions: Array<{ value: DarkModePreference; icon: typeof Sun; label: string }> = [
-    { value: 'light', icon: Sun, label: 'Light' },
-    { value: 'dark', icon: Moon, label: 'Dark' },
-    { value: 'system', icon: Monitor, label: 'System' },
+  // v4 ships three themes, so the control is four-way with System.
+  // Night = dark hall / night shift, Day = deck glare, Colour = colour-coded.
+  const themeOptions: ReadonlyArray<SegmentedOption<ThemePreference>> = [
+    { value: 'night', icon: <Moon size={14} aria-hidden />, label: t('m.account.theme.night') },
+    { value: 'day', icon: <Sun size={14} aria-hidden />, label: t('m.account.theme.day') },
+    {
+      value: 'colour',
+      icon: <Palette size={14} aria-hidden />,
+      label: t('m.account.theme.colour'),
+    },
+    {
+      value: 'system',
+      icon: <Monitor size={14} aria-hidden />,
+      label: t('m.account.theme.system'),
+    },
   ];
 
+  // Gloved operation enlarges every control at once (src/hooks/useDensity.ts).
+  const densityOptions: ReadonlyArray<SegmentedOption<Density>> = [
+    {
+      value: 'standard',
+      icon: <Hand size={14} aria-hidden />,
+      label: t('m.account.touch.standard'),
+    },
+    { value: 'glove', icon: <Hand size={14} aria-hidden />, label: t('m.account.touch.gloves') },
+  ];
+
+  const connectionTone = isSyncing ? 'accent' : isOnline ? 'ok' : 'warn';
+  const connectionLabel = isSyncing
+    ? t('m.account.state.syncing')
+    : isOnline
+      ? t('m.account.state.online')
+      : t('m.account.state.offline');
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* ================================================================
-          Profile Header — gradient banner with avatar, name, and role
-          ================================================================ */}
-      <div className="bg-gradient-to-br from-gray-800 via-gray-700 to-gray-600 text-white">
-        <div className="px-5 pt-safe-top">
-          <div className="flex items-center gap-4 py-5">
-            {/* Avatar circle with ocean gradient and user initials */}
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-ocean-400 to-ocean-600 flex items-center justify-center text-xl font-bold text-white shadow-lg flex-shrink-0">
-              {initials}
+    <div>
+      <AppHeader title={t('m.account.title')} showAvatar={false} />
+
+      <div className="px-4 flex flex-col gap-5">
+        {/* ================================================================
+            SYNC — the first question this screen answers: is my work safe?
+            ================================================================ */}
+        <section className="flex flex-col gap-2">
+          <SectionHeader title={t('m.account.sync')} />
+
+          <Card className="p-4 flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-display font-mono font-semibold text-ink-1 tabular-nums">
+                  {pendingCount}
+                </div>
+                <div className="text-meta text-ink-3">
+                  {pendingCount === 1 ? t('m.account.waiting.one') : t('m.account.waiting.other')}
+                </div>
+              </div>
+              <Chip tone={connectionTone}>
+                <StatusDot tone={connectionTone} live={isSyncing} />
+                {connectionLabel}
+              </Chip>
             </div>
+            <Button variant="primary" block onClick={() => navigate('/sync')}>
+              {t('m.account.syncStatus')}
+            </Button>
+            <p className="text-meta text-ink-3">
+              {t('m.account.lastSynced', { when: lastSyncLabel })}
+            </p>
+          </Card>
+
+          {/* Connection — the same fact the chip carries, said in words, because
+              "Offline" is the explanation for a queue that is not draining. */}
+          <ListRow
+            leading={isOnline ? <Wifi size={18} /> : <WifiOff size={18} />}
+            tone={connectionTone}
+            title={t('m.account.connection')}
+            subtitle={isOnline ? t('m.account.connectionOnline') : t('m.account.connectionOffline')}
+            trailing={connectionLabel}
+          />
+        </section>
+
+        {/* ================================================================
+            DISPLAY — theme and touch density
+            ================================================================ */}
+        <section className="flex flex-col gap-2">
+          <SectionHeader title={t('m.account.display')} />
+
+          {/* Theme — four-way control (Night / Day / Colour / System).
+              WHY the control sits on its own row rather than inline with the
+              label: four options with labels overflow a 360px phone. */}
+          <Card className="p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center bg-acc-dim">
+                <Moon size={20} className="text-acc" aria-hidden />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-title font-medium text-ink-1 block">
+                  {t('m.account.theme')}
+                </span>
+                <span className="text-meta text-ink-3">{t('m.account.themeHint')}</span>
+              </div>
+            </div>
+            <SegmentedControl
+              label={t('m.account.theme')}
+              options={themeOptions}
+              value={themePreference}
+              onChange={setThemePreference}
+            />
+          </Card>
+
+          {/* Touch targets — gloved operation enlarges every control at once. */}
+          <Card className="p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center bg-acc-dim">
+                <Hand size={20} className="text-acc" aria-hidden />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-title font-medium text-ink-1 block">
+                  {t('m.account.touch')}
+                </span>
+                <span className="text-meta text-ink-3">{t('m.account.touchHint')}</span>
+              </div>
+            </div>
+            <SegmentedControl
+              label={t('m.account.touch')}
+              options={densityOptions}
+              value={density}
+              onChange={setDensity}
+            />
+          </Card>
+        </section>
+
+        {/* ================================================================
+            DATA & NOTIFICATIONS
+            ================================================================ */}
+        <section className="flex flex-col gap-2">
+          <SectionHeader title={t('m.account.dataNotifications')} />
+
+          <ListRow
+            leading={<Bell size={18} />}
+            tone="accent"
+            title={t('m.account.notifications')}
+            trailing={unreadCount > 0 ? <CountBadge count={unreadCount} /> : undefined}
+            onClick={() => navigate('/notifications')}
+          />
+
+          {/* Clear Cache — safe operation, only removes data cache (not the offline queue) */}
+          <ListRow
+            leading={<Database size={18} />}
+            tone="accent"
+            title={t('m.account.clearCache')}
+            subtitle={t('m.account.clearCacheHint')}
+            onClick={() => {
+              void handleClearCache();
+            }}
+          />
+
+          {/* Clear Queue — destructive, permanently deletes unsynced operations.
+              The label turns coral only when there is something to lose. */}
+          <ListRow
+            leading={<Trash2 size={18} />}
+            tone="crit"
+            title={
+              pendingCount > 0 ? (
+                <span className="text-crit">{t('m.account.clearQueue')}</span>
+              ) : (
+                t('m.account.clearQueue')
+              )
+            }
+            subtitle={
+              pendingCount > 0
+                ? pendingCount === 1
+                  ? t('m.account.unsynced.one')
+                  : t('m.account.unsynced.other', { count: pendingCount })
+                : t('m.account.noPending')
+            }
+            trailing={pendingCount > 0 ? <CountBadge count={pendingCount} /> : undefined}
+            onClick={() => {
+              if (pendingCount > 0) {
+                setClearQueueError(null);
+                setShowClearQueueDialog(true);
+              } else {
+                // No pending operations — nothing to clear, no confirmation needed
+                runAsyncAction(handleClearQueue, 'account-clear-empty-queue');
+              }
+            }}
+          />
+
+          {/* Storage usage — read-only info row */}
+          <ListRow
+            leading={<HardDrive size={18} />}
+            tone="neutral"
+            title={t('m.account.storage')}
+            trailing={
+              storageMb != null
+                ? t('m.account.storageUsed', { mb: storageMb })
+                : t('m.account.estimating')
+            }
+          />
+        </section>
+
+        {/* ================================================================
+            SECURITY
+            ================================================================ */}
+        {biometricSupported && (
+          <section className="flex flex-col gap-2">
+            <SectionHeader title={t('m.account.security')} />
+
+            <ListRow
+              leading={<Fingerprint size={18} />}
+              tone={hasCredentials ? 'ok' : 'accent'}
+              title={t('m.account.biometricLogin')}
+              subtitle={
+                hasCredentials ? t('m.account.biometricEnabled') : t('m.account.biometricSetUp')
+              }
+              onClick={() => setShowBiometricPanel(!showBiometricPanel)}
+            />
+
+            {/* Biometric Setup Panel — expands directly under the row that opens
+                it, rather than below the whole section as it used to. */}
+            {showBiometricPanel && <BiometricPanel onClose={() => setShowBiometricPanel(false)} />}
+          </section>
+        )}
+
+        {/* ================================================================
+            ACCOUNT — who is signed in, and the way out
+            ================================================================ */}
+        <section className="flex flex-col gap-2">
+          <SectionHeader title={t('m.account.title')} />
+
+          <Card className="p-4 flex items-center gap-4">
+            {/* Avatar — the accent fill AppHeader's avatar wears, so the same
+                person reads the same on both. */}
+            <span
+              aria-hidden
+              className="w-14 h-14 shrink-0 rounded-2xl bg-acc text-acc-on inline-flex items-center justify-center text-head font-mono font-semibold"
+            >
+              {initials}
+            </span>
             <div className="flex-1 min-w-0">
-              <h1 className="text-lg font-bold tracking-tight truncate">{userName}</h1>
-              <p className="text-sm text-gray-300 truncate">{userEmail}</p>
+              <h3 className="text-title font-semibold text-ink-1 truncate">{userName}</h3>
+              <p className="text-body text-ink-3 truncate">{userEmail}</p>
               <div className="flex items-center gap-2 mt-1.5">
-                {/* Role badge — color-coded pill */}
+                {/* Role badge — colour-coded pill */}
                 <span
-                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${roleBadge.bg} ${roleBadge.text}`}
+                  className={`text-meta font-semibold px-2 py-0.5 rounded-full ${roleBadge.bg} ${roleBadge.text}`}
                 >
                   {roleBadge.label}
                 </span>
                 {userTenantId && (
-                  <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                    Tenant: {userTenantId}
+                  <span className="text-meta text-ink-3 truncate">
+                    {t('m.account.tenant', { id: userTenantId })}
                   </span>
                 )}
               </div>
             </div>
-          </div>
-        </div>
-        {/* Curved wave transition matching other page headers */}
-        <div className="relative">
-          <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-            <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-          </svg>
-        </div>
-      </div>
+          </Card>
 
-      {/* ================================================================
-          PREFERENCES Section
-          ================================================================ */}
-      <div className="pt-4">
-        <SectionHeader title="Preferences" />
-        <div className="px-5">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card overflow-hidden border border-gray-100 dark:border-gray-800">
-            {/* Dark Mode — three-way segmented control */}
-            <div className="flex items-center gap-4 p-4 border-b border-gray-50 dark:border-gray-800">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-indigo-50 dark:bg-indigo-900/30">
-                <Moon size={20} className="text-indigo-600" />
-              </div>
-              <span className="font-medium text-gray-900 dark:text-white flex-1">Dark Mode</span>
-              {/* Segmented control — compact to fit mobile widths */}
-              <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-                {themeOptions.map((opt) => {
-                  const OptIcon = opt.icon;
-                  const isActive = themePreference === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      onClick={() => setThemePreference(opt.value)}
-                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-                        isActive
-                          ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                          : 'text-gray-500 dark:text-gray-400'
-                      }`}
-                    >
-                      <OptIcon size={14} />
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+          {/* Log Out — destructive action, requires confirmation */}
+          <ListRow
+            leading={<LogOut size={18} />}
+            tone="crit"
+            title={<span className="text-crit">{t('m.account.logOut')}</span>}
+            onClick={() => setShowLogoutDialog(true)}
+          />
+        </section>
 
-            {/* Notifications — navigates to the notifications page */}
-            <MenuRow
-              icon={Bell}
-              iconColor="text-amber-600"
-              iconBg="bg-amber-50 dark:bg-amber-900/30"
-              label="Notifications"
-              badge={unreadCount}
-              onClick={() => navigate('/notifications')}
-              isLast
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* ================================================================
-          DATA & SYNC Section
-          ================================================================ */}
-      <div className="pt-6">
-        <SectionHeader title="Data & Sync" />
-        <div className="px-5">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card overflow-hidden border border-gray-100 dark:border-gray-800">
-            {/* Sync Status */}
-            <MenuRow
-              icon={Cloud}
-              iconColor="text-ocean-600"
-              iconBg="bg-ocean-50 dark:bg-ocean-900/30"
-              label="Sync Status"
-              subtitle={
-                isSyncing
-                  ? 'Syncing...'
-                  : isOnline
-                    ? `Online${pendingCount > 0 ? ` - ${pendingCount} pending` : ''}`
-                    : 'Offline'
-              }
-              badge={pendingCount}
-              onClick={() => navigate('/sync')}
-            />
-
-            {/* Clear Cache — safe operation, only removes data cache (not the offline queue) */}
-            <MenuRow
-              icon={Database}
-              iconColor="text-sky-600"
-              iconBg="bg-sky-50 dark:bg-sky-900/30"
-              label="Clear Cache"
-              subtitle="Remove cached data to free space"
-              onClick={() => {
-                void handleClearCache();
-              }}
-            />
-
-            {/* Clear Queue — destructive, permanently deletes unsynced operations */}
-            <MenuRow
-              icon={Trash2}
-              iconColor="text-orange-600"
-              iconBg="bg-orange-50 dark:bg-orange-900/30"
-              label="Clear Offline Queue"
-              subtitle={
-                pendingCount > 0
-                  ? `${pendingCount} unsynced operation${pendingCount !== 1 ? 's' : ''}`
-                  : 'No pending operations'
-              }
-              badge={pendingCount}
-              destructive={pendingCount > 0}
-              onClick={() => {
-                if (pendingCount > 0) {
-                  setClearQueueError(null);
-                  setShowClearQueueDialog(true);
-                } else {
-                  // No pending operations — nothing to clear, no confirmation needed
-                  runAsyncAction(handleClearQueue, 'account-clear-empty-queue');
-                }
-              }}
-            />
-
-            {/* Storage usage — read-only info row */}
-            <div className="flex items-center gap-4 p-4">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gray-50 dark:bg-gray-800">
-                <HardDrive size={20} className="text-gray-600 dark:text-gray-400" />
-              </div>
-              <span className="font-medium text-gray-900 dark:text-white flex-1">Storage</span>
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                {storageMb != null ? `${storageMb} MB used` : 'Estimating...'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ================================================================
-          SECURITY Section
-          ================================================================ */}
-      <div className="pt-6">
-        <SectionHeader title="Security" />
-        <div className="px-5">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card overflow-hidden border border-gray-100 dark:border-gray-800">
-            {/* Biometric — only shown when the device supports WebAuthn */}
-            {biometricSupported && (
-              <MenuRow
-                icon={Fingerprint}
-                iconColor="text-emerald-600"
-                iconBg="bg-emerald-50 dark:bg-emerald-900/30"
-                label="Biometric Login"
-                subtitle={hasCredentials ? 'Enabled' : 'Set up'}
-                onClick={() => setShowBiometricPanel(!showBiometricPanel)}
-              />
-            )}
-
-            {/* Log Out — destructive action, requires confirmation */}
-            <MenuRow
-              icon={LogOut}
-              iconColor="text-red-600"
-              iconBg="bg-red-50 dark:bg-red-900/30"
-              label="Log Out"
-              destructive
-              onClick={() => setShowLogoutDialog(true)}
-              isLast
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Biometric Setup Panel — expanded below the security section */}
-      {showBiometricPanel && biometricSupported && (
-        <BiometricPanel onClose={() => setShowBiometricPanel(false)} />
-      )}
-
-      {/* ================================================================
-          Footer — app version and last sync time
-          ================================================================ */}
-      <div className="px-5 pt-6 pb-2 flex flex-col items-center gap-1">
-        <p className="text-xs text-gray-400 dark:text-gray-500">App Version: {APP_VERSION}</p>
-        <p className="text-xs text-gray-400 dark:text-gray-500">Last synced: {lastSyncLabel}</p>
+        {/* App version — the machine value, so it is set in mono. */}
+        <p className="text-meta text-ink-3 text-center">
+          {t('m.account.appVersion', { version: APP_VERSION })}
+        </p>
       </div>
 
       {/* ================================================================
@@ -703,9 +747,9 @@ export function AccountPage(): JSX.Element {
       {/* Logout confirmation */}
       <ConfirmSheet
         isOpen={showLogoutDialog}
-        title="Log Out"
-        message="Are you sure you want to log out?"
-        confirmLabel="Log Out"
+        title={t('m.account.logOut')}
+        message={t('m.account.logOutConfirm')}
+        confirmLabel={t('m.account.logOut')}
         onConfirm={handleLogout}
         onCancel={() => {
           setLogoutError(null);
@@ -718,9 +762,13 @@ export function AccountPage(): JSX.Element {
           understands the data loss before committing */}
       <ConfirmSheet
         isOpen={showClearQueueDialog}
-        title="Clear Offline Queue"
-        message={`You have ${pendingCount} unsynced operation${pendingCount !== 1 ? 's' : ''}. Clearing will permanently delete them.`}
-        confirmLabel="Clear Queue"
+        title={t('m.account.clearQueue')}
+        message={
+          pendingCount === 1
+            ? t('m.account.clearQueueConfirm.one')
+            : t('m.account.clearQueueConfirm.other', { count: pendingCount })
+        }
+        confirmLabel={t('m.account.clearQueueAction')}
         onConfirm={handleClearQueue}
         onCancel={() => {
           setClearQueueError(null);

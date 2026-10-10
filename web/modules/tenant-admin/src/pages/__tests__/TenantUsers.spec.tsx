@@ -48,6 +48,8 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
   ConfirmModal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).ConfirmModal,
   DataTable: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).DataTable,
   PageHeader: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).PageHeader,
+  // The Suderra eyebrow reads its label through the real i18n (English without a provider).
+  useI18n: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).useI18n,
   // The user hooks report through the real feedback wrapper (FE-HIGH-086); its
   // toast surface falls back to local state without a provider.
   useFeedbackMutation: (await importOriginal<typeof import('@aquaculture/shared-ui')>())
@@ -426,6 +428,24 @@ describe('TenantUsers Page', () => {
   // ========================================================================
   // Add user modal open/close
   // ========================================================================
+
+  describe('Suderra surface (FE-HIGH-314)', () => {
+    it('renders inside the sd-page scope under its People & access eyebrow', async () => {
+      const { container } = renderPage();
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+      expect(container.querySelector('.sd-page')).not.toBeNull();
+      expect(screen.getByText('People & access')).toHaveClass('sd-eyebrow');
+    });
+
+    it('carries the scope into its dialogs, which render outside the page', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /add user/i }));
+      const dialog = await screen.findByRole('dialog', { name: /add new user/i });
+      expect(dialog.querySelector('.sd-surface')).not.toBeNull();
+    });
+  });
 
   describe('Add User Modal', () => {
     it('should open modal when Add User button is clicked', async () => {

@@ -78,6 +78,7 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
       isOpen={isOpen}
       onClose={onClose}
       size="md"
+      surface="suderra"
       className="max-h-[90vh] overflow-hidden flex flex-col"
       bodyClassName="flex-1 min-h-0 flex flex-col"
       title="Effective Permissions"

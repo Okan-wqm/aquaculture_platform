@@ -55,6 +55,12 @@ export { Header } from './Layout/Header';
 export type { HeaderProps, HeaderTheme } from './Layout/Header';
 export { Sidebar } from './Layout/Sidebar';
 export type { SidebarProps, SidebarTheme } from './Layout/Sidebar';
+export { SuderraSidebar, SUDERRA_RAIL_ICONS } from './Layout/SuderraSidebar';
+export type {
+  SuderraSidebarProps,
+  SuderraNavSection,
+  SuderraRailIconName,
+} from './Layout/SuderraSidebar';
 export { PageHeader } from './Layout/PageHeader';
 export type { PageHeaderProps } from './Layout/PageHeader';
 export { DesktopOnlyNotice } from './Layout/DesktopOnlyNotice';
@@ -65,6 +71,7 @@ export { Modal, ConfirmModal, DeleteConfirmationDialog } from './Modal';
 export type {
   ModalProps,
   ModalSize,
+  ModalSurface,
   DialogTheme,
   ConfirmModalProps,
   DeleteConfirmationDialogProps,

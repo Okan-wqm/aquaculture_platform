@@ -45,6 +45,13 @@ export interface ModalProps {
    */
   theme?: DialogTheme;
   /**
+   * Palette of the panel's content. A dialog renders through a portal, so it
+   * sits outside the page's `sd-page` scope; `suderra` gives the panel the
+   * same scope (`sd-surface`, shared-ui/styles/suderra.css), so the controls
+   * in a tenant console dialog paint like the page that opened it.
+   */
+  surface?: ModalSurface;
+  /**
    * Id of an element inside the body that names the dialog when no `title`
    * is given (a centred confirmation renders its own heading). A dialog with
    * neither is unnamed to assistive technology.
@@ -69,6 +76,14 @@ export interface ModalProps {
 // ============================================================================
 // Stil Sınıfları
 // ============================================================================
+
+/** `default`: the theme scales as defined; `suderra`: the Suderra token scope (FE-HIGH-314). */
+export type ModalSurface = 'default' | 'suderra';
+
+const surfaceStyles: Record<ModalSurface, string> = {
+  default: '',
+  suderra: 'sd-surface',
+};
 
 const sizeStyles: Record<ModalSize, string> = {
   sm: 'max-w-md',
@@ -123,6 +138,7 @@ export const Modal: React.FC<ModalProps> = ({
   showCloseButton = true,
   closeLabel: closeLabelProp,
   theme = 'auto',
+  surface = 'default',
   labelledBy,
   describedBy,
   footer,
@@ -162,20 +178,23 @@ export const Modal: React.FC<ModalProps> = ({
       aria-describedby={description ? descriptionId : describedBy}
       {...dialogThemeAttributes(theme)}
     >
-      {/* Overlay */}
+      {/* Overlay — Suderra deep water, blurred (FE-HIGH-313) */}
       <div
-        className="fixed inset-0 bg-black/50 transition-opacity"
+        className="fixed inset-0 bg-sd-rail-bottom/45 backdrop-blur-sm transition-opacity"
         onClick={handleOverlayClick}
         aria-hidden="true"
       />
 
-      {/* Modal içeriği */}
+      {/* Modal içeriği — Suderra parchment panel. The sd-* tokens re-assign
+          under the dark theme (theme.css), a pinned-dark dialog included, so
+          the panel needs no dark: sibling of its own. */}
       <div
         ref={modalRef}
         tabIndex={-1}
         className={`
           relative w-full ${sizeStyles[size]}
-          bg-white rounded-lg shadow-xl dark:bg-gray-900 dark:border dark:border-gray-700
+          rounded-[18px] border border-sd-rule bg-sd-parchment text-sd-ink shadow-2xl
+          ${surfaceStyles[surface]}
           transform transition-all
           my-8
           ${className}
@@ -183,15 +202,15 @@ export const Modal: React.FC<ModalProps> = ({
       >
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-start justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-start justify-between border-b border-sd-rule p-4">
             <div>
               {title && (
-                <h2 id={titleId} className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                <h2 id={titleId} className="font-display text-xl font-normal text-sd-ink">
                   {title}
                 </h2>
               )}
               {description && (
-                <p id={descriptionId} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <p id={descriptionId} className="mt-1 text-sm text-sd-ink-muted">
                   {description}
                 </p>
               )}
@@ -200,7 +219,7 @@ export const Modal: React.FC<ModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+                className="rounded-lg p-1 text-sd-ink-hint transition-colors hover:bg-sd-rule hover:text-sd-ink"
                 aria-label={closeLabel}
               >
                 <X className="w-5 h-5" aria-hidden="true" />
@@ -214,7 +233,7 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end space-x-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg dark:border-gray-700 dark:bg-gray-800">
+          <div className="flex items-center justify-end space-x-3 rounded-b-[18px] border-t border-sd-rule bg-sd-paper/70 p-4">
             {footer}
           </div>
         )}
@@ -277,6 +296,8 @@ export interface ConfirmModalProps {
    * metniyle değiştirilir. Türkçe varsayılan korunur.
    */
   typedConfirmationLabel?: string;
+  /** Palette of the dialog's content — see `ModalProps.surface`. */
+  surface?: ModalSurface;
 }
 
 /**
@@ -309,6 +330,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   warning,
   loadingText: loadingTextProp,
   typedConfirmationLabel,
+  surface = 'default',
 }) => {
   const { t } = useI18n();
   const confirmText = confirmTextProp ?? t('common.confirm');
@@ -358,6 +380,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       onClose={onClose}
       size="sm"
       showCloseButton={false}
+      surface={surface}
       labelledBy={headingId}
       describedBy={messageId}
     >

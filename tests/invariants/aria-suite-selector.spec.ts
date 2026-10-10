@@ -393,6 +393,7 @@ describe('ARIA pre-push selector on the real kernel', () => {
         ]),
       );
       expect(family.every((path) => /\/test_ledger_[^/]*\.py$/.test(path))).toBe(true);
+      // family-first within the run: the original slice, restored.
       expect(
         ledger.run
           .slice(0, family.length)
@@ -402,6 +403,28 @@ describe('ARIA pre-push selector on the real kernel', () => {
       const tierOf = new Map(ledger.selected.map((entry) => [entry.path, entry.tier_name]));
       expect(tierOf.get('aria-kernel/tests/test_pr_tracking_findings_ledger.py')).toBe('direct');
       expect(ledger.selected.some((entry) => entry.tier_name === 'changed')).toBe(false);
+      // The invariant floor (2026-10-08, PR #1892/#1897): a kernel-code
+      // change selects the discovery-based surface tests at the LAST tier,
+      // inside the budget-prefix discipline — they never displace a changed
+      // module, and the hard full-suite guarantee is the required
+      // `aria-kernel` check.
+      const floorModules = [
+        'aria-kernel/tests/test_autonomy_evidence_status.py',
+        'aria-kernel/tests/test_surface_reachability.py',
+      ];
+      const selectedPaths = ledger.selected.map((entry) => entry.path);
+      for (const module of floorModules) {
+        expect(selectedPaths).toContain(module);
+      }
+      const floor = ledger.selected.filter((entry) => entry.reason.includes('invariant floor'));
+      expect(floor.length).toBeGreaterThan(0);
+      expect(floor.every((entry) => entry.tier_name === 'floor')).toBe(true);
+      expect(
+        ledger.selected
+          .slice(-floor.length)
+          .map((entry) => entry.path)
+          .sort(),
+      ).toEqual(floor.map((entry) => entry.path).sort());
       expect(ledger.budgetS).toBe(300);
       expect(ledger.estimateS).toBeLessThanOrEqual(ledger.budgetS);
       expect(ledger.run.length).toBeGreaterThan(family.length);

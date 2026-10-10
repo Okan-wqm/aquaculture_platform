@@ -1,0 +1,27 @@
+<svg viewBox="0 0 176 42" style="width:100%;height:100%;overflow:visible">
+    <defs>
+      <linearGradient id="mk-__ID__" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#14424A"/><stop offset="30%" stop-color="#1E5A60"/><stop offset="48%" stop-color="#4E8A8C"/><stop offset="62%" stop-color="#9EB8B8"/><stop offset="80%" stop-color="#D2E0DE"/><stop offset="100%" stop-color="#B0C4C2"/>
+      </linearGradient>
+      <linearGradient id="mkt-__ID__" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#16444C"/><stop offset="100%" stop-color="#417276"/></linearGradient>
+    </defs>
+    <g class="pitchg" style="transform-origin:100px 21px">
+      <g class="tailg" style="transform-origin:50px 21px">
+        <path d="M50 17.5 C40 13 30 9 20 7.5 C26 12.5 28.5 17 28.5 21 C28.5 25 26 29.5 20 34.5 C30 33 40 29 50 24.5 Z" fill="url(#mkt-__ID__)"/>
+      </g>
+      <path d="M172 21 C167 15.5 157 11.5 143 9.5 C120 6 92 6.5 70 12 C59 14.5 50 18 46 20 L46 22 C50 24 59 27.5 70 30 C92 35.5 120 36 143 32.5 C157 30.5 167 26.5 172 21 Z" fill="url(#mk-__ID__)"/>
+      <path d="M64 9 q 3 4.75 -1 9.5" stroke="rgba(10,26,34,0.5)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M78 8 q 3 5.5 -1 11" stroke="rgba(10,26,34,0.5)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M92 7.5 q 3 5.5 -1 11" stroke="rgba(10,26,34,0.5)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M106 7 q 3 5.75 -1 11.5" stroke="rgba(10,26,34,0.5)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M120 7 q 3 5.75 -1 11.5" stroke="rgba(10,26,34,0.5)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M134 7.5 q 3 5 -1 10" stroke="rgba(10,26,34,0.5)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M54 11.5 l-3.5 -3 l0.5 3.4 Z" fill="rgba(30,70,74,0.6)"/><path d="M54 30.5 l-3.5 3 l0.5 -3.4 Z" fill="rgba(30,70,74,0.6)"/><path d="M62 11.5 l-3.5 -3 l0.5 3.4 Z" fill="rgba(30,70,74,0.6)"/><path d="M62 30.5 l-3.5 3 l0.5 -3.4 Z" fill="rgba(30,70,74,0.6)"/><path d="M70 11.5 l-3.5 -3 l0.5 3.4 Z" fill="rgba(30,70,74,0.6)"/><path d="M70 30.5 l-3.5 3 l0.5 -3.4 Z" fill="rgba(30,70,74,0.6)"/><path d="M78 11.5 l-3.5 -3 l0.5 3.4 Z" fill="rgba(30,70,74,0.6)"/><path d="M78 30.5 l-3.5 3 l0.5 -3.4 Z" fill="rgba(30,70,74,0.6)"/>
+      <path d="M96 9 L100 3.5 L103 8.5 L107 4 L110 8.5 C105 10 100 10.5 96 10.5 Z" fill="rgba(16,42,48,0.85)"/>
+      <path d="M118 8 C124 5 132 5 137 7.5 C132 10 124 11 119 10.5 Z" fill="rgba(16,42,48,0.75)"/>
+      <path d="M118 33.5 C124 36.5 131 36.5 136 34.5 C131 32.5 124 31.5 120 31.5 Z" fill="rgba(40,72,76,0.55)"/>
+      <path d="M68 11.5 C96 6.5 128 6.5 150 12" stroke="rgba(200,240,238,0.09)" stroke-width="1" fill="none" stroke-linecap="round"/>
+      <path d="M56 21 C96 19.5 132 19.5 160 20.5" stroke="rgba(190,215,225,0.14)" stroke-width="0.7" fill="none"/>
+      <path d="M146 12 C140 16.5 139.5 26 145 30" stroke="rgba(8,24,30,0.45)" stroke-width="1.2" fill="none"/>
+      <path d="M172 21 C168 22.5 164.5 23.5 161 23.5" stroke="rgba(6,16,20,0.55)" stroke-width="1" fill="none"/>
+      <g class="pectg" style="transform-origin:138px 26px">
+        <path d="M138 25 C132 29.5 125 33 118 34.5 C124 36 132 33.5 139 28.5 Z" fill="rgba(120,150,152,0.5)"/>
+      </g>
+      <circle cx="158" cy="17.5" r="3.4" fill="none" stroke="rgba(200,240,238,0.26)" stroke-width="0.7"/>
+      <circle cx="158" cy="17.5" r="2.8" fill="#0A151D"/>
+      <circle cx="159" cy="16.6" r="0.8" fill="rgba(230,245,248,0.85)"/>
+    </g></svg>

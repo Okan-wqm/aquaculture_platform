@@ -44,7 +44,7 @@ const NewAiChatPage: React.FC = () => {
   };
 
   return (
-    <div className="sd-page max-w-[560px]">
+    <div className="sd-page sd-stack max-w-[560px]">
       <div className="sd-pagehead">
         <Button
           variant="ghost"

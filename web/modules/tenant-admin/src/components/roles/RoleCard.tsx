@@ -13,6 +13,7 @@ import { Button } from '@aquaculture/shared-ui';
 import { DEFAULT_ROLE_COLOR } from '../../lib/constants';
 import { Shield, Edit, Trash2, Users, Star } from 'lucide-react';
 import type { TenantRole } from '../../hooks/useTenantRoles';
+import { SD_CARD } from '../ui/suderra';
 
 // ============================================================================
 // Types
@@ -82,7 +83,7 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
  */
 export const RoleCard: React.FC<RoleCardProps> = ({ role, onEdit, onDelete }) => {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5 hover:shadow-lg transition-shadow">
+    <div className={`${SD_CARD} p-5 transition-shadow hover:shadow-md`}>
       {/* Role Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
@@ -94,7 +95,9 @@ export const RoleCard: React.FC<RoleCardProps> = ({ role, onEdit, onDelete }) =>
             <Shield className="w-5 h-5" style={{ color: role.color || DEFAULT_ROLE_COLOR }} />
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100">{role.name}</h3>
+            <h3 className="font-display text-xl leading-tight text-gray-900 dark:text-gray-100">
+              {role.name}
+            </h3>
             {role.isSystem && (
               <span className="text-xs text-warning-600 dark:text-warning-400 font-medium">
                 System Role

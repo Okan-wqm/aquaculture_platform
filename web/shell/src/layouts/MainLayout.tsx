@@ -11,6 +11,7 @@ import {
   Button,
   Header,
   Sidebar,
+  SuderraSidebar,
   createTenantInvalidationKey,
   type I18nContextValue,
   type MessageKey,
@@ -33,6 +34,8 @@ import ConsentBanner from '../components/ConsentBanner';
 import { UserLocaleSync } from '../components/UserLocaleSync';
 
 import { NotificationPanel } from '@/components/NotificationPanel';
+
+import { buildTenantRailSections } from './tenantRail';
 
 // ============================================================================
 // Navigation Configuration - Role Based
@@ -439,6 +442,18 @@ const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
 };
 
 /**
+ * Edge devices — a TENANT_ADMIN page (`/tenant/devices`, admin-only in the
+ * tenant-admin router) the flat list never linked; the Suderra rail lists it
+ * under Account.
+ */
+const EDGE_DEVICES_ENTRY: NavigationDefinition = {
+  id: 'tenant-devices',
+  labelKey: 'nav.devices',
+  path: '/tenant/devices',
+  icon: 'drive',
+};
+
+/**
  * MODULE_MANAGER and MODULE_USER navigation - Module based (English)
  */
 const moduleUserBaseNavigation: NavigationDefinition[] = [
@@ -531,29 +546,49 @@ const MainLayout: React.FC = () => {
   }, [modules]);
 
   /**
-   * Role-based navigation menu with dynamic modules.
-   * Depends on primitive userRole string, not function references.
+   * MT-HIGH-060 delegation: a non-admin tenant user whose custom role grants a
+   * delegatable panel capability sees just those tenant items (Users/Roles/
+   * Settings) beside their normal module nav. hasPermission bypasses admins
+   * and is fail-closed for everyone else.
    */
-  const navigationItems = useMemo((): NavigationItem[] => {
-    if (userRole === 'SUPER_ADMIN') {
-      return localizeNavigation(superAdminNavigation, t);
-    }
-    if (userRole === 'TENANT_ADMIN') {
-      return localizeNavigation([...tenantAdminBaseNavigation, ...moduleNavigationItems], t);
-    }
-    // MT-HIGH-060 delegation: a non-admin tenant user whose custom role grants a
-    // delegatable panel capability sees just those tenant items (Users/Roles/
-    // Settings) appended to their normal module nav. hasPermission bypasses
-    // admins (handled above) and is fail-closed for everyone else.
-    const delegatedTenantItems = tenantAdminBaseNavigation.filter((item) => {
+  const delegatedTenantItems = useMemo((): NavigationDefinition[] => {
+    if (userRole === 'TENANT_ADMIN' || userRole === 'SUPER_ADMIN') return [];
+    return tenantAdminBaseNavigation.filter((item) => {
       const cap = DELEGATABLE_TENANT_NAV[item.id];
       return cap !== undefined && hasPermission(cap);
     });
-    return localizeNavigation(
-      [...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems],
+  }, [userRole, hasPermission]);
+
+  /**
+   * SUPER_ADMIN navigation — the flat list the admin console's Sidebar renders.
+   * Depends on primitive userRole string, not function references.
+   */
+  const adminNavigationItems = useMemo(
+    (): NavigationItem[] =>
+      userRole === 'SUPER_ADMIN' ? localizeNavigation(superAdminNavigation, t) : [],
+    [userRole, t],
+  );
+
+  /**
+   * Tenant-side navigation (TENANT_ADMIN, module managers and users) — the
+   * role's entries grouped into the Suderra rail's sections (tenantRail.ts).
+   */
+  const railSections = useMemo(() => {
+    if (userRole === 'SUPER_ADMIN') return [];
+    const isTenantAdmin = userRole === 'TENANT_ADMIN';
+    const entries = isTenantAdmin
+      ? [...tenantAdminBaseNavigation, EDGE_DEVICES_ENTRY]
+      : [...moduleUserBaseNavigation, ...delegatedTenantItems];
+    return buildTenantRailSections({
+      entries: localizeNavigation(entries, t),
+      modules: localizeNavigation(
+        moduleNavigationItems.filter((item) => item.id !== 'divider-modules'),
+        t,
+      ),
+      isTenantAdmin,
       t,
-    );
-  }, [userRole, moduleNavigationItems, hasPermission, t]);
+    });
+  }, [userRole, delegatedTenantItems, moduleNavigationItems, t]);
 
   /**
    * Logo text based on role
@@ -721,27 +756,51 @@ const MainLayout: React.FC = () => {
     [mobileNavOpen, t],
   );
 
+  // The SUPER_ADMIN console keeps its own Sidebar and neutral canvas; every
+  // tenant-side role gets the Suderra rail over the paper content column.
+  const isSuperAdmin = userRole === 'SUPER_ADMIN';
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex">
+    <div
+      className={`min-h-screen flex ${isSuperAdmin ? 'bg-gray-50 dark:bg-gray-800' : 'bg-sd-paper'}`}
+    >
       <SkipToContent />
       <UserLocaleSync />
-      {/* Sidebar */}
-      <Sidebar
-        id={SIDEBAR_ID}
-        items={navigationItems}
-        activePath={location.pathname}
-        collapsed={sidebarCollapsed}
-        mobileOpen={mobileNavOpen}
-        onMobileOpenChange={setMobileNavOpen}
-        onNavigate={handleNavigate}
-        onCollapsedChange={handleSidebarToggle}
-        theme={theme}
-        logo={logoElement}
-        userRoles={userRole ? [userRole] : []}
-      />
+      {isSuperAdmin ? (
+        <Sidebar
+          id={SIDEBAR_ID}
+          items={adminNavigationItems}
+          activePath={location.pathname}
+          collapsed={sidebarCollapsed}
+          mobileOpen={mobileNavOpen}
+          onMobileOpenChange={setMobileNavOpen}
+          onNavigate={handleNavigate}
+          onCollapsedChange={handleSidebarToggle}
+          theme={theme}
+          logo={logoElement}
+          userRoles={userRole ? [userRole] : []}
+        />
+      ) : (
+        <SuderraSidebar
+          id={SIDEBAR_ID}
+          sections={railSections}
+          activePath={location.pathname}
+          mobileOpen={mobileNavOpen}
+          onMobileOpenChange={setMobileNavOpen}
+          onNavigate={handleNavigate}
+          brandName={logoText}
+          brandSub={
+            userRole === 'TENANT_ADMIN' ? t('sidebar.tenantConsole') : t('sidebar.workspace')
+          }
+          logoSrc="/logo4-mark.png"
+          userRoles={userRole ? [userRole] : []}
+        />
+      )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      <div
+        className={`flex-1 flex flex-col min-h-screen min-w-0 ${isSuperAdmin ? '' : 'sd-content'}`}
+      >
         {/* Header */}
         <Header
           user={user}
@@ -761,7 +820,7 @@ const MainLayout: React.FC = () => {
         <main
           id="main-content"
           tabIndex={-1}
-          className="flex-1 p-4 md:p-6 overflow-auto focus:outline-hidden"
+          className={`flex-1 overflow-auto focus:outline-hidden ${isSuperAdmin ? 'p-4 md:p-6' : 'sd-main'}`}
         >
           <Outlet />
         </main>

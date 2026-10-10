@@ -1,9 +1,17 @@
 import { MESSAGING_MEDIA_MIME_ALLOWLIST } from '@aquaculture/shared-contracts';
 import { clsx } from 'clsx';
 import { Camera, Image as ImageIcon, FileText } from 'lucide-react';
-import { useRef, useCallback, useEffect, useState, useMemo, type ReactElement, type RefObject } from 'react';
+import {
+  useRef,
+  useCallback,
+  useEffect,
+  useState,
+  useMemo,
+  type ReactElement,
+  type RefObject,
+} from 'react';
 
-import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BottomSheet } from '@/components/ui';
 
 // MSG-LOW-051: the picker validates against the SAME shared MIME allowlist SSoT
 // the upload hook and the server enforce — no third hand-maintained list, so
@@ -35,6 +43,9 @@ const FILE_SIZE_LIMIT_MB = 25;
  * - Camera: quick photo of tank/equipment (capture="environment" = rear camera)
  * - Gallery: existing photos/videos from device
  * - File: documents like lab reports, PDFs, spreadsheets
+ *
+ * The three tiles take three v4 decorative hues so they stay distinguishable at
+ * a glance; none is an alarm colour, because none of these is a warning.
  */
 const ATTACHMENT_OPTIONS = [
   {
@@ -43,7 +54,7 @@ const ATTACHMENT_OPTIONS = [
     icon: Camera,
     accept: 'image/*',
     capture: 'environment' as const,
-    color: 'bg-ocean-100 dark:bg-ocean-900/30 text-ocean-600 dark:text-ocean-400',
+    color: 'bg-acc-dim text-acc',
   },
   {
     id: 'gallery',
@@ -51,7 +62,7 @@ const ATTACHMENT_OPTIONS = [
     icon: ImageIcon,
     accept: 'image/*,video/*',
     capture: undefined,
-    color: 'bg-sea-100 dark:bg-sea-900/30 text-sea-600 dark:text-sea-400',
+    color: 'bg-type-water-dim text-type-water',
   },
   {
     id: 'file',
@@ -59,7 +70,7 @@ const ATTACHMENT_OPTIONS = [
     icon: FileText,
     accept: '.pdf,.doc,.docx,.xls,.xlsx',
     capture: undefined,
-    color: 'bg-coral-100 dark:bg-coral-900/30 text-coral-600 dark:text-coral-400',
+    color: 'bg-type-transfer-dim text-type-transfer',
   },
 ] as const;
 
@@ -77,7 +88,11 @@ const ATTACHMENT_OPTIONS = [
  * WHY backdrop tap to close: Prevents accidental attachment selection
  * and follows platform conventions (iOS action sheet, Android bottom sheet).
  */
-export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPickerProps): ReactElement | null {
+export function AttachmentPicker({
+  isOpen,
+  onClose,
+  onFileSelect,
+}: AttachmentPickerProps): ReactElement | null {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -104,10 +119,13 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen, onClose]);
 
-  const handleOptionPress = useCallback((optionId: string): void => {
-    const ref = inputRefs[optionId];
-    ref?.current?.click();
-  }, [inputRefs]);
+  const handleOptionPress = useCallback(
+    (optionId: string): void => {
+      const ref = inputRefs[optionId];
+      ref?.current?.click();
+    },
+    [inputRefs],
+  );
 
   const [pickerError, setPickerError] = useState<string | null>(null);
 
@@ -132,7 +150,9 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
         // Client-side file size validation before passing to onFileSelect
         const maxBytes = FILE_SIZE_LIMIT_MB * 1024 * 1024;
         if (file.size > maxBytes) {
-          setPickerError(`File exceeds ${FILE_SIZE_LIMIT_MB}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`);
+          setPickerError(
+            `File exceeds ${FILE_SIZE_LIMIT_MB}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`,
+          );
           e.target.value = '';
           return;
         }
@@ -166,26 +186,22 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
               >
                 <Icon size={28} />
               </div>
-              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                {opt.label}
-              </span>
+              <span className="text-meta font-semibold text-ink-2">{opt.label}</span>
             </button>
           );
         })}
       </div>
 
       {/* MSG-LOW-051: unsupported-type / oversize error surfaced in the same
-          slot, at pick time. */}
+          slot, at pick time. text-meta is 12px, the sunlight floor — it
+          replaces an 11px arbitrary size, and a rejection message is the last
+          thing that should be hard to read. */}
       {pickerError && (
-        <p className="text-center text-[11px] text-red-500 dark:text-red-400 font-medium pb-2 px-4">
-          {pickerError}
-        </p>
+        <p className="text-center text-meta text-crit font-medium pb-2 px-4">{pickerError}</p>
       )}
 
       {/* File size info */}
-      <p className="text-center text-[11px] text-gray-400 dark:text-gray-500 pb-4">
-        Max file size: {FILE_SIZE_LIMIT_MB}MB
-      </p>
+      <p className="text-center text-meta text-ink-3 pb-4">Max file size: {FILE_SIZE_LIMIT_MB}MB</p>
 
       {/* Hidden file inputs */}
       <input

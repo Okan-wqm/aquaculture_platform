@@ -472,9 +472,10 @@ class Shuffle(_Store):
 
 
 class SeededRegistry(unittest.TestCase):
-    def test_seed_is_valid_disabled_and_all_shadow_with_the_validated_wording(self) -> None:
+    def test_registry_is_valid_and_every_question_is_shadow_with_the_validated_wording(self) -> None:
+        # Whether System One is on is the operator's call (ADR-0027) and is not pinned here; what is
+        # pinned is that every question is still SHADOW and still says what was measured.
         registry = load_registry(_REPO_ROOT)
-        self.assertFalse(registry.enabled)
         self.assertEqual(registry.model, "jev-1.13.0")
         self.assertEqual(registry.invalid, {})
         self.assertEqual({q.mode for q in registry.questions.values()}, {"shadow"})

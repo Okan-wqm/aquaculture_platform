@@ -8,6 +8,7 @@
     "aria/capability-semantic-authority/v1:cycle_runtime@1:fold@3:upcasters@1": "sha256:72e1df8bcb8e255e0e363f117e63469d0d8d396e31b61a27ea1bd2e903ec2d98",
     "aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@2:upcasters@1": "sha256:289256b46f655ed4f113917ab5633b51a9be67a461f9e1b52c81dab4ea073747",
     "aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@3:upcasters@1": "sha256:f156fe2b3ffb745951c9217ec6c45397e494d5dd22292256d06246a6a358146f",
+    "aria/capability-semantic-authority/v1:enterprise_readiness@2:fold@3:upcasters@1": "sha256:f156fe2b3ffb745951c9217ec6c45397e494d5dd22292256d06246a6a358146f",
     "aria/capability-semantic-authority/v1:executor@1:fold@2:upcasters@1": "sha256:cda070d7e36cbbf414ad878f9dcbfce598e8454813fcfd4bda85779b40fdfe62",
     "aria/capability-semantic-authority/v1:executor@1:fold@3:upcasters@1": "sha256:bc0f208c67710d721010899a16ac7a8ceb2221d7a304a3259d0d511ab045ff2d",
     "aria/capability-semantic-authority/v1:finding_funnel@1:fold@2:upcasters@1": "sha256:acb97b25bf10062a4fa6c3bca76a80fd7900a69e71a615297c6455367ad966b0",
@@ -43,6 +44,7 @@
     "fixture_runner.suite|aria/agent-eval-fixture-run/v1@1|aria/capability-semantic-authority/v1:fixture_calibration@1:fold@2:upcasters@1": "sha256:52a6cf98d3f59ecf41404f3373bd3a07dd27a25597127ba2a7acb4373f7242cb",
     "fixture_runner.suite|aria/agent-eval-fixture-run/v1@1|aria/capability-semantic-authority/v1:fixture_calibration@1:fold@3:upcasters@1": "sha256:9b1594e072c17c131efb4b41b3034be627ff3c560b18167e0241ba02e28663b9",
     "readiness_proofs.claim|aria/enterprise-readiness-claim/v2@2|aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@2:upcasters@1": "sha256:f1f6b6a7e10b9e40c255a6a5215aef09dfe0e84fb8310c4ebbe62ff050bda747",
-    "readiness_proofs.claim|aria/enterprise-readiness-claim/v2@2|aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@3:upcasters@1": "sha256:4c85e7f4284d539027ea45eac940adb3cf88ef943b27a849b697c3773e717148"
+    "readiness_proofs.claim|aria/enterprise-readiness-claim/v2@2|aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@3:upcasters@1": "sha256:4c85e7f4284d539027ea45eac940adb3cf88ef943b27a849b697c3773e717148",
+    "readiness_proofs.claim|aria/enterprise-readiness-claim/v2@2|aria/capability-semantic-authority/v1:enterprise_readiness@2:fold@3:upcasters@1": "sha256:4c85e7f4284d539027ea45eac940adb3cf88ef943b27a849b697c3773e717148"
   }
 }

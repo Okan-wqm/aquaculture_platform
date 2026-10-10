@@ -248,8 +248,18 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `FARM-CRITICAL-405`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
+| `FARM-CRITICAL-406`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
+| `FARM-CRITICAL-407`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
+| `FARM-CRITICAL-408`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
+| `FARM-CRITICAL-409`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
+| `FARM-CRITICAL-410`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
+| `FARM-CRITICAL-411`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
+Updated 2026-10-10 (farm E2E campaign, PR #1951): seven CRITICALs registered
+IN-PROGRESS with their fixes on `fix/farm-e2e-campaign-20261010` — the
+closure-reconcile lane records the main-reachable closers after merge.
 `ADMIN-CRITICAL-157` — `MessagingPage`'s Internal Note toggle set local state, styled the draft, and
 never put `isInternal` on the wire, so every note an admin wrote ABOUT a customer was delivered INTO
 that customer's own support thread. In the same page, the Bulk Message dialog previewed "all active

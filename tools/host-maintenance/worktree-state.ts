@@ -126,10 +126,12 @@ export function isRebuildableCache(path: string): boolean {
 }
 
 /**
- * ARIA-specific structures are never deleted - the user's decision of
- * 2026-10-09 ("ARIA'ya özgü yapılar silinmemeli"), which replaced an
- * earlier allow-list that had treated some ARIA paths as disposable inside
- * <repo>/.worktrees. A worktree is ARIA's, and kept, when it holds content
+ * ARIA's own records are never deleted - the user's decision of 2026-10-09
+ * ("ARIA'ya özgü yapılar silinmemeli"), which replaced an earlier allow-list
+ * that had treated some ARIA paths as disposable inside <repo>/.worktrees.
+ * On 2026-10-10 the user added "bitmiş ARIA worktree'leri silinsin":
+ * finished ARIA worktrees may go, so an ARIA branch or directory name no
+ * longer keeps a worktree by itself. A worktree is kept when it holds content
  * under one of these paths that only it has: an untracked or ignored file
  * (worktree-gc.ts asks git), or a tracked modification (kept as dirty).
  * Tracked, unmodified files there are ARIA's committed code, preserved in
@@ -148,33 +150,6 @@ export const ARIA_ARTIFACT_PATHS = [
 const ARIA_ARTIFACT_PREFIX = 'aria-agent-outputs';
 /** The same set as git pathspecs. */
 export const ARIA_PATHSPECS = [...ARIA_ARTIFACT_PATHS, `${ARIA_ARTIFACT_PREFIX}*`];
-
-/**
- * ...or whose name says it is ARIA's work, case-insensitively:
- * - a branch (or any ref named in HEAD) with a path segment starting with
- *   `aria` - covers `aria/...`, `x/aria-...`, `lane/aria...`, `claude/aria-...`;
- * - a worktree path with `aria` anywhere in any directory name (`*aria*`).
- * The directory rule is deliberately broad: a false keep costs disk, a false
- * removal costs ARIA's work.
- */
-export function ariaName(ref: string | null, path: string): string | null {
-  if (ref !== null) {
-    const short = ref.replace(/^refs\/heads\//, '');
-    if (short.split('/').some((segment) => /^aria/i.test(segment))) return `branch ${short}`;
-  }
-  const dir = path.split('/').find((segment) => /aria/i.test(segment));
-  return dir ? `directory ${dir}` : null;
-}
-
-/** The ref HEAD names in a worktree's git directory (`ref: refs/heads/x`), or null when detached. */
-export function headRef(gitDir: string): string | null {
-  try {
-    const match = /^ref: (.+)$/m.exec(readFileSync(join(gitDir, 'HEAD'), 'utf8'));
-    return match?.[1]?.trim() ?? null;
-  } catch {
-    return null;
-  }
-}
 
 function symlinkTarget(link: string): string | null {
   try {

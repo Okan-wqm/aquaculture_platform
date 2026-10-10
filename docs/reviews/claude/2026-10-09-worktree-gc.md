@@ -126,15 +126,24 @@ removable, about 1.3 GB.
   ARIA's committed code, preserved in git, and do not keep a worktree (a first version counted
   them and kept every checkout). The hard exclusions for canonical ARIA state stay.
 
+### The user's second ARIA decision, 2026-10-10
+
+Under the 2026-10-09 rule the collector freed nothing on this host: almost every merged agent
+worktree is on a `fix/aria-*` or `train/aria-*` branch, and the name alone kept it. The user
+then decided "bitmiş ARIA worktree'leri silinsin" — finished ARIA worktrees may be removed. The
+name rule is gone; an ARIA-named worktree is judged by every other rule (current HEAD merged,
+clean, idle, no process, no reflog-only commit, no git operation, no symlink dependents). ARIA's
+own records still keep a worktree: any untracked or ignored file under an ARIA artifact path.
+
 ### Status of INFRA-HIGH-208: not resolved
 
-The unarmed pass after the user's decision (2026-10-09) still removes nothing. Of 156
-worktrees, 91 are `kept_aria`: 59 by branch name (the merged agent worktrees are almost all
-`fix/aria-*`, `train/aria-*` branches), 9 by directory name, and 23 because they hold ignored
-`aria-findings/` or `.aria-ci/` files only they have. The rest are outside the roots,
-protected, unmerged, recently active or dirty. The collector is correct and safe, but under
-the user's rule it frees no disk on this host today, so the finding stays OPEN; whether ARIA
-worktrees whose work is merged may go is the user's decision.
+The unarmed dry run on 2026-10-10 still frees nothing. Of 159 worktrees, 71 are `kept_aria`:
+the merged agent worktrees all hold ignored `aria-findings/` (35), `.aria-ci/` (31) or
+`.claude/agents/.dispatch-log.jsonl` (5) files of their own, which the 2026-10-09 rule keeps.
+The other 88 are outside the roots, protected, unmerged or dirty. The ARIA owner said on
+2026-10-09 that inside `<repo>/.worktrees` these paths are byproducts of local runs; the user's
+rule treats them as ARIA's records. Until the user settles which applies, the collector
+removes nothing here and the finding stays OPEN.
 
 ### Not done here
 

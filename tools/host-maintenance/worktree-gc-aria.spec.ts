@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * ARIA-specific structures are never deleted (user decision, 2026-10-09:
- * "ARIA'ya özgü yapılar silinmemeli"). Canonical ARIA state is never
- * collectable whatever the roots say, and a worktree that holds any ARIA
- * artifact, sits on an ARIA branch, or has an ARIA directory name is kept
- * (kept_aria) - never removed, never moved into quarantine.
+ * ARIA's own records are never deleted (user decision, 2026-10-09:
+ * "ARIA'ya özgü yapılar silinmemeli"), and finished ARIA worktrees may be
+ * removed (2026-10-10: "bitmiş ARIA worktree'leri silinsin"). Canonical ARIA
+ * state is never collectable whatever the roots say; a worktree holding an
+ * untracked or ignored file under an ARIA artifact path is kept (kept_aria)
+ * - never removed, never moved into quarantine; an ARIA-named worktree
+ * without one is judged like any other.
  *
  * Run: npm run tools:test
  */
@@ -16,7 +18,7 @@ import { test } from 'node:test';
 import { BUILTIN_PROTECTED, classifyLocation, isAriaStatePath } from './gc-config.ts';
 import { QUARANTINE_DIR } from './gc-quarantine.ts';
 import { addWorktree, fixture, git, reportFor, runGc } from './gc-test-fixture.ts';
-import { ARIA_ARTIFACT_PATHS, ariaName } from './worktree-state.ts';
+import { ARIA_ARTIFACT_PATHS } from './worktree-state.ts';
 
 void test('canonical ARIA state is never collectable, however wide the roots', () => {
   const cases: Array<[string, string]> = [
@@ -119,44 +121,32 @@ void test('every ARIA artifact path keeps a worktree that alone holds content th
   assert.deepEqual(existsSync(quarantine) ? readdirSync(quarantine) : [], []);
 });
 
-void test('a worktree on an ARIA branch is kept', () => {
+void test('a finished ARIA worktree is removable; one holding its own ARIA record is kept', () => {
   const fx = fixture();
-  const branches = ['aria/state-sync', 'lane/ARIA-hardening', 'claude/aria-fix', 'feat/aria-x'];
-  const worktrees = branches.map((branch, i) => addWorktree(fx, `neutral-${i}`, { branch }));
+  // User decision 2026-10-10: finished ARIA worktrees may be removed. The
+  // name alone keeps nothing; ARIA's own records still do.
+  const named = [
+    addWorktree(fx, 'aria-lane-1', { branch: 'fix/aria-plan-write-scope' }),
+    addWorktree(fx, 'train', { branch: 'train/aria-2026-10-07' }),
+    addWorktree(fx, 'ARIA-dir', { branch: 'lane/ARIA-hardening' }),
+  ];
+  const withRecord = addWorktree(fx, 'aria-with-record', { branch: 'claude/aria-fix' });
+  mkdirSync(join(withRecord, 'aria-findings'));
+  writeFileSync(join(withRecord, 'aria-findings', 'F-001.json'), '{}\n');
 
   const run = runGc(fx);
 
-  worktrees.forEach((wt, i) => {
-    assert.equal(reportFor(run, wt).reason, 'aria', branches[i]);
-    assert.ok(existsSync(wt));
-  });
-});
-
-void test('a worktree whose directory name mentions ARIA is kept', () => {
-  const fx = fixture();
-  const named = addWorktree(fx, 'my-Aria-work', { branch: 'feat/unrelated' });
-  const nested = join(fx.roots, 'ARIA-lanes');
-  mkdirSync(nested);
-  const inside = addWorktree(fx, 'lane-1', { under: nested, branch: 'feat/other' });
-
-  const run = runGc(fx);
-
-  assert.equal(reportFor(run, named).reason, 'aria');
-  assert.equal(reportFor(run, inside).reason, 'aria');
-  assert.ok(existsSync(named));
-  assert.ok(existsSync(inside));
-});
-
-void test('the ARIA name matcher is explicit', () => {
-  for (const ref of [
-    'refs/heads/aria/x',
-    'refs/heads/a/aria-b',
-    'refs/heads/lane/ariax',
-    'refs/heads/claude/ARIA-1',
-  ]) {
-    assert.ok(ariaName(ref, '/root/wt/plain'), ref);
+  for (const wt of named) {
+    assert.equal(reportFor(run, wt).decision, 'removed', wt);
+    assert.equal(existsSync(wt), false, wt);
   }
-  assert.equal(ariaName('refs/heads/feat/maria-fix', '/root/wt/plain'), null);
-  assert.ok(ariaName('refs/heads/feat/x', '/root/wt/variance-report'));
-  assert.equal(ariaName('refs/heads/feat/x', '/root/wt/plain'), null);
+  assert.equal(reportFor(run, withRecord).reason, 'aria');
+  assert.ok(existsSync(join(withRecord, 'aria-findings', 'F-001.json')));
+  for (const branch of [
+    'fix/aria-plan-write-scope',
+    'train/aria-2026-10-07',
+    'lane/ARIA-hardening',
+  ]) {
+    git(['-C', fx.repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
+  }
 });

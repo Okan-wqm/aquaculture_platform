@@ -29,18 +29,16 @@ A worktree is removed only when every one of these holds:
    worktrees), not canonical ARIA state (`/root/aria-8b`, `/var/lib/aria*`,
    `/home/gharunner/**`, or any path through a `.aria-state-store` directory), and not
    `locked`. The deploy and ARIA guards are hard-coded; no root setting widens past them.
-3. It is not ARIA's (`aria`). ARIA-specific structures are never deleted or quarantined, by
-   the user's decision of 2026-10-09 ("ARIA'ya özgü yapılar silinmemeli") — an explicit rule,
-   not an inference about which ARIA files are disposable. A worktree is ARIA's when:
-   - it holds an untracked or ignored file — something only this worktree has — under any of
-     `aria-findings`, `.aria-ci`, `aria-tools`, `aria-worktrees`, `.aria-state-store`,
-     `state.git`, `.claude/agents/.dispatch-log.jsonl` or a top-level `aria-agent-outputs*`
-     entry (a tracked modification there keeps it as `merged_but_dirty`). Tracked, unmodified
-     files there are ARIA's committed code, preserved in git, and do not keep a worktree;
-   - its branch has a path segment starting with `aria`, case-insensitive (`aria/...`,
-     `x/aria-...`, `lane/aria...`, `claude/aria-...`);
-   - any directory in its path contains `aria`, case-insensitive (`*aria*`; deliberately broad:
-     a false keep costs disk, a false removal costs ARIA's work).
+3. It holds no ARIA record of its own (`aria`). By the user's decisions — 2026-10-09 "ARIA'ya
+   özgü yapılar silinmemeli" (ARIA's structures are never deleted) and 2026-10-10 "bitmiş ARIA
+   worktree'leri silinsin" (finished ARIA worktrees may be removed) — a worktree is kept, never
+   removed or quarantined, while it holds an untracked or ignored file, something only it has,
+   under `aria-findings`, `.aria-ci`, `aria-tools`, `aria-worktrees`, `.aria-state-store`,
+   `state.git`, `.claude/agents/.dispatch-log.jsonl` or a top-level `aria-agent-outputs*` entry.
+   A tracked modification there keeps it as `merged_but_dirty`. Tracked, unmodified files there
+   are ARIA's committed code, preserved in git, and do not keep a worktree. An ARIA branch or
+   directory name keeps nothing by itself: a finished ARIA worktree goes through every other
+   rule like any worktree.
 4. It contains no other worktree.
 5. Its HEAD is an ancestor of `origin/main`, after a `git fetch origin --prune` that succeeded.
 6. Its HEAD reflog and its index have not changed for the grace period (default 6 h).
@@ -96,7 +94,7 @@ Every check that cannot be answered keeps the worktree. Each worktree's line nam
 | ----------------------- | --------------------------------------------------------------------- |
 | `merged_but_dirty`      | Merged, but holds uncommitted or untracked files: someone's work.     |
 | `ignored_content`       | Ignored files that are not rebuildable caches; `detail` names them.   |
-| `aria`                  | ARIA's: an ARIA artifact path, branch or directory name (rule 3).     |
+| `aria`                  | Holds an untracked or ignored ARIA record of its own (rule 3).        |
 | `unreachable_reflog`    | The reflog holds a commit nothing else does.                          |
 | `operation_in_progress` | A rebase, merge, cherry-pick, revert or bisect is unfinished.         |
 | `worktree_refs`         | It has refs of its own under `refs/worktree/` or `refs/bisect/`.      |

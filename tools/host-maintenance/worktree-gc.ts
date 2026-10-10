@@ -81,9 +81,7 @@ import {
 } from './worktree-list.ts';
 import {
   ARIA_PATHSPECS,
-  ariaName,
   canonical,
-  headRef,
   isRebuildableCache,
   isStrictlyWithin,
   lastActivityMs,
@@ -280,16 +278,13 @@ function classifyLeftover(pass: Pass, real: string): Verdict {
 }
 
 /**
- * ARIA-specific structures are never removed or quarantined (user decision,
- * 2026-10-09): an ARIA branch or directory name, or an untracked or ignored
- * file under an ARIA artifact path that only this worktree holds
- * (worktree-state.ts spells out the matchers and paths).
+ * ARIA's own records are never removed or quarantined (user decisions of
+ * 2026-10-09 and 2026-10-10): an untracked or ignored file under an ARIA
+ * artifact path that only this worktree holds keeps it. A finished ARIA
+ * worktree - named for ARIA but holding no such file - is judged like any
+ * other (worktree-state.ts lists the paths).
  */
-function ariaVerdict(record: WorktreeRecord, real: string | null, pass: Pass): Verdict | null {
-  const gitDir = real === null ? null : worktreeGitDir(real);
-  const ref = (gitDir === null ? null : headRef(gitDir)) ?? record.branch;
-  const name = ariaName(ref, real ?? record.path) ?? ariaName(null, record.path);
-  if (name) return { reason: 'aria', detail: name };
+function ariaVerdict(real: string | null, pass: Pass): Verdict | null {
   if (real === null) return null;
   // No .git file: only a tree this collector moved into quarantine after it
   // passed this same check (then readable by git) ends up like this.
@@ -317,7 +312,7 @@ function classify(record: WorktreeRecord, pass: Pass, now: number): Verdict {
   const location = classifyLocation(record.path, real, config.roots, config.protectedPaths);
   if (location) return { reason: location };
   if (record.locked) return { reason: 'locked' };
-  const aria = ariaVerdict(record, real, pass);
+  const aria = ariaVerdict(real, pass);
   if (aria) return aria;
   if (quarantineOf(record.path, config.roots)) {
     if (real === null || isStranded(real)) return { reason: 'quarantine_stranded' };
@@ -456,13 +451,6 @@ function quarantineOrphans(pass: Pass): WorktreeReport[] {
         reason: 'quarantine_orphan',
       };
       orphans.push(report);
-      // Content is judged by git once the tree is readable again (next pass).
-      const aria = ariaName(null, path);
-      if (aria) {
-        report.reason = 'aria';
-        report.detail = aria;
-        continue;
-      }
       if (isStranded(path)) {
         report.reason = 'quarantine_stranded';
         const busy = inUse(canonical(path) ?? path, pass);

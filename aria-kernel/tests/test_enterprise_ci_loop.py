@@ -292,10 +292,6 @@ class EnterpriseCiLoopTests(unittest.TestCase):
         self.assertIn("judge_replay", names)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheCiObserverRecordsNoMergeDecision(unittest.TestCase):
     """ARIA-MEDIUM-423 — the CI gate reads the merge lane's evaluation, never records it.
 
@@ -378,3 +374,7 @@ class TheCiObserverRecordsNoMergeDecision(unittest.TestCase):
         )
         self.assertEqual(set(counts.values()), {0})
         self.assertEqual(counts["premerge_decision_blocked"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

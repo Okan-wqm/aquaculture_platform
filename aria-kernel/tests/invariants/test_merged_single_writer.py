@@ -1,5 +1,10 @@
 """ARIA-HIGH-390 — "this ARIA PR merged" has one writer, and nothing reaches either fact around it.
 
+ARIA-HIGH-409 extends both facts with their one-time lineage attestation (the
+``merge_lineage_attested`` row, the ``implementation_merge_lineage_attested``
+plan event): the same owner writes them through the same closed doors, and a
+module that credits ARIA for a merge reads it through the owner's fold.
+
 The runtime closes both facts at the source: the plan event's writer is
 ``plan_convergence._record_implementation_merged`` (private, imported by
 ``merge_record`` alone) and ``auto_merge.record_pr_lifecycle`` refuses the
@@ -21,7 +26,16 @@ _OWNER = "aria-kernel/aria_kernel/merge_record.py"
 _PRIVATE = {
     "_record_implementation_merged": {"aria-kernel/aria_kernel/plan_convergence.py", _OWNER},
     "_MERGED_ROW_OWNER": {"aria-kernel/aria_kernel/auto_merge.py", _OWNER},
+    "_record_implementation_merge_lineage_attested": {"aria-kernel/aria_kernel/plan_convergence.py", _OWNER},
 }
+_OWNED_LIFECYCLE_EVENTS = ("merged", "closed_unmerged", "merge_unproven", "merge_lineage_unverified",
+                           "merge_lineage_attested")
+_OWNED_PLAN_EVENTS = ("implementation_merged", "implementation_merge_lineage_attested")
+# A reader that credits ARIA for a merge (left) must read it through a fold of
+# its attestation (right): a raw backfilled row or legacy plan event is never
+# ARIA's, and a reader that skips the fold silently withholds a verified merge.
+_CREDIT_READERS = ("merged_row_is_arias", "lineage_credits_aria")
+_FOLDS = ("fold_merged_rows", "fold_lineage", "fold_plan_state")
 _APPENDERS = {"append_jsonl", "append_declared_jsonl", "append_declared_jsonl_rows", "_append_jsonl_unlocked"}
 
 
@@ -73,9 +87,7 @@ def lifecycle_write_offenders(sources: list[tuple[str, ast.AST]]) -> list[str]:
                 event = next((k.value for k in node.keywords if k.arg == "event"), None)
                 if any(k.arg is None for k in node.keywords) or (
                         event is not None and not (isinstance(event, ast.Constant)
-                                                   and event.value not in ("merged", "closed_unmerged",
-                                                                           "merge_unproven",
-                                                                           "merge_lineage_unverified"))):
+                                                   and event.value not in _OWNED_LIFECYCLE_EVENTS)):
                     offenders.append(f"{relative}:{node.lineno}:record_pr_lifecycle")
             if name in _APPENDERS and any(
                     k.arg == "expected_surface" and isinstance(k.value, ast.Constant)
@@ -90,9 +102,20 @@ def merged_event_type_offenders(sources: list[tuple[str, ast.AST]]) -> list[str]
         for relative, tree in sources if relative != "aria-kernel/aria_kernel/plan_convergence.py"
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and any(
-            k.arg == "event_type" and isinstance(k.value, ast.Constant) and k.value.value == "implementation_merged"
+            k.arg == "event_type" and isinstance(k.value, ast.Constant) and k.value.value in _OWNED_PLAN_EVENTS
             for k in node.keywords)
     ]
+
+
+def unfolded_credit_offenders(sources: list[tuple[str, ast.AST]]) -> list[str]:
+    offenders = []
+    for relative, tree in sources:
+        if relative == _OWNER:
+            continue
+        called = {_name(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
+        if called & set(_CREDIT_READERS) and not called & set(_FOLDS):
+            offenders.append(relative)
+    return offenders
 
 
 class MergedHasOneWriter(unittest.TestCase):
@@ -105,6 +128,9 @@ class MergedHasOneWriter(unittest.TestCase):
     def test_no_writer_is_handed_the_implementation_merged_event_type(self) -> None:
         self.assertEqual(merged_event_type_offenders(_sources()), [])
 
+    def test_every_reader_that_credits_aria_folds_the_attestation(self) -> None:
+        self.assertEqual(unfolded_credit_offenders(_sources()), [])
+
     def test_every_bypass_the_review_named_is_caught(self) -> None:
         forged = ast.parse(
             "from aria_kernel.plan_convergence import _record_implementation_merged as rim\n"
@@ -116,11 +142,16 @@ class MergedHasOneWriter(unittest.TestCase):
             "record_pr_lifecycle(pr, event='merged')\n"
             "pc._mutate(plan_id=p, event_type='implementation_merged', payload={})\n"
             "append_declared_jsonl(path, row, expected_surface='pr_lifecycle')\n"
+            "from aria_kernel.plan_convergence import _record_implementation_merge_lineage_attested\n"
+            "record_pr_lifecycle(pr, event='merge_lineage_attested')\n"
+            "pc._mutate(plan_id=p, event_type='implementation_merge_lineage_attested', payload={})\n"
+            "merged_row_is_arias(row)\n"
         )
         sources = [("aria-kernel/aria_kernel/forged.py", forged)]
-        self.assertEqual(len(private_name_offenders(sources)), 3)
-        self.assertEqual(len(lifecycle_write_offenders(sources)), 4)
-        self.assertEqual(len(merged_event_type_offenders(sources)), 1)
+        self.assertEqual(len(private_name_offenders(sources)), 4)
+        self.assertEqual(len(lifecycle_write_offenders(sources)), 5)
+        self.assertEqual(len(merged_event_type_offenders(sources)), 2)
+        self.assertEqual(unfolded_credit_offenders(sources), ["aria-kernel/aria_kernel/forged.py"])
 
 
 if __name__ == "__main__":

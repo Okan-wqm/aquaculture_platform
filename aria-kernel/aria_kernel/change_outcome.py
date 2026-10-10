@@ -71,7 +71,7 @@ from .change_ledger import (
     _ledger_dir,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .merge_record import merged_row_instant, merged_row_is_arias
+from .merge_record import fold_merged_rows, merged_row_instant, merged_row_is_arias
 from .state_manifest import iter_surfaces
 from .tool_registry import (
     GovernanceError,
@@ -467,9 +467,8 @@ def _merge_index(tools_root: Path) -> dict[str, dict[str, Any]]:
         if isinstance(change_id, str) and change_id and pr_number is not None:
             changes_by_pr.setdefault(pr_number, set()).add(change_id)
     index: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        if row.get("event") != "merged":
-            continue
+    # ARIA-HIGH-409 — each merged row with its lineage attestation folded.
+    for row in fold_merged_rows(rows):
         for change_id in changes_by_pr.get(row.get("pr_number"), set()):
             index[change_id] = row  # later merged row wins
     return index

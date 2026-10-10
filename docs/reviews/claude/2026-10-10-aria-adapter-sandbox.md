@@ -667,3 +667,15 @@ untracked path a concurrent session adds. The durations stay within the host's l
   are audited, and a file that needs another C module is refused at that import
   (`loader_runs_subprocess_source`). The launcher and `skill_genesis_sandbox` docstrings now say
   what holds: the adapter's native code is the C modules the allowlist loaded.
+
+sandbox's re-review of 94501f67e confirmed the fix and left two notes, both closed in the next
+commit:
+
+- The loader pin (`loader_runs_subprocess_source`) was green for the wrong reason: it reached
+  subprocess's cached `.pyc` and stopped at `marshal.loads`. It is replaced by
+  `source_rerun_of_subprocess`, which compiles the source and stops at `import signal`
+  (`genesis_adapter_import_refused:signal`).
+- `_imp.init_frozen` still built a module from the interpreter's frozen bytecode with no import
+  event. That bytecode is trusted and pure Python, so the capability was the same, but it was
+  still a module load. The launcher now deletes `init_frozen` and `get_frozen_object` along with
+  the native constructors (pinned: `frozen_module_build`, `frozen_object_unmarshal`).

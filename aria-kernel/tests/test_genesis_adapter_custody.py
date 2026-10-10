@@ -125,25 +125,23 @@ BYPASS_SPELLINGS = {
         "import sys\n"
         "sys.modules['_imp'].get_frozen_object('x', sys.modules['marshal'].dumps((lambda: None).__code__))"
     ),
-    # A loader re-runs a stdlib FILE without the import statement; the C
-    # module that file needs cannot be built, so it is refused there.
-    "loader_runs_subprocess_source": (
-        "import sys\nboot = sys.modules['_frozen_importlib_external']\n"
-        "spec = boot.spec_from_file_location('sp', sys.modules['os'].path.dirname(sys.modules['os'].__file__) + '/subprocess.py')\n"
-        "module = sys.modules['_frozen_importlib'].module_from_spec(spec)\nspec.loader.exec_module(module)\n"
+    # A stdlib FILE re-run from its source, never through the import
+    # statement (and not from its cached .pyc, which marshal.loads refuses):
+    # it stops at its first import of a module not yet loaded (sandbox's
+    # re-review of 94501f67e: the loader form only ever reached the .pyc).
+    "source_rerun_of_subprocess": (
+        "import sys\npath = sys.modules['os'].path.dirname(sys.modules['os'].__file__) + '/subprocess.py'\n"
+        "exec(compile(open(path, 'rb').read(), path, 'exec'), {'__name__': 'sp'})\n"
     ),
+    "frozen_module_build": "import sys\nsys.modules['_imp'].init_frozen('runpy')",
 }
 # What a refusal looks like: the launcher's named events, or the import
 # machinery with its native constructors removed.
 REFUSAL_MARKERS = (
     "genesis_adapter_import_refused:",
     "genesis_adapter_capability_refused:",
-    "module '_imp' has no attribute 'create_",
+    "module '_imp' has no attribute '",
     "'NoneType' object is not callable",  # a rebound ImportError still refuses
-    # `_imp.get_frozen_object` replaces the hook's refusal of `marshal.loads`
-    # with its own ImportError; without the hook the same call returns a code
-    # object (test_the_frozen_object_refusal_is_the_hook).
-    "Frozen object named 'x' is invalid",
 )
 
 
@@ -229,8 +227,9 @@ class LauncherAllowlistTests(unittest.TestCase):
                 self.assertNotEqual(completed.returncode, 0, f"{name} ran: {completed.stdout!r}")
                 self.assertTrue(any(marker in completed.stderr for marker in REFUSAL_MARKERS), completed.stderr[-400:])
 
-    def test_the_frozen_object_refusal_is_the_hook(self) -> None:
-        # The same bytes, no launcher: `_imp` unmarshals them into a code object.
+    def test_the_frozen_builders_are_real_without_the_launcher(self) -> None:
+        # The same bytes, no launcher: `_imp` unmarshals them into a code
+        # object — the refusal above is the launcher's, not a broken spelling.
         unhooked = subprocess.run(
             [sys.executable, "-c", BYPASS_SPELLINGS["frozen_object_unmarshal"].replace(
                 "sys.modules['_imp'].get_frozen_object", "print(type(sys.modules['_imp'].get_frozen_object",

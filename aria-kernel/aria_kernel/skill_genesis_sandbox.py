@@ -18,7 +18,7 @@ evaluating a string annotation). The allowlist holds at runtime: every
 drafted adapter runs only through the kernel launcher
 (``tools/aria-poc/genesis_adapter_launcher.py``, started by
 ``genesis_adapter_custody``) inside the adapter room. The launcher loads this
-allowlist, deletes the import machinery's native-module constructors, and
+allowlist, deletes the import machinery's module builders, and
 then refuses the import of any module not yet loaded, every process,
 thread, tracing, code-construction and write-open event before the
 adapter's first byte compiles. The pre-check refuses the obvious spellings by name, early, so a

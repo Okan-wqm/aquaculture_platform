@@ -22,24 +22,28 @@ WHAT, in order (kernel code; the adapter arrives as DATA on stdin):
    allowlist (and the private stdlib helper ``_strptime``, which
    ``datetime.strptime`` loads lazily). Their C modules are the only native
    code the adapter will ever have.
-3. Remove ``_imp``'s native-module constructors. ``create_builtin`` raises no
-   audit event, and this interpreter builds ``_posixsubprocess`` and
-   ``_socket`` in (measured, Ubuntu python3.12), so without this a builtin
-   module could be instantiated past the hook.
-4. Install an audit hook (PEP 578: it cannot be removed) that refuses the
-   import of any module not already loaded (by statement, ``__import__`` or
-   ``importlib``; a loader object can re-run a pure-Python file, but with no
-   C module it can construct, that re-runs only the levers already audited
-   here), process creation, thread start, tracing/monitoring, a second hook,
+3. Remove ``_imp``'s module builders: the native-module constructors
+   (``create_builtin`` raises no audit event, and this interpreter builds
+   ``_posixsubprocess`` and ``_socket`` in — measured, Ubuntu python3.12 — so
+   without this a builtin module could be instantiated past the hook) and
+   the frozen-module ones (``init_frozen`` builds a module from the
+   interpreter's frozen bytecode with no import event; trusted, pure Python,
+   but a module load all the same).
+4. Install an audit hook (PEP 578: it cannot be removed) that refuses:
+   the import of any module not already loaded (by statement,
+   ``__import__`` or ``importlib``; a file's source can still be compiled
+   and re-run, but it stops at its first import of a module not loaded, and
+   with no module it can build it re-runs only the levers audited here);
+   process creation; thread start; tracing and monitoring; a second hook;
    re-pointing any function's ``__code__`` (the hook itself is reachable
-   through frames), building a code object from raw bytes (``code.__new__``
-   — ``CodeType``, ``code.replace`` — and ``marshal.load(s)``, which
-   ``_imp.get_frozen_object`` also raises: CPython does not verify bytecode,
-   and an out-of-bounds ``LOAD_CONST`` is a segfault and a road to native
-   code no hook sees), and opening any file for writing (an adapter is a
-   read-only scanner, and a writable ``/proc/self/mem`` would let it patch
-   the interpreter past this hook). Its conditions read only literals and
-   the interpreter's own arguments, so rebinding a builtin cannot turn a
+   through frames); building a code object from raw bytes
+   (``code.__new__`` — ``CodeType``, ``code.replace`` — and
+   ``marshal.load(s)``: CPython does not verify bytecode, and an
+   out-of-bounds ``LOAD_CONST`` is a segfault and a road to native code no
+   hook sees); and opening any file for writing (an adapter is a read-only
+   scanner, and a writable ``/proc/self/mem`` would let it patch the
+   interpreter past this hook). Its conditions read only literals and the
+   interpreter's own arguments, so rebinding a builtin cannot turn a
    refusal into a pass. ``compile()`` raises ``compile``, not
    ``code.__new__``, so step 5 and the stdlib's own ``exec`` (dataclasses)
    keep working.
@@ -57,9 +61,11 @@ _REFUSED_EXIT = 97
 # Loaded lazily by allowlisted APIs (``datetime.strptime``); preloaded here
 # because no module may load once the adapter runs.
 _LAZY_STDLIB_HELPERS = ("_strptime",)
-# The native-module constructors of the import machinery: after the
-# allowlist is loaded nothing may build a C module again.
-_NATIVE_CONSTRUCTORS = ("create_builtin", "exec_builtin", "create_dynamic", "exec_dynamic")
+# The import machinery's module builders: after the allowlist is loaded
+# nothing may build a C module, nor a frozen one, again.
+_MODULE_BUILDERS = (
+    "create_builtin", "exec_builtin", "create_dynamic", "exec_dynamic", "init_frozen", "get_frozen_object",
+)
 
 
 def _refuse(reason):
@@ -112,9 +118,9 @@ def main():
     for name in [*allowed, *_LAZY_STDLIB_HELPERS]:
         __import__(str(name))
     machinery = sys.modules["_imp"]
-    for constructor in _NATIVE_CONSTRUCTORS:
-        if hasattr(machinery, constructor):
-            delattr(machinery, constructor)
+    for builder in _MODULE_BUILDERS:
+        if hasattr(machinery, builder):
+            delattr(machinery, builder)
     sys.addaudithook(_audit)
     code = compile(source, "<genesis-adapter " + expected[:12] + ">", "exec", dont_inherit=True)
     sys.argv = ["genesis-adapter"]

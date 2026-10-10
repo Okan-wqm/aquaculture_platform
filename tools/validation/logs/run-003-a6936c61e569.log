@@ -1,0 +1,7 @@
+command: node tools/quality/quality.mjs format check-changed
+argv: ['node', 'tools/quality/quality.mjs', 'format', 'check-changed']
+--- stdout ---
+format check-changed: 2 managed file(s) checked; 0 base-debt file(s) quarantined
+
+--- stderr ---
+

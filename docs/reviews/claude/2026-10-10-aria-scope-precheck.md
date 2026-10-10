@@ -47,25 +47,35 @@ it was learned again on each of the plan's three offers.
 
 ### Fix (tier 1 for the waste, tier 2 for the escalation)
 
-`converged_delivery._claim_attempt` judges the scope the way the mint does before it claims an
-attempt. `_mint_scope_refusals` takes the hash-verified CONVERGED body (`plan_body_from_state`),
-reads its surfaces with `affected_surface_paths`, reads the bound with `admission_scope_for_plan`,
-and passes both to the existing `implementation_allowed_scope`. No second classifier was written.
-Every input comes from the folded plan state, so this check gives the mint's own verdict before any
-staging is paid for. Three outcomes are refusals:
+The mint's scope block is now one function, `cross_review_bridge.implementation_envelope_scope`.
+It takes the CONVERGED body's surfaces (`affected_surface_paths`) and the plan's admission bound
+(`admission_scope_for_plan`) and passes them to the existing `implementation_allowed_scope`. It
+returns `(allowed_scope, refused_surfaces)`, or it raises the mint's `BridgeContractViolation`
+with the same text as before.
 
-- every surface is refused (readonly, glob, traversal);
-- a surface lies outside the admission bound (`AdmissionScopeExceeded`). This also writes the
-  plan-keyed `revision_scope_exceeds_admission_closure` row through the existing
-  `record_admission_scope_refusal`, with `stage: converged_delivery`;
-- the plan started from a finding without its admission record (`admission_scope_missing`). The
-  mint raises this for the same fold, and only an operator restart can record a bound.
+Before `converged_delivery._claim_attempt` claims an attempt, it calls that same function on the
+same fold and the same hash-verified body (`plan_body_from_state`). So the door and the mint
+cannot disagree about what can be minted, and no second classifier exists. Three outcomes are
+refusals:
+
+- **The scope is empty.** Every declared surface is refused (readonly, glob, traversal), or no
+  surface is declared at all.
+- **A surface lies outside the admission bound** (`AdmissionScopeExceeded`). The gate also writes
+  the plan-keyed `revision_scope_exceeds_admission_closure` row once, with the caller's stage
+  (`stage: converged_delivery` here, `implementation_mint` in the mint).
+- **The plan started from a finding without its admission record** (`admission_scope_missing`).
+  The door reads this first: `admission_scope_for_plan` is a pure read, and this is its only
+  refusal. The gate raises it unchanged, and only an operator restart can record a bound.
+
+Any other error is not a scope verdict and is not parked. A body the ledger cannot prove, or a
+ledger fault, still reaches the existing `converged_delivery_attempt_unrecorded` row, uncounted.
 
 When the scope is refused, `_withhold_unwritable_scope` does what the ARIA-HIGH-375 move does:
 
 - `force_plan_human_required(from_states={"CONVERGED"}, forced_by="kernel:converged_delivery",
 reason_codes=["implementation_envelope_no_writable_scope"])`, under the plan lock;
-- one `converged_delivery_no_writable_scope` governance row that names every refused surface;
+- one `converged_delivery_no_writable_scope` governance row that carries the mint's refusal
+  word for word (`refusal`);
 - the plan's one operator item through `record_parked_plan` (`plan-human-required-<plan>`,
   origin `converged_delivery`, verdict `no_writable_scope`).
 
@@ -99,13 +109,40 @@ Run against the unfixed module, the file goes 8 failed, 4 passed. The 4 that pas
 controls: a writable plan, a partly readonly plan, the mint's own refusal, and a live request.
 The replay counts `(proposals, apply actions, baseline runs, counted attempts)` and reads
 `(3, 3, 12, 3)` where it now reads `(0, 0, 0, 0)`. That is production's per-plan shape: three
-stagings of four baseline commands each. After the fix the file passes 12 of 12.
+stagings of four baseline commands each. After the fix the file passes 12 of 12 (15 of 15 with the review follow-up).
 
 Two existing fixtures in `tests/test_converged_delivery.py`, `SweepBoundTests` and
 `OrchestratorWiringTests`, offered a dispatching runner a plan whose only surface was the shared
 fixture's default, `aria-kernel/aria_kernel/plan_convergence.py`. That path is readonly, so the
 real mint refuses such a plan. They now declare a writable surface through
 `deliverable_plan_content`.
+
+### Review of ad6774791 (`security`): one confirmed defect, closed in the follow-up commit
+
+`security` reproduced a body the plan validator accepts: `affected_surfaces: [{"paths": []}]`, with
+the paths only in `key_changes`. It went through the first door:
+
+- `implementation_allowed_scope([], …)` returns `([], [])`;
+- the door's own copy of the condition, `[] if writable else refused`, read "nothing refused" as
+  "mintable";
+- the plan was staged at `(1, 1, 4)` and attempt 1 was counted, then the mint refused it with the
+  HIGH-416 token.
+
+The root cause was the second copy of the condition. It is closed by removing the copy: the door
+now asks the mint's own gate (see Fix). The repro is
+`test_a_plan_that_declares_no_surface_is_parked_too`. On the first door it read `(1, 1, 4, 1)`,
+and it now reads `(0, 0, 0, 0)` with the plan HUMAN_REQUIRED.
+
+The same follow-up also makes two small changes `main` approved, each red then green:
+
+- **The ARIA-HIGH-375 move is stamped.** `withhold_ungated_self_agreement` now stamps
+  `forced_by="kernel:converged_delivery"` like converged_delivery's other two moves. Before, it
+  wrote `operator`.
+- **`KERNEL_FORCED_CODES` lists the two codes converged_delivery forces.** These are
+  `cross_review_self_agreement` and `implementation_envelope_no_writable_scope`. Without them,
+  its docstring ("any other code was written by the operator") stays true only on paper. Listing a
+  code does not make it attributable: `attribute_evaluation` attributes only
+  `convergence_envelope_dead` and the gate codes. The tests pin both stamped rows as unattributed.
 
 ### Not done here
 
@@ -114,18 +151,19 @@ real mint refuses such a plan. They now declare a writable surface through
   classified `settled` by ARIA-HIGH-412.
 - **A body the ledger cannot prove is not judged here.** If `plan_body_from_state` raises
   (`plan_body_unavailable_for_revision`), the error reaches `deliver_converged_plan`'s existing
-  `converged_delivery_attempt_unrecorded` row, and the offer is withheld without being counted.
-  Only a ledger edit outside the plan lock could produce that state, because the kernel records
-  each revision's content with its hash, and `fold_plan_state` already refuses a ledger whose
-  hash chain breaks. Before this change, staging hit the same error first and counted it.
+  `converged_delivery_attempt_unrecorded` row, and the offer is withheld without being counted
+  (pinned in `test_a_body_the_ledger_cannot_prove_is_not_a_scope_verdict`). Only a ledger edit
+  outside the plan lock could produce that state, because the kernel records each revision's
+  content with its hash, and `fold_plan_state` already refuses a ledger whose hash chain breaks.
+  Before this change, staging hit the same error first and counted it.
 - **The exhaustion path still writes a second operator item.** `_record_exhaustion` writes
   `converged-delivery-exhausted-<plan>`, and `reconcile_parked_plans` adds
   `plan-human-required-<plan>` for the same parking. Both are open in production for both plans.
-  This is reported to `main` for the HR-hygiene lane and is not changed here.
+  This is tracked as **ARIA-MEDIUM-429** (OPEN, owner claude, deadline 2026-10-24) and is not
+  changed here.
 - **The two production plans stay as they are.** They are HUMAN_REQUIRED already, and their items
   are the operator's.
-- **No attribution change.** The new reason code is not in `failure_attribution.KERNEL_FORCED_CODES`,
-  so the forced row is never attributed to the drafter. That is the intended outcome: the plan is
-  sound, and only the lane's authority boundary keeps it from being delivered. The outcome is the
-  same as it would be with the code listed, because `attribute_evaluation` attributes only
-  `ATTRIBUTABLE_GATE_CODES` and `convergence_envelope_dead`.
+- **No attribution change.** The forced row is never attributed to the drafter. That is the
+  intended outcome: the plan is sound, and only the lane's authority boundary keeps it from being
+  delivered. The code is listed in `KERNEL_FORCED_CODES` (see the review section) but is not an
+  `ATTRIBUTABLE_GATE_CODES` member.

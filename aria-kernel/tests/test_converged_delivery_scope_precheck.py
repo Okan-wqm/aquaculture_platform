@@ -49,9 +49,15 @@ from aria_kernel.converged_delivery import (
 )
 from aria_kernel.cross_review_bridge import issue_implementation_envelope
 from aria_kernel.cycle_phases.implementer import AutonomousV9ImplementationRunner
+from aria_kernel.failure_attribution import KERNEL_FORCED_CODES, attribute_evaluation
 from aria_kernel.human_required import list_human_required
 from aria_kernel.ledger import load_jsonl
-from aria_kernel.plan_convergence import PlanStateRefused, counted_delivery_attempts, fold_plan_state
+from aria_kernel.plan_convergence import (
+    CROSS_REVIEW_SELF_AGREEMENT_REASON,
+    PlanStateRefused,
+    counted_delivery_attempts,
+    fold_plan_state,
+)
 from aria_kernel.plan_origin import ADMISSION_SCOPE_MISSING, REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE
 from aria_kernel.proposal import list_proposals
 from aria_kernel.request_admission import admit_request
@@ -59,6 +65,11 @@ from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 from tests._helpers.git_fixtures import commit_files, make_repo_with_initial_commit
 from tests._helpers.operator_acts import operator_set_profile
 from tests._helpers.production_shaped import production_converged_plan
+from tests.test_implementation_lifecycle_continuity import (
+    converging_plan_content,
+    drive_plan_to_converged,
+    seed_reviewer_agent,
+)
 from tests.test_pr_manager_e2e import _fake_child_process
 
 # The tokens this change persists are pinned by VALUE: the reason code lands on
@@ -97,8 +108,20 @@ class _ScopeCase(unittest.TestCase):
         plan = production_converged_plan(
             tools_dir=self.tools, workspace_root=self.repo, plan_id=plan_id, affected_paths=paths,
         )
-        # The fixture writes its reviewer agent into the workspace (once; the
-        # next plan rewrites the same bytes). Staging and the delivery door
+        self.commit_reviewer()
+        return plan.plan_id
+
+    def converge_body(self, plan_id: str, plan_content: dict) -> str:
+        """A body ``production_converged_plan`` cannot express, through the same real gate."""
+        seed_reviewer_agent(self.repo)
+        drive_plan_to_converged(plan_id=plan_id, tools=self.tools, workspace_root=self.repo,
+                                plan_content=plan_content)
+        self.commit_reviewer()
+        return plan_id
+
+    def commit_reviewer(self) -> None:
+        # The fixtures write their reviewer agent into the workspace (once; a
+        # later plan rewrites the same bytes). Staging and the delivery door
         # both refuse a dirty tree, as production's would, so it is committed.
         status = subprocess.run(["git", "status", "--porcelain"], cwd=self.repo,
                                 capture_output=True, text=True, check=True).stdout
@@ -106,7 +129,6 @@ class _ScopeCase(unittest.TestCase):
             reviewer = ".claude/agents/farm-expert.md"
             commit_files(self.repo, {reviewer: (self.repo / reviewer).read_text(encoding="utf-8")},
                          message="fixture: plan reviewer")
-        return plan.plan_id
 
     def deliver(self, plan_id: str, *, cycle_id: str, origin: str = ORIGIN_EXECUTOR) -> dict:
         with _fake_child_process(validation_module):
@@ -192,15 +214,19 @@ class ReadonlyOnlyPlanIsNeverStaged(_ScopeCase):
             "gate": "forced_escalation", "decision": "human_escalation", "reason_codes": [REASON],
         }])
         self.assertEqual(row["round_number"], self.state(plan_id)["current_round"])
+        # The plan is sound; the lane's authority stops it. Never the drafter's lesson.
+        self.assertIsNone(attribute_evaluation(row, plan_id=plan_id, drafter="agent:drafter", ledgers=None))
 
     def test_one_governance_row_and_the_plans_one_operator_item(self) -> None:
         plan_id = self.converge("plan-cyc-20261008T151306Z-auto", [WORKFLOW])
         self.deliver(plan_id, cycle_id="executor-37811678748-1")
 
-        self.assertEqual(self.governance(KIND), [{
-            "plan_id": plan_id, "round_number": self.state(plan_id)["current_round"],
-            "refused_surfaces": [{"surface": WORKFLOW, "reason": f"readonly_surface_declared:{WORKFLOW}"}],
-        }])
+        [row] = self.governance(KIND)
+        self.assertEqual({key: row[key] for key in ("plan_id", "round_number")},
+                         {"plan_id": plan_id, "round_number": self.state(plan_id)["current_round"]})
+        # The mint's own refusal, word for word: the door asked the mint's gate.
+        self.assertTrue(row["refusal"].startswith(f"{REASON}: every declared surface of plan {plan_id!r}"))
+        self.assertIn(f"readonly_surface_declared:{WORKFLOW}", row["refusal"])
         item_id = parked_plan_request_id(plan_id)
         items = self.operator_items()
         self.assertEqual(sorted(items), [item_id])
@@ -232,6 +258,24 @@ class ReadonlyOnlyPlanIsNeverStaged(_ScopeCase):
         self.assertEqual([row["plan_id"] for row in report["offered"]], [normal])
         self.assertEqual(self.state(parked)["state"], "HUMAN_REQUIRED")
         self.assertEqual(self.state(normal)["state"], "IMPLEMENTATION_REQUESTED")
+
+    def test_a_plan_that_declares_no_surface_is_parked_too(self) -> None:
+        # Review of ad6774791 (security): the door kept its own copy of the
+        # mint's condition and read "nothing refused" as "mintable", so a body
+        # declaring no surface (its paths only in key_changes) was staged for
+        # a mint that refuses a scope with nothing in it.
+        plan_id = self.converge_body("plan-no-surface", converging_plan_content(
+            "No declared surface", affected_surfaces=[{"paths": []}],
+            key_changes=[{"id": "kc-1", "description": "set the interval", "paths": [FARM], "imports": []}],
+        ))
+
+        summary = self.deliver(plan_id, cycle_id="cyc-1")
+
+        state = self.state(plan_id)
+        self.assertEqual((*self.staged(), len(counted_delivery_attempts(state))), (0, 0, 0, 0))
+        self.assertEqual(summary["delivery"]["withheld"], WITHHELD)
+        self.assertEqual(state["state"], "HUMAN_REQUIRED")
+        self.assertEqual(self.human_required_evaluations(plan_id)[-1]["reason_codes"], [REASON])
 
 
 class OnlyTheMintsOwnRefusalsPark(_ScopeCase):
@@ -277,18 +321,18 @@ class OnlyTheMintsOwnRefusalsPark(_ScopeCase):
         plan_id = self.converge("plan-farm", [FARM])
         bound = {"admitted_surfaces": ["apps/auth-service/src/x.ts"], "closure_roots": [], "policy_pins": []}
 
-        with patch("aria_kernel.plan_origin.admission_scope_for_plan", return_value=bound):
+        # The bound the MINT reads: the door asks the mint's gate, so it sees it too.
+        with patch("aria_kernel.cross_review_bridge.admission_scope_for_plan", return_value=bound):
             summary = self.deliver(plan_id, cycle_id="cyc-1")
 
         self.assertEqual(summary["delivery"]["withheld"], WITHHELD)
         self.assert_nothing_staged()
         self.assertEqual(self.state(plan_id)["state"], "HUMAN_REQUIRED")
+        # One plan-keyed bound row, stamped by the door that refused.
         self.assertEqual(self.governance(REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE), [
             {"plan_id": plan_id, "stage": "converged_delivery", "offending_paths": [FARM]},
         ])
-        self.assertEqual(self.governance(KIND)[0]["refused_surfaces"], [
-            {"surface": FARM, "reason": REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE},
-        ])
+        self.assertTrue(self.governance(KIND)[0]["refusal"].startswith(REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE))
 
     def test_a_plan_without_its_admission_record_is_the_same_refusal(self) -> None:
         plan_id = self.converge("plan-farm", [FARM])
@@ -300,7 +344,7 @@ class OnlyTheMintsOwnRefusalsPark(_ScopeCase):
         self.assertEqual(summary["delivery"]["withheld"], WITHHELD)
         self.assert_nothing_staged()
         self.assertEqual(self.state(plan_id)["state"], "HUMAN_REQUIRED")
-        self.assertEqual(self.governance(KIND)[0]["refused_surfaces"], [{"surface": None, "reason": str(missing)}])
+        self.assertEqual(self.governance(KIND)[0]["refusal"], str(missing))
 
 
 class TheMoveNeverRaces(_ScopeCase):
@@ -329,6 +373,20 @@ class TheMoveNeverRaces(_ScopeCase):
         self.assertEqual(self.governance(KIND), [])
         self.assertEqual(self.operator_items(), {})
 
+    def test_a_body_the_ledger_cannot_prove_is_not_a_scope_verdict(self) -> None:
+        # Only the gate's refusals park. A body-proof error is the ledger's,
+        # so it reaches the door's own fault row, uncounted, plan untouched.
+        plan_id = self.converge("plan-readonly", [WORKFLOW])
+        unproven = GovernanceError("plan_body_unavailable_for_revision: fixture")
+
+        with patch("aria_kernel.plan_convergence.plan_body_from_state", side_effect=unproven):
+            summary = self.deliver(plan_id, cycle_id="cyc-1")
+
+        self.assertEqual(summary["delivery"]["withheld"], "attempt_unrecorded")
+        self.assertEqual((*self.staged(), len(counted_delivery_attempts(self.state(plan_id)))), (0, 0, 0, 0))
+        self.assertEqual(self.state(plan_id)["state"], "CONVERGED")
+        self.assertEqual(self.governance(KIND), [])
+
 
 class PersistedTokens(unittest.TestCase):
     def test_the_module_names_the_pinned_tokens(self) -> None:
@@ -338,6 +396,14 @@ class PersistedTokens(unittest.TestCase):
         from aria_kernel.plan_convergence import KERNEL_FORCERS
 
         self.assertIn(FORCER, KERNEL_FORCERS)
+
+    def test_every_code_converged_delivery_forces_is_a_kernel_forced_code(self) -> None:
+        # `failure_attribution` reads a forced row whose code it does not list
+        # as the operator's; converged_delivery forces these three.
+        self.assertLessEqual(
+            {REASON, converged_delivery.DELIVERY_EXHAUSTED_REASON, CROSS_REVIEW_SELF_AGREEMENT_REASON},
+            KERNEL_FORCED_CODES,
+        )
 
 
 if __name__ == "__main__":

@@ -759,6 +759,44 @@ def _observed_failure_obligations(*, base_dir: str | Path | None, implementer: s
     ]
 
 
+def implementation_envelope_scope(
+    state: dict[str, Any], *, plan_content: dict[str, Any], plan_id: str,
+    base_dir: str | Path | None, stage: str,
+) -> tuple[list[str], list[dict[str, str]]]:
+    """``(allowed_scope, refused_surfaces)`` of a CONVERGED plan's envelope, or the mint's refusal.
+
+    ADR-0021 (ARIA-MEDIUM-261) — the scope is held to the bound the plan was
+    admitted with, read from its `plan_started` record: a body naming a path
+    outside it mints nothing and leaves a plan-keyed governance row (``stage``
+    names the caller). A scope with no writable surface, every declared one
+    refused or none declared, mints nothing either.
+
+    ARIA-HIGH-416 — the ONE gate on the envelope's scope: the mint calls it,
+    and so does the delivery door before staging (``converged_delivery``), on
+    the same fold, so the door parks exactly the plans the mint refuses. A
+    second copy of the condition there staged a plan that declared no surface
+    for a mint that refused it.
+    """
+    try:
+        allowed_scope, refused_surfaces = implementation_allowed_scope(
+            affected_surface_paths(plan_content.get("affected_surfaces")),
+            admission_scope=admission_scope_for_plan(state),
+        )
+    except AdmissionScopeExceeded as exc:
+        record_admission_scope_refusal(base_dir, plan_id=plan_id, stage=stage, error=exc)
+        raise BridgeContractViolation(str(exc)) from exc
+    if not allowed_scope:
+        raise BridgeContractViolation(
+            f"implementation_envelope_no_writable_scope: every declared "
+            f"surface of plan {plan_id!r} is refused "
+            f"({[item['reason'] for item in refused_surfaces]}); an envelope "
+            f"with an empty allowed_scope authorises no write, and minting "
+            f"one would transition the plan out of CONVERGED for work the "
+            f"implementer may not legally perform"
+        )
+    return allowed_scope, refused_surfaces
+
+
 def issue_implementation_envelope(
     *,
     plan_id: str,
@@ -869,27 +907,11 @@ def issue_implementation_envelope(
     converged_plan_revision_id = str(body["revision_id"])
     converged_content_hash = str(body["content_hash"])
 
-    # ADR-0021 (ARIA-MEDIUM-261) — the scope is held to the bound the plan
-    # was admitted with, read from its `plan_started` record; a CONVERGED
-    # body naming a path outside it mints nothing and leaves a plan-keyed
-    # governance row, with the plan still CONVERGED.
-    try:
-        allowed_scope, refused_surfaces = implementation_allowed_scope(
-            affected_surface_paths(plan_content.get("affected_surfaces")),
-            admission_scope=admission_scope_for_plan(state_dict),
-        )
-    except AdmissionScopeExceeded as exc:
-        record_admission_scope_refusal(base_dir, plan_id=plan_id, stage="implementation_mint", error=exc)
-        raise BridgeContractViolation(str(exc)) from exc
-    if not allowed_scope:
-        raise BridgeContractViolation(
-            f"implementation_envelope_no_writable_scope: every declared "
-            f"surface of plan {plan_id!r} is refused "
-            f"({[item['reason'] for item in refused_surfaces]}); an envelope "
-            f"with an empty allowed_scope authorises no write, and minting "
-            f"one would transition the plan out of CONVERGED for work the "
-            f"implementer may not legally perform"
-        )
+    # ADR-0021 / ARIA-HIGH-416 — the one gate on the scope; a refusal mints
+    # nothing and leaves the plan CONVERGED.
+    allowed_scope, refused_surfaces = implementation_envelope_scope(
+        state_dict, plan_content=plan_content, plan_id=plan_id, base_dir=base_dir, stage="implementation_mint",
+    )
 
     evidence_refs = [
         str(ref) for ref in (plan_content.get("evidence_refs") or [])

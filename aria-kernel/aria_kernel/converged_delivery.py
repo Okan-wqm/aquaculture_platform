@@ -230,6 +230,7 @@ def withhold_ungated_self_agreement(plan_id: str, *, base_dir: Path) -> bool:
             plan_id=plan_id, round_number=round_number,
             reason_codes=[CROSS_REVIEW_SELF_AGREEMENT_REASON],
             from_states=frozenset({"CONVERGED"}), base_dir=base_dir,
+            forced_by="kernel:converged_delivery",
         )
     except PlanStateRefused:
         # Left CONVERGED under the lock (a mint got there first): what it is
@@ -245,39 +246,35 @@ def withhold_ungated_self_agreement(plan_id: str, *, base_dir: Path) -> bool:
     return True
 
 
-def _mint_scope_refusals(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> list[dict[str, Any]]:
-    """What the envelope mint would refuse of ``plan_id``'s scope; [] when it would mint one.
+def _mint_scope_refusal(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
+    """The envelope mint's refusal of ``plan_id``'s scope, or None when it would mint one.
 
-    The mint's own derivation (``cross_review_bridge.issue_implementation_envelope``)
-    on the same fold: the hash-verified CONVERGED body's surfaces, held to the
-    bound the plan started with, through the one ``implementation_allowed_scope``.
-    Every input is folded plan state, so this is the mint's verdict, known
-    before staging pays for it.
+    Asked through the mint's own gate (``cross_review_bridge.implementation_
+    envelope_scope``) on the same fold and the same hash-verified body, so the
+    door and the mint cannot disagree on what is mintable. A body the ledger
+    cannot prove is not a scope verdict: its error reaches the caller.
     """
-    from .implementation_safety import implementation_allowed_scope
-    from .plan_convergence import affected_surface_paths, plan_body_from_state
-    from .plan_origin import (
-        REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE,
-        AdmissionScopeExceeded,
-        admission_scope_for_plan,
-        record_admission_scope_refusal,
-    )
+    from .bridge_exceptions import BridgeContractViolation
+    from .cross_review_bridge import implementation_envelope_scope
+    from .plan_convergence import plan_body_from_state
+    from .plan_origin import admission_scope_for_plan
     from .tool_registry import GovernanceError
 
-    paths = affected_surface_paths(plan_body_from_state(state)["plan_content"].get("affected_surfaces"))
     try:
-        bound = admission_scope_for_plan(state)
+        admission_scope_for_plan(state)
     except GovernanceError as exc:
-        # `admission_scope_missing`, the read's one refusal: the plan started
-        # from a finding without the bound its bodies are held to. The mint
-        # raises it for the same fold; only an operator restart records one.
-        return [{"surface": None, "reason": str(exc)[:500]}]
+        # `admission_scope_missing`, this pure read's one refusal: the plan
+        # started from a finding without the bound its bodies are held to. The
+        # gate raises it unchanged; only an operator restart records a bound.
+        return str(exc)[:500]
     try:
-        writable, refused = implementation_allowed_scope(paths, admission_scope=bound)
-    except AdmissionScopeExceeded as exc:
-        record_admission_scope_refusal(base_dir, plan_id=plan_id, stage="converged_delivery", error=exc)
-        return [{"surface": path, "reason": REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE} for path in exc.offending]
-    return [] if writable else refused
+        implementation_envelope_scope(
+            state, plan_content=plan_body_from_state(state)["plan_content"],
+            plan_id=plan_id, base_dir=base_dir, stage="converged_delivery",
+        )
+    except BridgeContractViolation as exc:
+        return str(exc)[:500]
+    return None
 
 
 def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
@@ -285,7 +282,7 @@ def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir:
 
     The refusal depends on the plan body alone, so no later cycle changes it.
     The plan moves CONVERGED → HUMAN_REQUIRED here, under the plan lock and
-    only from CONVERGED, with one governance row naming every refused surface
+    only from CONVERGED, with one governance row carrying the mint's refusal
     and the plan's one operator item: the ARIA-HIGH-375 move. The mint keeps
     its own check as the second line.
     """
@@ -293,8 +290,8 @@ def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir:
     from .plan_convergence import PlanStateRefused, force_plan_human_required
     from .tool_registry import append_tools_governance
 
-    refused = _mint_scope_refusals(plan_id, state=state, base_dir=base_dir)
-    if not refused:
+    refusal = _mint_scope_refusal(plan_id, state=state, base_dir=base_dir)
+    if refusal is None:
         return None
     round_number = max(1, int(state.get("current_round") or 1))
     try:
@@ -308,7 +305,7 @@ def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir:
         return WITHHELD_NOT_CONVERGED
     append_tools_governance(
         base_dir, NO_WRITABLE_SCOPE_KIND,
-        {"plan_id": plan_id, "round_number": round_number, "refused_surfaces": refused},
+        {"plan_id": plan_id, "round_number": round_number, "refusal": refusal},
         bypass_profile_gate=True,
     )
     record_parked_plan(plan_id=plan_id, base_dir=base_dir, verdict=WITHHELD_NO_WRITABLE_SCOPE,

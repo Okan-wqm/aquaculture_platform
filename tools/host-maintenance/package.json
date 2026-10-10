@@ -1,0 +1,5 @@
+{
+  "name": "@aquaculture/host-maintenance-tools",
+  "private": true,
+  "type": "module"
+}

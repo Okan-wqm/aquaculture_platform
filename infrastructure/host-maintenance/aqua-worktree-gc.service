@@ -1,0 +1,75 @@
+# Git-worktree garbage collector — see tools/host-maintenance/worktree-gc.ts and
+# docs/runbooks/maintenance/worktree-gc.md.
+#
+# Type=oneshot: each pass decides from scratch. What a pass interrupted is
+# left in <root>/.gc-quarantine/ and finished by the next one.
+#
+# The collector is UNARMED unless /etc/default/aqua-worktree-gc sets
+# WORKTREE_GC_ARMED=1: an unarmed pass reports the decisions it would take
+# and removes nothing. Arming is a deliberate operator step (runbook).
+[Unit]
+Description=Aquaculture git-worktree garbage collector (merged, clean, idle worktrees only)
+Documentation=https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/maintenance/worktree-gc.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The repository whose worktrees are collected. Roots, grace period, arming
+# and budgets come from /etc/default/aqua-worktree-gc.
+Environment=AQUA_REPO=/var/aqua-saas
+# The origin remote authenticates through `gh auth git-credential`, which
+# reads its token from $HOME/.config/gh. systemd sets no HOME for a unit
+# without User=.
+Environment=HOME=/root
+# Same reason as aqua-supervisor.service: /usr/bin/node on this host is Node
+# 18, which has no type stripping. Node 22+ must come first on PATH, and the
+# executable is /usr/bin/env because systemd does not expand variables in
+# the first token of ExecStart.
+Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/bin
+EnvironmentFile=-/etc/default/aqua-worktree-gc
+# The code runs from the deploy checkout - the SHA the deploy pinned from
+# main - not from /var/aqua-saas. The shared checkout's HEAD is whatever an
+# agent session left there (on 2026-10-09 it was configured core.bare=true);
+# a tool that deletes directories must run reviewed, deployed code. The
+# collector never touches /var/lib/aqua/deploy itself (built-in protection).
+# Until a deploy carries the script, the pass is skipped (not failed) with
+# this message, and the textfile records exit code 4 so the
+# WorktreeGcFailing alert sees a collector that is installed but not running.
+# ($$ and %% are systemd's escapes for a literal $ and %.)
+ExecCondition=/bin/sh -c 'test -f /var/lib/aqua/deploy/checkout/tools/host-maintenance/worktree-gc.ts && exit 0; echo "aqua-worktree-gc: tools/host-maintenance/worktree-gc.ts is not in the deployed checkout /var/lib/aqua/deploy/checkout; skipping until a deploy carries it"; t="$${WORKTREE_GC_TEXTFILE_PATH-/var/lib/node_exporter/textfile/aqua_worktree_gc.prom}"; if [ -n "$$t" ]; then mkdir -p "$$(dirname "$$t")" && printf "aqua_worktree_gc_last_run_timestamp_seconds %%s\naqua_worktree_gc_last_exit_code 4\n" "$$(date +%%s)" > "$$t.tmp" && mv "$$t.tmp" "$$t"; fi; exit 1'
+ExecStart=/usr/bin/env node --experimental-strip-types /var/lib/aqua/deploy/checkout/tools/host-maintenance/worktree-gc.ts
+# Exit 3: the pass ran, but a removal or the prune failed - a result, with
+# the worktree named in the journal. Exit 1 (fetch failed, not a repository,
+# bad configuration) stays a unit failure, visible in `systemctl --failed`.
+# Either way the pass result is also in the Prometheus textfile
+# aqua_worktree_gc.prom (aqua_worktree_gc_last_exit_code).
+SuccessExitStatus=0 3
+StandardOutput=journal
+StandardError=journal
+# Housekeeping must never compete with the production containers on this
+# host: lowest CPU priority short of idle, and disk I/O only when the disk
+# is otherwise idle.
+Nice=10
+IOSchedulingClass=idle
+# The tool stops starting removals 60 s before its own 20 min pass budget
+# (WORKTREE_GC_PASS_BUDGET_SECONDS), so this limit only ever stops a hung
+# git, and what it interrupts sits in quarantine for the next pass.
+TimeoutStartSec=30min
+# No UMask=: it would also apply to the hourly `git fetch` into the shared
+# repository, leaving root-only packs and refs that break non-root git users
+# of linked worktrees. The tool creates its archive dirs 0700 and files 0600
+# itself (gc-archive.ts).
+# Bounded resources on the production host: git, du, tar and zstd children
+# included. A pass that needs more is a bug, not a reason to starve services.
+MemoryMax=1G
+TasksMax=64
+NoNewPrivileges=yes
+ProtectSystem=full
+# NO ProtectHome= and NO PrivateTmp=, on purpose. The collector writes under
+# /var/aqua-saas and /root/wt, and git's worktree records point into /root
+# and /tmp as well. A mount namespace that hides /root or replaces /tmp makes
+# those worktrees look deleted to git, and `git worktree prune` would then
+# destroy the records of worktrees other sessions are using. The tool also
+# refuses to prune while a missing worktree lies outside its roots, but the
+# unit must not create that situation in the first place.

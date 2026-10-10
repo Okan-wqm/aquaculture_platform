@@ -1,33 +1,34 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
-import { globToRegex, ownerForPath, parseRoutingTable, parseWorktreeList } from './worktree-audit';
+import { globToRegex, isDetached, ownerForPath, parseRoutingTable } from './worktree-audit.ts';
+import { parseWorktreeList } from './worktree-list.ts';
 
-void test('parseWorktreeList classifies branch and detached entries', () => {
-  const entries = parseWorktreeList(`worktree /repo
-HEAD abc
-branch refs/heads/main
+void test('the inventory files branchless worktrees, bare main included, as detached', () => {
+  const entries = parseWorktreeList(
+    [
+      'worktree /repo',
+      'bare',
+      '',
+      'worktree /repo/a',
+      'HEAD abc',
+      'branch refs/heads/main',
+      '',
+      'worktree /tmp/repo',
+      'HEAD def',
+      'detached',
+      '',
+    ].join('\0'),
+  );
 
-worktree /tmp/repo
-HEAD def
-detached
-
-`);
-
-  assert.deepEqual(entries, [
-    {
-      path: '/repo',
-      head: 'abc',
-      branch: 'refs/heads/main',
-      detached: false,
-    },
-    {
-      path: '/tmp/repo',
-      head: 'def',
-      branch: undefined,
-      detached: true,
-    },
-  ]);
+  assert.deepEqual(
+    entries.map((entry) => [entry.path, isDetached(entry)]),
+    [
+      ['/repo', true],
+      ['/repo/a', false],
+      ['/tmp/repo', true],
+    ],
+  );
 });
 
 void test('globToRegex supports rooted, recursive, and brace patterns', () => {

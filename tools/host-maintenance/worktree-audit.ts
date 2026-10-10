@@ -1,8 +1,16 @@
-#!/usr/bin/env ts-node
+#!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import {
+  WORKTREE_LIST_ARGS,
+  parseWorktreeList,
+  shortBranch,
+  type WorktreeRecord as WorktreeListEntry,
+} from './worktree-list.ts';
 
 const GIT_ENV_BLOCKLIST = new Set([
   'GIT_DIR',
@@ -20,13 +28,6 @@ export type Decision =
   | 'DETACHED_TEMP'
   | 'DIRTY_NEEDS_OWNER'
   | 'STAGED_NEEDS_COMMIT_DECISION';
-
-export interface WorktreeEntry {
-  readonly path: string;
-  readonly head?: string;
-  readonly branch?: string;
-  readonly detached: boolean;
-}
 
 export interface ChangedPath {
   readonly path: string;
@@ -135,44 +136,12 @@ function tryRun(command: string, args: readonly string[], cwd: string): string |
   }
 }
 
-export function parseWorktreeList(raw: string): readonly WorktreeEntry[] {
-  const entries: WorktreeEntry[] = [];
-  let current: { path?: string; head?: string; branch?: string; detached?: boolean } = {};
-
-  function flush(): void {
-    if (!current.path) {
-      current = {};
-      return;
-    }
-    entries.push({
-      path: current.path,
-      head: current.head,
-      branch: current.branch,
-      detached: current.detached === true || !current.branch,
-    });
-    current = {};
-  }
-
-  for (const line of raw.split(/\r?\n/)) {
-    if (line.length === 0) {
-      flush();
-      continue;
-    }
-    const [key, ...valueParts] = line.split(' ');
-    const value = valueParts.join(' ');
-    if (key === 'worktree') {
-      flush();
-      current.path = value;
-    } else if (key === 'HEAD') {
-      current.head = value;
-    } else if (key === 'branch') {
-      current.branch = value;
-    } else if (key === 'detached') {
-      current.detached = true;
-    }
-  }
-  flush();
-  return entries;
+/**
+ * The inventory files a worktree with no branch as detached, whatever git
+ * printed: a bare main checkout has no branch to own it either.
+ */
+export function isDetached(entry: WorktreeListEntry): boolean {
+  return entry.detached || entry.branch === null;
 }
 
 function parseStatusV2(raw: string): GitStatus {
@@ -292,7 +261,7 @@ export function parseRoutingTable(markdown: string): readonly RoutingRule[] {
         alsoNotify,
         order,
         regex: globToRegex(pattern),
-        specificity: pattern.replace(/[\*\?\{\},]/g, '').length,
+        specificity: pattern.replace(/[*?{},]/g, '').length,
       });
       order += 1;
     }
@@ -354,7 +323,10 @@ export function globToRegex(pattern: string): RegExp {
   return new RegExp(source);
 }
 
-export function ownerForPath(path: string, rules: readonly RoutingRule[]): {
+export function ownerForPath(
+  path: string,
+  rules: readonly RoutingRule[],
+): {
   readonly owner: string;
   readonly matchedPatterns: readonly string[];
 } {
@@ -395,17 +367,15 @@ function classifyChangedPath(file: RawStatusFile, rules: readonly RoutingRule[])
   };
 }
 
-function branchShortName(branch?: string, statusBranch?: string): string | null {
-  if (statusBranch) {
-    return statusBranch;
-  }
-  if (!branch) {
-    return null;
-  }
-  return branch.replace(/^refs\/heads\//, '');
+function branchShortName(branch: string | null, statusBranch?: string): string | null {
+  return statusBranch ? statusBranch : shortBranch(branch);
 }
 
-function classifyDecision(entry: WorktreeEntry, status: GitStatus, files: readonly ChangedPath[]): {
+function classifyDecision(
+  entry: WorktreeListEntry,
+  status: GitStatus,
+  files: readonly ChangedPath[],
+): {
   readonly decision: Decision;
   readonly reasons: readonly string[];
 } {
@@ -421,7 +391,7 @@ function classifyDecision(entry: WorktreeEntry, status: GitStatus, files: readon
     reasons.push(`${dirty} dirty path(s) require owner assignment`);
     return { decision: 'DIRTY_NEEDS_OWNER', reasons };
   }
-  if (entry.detached) {
+  if (isDetached(entry)) {
     reasons.push('detached HEAD with clean tree; keep only with salvage/audit evidence');
     return { decision: 'DETACHED_TEMP', reasons };
   }
@@ -490,16 +460,24 @@ function loadPrs(repoRoot: string, includeGithub: boolean): readonly PrMetadata[
   return JSON.parse(raw) as PrMetadata[];
 }
 
-function collect(repoRoot: string, routingTable: string, includeGithub: boolean): readonly WorktreeRecord[] {
+function collect(
+  repoRoot: string,
+  routingTable: string,
+  includeGithub: boolean,
+): readonly WorktreeRecord[] {
   const auditDate = new Date().toISOString();
-  const worktrees = parseWorktreeList(run('git', ['worktree', 'list', '--porcelain'], repoRoot));
+  const worktrees = parseWorktreeList(run('git', WORKTREE_LIST_ARGS, repoRoot));
   const rules = parseRoutingTable(readFileSync(routingTable, 'utf8'));
   const prs = loadPrs(repoRoot, includeGithub);
   const prsByHead = new Map(prs.map((pr) => [pr.headRefName, pr]));
 
   return worktrees.map((entry) => {
     const status = parseStatusV2(
-      run('git', ['-C', entry.path, 'status', '--porcelain=v2', '-b', '--untracked-files=all'], repoRoot),
+      run(
+        'git',
+        ['-C', entry.path, 'status', '--porcelain=v2', '-b', '--untracked-files=all'],
+        repoRoot,
+      ),
     );
     const branch = branchShortName(entry.branch, status.branchHead);
     const files = status.files.map((file) => classifyChangedPath(file, rules));
@@ -523,11 +501,11 @@ function collect(repoRoot: string, routingTable: string, includeGithub: boolean)
       path: entry.path,
       branch,
       head: entry.head ?? null,
-      detached: entry.detached,
+      detached: isDetached(entry),
       upstream: status.upstream ?? null,
       ahead: status.ahead,
       behind: status.behind,
-      pr: branch ? prsByHead.get(branch) ?? null : null,
+      pr: branch ? (prsByHead.get(branch) ?? null) : null,
       lastCommit: lastCommit(entry.path),
       dirty: {
         staged,
@@ -577,20 +555,22 @@ function renderReport(records: readonly WorktreeRecord[]): string {
     '',
     '| Path | Branch | Dirty | Ahead/Behind | Decision | Primary Owners |',
     '|---|---|---:|---:|---|---|',
-    ...records.map((record) => {
-      const owners = Object.entries(record.owners)
-        .sort((left, right) => right[1] - left[1])
-        .map(([owner, count]) => `${owner} (${count})`)
-        .join(', ');
-      return [
-        record.path,
-        record.branch ?? '(detached)',
-        `${record.dirty.total} (${record.dirty.staged} staged, ${record.dirty.unstaged} unstaged, ${record.dirty.untracked} untracked)`,
-        `${record.ahead}/${record.behind}`,
-        record.decision,
-        owners || '-',
-      ].join(' | ');
-    }).map((row) => `| ${row} |`),
+    ...records
+      .map((record) => {
+        const owners = Object.entries(record.owners)
+          .sort((left, right) => right[1] - left[1])
+          .map(([owner, count]) => `${owner} (${count})`)
+          .join(', ');
+        return [
+          record.path,
+          record.branch ?? '(detached)',
+          `${record.dirty.total} (${record.dirty.staged} staged, ${record.dirty.unstaged} unstaged, ${record.dirty.untracked} untracked)`,
+          `${record.ahead}/${record.behind}`,
+          record.decision,
+          owners || '-',
+        ].join(' | ');
+      })
+      .map((row) => `| ${row} |`),
     '',
   ];
 
@@ -639,7 +619,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
 
 function printUsage(): void {
   process.stdout.write(`Usage:
-  ts-node --project tools/worktree-audit/tsconfig.json tools/worktree-audit/worktree-audit.ts \\
+  node --experimental-strip-types tools/host-maintenance/worktree-audit.ts \\
     --repo-root /var/aqua-saas \\
     --output docs/worktrees/YYYY-MM-DD-aqua-saas-worktree-inventory.jsonl \\
     --report /tmp/worktree-audit-summary.md \\
@@ -667,6 +647,6 @@ function main(): void {
   }
 }
 
-if (require.main === module) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main();
 }

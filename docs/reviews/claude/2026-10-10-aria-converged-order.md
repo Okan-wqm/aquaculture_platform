@@ -27,8 +27,10 @@ passed on attempt 2 at 07:22:22Z. The `aria-kernel` verdict job ran at 07:22:35Z
 shard 8 as `successful=False`.
 
 Every attempt uploaded its shard report under one artifact name and one file name. The verdict
-job downloads all of a run's artifacts with `merge-multiple: true` into one directory, so the
-attempts overwrote each other in an arbitrary order.
+job downloads all of a run's artifacts with `merge-multiple: true` into one directory, and
+download-artifact keeps only the highest-id artifact for each name. Artifact ids do not follow
+upload time: on that run the stale attempt-1 artifact (id 11663145213) outranked attempt 2
+(11662543913), so the failed report won.
 
 Fix:
 

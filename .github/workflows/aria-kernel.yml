@@ -149,8 +149,10 @@ jobs:
           # attempt's report and keeps each shard's latest.
           name: aria-kernel-suite-shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/aria-suite-shards/
-          # A shard that died before writing its report is named by the
-          # aria-kernel job's verify step, not by this upload.
+          # A shard that died before writing its report is caught by the
+          # aria-kernel job: on a first attempt its verify step names the
+          # missing shard; on a re-run an earlier attempt's report may fill
+          # the gap, and "Require every kernel job" (needs.suite.result) fails.
           if-no-files-found: ignore
           retention-days: 14
       - name: Verify post-run clean worktree

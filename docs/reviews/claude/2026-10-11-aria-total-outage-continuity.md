@@ -281,3 +281,58 @@ Tests (`tests/test_wip_gate.py::ALeaseAnOutageAteIsNotTheAssignments`):
 - four outage-eaten leases are all released, none charged, and the assignment stays pending
   (failed on HEAD);
 - after the restore, the ladder counts again and ends at `human_required`.
+
+## The end-to-end proof: ten days with no provider
+
+`tests/test_total_outage_continuity.py` runs one scenario on a store minted through the
+production writers. During each step, every loaded kernel and executor module's `datetime` is
+frozen at the scenario's moment.
+
+The store at T0:
+
+- a plan waiting on its challenger (Z.ai heads `challenger_plan`);
+- an evidence judge (Anthropic);
+- a CONVERGED plan's implementation request (minted through the real bridge);
+- a next-cycle queue item;
+- a worker assignment.
+
+The outage:
+
+- **T0+1h:** Anthropic's weekly window is spent. This is the CLI's `rate_limit_event`, reset
+  at T0+7d.
+- **T0+2h:** Z.ai answers its admission probe 429, and Codex is logged out.
+- **Days 0-9:** two drains and one cycle a day.
+  - A drain is the real `ci_executor_drain.drain_pending` over the kernel's own
+    `next_pending_request`. Its child does what `ci_executor` does on that host: the native
+    admission, where a cooled provider is refused unprobed and the others are probed through the
+    admission seam; then the claim, the spawn and the exhaustion arm.
+  - A cycle runs `sweep_expired_anchors`, `reap_stale_claims`,
+    `reap_expired_assignment_claims`, the adoption, the in-flight reader, the orphan reaper's
+    decision, the prolonged-outage bound and the reflection's enqueue. The enqueue re-plans other
+    pressures and never the queued one again.
+- **Day 7:** Anthropic's reset comes, but the subscription is gone, so every re-probe is a
+  credential failure.
+- **Day 8:** a worker that claimed in a lapsed back-off is killed with its runner.
+- **Day 10:** the subscription is renewed, and the first drain's spawn is served.
+
+Asserted through the outage:
+
+- no request expired, was released for its own fault, escalated or re-minted;
+- no plan was abandoned or reaped, and no delivery attempt was counted;
+- the queue item outlived the window;
+- the killed worker's lease spent nothing;
+- the only red drain is the day-7 transition, and the failure breaker stayed `ok`;
+- the only operator items are the four outage transitions.
+
+Asserted after the restore:
+
+- only Anthropic's outages close;
+- the first drain serves both the judge and the challenger (the challenger past its cooled Z.ai
+  head);
+- the plan continues from its own step with no remint;
+- the implementation request, the queue item (whose projection is admitted again) and the
+  worker (now claimable) are where they were;
+- the clocks count again only for the roles Anthropic heads.
+
+Red/green: all 12 tests fail on 7eb8bef99 with dfe4f63fb's routing applied (no continuity fix),
+and all 12 pass with the six fixes.

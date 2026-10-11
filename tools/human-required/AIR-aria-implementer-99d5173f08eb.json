@@ -1,0 +1,20 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "base_sha": "47d505ac5123de78628762acb4f3a25a442ae153",
+    "branch": "aria-impl-76a0770cd356ffd8a5f18f784cd12606",
+    "claim_id": "claim_148c78ac2bea8e0e",
+    "code": "implementation_delivery_refused:branch_publication",
+    "detail": "branch_not_published:refs_published=[]:discarded=aria-impl-76a0770cd356ffd8a5f18f784cd12606=branch_unadvanced",
+    "kind": "executor_escalation",
+    "request_id": "AIR-aria-implementer-99d5173f08eb",
+    "stage": "branch_publication"
+  },
+  "reason": "implementation_delivery_refused:branch_publication: branch_not_published:refs_published=[]:discarded=aria-impl-76a0770cd356ffd8a5f18f784cd12606=branch_unadvanced",
+  "recorded_at": "2026-10-11T09:14:20Z",
+  "request_id": "AIR-aria-implementer-99d5173f08eb",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-14T09:14:20Z",
+  "status": "open"
+}

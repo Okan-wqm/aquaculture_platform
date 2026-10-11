@@ -316,6 +316,51 @@ class LeaseReaperTests(WipTestBase):
         self.assertEqual(self._claim_events("A-1"), ["claimed"])
 
 
+class ALeaseAnOutageAteIsNotTheAssignments(WipTestBase):
+    """ARIA-MEDIUM-437 — the worker lane's lease reaper asks the one lease-outage rule.
+
+    Before: every expired worker lease was charged to the assignment, so a
+    re-probe claim whose runner was killed while the provider was out spent
+    the lease budget, and the third such death escalated the assignment
+    terminally. The agent-request reaper already asked ARIA-HIGH-367's rule.
+    """
+
+    def outage(self, opened: datetime, restored: datetime | None = None) -> None:
+        """The provider heading the worker's ladder goes out, through the production writer."""
+        from aria_kernel.provider_cooldown import record_provider_cooldown
+        from aria_kernel.provider_outage_ledger import record_provider_restored
+        from aria_kernel.worker_dispatch_hook import worker_ladder_for_target
+
+        provider = worker_ladder_for_target("aria-worker", base_dir=self.base)[0]
+        record_provider_cooldown(self.base, provider=provider, model="opus", cooldown_seconds=900,
+                                 request_id="AIR-0", claim_id="CL-0",
+                                 detection={"signature": "claude_auth_failure"}, now=opened)
+        if restored is not None:
+            record_provider_restored(self.base, provider=provider, seam="spawn", request_id="AIR-ok", now=restored)
+        self.provider = provider
+
+    def test_leases_that_ran_out_inside_the_outage_spend_no_budget(self) -> None:
+        self._assignment("A-1")
+        self.outage(self.now - timedelta(days=1))
+        for attempt in range(DEFAULT_MAX_LEASE_REQUEUES + 2):
+            claimed_at = self.now + timedelta(hours=attempt)
+            self._claim("A-1", claim_id=f"C-{attempt}", expires_in_seconds=60, at=claimed_at)
+            reap_expired_assignment_claims(base_dir=self.base, now=claimed_at + timedelta(minutes=30))
+        events = self._claim_events("A-1")
+        self.assertNotIn("human_required", events)
+        self.assertEqual(events.count("released"), DEFAULT_MAX_LEASE_REQUEUES + 2)
+        rows = [row["details"] for row in self._governance("dispatch_claim_lease_expired")]
+        self.assertEqual({(row["reason"], row["expiry_count"]) for row in rows},
+                         {(f"lease_expired_during_provider_outage:{self.provider}", 0)})
+        self.assertEqual({row["state"] for row in active_dispatch_assignments(base_dir=self.base)}, {"pending"})
+
+    def test_after_the_restore_the_ladder_counts_again(self) -> None:
+        self._assignment("A-1")
+        self.outage(self.now - timedelta(days=1), restored=self.now - timedelta(hours=1))
+        list(self._walk_the_ladder("A-1"))
+        self.assertEqual(self._claim_events("A-1")[-1], "human_required")
+
+
 # =====================================================================
 # Mission-side WIP.
 # =====================================================================

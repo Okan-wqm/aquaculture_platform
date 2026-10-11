@@ -248,3 +248,36 @@ Tests (`tests/test_drain_standing_outage.py`):
 - a standing quota outage does not excuse a new credential failure.
 
 The first three failed on HEAD (exit 1, and no `standing_outage` key).
+
+## ARIA-MEDIUM-437 — the worker lane charged every expired lease to the assignment
+
+### Symptom
+
+`worker_dispatch.reap_expired_assignment_claims` wrote `lease_expired` and counted every expiry
+(`_lease_expiry_count`). The budget is two (`DEFAULT_MAX_LEASE_REQUEUES`), and the third expiry
+is a terminal `human_required` (`worker_dispatch.py:1066-1150`). Sometimes a worker claims while
+the provider's back-off has lapsed and the outage still stands, and its runner is then killed.
+The hook's timeout path leaves such a claim unreleased (`worker_dispatch_hook.py:309-326`). That
+claim spent the assignment's budget. The agent-request lane had answered the same death since
+ARIA-HIGH-367 M1 (`agent_invocations._lease_expiry_reason`).
+
+On HEAD, three outage-eaten leases ended `['claimed', 'released', 'claimed', 'released',
+'claimed', 'human_required', ...]`.
+
+### Fix (tier 1: one rule, every lane)
+
+The rule moves to its clock owner as `provider_clock.lease_expiry_reason(clock, claimed_at,
+expires, providers)`, with `LEASE_OUTAGE_MIN_SHARE`. The agent-request reaper passes its role's
+head. The worker reaper passes the head of the ladder that the assignment's target is routed
+over. It reads that ladder through the hook's own resolver
+(`worker_dispatch_hook.worker_ladder_for_target`, ARIA-HIGH-434), so the dispatch and the reaper
+cannot read different agent files. An outage-eaten lease is released as
+`lease_expired_during_provider_outage:<provider>`, and its governance row carries the reason.
+`_lease_expiry_count` skips such rows. A row written before the reason was recorded still
+counts.
+
+Tests (`tests/test_wip_gate.py::ALeaseAnOutageAteIsNotTheAssignments`):
+
+- four outage-eaten leases are all released, none charged, and the assignment stays pending
+  (failed on HEAD);
+- after the restore, the ladder counts again and ends at `human_required`.

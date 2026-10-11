@@ -351,6 +351,73 @@ class AnItemAgesOutByTheAnchorWindow(_QueueStore):
         self.assertEqual(read_pending(self.base), [])
 
 
+class AnItemWaitsOutAProviderOutage(_QueueStore):
+    """ARIA-MEDIUM-436 — the item ages by the clock its request will age by: provider-available time.
+
+    Before: ``fold_queue`` measured the wall clock, while the request the item
+    becomes (``agent_invocations._anchor_expiry_reason``) pauses for an outage
+    of its role's provider. The projection is refused for the whole outage, so
+    an outage longer than the window expired every queued item.
+    """
+
+    def at(self, moment: Any) -> Any:
+        return mock.patch.multiple(queue_module, _now=mock.Mock(return_value=moment),
+                                   utc_now=mock.Mock(return_value=moment.replace(microsecond=0).isoformat()))
+
+    def outage(self, opened: Any, restored: Any = None) -> None:
+        """The projection's provider (Z.ai heads maintenance_utility) goes out, through the production writer."""
+        from aria_kernel.provider_cooldown import record_provider_cooldown
+        from aria_kernel.provider_outage_ledger import record_provider_restored
+
+        record_provider_cooldown(self.base, provider="zai", model="glm-4.6", cooldown_seconds=900,
+                                 request_id="AIR-out", claim_id="CL-out",
+                                 detection={"signature": "zai_quota_refusal"}, now=opened)
+        if restored is not None:
+            record_provider_restored(self.base, provider="zai", seam="spawn", request_id="AIR-ok", now=restored)
+
+    def test_an_outage_longer_than_the_window_expires_nothing(self) -> None:
+        window = timedelta(seconds=item_max_age_seconds(self.base))
+        start = queue_module._now().replace(microsecond=0)
+        with self.at(start):
+            queued = append_pending(self.base, source_cycle_id="cyc-1", pressure_id="pressure:a")
+        assert queued is not None
+        self.outage(start + timedelta(minutes=1))
+        with self.at(start + window + timedelta(days=3)):
+            self.assertEqual([row["queue_item_id"] for row in read_pending(self.base)], [queued["queue_item_id"]])
+            standing = append_pending(self.base, source_cycle_id="cyc-9", pressure_id="pressure:a")
+        assert standing is not None
+        self.assertEqual(standing["queue_item_id"], queued["queue_item_id"])
+        self.assertEqual([row for row in self.rows() if row.get("state") == EXPIRED], [])
+
+    def test_the_window_counts_again_once_the_provider_serves(self) -> None:
+        window = timedelta(seconds=item_max_age_seconds(self.base))
+        start = queue_module._now().replace(microsecond=0)
+        with self.at(start):
+            queued = append_pending(self.base, source_cycle_id="cyc-1", pressure_id="pressure:a")
+        assert queued is not None
+        self.outage(start + timedelta(hours=1), restored=start + timedelta(days=2, hours=1))
+        with self.at(start + window + timedelta(days=1)):
+            self.assertEqual(len(read_pending(self.base)), 1)
+        with self.at(start + window + timedelta(days=2, hours=2)):
+            self.assertEqual(read_pending(self.base), [])
+            append_pending(self.base, source_cycle_id="cyc-9", pressure_id="pressure:a")
+        expired = [row for row in self.rows() if row.get("state") == EXPIRED]
+        self.assertEqual([row["queue_item_id"] for row in expired], [queued["queue_item_id"]])
+
+    def test_an_outage_of_a_provider_the_projection_is_not_routed_to_pauses_nothing(self) -> None:
+        from aria_kernel.provider_cooldown import record_provider_cooldown
+
+        window = timedelta(seconds=item_max_age_seconds(self.base))
+        start = queue_module._now().replace(microsecond=0)
+        with self.at(start):
+            append_pending(self.base, source_cycle_id="cyc-1", pressure_id="pressure:a")
+        record_provider_cooldown(self.base, provider="anthropic", model="opus", cooldown_seconds=900,
+                                 request_id="AIR-out", claim_id="CL-out",
+                                 detection={"signature": "claude_credit_error"}, now=start)
+        with self.at(start + window + timedelta(hours=1)):
+            self.assertEqual(read_pending(self.base), [])
+
+
 class TheAnchorStaleDispositionRecordsAReoffer(AnchorStaleStore):
     def test_an_expired_request_beside_a_live_sibling_is_no_operator_item(self) -> None:
         first = append_pending(self.tools, source_cycle_id="c1", pressure_id="p1", recommended_action="act")

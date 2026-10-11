@@ -97,3 +97,33 @@ Tests (`tests/test_provider_outage_signal.py::TheAdmissionDecidesAZaiRefusal`):
 
 The first four failed on HEAD (no outage, no cooldown). zaiwriter (ARIA-HIGH-434) confirmed the
 reason prefixes are stable.
+
+## ARIA-MEDIUM-436 — a queued item aged on the wall clock its request does not use
+
+### Symptom
+
+`fold_queue` set its horizon to `now - max_age_seconds` on wall time (`next_cycle_queue.py:213`).
+Its own window is "the agent request before its mint" (`item_max_age_seconds`, `:141-154`). The
+request it becomes ages in provider-available time (`_anchor_expiry_reason`). During an outage
+the projection is refused (`autonomy_orchestrator.py:524-531` breaks), so an outage longer than
+the window expired every queued item. Only a pressure that the next reflection re-planned into
+its top three came back (`reflection.py:109`, `:228-244`). An item the anchor-stale disposition
+had re-offered already had its HUMAN_REQUIRED record resolved, so its expiry left no record.
+
+### Fix (tier 1: the one clock, required)
+
+`fold_queue` takes `clock: ProviderClock` as a required argument, so no caller can fall back to
+wall time. An item is aged only when its latest offer is older than the window in
+provider-available time. The providers are the heads of the roles the projection mints, read
+from `request_admission.PRODUCER_CLASSES["next_cycle_queue.projection"]`. Wall time is checked
+first, so the ledger is read only for an item already old by the wall clock. Each writer builds
+the clock BEFORE its transaction (`item_clock`). A first draft built it inside, and
+`ensure_tools_dir` deadlocked on the tools index lock under the queue lock.
+
+Tests (`tests/test_next_cycle_queue_fold.py::AnItemWaitsOutAProviderOutage`):
+
+- an outage longer than the window expires nothing, and the standing item still holds its pressure;
+- the window counts again after the restore;
+- an outage of a provider the projection is not routed to pauses nothing.
+
+The first two failed on HEAD.

@@ -23,7 +23,10 @@ One live item per pressure (ARIA-MEDIUM-428):
   unit of work is the pressure, not the row. An item not offered
   (enqueued or re-offered) within the request-anchor window is
   ``expired``: a pressure that still holds is queued again, with a
-  fresh snapshot, by the next reflection. Among a pressure's other
+  fresh snapshot, by the next reflection. The window is measured in
+  provider-available time, as for the request the item becomes
+  (ARIA-MEDIUM-436): an outage of the projection's provider holds the
+  projection, so it holds the item's clock too. Among a pressure's other
   pending items, ``fold_queue`` keeps the one enqueued last (the
   freshest snapshot); the rest are ``superseded`` by it.
 * ``read_pending`` returns the fold's live items, so a reader never
@@ -60,11 +63,14 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .ledger import load_declared_jsonl, state_transaction
 from .tool_registry import disclosure_fingerprint, ensure_tools_dir, parse_utc_stamp, utc_now
 from .workspace import governance_event
+
+if TYPE_CHECKING:
+    from .provider_clock import ProviderClock
 
 
 __all__ = [
@@ -88,7 +94,9 @@ __all__ = [
     "ANSWERED_REASON",
     "QueueFold",
     "fold_queue",
+    "item_clock",
     "item_max_age_seconds",
+    "PROJECTION_PRODUCER",
 ]
 
 
@@ -154,6 +162,31 @@ def item_max_age_seconds(base_dir: str | Path | None) -> int:
     return _anchor_max_age_seconds(ensure_tools_dir(base_dir))
 
 
+# The producer whose mint a queue item waits for (`request_admission`
+# classifies it, per role it mints; the autonomy orchestrator's projection).
+PROJECTION_PRODUCER: str = "next_cycle_queue.projection"
+
+
+def item_clock(base_dir: str | Path | None) -> "ProviderClock":
+    """The clock a queue item ages by: the store's provider-available clock (ARIA-MEDIUM-436).
+
+    Built before a writer's transaction; it reads the governance ledger only
+    on its first question (read-only, no lock), so a fold inside the queue's
+    transaction never takes the tools index lock ``ensure_tools_dir`` would.
+    """
+    from .provider_clock import provider_clock
+
+    return provider_clock(base_dir)
+
+
+def _projection_heads() -> frozenset[str]:
+    """The providers heading the roles the projection mints: whose outage holds an item."""
+    from .provider_clock import role_head_providers
+    from .request_admission import PRODUCER_CLASSES
+
+    return role_head_providers(PRODUCER_CLASSES[PROJECTION_PRODUCER].roles)
+
+
 @dataclass(frozen=True)
 class QueueFold:
     """``live``: one item per pressure, as its enqueue row, in queue order.
@@ -164,7 +197,9 @@ class QueueFold:
     transitions: list[dict[str, Any]]
 
 
-def fold_queue(rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: int) -> QueueFold:
+def fold_queue(
+    rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: int, clock: "ProviderClock",
+) -> QueueFold:
     """The queue's one reading: which items are live, and which verdicts are unwritten.
 
     ARIA-MEDIUM-428. ``append_pending`` keyed its dedupe on pending rows
@@ -188,6 +223,17 @@ def fold_queue(rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: in
     recorded yet then superseded an item the anchor-stale disposition had
     just re-offered, and nothing was live: the re-offer reported success and
     the work was gone.
+
+    ARIA-MEDIUM-436 — the age is PROVIDER-AVAILABLE time (``clock``, required
+    so no caller can fall back to the wall clock), the clock the request the
+    item becomes is held to (``agent_invocations._anchor_expiry_reason``):
+    an outage of the provider heading the projection's role refuses the
+    projection (``request_admission``), so the item waits on that provider
+    exactly as an unclaimed request does. Measured on the wall clock, an
+    outage longer than the window expired every queued item, and only a
+    pressure the next reflection re-planned into its top three came back.
+    Wall time is checked first, so the outage ledger is read only for an item
+    already old by the wall clock.
     """
     enqueued: dict[str, tuple[int, dict[str, Any]]] = {}
     offered: dict[str, int] = {}
@@ -211,6 +257,18 @@ def fold_queue(rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: in
             pressure = str(enqueued[qid][1].get("pressure_id") or "") or f"queue-item:{qid}"
             by_pressure.setdefault(pressure, []).append(qid)
     horizon = now - timedelta(seconds=max_age_seconds)
+    window = timedelta(seconds=max_age_seconds)
+    heads: list[frozenset[str]] = []
+
+    def aged(offered: datetime | None) -> bool:
+        if offered is None:
+            return True
+        if offered >= horizon:
+            return False
+        if not heads:
+            heads.append(_projection_heads())
+        return clock.available_age(offered, now, heads[0]) > window
+
     stamp = now.replace(microsecond=0).isoformat()
     live: list[tuple[int, dict[str, Any]]] = []
     transitions: list[dict[str, Any]] = []
@@ -218,8 +276,7 @@ def fold_queue(rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: in
         fresh: list[str] = []
         for qid in qids:
             offered_at = str(rows[offered[qid]].get("recorded_at") or "")
-            offered_stamp = parse_utc_stamp(offered_at)
-            if offered_stamp is not None and offered_stamp >= horizon:
+            if not aged(parse_utc_stamp(offered_at)):
                 fresh.append(qid)
                 continue
             transitions.append({
@@ -244,7 +301,8 @@ def fold_queue(rows: list[dict[str, Any]], *, now: datetime, max_age_seconds: in
 
 
 def _settled_fold(
-    txn: Any, path: Path, rows: list[dict[str, Any]], *, max_age_seconds: int, record_expiry: bool,
+    txn: Any, path: Path, rows: list[dict[str, Any]], *, max_age_seconds: int, clock: "ProviderClock",
+    record_expiry: bool,
 ) -> QueueFold:
     """Fold ``rows`` and append the verdicts the ledger lacks, inside the caller's transaction.
 
@@ -258,7 +316,7 @@ def _settled_fold(
     its own row for that item (expired, then consumed), and a deferral
     row then made the item pending again, so its expiry was written twice.
     """
-    fold = fold_queue(rows, now=_now(), max_age_seconds=max_age_seconds)
+    fold = fold_queue(rows, now=_now(), max_age_seconds=max_age_seconds, clock=clock)
     for row in fold.transitions:
         if row["state"] == EXPIRED and not record_expiry:
             continue
@@ -308,6 +366,7 @@ def append_pending(
 
     enforce_profile_for_write("plan_promotion_dispatch", base_dir=root)
     max_age_seconds = item_max_age_seconds(root)
+    clock = item_clock(root)
 
     # Governance and queue are one lock domain for this operation.  Passing
     # both surfaces up front lets state_transaction acquire the global lexical
@@ -325,7 +384,7 @@ def append_pending(
         # ARIA-MEDIUM-428 — the depth cap and the dedupe below read the fold:
         # one live item per pressure, the verdicts written first.
         pending = _settled_fold(
-            txn, path, queue_rows, max_age_seconds=max_age_seconds, record_expiry=True,
+            txn, path, queue_rows, max_age_seconds=max_age_seconds, clock=clock, record_expiry=True,
         ).live
         # C10/E8 — pressure_id IS the queue's idempotency key (reflection.py
         # names it so), but every row was keyed on a fresh uuid, so a
@@ -438,7 +497,8 @@ def read_pending(
     """
     path = queue_path(base_dir)
     rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
-    live = fold_queue(rows, now=_now(), max_age_seconds=item_max_age_seconds(base_dir)).live
+    live = fold_queue(rows, now=_now(), max_age_seconds=item_max_age_seconds(base_dir),
+                      clock=item_clock(base_dir)).live
     if limit is not None and limit >= 0:
         return live[:limit]
     return live
@@ -463,6 +523,7 @@ def mark_consumed(
     """
     path = queue_path(base_dir)
     max_age_seconds = item_max_age_seconds(base_dir)
+    clock = item_clock(base_dir)
     row: dict[str, Any] = {
         "schema_version": 1,
         "queue_item_id": queue_item_id,
@@ -476,7 +537,8 @@ def mark_consumed(
         answered = _answered_siblings(rows, queue_item_id=queue_item_id, stamp=row["recorded_at"])
         for sibling in answered:
             txn.append_declared_jsonl(path, sibling, expected_surface="next_cycle_queue")
-        _settled_fold(txn, path, [*rows, *answered], max_age_seconds=max_age_seconds, record_expiry=False)
+        _settled_fold(txn, path, [*rows, *answered], max_age_seconds=max_age_seconds, clock=clock,
+                      record_expiry=False)
         return txn.append_declared_jsonl(
             path,
             row,
@@ -538,12 +600,14 @@ def reoffer_item(
     """
     path = queue_path(base_dir)
     max_age_seconds = item_max_age_seconds(base_dir)
+    clock = item_clock(base_dir)
     with state_transaction([path]) as txn:
         rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
         mine = [row for row in rows if str(row.get("queue_item_id") or "") == queue_item_id]
         if not any(row.get("state") == "pending" for row in mine):
             return REOFFER_NEVER_QUEUED
-        live = _settled_fold(txn, path, rows, max_age_seconds=max_age_seconds, record_expiry=False).live
+        live = _settled_fold(txn, path, rows, max_age_seconds=max_age_seconds, clock=clock,
+                             record_expiry=False).live
         pressure_id = next(row for row in mine if row.get("state") == "pending").get("pressure_id")
         if any(
             row.get("queue_item_id") == queue_item_id

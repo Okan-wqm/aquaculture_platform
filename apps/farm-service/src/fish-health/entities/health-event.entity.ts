@@ -23,7 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   ObjectType,
@@ -303,7 +303,7 @@ export class HealthEvent {
   eventType!: HealthEventType;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   @Index()
   eventDate!: Date;
 
@@ -364,7 +364,7 @@ export class HealthEvent {
   isUnderTreatment!: boolean;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   treatmentEndDate?: Date;
 
   @Field(() => Int, { nullable: true })
@@ -372,7 +372,7 @@ export class HealthEvent {
   withdrawalPeriodDays?: number;     // Hasat öncesi bekleme
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   earliestHarvestDate?: Date;        // En erken hasat tarihi
 
   // -------------------------------------------------------------------------
@@ -384,11 +384,11 @@ export class HealthEvent {
   isQuarantined!: boolean;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   quarantineStartDate?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   quarantineEndDate?: Date;
 
   @Field({ nullable: true })
@@ -445,7 +445,7 @@ export class HealthEvent {
   status!: HealthEventStatus;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   resolvedDate?: Date;
 
   @Field({ nullable: true })
@@ -510,7 +510,7 @@ export class HealthEvent {
   followUpRequired!: boolean;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   nextFollowUpDate?: Date;
 
   // -------------------------------------------------------------------------

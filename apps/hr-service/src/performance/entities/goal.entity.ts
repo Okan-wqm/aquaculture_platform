@@ -10,7 +10,7 @@ import {
   JoinColumn,
   OneToMany,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 
@@ -118,15 +118,15 @@ export class Goal {
   status!: GoalStatus;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   startDate!: Date;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   targetDate!: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   completedDate?: Date;
 
   @Field(() => Float)

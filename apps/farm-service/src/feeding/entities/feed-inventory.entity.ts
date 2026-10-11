@@ -22,7 +22,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   ObjectType,
@@ -159,15 +159,15 @@ export class FeedInventory {
   lotNumber?: string;                    // Parti numarası
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   manufacturingDate?: Date;              // Üretim tarihi
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   expiryDate?: Date;                     // Son kullanma tarihi
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   receivedDate?: Date;                   // Alım tarihi
 
   // -------------------------------------------------------------------------

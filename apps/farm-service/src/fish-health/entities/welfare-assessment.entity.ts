@@ -9,6 +9,7 @@
  * Per-tenant table (schema-per-tenant): NO `schema:` (ADR-011).
  */
 import { Field, ID, Int, ObjectType } from '@nestjs/graphql';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Column,
   CreateDateColumn,
@@ -45,7 +46,7 @@ export class WelfareAssessment {
   batchId?: string;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   assessedAt!: string;
 
   @Field(() => Int)

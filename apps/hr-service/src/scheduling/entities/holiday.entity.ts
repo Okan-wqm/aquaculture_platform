@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -45,15 +46,15 @@ export class Holiday {
   localName?: string; // Turkish name
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   date!: Date; // For single-day holidays
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   startDate!: Date;
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   endDate!: Date;
 
   @Field(() => HolidayType)

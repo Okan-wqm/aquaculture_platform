@@ -8,6 +8,7 @@
  * This entity carries only the fields the farm surfaces actually read back:
  * identity (name/email/phone), position, department, vet attribution, status.
  */
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -100,7 +101,7 @@ export class Worker {
   @Column()
   position!: string;
 
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   hireDate!: Date;
 
   @Column({ default: 'USD' })

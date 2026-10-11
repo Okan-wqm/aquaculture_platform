@@ -19,7 +19,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -126,7 +126,7 @@ export class TankAllocation {
   allocationType!: AllocationType;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   allocationDate!: Date;
 
   @Field(() => Int)

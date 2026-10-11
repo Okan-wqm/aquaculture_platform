@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -89,11 +90,11 @@ export class EmployeeCertification {
   certificationType?: CertificationType;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   issueDate!: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   expiryDate?: Date;
 
   /**

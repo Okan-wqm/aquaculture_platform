@@ -19,6 +19,7 @@
  * @module FeedingProtocol/Entities
  */
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 
 export type FeedingJobRunStatus = 'running' | 'succeeded' | 'failed';
 
@@ -36,7 +37,7 @@ export class FeedingJobRun {
   jobName!: string;
 
   /** Tenant'ın YEREL takvim günü (YYYY-MM-DD) — UTC günü değil. */
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   localDate!: string;
 
   /** Claim anında çözülen zon — sonradan değişse de kayıt provenansı kalır. */

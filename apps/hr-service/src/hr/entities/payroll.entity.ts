@@ -10,7 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { Employee } from './employee.entity';
 
@@ -133,15 +133,15 @@ export class Payroll {
   payPeriodType!: PayPeriodType;
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   payPeriodStart!: Date;
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   payPeriodEnd!: Date;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   paymentDate?: Date;
 
   @Field(() => WorkHours)

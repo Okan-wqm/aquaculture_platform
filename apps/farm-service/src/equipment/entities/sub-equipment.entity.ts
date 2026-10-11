@@ -2,6 +2,7 @@
  * SubEquipment Entity - Alt ekipmanlar
  * Ana ekipmanlara bağlı alt bileşenler (inlet, outlet, feeder, fish-trap vb.)
  */
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -73,7 +74,7 @@ export class SubEquipment {
   @Column({ type: 'jsonb', nullable: true })
   specifications?: Record<string, unknown>;
 
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   installationDate?: Date;
 
   @Column({ type: 'text', nullable: true })

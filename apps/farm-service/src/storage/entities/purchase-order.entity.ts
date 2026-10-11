@@ -2,7 +2,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
   Index, OneToMany, VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
 
@@ -66,10 +66,10 @@ export class PurchaseOrder {
   @Column({ type: 'varchar', length: 30, default: 'DRAFT' })
   status!: PurchaseOrderStatus;
 
-  @Column({ type: 'date', nullable: true, name: 'expected_delivery_date' })
+  @Column({ type: 'date', nullable: true, name: 'expected_delivery_date', transformer: new DateColumnTransformer() })
   expectedDeliveryDate?: Date;
 
-  @Column({ type: 'date', nullable: true, name: 'actual_delivery_date' })
+  @Column({ type: 'date', nullable: true, name: 'actual_delivery_date', transformer: new DateColumnTransformer() })
   actualDeliveryDate?: Date;
 
   @Column({ type: 'text', nullable: true })

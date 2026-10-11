@@ -15,6 +15,7 @@
  * Per-tenant table (schema-per-tenant): NO `schema:` (ADR-011).
  */
 import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import GraphQLJSON from 'graphql-type-json';
 import {
   Column,
@@ -106,7 +107,7 @@ export class RegulatoryReportDraft {
 
   /** Official submission deadline (Oslo calendar date). */
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   dueAt?: string;
 
   @Field()

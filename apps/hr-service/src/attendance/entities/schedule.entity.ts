@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -75,11 +76,11 @@ export class Schedule {
   scheduleType!: ScheduleType;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   startDate!: Date;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   endDate!: Date;
 
   @Field(() => ScheduleStatus)
@@ -100,7 +101,7 @@ export class Schedule {
   rotationDaysOff?: number;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   nextRotationDate?: Date;
 
   @Field()

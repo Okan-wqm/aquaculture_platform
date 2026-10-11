@@ -13,6 +13,7 @@
  *
  * @module FeedingProtocol/Entities
  */
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -229,7 +230,7 @@ export class FeedingDayPlan {
 
   /** Site saat dilimindeki takvim günü (D-4). */
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   planDate!: string;
 
   @Field(() => GraphQLJSON)

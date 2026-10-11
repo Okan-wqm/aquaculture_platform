@@ -5,6 +5,7 @@
  * Bu sayede dashboard hızlı yüklenir ve geçmiş veriler karşılaştırılabilir.
  */
 
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -110,7 +111,7 @@ export class AnalyticsSnapshot {
   @Column({ type: 'varchar', length: 20 })
   category!: MetricCategory;
 
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   snapshotDate!: Date;
 
   @Column({ type: 'jsonb' })

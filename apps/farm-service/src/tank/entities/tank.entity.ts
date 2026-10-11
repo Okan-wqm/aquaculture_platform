@@ -26,7 +26,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalTransformer, DateColumnTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Float, Int, Directive, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { Department } from '../../department/entities/department.entity';
@@ -519,15 +519,15 @@ export class Tank {
   // -------------------------------------------------------------------------
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   installationDate?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   lastMaintenanceDate?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   nextMaintenanceDate?: Date;
 
   // -------------------------------------------------------------------------

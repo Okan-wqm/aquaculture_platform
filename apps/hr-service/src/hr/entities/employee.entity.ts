@@ -13,7 +13,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/security';
 import { Payroll } from './payroll.entity';
 import { DepartmentHR } from './department.entity';
@@ -213,7 +213,7 @@ export class Employee {
   address!: Address;
 
   @HideField()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   dateOfBirth!: Date;
 
   /**
@@ -264,11 +264,11 @@ export class Employee {
   laborCategory?: LaborCategory | null;
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   hireDate!: Date;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   terminationDate?: Date;
 
   @HideField()

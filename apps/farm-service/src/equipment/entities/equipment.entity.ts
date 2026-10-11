@@ -27,7 +27,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalTransformer, DateColumnTransformer } from '@aquaculture/backend-common/database';
 // Note: Department, SubSystem, EquipmentSystem are referenced via string in decorator to avoid circular dependency
 // Type-only imports for TypeScript type checking
 import type { Department } from '../../department/entities/department.entity';
@@ -206,13 +206,13 @@ export class Equipment {
   @Index()
   serialNumber?: string;
 
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   purchaseDate?: Date;
 
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   installationDate?: Date;
 
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   warrantyEndDate?: Date;
 
   @Column({

@@ -14,7 +14,7 @@ import {
   VersionColumn,
 } from 'typeorm';
 import { registerEnumType } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 // Note: Supplier is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
 import type { Supplier } from '../../supplier/entities/supplier.entity';
@@ -291,7 +291,7 @@ export class Feed {
   @Column({ type: 'int', nullable: true })
   shelfLifeMonths?: number;
 
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   expiryDate?: Date;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })

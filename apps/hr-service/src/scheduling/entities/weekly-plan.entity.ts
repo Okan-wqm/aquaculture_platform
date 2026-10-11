@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -51,11 +52,11 @@ export class WeeklyPlan {
   employee?: Employee;
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   weekStartDate!: Date; // Always Monday (ISO week)
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   weekEndDate!: Date; // Always Sunday
 
   @Field(() => WeeklyPlanStatus)

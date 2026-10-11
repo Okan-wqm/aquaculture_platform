@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -71,15 +72,15 @@ export class SafetyTrainingRecord {
   status!: SafetyTrainingStatus;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   completedDate?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   expiryDate?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   nextDueDate?: Date;
 
   @Field({ nullable: true })

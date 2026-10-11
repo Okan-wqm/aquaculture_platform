@@ -17,7 +17,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -272,7 +272,7 @@ export class Chemical {
   shelfLifeMonths?: number;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   expiryDate?: Date;
 
   @Field(() => [String], { nullable: true })

@@ -19,7 +19,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalTransformer, DateColumnTransformer } from '@aquaculture/backend-common/database';
 
 @ObjectType()
 @Entity('lice_counts')
@@ -49,7 +49,7 @@ export class LiceCount {
   batchId?: string;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   countDate!: string;
 
   /** ISO year/week derived at write time (SSoT for report aggregation). */

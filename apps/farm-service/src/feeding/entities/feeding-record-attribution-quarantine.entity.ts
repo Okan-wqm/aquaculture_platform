@@ -19,6 +19,7 @@
  * @module Feeding/Entities
  */
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 
 @Entity('feeding_record_attribution_quarantine')
 @Index(['tenantId', 'feedingRecordId'])
@@ -40,7 +41,7 @@ export class FeedingRecordAttributionQuarantine {
   @Column('uuid', { nullable: true })
   tankId?: string;
 
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   feedingDate!: string;
 
   @Column({ type: 'numeric', precision: 10, scale: 3 })

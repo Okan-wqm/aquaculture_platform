@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -53,7 +54,7 @@ export class WeeklyPlanEntry {
   employeeId!: string; // Denormalized for query efficiency
 
   @Field(() => Date)
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   date!: Date;
 
   @Field(() => WeekDay)

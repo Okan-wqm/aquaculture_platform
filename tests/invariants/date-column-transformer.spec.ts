@@ -20,7 +20,7 @@
  *
  * # LEGACY ALLOWLIST
  *
- * 39 pre-existing columns (farm/hr/billing/admin) predate the transformer and
+ * 0 pre-existing columns (farm/hr/billing/admin) predate the transformer and
  * are swept under tracked finding FARM-MEDIUM-424 (each entry must be
  * verified for string-format dependencies before transforming). The allowlist
  * exists so NEW columns cannot regress — adding a Date-typed date column
@@ -35,47 +35,7 @@ const REPO_ROOT = join(__dirname, '..', '..');
 const APPS_DIR = join(REPO_ROOT, 'apps');
 
 /** file path (from repo root) : property — awaiting the FARM-MEDIUM-424 conversion. */
-const LEGACY_UNTRANSFORMED = new Set([
-  'apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:snapshotDate',
-  'apps/admin-api-service/src/analytics/entities/external/invoice.entity.ts:periodStart',
-  'apps/admin-api-service/src/analytics/entities/external/invoice.entity.ts:periodEnd',
-  'apps/billing-service/src/billing/entities/invoice.entity.ts:periodStart',
-  'apps/billing-service/src/billing/entities/invoice.entity.ts:periodEnd',
-  'apps/farm-service/src/batch/entities/mortality-record.entity.ts:recordDate',
-  'apps/farm-service/src/batch/entities/tank-allocation.entity.ts:allocationDate',
-  'apps/farm-service/src/batch/entities/tank-operation.entity.ts:operationDate',
-  'apps/farm-service/src/fish-health/entities/health-event.entity.ts:eventDate',
-  'apps/farm-service/src/growth/entities/growth-measurement.entity.ts:measurementDate',
-  'apps/farm-service/src/maintenance/entities/maintenance-schedule.entity.ts:startDate',
-  'apps/farm-service/src/worker/entities/worker.entity.ts:hireDate',
-  'apps/hr-service/src/aquaculture/entities/work-rotation.entity.ts:startDate',
-  'apps/hr-service/src/aquaculture/entities/work-rotation.entity.ts:endDate',
-  'apps/hr-service/src/attendance/entities/attendance-record.entity.ts:date',
-  'apps/hr-service/src/attendance/entities/schedule-entry.entity.ts:date',
-  'apps/hr-service/src/attendance/entities/schedule.entity.ts:startDate',
-  'apps/hr-service/src/attendance/entities/schedule.entity.ts:endDate',
-  'apps/hr-service/src/hr/entities/employee.entity.ts:dateOfBirth',
-  'apps/hr-service/src/hr/entities/employee.entity.ts:hireDate',
-  'apps/hr-service/src/hr/entities/payroll.entity.ts:payPeriodStart',
-  'apps/hr-service/src/hr/entities/payroll.entity.ts:payPeriodEnd',
-  'apps/hr-service/src/leave/entities/leave-request.entity.ts:startDate',
-  'apps/hr-service/src/leave/entities/leave-request.entity.ts:endDate',
-  'apps/hr-service/src/performance/entities/goal.entity.ts:startDate',
-  'apps/hr-service/src/performance/entities/goal.entity.ts:targetDate',
-  'apps/hr-service/src/performance/entities/kpi.entity.ts:periodStart',
-  'apps/hr-service/src/performance/entities/kpi.entity.ts:periodEnd',
-  'apps/hr-service/src/performance/entities/performance-review.entity.ts:periodStart',
-  'apps/hr-service/src/performance/entities/performance-review.entity.ts:periodEnd',
-  'apps/hr-service/src/scheduling/entities/holiday.entity.ts:date',
-  'apps/hr-service/src/scheduling/entities/holiday.entity.ts:startDate',
-  'apps/hr-service/src/scheduling/entities/holiday.entity.ts:endDate',
-  'apps/hr-service/src/scheduling/entities/weekly-plan-entry.entity.ts:date',
-  'apps/hr-service/src/scheduling/entities/weekly-plan.entity.ts:weekStartDate',
-  'apps/hr-service/src/scheduling/entities/weekly-plan.entity.ts:weekEndDate',
-  'apps/hr-service/src/training/entities/employee-certification.entity.ts:issueDate',
-  'apps/hr-service/src/training/entities/training-enrollment.entity.ts:enrollmentDate',
-  'apps/hr-service/src/training/entities/training-session.entity.ts:sessionDate',
-]);
+const LEGACY_UNTRANSFORMED = new Set<string>([]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

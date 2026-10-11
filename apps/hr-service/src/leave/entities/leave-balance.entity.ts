@@ -9,7 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveType } from './leave-type.entity';
@@ -107,7 +107,7 @@ export class LeaveBalance {
   }
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   lastAccrualDate?: Date;
 
   @Field()

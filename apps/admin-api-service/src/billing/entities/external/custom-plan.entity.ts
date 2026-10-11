@@ -10,6 +10,7 @@
  * table it does not own.
  */
 import { MoneyColumn, DecimalValueTransformer } from '@aquaculture/backend-common/monetary';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import type {
   BillingCustomPlanStatus,
   BillingCycle,
@@ -93,10 +94,15 @@ export class CustomPlanReadOnly {
   @Column({ type: 'varchar' })
   status!: BillingCustomPlanStatus;
 
-  @Column({ type: 'date', name: 'valid_from' })
+  @Column({ type: 'date', name: 'valid_from', transformer: new DateColumnTransformer() })
   validFrom!: string;
 
-  @Column({ type: 'date', name: 'valid_to', nullable: true })
+  @Column({
+    type: 'date',
+    name: 'valid_to',
+    nullable: true,
+    transformer: new DateColumnTransformer(),
+  })
   validTo!: string | null;
 
   @Column({ type: 'uuid', name: 'approved_by', nullable: true })

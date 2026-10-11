@@ -7,7 +7,7 @@
  */
 
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 
 export enum InvoiceStatus {
   DRAFT = 'draft',
@@ -67,10 +67,10 @@ export class InvoiceReadOnly {
   @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
   paidAt!: Date | null;
 
-  @Column({ name: 'period_start', type: 'date' })
+  @Column({ name: 'period_start', type: 'date', transformer: new DateColumnTransformer() })
   periodStart!: Date;
 
-  @Column({ name: 'period_end', type: 'date' })
+  @Column({ name: 'period_end', type: 'date', transformer: new DateColumnTransformer() })
   periodEnd!: Date;
 
   @CreateDateColumn()

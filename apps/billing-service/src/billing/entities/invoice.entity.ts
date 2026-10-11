@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -206,11 +207,11 @@ export class Invoice {
   paidAt?: Date;
 
   @Field(() => Date)
-  @Column({ type: 'date', name: 'period_start' })
+  @Column({ type: 'date', name: 'period_start', transformer: new DateColumnTransformer() })
   periodStart!: Date;
 
   @Field(() => Date)
-  @Column({ type: 'date', name: 'period_end' })
+  @Column({ type: 'date', name: 'period_end', transformer: new DateColumnTransformer() })
   periodEnd!: Date;
 
   @Field({ nullable: true })

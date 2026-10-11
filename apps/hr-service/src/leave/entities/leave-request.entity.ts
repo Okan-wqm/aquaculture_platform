@@ -10,7 +10,7 @@ import {
   JoinColumn,
   BeforeInsert,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalTransformer, DateColumnTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveType } from './leave-type.entity';
@@ -117,11 +117,11 @@ export class LeaveRequest {
   leaveType?: LeaveType;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   startDate!: Date;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   endDate!: Date;
 
   @Field(() => Float)

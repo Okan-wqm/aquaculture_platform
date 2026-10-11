@@ -16,7 +16,7 @@ import {
   OneToMany,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalTransformer, DateColumnTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
@@ -294,7 +294,7 @@ export class Site {
   // -------------------------------------------------------------------------
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   establishedDate?: Date;
 
   // -------------------------------------------------------------------------

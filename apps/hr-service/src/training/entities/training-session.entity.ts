@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -60,7 +61,7 @@ export class TrainingSession {
   trainingCourse?: TrainingCourse;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   sessionDate!: Date;
 
   @Field()

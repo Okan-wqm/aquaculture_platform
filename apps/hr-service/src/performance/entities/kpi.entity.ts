@@ -9,7 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 
@@ -64,11 +64,11 @@ export class EmployeeKPI {
   unit?: string;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   periodStart!: Date;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   periodEnd!: Date;
 
   @Field(() => Float)

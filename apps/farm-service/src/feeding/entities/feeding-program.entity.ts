@@ -607,7 +607,7 @@ export class FeedingProgram {
    * Optional program end date
    */
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   @IsOptional()
   @IsDate({ message: 'endDate must be a valid date' })
   endDate?: Date;

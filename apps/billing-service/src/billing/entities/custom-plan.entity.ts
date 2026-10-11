@@ -14,6 +14,7 @@
  * CHECKed into [0, 100], and the plan cannot be worth less than nothing.
  */
 import { MoneyColumn, DecimalValueTransformer } from '@aquaculture/backend-common/monetary';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import type {
   BillingCustomPlanStatus,
   BillingModuleQuantities,
@@ -117,11 +118,16 @@ export class CustomPlan {
   @Column({ type: 'enum', enum: BILLING_CUSTOM_PLAN_STATUSES, default: 'draft' })
   status!: BillingCustomPlanStatus;
 
-  @Column({ type: 'date', name: 'valid_from' })
+  @Column({ type: 'date', name: 'valid_from', transformer: new DateColumnTransformer() })
   validFrom!: string;
 
   /** `null` means the plan does not expire. */
-  @Column({ type: 'date', name: 'valid_to', nullable: true })
+  @Column({
+    type: 'date',
+    name: 'valid_to',
+    nullable: true,
+    transformer: new DateColumnTransformer(),
+  })
   validTo!: string | null;
 
   @Column({ type: 'uuid', name: 'approved_by', nullable: true })

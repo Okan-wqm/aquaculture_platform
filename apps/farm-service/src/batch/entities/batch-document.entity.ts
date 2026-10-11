@@ -11,6 +11,7 @@
  *
  * @module Batch
  */
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -127,11 +128,11 @@ export class BatchDocument {
   // -------------------------------------------------------------------------
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   issueDate?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   expiryDate?: Date;
 
   @Field({ nullable: true })

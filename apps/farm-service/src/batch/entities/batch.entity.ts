@@ -299,11 +299,11 @@ export class Batch {
   stockedAt!: Date; // Stoklama tarihi
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   expectedHarvestDate?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: 'date', nullable: true, transformer: new DateColumnTransformer() })
   actualHarvestDate?: Date;
 
   // -------------------------------------------------------------------------

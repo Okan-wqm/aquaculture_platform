@@ -20,7 +20,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {DecimalTransformer, DateColumnTransformer} from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -153,7 +153,7 @@ export class TankOperation {
   operationType!: OperationType;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   operationDate!: Date;
 
   @Field(() => Int)

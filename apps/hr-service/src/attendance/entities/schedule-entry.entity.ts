@@ -1,3 +1,4 @@
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -53,7 +54,7 @@ export class ScheduleEntry {
   employeeId!: string;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   date!: Date;
 
   @Field({ nullable: true })

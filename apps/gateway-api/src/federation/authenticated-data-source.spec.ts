@@ -10,7 +10,7 @@ const SECRET = 'gateway-subgraph-hmac-test-secret';
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 
 function createHeaderCollector(): {
-  headers: { set: (key: string, value: string) => void };
+  headers: { set: (key: string, value: string) => void; delete: (key: string) => void };
   record: Record<string, string>;
 } {
   const record: Record<string, string> = {};
@@ -19,6 +19,9 @@ function createHeaderCollector(): {
     headers: {
       set: (key: string, value: string): void => {
         record[key.toLowerCase()] = value;
+      },
+      delete: (key: string): void => {
+        Reflect.deleteProperty(record, key.toLowerCase());
       },
     },
   };
@@ -307,6 +310,49 @@ describe('AuthenticatedDataSource service identity signing', () => {
     ) as { clientIp?: string; clientUserAgent?: string };
     expect(assertion.clientIp).toBe('193.212.164.37');
     expect(assertion.clientUserAgent).toBe('Mozilla/5.0 (Windows NT 10.0)');
+  });
+
+  it('drops the authorization credential when no verified user exists (expired/silent JWT)', () => {
+    const { dataSource } = createCapturingDataSource();
+    const { headers, record } = createHeaderCollector();
+    const context = createContext(); // NO user — the JWT failed verification
+    context.req.headers.authorization = 'Bearer expired-or-rejected-token';
+
+    dataSource.willSendRequest(
+      willSendRequestOptions(
+        {
+          query: 'query Workers { workers { id } }',
+          http: { method: 'POST', url: 'http://farm-service:3000/graphql', headers },
+        },
+        context,
+      ),
+    );
+
+    // Forwarding the raw credential without a matching assertion is what made
+    // the subgraph reject list queries with an intermittent 400 — the
+    // credential must NOT reach the subgraph when req.user is undefined.
+    expect(record['authorization']).toBeUndefined();
+    expect(record['x-verified-user-assertion']).toBeUndefined();
+  });
+
+  it('forwards authorization together with the verified assertion when a user exists', () => {
+    const { dataSource } = createCapturingDataSource();
+    const { headers, record } = createHeaderCollector();
+    const context = createContext(TENANT_ID);
+    context.req.headers.authorization = 'Bearer valid-token';
+
+    dataSource.willSendRequest(
+      willSendRequestOptions(
+        {
+          query: 'query Workers { workers { id } }',
+          http: { method: 'POST', url: 'http://farm-service:3000/graphql', headers },
+        },
+        context,
+      ),
+    );
+
+    expect(record['authorization']).toBe('Bearer valid-token');
+    expect(record['x-verified-user-assertion']).toBeDefined();
   });
 
   it('captures the old pre-fetch-body signing bug as a failing verifier contract', async () => {

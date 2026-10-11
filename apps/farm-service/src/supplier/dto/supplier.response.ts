@@ -86,26 +86,13 @@ export class SupplierAddressResponse {
   country!: string;
 }
 
-@ObjectType()
-export class PaymentTermsResponse {
-  @Field(() => Int)
-  paymentDays!: number;
-
-  @Field(() => Float, { nullable: true })
-  creditLimit?: number;
-
-  @Field()
-  currency!: string;
-
-  @Field(() => Float, { nullable: true })
-  discountPercent?: number;
-
-  @Field(() => Int, { nullable: true })
-  discountDays?: number;
-
-  @Field({ nullable: true })
-  notes?: string;
-}
+// FARM-E2E Finding 7: PaymentTermsResponse (paymentDays/creditLimit/currency/
+// discountPercent/discountDays/notes object type) removed. The Supplier entity
+// stores paymentTerms as varchar(100) free-form text (supplier.entity.ts),
+// so the object-shaped response type could never be resolved from the stored
+// value — GraphQL would fail on the non-null Int!/String! fields. The response
+// now mirrors the entity: a nullable scalar String (schema-storage parity,
+// no migration required).
 
 @ObjectType()
 export class SupplierResponse {
@@ -169,8 +156,10 @@ export class SupplierResponse {
   @Field({ nullable: true })
   taxNumber?: string;
 
-  @Field(() => PaymentTermsResponse, { nullable: true })
-  paymentTerms?: PaymentTermsResponse;
+  // FARM-E2E Finding 7: free-form text, matching the varchar(100) column —
+  // see the PaymentTermsResponse removal note above.
+  @Field({ nullable: true, description: 'Payment terms as free-form text (e.g. "30 days - net")' })
+  paymentTerms?: string;
 
   @Field(() => Float, { nullable: true })
   rating?: number;

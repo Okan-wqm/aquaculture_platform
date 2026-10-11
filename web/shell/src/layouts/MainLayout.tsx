@@ -36,6 +36,9 @@ import { UserLocaleSync } from '../components/UserLocaleSync';
 import { NotificationPanel } from '@/components/NotificationPanel';
 
 import { buildTenantRailSections } from './tenantRail';
+// E2E-FLAKE: warms a remote's route chunk when the user hovers a rail entry,
+// so the click does not land in the remote's Suspense fallback.
+import { preloadRoute } from '../utils/routePreload';
 
 // ============================================================================
 // Navigation Configuration - Role Based
@@ -291,8 +294,13 @@ const DELEGATABLE_TENANT_NAV: Record<string, string> = {
 
 /**
  * Module navigation configuration by module code
+ *
+ * Exported for the layout spec: it asserts every child points at its FINAL
+ * destination (no farm-module `<Navigate>` source), because a redirect hop
+ * costs the extra render/remount window in which E2E clicks time out
+ * (E2E-FLAKE).
  */
-const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
+export const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
   farm: {
     id: 'farm-module',
     labelKey: 'nav.siteManagement',
@@ -305,7 +313,14 @@ const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
       {
         id: 'sites-feeding-records',
         labelKey: 'nav.feedRecordsInventory',
-        path: '/sites/feeding/records',
+        // E2E-FLAKE: point the sidebar straight at the tab URL instead of the
+        // `/sites/feeding/records` route, whose only job is a `<Navigate>` to
+        // this exact target (Module.tsx keeps it for old bookmarks). The
+        // redirect chain cost an extra render + remount of the freshly loaded
+        // page — exactly the window in which Playwright's click timed out
+        // because the content area was in the Suspense fallback. One segment
+        // fewer, one render fewer; the visible destination is identical.
+        path: '/sites/feeding?tab=records',
       },
       {
         id: 'sites-water-chemistry',
@@ -788,6 +803,8 @@ const MainLayout: React.FC = () => {
           mobileOpen={mobileNavOpen}
           onMobileOpenChange={setMobileNavOpen}
           onNavigate={handleNavigate}
+          // E2E-FLAKE: hover-intent route chunk preload (see routePreload.ts).
+          onItemHover={preloadRoute}
           brandName={logoText}
           brandSub={
             userRole === 'TENANT_ADMIN' ? t('sidebar.tenantConsole') : t('sidebar.workspace')

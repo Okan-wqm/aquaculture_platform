@@ -78,6 +78,11 @@ describe('GetTransfersSummaryHandler', () => {
     expect(call).toBeDefined();
     const sql = String(call?.[0]);
     expect(sql).toContain(`other_side.site_id IS NULL OR other_side.site_id <> $2`);
+    // SELECT COALESCE(s."officialCode", s.code) needs s."officialCode" in the
+    // GROUP BY too — otherwise PostgreSQL rejects the statement (42803: column
+    // must appear in the GROUP BY clause) and the query 500s.
+    expect(sql).toContain('COALESCE(s."officialCode", s.code)');
+    expect(sql).toMatch(/GROUP BY .*s\.code, s\."officialCode"/);
     expect(call?.[1]).toEqual([tenantId, siteId, '2026-06-01', '2026-06-30']);
   });
 });

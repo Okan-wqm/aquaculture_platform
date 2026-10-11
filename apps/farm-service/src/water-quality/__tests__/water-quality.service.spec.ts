@@ -20,10 +20,15 @@ jest.mock('../services/measurement-unit', () => ({
   resolveMeasurementUnit: (...args: unknown[]): unknown => mockResolveMeasurementUnit(...args),
 }));
 
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryFailedError } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
@@ -324,6 +329,132 @@ describe('WaterQualityService — single-ingress validation', () => {
         NotFoundException,
       );
       expect(mockManager.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createBatch() — idempotent replay (FARM-MEDIUM-429)', () => {
+    const batchInput = (): CreateBatchWaterQualityInput => ({
+      measuredAt: new Date('2026-06-14T08:00:00Z'),
+      source: MeasurementSource.MANUAL,
+      measurements: [
+        { equipmentId: EQUIPMENT, dynamicParameters: { ph: 7.1 }, idempotencyKey: MEASUREMENT },
+        { equipmentId: EQUIPMENT, dynamicParameters: { ph: 7.3 }, idempotencyKey: USER },
+      ],
+    });
+
+    it('createBatch with replayed idempotencyKeys skips existing and returns them', async () => {
+      const { service, repository, mockManager, validate, enqueue } = await buildService();
+
+      // First createBatch → 2 records (repository.find defaults to no rows).
+      const first = await service.createBatch(TENANT, batchInput(), WQ_CALLER);
+      expect(first).toHaveLength(2);
+      expect(mockManager.save).toHaveBeenCalledTimes(1);
+
+      // Replay with the same keys: repository.find now resolves them.
+      repository.find.mockResolvedValue(first);
+      mockManager.save.mockClear();
+      validate.mockClear();
+      enqueue.mockClear();
+
+      const second = await service.createBatch(TENANT, batchInput(), WQ_CALLER);
+
+      // No error, the existing rows come back, and NOTHING new is written,
+      // validated, or published — the same replay semantics as single create().
+      expect(second).toEqual(first);
+      expect(mockManager.save).not.toHaveBeenCalled();
+      expect(validate).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('a partial replay processes only the unseen items and returns new + existing', async () => {
+      const { service, repository, mockManager, validate } = await buildService();
+      const existing = {
+        id: '99999999-9999-4999-8999-999999999999',
+        tenantId: TENANT,
+        idempotencyKey: MEASUREMENT,
+      } as WaterQualityMeasurement;
+      repository.find.mockResolvedValue([existing]);
+
+      const result = await service.createBatch(TENANT, batchInput(), WQ_CALLER);
+
+      // Only the unseen item (idempotencyKey USER) was validated and persisted.
+      expect(validate).toHaveBeenCalledTimes(1);
+      expect(validate).toHaveBeenCalledWith(TENANT, { ph: 7.3 }, EQUIPMENT);
+      expect(mockManager.create).toHaveBeenCalledTimes(1);
+      const arg: unknown = mockManager.create.mock.calls[0]![1];
+      expect(arg).toMatchObject({ idempotencyKey: USER });
+      expect(mockManager.save).toHaveBeenCalledTimes(1);
+
+      // The response carries BOTH the newly saved row and the existing one.
+      expect(result).toHaveLength(2);
+      expect(result).toContain(existing);
+    });
+
+    it('deduplicates a key repeated within one request (first occurrence wins)', async () => {
+      const { service, mockManager } = await buildService();
+      const input = batchInput();
+      input.measurements[1]!.idempotencyKey = MEASUREMENT;
+
+      const result = await service.createBatch(TENANT, input, WQ_CALLER);
+
+      expect(mockManager.create).toHaveBeenCalledTimes(1);
+      expect(result).toHaveLength(1);
+    });
+
+    it('a 23505 race on insert rolls back and returns the concurrently committed rows', async () => {
+      const { service, repository, mockManager, enqueue, recalcForUnitMock } = await buildService();
+      // The race: the pre-check saw nothing, but a concurrent writer committed
+      // the same keys before our INSERT — the bulk save rejects with a unique
+      // violation (TypeORM wraps the pg driver error).
+      const driverError = Object.assign(
+        new Error('duplicate key value violates unique constraint'),
+        { code: '23505' },
+      );
+      mockManager.save.mockRejectedValueOnce(
+        new QueryFailedError('INSERT INTO water_quality_measurements', [], driverError),
+      );
+      const raced = [
+        {
+          id: 'aaaaaaaa-0000-4000-8000-000000000001',
+          tenantId: TENANT,
+          idempotencyKey: MEASUREMENT,
+        },
+        { id: 'aaaaaaaa-0000-4000-8000-000000000002', tenantId: TENANT, idempotencyKey: USER },
+      ] as WaterQualityMeasurement[];
+      repository.find.mockResolvedValueOnce([]).mockResolvedValue(raced);
+
+      const result = await service.createBatch(TENANT, batchInput(), WQ_CALLER);
+
+      // No 500: the winning writer's rows are returned, and nothing of the
+      // aborted attempt leaked (no events, no recalc for rolled-back rows).
+      expect(result).toEqual(raced);
+      expect(enqueue).not.toHaveBeenCalled();
+      expect(recalcForUnitMock).not.toHaveBeenCalled();
+    });
+
+    it('a partial 23505 overlap surfaces as 409 Conflict, never a silent short array', async () => {
+      const { service, repository, mockManager } = await buildService();
+      const driverError = Object.assign(
+        new Error('duplicate key value violates unique constraint'),
+        { code: '23505' },
+      );
+      mockManager.save.mockRejectedValueOnce(
+        new QueryFailedError('INSERT INTO water_quality_measurements', [], driverError),
+      );
+      // Only ONE of the two requested keys resolves after the rollback — the
+      // caller must retry rather than read a 1-row response as success.
+      const partial = [
+        {
+          id: 'aaaaaaaa-0000-4000-8000-000000000001',
+          tenantId: TENANT,
+          idempotencyKey: MEASUREMENT,
+        },
+      ] as WaterQualityMeasurement[];
+      repository.find.mockResolvedValueOnce([]).mockResolvedValue(partial);
+
+      await expect(service.createBatch(TENANT, batchInput(), WQ_CALLER)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
     });
   });
 

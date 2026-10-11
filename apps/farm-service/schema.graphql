@@ -2497,15 +2497,6 @@ type SupplierAddressResponse {
   country: String!
 }
 
-type PaymentTermsResponse {
-  paymentDays: Int!
-  creditLimit: Float
-  currency: String!
-  discountPercent: Float
-  discountDays: Int
-  notes: String
-}
-
 type SupplierResponse {
   id: ID!
   tenantId: ID!
@@ -2527,7 +2518,9 @@ type SupplierResponse {
   address: SupplierAddressResponse
   country: String
   taxNumber: String
-  paymentTerms: PaymentTermsResponse
+
+  """Payment terms as free-form text (e.g. "30 days - net")"""
+  paymentTerms: String
   rating: Float
   certifications: [String!]
   notes: String

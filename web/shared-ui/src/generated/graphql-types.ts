@@ -14391,15 +14391,6 @@ export type PaymentTermsInput = {
   paymentDays: Scalars['Int']['input'];
 };
 
-export type PaymentTermsResponse = {
-  creditLimit?: Maybe<Scalars['Float']['output']>;
-  currency: Scalars['String']['output'];
-  discountDays?: Maybe<Scalars['Int']['output']>;
-  discountPercent?: Maybe<Scalars['Float']['output']>;
-  notes?: Maybe<Scalars['String']['output']>;
-  paymentDays: Scalars['Int']['output'];
-};
-
 export type Payroll = {
   approvedAt?: Maybe<Scalars['DateTime']['output']>;
   approvedBy?: Maybe<Scalars['String']['output']>;
@@ -21610,7 +21601,8 @@ export type SupplierResponse = {
   isActive: Scalars['Boolean']['output'];
   name: Scalars['String']['output'];
   notes?: Maybe<Scalars['String']['output']>;
-  paymentTerms?: Maybe<PaymentTermsResponse>;
+  /** Payment terms as free-form text (e.g. "30 days - net") */
+  paymentTerms?: Maybe<Scalars['String']['output']>;
   phone?: Maybe<Scalars['String']['output']>;
   primaryContact?: Maybe<SupplierContactResponse>;
   products?: Maybe<Array<Scalars['String']['output']>>;

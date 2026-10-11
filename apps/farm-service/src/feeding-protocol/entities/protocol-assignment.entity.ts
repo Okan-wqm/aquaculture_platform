@@ -25,6 +25,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
@@ -163,7 +164,7 @@ export class ProtocolAssignment {
   status!: ProtocolAssignmentStatus;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   effectiveFrom!: Date;
 
   @Field({ nullable: true })

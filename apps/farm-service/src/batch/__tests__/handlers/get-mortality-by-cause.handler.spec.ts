@@ -77,6 +77,16 @@ describe('GetMortalityByCauseHandler', () => {
     expect(aggregateCall).toBeDefined();
     expect(aggregateCall?.[1]).toEqual([tenantId, siteId, '2026-06-01', '2026-06-30']);
     expect(String(aggregateCall?.[0])).not.toContain(tenantId);
+
+    const detailCall = (mockQueryRunner.query as jest.Mock).mock.calls.find(([sql]) =>
+      String(sql).includes('GROUP BY mr."recordDate"'),
+    );
+    expect(detailCall).toBeDefined();
+    // SELECT COALESCE(s."officialCode", s.code) needs s."officialCode" in the
+    // GROUP BY too — otherwise PostgreSQL rejects the statement (42803: column
+    // must appear in the GROUP BY clause) and the query 500s.
+    expect(String(detailCall?.[0])).toContain('COALESCE(s."officialCode", s.code)');
+    expect(String(detailCall?.[0])).toMatch(/GROUP BY .*s\.code, s\."officialCode"/);
   });
 
   it('returns an empty aggregate for a period with no records', async () => {

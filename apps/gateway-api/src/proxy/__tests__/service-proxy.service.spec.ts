@@ -38,6 +38,42 @@ import {
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
+
+/**
+ * Type-safe Express Request/Response test doubles.
+ *
+ * The production `attachVerifiedAssertion` now takes `Request & VerifiedProxyUser`;
+ * these factories provide just enough members for `proxyRequest` to exercise the
+ * assertion path without the ~100 Readable/HTTP members a full Express type
+ * would demand. The `Object.assign` call on a `jest.fn()` base gives the mock
+ * callable + property semantics compatible with Request's structural shape.
+ */
+function makeMockRequest(overrides: Partial<Request> & { user?: unknown } = {}): Request {
+  const fn = jest.fn();
+  return Object.assign(fn, {
+    method: 'POST',
+    url: '/graphql',
+    path: '/graphql',
+    headers: {},
+    body: {},
+    query: {},
+    ...overrides,
+  }) as Request;
+}
+
+function makeMockResponse(overrides: Partial<Response> = {}): Response {
+  return Object.assign({}, {
+    headersSent: false,
+    statusCode: 200,
+    setHeader: jest.fn(),
+    status: jest.fn().mockReturnThis(),
+    json: jest.fn().mockReturnThis(),
+    send: jest.fn().mockReturnThis(),
+    end: jest.fn().mockReturnThis(),
+    ...overrides,
+  }) as Response;
+}
+
 describe('ServiceProxyService', () => {
   let service: ServiceProxyService;
   let circuitBreaker: jest.Mocked<CircuitBreakerService>;
@@ -634,7 +670,7 @@ describe('ServiceProxyService', () => {
       };
       mockFetch.mockResolvedValueOnce(mockResponse);
 
-      const mockReq = {
+      const mockReq = makeMockRequest({
         path: '/api/test',
         method: 'GET',
         headers: {
@@ -643,15 +679,15 @@ describe('ServiceProxyService', () => {
         },
         body: {},
         query: {},
-      } as unknown as Request;
+      });
 
-      const mockRes = {
+      const mockRes = makeMockResponse({
         setHeader: jest.fn(),
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
         send: jest.fn(),
         end: jest.fn(),
-      } as unknown as Response;
+      });
 
       await service.proxyRequest(mockReq, mockRes, 'test-service');
 
@@ -659,22 +695,113 @@ describe('ServiceProxyService', () => {
       expect(mockRes.json).toHaveBeenCalledWith({ result: 'data' });
     });
 
+    it('strips the inbound authorization credential when no verified user exists (expired/silent JWT)', async () => {
+      const mockResponse = {
+        ok: true,
+        status: 200,
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({ result: 'data' }),
+      };
+      mockFetch.mockResolvedValueOnce(mockResponse);
+
+      const mockReq = makeMockRequest({
+        path: '/api/test',
+        method: 'GET',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer expired-token',
+        },
+        body: {},
+        query: {},
+      });
+
+      const mockRes = makeMockResponse({
+        setHeader: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn(),
+        send: jest.fn(),
+        end: jest.fn(),
+      });
+
+      await service.proxyRequest(mockReq, mockRes, 'test-service');
+
+      // Mirrors federation/authenticated-data-source.ts: a credential the
+      // gateway could not verify into a user must not reach the subgraph, or
+      // its VerifiedUserAssertionMiddleware rejects the request with a 400.
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.not.objectContaining({
+            authorization: expect.anything(),
+          }),
+        }),
+      );
+    });
+
+    it('keeps the authorization credential and mints the verified assertion when a user exists', async () => {
+      const mockResponse = {
+        ok: true,
+        status: 200,
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({ result: 'data' }),
+      };
+      mockFetch.mockResolvedValueOnce(mockResponse);
+
+      const mockReq = makeMockRequest({
+        path: '/api/test',
+        method: 'GET',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer valid-token',
+        },
+        body: {},
+        query: {},
+        user: {
+          sub: 'user-1',
+          tenantId: '11111111-1111-4111-8111-111111111111',
+          roles: ['FARM_MANAGER'],
+          email: 'user@example.test',
+          mfaVerified: true,
+        },
+      });
+
+      const mockRes = makeMockResponse({
+        setHeader: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn(),
+        send: jest.fn(),
+        end: jest.fn(),
+      });
+
+      await service.proxyRequest(mockReq, mockRes, 'test-service');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            authorization: 'Bearer valid-token',
+            'x-verified-user-assertion': expect.any(String),
+          }),
+        }),
+      );
+    });
+
     it('should handle proxy errors in proxyRequest', async () => {
       circuitBreaker.execute.mockRejectedValueOnce(new BadGatewayException('Service unavailable'));
 
-      const mockReq = {
+      const mockReq = makeMockRequest({
         path: '/api/test',
         method: 'GET',
         headers: {},
         body: {},
         query: {},
-      } as unknown as Request;
+      });
 
-      const mockRes = {
+      const mockRes = makeMockResponse({
         setHeader: jest.fn(),
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
-      } as unknown as Response;
+      });
 
       await service.proxyRequest(mockReq, mockRes, 'error-service');
 
@@ -691,19 +818,19 @@ describe('ServiceProxyService', () => {
         new GatewayTimeoutException('Request timed out'),
       );
 
-      const mockReq = {
+      const mockReq = makeMockRequest({
         path: '/api/slow',
         method: 'GET',
         headers: {},
         body: {},
         query: {},
-      } as unknown as Request;
+      });
 
-      const mockRes = {
+      const mockRes = makeMockResponse({
         setHeader: jest.fn(),
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
-      } as unknown as Response;
+      });
 
       await service.proxyRequest(mockReq, mockRes, 'timeout-error-service');
 
@@ -857,19 +984,19 @@ describe('ServiceProxyService', () => {
       };
       mockFetch.mockResolvedValueOnce(mockResponse);
 
-      const mockReq = {
+      const mockReq = makeMockRequest({
         path: '/api/test',
         method: 'GET',
         headers: {},
         body: {},
         query: {},
-      } as unknown as Request;
+      });
 
-      const mockRes = {
+      const mockRes = makeMockResponse({
         setHeader: jest.fn(),
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
-      } as unknown as Response;
+      });
 
       await service.proxyRequest(mockReq, mockRes, 'hop-header-service');
 

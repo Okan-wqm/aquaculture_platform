@@ -20,7 +20,7 @@
  *
  * # LEGACY ALLOWLIST
  *
- * 45 pre-existing columns (farm/hr/billing/admin) predate the transformer and
+ * 39 pre-existing columns (farm/hr/billing/admin) predate the transformer and
  * are swept under tracked finding FARM-MEDIUM-424 (each entry must be
  * verified for string-format dependencies before transforming). The allowlist
  * exists so NEW columns cannot regress — adding a Date-typed date column
@@ -41,15 +41,9 @@ const LEGACY_UNTRANSFORMED = new Set([
   'apps/admin-api-service/src/analytics/entities/external/invoice.entity.ts:periodEnd',
   'apps/billing-service/src/billing/entities/invoice.entity.ts:periodStart',
   'apps/billing-service/src/billing/entities/invoice.entity.ts:periodEnd',
-  'apps/farm-service/src/batch/entities/batch.entity.ts:stockedAt',
   'apps/farm-service/src/batch/entities/mortality-record.entity.ts:recordDate',
   'apps/farm-service/src/batch/entities/tank-allocation.entity.ts:allocationDate',
   'apps/farm-service/src/batch/entities/tank-operation.entity.ts:operationDate',
-  'apps/farm-service/src/feeding/entities/daily-feeding-execution.entity.ts:executionDate',
-  'apps/farm-service/src/feeding/entities/feeding-program.entity.ts:startDate',
-  'apps/farm-service/src/feeding/entities/feeding-table.entity.ts:startDate',
-  'apps/farm-service/src/feeding/entities/feeding-table.entity.ts:endDate',
-  'apps/farm-service/src/feeding-protocol/entities/protocol-assignment.entity.ts:effectiveFrom',
   'apps/farm-service/src/fish-health/entities/health-event.entity.ts:eventDate',
   'apps/farm-service/src/growth/entities/growth-measurement.entity.ts:measurementDate',
   'apps/farm-service/src/maintenance/entities/maintenance-schedule.entity.ts:startDate',

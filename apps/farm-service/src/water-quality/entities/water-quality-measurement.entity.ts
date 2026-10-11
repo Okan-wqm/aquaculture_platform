@@ -116,6 +116,12 @@ export interface WaterParameters {
   dissolvedOxygen?: number;          // mg/L (DO)
   oxygenSaturation?: number;         // %
   pH?: number;                       // 0-14
+  // FARM-MEDIUM-430: single-ingress JSONB keys ARE the parameter config codes
+  // (see parameter-templates.data.ts: `dissolved_oxygen`, `ph`). Declared
+  // explicitly so syncQuickAccessFields() reads a typed number instead of the
+  // index-signature `number | string | boolean` union.
+  dissolved_oxygen?: number;         // mg/L (DO) — config-code spelling
+  ph?: number;                       // 0-14 — config-code spelling
   salinity?: number;                 // ppt
   conductivity?: number;             // µS/cm
 
@@ -424,8 +430,12 @@ export class WaterQualityMeasurement {
     // Quick access alanlarını parameters'tan güncelle
     if (this.parameters) {
       this.temperature = this.parameters.temperature;
-      this.dissolvedOxygen = this.parameters.dissolvedOxygen;
-      this.pH = this.parameters.pH;
+      // FARM-MEDIUM-430: parameter config codes are snake_case (dissolved_oxygen,
+      // ph); the legacy camelCase spellings are kept as fallback for rows
+      // written before the single-ingress contract.
+      this.dissolvedOxygen =
+        this.parameters.dissolved_oxygen ?? this.parameters.dissolvedOxygen;
+      this.pH = this.parameters.ph ?? this.parameters.pH;
       this.ammonia = this.parameters.ammonia;
       this.nitrite = this.parameters.nitrite;
     }

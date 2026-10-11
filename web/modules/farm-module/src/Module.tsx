@@ -16,22 +16,110 @@ import { chartChrome, colors } from '@aquaculture/shared-ui';
 // reporting UI in particular) eagerly in one bundle. Each route becomes its own
 // async chunk fetched on navigation; a Suspense boundary shows a light fallback
 // while the chunk loads.
-const EnvironmentPage = React.lazy(() => import('./pages/environment/EnvironmentPage'));
-const SetupPage = React.lazy(() => import('./pages/setup/SetupPage'));
-const ReportsPage = React.lazy(() => import('./pages/reports/ReportsPage'));
-const TanksPage = React.lazy(() => import('./pages/tanks/TanksPage'));
-const FeedingPage = React.lazy(() => import('./pages/feeding/FeedingPage'));
-const StoragePage = React.lazy(() => import('./pages/storage/StoragePage'));
-const HealthEventsPage = React.lazy(() => import('./pages/health/HealthEventsPage'));
-const HarvestPlansPage = React.lazy(() => import('./pages/harvest/HarvestPlansPage'));
-const TasksPage = React.lazy(() => import('./pages/tasks/TasksPage'));
-const CompanyPage = React.lazy(() => import('./pages/company/CompanyPage'));
-const WaterChemistryPage = React.lazy(() => import('./pages/water-chemistry/WaterChemistryPage'));
-const AnalyticsPage = React.lazy(() => import('./pages/analytics/AnalyticsPage'));
-const BatchDetailPage = React.lazy(() => import('./pages/production/BatchDetailPage'));
-const MaintenancePage = React.lazy(() => import('./pages/maintenance/MaintenancePage'));
+//
+// E2E-FLAKE (sidebar click flakiness): each chunk loader is now a named,
+// EXPORTED function shared with its React.lazy call. The shell calls these on
+// sidebar hover (see preloadFarmRoute below) so by the time the user clicks,
+// the target chunk is already resolved/in-flight and the page renders without
+// falling into the Suspense fallback — Playwright's click no longer races a
+// chunk download that unmounts the button it just found.
+export const preloadEnvironmentPage = () => import('./pages/environment/EnvironmentPage');
+export const preloadSetupPage = () => import('./pages/setup/SetupPage');
+export const preloadReportsPage = () => import('./pages/reports/ReportsPage');
+export const preloadTanksPage = () => import('./pages/tanks/TanksPage');
+export const preloadFeedingPage = () => import('./pages/feeding/FeedingPage');
+export const preloadStoragePage = () => import('./pages/storage/StoragePage');
+export const preloadHealthEventsPage = () => import('./pages/health/HealthEventsPage');
+export const preloadHarvestPlansPage = () => import('./pages/harvest/HarvestPlansPage');
+export const preloadTasksPage = () => import('./pages/tasks/TasksPage');
+export const preloadCompanyPage = () => import('./pages/company/CompanyPage');
+export const preloadWaterChemistryPage = () => import('./pages/water-chemistry/WaterChemistryPage');
+export const preloadAnalyticsPage = () => import('./pages/analytics/AnalyticsPage');
+export const preloadBatchDetailPage = () => import('./pages/production/BatchDetailPage');
+export const preloadMaintenancePage = () => import('./pages/maintenance/MaintenancePage');
 // From main: the finance page, also code-split to keep the PERF-HIGH-004 budget.
-const FinancePage = React.lazy(() => import('./pages/finance/FinancePage'));
+export const preloadFinancePage = () => import('./pages/finance/FinancePage');
+
+const EnvironmentPage = React.lazy(preloadEnvironmentPage);
+const SetupPage = React.lazy(preloadSetupPage);
+const ReportsPage = React.lazy(preloadReportsPage);
+const TanksPage = React.lazy(preloadTanksPage);
+const FeedingPage = React.lazy(preloadFeedingPage);
+const StoragePage = React.lazy(preloadStoragePage);
+const HealthEventsPage = React.lazy(preloadHealthEventsPage);
+const HarvestPlansPage = React.lazy(preloadHarvestPlansPage);
+const TasksPage = React.lazy(preloadTasksPage);
+const CompanyPage = React.lazy(preloadCompanyPage);
+const WaterChemistryPage = React.lazy(preloadWaterChemistryPage);
+const AnalyticsPage = React.lazy(preloadAnalyticsPage);
+const BatchDetailPage = React.lazy(preloadBatchDetailPage);
+const MaintenancePage = React.lazy(preloadMaintenancePage);
+const FinancePage = React.lazy(preloadFinancePage);
+
+// ============================================================================
+// Route preload manifest
+// ============================================================================
+
+/**
+ * Map the farm-module's route segments (relative to the `/sites` mount the
+ * shell gives this remote) to the chunk that renders them. Redirect source
+ * segments (`cleaner-fish`, `feeding/records`, …) map to the chunk their
+ * `<Navigate>` TARGET needs — preloading the source's own chunk would be
+ * pointless because no page ever renders there.
+ */
+const ROUTE_PRELOADS: ReadonlyArray<readonly [prefix: string, preload: () => Promise<unknown>]> = [
+  // Order matters only where one segment prefixes another; none here do.
+  ['/environment', preloadEnvironmentPage],
+  ['/setup', preloadSetupPage],
+  ['/tanks', preloadTanksPage],
+  ['/cleaner-fish', preloadTanksPage], // redirects to /sites/tanks?tab=cleanerFish
+  ['/feeding/records', preloadFeedingPage], // redirects to /sites/feeding?tab=records
+  ['/feeding/protocols', preloadFeedingPage], // redirects to /sites/feeding?tab=protocols-v2
+  ['/feeding', preloadFeedingPage],
+  ['/batch', preloadBatchDetailPage],
+  ['/water-chemistry', preloadWaterChemistryPage],
+  ['/storage', preloadStoragePage],
+  ['/production', preloadTanksPage], // production/* redirects into tanks/feeding hubs
+  ['/reports', preloadReportsPage],
+  ['/health', preloadHealthEventsPage],
+  ['/harvest', preloadHarvestPlansPage],
+  ['/maintenance', preloadMaintenancePage],
+  ['/company', preloadCompanyPage],
+  ['/tasks', preloadTasksPage],
+  ['/finance', preloadFinancePage],
+  ['/analytics', preloadAnalyticsPage],
+];
+
+/**
+ * Warm the route chunk for a `/sites/...` path before navigation (E2E-FLAKE).
+ *
+ * Called speculatively — from the shell's sidebar hover, or any future
+ * link-prefetch — so the click lands on an already-loaded page instead of a
+ * Suspense fallback. Unknown paths are a no-op (nothing to warm); a failed
+ * fetch is swallowed because it is speculative: the real navigation re-attempts
+ * through React.lazy, where errors belong.
+ */
+export function preloadFarmRoute(path: string): void {
+  // Strip any query (e.g. `/sites/feeding?tab=records`) — matching is on the
+  // pathname only — and the shell's `/sites` mount prefix, so the manifest
+  // entries can stay identical to the relative routes declared above.
+  const pathname = (path.split('?')[0] as string).replace(/\/+$/, '') || '/';
+  const relative =
+    pathname === '/sites' || pathname.startsWith('/sites/')
+      ? pathname.slice('/sites'.length) || '/'
+      : pathname;
+
+  for (const [prefix, preload] of ROUTE_PRELOADS) {
+    if (relative === prefix || relative.startsWith(`${prefix}/`)) {
+      void preload().catch(() => {
+        /* Speculative fetch: never surface a network failure as an unhandled
+           rejection — navigation itself retries and reports through the lazy
+           boundary's error path. */
+      });
+      return;
+    }
+  }
+}
 
 // ============================================================================
 // Sites Module

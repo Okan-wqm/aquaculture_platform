@@ -42,6 +42,28 @@ function createRequest(overrides: Partial<TenantRequest> = {}): TenantRequest {
   } as TenantRequest;
 }
 
+/**
+ * Captures what the middleware put on the wire. The UNAUTHENTICATED rejection
+ * is written directly to the response (a GraphQL error envelope), so the
+ * assertion must observe res.status().json() instead of the next(error) chain.
+ */
+function createResponseCapture(): {
+  response: Response;
+  capture: { status: number; body: unknown };
+} {
+  const capture = { status: 0, body: undefined as unknown };
+  const response = {
+    status(code: number) {
+      capture.status = code;
+      return response;
+    },
+    json(payload: unknown) {
+      capture.body = payload;
+    },
+  };
+  return { response: response as Response, capture };
+}
+
 describe('VerifiedUserAssertionMiddleware', () => {
   let middleware: VerifiedUserAssertionMiddleware;
   let next: jest.MockedFunction<NextFunction>;
@@ -116,17 +138,78 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(req.verifiedUserAssertion).toBeUndefined();
   });
 
-  it('fails closed for authenticated production gateway requests without a verified assertion', () => {
+  it('rejects a bearer credential without a verified assertion as a GraphQL UNAUTHENTICATED error', () => {
     const req = createRequest({ headers: { authorization: 'Bearer access-token' } });
+    const { response, capture } = createResponseCapture();
+
+    middleware.use(req, response, next);
+
+    // Not next(error): the rejection is already on the wire as a GraphQL
+    // error envelope. A BadRequestException here used to surface as a bare
+    // HTTP 400 the browser could only show as an intermittent failure; the
+    // UNAUTHENTICATED code drives the api-client's refresh + retry instead.
+    expect(next).not.toHaveBeenCalled();
+    expect(capture.status).toBe(200);
+    expect(capture.body).toEqual({
+      errors: [{ message: 'Invalid access token', extensions: { code: 'UNAUTHENTICATED' } }],
+    });
+    expect(req.verifiedUserAssertion).toBeUndefined();
+  });
+
+  it('requires an assertion for ordinary queries that merely contain __typename (no introspection bypass)', () => {
+    // The old detector used substring includes('__type'), which also matched
+    // __typename — every Apollo client sprinkles __typename through ordinary
+    // list queries, so those silently skipped the verified-assertion gate.
+    const req = createRequest({
+      method: 'POST',
+      originalUrl: '/graphql',
+      url: '/graphql',
+      headers: { authorization: 'Bearer access-token' },
+      body: {
+        operationName: 'Workers',
+        query: 'query Workers { workers { id __typename } }',
+      },
+    });
+    const { response, capture } = createResponseCapture();
+
+    middleware.use(req, response, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(capture.body).toEqual({
+      errors: [{ message: 'Invalid access token', extensions: { code: 'UNAUTHENTICATED' } }],
+    });
+  });
+
+  it('keeps the Apollo Router _service { sdl } poll exempt from the assertion', () => {
+    // RetryableIntrospectAndCompose re-fetches the federation SDL every few
+    // minutes; that poll must stay exempt or composition breaks in production.
+    const req = createRequest({
+      method: 'POST',
+      originalUrl: '/graphql',
+      url: '/graphql',
+      headers: { authorization: 'Bearer access-token' },
+      body: { query: '{ _service { sdl } }' },
+    });
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0];
-    expect(error).toBeInstanceOf(BadRequestException);
-    expect(error).toHaveProperty(
-      'message',
-      expect.stringContaining('Verified user assertion is required'),
-    );
+    expect(next).toHaveBeenCalledWith();
+    expect(req.verifiedUserAssertion).toBeUndefined();
+  });
+
+  it('keeps signed __schema introspection exempt even with a bearer credential', () => {
+    const req = createRequest({
+      method: 'POST',
+      originalUrl: '/graphql',
+      url: '/graphql',
+      headers: { authorization: 'Bearer access-token' },
+      body: { query: '{ __schema { types { name } } }' },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.verifiedUserAssertion).toBeUndefined();
   });
 
   it('allows signed pre-auth gateway requests without a user assertion', () => {

@@ -22,6 +22,21 @@ describe('GetSupplierHandler', () => {
     });
   });
 
+  // FARM-E2E Finding 7: the entity stores paymentTerms as varchar(100) text and
+  // SupplierResponse now exposes it as a scalar String — the handler returns the
+  // raw entity, so the value must flow through untouched (no object shape).
+  it('returns paymentTerms as the stored free-form string', async () => {
+    const { mockDataSource, mockManager } = createMockDataSource();
+    const supplier = { id: supplierId, tenantId, paymentTerms: '30 days - net' };
+    (mockManager.findOne as jest.Mock).mockResolvedValueOnce(supplier);
+
+    const handler = new GetSupplierHandler(mockDataSource);
+    const result = await handler.execute(new GetSupplierQuery(supplierId, tenantId));
+
+    expect(result.paymentTerms).toBe('30 days - net');
+    expect(typeof result.paymentTerms).toBe('string');
+  });
+
   it('throws NotFoundException when no supplier matches the id', async () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.findOne as jest.Mock).mockResolvedValueOnce(null);

@@ -23,6 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import {
@@ -223,7 +224,7 @@ export class DailyFeedingExecution {
   // -------------------------------------------------------------------------
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   @Index()
   executionDate!: Date;
 

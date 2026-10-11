@@ -17,7 +17,9 @@ describe('ListSuppliersHandler', () => {
 
   it('returns paginated, non-deleted suppliers read through the tenant boundary', async () => {
     const { mockDataSource, mockManager } = createMockDataSource();
-    const qb = makeQb([{ id: 'sup1' }], 1);
+    // FARM-E2E Finding 7: paymentTerms is stored as varchar(100) free-form text
+    // and flows through the handler untransformed — it must surface as a string.
+    const qb = makeQb([{ id: 'sup1', paymentTerms: '30 days - net' }], 1);
     mockManager.createQueryBuilder = jest
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
@@ -26,6 +28,8 @@ describe('ListSuppliersHandler', () => {
     const result = await handler.execute(new ListSuppliersQuery(tenantId));
 
     expect(result.data).toHaveLength(1);
+    expect(result.data[0]!.paymentTerms).toBe('30 days - net');
+    expect(typeof result.data[0]!.paymentTerms).toBe('string');
     expect(result.pagination.total).toBe(1);
     expect(qb.where).toHaveBeenCalledWith('supplier.tenantId = :tenantId', { tenantId });
     expect(qb.andWhere).toHaveBeenCalledWith('supplier.isDeleted = :isDeleted', {

@@ -88,6 +88,14 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
         usageProtocol: input.usageProtocol,
         safetyInfo: input.safetyInfo,
         storageRequirements: input.storageRequirements,
+        // FARM-E2E Finding 6: the four structured storage columns (DB + entity +
+        // CreateChemicalInput all define them) were dropped here, so a create
+        // silently lost the values that update-chemical persists via its
+        // Object.assign spread. Explicit-field style preserved (no spread).
+        storageTempMin: input.storageTempMin,
+        storageTempMax: input.storageTempMax,
+        storageHumidityMin: input.storageHumidityMin,
+        storageHumidityMax: input.storageHumidityMax,
         shelfLifeMonths: input.shelfLifeMonths,
         expiryDate: input.expiryDate,
         usageAreas: input.usageAreas,

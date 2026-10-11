@@ -61,7 +61,7 @@ export class GetTransfersSummaryHandler implements IQueryHandler<GetTransfersSum
             AND o."operationType" IN ('transfer_out', 'transfer_in')
             AND o."operationDate"::date BETWEEN $3 AND $4
             AND (other_side.site_id IS NULL OR other_side.site_id <> $2)
-          GROUP BY o."operationDate"::date, direction, s.code, other_side.site_name
+          GROUP BY o."operationDate"::date, direction, s.code, s."officialCode", other_side.site_name
           ORDER BY o."operationDate"::date`,
         [tenantId, siteId, fromDate, toDate],
       );

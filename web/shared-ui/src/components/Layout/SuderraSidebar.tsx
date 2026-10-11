@@ -128,6 +128,13 @@ export interface SuderraSidebarProps {
   /** Active path: highlights the item and opens its group */
   activePath?: string;
   onNavigate: (path: string) => void;
+  /**
+   * Pointer entered a navigation entry, with that entry's path (E2E-FLAKE).
+   * Hover is intent: the host uses it to preload the destination's route
+   * chunk so the click renders the page instead of a Suspense fallback.
+   * Optional and never called for group headers (they only toggle).
+   */
+  onItemHover?: (path: string) => void;
   /** Roles for `requiredRoles` checks */
   userRoles?: UserRole[];
   /** Workspace name beside the logo mark */
@@ -162,6 +169,7 @@ interface RailItemProps {
   userRoles: UserRole[];
   onToggleGroup: (id: string, openNow: boolean) => void;
   onNavigate: (path: string) => void;
+  onItemHover?: (path: string) => void;
 }
 
 const RailItem: React.FC<RailItemProps> = ({
@@ -172,6 +180,7 @@ const RailItem: React.FC<RailItemProps> = ({
   userRoles,
   onToggleGroup,
   onNavigate,
+  onItemHover,
 }) => {
   const children = (item.children ?? []).filter((child) => canSeeNavItem(child, userRoles));
   const isGroup = children.length > 0;
@@ -190,6 +199,14 @@ const RailItem: React.FC<RailItemProps> = ({
     }
   }, [isGroup, onToggleGroup, item.id, item.path, item.isExternal, expanded, onNavigate]);
 
+  // E2E-FLAKE: hovering a leaf entry signals the host to preload the route
+  // chunk BEFORE the click, so the page is not behind a Suspense fallback when
+  // the pointer releases. Group headers only toggle the accordion — nothing to
+  // warm — so they stay silent.
+  const handleMouseEnter = useCallback(() => {
+    if (!isGroup && item.path) onItemHover?.(item.path);
+  }, [isGroup, item.path, onItemHover]);
+
   if (!canSeeNavItem(item, userRoles)) return null;
 
   return (
@@ -197,6 +214,7 @@ const RailItem: React.FC<RailItemProps> = ({
       <button
         type="button"
         onClick={handleClick}
+        onMouseEnter={handleMouseEnter}
         aria-current={isActive ? 'page' : undefined}
         aria-expanded={isGroup ? expanded : undefined}
         className={`flex w-full items-center gap-2 rounded-[9px] px-[11px] py-[9px] text-left text-sm transition-colors focus-visible:ring-sd-mint focus-visible:ring-offset-sd-rail-mid ${
@@ -238,6 +256,10 @@ const RailItem: React.FC<RailItemProps> = ({
                 key={child.id}
                 type="button"
                 onClick={() => child.path && onNavigate(child.path)}
+                // E2E-FLAKE: module children are the deep-link targets whose
+                // chunks are lazy — hover-preload them so the click does not
+                // race the chunk download.
+                onMouseEnter={() => child.path && onItemHover?.(child.path)}
                 aria-current={childActive ? 'page' : undefined}
                 className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-left text-[13.5px] transition-colors focus-visible:ring-sd-mint focus-visible:ring-offset-sd-rail-mid ${
                   childActive
@@ -264,6 +286,7 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
   sections,
   activePath,
   onNavigate,
+  onItemHover,
   userRoles = [],
   brandName,
   brandSub,
@@ -427,6 +450,7 @@ export const SuderraSidebar: React.FC<SuderraSidebarProps> = ({
                     userRoles={userRoles}
                     onToggleGroup={handleToggleGroup}
                     onNavigate={handleNavigate}
+                    onItemHover={onItemHover}
                   />
                 ))}
               </div>

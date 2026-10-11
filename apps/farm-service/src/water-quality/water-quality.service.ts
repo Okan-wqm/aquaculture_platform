@@ -15,12 +15,19 @@
  *
  * @module WaterQuality
  */
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager } from 'typeorm';
+import { Repository, DataSource, EntityManager, In } from 'typeorm';
 import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { sanitizePgError } from '@aquaculture/backend-common/utils';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { OutboxPublisher } from '@platform/outbox';
 import {
@@ -443,8 +450,11 @@ export class WaterQualityService {
 
   /**
    * Batch creation of water quality measurements for multiple equipment.
-   * Validates all items first (fail-fast), then bulk inserts + outbox events
-   * in a single QueryRunner transaction.
+   * Idempotent per item (FARM-MEDIUM-429): keys already persisted are skipped
+   * and returned as-is, only unseen items are validated (fail-fast), then bulk
+   * inserted + outbox events in a single QueryRunner transaction. A concurrent
+   * writer racing a key to the unique index (23505) resolves to the committed
+   * rows instead of a 500.
    *
    * LIFE-SAFETY: All measurement events are enqueued in the transactional
    * outbox. A NATS outage cannot silently drop critical water quality alerts.
@@ -459,8 +469,40 @@ export class WaterQualityService {
       `Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`,
     );
 
-    // 1. Validate ALL items first (fail-fast, before transaction)
-    for (const item of input.measurements) {
+    // FARM-MEDIUM-429: idempotent pre-check with single create()'s "return
+    // existing" semantics — items whose idempotencyKey is already persisted
+    // are silently skipped and only the unseen ones are validated and written.
+    // Without this, replaying a batch hit the partial unique index
+    // (tenantId, idempotencyKey) → SQLSTATE 23505 → 500. A key repeated
+    // WITHIN the request is deduplicated the same way (first occurrence
+    // wins): one request can never violate its own unique index.
+    const requestedKeys = input.measurements.map((m) => m.idempotencyKey);
+    const existing = await this.repository.find({
+      where: { tenantId, idempotencyKey: In(requestedKeys) },
+    });
+    const existingKeys = new Set(existing.map((e) => e.idempotencyKey));
+    const seenKeys = new Set<string>();
+    const newMeasurements = input.measurements.filter((m) => {
+      if (existingKeys.has(m.idempotencyKey) || seenKeys.has(m.idempotencyKey)) {
+        return false;
+      }
+      seenKeys.add(m.idempotencyKey);
+      return true;
+    });
+
+    if (existing.length > 0) {
+      this.logger.debug(
+        `Idempotent batch replay: skipping ${input.measurements.length - newMeasurements.length} already-persisted measurement(s) for tenant ${tenantId}`,
+      );
+    }
+
+    // Full replay: nothing new to write — return the persisted rows.
+    if (newMeasurements.length === 0) {
+      return existing;
+    }
+
+    // 1. Validate ALL new items first (fail-fast, before transaction)
+    for (const item of newMeasurements) {
       const result = await this.validationService.validate(
         tenantId,
         item.dynamicParameters,
@@ -476,7 +518,7 @@ export class WaterQualityService {
 
     // 2. Pre-evaluate thresholds (no DB writes, safe outside transaction)
     const evaluations = [];
-    for (const item of input.measurements) {
+    for (const item of newMeasurements) {
       const summary = await this.evaluationService.evaluate(
         tenantId,
         item.dynamicParameters as WaterQualityMeasurement['parameters'],
@@ -492,8 +534,8 @@ export class WaterQualityService {
     let saved: WaterQualityMeasurement[];
     try {
       const entities: WaterQualityMeasurement[] = [];
-      for (let i = 0; i < input.measurements.length; i++) {
-        const item = input.measurements[i]!;
+      for (let i = 0; i < newMeasurements.length; i++) {
+        const item = newMeasurements[i]!;
         const summary = evaluations[i]!;
 
         // SEC-HIGH-051: object-level site authorization PER measurement. A batch
@@ -602,13 +644,41 @@ export class WaterQualityService {
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
+
+      // FARM-MEDIUM-429 race defense: a concurrent writer committed one of
+      // these idempotencyKeys between the pre-check and this INSERT (unique
+      // violation detected exactly like source-transaction.ts). The batch
+      // rolled back atomically, so no partial state exists: resolve every
+      // requested key against the now-committed rows and return them — the
+      // replaying client gets the rows the winning writer produced, not a 500.
+      if (sanitizePgError(error).sqlState === '23505') {
+        const raced = await this.repository.find({
+          where: { tenantId, idempotencyKey: In(requestedKeys) },
+        });
+        const resolvedKeys = new Set(raced.map((r) => r.idempotencyKey));
+        if (requestedKeys.every((key) => resolvedKeys.has(key))) {
+          this.logger.warn(
+            `Idempotent batch race: ${raced.length} measurement(s) already committed concurrently for tenant ${tenantId}; returning them`,
+          );
+          return raced;
+        }
+        // Partial overlap: a concurrent batch claimed some of these keys and
+        // this batch's remaining items rolled back with the transaction.
+        // Returning a short array would read as success; surface the conflict
+        // so the caller retries (the retry then skips the claimed keys).
+        throw new ConflictException(
+          'A concurrent batch reused one of these idempotencyKeys; retry the batch — already-persisted keys will be skipped.',
+        );
+      }
       throw error;
     } finally {
       await queryRunner.release();
     }
 
     this.logger.log(`Created batch of ${saved.length} WQ measurements for tenant ${tenantId}`);
-    return saved;
+    // Replay consistency with single create(): the response carries BOTH the
+    // newly saved rows and the pre-existing ones the pre-check skipped.
+    return [...saved, ...existing];
   }
 
   /**

@@ -351,7 +351,7 @@ export class BatchResolver {
   ): Promise<Batch> {
     this.logger.log(`Updating batch status: ${id} to ${status}`);
     return this.commandBus.execute(
-      new UpdateBatchStatusCommand(tenantId, id, status, user.sub, reason),
+      new UpdateBatchStatusCommand(tenantId, id, status, reason, user.sub),
     );
   }
 

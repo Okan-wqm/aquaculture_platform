@@ -28,6 +28,10 @@ declare module 'farmModule/Module' {
   import { FC } from 'react';
   const FarmModule: FC;
   export default FarmModule;
+  // E2E-FLAKE: speculative route-chunk preload exposed beside the component
+  // (see web/modules/farm-module/src/Module.tsx). Named exports cross the
+  // federation boundary, so the shell can warm a page chunk on sidebar hover.
+  export function preloadFarmRoute(path: string): void;
 }
 
 // `farmModule/FarmList` and `farmModule/FarmDetail` declarations removed

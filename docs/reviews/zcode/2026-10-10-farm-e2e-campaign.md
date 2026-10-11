@@ -89,3 +89,15 @@ droplet checkout tree was ~2548 commits stale and was NOT used as evidence.
 - FARM-MEDIUM-423 — environment monitoring disabled by config
   (`FARM_ENVIRONMENT_MONITORING_ENABLED` unset): decide intent and either
   enable or surface a proper "feature disabled" state.
+
+## Second specialist pass (2026-10-11, 5 parallel agents)
+
+- **FARM-CRITICAL-425** — Gateway forwarded `authorization` to subgraphs without `req.user` (expired JWT silently failed), intermittently 400-ing 4 tabs. Fixed with A (don't forward credentials without user) + B (UNAUTHENTICATED error code) + C (`__typename` introspection bypass closed).
+- **FARM-HIGH-426** — `updateBatchStatus` GraphQL resolver argument order swap (reason↔updatedBy) → 22P02.
+- **FARM-HIGH-427** — Six more date columns without `DateColumnTransformer` (protocol assignments, feeding programs/tables/executions, batch stocking).
+- **FARM-HIGH-428** — BIOMASS `reportPrefill` GROUP BY missing `officialCode` in 2 batch query handlers.
+- **FARM-MEDIUM-429** — `createBatchWaterQualityMeasurements` replay 500 (idempotent pre-check added + 23505 race defense).
+- **FARM-MEDIUM-430** — Water quality quick-access sync case mismatch (snake_case config codes now read).
+- **FARM-MEDIUM-431** — `createChemical` handler dropped 4 storage fields on create.
+- **FARM-MEDIUM-432** — `PaymentTermsResponse` GraphQL object type removed; `paymentTerms` now String (matches entity storage).
+- **FARM-LOW-433** — SPA sidebar click flakiness: route preload on hover + redirect chain flattened.

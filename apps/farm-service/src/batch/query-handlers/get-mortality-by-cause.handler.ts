@@ -63,7 +63,7 @@ export class GetMortalityByCauseHandler implements IQueryHandler<GetMortalityByC
            JOIN batches_v2 b ON b.id = mr."batchId" AND b."tenantId" = mr."tenantId"
            JOIN species s ON s.id = b."speciesId"
           WHERE ${periodFilter}
-          GROUP BY mr."recordDate", mr.cause, s.code
+          GROUP BY mr."recordDate", mr.cause, s.code, s."officialCode"
           ORDER BY mr."recordDate"`,
         [tenantId, siteId, fromDate, toDate],
       );

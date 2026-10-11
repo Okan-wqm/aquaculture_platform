@@ -22,7 +22,7 @@ import {
   OneToMany,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DateColumnTransformer, DecimalTransformer } from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { ObjectType, Field, ID, Float, Int, Directive } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
@@ -295,7 +295,7 @@ export class Batch {
   // -------------------------------------------------------------------------
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   stockedAt!: Date; // Stoklama tarihi
 
   @Field({ nullable: true })

@@ -203,6 +203,22 @@ describe('SuderraSidebar', () => {
     expect(onNavigate).toHaveBeenCalledWith('/tenant/billing');
   });
 
+  it('reports hovered entries so the host can preload their route chunk (E2E-FLAKE)', () => {
+    const onItemHover = vi.fn();
+    renderRail({ activePath: '/sites/tanks', onItemHover });
+    fireEvent.mouseEnter(rail());
+    // Module child — the deep-link target whose chunk is lazy.
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Feeding' }));
+    expect(onItemHover).toHaveBeenCalledWith('/sites/feeding');
+    // Leaf top-level entry.
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Dashboard' }));
+    expect(onItemHover).toHaveBeenCalledWith('/tenant');
+    // A group header only toggles the accordion — no path to warm.
+    onItemHover.mockClear();
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Farm' }));
+    expect(onItemHover).not.toHaveBeenCalled();
+  });
+
   it('opens the group of the active child and toggles groups on click', () => {
     renderRail({ activePath: '/sites/tanks' });
     fireEvent.mouseEnter(rail());

@@ -15,6 +15,12 @@ const LEGACY_IDENTITY_HEADERS = [
 
 const ASSERTION_MAX_AGE_MS = 5 * 60 * 1000;
 const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * Introspection/service-health detection for the assertion exemption. Must
+ * match __schema, the __type(...) meta-field and the `_service {` federation
+ * SDL fetch — but never __typename, which is ordinary client vocabulary.
+ */
+const INTROSPECTION_OR_SERVICE_RE = /__schema\b|__type(?!name)\b|_service\s*\{/;
 
 /**
  * Parses the gateway-minted farm identity assertion after service HMAC
@@ -24,7 +30,7 @@ const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 export class VerifiedUserAssertionMiddleware implements NestMiddleware {
   private readonly logger = new Logger(VerifiedUserAssertionMiddleware.name);
 
-  use(req: TenantRequest, _res: Response, next: NextFunction): void {
+  use(req: TenantRequest, res: Response, next: NextFunction): void {
     try {
       const assertionHeader = this.getHeader(req, ASSERTION_HEADER);
 
@@ -33,9 +39,16 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       }
 
       if (!assertionHeader && this.requiresGatewayAssertion(req)) {
-        throw new BadRequestException(
-          'Verified user assertion is required for gateway subgraph requests',
-        );
+        // The gateway forwarded a bearer credential without a matching
+        // verified user assertion — the token failed verification at the
+        // gateway (expired or silently rejected), so no user context was ever
+        // minted into an assertion. That is an AUTHENTICATION failure, not a
+        // malformed request: answer with a GraphQL UNAUTHENTICATED error so
+        // the browser api-client's session detector triggers the automatic
+        // refresh + retry instead of surfacing an intermittent 400 the user
+        // cannot recover from.
+        this.rejectInvalidAccessToken(req, res);
+        return;
       }
 
       if (assertionHeader) {
@@ -138,6 +151,32 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       );
       next(error);
     }
+  }
+
+  /**
+   * Answer an unassertable bearer credential directly with a well-formed
+   * GraphQL error envelope (HTTP 200 + errors[]). Middleware rejections do
+   * not pass through the application's GraphQL exception filter — the filter
+   * is what maps HttpException → GraphQL error codes for resolvers — so a
+   * thrown BadRequestException would leave the service as a bare 400 JSON
+   * body whose message the Apollo gateway never propagates as a GraphQL
+   * error. Writing the envelope here guarantees the gateway forwards the
+   * extensions.code UNAUTHENTICATED to the browser, where the api-client's
+   * session detector (extensions.code === 'UNAUTHENTICATED' OR message
+   * matching 'Invalid access token') runs the token refresh + retry.
+   */
+  private rejectInvalidAccessToken(req: TenantRequest, res: Response): void {
+    this.logger.warn(
+      `Rejected gateway subgraph request carrying a bearer credential without a verified user assertion on ${req.method} ${req.originalUrl ?? req.url}`,
+    );
+    res.status(200).json({
+      errors: [
+        {
+          message: 'Invalid access token',
+          extensions: { code: 'UNAUTHENTICATED' },
+        },
+      ],
+    });
   }
 
   private parseAssertion(value: string): VerifiedUserAssertion {
@@ -325,9 +364,13 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       return false;
     }
     const compact = query.replace(/\s+/g, ' ');
-    return (
-      compact.includes('__schema') || compact.includes('__type') || compact.includes('_service')
-    );
+    // `__type(?!name)\b` matches the introspection meta-field __type but NOT
+    // __typename — every GraphQL client sprinkles __typename through ordinary
+    // queries, and the old substring includes() exempted those from the
+    // verified-assertion requirement. `_service\s*\{` keeps the Apollo
+    // Router poller (RetryableIntrospectAndCompose sends `_service { sdl }`)
+    // exempt without exempting arbitrary text mentioning _service.
+    return INTROSPECTION_OR_SERVICE_RE.test(compact);
   }
 
   private getHeader(req: Request, name: string): string | undefined {

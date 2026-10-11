@@ -58,6 +58,7 @@ export interface GatewayContext {
 
 type MutableHeaderSet = {
   set: (key: string, value: string) => void;
+  delete: (key: string) => void;
 };
 
 export type GatewaySubgraphRequest = {
@@ -202,7 +203,19 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
     }
 
     const authorization = req.headers.authorization;
-    if (authorization) {
+    if (!req.user) {
+      // The JWT failed verification at the gateway (expired or silently
+      // rejected) so no user context exists, yet the raw authorization header
+      // is still on the inbound request. Forwarding it would make the
+      // subgraph's VerifiedUserAssertionMiddleware demand a matching
+      // assertion (its hasAuthorizationHeader gate) that this code path can
+      // never mint — the intermittent 400 on list queries. Delete the
+      // credential so the request travels as pre-auth; the subgraph auth
+      // guards then answer UNAUTHENTICATED, which the browser api-client
+      // turns into refresh + retry. Login/refresh requests carry no
+      // authorization header and are unaffected.
+      httpRequest.headers.delete('authorization');
+    } else if (authorization) {
       httpRequest.headers.set('authorization', authorization);
     }
 

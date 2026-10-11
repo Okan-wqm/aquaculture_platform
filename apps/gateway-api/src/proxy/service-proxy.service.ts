@@ -69,6 +69,26 @@ const BLOCKED_FORWARDED_HEADERS = [
  * The value is bound into the HMAC signature attached to the outbound
  * request — no caller can silently inherit a missing/spoofed tenant.
  */
+/**
+ * The JWT-resolved claims the REST proxy path needs to mint a verified-user
+ * assertion. Narrower than Express's `Request` so test doubles can satisfy
+ * the interface without mocking ~100 stream/HTTP members.
+ */
+export interface VerifiedProxyUser {
+  user?: {
+    sub?: string;
+    tenantId?: string;
+    roles?: string[];
+    email?: string;
+    mfaVerified?: boolean;
+    assignedSiteIds?: string[];
+    mobileFeatures?: string[];
+    resourcePermissions?: string[];
+  };
+  effectiveTenantId?: string;
+  actAs?: ActAsAssertionClaims;
+}
+
 export interface ProxyRequestConfig {
   serviceName: string;
   path: string;
@@ -761,31 +781,29 @@ export class ServiceProxyService {
   }
 
 
-  private attachVerifiedAssertion(headers: Record<string, string>, req: Request): Record<string, string> {
-    const user = (req as Request & {
-      user?: {
-        sub?: string;
-        tenantId?: string;
-        roles?: string[];
-        email?: string;
-        mfaVerified?: boolean;
-        // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims the
-        // REST-proxy path must also fold into the verified assertion.
-        assignedSiteIds?: string[];
-        mobileFeatures?: string[];
-        // MT-HIGH-054: tenant-RBAC capabilities, folded into the assertion so
-        // subgraph @RequireTenantPermission works on the REST-proxy path too.
-        resourcePermissions?: string[];
-      };
-    }).user;
+  private attachVerifiedAssertion(
+    headers: Record<string, string>,
+    req: Request & VerifiedProxyUser,
+  ): Record<string, string> {
+    const user = req.user;
     // SSoT: the gateway-resolved effective tenant (validated act-as for
     // SUPER_ADMIN; JWT tenantId for regular users), set by EffectiveTenantMiddleware.
-    const { effectiveTenantId, actAs } = req as Request & {
-      effectiveTenantId?: string;
-      actAs?: ActAsAssertionClaims;
-    };
+    const { effectiveTenantId, actAs } = req;
 
     if (!user?.sub) {
+      // Same root cause as federation/authenticated-data-source.ts: when the
+      // JWT failed verification (expired or silently rejected), extractHeaders()
+      // has already copied the inbound authorization header but no verified
+      // assertion can be minted. Forwarding the bare credential makes the
+      // subgraph's VerifiedUserAssertionMiddleware reject the request with a
+      // 400. Strip it so the request travels as pre-auth and the subgraph
+      // auth guards answer UNAUTHENTICATED (browser: refresh + retry).
+      const authorizationKey = Object.keys(headers).find(
+        (candidate) => candidate.toLowerCase() === 'authorization',
+      );
+      if (authorizationKey) {
+        Reflect.deleteProperty(headers, authorizationKey);
+      }
       return headers;
     }
 

@@ -39,8 +39,12 @@ vi.mock('../../components/ConsentBanner', () => ({ default: (): null => null }))
 vi.mock('../../components/ActAsTenantBanner', () => ({ ActAsTenantBanner: (): null => null }));
 vi.mock('../../components/UserLocaleSync', () => ({ UserLocaleSync: (): null => null }));
 vi.mock('../../components/ai/AiAssistantDrawer', () => ({ default: (): null => null }));
+// E2E-FLAKE: the hover-preload wiring is asserted with a mock so the spec
+// never reaches for the federation remote itself.
+const preloadRoute = vi.hoisted(() => vi.fn());
+vi.mock('../../utils/routePreload', () => ({ preloadRoute }));
 
-import MainLayout from '../MainLayout';
+import MainLayout, { MODULE_NAV_CONFIG } from '../MainLayout';
 
 function renderLayout(path = '/tenant'): ReturnType<typeof render> {
   return render(
@@ -59,6 +63,7 @@ function renderLayout(path = '/tenant'): ReturnType<typeof render> {
 beforeEach(() => {
   harness.role = 'TENANT_ADMIN';
   harness.permissions = [];
+  preloadRoute.mockClear();
 });
 afterEach(cleanup);
 
@@ -102,5 +107,55 @@ describe('MainLayout navigation per role', () => {
     ).toBe(false);
     expect(screen.queryByRole('group', { name: 'Account' })).toBeNull();
     expect(container.querySelector('.sd-content')).toBeNull();
+  });
+});
+
+describe('MODULE_NAV_CONFIG sidebar targets are redirect-free (E2E-FLAKE)', () => {
+  // Route SOURCES farm-module's Module.tsx answers with a <Navigate> — kept
+  // there for URL/bookmark compatibility, but a sidebar entry pointing at one
+  // pays an extra render + remount before the real page mounts, which is the
+  // window Playwright clicks time out in. If a child regresses onto one of
+  // these, point it at the Navigate TARGET instead (and keep this list in
+  // sync with Module.tsx's redirect routes).
+  const REDIRECT_SOURCES = [
+    '/sites/map',
+    '/sites/new',
+    '/sites/sensors',
+    '/sites/cleaner-fish',
+    '/sites/feeding/records',
+    '/sites/feeding/protocols/new',
+    '/sites/production',
+  ];
+
+  it('points every farm child straight at its final destination', () => {
+    const farmChildren = MODULE_NAV_CONFIG.farm.children ?? [];
+    expect(farmChildren.length).toBeGreaterThan(0);
+    for (const child of farmChildren) {
+      expect(child.path, `${child.id} must declare a path`).toBeDefined();
+      for (const source of REDIRECT_SOURCES) {
+        expect(
+          child.path === source || child.path?.startsWith(`${source}/`),
+          `${child.id} -> ${child.path} passes through the ${source} redirect`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('targets the feeding records tab URL directly, not the redirect route', () => {
+    const records = MODULE_NAV_CONFIG.farm.children?.find(
+      (child) => child.id === 'sites-feeding-records',
+    );
+    expect(records?.path).toBe('/sites/feeding?tab=records');
+  });
+});
+
+describe('MainLayout hover route preload (E2E-FLAKE)', () => {
+  it('preloads the hovered module child destination chunk', () => {
+    renderLayout('/sites/tanks');
+    // Open the rail so the Farm group's children render, then hover the
+    // records entry: hover is the intent signal that warms the lazy chunk.
+    fireEvent.mouseEnter(screen.getByRole('complementary', { name: 'Main navigation' }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Feed Records & Inventory' }));
+    expect(preloadRoute).toHaveBeenCalledWith('/sites/feeding?tab=records');
   });
 });

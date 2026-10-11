@@ -250,14 +250,6 @@ Allowed truth buckets:
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 <<<<<<< HEAD
 =======
-| `FARM-CRITICAL-425`   | IN-PROGRESS    | 2026-10-11   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-405`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-406`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-407`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-408`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-409`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-410`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-411`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
 >>>>>>> 291d2adb8 (fix(farm): specialist pass — gateway assertion closure, batch/SQL/date integrity, WQ idempotency, API contracts, SPA preload)
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
@@ -1021,3 +1013,27 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `PLAT-CRITICAL-923`: registry state is `RESOLVED` with closing commit
   `c2f09cea3`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.
+- `FARM-CRITICAL-425`: registry state is `RESOLVED` with closing commit
+  `453d442da`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-405`: registry state is `RESOLVED` with closing commit
+  `b78dfe891`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-406`: registry state is `RESOLVED` with closing commit
+  `b78dfe891`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-407`: registry state is `RESOLVED` with closing commit
+  `030343a98`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-408`: registry state is `RESOLVED` with closing commit
+  `e4501f650`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-409`: registry state is `RESOLVED` with closing commit
+  `e4501f650`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-410`: registry state is `RESOLVED` with closing commit
+  `b78dfe891`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-411`: registry state is `RESOLVED` with closing commit
+  `b78dfe891`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.

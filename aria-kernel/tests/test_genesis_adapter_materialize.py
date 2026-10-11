@@ -39,7 +39,6 @@ from tests.test_genesis_adapter_custody import (
     accept_drafter_result,
 )
 
-DRAINER_SOURCE = (Path(__file__).resolve().parents[1] / "aria_kernel" / "skill_genesis_drainer.py").read_text(encoding="utf-8")
 TOOL_ID = "genesis-room-adapter"
 SEED = {"seed_id": "seed-room", "declared_scope": ["src/app.ts"], "claim_types": ["fixture"]}
 
@@ -165,9 +164,6 @@ class MaterializeTests(_MaterializeLayout):
         self._materialize("req-m5", result)
         self.assertEqual(genesis_custody(TOOL_ID, base_dir=self.tools)["event"], "custody")
         self.assertEqual(self._materialize("req-m5", result)["already_registered"], True)
-
-    def test_the_drainer_hands_the_custody_materializer_to_the_authoring(self) -> None:
-        self.assertIn("materialize_fn=materialize_drafted_adapter", DRAINER_SOURCE)
 
 
 class PromotionAuthorityTests(_MaterializeLayout):

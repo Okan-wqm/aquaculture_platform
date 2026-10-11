@@ -58,6 +58,8 @@ __all__ = [
     "DEFAULT_MAX_RETRIES",
     "STATUSES",
     "dispatch_one_pending_worker_assignment",
+    "worker_ladder_for_target",
+    "worker_target_profile",
 ]
 
 
@@ -91,6 +93,32 @@ def _default_worker_executor_path(base_dir: Path) -> Path:
     if from_code_tree.is_file():
         return from_code_tree
     return base_dir.parent / "tools" / "aria-poc" / "worker_executor.py"
+
+
+def worker_target_profile(target_agent: str, *, base_dir: str | Path,
+                          worker_executor_path: Path | None = None) -> Any:
+    """The runtime profile a worker assignment's target runs under (ARIA-HIGH-434).
+
+    The ONE resolution of the target's agent file: from the CODE tree that
+    holds the executor the hook spawns (`_default_worker_executor_path`),
+    never from the store — the hook routes on it and the lease reaper
+    reads the same ladder, so the two cannot read two different files.
+    """
+    from .agent_runtime_profile import read_agent_runtime_profile
+    from .tool_registry import ensure_tools_dir
+
+    path = worker_executor_path or _default_worker_executor_path(ensure_tools_dir(base_dir))
+    return read_agent_runtime_profile(target_agent, repo_root=path.resolve().parents[2])
+
+
+def worker_ladder_for_target(target_agent: str, *, base_dir: str | Path,
+                             worker_executor_path: Path | None = None) -> tuple[str, ...]:
+    """`runtime_profiles.worker_ladder` for an assignment's target: the
+    providers it runs on, in order."""
+    from .runtime_profiles import worker_ladder
+
+    return worker_ladder(worker_target_profile(target_agent, base_dir=base_dir,
+                                               worker_executor_path=worker_executor_path))
 
 
 def _cooldown_summary(cooldown: dict[str, Any]) -> dict[str, Any]:
@@ -145,9 +173,8 @@ def dispatch_one_pending_worker_assignment(
     triage tiers OR when ``pr_for_assignment`` returns None — that
     branch is governance discipline, not adapter absence.
     """
-    from .agent_runtime_profile import read_agent_runtime_profile
-    from .model_fleet import dispatching_provider_for_model
     from .provider_cooldown import active_provider_cooldowns, provider_cooldown_for_claim
+    from .runtime_profiles import worker_ladder, worker_route
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -220,24 +247,37 @@ def dispatch_one_pending_worker_assignment(
             "merge_result": None,
         }
 
-    # Step 2b — pre-claim provider cooldown gate (operator decision
-    # 2026-09-12). The worker is a write-scope profile: only the managed
-    # Claude route can run it, so while its provider is under an active
-    # quota cooldown there is nothing to claim FOR — a claim would spawn
-    # the same exhausted provider again and hand the assignment back a
-    # lease later. Skip by name, no claim, no lease; the daemon backs off
-    # on this status. The provider is the one the assignment's target
-    # agent dispatches through (frontmatter model → fleet row), read from
-    # the same SSoTs the child will resolve. A malformed cooldown row is a
-    # ledger-integrity refusal from `active_provider_cooldowns` and
-    # propagates by name: an unreadable cooldown must stop the daemon, not
-    # re-admit an exhausted provider or spin on the same row.
+    # Step 2b — pre-claim provider route (operator decisions 2026-09-12 and
+    # 2026-10-10). The assignment runs on the first rung of its target's
+    # worker ladder (`runtime_profiles.worker_ladder`: a write-capable
+    # target rides the writer ladder, anthropic then zai — ARIA-HIGH-434,
+    # the Z.ai tool loop) that is neither under an active cooldown nor
+    # absent on this host. While EVERY rung is out there is nothing to claim
+    # FOR — a claim would spawn an exhausted provider again and hand the
+    # assignment back a lease later — so it is skipped by name, no claim, no
+    # lease, under the ladder head's cooldown; the daemon backs off on this
+    # status. A malformed cooldown row is a ledger-integrity refusal from
+    # `active_provider_cooldowns` and propagates by name: an unreadable
+    # cooldown must stop the daemon, not re-admit an exhausted provider or
+    # spin on the same row.
     if worker_executor_path is None:
         worker_executor_path = _default_worker_executor_path(root)
     repo_root = worker_executor_path.resolve().parents[2]
-    profile = read_agent_runtime_profile(assignment_target, repo_root=repo_root)
-    provider = dispatching_provider_for_model(profile.model)
-    cooldown = active_provider_cooldowns(root).get(provider)
+    profile = worker_target_profile(assignment_target, base_dir=root, worker_executor_path=worker_executor_path)
+    if not worker_ladder(profile):
+        # The operator suspended every writer (`suspended_providers`): no
+        # rung exists to wait for, so the daemon stops by name before any
+        # claim, like an unreadable cooldown — never a silent spin.
+        raise GovernanceError(f"worker_route_unavailable:{assignment_target}:every_writer_suspended")
+    cooldowns = active_provider_cooldowns(root)
+    route = worker_route(profile, environ=os.environ, cooled=cooldowns)
+    if route is None:
+        # None means the head is cooled (`worker_route`): its row names why.
+        provider = worker_ladder(profile)[0]
+        cooldown = cooldowns[provider]
+    else:
+        provider, routed_model = route
+        cooldown = None
     if cooldown is not None:
         cooldown_summary = _cooldown_summary(cooldown)
         append_tools_governance(
@@ -293,6 +333,9 @@ def dispatch_one_pending_worker_assignment(
     argv: list[str] = [
         "python3", str(worker_executor_path),
         assignment_id, assignment_target, "--claim-id", claim_id,
+        # ARIA-HIGH-434 — the model the route above chose (a public tier
+        # name); the child re-checks it against the same ladder.
+        "--model", routed_model,
     ]
     env: dict[str, str] = {
         **os.environ,
@@ -374,7 +417,7 @@ def dispatch_one_pending_worker_assignment(
                 root, "worker_dispatch_provider_cooldown",
                 {
                     "assignment_id": assignment_id, "claim_id": claim_id,
-                    "target_agent": assignment_target, "model": profile.model,
+                    "target_agent": assignment_target, "model": routed_model,
                     "stage": "executor", "exit_code": exit_code,
                     **cooldown_summary,
                 },

@@ -22,8 +22,9 @@ re-exhausted on every drain tick (`claude auth status` reports quota as
   `until` on the row) and still admits the next vendor for a read-only role.
 * A write-capable profile is refused on every read-only runtime by name
   (`provider_readonly_runtime`, from `Provider.admits_writes`), also without
-  a probe, so a cooled anthropic leaves a writer with NO route — it waits,
-  it is never handed to a runtime that cannot write.
+  a probe. ARIA-HIGH-434: Z.ai's kernel-owned tool loop writes, so a cooled
+  anthropic moves a writer to zai; with both writers cooled it has NO route
+  — it waits, it is never handed to a runtime that cannot write.
 """
 from __future__ import annotations
 
@@ -306,30 +307,38 @@ class TheFleetObeysTheCooldown(_AdmissionFixture):
 class TheFleetKnowsWhoCanWrite(_AdmissionFixture):
     def test_the_rows_state_write_admission_as_data(self) -> None:
         self.assertEqual({provider.key: provider.admits_writes for provider in _FLEET},
-                         {"anthropic": True, "zai": False, "openai": False})
+                         {"anthropic": True, "zai": True, "openai": False})
         self.assertTrue(provider_admits_writes("anthropic"))
-        self.assertFalse(provider_admits_writes("zai"))
+        self.assertTrue(provider_admits_writes("zai"))
+        self.assertFalse(provider_admits_writes("openai"))
         self.assertFalse(provider_admits_writes("nobody"))
 
     def test_a_writer_is_refused_on_read_only_runtimes_without_a_probe(self) -> None:
         admission = self._admit(_WRITER, {})
-        self.assertEqual(self.probed, ["anthropic"])
+        self.assertEqual(self.probed, ["anthropic", "zai"])
         rows = {row["provider"]: row for row in admission.candidate_observations}
-        for provider in ("zai", "openai"):
+        for provider in ("openai",):
             with self.subTest(provider=provider):
                 self.assertEqual(rows[provider]["status_reason"], READONLY_RUNTIME_STATUS_REASON)
                 self.assertEqual(rows[provider]["controls"],
                                  {"status": "unavailable", "reason": READONLY_RUNTIME_STATUS_REASON})
-        self.assertEqual([route["provider"] for route in admission.eligible_routes], ["anthropic"])
+        self.assertEqual([route["provider"] for route in admission.eligible_routes], ["anthropic", "zai"])
 
-    def test_a_writer_whose_provider_is_cooled_has_no_route_and_waits(self) -> None:
+    def test_a_writer_whose_provider_is_cooled_moves_to_zai_and_waits_only_with_both_cooled(self) -> None:
         cooldown = record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
                                             request_id="AIR-1", claim_id="CL-1", detection=_CLAUDE_CREDIT, now=_T0)["details"]
         admission = self._admit(_WRITER, {"anthropic": cooldown})
-        self.assertEqual(self.probed, [], "nothing to ask: one provider is cooled, the others cannot write")
+        self.assertEqual(self.probed, ["zai"], "the cooled provider is never asked; codex cannot write")
+        self.assertEqual([route["provider"] for route in admission.eligible_routes], ["zai"])
+        self.probed.clear()
+        zai = record_provider_cooldown(self.tools, provider="zai", model="glm-5.3", cooldown_seconds=900,
+                                       request_id="AIR-2", claim_id="CL-2",
+                                       detection={"signature": "zai_quota_refusal"}, now=_T0)["details"]
+        admission = self._admit(_WRITER, {"anthropic": cooldown, "zai": zai})
+        self.assertEqual(self.probed, [], "nothing to ask: both writers are cooled, codex cannot write")
         self.assertEqual(admission.eligible_routes, ())
         reasons = {row["provider"]: row["status_reason"] for row in admission.candidate_observations}
-        self.assertEqual(reasons, {"anthropic": COOLDOWN_STATUS_REASON, "zai": READONLY_RUNTIME_STATUS_REASON,
+        self.assertEqual(reasons, {"anthropic": COOLDOWN_STATUS_REASON, "zai": COOLDOWN_STATUS_REASON,
                                    "openai": READONLY_RUNTIME_STATUS_REASON})
 
 

@@ -633,3 +633,215 @@ scan. The step comes before the lease gate, so the abort-gate contract is untouc
 - **Wording, fixed in the next commit.** The refusal said that the runner's workspace reset fails
   on such files, whatever the tree. It now says that the owner's processes could not remove or
   reopen them, and gives the runner's reset as the case that happened.
+
+## ARIA-HIGH-434 — fix (wave 3): the write seats move to Z.ai through a kernel-owned tool loop (2026-10-11)
+
+### Decision
+
+Operator decision 2026-10-10/11: "if the Claude quota runs out, switch to Z.ai in every area".
+For the write seats this overrides ARIA-HIGH-290's "wait by name" decision of 2026-10-02. The
+2026-09-11 policy stays: the Z.ai key never reaches the `claude` CLI. The write runtime is
+therefore the kernel's own. Claude first stays the default.
+
+### Symptom
+
+While Anthropic was cooled, the implementer was `no_eligible_provider` and the worker lane
+skipped every assignment (`provider_cooldown`). Nothing could write until the window reset, which
+is up to 7 days for the seven-day window. The causes:
+
+- `model_fleet.py:108-116`: the zai row had `admits_writes=False`.
+- `zai_runtime.run_zai_chat` (`zai_runtime.py:454-468`) is one completion with no tool loop.
+- The routing table's `claude_writer` ladder was `["anthropic"]`, and the loader refuses a
+  write-scope ladder that names a provider which cannot write (`runtime_profiles.py:302-303`).
+
+### What the Claude writer runs under (mapped before any edit)
+
+- **Policy.** The per-spawn settings document (`claude_settings.build_settings`) carries:
+  - `permissions.deny`: the command policy's Bash projections, `Read(./.env)` and its siblings,
+    and the denied tools;
+  - `_aria.turn_budget`;
+  - the hook matchers.
+- **Gate.** The hook broker (`hook_broker._Handler`) calls `hooks.run_hook`. That runs
+  `decide_pre_tool`, then `admit_budgeted_turn` (the turn counted in the decision ledger's own
+  transaction), then the pre-write checkpoint, the work journal and the session snapshots.
+- **Room.** `claude_runtime._apply_write_containment` calls
+  `implementation_safety.wrap_managed_claude_in_sandbox`, which calls `wrap_bash_in_sandbox`. The
+  room uses:
+  - the profile's write scope;
+  - READONLY_PATHS read-only;
+  - the executor-held commit-capable git containment;
+  - `MANAGED_SPAWN_ISOLATION_FLAGS`;
+  - `apply_resource_limits` outside it.
+- **Kernel MCP view.** The implementer contract's first step is `mcp__aria__plan_verify`
+  (`.claude/agents/aria-implementer.md:77`), served by `AriaMcpServer(allow_writes=False)`
+  outside the sandbox.
+- **After the spawn**, nothing depends on the runtime (`ci_executor._main`): the quarantine
+  publication, the identity retirement, the apply gate, the push and the PR.
+
+### Fix
+
+1. **`zai_runtime.run_zai_turn`.** This is the documented OpenAI-compatible function-calling
+   form of the same call. The endpoint, the Authorization header built from the held
+   credential, and `_classify` are all unchanged. The key handling is untouched and never leaves
+   the module.
+2. **`tools/aria-poc/zai_tool_loop.py` (new): the loop outside every sandbox.** It adds no
+   policy of its own.
+   - **Policy.** It reads `build_settings` over `claude_runtime._hook_context`: the document
+     the Claude spawn would carry. `_envelope_from_profile` gives the envelope. A rule shape the
+     gate cannot apply is refused by name (`zai_room_permission_rule_unsupported`), never skipped.
+   - **Tools.** The loop offers the profile's grant ∩ {Read, Grep, Glob, Edit, Write, Bash},
+     using Claude Code's input shapes. On top of that it offers the profile's kernel-served MCP
+     read tools (`mcp__aria__*`), served in-process by the same `AriaMcpServer(allow_writes=False)`.
+     A non-kernel MCP server is refused (`zai_room_mcp_server_unsupported`).
+   - **Gate, in the CLI's order.** An unoffered tool is refused. Then, when the PreToolUse
+     matcher covers the tool, `hooks.run_hook("pre-tool")` decides it, with the CLI's payload
+     shape and the document's turn budget. Then the document's deny rules apply: Bash rules
+     through `command_policy.claude_rule_matches`, and the Read rules on every path a read tool
+     names. PostToolUse and the session events also go through `run_hook`. The model reads a
+     refusal as the hook's own reason.
+   - **Room.** It is `wrap_bash_in_sandbox`, built with:
+     - the profile's write scope;
+     - the SAME git containment (the commit-capable one the executor holds for the implementer;
+       otherwise derived read-only, as `_apply_write_containment` derives it);
+     - `MANAGED_SPAWN_ISOLATION_FLAGS`;
+     - `apply_resource_limits`.
+
+     Bash runs as `bash -c <line>`. The file tools run in `tools/aria-poc/zai_room_child.py`
+     (stdlib only, `python -I`, bound read-only alone).
+
+   - **Budgets.**
+     - The wall clock is the spawn's `timeout_seconds`, clamped to the job deadline.
+     - The turn budget is the hook's.
+     - A completion cap of 2 × the turn budget applies, because an HTTP conversation has no CLI
+       to end it.
+     - Bash timeouts are 120 s by default and 600 s at most. Outputs follow Claude's caps.
+   - **Transcript.** It has Claude stream-json shape. `parse_claude_jsonl`,
+     `extract_final_message`, `extract_usage`, the progress writer and the envelope builder read
+     it unchanged.
+   - **Usage.** Usage is the sum over turns. It is `None` if any turn reported none, and is
+     never priced as zero.
+
+3. **`ci_executor`.**
+   - **Native lane (production).** `_invoke_native_zai` runs the loop for a write-capable
+     profile with the held `git_containment` (`_invoke_native` dispatch table). The reservation,
+     transcript, envelope, cost row and `runtime_attempt_finished` all read the same as before.
+     `provider_session_ids` lists every turn. A room refusal is released as the Claude writer's
+     is (`ClaudePolicyViolation` becomes `ClaudeCliUnavailable`).
+   - **Spawn lane.** The zai rung of a write-capable profile is the loop
+     (`zai_tool_loop.run_zai_writer`). The mapping to the Claude run result is shared
+     (`claude_run_result`), so the read rung is unchanged.
+4. **Worker lane.**
+   - `runtime_profiles.worker_ladder(profile)` is the one answer to "which providers does a
+     worker assignment run on". A write-capable target rides the writer ladder (the
+     `implementation` seat). Dispatch-request rows carry no role, and the worker profile is the
+     implementer's envelope.
+   - `worker_route` takes the head unless it is cooled. Past a cooled head, it takes the first
+     later rung that is neither cooled nor absent on the host (no Z.ai key means no claim).
+   - The hook passes `--model`. The child re-checks the model against the same ladder and runs
+     the loop for a zai model.
+   - `worker_dispatch_hook.worker_target_profile` / `worker_ladder_for_target` resolve a target's
+     agent file from the code tree. They are the one resolver, for the hook and for the
+     continuity lease reaper.
+   - With every writer suspended, the hook stops by name before any claim
+     (`worker_route_unavailable:<target>:every_writer_suspended`).
+5. **Admission.**
+   - The zai row has `admits_writes=True`.
+   - `claude_writer` is `["anthropic", "zai"]`.
+   - The loader still refuses a writer ladder that names Codex (new test case `writer_on_codex`).
+
+### Deviations (agreed with main before the edits)
+
+- **No network in the room** (`ROOM_ALLOW_NETWORK = False`). The Claude room shares the host's
+  network only because the CLI inside it calls its provider (`MANAGED_SPAWN_ALLOW_NETWORK`).
+  Here that call is the loop's, outside the room. The room has the validation sandbox's network
+  shape. Measured: the vendor on loopback is unreachable from inside.
+- **One room per call.** The workspace persists between calls. `/tmp` and background processes
+  do not; the Claude room's live as long as the CLI.
+- **The kernel MCP view is offered** next to Read..Bash, because the implementer contract cannot
+  start without `plan_verify`.
+- **No Claude credential in the room.** The CLI's auth names are removed from the built
+  environment. The room refuses to stand if any secret-shaped name remains
+  (`zai_room_env_carries_credential_names`), or if the Z.ai key file lies under any path it
+  binds (`zai_room_binds_the_credential`).
+
+### Evidence
+
+- **Per-call room overhead.** The median is 58 ms over 5 runs on this host (bwrap, the
+  `timeout` limiter as root, `/bin/true`).
+- **Production implementer sessions** (aria/state, `tools/agent-invocations/work-journal.jsonl`
+  and `tools/hooks/decisions.jsonl`, 5 sessions):
+  - 23 to 53 journaled tool calls, median 28;
+  - 22 to 36 PreToolUse verdicts, with 5 to 13 of them denies.
+
+  A typical session therefore spends about 2 to 4 s on rooms, against a 30-minute budget.
+
+### Tests (red on 5c1f18262, green with the fix)
+
+- **`aria-kernel/tests/test_zai_tool_loop.py`.** Real bwrap, real hooks and ledgers, a real
+  checkout. The vendor is a local HTTP server reached through `zai_runtime`'s urllib.
+  - An admitted Edit lands from inside the room, and is journaled and counted.
+  - **Golden parity.** The test drives an allowed Edit, a `curl`, a Write under `.github/`, a
+    Write outside the workspace, an allowed Bash and the call past a cap of 2. The loop's
+    decision ROW equals, field for field (clock, session and chain hash aside), the row
+    `hooks.run_hook` writes for the Claude CLI's payload on a twin store. The `.env` Read is
+    refused by the document's `Read(./.env)` rule; the CLI's PreToolUse matcher never sends a
+    Read to the hook.
+  - EROFS on a READONLY path when the room is asked directly, without the gate.
+  - **Key absence.**
+    - The key is in no room environment value or name, and not in the room's argv.
+    - The key file is unreadable inside.
+    - A room that would bind it refuses to stand.
+    - The key is not in the transcript or in any store file; it was sent only as the vendor's
+      Authorization header.
+    - The room has no network.
+  - The transcript reads as Claude stream-json, usage is summed, and an unknown turn usage
+    makes the whole usage `None`.
+  - The progress observer sees every event.
+  - `plan_verify` is served and recorded; a write tool is not offered; a stdio MCP server is
+    refused.
+  - The spawn lane's zai rung of a write profile is the loop. Its stdout is the stream, the
+    envelope builder reads the answer from it, the rendered request is the user turn byte for
+    byte, and the context-usage row is recorded.
+  - A quota 429 mid-loop ends it as `zai_quota_refusal`.
+  - The completion cap ends a loop that never answers.
+  - A cancel stops at the next boundary.
+- **`aria-kernel/tests/test_executor_zai_implementation.py`.** This is the real executor child
+  on the native managed-subscription lane, on `test_executor_implementation_identity`'s fixture,
+  with Anthropic cooled by a `rejected` reading.
+  - The implementer is admitted on zai/glm-5.3, and Anthropic is refused by its cooldown with
+    0 probes.
+  - The vendor's tool calls stand on the kernel-made branch, write the plan's file and commit.
+  - The commit verifies against the minted key.
+  - The apply gate records the canonical suite at the tip.
+  - The branch is pushed and the PR opened.
+  - The request is ACCEPTED and the plan is IMPLEMENTATION_RECORDED.
+  - The finished row lists every turn's response id.
+  - `claude` never ran a model.
+  - The key is in no file the kernel wrote and in no output.
+  - A `git push` inside the run is refused by the hook's own verdict, and the run still
+    delivers.
+- **Pins updated to the decision:**
+  - `test_claude_quota_window_failover`: every seat, the writer included, runs on zai while
+    cooled and on its own head after the reset. The worker is routed to zai while cooled with
+    the key on the host, stays on Claude otherwise, and is held by name with no key. The child
+    runs the loop in its worktree and refuses a model off its ladder.
+  - `test_provider_routing`, `test_provider_quota_cooldown`, `test_credit_fallback` and
+    `test_claude_auth_failure_classification` (comment only).
+  - `test_worker_lane_provider_cooldown`: its host is pinned key-less.
+  - `test_provider_routing` (new class): `worker_ladder` and `worker_route` honour suspension;
+    a read-only target never writes on zai.
+
+### Not done here
+
+- **Context compaction.** The Claude CLI compacts a long session; the loop does not. A vendor
+  refusal of an over-long conversation ends the attempt by name (`vendor_refused`), and the
+  request is released harness-class like any non-zero exit.
+- **A transport failure in the middle of a loop** raises `ClaudeProviderUnreachable`, as a
+  single completion does. That attempt's transcript is not written.
+- **The worker room's git stays read-only,** as the Claude worker's is today. No commit
+  containment is held for the worker lane.
+- **The pre-claim gate still requires a logged-in `claude` CLI**
+  (`ci_executor._pre_claim_environment_gate` calls `preflight_claude_auth`). A spent quota
+  passes it. A host whose Claude login is gone holds every request PENDING, even one the
+  admission would route to Z.ai. Reported to main for continuity (total outage); not changed
+  here.

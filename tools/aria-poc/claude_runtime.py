@@ -115,9 +115,10 @@ def _provider_admits_writes(provider: str) -> bool:
     """Whether a provider's runtime can host a write-scope spawn (fleet fact).
 
     Read from the fleet row rather than restated here: the managed Claude CLI
-    runs under the write-containment sandbox, while the Codex read-only
-    sandbox and the Z.ai HTTP transport cannot edit a workspace at all. An
-    unlisted provider admits nothing — the fail-closed direction.
+    runs under the write-containment sandbox and the Z.ai runtime under the
+    same gate and room through the kernel's tool loop (ARIA-HIGH-434), while
+    the Codex read-only sandbox cannot edit a workspace at all. An unlisted
+    provider admits nothing — the fail-closed direction.
     """
     from aria_kernel.model_fleet import provider_admits_writes
 
@@ -1948,10 +1949,9 @@ def run_with_model_fallback(
     * ARIA-HIGH-023 — an AUTH failure retries once on ``failover``, the
       caller's next rung of the role's routing ladder (ARIA-HIGH-290), at
       the original effort: a dead credential is a vendor-level fact, and the
-      other vendor's credential is genuinely different. ``None`` (a
-      write-scope profile, whose other vendors' runtimes are read-only, or
-      the native lane, whose admission owns failover) makes the auth failure
-      terminal at once. A ``failover`` on the same vendor, or a read-only
+      other vendor's credential is genuinely different. ``None`` (the worker
+      lane, whose dispatch hook routes, or the native lane, whose admission
+      owns failover) makes the auth failure terminal at once. A ``failover`` on the same vendor, or a read-only
       one for a write-scope profile, is refused before any attempt. Both vendors failing auth raises
       :class:`ClaudeAuthFailure`; no mock verdict is ever produced here. The
       failover attempt's own credit exhaustion is the same terminal raise,
@@ -1993,8 +1993,8 @@ def run_with_model_fallback(
             return _stamp_model(_raise_if_unserved(retried, model=cross, on_credit=on_credit), cross)
         raise ClaudeAuthFailure(
             f"claude_auth_failure: {completed.auth_failure.get('marker')} on {model!r}"
-            + (" — a write-scope profile has no cross-vendor rung (the other "
-               "runtimes are read-only)" if write_capable else " — no cross-vendor rung")
+            + (" — this write-scope dispatch has no cross-vendor rung here (its lane "
+               "routes before the claim)" if write_capable else " — no cross-vendor rung")
             + f"; {completed.auth_failure.get('remedy')}",
             provider=_model_provider(model), model=model, detail=dict(completed.auth_failure),
         )

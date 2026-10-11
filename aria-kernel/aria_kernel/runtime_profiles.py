@@ -351,6 +351,64 @@ def routed_models(
     return tuple(route_model(rows[key], profile_model, environ) for key in rungs)
 
 
+# ARIA-HIGH-434 — the worker lane's seat on the routing table. The routing
+# table routes the dispatchable roles, and a worker assignment carries no
+# role (`worker_dispatch.create_dispatch_request`); a write-capable worker
+# target holds the implementer's envelope (`runtime_profiles.json`, profile
+# `worker`: "same envelope as the implementer"), so it rides the write
+# seat's ladder: an operator who moves the writer ladder moves both write
+# lanes at once, which is what the 2026-10-10 decision ("switch every area
+# to Z.ai while the Claude quota is spent") asks of them.
+WORKER_ROUTE_SEAT: tuple[str, str] = ("implementation", "aria-implementer")
+# What `worker_executor` can run: the managed Claude CLI and the kernel's
+# Z.ai tool loop (`zai_tool_loop`).
+WORKER_LANE_RUNTIMES: tuple[str, ...] = ("claude", "zai")
+
+
+def worker_ladder(profile: Any) -> tuple[str, ...]:
+    """The providers a worker assignment's target runs on, in order.
+
+    The ONE answer the worker lane reads (the dispatch hook routes over it;
+    an outage reader asks which providers an assignment waits on). A
+    write-capable target rides the writer ladder, its rungs the worker
+    lane's runtimes can host for a write profile; a read-only target keeps
+    the provider its own model dispatches through, as before ARIA-HIGH-434.
+    The routing table's `suspended_providers` applies, as it does to every
+    ladder: suspending every writer leaves a write-capable target none.
+    """
+    from .model_fleet import _FLEET, dispatching_provider_for_model
+
+    if not getattr(profile, "write_capable", False):
+        return (dispatching_provider_for_model(str(profile.model)),)
+    rows = {provider.key: provider for provider in _FLEET}
+    return tuple(key for key in load_provider_routing().ladder_for(*WORKER_ROUTE_SEAT)
+                 if rows[key].runtime_hint in WORKER_LANE_RUNTIMES and rows[key].admits_writes)
+
+
+def worker_route(
+    profile: Any, *, environ: Mapping[str, str], cooled: Collection[str],
+) -> tuple[str, str] | None:
+    """(provider, model) for a worker assignment now, or None.
+
+    The ladder head unless it is cooled (`provider_cooldown.
+    active_provider_cooldowns`) — exactly the pre-ARIA-HIGH-434 lane; past a
+    cooled head, the first later rung that is neither cooled nor absent on
+    this host (`model_fleet.available_providers`: the Z.ai credential
+    boundary named), so a host without the Z.ai key never claims a worker
+    it cannot run while Claude is out. None only when the head is cooled
+    and no later rung can serve: the hook holds the assignment by name,
+    under the head's cooldown, with no claim.
+    """
+    from .model_fleet import _FLEET, available_providers, route_model
+
+    rows = {provider.key: provider for provider in _FLEET}
+    present = {provider.key for provider in available_providers(dict(environ))}
+    for index, key in enumerate(worker_ladder(profile)):
+        if key not in cooled and (index == 0 or key in present):
+            return key, route_model(rows[key], str(profile.model), environ)
+    return None
+
+
 def disallowed_tools_for(profile: RuntimeProfile) -> tuple[str, ...]:
     """The ``--disallowedTools`` list a spawn under ``profile`` carries.
 
@@ -433,10 +491,14 @@ __all__ = [
     "RUNTIME_PROFILES_SCHEMA",
     "RUNTIME_PROFILE_FRONTMATTER_KEY",
     "RuntimeProfile",
+    "WORKER_LANE_RUNTIMES",
+    "WORKER_ROUTE_SEAT",
     "WRITE_TOOLS",
     "disallowed_tools_for",
     "load_runtime_profiles",
     "profile_by_id",
     "profiles_path",
     "verify_agent_mirrors",
+    "worker_ladder",
+    "worker_route",
 ]

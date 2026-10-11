@@ -20,10 +20,11 @@ status probes are fakes):
   back-off — and the request is requeued uncharged until the reset;
 * a run the vendor SERVED at the threshold keeps its answer, and the next
   request's admission refuses Anthropic by name;
-* every seat of the routing table: read-only seats run on Z.ai while the
-  cooldown stands and on their own ladder head after the reset; the write
-  seats (the implementer, the worker lane) wait by name, uncharged — Z.ai's
-  transport is one chat completion with no tool loop (`Provider.admits_writes`);
+* every seat of the routing table runs on Z.ai while the cooldown stands and
+  on its own ladder head after the reset — the write seats too since
+  ARIA-HIGH-434 (the implementer through the writer ladder, the worker lane
+  through `runtime_profiles.worker_route`: Z.ai's kernel-owned tool loop);
+  a worker on a host with no Z.ai key still waits by name, unclaimed;
 * Z.ai out too: no seat is admitted on a cooled vendor (the existing outage
   behaviour), nothing is claimed;
 * the drain does not skip a seat the next vendor serves on the circuit of the
@@ -234,7 +235,7 @@ class EverySeatFollowsTheCooldown(_FleetFixture):
     def test_the_seats_cover_every_dispatchable_role(self) -> None:
         self.assertEqual({role for role, _target in _seats()}, set(DISPATCHABLE_ROLES))
 
-    def test_while_cooled_every_read_seat_runs_on_zai_and_every_writer_waits_by_name(self) -> None:
+    def test_while_cooled_every_seat_runs_on_zai_the_writers_too(self) -> None:
         self._cool_from_the_stream()
         cooled = active_provider_cooldowns(self.tools, now=_T0 + timedelta(hours=1))
         for role, target in _seats():
@@ -246,13 +247,9 @@ class EverySeatFollowsTheCooldown(_FleetFixture):
                 self.assertEqual((anthropic["status_reason"], anthropic["quota_cooldown"]["until"]),
                                  (COOLDOWN_STATUS_REASON, _SEPT_RESET))
                 self.assertNotIn("anthropic", self.probed, "a cooled provider is never probed")
-                if role in WRITE_SCOPE_ROLES:
-                    self.assertTrue(self.read_only.write_capable)
-                    self.assertIs(admission.outcome, AdmissionOutcome.NO_ELIGIBLE_PROVIDER)
-                else:
-                    self.assertFalse(self.read_only.write_capable)
-                    self.assertEqual((admission.eligible_routes[0]["provider"], admission.eligible_routes[0]["model"]),
-                                     ("zai", "glm-5.3"))
+                self.assertEqual(self.read_only.write_capable, role in WRITE_SCOPE_ROLES)
+                self.assertEqual((admission.eligible_routes[0]["provider"], admission.eligible_routes[0]["model"]),
+                                 ("zai", "glm-5.3"))
 
     def test_after_the_reset_every_seat_is_back_on_its_own_ladder_head(self) -> None:
         self._cool_from_the_stream()
@@ -280,14 +277,16 @@ class EverySeatFollowsTheCooldown(_FleetFixture):
 
 
 class TheSpawnLaneOrdersACooledVendorLast(unittest.TestCase):
-    def test_a_cooled_claude_puts_the_primary_planner_on_glm_first_and_the_writer_keeps_its_rung(self) -> None:
+    def test_a_cooled_claude_puts_the_primary_planner_and_the_writer_on_glm_first(self) -> None:
         spawn = {"environ": {"PATH": ""}, "runtimes": ("claude", "zai"), "profile_model": "opus"}
         self.assertEqual(routed_models("primary_plan", "aria-primary-planner", write_capable=False,
                                        cooled={"anthropic"}, **spawn), ("glm-5.3", "opus"))
         self.assertEqual(routed_models("challenger_plan", "aria-challenger-planner", write_capable=False,
                                        cooled={"anthropic"}, **spawn), ("glm-5.3", "opus"))
         self.assertEqual(routed_models("implementation", "aria-implementer", write_capable=True,
-                                       cooled={"anthropic"}, **spawn), ("opus",))
+                                       cooled={"anthropic"}, **spawn), ("glm-5.3", "opus"))
+        self.assertEqual(routed_models("implementation", "aria-implementer", write_capable=True, **spawn),
+                         ("opus", "glm-5.3"), "Claude first stays the default")
 
 
 class TheDrainFollowsTheCooldown(unittest.TestCase):
@@ -389,14 +388,18 @@ class TheWorkerLaneCoolsAndWaits(unittest.TestCase):
                          [("anthropic", "DC-7", "stated_reset")])
         self.assertEqual(rows[0]["until"], datetime.fromtimestamp(reset, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
 
-    def test_the_hook_holds_the_worker_by_name_without_a_claim(self) -> None:
+    def _hook(self, *, zai_key: bool, cooled: bool) -> tuple[dict, list[list[str]]]:
+        """One hook tick over one pending worker assignment; the child is
+        captured, not run. ``zai_key`` names (or removes) the Z.ai credential
+        boundary on this host; ``cooled`` writes Anthropic's spent window."""
         from aria_kernel.ledger import append_jsonl
         from aria_kernel.worker_dispatch_hook import dispatch_one_pending_worker_assignment
 
-        record_provider_cooldown(self.tools_root, provider="anthropic", model="opus", cooldown_seconds=900,
-                                 request_id="AIR-x", claim_id="CL-x",
-                                 detection=claude_runtime.extract_rate_limit_exhaustion(
-                                     (_rejected(int(time.time()) + 86400),)))
+        if cooled:
+            record_provider_cooldown(self.tools_root, provider="anthropic", model="opus", cooldown_seconds=900,
+                                     request_id="AIR-x", claim_id="CL-x",
+                                     detection=claude_runtime.extract_rate_limit_exhaustion(
+                                         (_rejected(int(time.time()) + 86400),)))
         path = self.tools_root / "dispatch" / "requests.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         append_jsonl(path, {
@@ -408,13 +411,101 @@ class TheWorkerLaneCoolsAndWaits(unittest.TestCase):
             "state": "pending", "created_at": "2026-05-10T00:00:00Z",
         }, test_fixture=True)
         spawned: list[list[str]] = []
-        with patch("aria_kernel.worker_dispatch_hook.subprocess.run",
-                   lambda argv, *a, **k: spawned.append(list(argv))):
+        boundary = {"ARIA_ZAI_API_KEY_FILE": str(self.tmp / "zai.key")} if zai_key else {}
+        with patch.dict(os.environ, boundary), \
+                patch("aria_kernel.worker_dispatch_hook.subprocess.run",
+                      lambda argv, *a, **k: spawned.append(list(argv)) or subprocess.CompletedProcess(argv, 1, "", "")):
+            if not zai_key:
+                os.environ.pop("ARIA_ZAI_API_KEY_FILE", None)
+                os.environ.pop("ARIA_ZAI_API_KEY", None)
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root, agent_id="daemon:test:1", github_adapter=MagicMock())
+        return result, spawned
+
+    def test_the_hook_holds_the_worker_by_name_without_a_claim_on_a_host_with_no_zai_key(self) -> None:
+        result, spawned = self._hook(zai_key=False, cooled=True)
         self.assertEqual((result["status"], result["claim_id"]), ("provider_cooldown", None))
         self.assertEqual(result["provider_cooldown"]["provider"], "anthropic")
         self.assertEqual(spawned, [], "the worker waits for the reset; no claim, no spawn, no retry spent")
+
+    def test_while_claude_is_cooled_the_hook_routes_the_worker_to_zai(self) -> None:
+        """ARIA-HIGH-434 — the worker rides the writer ladder."""
+        result, spawned = self._hook(zai_key=True, cooled=True)
+        self.assertIsNotNone(result["claim_id"])
+        self.assertEqual(len(spawned), 1)
+        self.assertEqual(spawned[0][spawned[0].index("--model") + 1], "glm-5.3")
+
+    def test_with_every_writer_suspended_the_hook_stops_by_name_before_any_claim(self) -> None:
+        import copy
+
+        from aria_kernel import runtime_profiles
+        from aria_kernel.tool_registry import GovernanceError
+
+        document = json.loads(runtime_profiles.profiles_path().read_text(encoding="utf-8"))
+        document = copy.deepcopy(document)
+        document["provider_routing"]["suspended_providers"] = ["anthropic", "zai"]
+        table = self.tmp / "runtime_profiles.json"
+        table.write_text(json.dumps(document), encoding="utf-8")
+        with patch.object(runtime_profiles, "profiles_path", return_value=table):
+            with self.assertRaises(GovernanceError) as refused:
+                self._hook(zai_key=True, cooled=False)
+        self.assertIn("worker_route_unavailable:aria-worker:every_writer_suspended", str(refused.exception))
+
+    def test_one_resolver_names_the_targets_ladder_for_the_hook_and_any_reader(self) -> None:
+        from aria_kernel.worker_dispatch_hook import worker_ladder_for_target, worker_target_profile
+
+        self.assertEqual(worker_ladder_for_target("aria-worker", base_dir=self.tools_root), ("anthropic", "zai"))
+        self.assertEqual(worker_target_profile("aria-worker", base_dir=self.tools_root),
+                         read_agent_runtime_profile("aria-worker", repo_root=_REPO_ROOT),
+                         "resolved from the code tree, not from the store's directory")
+
+    def test_otherwise_the_worker_stays_on_claude(self) -> None:
+        result, spawned = self._hook(zai_key=True, cooled=False)
+        self.assertIsNotNone(result["claim_id"])
+        self.assertEqual(spawned[0][spawned[0].index("--model") + 1], "opus", "Claude first stays the default")
+
+    def _executor(self, model: str) -> tuple[int, list[dict], list[dict]]:
+        import worker_executor
+        import zai_tool_loop
+        from claude_runtime import ClaudeRunResult
+
+        worktree = self.tmp / "worktrees" / "A-W-1"
+        worktree.mkdir(parents=True, exist_ok=True)
+        assignment = {"assignment_id": "A-W-1", "target_agent": "aria-worker", "worktree_path": str(worktree),
+                      "required_tests": [], "expected_trailer": "Closes-Pressure: P-A-W-1", "timeout_seconds": 60}
+        loops: list[dict] = []
+        claude: list[dict] = []
+
+        def loop(**kwargs: Any) -> ClaudeRunResult:
+            loops.append(kwargs)
+            return ClaudeRunResult(returncode=0, stdout="", stderr="", final_message="done", usage={}, events=(),
+                                   model=kwargs["model"])
+
+        # The lane fixture's cwd is a bare tools root; the profile is the
+        # checkout's (the hook runs the child at the checkout's root).
+        worker = read_agent_runtime_profile("aria-worker", repo_root=_REPO_ROOT)
+        with patch.object(worker_executor, "_resolve_assignment", return_value=assignment), \
+                patch("aria_kernel.agent_runtime_profile.read_agent_runtime_profile", lambda *a, **k: worker), \
+                patch.object(zai_tool_loop, "run_zai_writer", loop), \
+                patch.object(worker_executor, "run_claude_exec", lambda **kwargs: claude.append(kwargs)), \
+                patch.object(worker_executor, "_submit_worker_result", return_value=0), \
+                patch.object(sys, "stderr", io.StringIO()) as stderr:
+            code = worker_executor.main(["A-W-1", "aria-worker", "--claim-id", "DC-9", "--model", model])
+        self.executor_stderr = stderr.getvalue()
+        return code, loops, claude
+
+    def test_the_executor_runs_a_zai_rung_through_the_tool_loop_in_the_worktree(self) -> None:
+        code, loops, claude = self._executor("glm-5.3")
+        self.assertEqual((code, claude), (0, []), self.executor_stderr)
+        self.assertEqual(len(loops), 1)
+        seat = loops[0]["seat"]
+        self.assertEqual((loops[0]["model"], seat.workspace_root, seat.request_id, seat.git_containment),
+                         ("glm-5.3", self.tmp / "worktrees" / "A-W-1", "A-W-1", None))
+        self.assertTrue(seat.agent_profile.write_capable)
+
+    def test_the_executor_refuses_a_model_no_rung_of_its_ladder_runs(self) -> None:
+        code, loops, claude = self._executor("gpt-6-astra")
+        self.assertEqual((code, loops, claude), (1, [], []))
 
 
 class TheNativeClaudeLaneReadsTheReading(unittest.TestCase):

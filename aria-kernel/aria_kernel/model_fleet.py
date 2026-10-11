@@ -61,14 +61,21 @@ class Provider:
     """Whether this provider's runtime can host a WRITE-SCOPE profile.
 
     The managed Claude CLI runs under the write-containment sandbox and can
-    edit a bound workspace; the Codex route runs `--sandbox read-only` and
-    the Z.ai transport is a single chat completion — neither can execute an
-    implementer or a worker. This row is the one place that fact lives: the
-    native admission refuses a read-only runtime for a write-capable profile
-    by name (`provider_readonly_runtime`), and the auth failover ladder in
-    claude_runtime skips such a rung for the same profile. Operator decision
-    2026-09-12: a write-scope request whose provider is exhausted waits for
-    that provider; it is never handed to a runtime that cannot write.
+    edit a bound workspace. ARIA-HIGH-434 (operator decision 2026-10-10/11:
+    when the Claude quota is spent, the write seats move to Z.ai too) —
+    the Z.ai runtime hosts one as well: the kernel's own tool loop
+    (tools/aria-poc/zai_tool_loop.py) runs every call the model makes
+    through the Claude writer's gate (`hooks.run_hook`, the settings
+    document's deny rules) inside the Claude writer's room
+    (`implementation_safety.wrap_bash_in_sandbox`, its write scope and git
+    containment). The Codex route runs `--sandbox read-only` and cannot.
+    This row is the one place that fact lives: the native admission refuses
+    a read-only runtime for a write-capable profile by name
+    (`provider_readonly_runtime`), the routing table refuses a write-scope
+    ladder that names one (`provider_routing_write_scope`), and the auth
+    failover ladder in claude_runtime skips such a rung for the same
+    profile. A write-scope request whose writers are all exhausted waits
+    for them; it is never handed to a runtime that cannot write.
     """
 
     credential_file_env: str | None = None
@@ -110,7 +117,7 @@ _FLEET: tuple[Provider, ...] = (
         default_model="glm-5.3",
         credential_env="ARIA_ZAI_API_KEY",
         runtime_hint="zai",
-        admits_writes=False,
+        admits_writes=True,
         credential_file_env="ARIA_ZAI_API_KEY_FILE",
         model_env="ARIA_ZAI_MODEL",
     ),

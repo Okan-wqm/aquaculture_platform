@@ -16,8 +16,10 @@ What this pins, with fake status transports only (no provider is called):
   with the operator's table;
 * the native admission walks the role's ladder and fails over in BOTH
   directions on a cooldown, and the Claude rung runs the route's own model;
-* ONE data edit (`suspended_providers: ["anthropic"]`) puts every read-only
-  role on Z.ai and leaves the implementer waiting by name;
+* ONE data edit (`suspended_providers: ["anthropic"]`) puts every role on
+  Z.ai, the implementer too (ARIA-HIGH-434: Z.ai's kernel-owned tool loop is
+  the writer ladder's second rung); a writer ladder naming Codex, whose
+  runtime cannot write, is refused;
 * the loader refuses every malformed table by name;
 * the vendor-diversity guard: the two seats of an independence pair run on
   different vendors whenever both lead vendors are available.
@@ -75,7 +77,9 @@ class TheShippedTableIsTheOperatorsDecision(unittest.TestCase):
 
     def test_claude_leads_the_primary_planner_and_the_implementer(self) -> None:
         self.assertEqual(self.routing.ladder_for("primary_plan", "aria-primary-planner")[:2], ("anthropic", "zai"))
-        self.assertEqual(self.routing.ladder_for("implementation", "aria-implementer"), ("anthropic",))
+        # ARIA-HIGH-434 — Claude first stays the default; Z.ai's tool loop is
+        # the writer's second rung (operator decision 2026-10-10/11).
+        self.assertEqual(self.routing.ladder_for("implementation", "aria-implementer"), ("anthropic", "zai"))
 
     def test_glm_leads_the_high_volume_roles(self) -> None:
         for role, target in (("challenger_plan", "aria-challenger-planner"), ("cross_review", "aria-cross-reviewer"),
@@ -101,7 +105,7 @@ class TheShippedTableIsTheOperatorsDecision(unittest.TestCase):
         self.assertEqual(routed_models("primary_plan", "aria-primary-planner", write_capable=False, **spawn),
                          ("opus", "glm-5.3"))
         self.assertEqual(routed_models("implementation", "aria-implementer", write_capable=True, **spawn),
-                         ("opus",))
+                         ("opus", "glm-5.3"))
 
 
 class _RoleFixture(_FleetFixture):
@@ -144,11 +148,19 @@ class TheAdmissionWalksTheRolesLadder(_RoleFixture):
         route = self._admit({}, cooled=self._cool("zai")).eligible_routes[0]
         self.assertEqual((route["provider"], route["model"]), ("anthropic", "opus"))
 
-    def test_the_implementer_waits_while_claude_is_cooled(self) -> None:
+    def test_the_implementer_is_on_claude_and_moves_to_zai_while_claude_is_cooled(self) -> None:
+        """ARIA-HIGH-434 — the writer ladder: Claude by default, Z.ai's tool
+        loop while Claude is cooled, and nothing (it waits by name) while
+        both are; Codex never, its runtime cannot write."""
         self._as("implementation", "aria-implementer", tools=_WRITE)
+        route = self._admit({}).eligible_routes[0]
+        self.assertEqual((route["provider"], route["model"]), ("anthropic", "opus"))
         admission = self._admit({}, cooled=self._cool("anthropic"))
-        self.assertIs(admission.outcome, AdmissionOutcome.NO_ELIGIBLE_PROVIDER)
-        self.assertEqual([row["provider"] for row in admission.candidate_observations], ["anthropic"])
+        self.assertEqual((admission.eligible_routes[0]["provider"], admission.eligible_routes[0]["model"]),
+                         ("zai", "glm-5.3"))
+        self.assertEqual([row["provider"] for row in admission.candidate_observations], ["anthropic", "zai"])
+        both = {**self._cool("anthropic"), **self._cool("zai")}
+        self.assertIs(self._admit({}, cooled=both).outcome, AdmissionOutcome.NO_ELIGIBLE_PROVIDER)
 
 
 class OneDataEditFlipsEveryRoleToZai(_RoleFixture):
@@ -156,21 +168,20 @@ class OneDataEditFlipsEveryRoleToZai(_RoleFixture):
         super().setUp()
         self.flipped = _write_table(self.root, lambda block: block.update(suspended_providers=["anthropic"]))
 
-    def test_every_read_only_seat_leads_with_zai_and_writers_have_no_rung(self) -> None:
+    def test_every_seat_leads_with_zai_the_writers_too(self) -> None:
         routing = load_provider_routing(self.flipped)
         for role, entry in routing.roles.items():
             targets = list(entry) if isinstance(entry, dict) else ["aria-any"]
             for target in targets:
                 with self.subTest(role=role, target=target):
-                    expected = None if role in runtime_profiles.WRITE_SCOPE_ROLES else "zai"
-                    self.assertEqual(_head(routing, role, target), expected)
+                    self.assertEqual(_head(routing, role, target), "zai")
 
     def test_the_admission_reads_the_flipped_table(self) -> None:
         with patch.object(runtime_profiles, "profiles_path", return_value=self.flipped):
             self._as("primary_plan", "aria-primary-planner")
             self.assertEqual(self._admit({}).eligible_routes[0]["provider"], "zai")
             self._as("implementation", "aria-implementer", tools=_WRITE)
-            self.assertIs(self._admit({}).outcome, AdmissionOutcome.NO_ELIGIBLE_PROVIDER)
+            self.assertEqual(self._admit({}).eligible_routes[0]["provider"], "zai")
 
 
 class TheLoaderRefusesAMalformedTable(unittest.TestCase):
@@ -193,6 +204,8 @@ class TheLoaderRefusesAMalformedTable(unittest.TestCase):
             "empty_ladder": (lambda b: b["ladders"].update(claude_writer=[]), "provider_routing_ladder"),
             "unknown_ladder": (lambda b: b["roles"].update(cross_review="fastest"), "provider_routing_role_ladder"),
             "writer_on_glm": (lambda b: b["roles"].update(implementation="glm_first"), "provider_routing_write_scope"),
+            "writer_on_codex": (lambda b: b["ladders"].update(claude_writer=["anthropic", "openai"]),
+                                "provider_routing_write_scope"),
             "pair_shares_a_head": (lambda b: b["roles"].update(challenger_plan="claude_first"),
                                    "provider_routing_independence"),
             "suspended_unknown": (lambda b: b.update(suspended_providers=["mistral"]), "provider_routing_suspended"),
@@ -250,6 +263,42 @@ class TheTwoSeatsOfAPairNeverShareAVendor(_RoleFixture):
     def test_with_claude_out_the_primary_fails_over_to_glm(self) -> None:
         self.assertEqual(self._admitted("primary_plan", ("anthropic",)), "zai")
         self.assertEqual(self._admitted("challenger_plan", ("anthropic",)), "zai")
+
+
+class TheWorkerLaneRidesTheWriterLadder(unittest.TestCase):
+    """ARIA-HIGH-434 — `worker_ladder` is the one answer to which providers a
+    worker assignment runs on; `worker_route` picks the rung now."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-worker-ladder-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, ignore_errors=True))
+        self.writer = AgentRuntimeProfile(agent_name="aria-worker", model="opus", effort="max",
+                                          source="kernel_profile", tools=_WRITE, write_scope=("**",))
+        self.reader = AgentRuntimeProfile(agent_name="farm-expert", model="opus", effort="max",
+                                          source="kernel_profile", tools=_READ)
+        self.zai = {"ARIA_ZAI_API_KEY_FILE": str(self.tmp / "zai.key"), "PATH": ""}
+
+    def test_a_writer_rides_the_writer_ladder_and_a_reader_keeps_its_own_provider(self) -> None:
+        self.assertEqual(runtime_profiles.worker_ladder(self.writer), ("anthropic", "zai"))
+        self.assertEqual(runtime_profiles.worker_ladder(self.reader), ("anthropic",))
+
+    def test_the_route_is_claude_first_then_zai_while_claude_is_cooled_and_the_key_is_here(self) -> None:
+        route = runtime_profiles.worker_route
+        self.assertEqual(route(self.writer, environ=self.zai, cooled=()), ("anthropic", "opus"))
+        self.assertEqual(route(self.writer, environ=self.zai, cooled={"anthropic"}), ("zai", "glm-5.3"))
+        self.assertIsNone(route(self.writer, environ={"PATH": ""}, cooled={"anthropic"}), "no key, no claim")
+        self.assertIsNone(route(self.writer, environ=self.zai, cooled={"anthropic", "zai"}))
+        self.assertIsNone(route(self.reader, environ=self.zai, cooled={"anthropic"}), "a reader never writes on zai")
+
+    def test_suspension_applies_and_every_writer_suspended_leaves_none(self) -> None:
+        one = _write_table(self.tmp, lambda block: block.update(suspended_providers=["anthropic"]))
+        with patch.object(runtime_profiles, "profiles_path", return_value=one):
+            self.assertEqual(runtime_profiles.worker_ladder(self.writer), ("zai",))
+        both = self.tmp / "both"
+        both.mkdir()
+        both = _write_table(both, lambda block: block.update(suspended_providers=["anthropic", "zai"]))
+        with patch.object(runtime_profiles, "profiles_path", return_value=both):
+            self.assertEqual(runtime_profiles.worker_ladder(self.writer), ())
 
 
 class EveryWriterRungAdmitsWrites(unittest.TestCase):

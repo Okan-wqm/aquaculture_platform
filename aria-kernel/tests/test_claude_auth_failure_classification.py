@@ -134,8 +134,9 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
         self.assertIsInstance(caught.exception.__cause__, cr.ClaudeAuthUnavailable)
 
     def test_a_write_scope_role_gets_no_second_attempt(self) -> None:
-        # The other vendors' runtimes are read-only: an implementer whose
-        # session expired is terminal after ONE attempt, in those words.
+        # A write-scope dispatch given no second rung (the worker lane: its
+        # hook routes before the claim) is terminal after ONE attempt, in
+        # those words.
         attempts: list[tuple[str, str]] = []
 
         def run(model: str, effort: str) -> cr.ClaudeRunResult:

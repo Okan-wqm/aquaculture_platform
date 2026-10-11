@@ -3,10 +3,10 @@
 Operator decision 2026-09-12 ("sadece opus", plus the delegation of the same
 day): ARIA never downgrades a decision or an implementation to a weaker
 tier. Credit exhaustion is a PROVIDER-level fact — for read-only roles the
-fleet answers it by cooling the provider and admitting the next vendor; for
-write-scope roles (implementer, worker), which only the managed Claude route
-can run, an exhausted opus REQUEUES the request and it is retried when opus
-is back. What this module pins, behaviourally, through the SSoT helper
+fleet answers it by cooling the provider and admitting the next vendor — for
+write-scope roles (implementer, worker) too since ARIA-HIGH-434, whose next
+vendor is Z.ai's kernel-owned tool loop; with every writer out, the request
+is REQUEUED and retried when a writer is back. What this module pins, behaviourally, through the SSoT helper
 ``claude_runtime.run_with_model_fallback`` with a scripted fake ``run``:
 
 * A credit exhaustion on ANY tier makes exactly one call, fires the audit
@@ -14,9 +14,9 @@ is back. What this module pins, behaviourally, through the SSoT helper
   there is no sonnet (or any) retry, and no fable entry anywhere.
 * A refusal is returned on the result (the executors escalate it); it is
   not retried on another tier.
-* ARIA-HIGH-023 survives as an AUTH-only, cross-vendor rung: a read-only
-  role's dead credential retries once on the other vendor; a write-scope
-  role's does not, because the other vendors' runtimes are read-only — and
+* ARIA-HIGH-023 survives as an AUTH-only, cross-vendor rung: a dead
+  credential retries once on the other vendor; a rung whose runtime cannot
+  write (Codex) is refused for a write-scope role before any attempt — and
   that condition is read from the fleet row, not from prose.
 * The executors are pinned (AST) to hand the helper the profile's own
   ``write_capable`` fact and to release a credit-exhausted claim under the
@@ -213,9 +213,9 @@ class AuthFailoverIsCrossVendorAndRoleConditioned(unittest.TestCase):
         self.assertEqual(out.final_message, "opus")
 
     def test_a_write_scope_role_is_never_retried_cross_vendor(self) -> None:
-        """The other vendors' runtimes are read-only (fleet row
-        `admits_writes`): an implementer handed to glm could not write a
-        line. The failure is terminal at once, and says why."""
+        """A write-scope dispatch whose lane gives it no second rung (the
+        worker lane: its hook routes before the claim) ends at once on an
+        auth failure, and says why."""
         run = _ScriptedRun(
             _result(auth={"marker": "oauth session expired", "remedy": "re-authenticate"}, tag="opus"),
             _result(tag="glm-must-never-run"),
@@ -229,20 +229,21 @@ class AuthFailoverIsCrossVendorAndRoleConditioned(unittest.TestCase):
     def test_the_role_condition_is_read_from_the_fleet_row(self) -> None:
         """Not a literal list of provider names in claude_runtime: the
         routing reader asks the fleet whether a rung's provider admits
-        writes, and the helper refuses a read-only rung for a writer."""
+        writes, and the helper refuses a read-only rung for a writer.
+        ARIA-HIGH-434: Z.ai's tool loop writes; Codex still cannot."""
         from aria_kernel.model_fleet import provider_admits_writes
         from aria_kernel.runtime_profiles import routed_models
 
         self.assertTrue(provider_admits_writes("anthropic"))
-        self.assertFalse(provider_admits_writes("zai"))
+        self.assertTrue(provider_admits_writes("zai"))
         self.assertFalse(provider_admits_writes("openai"))
         self.assertFalse(provider_admits_writes("nobody"), "an unlisted provider admits nothing")
-        spawn = {"environ": {}, "runtimes": ("claude", "zai"), "profile_model": "opus"}
+        spawn = {"environ": {}, "runtimes": ("claude", "zai", "codex"), "profile_model": "opus"}
         self.assertEqual(routed_models("evidence_judgment", "aria-evidence-judge", write_capable=False, **spawn),
-                         ("opus", "glm-5.3"))
+                         ("opus", "glm-5.3", "gpt-6-astra"))
         self.assertEqual(routed_models("evidence_judgment", "aria-evidence-judge", write_capable=True, **spawn),
-                         ("opus",))
-        for inadmissible, write_capable in (("glm-5.3", True), ("sonnet", False)):
+                         ("opus", "glm-5.3"))
+        for inadmissible, write_capable in (("gpt-6-astra", True), ("sonnet", False)):
             with self.subTest(failover=inadmissible):
                 run = _ScriptedRun(_result(tag="never"))
                 with self.assertRaises(ClaudePolicyViolation):

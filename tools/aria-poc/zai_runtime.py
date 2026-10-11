@@ -422,6 +422,12 @@ class ZaiRunResult:
         return 0 if self.http_status == 200 and self.final_message else 1
 
     @property
+    def provider_session_ids(self) -> tuple[str, ...]:
+        """The vendor's response ids this run produced: one for a single
+        completion; every turn's for the tool loop (``zai_tool_loop``)."""
+        return () if self.response_id is None else (self.response_id,)
+
+    @property
     def exhaustion_signature(self) -> str | None:
         """The provider-exhaustion signature this answer is, or None.
 
@@ -539,6 +545,149 @@ def run_zai_chat(
 
 
 @dataclass(frozen=True)
+class ZaiTurnResult:
+    """One turn of a tool conversation (ARIA-HIGH-434), classified like a run.
+
+    ``message`` is the assistant turn as the conversation carries it back
+    (role, content, tool_calls), and ``tool_calls`` its calls as
+    ``{"id", "name", "arguments"}`` with ``arguments`` the vendor's raw
+    string, which the loop parses and the gate judges. The auth and quota
+    fields come from the same ``_classify`` the probe and the single
+    completion read, so a refusal in the middle of a loop is the same named
+    fact as a refused one-shot call.
+    """
+
+    http_status: int | None
+    content: str
+    tool_calls: tuple[dict[str, str], ...]
+    message: dict[str, Any] | None
+    usage: dict[str, int] | None
+    auth_failure: str | None
+    credit_exhaustion: str | None
+    error_code: str | None
+    error_message: str | None
+    response_id: str | None
+    model: str | None
+    finish_reason: str | None
+    elapsed_ms: int
+
+    @property
+    def exhaustion_signature(self) -> str | None:
+        """The same closed-table member a single completion names."""
+        if self.credit_exhaustion is not None:
+            return "zai_quota_refusal"
+        if self.auth_failure is not None:
+            return "zai_auth_refusal"
+        return None
+
+
+def _turn_tool_calls(message: dict[str, Any]) -> tuple[dict[str, str], ...]:
+    """The documented ``message.tool_calls`` entries, as ``{"id", "name", "arguments"}``.
+
+    An entry the vendor shaped otherwise keeps its position with an empty
+    name, so the loop answers it as a refused call instead of losing the
+    model's turn order.
+    """
+    raw = message.get("tool_calls")
+    if not isinstance(raw, list):
+        return ()
+    calls: list[dict[str, str]] = []
+    for entry in raw:
+        function = entry.get("function") if isinstance(entry, dict) else None
+        name = function.get("name") if isinstance(function, dict) else None
+        arguments = function.get("arguments") if isinstance(function, dict) else None
+        if isinstance(arguments, dict):
+            arguments = json.dumps(arguments)
+        calls.append({
+            "id": entry.get("id") if isinstance(entry, dict) and isinstance(entry.get("id"), str) else "",
+            "name": name if isinstance(name, str) else "",
+            "arguments": arguments if isinstance(arguments, str) else "",
+        })
+    return tuple(calls)
+
+
+def run_zai_turn(
+    credential: ZaiCredential, *, base_url: str, model: str, messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]], timeout_seconds: float = DEFAULT_ZAI_TIMEOUT_SECONDS,
+    max_tokens: int = DEFAULT_ZAI_MAX_TOKENS, temperature: float = 0.0, reasoning_effort: str | None = None,
+    opener: Opener | None = None,
+) -> ZaiTurnResult:
+    """One function-calling turn of the kernel's tool loop (``zai_tool_loop``).
+
+    The documented OpenAI-compatible ``tools`` / ``tool_choice: auto`` form
+    of the same chat completions call ``run_zai_chat`` makes: the same
+    endpoint, the same Authorization header built once from the held
+    credential, the same classification. Nothing here runs a tool — the
+    caller's gate decides and its room executes; this only carries the
+    conversation to the vendor and the vendor's turn back.
+    """
+    payload: dict[str, Any] = {
+        "model": model, "messages": messages, "max_tokens": int(max_tokens),
+        "temperature": float(temperature), "stream": False,
+    }
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    mapped = ZAI_REASONING_EFFORTS.get(str(reasoning_effort or "").lower())
+    if mapped:
+        payload["reasoning_effort"] = mapped
+    response = _post_chat_completion(
+        credential, base_url=base_url, payload=payload,
+        timeout_seconds=max(1.0, float(timeout_seconds)), opener=opener,
+    )
+    code, error_message = _vendor_error(response.body)
+    auth, quota, reason, _decision = _classify(response.status, code)
+    content = ""
+    calls: tuple[dict[str, str], ...] = ()
+    message: dict[str, Any] | None = None
+    usage: dict[str, int] | None = None
+    response_id = responded_model = finish_reason = None
+    if response.status == 200:
+        try:
+            parsed = json.loads(response.body.decode("utf-8"))
+        except (ValueError, UnicodeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            response_id = parsed.get("id") if isinstance(parsed.get("id"), str) else None
+            responded_model = parsed.get("model") if isinstance(parsed.get("model"), str) else None
+            choices = parsed.get("choices")
+            if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                choice = choices[0]
+                finish_reason = choice.get("finish_reason") if isinstance(choice.get("finish_reason"), str) else None
+                if isinstance(choice.get("message"), dict):
+                    raw_message = choice["message"]
+                    content = raw_message.get("content") if isinstance(raw_message.get("content"), str) else ""
+                    calls = _turn_tool_calls(raw_message)
+                    message = {"role": "assistant", "content": content}
+                    if calls:
+                        message["tool_calls"] = [
+                            {"id": call["id"], "type": "function",
+                             "function": {"name": call["name"], "arguments": call["arguments"]}}
+                            for call in calls
+                        ]
+            usage_block = parsed.get("usage")
+            if (isinstance(usage_block, dict)
+                    and type(usage_block.get("prompt_tokens")) is int
+                    and type(usage_block.get("completion_tokens")) is int
+                    and usage_block["prompt_tokens"] >= 0 and usage_block["completion_tokens"] >= 0):
+                usage = {"input_tokens": usage_block["prompt_tokens"],
+                         "output_tokens": usage_block["completion_tokens"]}
+    if response.status == 200 and not content and not calls and finish_reason == "length":
+        code = code or "output_budget_exhausted"
+        error_message = error_message or "finish_reason=length with empty content; reasoning consumed max_tokens"
+    elif response.status == 200 and message is None:
+        code = code or "turn_unparseable"
+        error_message = error_message or "a 200 whose body carried no choices[0].message"
+    return ZaiTurnResult(
+        http_status=response.status, content=content, tool_calls=calls, message=message, usage=usage,
+        auth_failure=reason if auth == "unavailable" else None,
+        credit_exhaustion=reason if quota == "exhausted" else None,
+        error_code=code, error_message=error_message, response_id=response_id,
+        model=responded_model, finish_reason=finish_reason, elapsed_ms=response.elapsed_ms,
+    )
+
+
+@dataclass(frozen=True)
 class ZaiExecutionContext:
     """What the executor holds between admission and the call: never the secret's value."""
 
@@ -581,6 +730,6 @@ __all__ = [
     "ZaiHttpResponse", "ZaiRunResult", "prepare_zai_context",
     "ZaiStatusObservation", "ZaiTransportUnavailable", "probe_zai_status",
     "ZAI_JSON_OBJECT_ENV", "read_zai_credential", "resolve_zai_endpoint", "resolve_zai_json_object",
-    "resolve_zai_max_tokens", "resolve_zai_model", "run_zai_chat",
+    "resolve_zai_max_tokens", "resolve_zai_model", "run_zai_chat", "run_zai_turn", "ZaiTurnResult",
     "zai_credential_configured", "zai_settings_hash",
 ]

@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING, Any, Iterator
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES, ImplementationSettlement
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
-from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, verify_jsonl
+from .ledger import (
+    append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, load_segments, verify_jsonl,
+)
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -1179,9 +1181,14 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
             # ARIA-MEDIUM-291 — the abandonment says WHY the plan stopped,
             # read from its newest request's claim ledger; the invocation
             # ledgers are read once per scan, and only when a plan stalled.
+            # ARIA-HIGH-440 — the requests through the one reader of their
+            # segmented ledger (`load_segments`): since the monthly segments
+            # (2026-10-02) a new request is never in segment 0, so reading
+            # `requests.jsonl` alone found no request for any new plan, the
+            # cause read `no_request`, and the outage pause below never applied.
             if not invocations:
-                invocations.extend(load_jsonl(root / "agent-invocations" / name)
-                                   for name in ("requests.jsonl", "claims.jsonl"))
+                invocations.extend((load_segments(root, "agent_invocation_requests"),
+                                    load_jsonl(root / "agent-invocations" / "claims.jsonl")))
             stall = _stall_cause(plan_id, requests=invocations[0], claims=invocations[1])
             # ARIA-HIGH-365 (B1) — the bound is on PROVIDER-AVAILABLE time:
             # wall time minus the outage of the provider the plan's waiting

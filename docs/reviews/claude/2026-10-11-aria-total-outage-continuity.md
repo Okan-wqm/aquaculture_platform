@@ -127,3 +127,61 @@ Tests (`tests/test_next_cycle_queue_fold.py::AnItemWaitsOutAProviderOutage`):
 - an outage of a provider the projection is not routed to pauses nothing.
 
 The first two failed on HEAD.
+
+## ARIA-HIGH-440 — the plan-stall rule read only segment 0 of the request ledger
+
+### Symptom
+
+The 10-day end-to-end test (below) mints its requests through the real writer. Its plan waits
+on a challenger request through the outage, and on day 3 it was ABANDONED with stall
+`{cause: no_request, request_id: None, provider_available_hours: 89.25}`.
+`close_abandoned_plan_requests` then CANCELLED the challenger request.
+
+`resume_candidate_plan_id` read `agent-invocations/requests.jsonl` with `load_jsonl`
+(`plan_convergence.py:1182-1184`) to find the plan's newest request. Since 5cf8e0f61
+(2026-10-02, ARIA-HIGH-275) that file is frozen segment 0. Every new request lands in
+`agent-invocations/requests/<YYYY-MM>.jsonl` (`ledger.SEGMENTED_LEDGERS`), whose one reader is
+`load_segments`. For every plan started since then, the stall cause therefore read `no_request`,
+`request_awaits_provider(None)` answered False, and ARIA-HIGH-365's B1 pause never applied. A
+plan waiting through an outage was abandoned at 72 h of wall time, under the wrong cause.
+
+Production (origin/aria/state 75b6e407a, read-only): `requests/2026-10.jsonl` holds 434 rows,
+60 of them planning rounds, and segment 0 holds none of October's rows. No October plan has been
+abandoned yet (the last abandonment is 2026-09-29), so the defect fires on the first outage that
+runs past 72 h.
+
+### Root cause
+
+The B1 tests appended request rows straight into segment 0 (`append_declared_fixture` into
+`requests.jsonl`). No writer has put a row there since 2026-10-02. The reader that saw only
+segment 0 passed every one of them.
+
+### Class audit
+
+These modules name a segmented surface's segment-0 path. Each is classified by what it does
+with it:
+
+| Site                                                  | What it does                                                                 |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `agent_invocations.py:124`, `:1746`                   | lock anchors of the mint transaction (ARIA-HIGH-275)                         |
+| `agent_invocations.py:357`                            | branches on `SEGMENTED_LEDGERS` and reads the family through `load_segments` |
+| `budget.py:596`, `tools/aria-poc/ci_executor.py:4313` | lock anchors; the rows are read through `transaction.load_segments`          |
+| `merge_authority.py:953/957`                          | `read_prefix` branches on `SEGMENTED_LEDGERS`                                |
+| `search.py:31`                                        | `rebuild_index` branches on `SEGMENTED_LEDGERS` and calls `load_segments`    |
+| `state_manifest.py:242/300`                           | the surface declarations                                                     |
+| `plan_convergence.py:1182-1184`                       | **blind**: `load_jsonl` of segment 0 (this finding)                          |
+
+`specialist_review_runner.py:37/484` mention the path only in docstrings. The one blind reader
+is fixed here. No ARIA-MEDIUM-441 was needed.
+
+### Fix (tier 1 for the reader, tier 3 for the class)
+
+The stall rule reads the requests through `load_segments`. `_plan_stall`, the one staleness
+rule that ARIA-LOW-439 extracts next, keeps that reader. The B1 tests mint through `create_agent_invocation_request`. With the
+segment-0 reader restored, three of them fail (two in B1A, one in E439).
+`tests/invariants/test_segmented_ledgers_are_read_whole.py` fails any production module (in
+aria_kernel, tools/aria-poc and tools/aria) that hands a segmented family's segment-0 path to a
+plain reader. The paths come from `SEGMENTED_LEDGERS`. The pin follows each path through the
+names it is bound to, comprehension targets, module tables and same-module helpers. Readers that
+branch on the registry are allowed. The pin flags HEAD's `plan_convergence.py:1183`, and its
+own shape tests keep it from going blind.

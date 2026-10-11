@@ -73,6 +73,29 @@ class _Store(unittest.TestCase):
                                 expected_surface="agent_invocation_requests")
         return row
 
+    def mint(self, *, plan_id: str = "plan-o") -> str:
+        """A planning step's request, minted the way the drainer mints it.
+
+        ARIA-HIGH-440 — through the real writer, so it lands where production
+        writes it: a monthly segment of the request ledger. A row appended
+        into segment 0 (``request`` below) is a shape no writer has produced
+        since 2026-10-02, and the plan-stall rule that read only segment 0
+        passed every test written that way.
+        """
+        from aria_kernel.agent_invocations import create_agent_invocation_request
+        from aria_kernel.request_admission import admit_request
+
+        from tests._helpers.operator_acts import operator_set_profile
+
+        operator_set_profile("standard", base_dir=self.tools)
+        return create_agent_invocation_request(
+            target_agent="aria-primary-planner", role="primary_plan", suggested_prompt="{}",
+            must_satisfy=[{"id": "MS-1", "description": "draft the plan"}],
+            allowed_scope=list(_plan_content()["affected_surfaces"][0]["paths"]),
+            evidence_refs=["docs/aria/SPEC.md"], convergence_id=plan_id, round_number=1, base_dir=self.tools,
+            admission=admit_request("convergence_drainer.plan_step", "primary_plan", base_dir=self.tools),
+        )["request_id"]
+
     def _escalate(self, request_id: str) -> None:
         """The request was claimed, ANSWERED and refused on its merits: escalated for its own reason."""
         for event, extra in (("claimed", {"claimed_at": _iso(self.t0 + timedelta(minutes=2))}),
@@ -116,8 +139,7 @@ class _Clock:
 class B1APlanWaitingThroughAnOutageIsAdoptedNotAbandoned(_Store):
     def _started(self) -> None:
         start_plan(plan_id="plan-o", initial_revision_id="rev-0", plan_content=_plan_content(), base_dir=self.tools)
-        self.request("AIR-1", role="primary_plan", created=self.t0)
-        self.release("AIR-1", "provider_quota_unavailable:anthropic", self.t0 + timedelta(minutes=1))
+        self.release(self.mint(), "provider_quota_unavailable:anthropic", self.t0 + timedelta(minutes=1))
 
     def test_a_three_day_outage_mid_convergence_then_recovery_converges(self) -> None:
         self._started()
@@ -168,8 +190,7 @@ class B1APlanWaitingThroughAnOutageIsAdoptedNotAbandoned(_Store):
     def test_a_fallback_served_refused_request_is_abandoned_though_the_head_is_out(self) -> None:
         """Review HIGH-1: Anthropic lapsed, Z.ai served rung 2, the answer was refused on its merits."""
         start_plan(plan_id="plan-o", initial_revision_id="rev-0", plan_content=_plan_content(), base_dir=self.tools)
-        self.request("AIR-1", role="primary_plan", created=self.t0)
-        self._escalate("AIR-1")
+        self._escalate(self.mint())
         self.outage(self.t0 + timedelta(minutes=1), None)
         with _Clock(self.t0 + timedelta(days=3, hours=2)):
             self.assertIsNone(resume_candidate_plan_id(base_dir=self.tools))

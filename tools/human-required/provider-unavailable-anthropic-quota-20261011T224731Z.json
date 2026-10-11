@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "first_request_id": "AIR-aria-challenger-planner-825abf4aff3d",
+    "kind": "provider_outage",
+    "opened_at": "2026-10-11T22:47:31Z",
+    "outage_kind": "quota",
+    "provider": "anthropic",
+    "signature": "claude_usage_limit_notice"
+  },
+  "reason": "provider_unavailable:anthropic:quota \u2014 renew the anthropic subscription or credit, or wait for its quota reset; ARIA resumes on its own at the next successful spawn",
+  "recorded_at": "2026-10-11T22:47:31Z",
+  "request_id": "provider-unavailable-anthropic-quota-20261011T224731Z",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-14T22:47:31Z",
+  "status": "open"
+}

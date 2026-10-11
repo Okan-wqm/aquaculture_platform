@@ -4231,11 +4231,22 @@ def _admit_native_route(
                                                  auth_method=_ZAI_AUTH_METHOD,
                                                  credential_source=context.credential.source,
                                                  decision=StatusDecision.UNDECIDED)
+            # ARIA-HIGH-434 — a WRITE-capable profile runs on this route in
+            # the kernel's tool loop, whose every call needs the same room
+            # the Claude writer's spawn does. The vendor said yes; a host
+            # that cannot build the room halts the ladder by that name
+            # (`provider_control_unavailable`), exactly as the claude arm
+            # does — never a claim, an identity and a refusal at the room.
+            from aria_kernel.implementation_safety import sandbox_backend as _zai_room_backend
+
+            room_unavailable = (observed.decision is StatusDecision.AVAILABLE and profile.write_capable
+                                and _zai_room_backend() is None)
             contexts[provider.key] = context
             return _RuntimeStatusObservation(
                 observed.auth_observation, quota_observation=observed.quota_observation,
                 reason=observed.reason, command=(), exit_code=observed.http_status,
-                control_status="available", control_reason="native_http_transport_prepared",
+                control_status="unavailable" if room_unavailable else "available",
+                control_reason="sandbox_unavailable" if room_unavailable else "native_http_transport_prepared",
                 auth_method=_ZAI_AUTH_METHOD, credential_source=context.credential.source,
                 decision=observed.decision,
             )

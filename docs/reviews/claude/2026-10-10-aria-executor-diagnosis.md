@@ -845,3 +845,25 @@ is up to 7 days for the seven-day window. The causes:
   passes it. A host whose Claude login is gone holds every request PENDING, even one the
   admission would route to Z.ai. Reported to main for continuity (total outage); not changed
   here.
+
+### Follow-up (own review of dfe4f63fb): the admission asks whether the room can stand
+
+- **Defect.** In `ci_executor._admit_native_route`, the claude arm halts the ladder as
+  `provider_control_unavailable` when `sandbox_backend()` is None. The zai arm never asked, yet
+  since dfe4f63fb it can admit a write-capable profile. On a host whose bwrap cannot build the
+  room, the implementer was admitted on zai, claimed and given an identity, and was then refused
+  at the room as harness-class. The request was REQUEUED for a host that could never serve it.
+- **Fix.** The zai arm marks the controls `unavailable` (`sandbox_unavailable`) for a
+  write-capable profile when the vendor said yes but no sandbox backend exists. The ladder then
+  halts by that name, exactly as the claude arm does. A read-only profile is unaffected.
+- **Test.**
+  `test_executor_zai_implementation.test_a_host_that_cannot_build_the_room_admits_no_writer_on_zai`.
+  The real child runs with a fixture `bwrap` first on PATH that cannot build namespaces. The
+  result:
+  - the request stays PENDING;
+  - `runtime_admission_unavailable` reads `provider_control_unavailable`, halting provider zai,
+    with controls `sandbox_unavailable`;
+  - there is no claim and no `kg_signers` row;
+  - only the probe reached the vendor.
+
+  On dfe4f63fb the test is red: the request is REQUEUED.

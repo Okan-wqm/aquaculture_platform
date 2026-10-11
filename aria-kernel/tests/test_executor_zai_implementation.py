@@ -26,7 +26,11 @@ recorded and fail. One property per test:
   `claude` never ran a model; the key is in no file the kernel wrote and was
   sent only as the vendor's Authorization header;
 * a denied command inside that run is refused by the hook's own verdict and
-  the run still delivers.
+  the run still delivers;
+* a host whose bwrap cannot build the room admits no writer on zai: the
+  ladder halts as `provider_control_unavailable` (zai: `sandbox_unavailable`),
+  exactly as the claude arm halts — no claim, no identity, only the probe
+  reached the vendor.
 """
 from __future__ import annotations
 
@@ -55,7 +59,7 @@ _BORROWED = (
     "_start_egress_proxy", "_suite_fixture_body", "_install_fixture_executable", "_suite_calls", "_run_child",
     "_run_in_request_worktree", "_signing_config", "_governance_rows", "_governance", "_plan_state", "_plan_fold",
     "_change_committed", "_claim_id", "_apply_action", "_human_required", "_submitted_envelope", "_registered",
-    "_verify_against_registry", "_diagnostic", "_gate_calls", "_gh_calls", "_push_calls",
+    "_verify_against_registry", "_diagnostic", "_gate_calls", "_gh_calls", "_push_calls", "_claim_rows",
 )
 _NATIVE_POLICY = {"adaptive_runtime": {
     "schema_version": 1, "enabled": True, "policy_id": "aria/adaptive-runtime/v1",
@@ -224,6 +228,24 @@ class TheImplementerRunsOnZaiWhileClaudeIsCooled(unittest.TestCase):
                 if row["request_id"] == self.request_id and row["tool_use_id"] == "t4"]
         self.assertEqual([(row["decision"], row["reason"].split(":", 2)[:2]) for row in rows],
                          [("deny", ["command_policy_deny", "BashDenylistHit"])])
+
+    def test_a_host_that_cannot_build_the_room_admits_no_writer_on_zai(self) -> None:
+        """The zai arm of the admission asks what the claude arm asks: can
+        this host contain the writer? A bwrap that cannot build its
+        namespaces (the fixture's, first on PATH) says no."""
+        self._install_fixture_executable("bwrap", "import sys\nsys.exit(1)\n")
+        self._script()
+        completed, _worktree = self._run_in_request_worktree()
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "PENDING",
+                         self._diagnostic(completed))
+        refused = [row["details"] for row in self._governance("runtime_admission_unavailable")]
+        self.assertEqual([(row["reason"], row["halting_provider"]) for row in refused],
+                         [("provider_control_unavailable", "zai")])
+        zai = next(row for row in refused[0]["candidate_observations"] if row["provider"] == "zai")
+        self.assertEqual((zai["decision"], zai["controls"]), ("available", {"status": "unavailable",
+                                                                           "reason": "sandbox_unavailable"}))
+        self.assertEqual((self._claim_rows(), self._registered()), ([], []), "no claim, no identity minted")
+        self.assertEqual(len(self.vendor.received), 1, "only the admission's probe reached the vendor")
 
 
 if __name__ == "__main__":

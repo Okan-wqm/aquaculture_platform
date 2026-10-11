@@ -206,3 +206,45 @@ Tests (`tests/test_provider_outage_timers.py::E439TheInFlightReaderAsksTheAdopti
 
 - the reader and the adoption agree on a plan that a 4-day outage holds (failed on HEAD);
 - the reader skips a plan that is really stalled and never abandons it.
+
+## ARIA-MEDIUM-438 — a re-probe of a standing outage was counted as a new harness failure
+
+### Symptom
+
+A drain child that re-probed a provider already in an open outage (the back-off ran out and the
+vendor still refused) was `harness_failed` (`ci_executor_drain.py:960-1001`). The run exited red
+every re-probe night (`:112-126`). Each `auth_failed` re-probe also recorded a persistent breaker
+failure. The failure window is 96 h (`genesis_policy.minimum_window_hours`) and the threshold is
+3, and there are two drains a day, so a credential outage tripped the breaker on its second day.
+A tripped breaker makes preflight block every action-authority profile, strict included
+(`autonomy_orchestrator.py:863-869`). Every kernel-only phase then stopped for the rest of the
+outage, and for up to 96 h after the provider came back.
+
+### Root cause
+
+ARIA-HIGH-366 made the outage one fact per transition: one item, and one `::error::` from the
+claim that opened it (`ci_executor.py:5373-5380`). The drain's count was the last place that
+still counted every re-probe.
+
+### Fix (tier 1: the transition is the one failure)
+
+`provider_outage_ledger.standing_outage` returns the provider's open outage of the given kinds
+that was already open when a probe was launched. It compares at the ledger's one-second
+resolution, so an outage opened in the second the probe started belongs to the probe. The drain
+stamps each child's launch time. A failed child whose `failure_class` reports such an outage
+(`OUTAGE_KINDS_BY_FAILURE_CLASS`: `credit_exhausted` → quota; `auth_failed` → auth or
+logged_out; `provider_unreachable` → unreachable) is listed in the payload's `standing_outage`
+and is attempted, not failed. It is not a breaker event. The route's same-run circuit still
+opens, so one drain re-probes an outage once. The child whose failure opened the outage is
+counted as before. An unreadable ledger counts the failure, which is the conservative side.
+
+Tests (`tests/test_drain_standing_outage.py`):
+
+- an auth re-probe is green and records no breaker failure;
+- a quota re-probe is green;
+- the failure that opens the outage is red with one breaker failure;
+- no outage on the ledger means the failure is the harness's;
+- a restored outage does not excuse a new failure;
+- a standing quota outage does not excuse a new credential failure.
+
+The first three failed on HEAD (exit 1, and no `standing_outage` key).

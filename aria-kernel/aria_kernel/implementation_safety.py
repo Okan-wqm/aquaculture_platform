@@ -506,21 +506,16 @@ def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
     for marker in _SHELL_SUBSTITUTION_MARKERS:
         if marker in line:
             return marker
-    # ARIA-HIGH-443 — the lexer below reads a line break as whitespace; bash
-    # runs it as a separator. Quote-aware, so a break inside a quoted commit
-    # message stays data.
-    line_break = _command_policy.unquoted_line_break(line)
-    if line_break is not None:
-        return line_break
-    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
+    # ARIA-CRITICAL-446 — the policy's one quote-aware scanner decides what
+    # bash runs as an operator: glued (`-s;id`, `HEAD|nc`), spaced, or a line
+    # break (ARIA-HIGH-443); a `;` inside a quoted commit message stays data.
+    operator = _command_policy.unquoted_control_operator(line)
+    if operator is not None:
+        return operator
     try:
-        tokens = list(lexer)
+        shlex.split(line)
     except ValueError:
         return "unlexable_command"
-    for token in tokens:
-        if token in _SHELL_OPERATOR_TOKENS:
-            return token
     return None
 
 

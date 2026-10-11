@@ -298,6 +298,85 @@ class ANeverSpawnedProviderFreezesNothing(_Store):
         self.assertEqual((restored[-1]["seam"], restored[-1]["closed_kinds"]), ("operator_attested", ["auth"]))
 
 
+class TheAdmissionDecidesAZaiRefusal(_Store):
+    """ARIA-HIGH-435 — Z.ai's admission probe is a real completion, so its refusal is an outage fact.
+
+    Before: the seam cooled only a logged-out session. A Z.ai quota met at the
+    admission opened no outage (every glm_first clock kept running) and a lapsed
+    Z.ai back-off was never renewed (the fleet read Z.ai as serving).
+    """
+
+    def _observe(self, reason: str, *, at: datetime) -> None:
+        from aria_kernel.provider_outage_seams import observe_native_admission
+
+        observe_native_admission(self.tools, request_id="AIR-1", cooldown_seconds=900, now=at, observations=[
+            {"provider": "anthropic", "model": "opus", "status_reason": "provider_quota_cooldown",
+             "auth_observation": "unknown", "decision": "unavailable"},
+            {"provider": "zai", "model": "glm-4.6", "status_reason": reason, "auth_observation": "available",
+             "quota_observation": "exhausted", "decision": "unavailable"}])
+
+    def test_a_quota_refusal_opens_the_zai_outage_and_cools_it(self) -> None:
+        from aria_kernel.provider_cooldown import active_provider_cooldowns
+        from aria_kernel.provider_outage_ledger import open_outages
+
+        self._observe("quota_or_rate_limited_http_429", at=_T0)
+        self.assertEqual([(i.provider, i.kind) for i in open_outages(self.tools)], [("zai", "quota")])
+        cooled = active_provider_cooldowns(self.tools, now=_T0 + timedelta(minutes=1))["zai"]
+        self.assertEqual((cooled["reason"], cooled["detection"]["seam"]), ("quota_unavailable", "native_admission"))
+
+    def test_a_credential_refusal_is_an_auth_outage(self) -> None:
+        from aria_kernel.provider_outage_ledger import open_outages
+
+        self._observe("auth_rejected_http_401", at=_T0)
+        self.assertEqual([(i.provider, i.kind) for i in open_outages(self.tools)], [("zai", "auth")])
+
+    def test_each_reprobe_that_meets_the_standing_outage_renews_the_back_off(self) -> None:
+        from aria_kernel.provider_cooldown import MAX_REPROBE_SECONDS, active_provider_cooldowns
+
+        self._observe("quota_or_rate_limited_http_429", at=_T0)
+        moment = _T0
+        for _ in range(6):
+            until = active_provider_cooldowns(self.tools, now=moment)["zai"]["until"]
+            moment = datetime.fromisoformat(until.replace("Z", "+00:00")) + timedelta(seconds=1)
+            self.assertNotIn("zai", active_provider_cooldowns(self.tools, now=moment))
+            self._observe("quota_or_rate_limited_http_429", at=moment)
+            self.assertIn("zai", active_provider_cooldowns(self.tools, now=moment))
+        windows = [row["cooldown_seconds"] for row in self.kinds("provider_quota_cooldown")]
+        self.assertEqual(windows, [900, 1800, 3600, MAX_REPROBE_SECONDS, MAX_REPROBE_SECONDS,
+                                   MAX_REPROBE_SECONDS, MAX_REPROBE_SECONDS])
+        # One outage, one operator item, however many re-probes met it.
+        self.assertEqual(len(self.kinds("provider_outage_opened")), 1)
+        self.assertEqual(len(self.items()), 1)
+
+    def test_a_refusal_that_is_not_a_provider_fact_cools_nothing(self) -> None:
+        from aria_kernel.provider_cooldown import active_provider_cooldowns
+
+        self._observe("request_refused_http_404", at=_T0)
+        self._observe("vendor_error_http_503", at=_T0)
+        self.assertEqual(active_provider_cooldowns(self.tools, now=_T0), {})
+
+    def test_the_prefixes_are_the_runtimes_own_reasons(self) -> None:
+        import sys
+
+        from aria_kernel.provider_cooldown import PROVIDER_EXHAUSTION_SIGNATURES
+        from aria_kernel.provider_outage_seams import admission_signature
+
+        poc = Path(__file__).resolve().parents[2] / "tools" / "aria-poc"
+        if str(poc) not in sys.path:
+            sys.path.insert(0, str(poc))
+        import zai_runtime
+
+        for status, code, kind in ((429, None, "quota"), (402, None, "quota"), (401, None, "auth"),
+                                   (403, None, "auth")):
+            _auth, _quota, reason, decision = zai_runtime._classify(status, code)
+            self.assertEqual(decision, zai_runtime.StatusDecision.UNAVAILABLE)
+            signature = admission_signature("zai", reason)
+            self.assertIsNotNone(signature, reason)
+            self.assertEqual(PROVIDER_EXHAUSTION_SIGNATURES[signature], ("zai", kind))
+        # Another vendor's row with the same words is not a Z.ai fact.
+        self.assertIsNone(admission_signature("anthropic", "quota_or_rate_limited_http_429"))
+
+
 class TheDailyReportShowsTheInterval(_Store):
     def test_the_section_names_the_provider_the_kind_and_the_span(self) -> None:
         from aria_kernel.provider_outage_ledger import record_provider_restored, render_outage_section

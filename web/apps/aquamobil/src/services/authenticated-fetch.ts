@@ -51,6 +51,72 @@ function currentTenantId(): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// MOB-MEDIUM-025: sessionStorage access-token persistence (hard-navigation survival)
+// ---------------------------------------------------------------------------
+// WHY: the access token previously lived ONLY in React state (in-memory). A
+// hard navigation — page refresh, direct URL entry, a PWA launcher relaunch —
+// remounts the app from scratch and the token was gone, bouncing an
+// authenticated field worker back to the login screen (farm E2E failures on
+// water-quality / storage / sync / any direct URL).
+//
+// WHERE sessionStorage and NOT localStorage: the tab-scoped store dies with the
+// tab, so a shared field device never keeps a credential after the tab closes —
+// the same lifetime argument that keeps biometric PII out of localStorage. It
+// survives reloads and same-tab URL changes, which is exactly the hard-
+// navigation case. On logout the token is wiped (see useAuth.clearAllUserData),
+// and on refresh-token failure the fail-closed logout path wipes it too.
+//
+// SECURITY trade-off (deliberate, bounded): the JWT sits in web-readable
+// storage. XSS could already read the in-memory token while logged in, so the
+// incremental exposure is persistence past a refresh — bounded by the
+// short-lived access-token TTL, the tab-scoped lifetime, the X-Requested-With
+// CSRF header on every request, and httpOnly storage remaining the ONLY place
+// the long-lived refresh token ever lives.
+// ---------------------------------------------------------------------------
+
+/** Single storage key — one writer (syncAuthStore), two readers (useAuth). */
+const ACCESS_TOKEN_STORAGE_KEY = 'aquamobil_access_token';
+
+/**
+ * Persist the current access token for hard-navigation survival. Never throws:
+ * private-mode Safari can reject sessionStorage writes, and persistence is an
+ * enhancement — losing it degrades to the old login-screen behavior, never to
+ * a crash.
+ */
+function persistSessionToken(accessToken: string): void {
+  try {
+    sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+  } catch {
+    // sessionStorage unavailable (private mode / SSR) — non-fatal.
+  }
+}
+
+/**
+ * Read the token persisted by a previous render of this tab, if any. Never
+ * throws; a missing/unavailable store yields null (fresh-visitor path).
+ */
+export function readPersistedSessionToken(): string | null {
+  try {
+    return sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Drop the persisted token. Called on logout (coordinated data wipe) and when
+ * a persisted token fails identity decoding (garbage must not restore a
+ * session). Never throws.
+ */
+export function clearPersistedSessionToken(): void {
+  try {
+    sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch {
+    // sessionStorage unavailable (private mode / SSR) — non-fatal.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Auth readiness barrier
 //
 // WHY: On page load, AuthProvider's restoreSession() is async — the token
@@ -129,10 +195,18 @@ export function syncAuthStore(
   authStore.tenantId = tenantId;
   authStore.refreshAuth = refreshAuth;
   authStore.logout = logout ?? null;
-  // WHY: Secondary resolution path — if a token arrives via sync (e.g.,
-  // restoreSession resolved with a valid session), mark ready immediately
-  // so pending requests don't wait on the useAuth.tsx finally block.
+  // MOB-MEDIUM-025: this is the ONE funnel every live token passes through —
+  // login, loginWithToken, restoreSession and both refresh paths all land in
+  // AuthProvider's sync effect (or call syncAuthStore directly, as the
+  // interceptor refresh does), so persisting HERE keeps the sessionStorage copy
+  // current with a single write point. A null token does NOT clear here: the
+  // boot-time sync runs with null BEFORE restoreSession has read the persisted
+  // token, and clearing on logout is owned by the explicit wipe instead.
   if (accessToken) {
+    persistSessionToken(accessToken);
+    // WHY: Secondary resolution path — if a token arrives via sync (e.g.,
+    // restoreSession resolved with a valid session), mark ready immediately
+    // so pending requests don't wait on the useAuth.tsx finally block.
     markAuthReady();
   }
 }

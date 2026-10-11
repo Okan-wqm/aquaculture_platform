@@ -43,6 +43,16 @@ vi.mock('@/hooks/useWebAuthn', () => ({
 const markAuthReady = vi.fn();
 const resetAuthReady = vi.fn();
 const syncAuthStore = vi.fn();
+// MOB-MEDIUM-025: useAuth also reads/clears the persisted session token — the
+// mock must expose those members or logout (clearAllUserData) and the mount
+// restore would crash on an undefined import. Real sessionStorage semantics so
+// the wipe assertions stay honest.
+const readPersistedSessionToken = vi.fn((): string | null =>
+  sessionStorage.getItem('aquamobil_access_token'),
+);
+const clearPersistedSessionToken = vi.fn((): void => {
+  sessionStorage.removeItem('aquamobil_access_token');
+});
 vi.mock('@/services/authenticated-fetch', () => ({
   markAuthReady: (): void => {
     markAuthReady();
@@ -55,6 +65,10 @@ vi.mock('@/services/authenticated-fetch', () => ({
   },
   syncAuthStore: (...args: unknown[]): void => {
     syncAuthStore(...args);
+  },
+  readPersistedSessionToken: (): string | null => readPersistedSessionToken(),
+  clearPersistedSessionToken: (): void => {
+    clearPersistedSessionToken();
   },
 }));
 
@@ -112,6 +126,9 @@ const TEST_USER = {
 beforeEach(() => {
   vi.clearAllMocks();
   captured = null;
+  // MOB-MEDIUM-025: never let one test's persisted token restore a session in
+  // the next test's mount.
+  sessionStorage.clear();
   // restoreSession's mount fetch + the logout mutation fetch + caches.delete.
   vi.stubGlobal(
     'fetch',

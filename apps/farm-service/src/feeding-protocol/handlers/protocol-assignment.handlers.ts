@@ -49,6 +49,7 @@ import {
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch, BatchType } from '../../batch/entities/batch.entity';
 import { EquipmentCategory, EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { DayPlanAdminService } from '../services/day-plan-admin.service';
 
 // ============================================================================
 // PAYLAŞILAN ÜNİTE-ATAMA ÇEKİRDEĞİ — tekil ve batch-toplu yolun TEK gövdesi
@@ -102,11 +103,13 @@ async function resolveUnitType(
 /**
  * Tek ünitenin atama akışı — protokol çağıran tarafından doğrulanmış (ACTIVE)
  * gelir; ünite/site çözümü, tür uyumu, override doğrulaması, değiştirme
- * semantiği ve durable event BURADA yaşar (iki handler tek gövdeyi çağırır).
+ * semantiği, ilk gün planı üretimi (FARM-MEDIUM-257) ve durable event BURADA
+ * yaşar (iki handler tek gövdeyi çağırır).
  */
 async function performUnitAssignment(
   manager: EntityManager,
   outboxPublisher: OutboxPublisher,
+  dayPlans: DayPlanAdminService,
   logger: Logger,
   protocol: FeedingProtocolV2,
   args: UnitAssignmentArgs,
@@ -222,6 +225,25 @@ async function performUnitAssignment(
   };
   await outboxPublisher.enqueue(event, manager);
 
+  // FARM-MEDIUM-257: ilk gün planı AYNI transaction'da eager üretilir —
+  // 06:00 cron'una kadar boş MealBoard kaldırılır (atama yapan operatör
+  // planı anında görür). Atlanma nedenleri atamayı başarısız KILMAZ: balıksız
+  // üniteye atama meşrudur, planı stok dolunca 06:00 üreticisi/regenerate
+  // üretir. persistDayPlan unique anahtarla idempotent olduğundan cron ile
+  // çift üretim yapısal olarak imkânsız.
+  const initialPlan = await dayPlans.generateInitialDayPlan(manager, tenantId, saved);
+  if (initialPlan.outcome === 'generated') {
+    logger.log(
+      `Initial day plan ${initialPlan.dayPlanId} generated at assignment time for unit ` +
+        `${saved.unitCode} (${saved.id})`,
+    );
+  } else {
+    logger.log(
+      `Initial day plan skipped at assignment time for unit ${saved.unitCode} ` +
+        `(${saved.id}): ${initialPlan.reason}`,
+    );
+  }
+
   logger.log(
     `Protocol ${protocol.name} assigned to unit ${saved.unitCode} (${saved.id})` +
       (replacedAssignment
@@ -263,6 +285,8 @@ export class AssignProtocolToUnitHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    // FARM-MEDIUM-257: atama-anı ilk gün planı üretimi (aynı transaction).
+    private readonly dayPlans: DayPlanAdminService,
   ) {}
 
   async execute(command: AssignProtocolToUnitCommand): Promise<ProtocolAssignment> {
@@ -270,16 +294,23 @@ export class AssignProtocolToUnitHandler
 
     return this.dataSource.transaction(async (manager) => {
       const protocol = await loadActiveProtocol(manager, tenantId, input.protocolId);
-      return performUnitAssignment(manager, this.outboxPublisher, this.logger, protocol, {
-        tenantId,
-        userId,
-        unitId: input.unitId,
-        protocolId: input.protocolId,
-        unitType: input.unitType,
-        effectiveFrom: input.effectiveFrom,
-        overrides: input.overrides,
-        speciesMismatchReason: input.speciesMismatchReason,
-      });
+      return performUnitAssignment(
+        manager,
+        this.outboxPublisher,
+        this.dayPlans,
+        this.logger,
+        protocol,
+        {
+          tenantId,
+          userId,
+          unitId: input.unitId,
+          protocolId: input.protocolId,
+          unitType: input.unitType,
+          effectiveFrom: input.effectiveFrom,
+          overrides: input.overrides,
+          speciesMismatchReason: input.speciesMismatchReason,
+        },
+      );
     });
   }
 }
@@ -293,6 +324,8 @@ export class AssignProtocolToBatchUnitsHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    // FARM-MEDIUM-257: atama-anı ilk gün planı üretimi (aynı transaction).
+    private readonly dayPlans: DayPlanAdminService,
   ) {}
 
   /**
@@ -332,13 +365,20 @@ export class AssignProtocolToBatchUnitsHandler
       const assignments: ProtocolAssignment[] = [];
       for (const { unitId } of unitRows) {
         assignments.push(
-          await performUnitAssignment(manager, this.outboxPublisher, this.logger, protocol, {
-            tenantId,
-            userId,
-            unitId,
-            protocolId,
-            speciesMismatchReason,
-          }),
+          await performUnitAssignment(
+            manager,
+            this.outboxPublisher,
+            this.dayPlans,
+            this.logger,
+            protocol,
+            {
+              tenantId,
+              userId,
+              unitId,
+              protocolId,
+              speciesMismatchReason,
+            },
+          ),
         );
       }
       this.logger.log(

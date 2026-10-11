@@ -56,6 +56,46 @@ export function decodeTenantId(token: string | null | undefined): string | null 
 }
 
 /**
+ * The identity subset needed to rebuild the session `User` after a hard
+ * navigation (page refresh / URL change) from the persisted access token
+ * alone — before any server round-trip.
+ *
+ * WHAT the auth service actually signs (apps/auth-service token.service): `sub`
+ * (user id) and `role` are always present and are the two claims this restore
+ * FAILS CLOSED on; `email` is retained only as a deprecated optional claim
+ * (H-08: tokens carry non-PII identifiers), and `tenantId` is null for
+ * SUPER_ADMIN. The signature is NOT verified here — the server verifies it on
+ * every request; this decode only rebuilds the UI-side identity the server
+ * itself signed at login time.
+ */
+export interface JwtIdentityClaims {
+  sub: string;
+  email: string | null;
+  role: string;
+  tenantId: string | null;
+}
+
+/**
+ * Decode the identity claims (`sub`/`email`/`role`/`tenantId`) from an access
+ * token. Strictly fail-closed: a token that is not a decodable JWT, or whose
+ * `sub`/`role` claims are missing or empty, yields null — a garbage token must
+ * never restore an authenticated session.
+ */
+export function decodeIdentityClaims(token: string | null | undefined): JwtIdentityClaims | null {
+  const claims = decodeClaims(token);
+  if (!claims) return null;
+  const sub = typeof claims.sub === 'string' && claims.sub.length > 0 ? claims.sub : null;
+  const role = typeof claims.role === 'string' && claims.role.length > 0 ? claims.role : null;
+  if (!sub || !role) return null;
+  return {
+    sub,
+    email: typeof claims.email === 'string' && claims.email.length > 0 ? claims.email : null,
+    role,
+    tenantId: decodeTenantId(token),
+  };
+}
+
+/**
  * The tenant a request is sent for — the ONE resolver every request lane uses
  * (foreground authenticatedFetch and the service worker's Background Sync
  * replay alike), so the two cannot disagree about which tenant a write lands in.

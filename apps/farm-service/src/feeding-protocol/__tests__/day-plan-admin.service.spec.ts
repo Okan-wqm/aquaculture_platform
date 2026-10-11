@@ -123,6 +123,8 @@ interface Fixture {
    * yazarın aynı atama üzerinde ne yaptığını teste taşır.
    */
   realRecalc?: boolean;
+  /** persistDayPlan dönüş değeri — null = unique anahtar çakışması (plan var). */
+  persistResult?: string | null;
 }
 
 function buildHarness(fixture: Fixture): {
@@ -195,7 +197,9 @@ function buildHarness(fixture: Fixture): {
     meals: [{}, {}],
   });
   const persistDayPlan = jest.fn();
-  persistDayPlan.mockResolvedValue('dp-new');
+  persistDayPlan.mockResolvedValue(
+    fixture.persistResult === undefined ? 'dp-new' : fixture.persistResult,
+  );
   const recalcForUnit = jest.fn();
   recalcForUnit.mockResolvedValue({ dayPlanId: 'dp-1', outcome: 'repriced' });
   const enqueue = jest.fn().mockResolvedValue(undefined);
@@ -282,6 +286,29 @@ describe('DayPlanAdminService.regenerateDayPlan (K-9)', () => {
       BadRequestException,
     );
     expect(persistDayPlan).not.toHaveBeenCalled();
+  });
+
+  it('gelecek effectiveFrom: regenerate bugünün planını üretmeyi reddeder (FARM-MEDIUM-257)', async () => {
+    const assignment = makeAssignment();
+    assignment.effectiveFrom = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const { service, persistDayPlan } = buildHarness({ dayPlan: null, assignment });
+
+    await expect(service.regenerateDayPlan(TENANT, USER, UNIT)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(persistDayPlan).not.toHaveBeenCalled();
+  });
+
+  it('persist çakışması (bugünün planı zaten var) regenerate’i REDDETMEZ — GENERATED döner', async () => {
+    // `existing` kontrolü PLANNED/IN_PROGRESS'e bakar; unique anahtar çakışması
+    // ancak tamamlanmış/iptal edilmiş bir günlük plana karşı olabilir — eski
+    // davranış: outcome GENERATED, dayPlanId belirsiz (FARM-MEDIUM-257 ile
+    // sınıflandırılmış already_exists skip'ine çevrildi, sonuç değişmedi).
+    const { service } = buildHarness({ dayPlan: null, persistResult: null });
+
+    const result = await service.regenerateDayPlan(TENANT, USER, UNIT);
+
+    expect(result).toEqual({ outcome: 'generated', dayPlanId: undefined });
   });
 });
 

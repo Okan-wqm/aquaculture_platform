@@ -6,6 +6,10 @@
  *    beslenmiş/kapanmış öğünler korunur, kalanlar yeniden fiyatlanır); bugün
  *    hiç plan üretilmemişse (örn. atama 06:00'dan sonra aktive edildi) planı
  *    ŞİMDİ üretir — 06:00 üreticisiyle aynı computeDayPlan/persistDayPlan yolu.
+ *  - `generateInitialDayPlan(assignment)`: atama-anı İLK plan üretimi
+ *    (FARM-MEDIUM-257) — protokol atandığı transaction'ın içinde bugünün
+ *    planı üretilir; atlanma nedenleri sınıflandırılmış döner (atama yolunda
+ *    log, regenerate yolunda BadRequest). Ayrıntı metodun docblock'unda.
  *  - `transitionUnitFeed(unitId, toFeedId)`: manuel yem geçişi — atamanın
  *    currentFeed/band durumu + bugünkü kalan öğünlerin feedId'si güncellenir,
  *    `FeedTypeTransitioned(automatic:false)` outbox'a yazılır. Hedef yem,
@@ -58,6 +62,27 @@ export interface DayPlanAdminResult {
   outcome: DayPlanAdminOutcome;
   dayPlanId?: string;
 }
+
+/**
+ * Atama-anı ilk plan üretiminin ATLANMA nedenleri — sınıflandırılmış, sessiz
+ * atlama yok (atama yolunda log'lanır; regenerate yolunda BadRequest'e
+ * çevrilir).
+ */
+export type InitialDayPlanSkipReason =
+  | 'not_effective_yet'
+  | 'protocol_inactive'
+  | 'empty_unit'
+  | 'not_computable'
+  | 'already_exists';
+
+export type InitialDayPlanResult =
+  | { outcome: 'generated'; dayPlanId: string }
+  | {
+      outcome: 'skipped';
+      reason: InitialDayPlanSkipReason;
+      /** protocol_inactive için gözlenen protokol durumu (hata mesajında). */
+      protocolStatus?: FeedingProtocolStatus | null;
+    };
 
 @Injectable()
 export class DayPlanAdminService {
@@ -116,67 +141,138 @@ export class DayPlanAdminService {
       }
 
       // Bugün planı yok → şimdi üret (06:00 üreticisiyle AYNI hesap yolu).
-      const protocol = await manager.findOne(FeedingProtocolV2, {
-        where: { tenantId, id: assignment.protocolId, isDeleted: false },
-      });
-      if (!protocol || protocol.status !== FeedingProtocolStatus.ACTIVE) {
-        throw new BadRequestException(
-          `Ünitenin protokolü ACTIVE değil (${protocol?.status ?? 'yok'}) — plan üretilemez`,
-        );
+      const initial = await this.generateInitialDayPlan(manager, tenantId, assignment);
+      if (initial.outcome === 'generated') {
+        this.logger.log(`Day plan generated on demand for unit ${unitId} by ${userId}`);
+        return { outcome: DayPlanAdminOutcome.GENERATED, dayPlanId: initial.dayPlanId };
       }
-      const tankBatch = await manager.findOne(TankBatch, {
-        where: { tenantId, tankId: unitId },
-      });
-      if (!tankBatch || tankBatch.totalQuantity <= 0) {
-        throw new BadRequestException('Ünitede balık yok — plan üretilemez');
+      switch (initial.reason) {
+        case 'protocol_inactive':
+          throw new BadRequestException(
+            `Ünitenin protokolü ACTIVE değil (${initial.protocolStatus ?? 'yok'}) — plan üretilemez`,
+          );
+        case 'empty_unit':
+          throw new BadRequestException('Ünitede balık yok — plan üretilemez');
+        case 'not_computable':
+          throw new BadRequestException('Plan hesaplanamadı (bandsız protokol veya boş ünite)');
+        case 'not_effective_yet':
+          throw new BadRequestException(
+            'Atamanın yürürlük başlangıcı (effectiveFrom) gelecekte — plan henüz üretilmez',
+          );
+        case 'already_exists':
+          // `existing` kontrolü yukarıda PLANNED/IN_PROGRESS için yapıldı; persist
+          // çakışması ancak tamamlanmış/iptal edilmiş bir günlük plana karşı
+          // olabilir — davranış eskiyle aynı: outcome GENERATED, id belirsiz.
+          return { outcome: DayPlanAdminOutcome.GENERATED };
       }
-
-      const temperature = await this.temperatureService.getEffectiveTemperature(tenantId, unitId);
-      const feedIds = collectFeedSourceFeedIds([protocol]);
-      const feeds =
-        feedIds.length > 0
-          ? await manager.find(Feed, {
-              where: { tenantId, id: In(feedIds) },
-              select: ['id', 'feedingMatrix2D'],
-            })
-          : [];
-
-      const computed = this.generator.computeDayPlan({
-        assignment,
-        protocol,
-        stock: {
-          fishCount: tankBatch.totalQuantity,
-          biomassKg: Number(tankBatch.totalBiomassKg || 0),
-          avgWeightG: Number(tankBatch.avgWeightG || 0),
-          ...mixedTankStats(tankBatch.batchDetails),
-        },
-        temperature,
-        planDate,
-        timezone: (await this.siteTimeZones.siteZones(manager, tenantId)).zoneOf(assignment.siteId),
-        feedFcrMatrixByFeedId: buildFeedFcrMatrixMap(feeds),
-      });
-      if (!computed) {
-        throw new BadRequestException('Plan hesaplanamadı (bandsız protokol veya boş ünite)');
-      }
-      const dayPlanId = await this.generator.persistDayPlan(
-        manager,
-        {
-          tenantId,
-          assignmentId: assignment.id,
-          protocolId: assignment.protocolId,
-          unitId: assignment.unitId,
-          siteId: assignment.siteId,
-          unitType: assignment.unitType,
-          unitName: assignment.unitName,
-          unitCode: assignment.unitCode,
-          planDate,
-          growthApplicationMode: protocol.settings.growthApplicationMode,
-        },
-        computed,
-      );
-      this.logger.log(`Day plan generated on demand for unit ${unitId} by ${userId}`);
-      return { outcome: DayPlanAdminOutcome.GENERATED, dayPlanId: dayPlanId ?? undefined };
     });
+  }
+
+  /**
+   * Atama-anı İLK gün planı üretimi (FARM-MEDIUM-257 — kök-neden çözüm).
+   *
+   * NEDEN ATAMA YOLU: gün planı eskiden yalnız 06:00 cron'unun üretimiyle
+   * oluşuyordu; protokol atandıktan sonra operatör ilk planı ERTESİ GÜN
+   * görüyordu (`feedingDayPlans` boş dönüyor, E2E akışı düşüyordu). Sorgu
+   * tarafında lazy üretim yerine ATAMA KOMUTUNDA eager üretim seçildi:
+   * `feedingDayPlans` bir `runInTenantRead` okuma koşusudur (yazma oraya
+   * ait değil) ve sorgu MODULE_USER'a açıktır — üretim ise MANAGER+ yeteneği
+   * (regenerateDayPlan rol kapısı); okuma yolunda side-effect üretim hem
+   * okuma/yazma ayrımını hem rol kapısını delerdi. Atama komutu zaten yazma
+   * transaction'ıdır; plan AYNI tx'te üretilir (atomik: ya atama+plan birlikte
+   * durur ya birlikte geri alınır).
+   *
+   * 06:00 cron ile çakışma YAPISAL olarak imkânsız: persistDayPlan
+   * `(tenantId, unitId, planDate)` unique anahtarıyla ON CONFLICT DO NOTHING
+   * upsert-idempotenttir. Atama yolundaki atlanmalar (boş ünite, geçersiz
+   * protokol…) atamayı BAŞARISIZ KILMAZ — atama ile plan üretiminin
+   * geçerlilik koşulları farklıdır (balıksız üniteye atama meşrudur); atlanan
+   * planı ertesi gün 06:00 üreticisi ya da regenerateDayPlan üretir.
+   *
+   * Bu metodu regenerateDayPlan'ın "bugün plan yoksa şimdi üret" dalı DA
+   * kullanır — iki yol tek hesap gövdesini paylaşır (K-3 dry-run emsali).
+   */
+  async generateInitialDayPlan(
+    manager: EntityManager,
+    tenantId: string,
+    assignment: ProtocolAssignment,
+  ): Promise<InitialDayPlanResult> {
+    // Gelecek tarihli effectiveFrom: atama henüz yürürlükte değil — bugünün
+    // planı şimdi üretilmez (yürürlük gününün 06:00'ı üretir).
+    if (assignment.effectiveFrom && assignment.effectiveFrom.getTime() > Date.now()) {
+      return { outcome: 'skipped', reason: 'not_effective_yet' };
+    }
+
+    const protocol = await manager.findOne(FeedingProtocolV2, {
+      where: { tenantId, id: assignment.protocolId, isDeleted: false },
+    });
+    if (!protocol || protocol.status !== FeedingProtocolStatus.ACTIVE) {
+      return {
+        outcome: 'skipped',
+        reason: 'protocol_inactive',
+        protocolStatus: protocol?.status ?? null,
+      };
+    }
+    const tankBatch = await manager.findOne(TankBatch, {
+      where: { tenantId, tankId: assignment.unitId },
+    });
+    if (!tankBatch || tankBatch.totalQuantity <= 0) {
+      return { outcome: 'skipped', reason: 'empty_unit' };
+    }
+
+    const temperature = await this.temperatureService.getEffectiveTemperature(
+      tenantId,
+      assignment.unitId,
+    );
+    const feedIds = collectFeedSourceFeedIds([protocol]);
+    const feeds =
+      feedIds.length > 0
+        ? await manager.find(Feed, {
+            where: { tenantId, id: In(feedIds) },
+            select: ['id', 'feedingMatrix2D'],
+          })
+        : [];
+
+    const planDate = await this.planDateFor(manager, tenantId, assignment.siteId);
+    const computed = this.generator.computeDayPlan({
+      assignment,
+      protocol,
+      stock: {
+        fishCount: tankBatch.totalQuantity,
+        biomassKg: Number(tankBatch.totalBiomassKg || 0),
+        avgWeightG: Number(tankBatch.avgWeightG || 0),
+        ...mixedTankStats(tankBatch.batchDetails),
+      },
+      temperature,
+      planDate,
+      timezone: (await this.siteTimeZones.siteZones(manager, tenantId)).zoneOf(assignment.siteId),
+      feedFcrMatrixByFeedId: buildFeedFcrMatrixMap(feeds),
+    });
+    if (!computed) {
+      return { outcome: 'skipped', reason: 'not_computable' };
+    }
+    const dayPlanId = await this.generator.persistDayPlan(
+      manager,
+      {
+        tenantId,
+        assignmentId: assignment.id,
+        protocolId: assignment.protocolId,
+        unitId: assignment.unitId,
+        siteId: assignment.siteId,
+        unitType: assignment.unitType,
+        unitName: assignment.unitName,
+        unitCode: assignment.unitCode,
+        planDate,
+        growthApplicationMode: protocol.settings.growthApplicationMode,
+      },
+      computed,
+    );
+    if (!dayPlanId) {
+      // Unique anahtar çakışması: bugünün planı zaten var (atama değiştirme
+      // semantiği — eski atamanın planı ünitenin bugünü olarak ayakta).
+      return { outcome: 'skipped', reason: 'already_exists' };
+    }
+    return { outcome: 'generated', dayPlanId };
   }
 
   async transitionUnitFeed(

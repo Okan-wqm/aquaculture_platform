@@ -12,6 +12,7 @@ import { OutboxPublisher } from '@platform/outbox';
 
 import { AssignProtocolToBatchUnitsHandler } from '../handlers/protocol-assignment.handlers';
 import { AssignProtocolToBatchUnitsCommand } from '../commands/feeding-protocol-v2.commands';
+import { DayPlanAdminService, type InitialDayPlanResult } from '../services/day-plan-admin.service';
 import { FeedingProtocolStatus, FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from '../entities/protocol-assignment.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
@@ -122,8 +123,25 @@ function makeHarness(opts: HarnessOpts = {}) {
     }),
   });
 
-  const handler = new AssignProtocolToBatchUnitsHandler(dataSource, outbox);
-  return { handler, enqueued, savedAssignments, findOne, query };
+  // FARM-MEDIUM-257: atama-anı ilk plan üretimi — bu spec ünite boş fixture'ı
+  // koşturur, üretim sınıflandırılmış skip döner (atama başarılı kalır).
+  const generateInitialDayPlan = jest.fn(
+    async (
+      _manager: EntityManager,
+      _tenantId: string,
+      _assignment: ProtocolAssignment,
+    ): Promise<InitialDayPlanResult> => ({
+      outcome: 'skipped',
+      reason: 'empty_unit',
+    }),
+  );
+
+  const handler = new AssignProtocolToBatchUnitsHandler(
+    dataSource,
+    outbox,
+    stub<DayPlanAdminService>({ generateInitialDayPlan }),
+  );
+  return { handler, enqueued, savedAssignments, findOne, query, generateInitialDayPlan };
 }
 
 const command = new AssignProtocolToBatchUnitsCommand(BATCH, PROTOCOL, TENANT, 'user-1');
@@ -138,6 +156,13 @@ describe('AssignProtocolToBatchUnitsHandler', () => {
     expect(
       harness.enqueued.filter((event) => event.eventType === 'FeedingProtocolAssigned'),
     ).toHaveLength(2);
+    // FARM-MEDIUM-257: her ünite için ilk plan üretimi KAYDEDİLEN atamayla
+    // çağrılır (aynı transaction — performUnitAssignment çekirdeğinden).
+    expect(harness.generateInitialDayPlan).toHaveBeenCalledTimes(2);
+    const calledAssignmentIds = harness.generateInitialDayPlan.mock.calls.map(
+      (call) => (call[2] as ProtocolAssignment).id,
+    );
+    expect(calledAssignmentIds).toEqual(['as-unit-a', 'as-unit-b']);
     // Üyelik sorgusu primary VEYA batchDetails payını kapsar (C-4 tanımı).
     const membershipSql = String(harness.query.mock.calls[0][0]);
     expect(membershipSql).toContain('"primaryBatchId" = $2');

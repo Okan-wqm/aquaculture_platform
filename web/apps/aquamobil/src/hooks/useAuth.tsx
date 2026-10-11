@@ -4,11 +4,17 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 
 import { clearBiometricData } from '@/hooks/useWebAuthn';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
-import { markAuthReady, resetAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
+import {
+  clearPersistedSessionToken,
+  markAuthReady,
+  readPersistedSessionToken,
+  resetAuthReady,
+  syncAuthStore,
+} from '@/services/authenticated-fetch';
 import { runPushTeardown } from '@/services/push-lifecycle';
 import type { AccessType, AuthState } from '@/types';
 import { runAsyncAction } from '@/utils/async-action';
-import { decodeResourcePermissions } from '@/utils/jwt-claims';
+import { decodeIdentityClaims, decodeResourcePermissions } from '@/utils/jwt-claims';
 import { logger } from '@/utils/logger';
 import { normalizeRole } from '@/utils/normalize-role';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -170,7 +176,8 @@ async function checkMobileEnabled(token: string): Promise<boolean> {
 
 // BUG-03 / SEC-02 / SEC-04: Coordinated teardown of all user data stores on logout.
 // Clears offline queue (IndexedDB), data cache (IndexedDB), permissions cache (IndexedDB),
-// biometric localStorage PII, and service worker Cache Storage to prevent data leakage
+// biometric localStorage PII, the persisted sessionStorage access token
+// (MOB-MEDIUM-025), and service worker Cache Storage to prevent data leakage
 // on shared devices.
 // SECURITY (FE-CRITICAL-002): clearCache() without tenantId clears ALL tenant
 // namespaces on logout, preventing any residual cached data from leaking to
@@ -179,6 +186,11 @@ async function clearAllUserData(userId?: string, tenantId?: string | null): Prom
   // H-FE-01: Clear biometric PII (webauthn_email, webauthn_credential_ids) on logout
   // so the next user on a shared device cannot use or see prior user's biometric data.
   clearBiometricData();
+
+  // MOB-MEDIUM-025: drop the persisted access token with the same coordinated
+  // wipe — otherwise the next hard navigation on this shared device would
+  // restore the prior user's session straight past the login screen.
+  clearPersistedSessionToken();
 
   // SEC: Clear the two UNSCOPED localStorage keys that otherwise persist across
   // users on a shared field device — the water-quality MRU equipment list and the
@@ -240,12 +252,62 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     [state.accessToken],
   );
 
-  // On mount: attempt silent refresh via httpOnly cookie
+  // On mount: restore the session across hard navigations.
+  //
+  // MOB-MEDIUM-025 — two phases:
+  //   PHASE 1 (synchronous, offline-capable): if the previous render of this
+  //   tab persisted an access token, rebuild the session identity from the
+  //   token's own claims and unblock the app IMMEDIATELY — no network, no
+  //   login screen. A refresh or direct-URL navigation restores before the
+  //   first paint commits protected routing.
+  //   PHASE 2 (async, best-effort upgrade): the pre-existing httpOnly-cookie
+  //   silent refresh still runs — it proactively rotates the token and
+  //   upgrades the phase-1 identity stub (real name/email/accessType) with the
+  //   server's SSoT response. Its failure is NON-destructive: it leaves a
+  //   valid phase-1 session untouched, exactly as it left an unauthenticated
+  //   visitor untouched before. A persisted token that is expired surfaces
+  //   through the normal 401 → single-flight refresh → retry lane, and a
+  //   refresh that fails there fail-closed LOGS OUT (which wipes the
+  //   persisted token).
   useEffect(() => {
     const restoreSession = async (): Promise<void> => {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), SILENT_REFRESH_TIMEOUT_MS);
 
+      // ── PHASE 1: persisted token → immediate session restore ──────────────
+      const persistedToken = readPersistedSessionToken();
+      if (persistedToken) {
+        const identity = decodeIdentityClaims(persistedToken);
+        if (identity) {
+          setState({
+            user: {
+              id: identity.sub,
+              // The JWT's email claim is deprecated/optional (H-08) — the
+              // phase-2 refresh backfills the real profile shortly.
+              email: identity.email ?? '',
+              name: identity.email
+                ? identity.email.split('@')[0]
+                : identity.sub,
+              // normalizeRole fail-closes an unknown claim to MODULE_USER.
+              role: normalizeRole(identity.role),
+              tenantId: identity.tenantId,
+            },
+            accessToken: persistedToken,
+            refreshToken: null,
+            tenantId: identity.tenantId,
+            isAuthenticated: true,
+          });
+          // Unblock routing and pending authenticatedFetch() calls NOW — the
+          // phase-2 refresh below is an upgrade, not a gate.
+          setIsLoading(false);
+          markAuthReady();
+        } else {
+          // Not a decodable JWT — garbage must never restore a session.
+          clearPersistedSessionToken();
+        }
+      }
+
+      // ── PHASE 2: silent refresh via httpOnly cookie (upgrade + rotation) ──
       try {
         const response = await fetch('/graphql', {
           method: 'POST',

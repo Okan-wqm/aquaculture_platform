@@ -679,3 +679,22 @@ commit:
   event. That bytecode is trusted and pure Python, so the capability was the same, but it was
   still a module load. The launcher now deletes `init_frozen` and `get_frozen_object` along with
   the native constructors (pinned: `frozen_module_build`, `frozen_object_unmarshal`).
+
+## ARIA-HIGH-433 — calibration handed the adapter its answer key (genesis, wave 2)
+
+### Symptom
+
+`execute_adapter_against_corpus` piped every fixture whole to the adapter
+(`skill_genesis.py:410`, `json.dumps({"fixtures": fixtures})`, labels included). It then scored
+the adapter against the same `label` field (`:457-462`). On HEAD 314c6a18e, an adapter that
+printed the fingerprints labelled `tp` scored precision 1.0 and recall 1.0 on a 2 TP / 2 FP
+corpus. That is the loop's structural exit (`convergent_skill_authoring.py:530-536`).
+
+### Fix
+
+`skill_genesis.calibration_fixture_view` projects each fixture onto
+`CALIBRATION_FIXTURE_VISIBLE_FIELDS`. It is an allowlist of location fields, so a label field
+added later is withheld too. `label`, `verdict`, `legacy_label`, `labeled_at`, `severity` and
+`note` stay kernel-side for scoring. Pinned by `tests/test_genesis_calibration_answer_key.py`:
+the echo adapter sees `evidence_refs`, `finding_fingerprint` and `finding_id`, and scores
+0.0/0.0.

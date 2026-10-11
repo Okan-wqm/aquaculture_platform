@@ -362,10 +362,11 @@ def execute_adapter_against_corpus(
     A draft that cannot be staged never runs: its zero-metrics result
     carries ``exit_code=-6`` and the refusal's name.
 
-    The adapter receives JSON on stdin with the corpus fixtures and
-    emits JSON on stdout with finding predictions. The function
-    aligns predictions with operator-labeled TP/FP via
-    ``finding_fingerprint`` and computes the precision metrics.
+    The adapter receives JSON on stdin with the corpus fixtures — each
+    one's location only (``calibration_fixture_view``, ARIA-HIGH-433: never
+    the operator's label) — and emits JSON on stdout with finding
+    predictions. The function aligns predictions with operator-labeled TP/FP
+    via ``finding_fingerprint`` and computes the precision metrics.
 
     Returns:
       {
@@ -415,6 +416,23 @@ def execute_adapter_against_corpus(
     return {**result, "adapter_sha256": staged.sha256, "calibration_ledger_hash": row["ledger_hash"]}
 
 
+# ARIA-HIGH-433 — what a drafted adapter may see of a calibration fixture:
+# where the case is, never how it was judged. The operator's label and every
+# field that carries or annotates it (`label`, `verdict`, `legacy_label`,
+# `labeled_at`, `severity`, `note`, `source_type`) stay kernel-side for the
+# scoring below; an adapter that saw them could echo the fingerprints
+# labelled `tp` and score precision = recall = 1.0 without detecting
+# anything. An allowlist, so a label field added later is withheld too.
+CALIBRATION_FIXTURE_VISIBLE_FIELDS: tuple[str, ...] = (
+    "finding_fingerprint", "finding_id", "evidence_refs", "file_path", "path", "line", "rule_id", "claim_type",
+)
+
+
+def calibration_fixture_view(fixture: dict[str, Any]) -> dict[str, Any]:
+    """The part of one fixture the adapter under calibration receives."""
+    return {key: fixture[key] for key in CALIBRATION_FIXTURE_VISIBLE_FIELDS if key in fixture}
+
+
 def _calibrate_staged(
     staged: Any,
     fixtures: list[dict[str, Any]],
@@ -438,7 +456,7 @@ def _calibrate_staged(
         completed = run_staged_adapter(
             staged,
             workspace_root=workspace_root,
-            input_text=_json.dumps({"fixtures": fixtures}),
+            input_text=_json.dumps({"fixtures": [calibration_fixture_view(fixture) for fixture in fixtures]}),
             timeout_seconds=timeout_seconds,
             store=ensure_tools_dir(base_dir),
         )

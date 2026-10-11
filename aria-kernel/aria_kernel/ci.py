@@ -29,6 +29,25 @@ FAILURE_CLASSES = (
 )
 
 WORKFLOW_CLASSES = ("pr_required", "dispatch_safe", "protected_side_effect")
+# ARIA-MEDIUM-430 — where the verdict "this PR may merge" lives: the merge
+# lane's decision ledger (`auto_merge._append_decision`, through
+# `merge_authority`). The merge lane reads what that verdict needs: the diff,
+# the reviews and review threads, branch protection on an App installation
+# token holding administration:read
+# (`gh_token_factory.MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS`), and the PR's
+# commits in its own workspace. This observer has none of those. It runs on
+# the cycle's job token, which no workflow can grant administration. It runs
+# in a checkout without the PR's commits. Its snapshot (`_gh_pr_snapshot`)
+# fetches no diff, reviews or threads. Its `ready_for_human_merge` also
+# required lane L1, the lane no person is asked to merge. All 185 gate rows on
+# aria/state f5c5c86a1 were `blocked`. A gate row therefore claims no verdict:
+# it records what blocks a merge as far as the observer can see, and names
+# this surface.
+MERGE_VERDICT_SURFACE = "auto_merge_decisions"
+# The gate and report rows without the verdict fields `status`,
+# `ready_for_human_merge` and `ready_state`; the rows with schema_version 1
+# carried them, always `blocked`.
+_GATE_ROW_SCHEMA_VERSION = 2
 SUPPRESSION_PATTERNS = (
     "skip test",
     "skip the test",
@@ -140,7 +159,7 @@ def record_ci_report(
         workspace_root=workspace_root,
     )
     row = {
-        "schema_version": 1,
+        "schema_version": _GATE_ROW_SCHEMA_VERSION,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "pr_number": pr.get("number"),
@@ -149,7 +168,6 @@ def record_ci_report(
         "workflow_run_refs": [run["ledger_hash"] for run in recorded_runs],
         "failure_refs": [failure["ledger_hash"] for failure in failures],
         "failure_count": len(failures),
-        "ready_state": gate["status"],
         "gate_ref": gate["ledger_hash"],
     }
     return append_jsonl(root / "ci" / "ci-reports.jsonl", row)
@@ -165,9 +183,12 @@ def evaluate_pr_ci_gate(
     cycle_id: str | None = None,
     workspace_root: str | Path | None,
 ) -> dict[str, Any]:
-    """The PR's CI gate row. ARIA-CRITICAL-215 — the lane is read from the
-    PR's change in the checkout at ``workspace_root``, through the reader
-    the merge authority uses; the row records it (``enterprise_risk``)."""
+    """The PR's CI gate row: what blocks a merge as far as this observer can
+    see, never whether the PR may merge (ARIA-MEDIUM-430: that verdict is the
+    merge lane's, on ``MERGE_VERDICT_SURFACE``). ARIA-CRITICAL-215 — the lane
+    is read from the PR's change in the checkout at ``workspace_root``,
+    through the reader the merge authority uses; the row records it
+    (``enterprise_risk``)."""
     inventory = workflow_inventory or latest_workflow_inventory(base_dir=base_dir) or {"workflows": []}
     # ARIA-MEDIUM-423 — the gate reads the merge lane's evaluation (its
     # reasons, required checks, check result and lane) and never records it:
@@ -196,18 +217,16 @@ def evaluate_pr_ci_gate(
         if _run_failed(run) and not _run_success(run)
     ]
     blockers.extend(f"failed workflow requires review: {name}" for name in unknown_failures if name)
-    status = "ready_for_human_merge" if not blockers else "blocked"
     pr_number = pr.get("number")
     head_sha = _first_string(pr, "head_sha", "headRefOid", "head")
     row = {
-        "schema_version": 1,
+        "schema_version": _GATE_ROW_SCHEMA_VERSION,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "pr_number": pr_number,
         "head_sha": head_sha,
-        "status": status,
-        "ready_for_human_merge": status == "ready_for_human_merge",
         "blocked_by": sorted(set(blockers)),
+        "merge_verdict_surface": MERGE_VERDICT_SURFACE,
         "required_checks": auto.get("required_checks"),
         "check_result": auto.get("check_result"),
         "protected_workflow_gates": protected_gates,

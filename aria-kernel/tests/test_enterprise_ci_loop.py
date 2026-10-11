@@ -107,7 +107,7 @@ class EnterpriseCiLoopTests(unittest.TestCase):
             base_dir=self.tools_dir,
             workspace_root=None,
         )
-        self.assertEqual(report["ready_state"], "blocked")
+        self.assertNotIn("ready_state", report)
         self.assertEqual(report["failure_count"], 1)
         failure = list_ci_failures(base_dir=self.tools_dir)[-1]
         self.assertEqual(failure["root_cause_classification"], "test_contract_regression")
@@ -116,7 +116,7 @@ class EnterpriseCiLoopTests(unittest.TestCase):
             snapshot={"pr": pr_snapshot(), "github": github_snapshot()},
             base_dir=self.tools_dir,
         )
-        self.assertFalse(gate["ready_for_human_merge"])
+        self.assertIn("required checks not successful: ci/test", gate["blocked_by"])
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 
     def test_skipped_protected_workflow_is_human_gate_not_ready(self):
@@ -146,7 +146,6 @@ class EnterpriseCiLoopTests(unittest.TestCase):
             },
             base_dir=self.tools_dir,
         )
-        self.assertEqual(gate["status"], "blocked")
         self.assertTrue(any("protected workflow requires human gate" in item for item in gate["blocked_by"]))
 
     def test_agent_review_result_requires_evidence_and_rejects_suppression(self):
@@ -336,7 +335,6 @@ class TheCiObserverRecordsNoMergeDecision(unittest.TestCase):
         # Nothing else blocks this PR, so the gate's blockers ARE the evaluation's reasons.
         self.assertEqual(gate["blocked_by"], sorted(set(evaluation["reasons"])))
         self.assertIn("diff_text missing — auto_merge_requires_diff_content", gate["blocked_by"])
-        self.assertFalse(gate["ready_for_human_merge"])
         self.assertEqual(
             (gate["required_checks"], gate["check_result"], gate["enterprise_risk"]),
             (evaluation["required_checks"], evaluation["check_result"], evaluation["risk"]["enterprise_risk"]),
@@ -374,6 +372,63 @@ class TheCiObserverRecordsNoMergeDecision(unittest.TestCase):
         )
         self.assertEqual(set(counts.values()), {0})
         self.assertEqual(counts["premerge_decision_blocked"], 0)
+
+
+class TheObserverClaimsNoMergeVerdict(unittest.TestCase):
+    """ARIA-MEDIUM-430 — whether a PR may merge is the merge lane's verdict.
+
+    The gate's `ready_for_human_merge` could never be true from the observer:
+    its snapshot fetches no diff, reviews or threads, the cycle's job token
+    cannot read branch protection, the cycle checkout lacks the PR's commits,
+    and the predicate required lane L1, the lane no person is asked to merge.
+    185 of 185 rows on aria/state f5c5c86a1 were `blocked`. The gate row now
+    records what blocks a merge as far as the observer can see, claims no
+    verdict, and names the surface that holds it.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.tools_dir = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
+
+    def test_the_gate_and_report_claim_no_verdict_and_name_its_owner(self):
+        from aria_kernel.ci import MERGE_VERDICT_SURFACE
+        from aria_kernel.ledger import load_declared_jsonl
+
+        report = record_ci_report(pr=pr_snapshot(), github=github_snapshot(check_conclusion="success"),
+                                  base_dir=self.tools_dir, workspace_root=None)
+        [gate] = load_declared_jsonl(self.tools_dir / "ci" / "pr-ci-gates.jsonl", expected_surface="ci_pr_gates")
+
+        for claim in ("status", "ready_for_human_merge"):
+            self.assertNotIn(claim, gate)
+        self.assertNotIn("ready_state", report)
+        self.assertEqual((gate["schema_version"], report["schema_version"]), (2, 2))
+        self.assertEqual(gate["merge_verdict_surface"], MERGE_VERDICT_SURFACE)
+        self.assertEqual(report["gate_ref"], gate["ledger_hash"])
+
+    def test_the_named_owner_is_the_merge_lane_s_decision_ledger(self):
+        import inspect
+
+        from aria_kernel import auto_merge
+        from aria_kernel.ci import MERGE_VERDICT_SURFACE
+        from aria_kernel.state_manifest import surface_by_name
+
+        self.assertEqual(surface_by_name(MERGE_VERDICT_SURFACE).path_pattern, "auto-merge-decisions.jsonl")
+        # ... the ledger the merge lane's one decision writer appends to.
+        source = inspect.getsource(auto_merge._append_decision)
+        self.assertIn('"auto-merge-decisions.jsonl"', source)
+        self.assertIn(f'expected_surface="{MERGE_VERDICT_SURFACE}"', source)
+
+    def test_ci_spells_no_merge_readiness_claim(self):
+        # The claim cannot come back unnoticed: no literal of it in the observer.
+        import ast
+        import inspect
+
+        from aria_kernel import ci
+
+        literals = {node.value for node in ast.walk(ast.parse(inspect.getsource(ci)))
+                    if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+        self.assertEqual(literals & {"ready_for_human_merge", "ready_state"}, set())
 
 
 if __name__ == "__main__":

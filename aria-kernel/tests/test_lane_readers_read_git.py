@@ -123,7 +123,9 @@ class CiGateReadsGitTests(_PrCase):
     def test_a_new_spec_pr_records_l1(self) -> None:
         gate = self._gate(self._pr(weaken=False), self.repo)
         self.assertEqual((gate["enterprise_risk"]["valid"], gate["enterprise_risk"]["lane"]), (True, "L1"))
-        self.assertTrue(gate["ready_for_human_merge"], gate["blocked_by"])
+        # Every fact the fixture supplies is clean, so nothing blocks; whether
+        # the PR may merge is the merge lane's verdict (ARIA-MEDIUM-430).
+        self.assertEqual(gate["blocked_by"], [])
 
     def test_a_modified_spec_pr_records_l2(self) -> None:
         gate = self._gate(self._pr(weaken=True), self.repo)

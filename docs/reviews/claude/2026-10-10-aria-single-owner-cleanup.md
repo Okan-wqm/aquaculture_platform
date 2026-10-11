@@ -208,3 +208,87 @@ The designed patch was applied on `0b88b2ccb` and re-proved there. It needed no 
 
 The two frozen files keep their single row (PR 1906). They are history, and ARIA history is never
 deleted.
+
+## ARIA-MEDIUM-430 — the CI observer claimed a merge verdict it could never reach
+
+Owner: claude. Raised and fixed 2026-10-10 (wave 2).
+
+### Symptom
+
+`ci.evaluate_pr_ci_gate` sets `ready_for_human_merge` only when the merge lane's evaluation has no
+reasons and no protected or failed workflow blocks (`ci.py:190-199`). On aria/state f5c5c86a1,
+`ci/pr-ci-gates.jsonl` holds 185 rows (2026-09-04 to 2026-10-10). All 185 are `blocked`, and 0 have
+`ready_for_human_merge: true`. Every row is blocked by the same four facts:
+
+- `diff_text missing` (`auto_merge.py:296`);
+- `branch protection lookup failed: branch_protection_lookup_permission_denied`
+  (`auto_merge.py:368`);
+- `review state unreadable` (`:407`);
+- `unresolved conversation state unreadable` (`:414`).
+
+177 rows also carry `enterprise risk policy rejected diff: risk_change_paths_unavailable`.
+`ci-reports.jsonl`'s `ready_state` mirrors the gate. Nothing in code reads either field; the
+readiness lane's workflow printed `ready_state` with `jq`.
+
+### Root cause: the observer cannot know, so it must not claim
+
+The brief offered two ways out: make the snapshot read what the gate requires, or stop claiming.
+The first is not reachable. Each of these is enough on its own:
+
+1. **Branch protection.** `required_status_checks` needs Administration: read. The observer runs on
+   the cycle's job token (`aria-auto-cycle.yml:125-150`: contents, actions, checks, pull-requests,
+   issues), and a workflow cannot grant `GITHUB_TOKEN` administration. Only the App installation
+   token carries it (`gh_token_factory.py:314-318`), and only the merge lane mints that token with
+   the merge-gate reads (`:330-336`, `aria-merge-runner.yml:219-251`).
+2. **The PR's commits.** The lane is read from git in the checkout (ARIA-CRITICAL-215). The cycle
+   checkout lacks the PR's head: 177 of 185 rows say `risk_change_paths_unavailable`. Only the merge
+   lane builds a workspace that holds the head.
+3. **The predicate contradicts its own name.** No reasons requires a valid lane L1
+   (`auto_merge.py:353-357`). A PR is routed to a person exactly when it is not a valid
+   `auto_merge_candidate_lanes` lane (`risk_policy.py:324-326`), and that list is `["L1"]`
+   (`docs/aria/policy/risk-policy.json:7`). So `ready_for_human_merge` could be true only for a PR
+   no person is asked to merge, which is the merge lane's to merge.
+
+The diff, the reviews and the review threads would be readable with `pull-requests: read`. With
+(1)–(3) unchanged, fetching them would still leave the verdict unreachable.
+
+The owner that reads everything is `merge_authority`. Through `GhCliGitHubAdapter` it reads
+`gh pr diff`, the reviews, the GraphQL review threads and branch protection, on the installation
+token, in its own workspace. It records the verdict in `auto-merge-decisions.jsonl`
+(`auto_merge._append_decision`).
+
+### Fix (tier 1: the observer has no verdict field to set)
+
+- The gate row and the `ci-reports` row drop `status`, `ready_for_human_merge` and `ready_state`.
+  Both rows move to `schema_version: 2`; the rows with 1 carried the claim, always `blocked`.
+- The gate row keeps `blocked_by`, `required_checks`, `check_result`, `protected_workflow_gates`
+  and `enterprise_risk` as the observer's account of what blocks a merge, so ARIA-MEDIUM-423's pins
+  hold. It adds `merge_verdict_surface: "auto_merge_decisions"`, which names the owner.
+- `aria-readiness-claim.yml` prints `gate_ref` where it printed `ready_state`.
+- `tests/test_enterprise_ci_loop.py::TheObserverClaimsNoMergeVerdict` pins three things:
+  - the rows claim no verdict, are version 2, and name the surface;
+  - that surface is the ledger `auto_merge._append_decision` writes;
+  - `ci.py` holds no literal of either claim, so it cannot come back unnoticed.
+
+`test_lane_readers_read_git` keeps its L1 case: everything the fixture supplies is clean, so
+`blocked_by` is empty.
+
+### Evidence
+
+- **Red before**, on `f5701d69e`: 4 tests of `test_enterprise_ci_loop` failed (`ready_state` present,
+  both claims present in `ci.py`, no `MERGE_VERDICT_SURFACE`).
+- **Green after**, in the snapshot:
+  - `test_enterprise_ci_loop`, `test_lane_readers_read_git`, `test_readiness_proofs`,
+    `test_readiness_claim_lane` and `test_own_pr_ci*`: 58 passed.
+  - Every other test that imports `ci` or `own_pr_ci`: 145 passed.
+  - The workflow-contract tests: 92 passed and 1 failed.
+    `test_i_sbx_05_validation_room_lanes_provision_declared_toolchains` reads root toolchain files
+    the snapshot did not hold.
+- **Green after**, in the worktree: `test_enterprise_ci_loop`, `test_lane_readers_read_git`,
+  `test_readiness_claim_lane`, `test_executor_workflow_sandbox_contract` (with `test_i_sbx_05`),
+  `test_workflow_kernel_cli_contract` and `test_own_pr_ci_feedback`: 59 passed.
+
+### Behaviour change, declared
+
+The 185 existing rows stay; the ledgers are append-only. New rows carry no verdict. A reader that
+wants to know whether a PR may merge reads `auto-merge-decisions.jsonl`.

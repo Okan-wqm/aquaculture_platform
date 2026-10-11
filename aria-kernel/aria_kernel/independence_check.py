@@ -127,6 +127,24 @@ def response_principal(response: dict[str, Any]) -> str | None:
 RUNTIME_ATTEMPT_STARTED_KIND = "runtime_attempt_started"
 
 
+def attempt_providers_by_claim(attempt_rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """The provider each claim's NEWEST native attempt was sent to, by claim id.
+
+    ARIA-MEDIUM-444 — the route a claim actually ran on, read from the one
+    record of it: ``budget._reserve_native_runtime_attempt`` writes a
+    ``runtime_attempt_started`` row naming the claim and the provider before
+    every native dispatch, and a claim can carry more than one attempt (a
+    failover inside one dispatch), so the newest row is the route the claim
+    held when its lease ran out. A claim with no row never reached a route.
+    """
+    routed: dict[str, str] = {}
+    for row in attempt_rows:
+        details = row.get("details") if row.get("kind") == RUNTIME_ATTEMPT_STARTED_KIND else None
+        if isinstance(details, Mapping) and details.get("claim_id") and details.get("provider"):
+            routed[str(details["claim_id"])] = str(details["provider"])
+    return routed
+
+
 @dataclass(frozen=True)
 class Principal:
     """ARIA-MEDIUM-225 — who answered a seat: the agent AND the route.

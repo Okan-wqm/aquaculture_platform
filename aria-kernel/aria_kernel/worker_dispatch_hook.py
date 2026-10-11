@@ -303,7 +303,7 @@ def dispatch_one_pending_worker_assignment(
     governance_count = 0
     try:
         claim = claim_assignment(
-            assignment_id=assignment_id, agent_id=agent_id,
+            assignment_id=assignment_id, agent_id=agent_id, provider=provider,
             lease_seconds=lease_seconds, base_dir=root,
         )
         # claim_assignment emits agent_claim_created (1) + the state-

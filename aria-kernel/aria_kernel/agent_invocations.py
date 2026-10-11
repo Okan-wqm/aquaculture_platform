@@ -6782,17 +6782,28 @@ def reap_stale_claims(
             request_id = str(claim_event.get("request_id") or "")
             agent_id = claim_event.get("agent_id")
             if lease_clock is None:
+                from .independence_check import attempt_providers_by_claim
                 from .provider_clock import lease_expiry_reason, provider_clock, role_head_providers
 
                 lease_clock = provider_clock(root)
                 request_roles = {str(row.get("request_id")): str(row.get("role") or "")
                                  for row in load_segments(root, "agent_invocation_requests")}
-            # ARIA-HIGH-367 (M1) — the one lease-outage rule, over the head of
-            # the role's ladder (the worker lane asks it too, ARIA-MEDIUM-437).
+                governance_path = root / "governance.jsonl"
+                routed = attempt_providers_by_claim(
+                    load_declared_jsonl(governance_path, expected_surface="tools_governance")
+                    if governance_path.is_file() else [])
+            # ARIA-HIGH-367 (M1) — the one lease-outage rule (the worker lane
+            # asks it too, ARIA-MEDIUM-437). ARIA-MEDIUM-444 — over the
+            # provider the claim RAN on (its newest native attempt): since
+            # ARIA-HIGH-434 a Claude-headed seat runs on Z.ai while Claude is
+            # cooled, and the head's outage waived a Z.ai run that hung, so it
+            # was re-run uncharged for as long as Claude stayed out. A claim
+            # that never reached a route waited on its ladder: the head.
             role = request_roles.get(request_id, "")
             reason = lease_expiry_reason(
                 lease_clock, _parse_iso(claim_event.get("claimed_at")), expires,
-                role_head_providers([role]) if role else frozenset(),
+                frozenset({routed[cid]}) if cid in routed
+                else role_head_providers([role]) if role else frozenset(),
             )
             stale_row = {
                 "schema_version": 1,

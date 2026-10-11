@@ -118,6 +118,7 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "fix docs", "-m", "Closes-Pressure: PE-docs-1"], cwd=worktree, text=True, capture_output=True, check=True)
 
         claim = claim_assignment(
+            provider="anthropic",
             assignment_id=request["assignment_id"],
             agent_id="phase3-test-worker",
             base_dir=self.tools_dir,
@@ -177,6 +178,7 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
         wrong = self.repo / "not-the-worktree"
         wrong.mkdir()
         claim = claim_assignment(
+            provider="anthropic",
             assignment_id=request["assignment_id"],
             agent_id="phase3-test-worker",
             base_dir=self.tools_dir,

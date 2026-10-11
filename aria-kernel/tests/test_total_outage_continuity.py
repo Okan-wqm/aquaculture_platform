@@ -317,8 +317,9 @@ class TenDaysWithoutAProviderLoseNothing(unittest.TestCase):
             if day == 8:
                 # A worker claims in a lapsed back-off; its runner is killed with the claim held.
                 with _at(midnight + timedelta(hours=2, minutes=20)):
-                    claim_assignment(assignment_id=_WORKER, agent_id="aria-worker", lease_seconds=1800,
-                                     base_dir=s.tools)
+                    # The route `worker_route` takes: the head, its back-off lapsed.
+                    claim_assignment(assignment_id=_WORKER, agent_id="aria-worker", provider="anthropic",
+                                     lease_seconds=1800, base_dir=s.tools)
             s.drain(midnight + timedelta(hours=2, minutes=30))
             cls.cycles.append(s.cycle(midnight + timedelta(hours=17, minutes=15), day=day))
             s.drain(midnight + timedelta(hours=17, minutes=45))
@@ -354,8 +355,8 @@ class TenDaysWithoutAProviderLoseNothing(unittest.TestCase):
                  if row.get("convergence_id") == _PLAN], role="challenger_plan", base_dir=s.tools)
             r["queue_live"] = [row["queue_item_id"] for row in read_pending(s.tools)]
             r["projection"] = admit_request("next_cycle_queue.projection", "maintenance_utility", base_dir=s.tools)
-            r["worker_claim"] = claim_assignment(assignment_id=_WORKER, agent_id="aria-worker", lease_seconds=1800,
-                                                 base_dir=s.tools)["claim_id"]
+            r["worker_claim"] = claim_assignment(assignment_id=_WORKER, agent_id="aria-worker", provider="anthropic",
+                                                 lease_seconds=1800, base_dir=s.tools)["claim_id"]
             r["worker_expiries"] = _lease_expiry_count(s.tools, _WORKER)
             r["breaker"] = circuit_breaker.current_state(s.tools)
             r["ages"] = {role: provider_available_age(t0, after, roles=[role], base_dir=s.tools)

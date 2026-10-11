@@ -570,6 +570,7 @@ def claim_assignment(
     *,
     assignment_id: str,
     agent_id: str,
+    provider: str,
     lease_seconds: int = DEFAULT_LEASE_SECONDS,
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
@@ -587,11 +588,19 @@ def claim_assignment(
     is what gets persisted to claims.jsonl. Caller MUST forward the
     raw token via env var (ARIA_LEASE_TOKEN) per the lease-token
     redaction discipline.
+
+    ARIA-MEDIUM-444 — ``provider`` is the rung the dispatch routed this
+    claim to (``runtime_profiles.worker_route``), recorded on the row so
+    the lease reaper judges an expiry by the provider the work ran on.
+    Required: a claim without its route is how the reaper came to blame
+    the ladder's head for a Z.ai run that hung.
     """
     if lease_seconds <= 0:
         raise GovernanceError("lease_seconds must be positive")
     if not agent_id or not agent_id.strip():
         raise GovernanceError("agent_id is required")
+    if not provider or not provider.strip():
+        raise GovernanceError("provider is required")
     root = ensure_tools_dir(base_dir)
     claims_path = _claims_path(root)
     with state_transaction([claims_path]) as transaction:
@@ -627,6 +636,7 @@ def claim_assignment(
             "assignment_id": assignment_id,
             "pressure_event_id": (assignment or {}).get("pressure_event_id"),
             "agent_id": agent_id,
+            "provider": provider,
             "lease_token_hash": _hash_lease_token(lease_token),
             "lease_seconds": lease_seconds,
             "recorded_at": _iso(now),
@@ -658,7 +668,7 @@ def claim_assignment(
         root, "dispatch_claim_created",
         {
             "claim_id": cid, "assignment_id": assignment_id,
-            "agent_id": agent_id, "lease_expires_at": _iso(expires),
+            "agent_id": agent_id, "provider": provider, "lease_expires_at": _iso(expires),
         },
     )
     return {**row, "lease_token": lease_token}
@@ -1077,13 +1087,20 @@ def _worker_lease_reason(
 ) -> str:
     """``lease_expired``, or the outage reason when the worker's provider was out (ARIA-MEDIUM-437).
 
-    The providers are the head of the ladder the assignment's target is
-    routed over, read by the hook's own resolver (``worker_ladder_for_target``)
-    so the reaper and the dispatch can never name different agents' files.
+    ARIA-MEDIUM-444 — the provider is the one the claim was routed to, as its
+    writer recorded it (``claim_assignment``): since ARIA-HIGH-434 a worker
+    runs on Z.ai while Claude is cooled, and judging its lease by the head
+    waived a Z.ai run that hung for as long as Claude stayed out. A claim
+    written before the route was recorded keeps the rule it was written
+    under: the head of the ladder its target is routed over, read by the
+    hook's own resolver (``worker_ladder_for_target``).
     """
     from .provider_clock import lease_expiry_reason
     from .worker_dispatch_hook import worker_ladder_for_target
 
+    routed = str(claimed.get("provider") or "")
+    if routed:
+        return lease_expiry_reason(clock, _parse_iso(claimed.get("claimed_at")), expires, frozenset({routed}))
     target = str(assignment.get("target_agent") or "")
     if target not in heads:
         heads[target] = frozenset(worker_ladder_for_target(target, base_dir=root)[:1]) if target else frozenset()

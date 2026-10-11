@@ -394,3 +394,62 @@ Tests:
   - `hooks.run_hook("pre-tool")` refuses the same payloads in the Claude CLI's shape.
 
 All of them fail on HEAD (`allow command_policy_allow`; "BashDenylistHit not raised").
+
+## ARIA-MEDIUM-444 — a lease is judged by the provider the claim ran on
+
+Raised by zaiwriter's review of 96f233284 and confirmed here.
+
+### Symptom
+
+Both lease reapers asked the lease rule over the head of the ladder:
+
+- the agent lane: `role_head_providers([role])` (`agent_invocations.py:6789-6795`);
+- the worker lane: `worker_ladder_for_target(target)[:1]` (`worker_dispatch.py:1074-1091`).
+
+Since ARIA-HIGH-434, a Claude-headed seat and the worker run on Z.ai while Claude is cooled. A
+Z.ai run that hung until its lease expired was therefore classified
+`lease_expired_during_provider_outage:anthropic`: harness-class and uncharged. The work was
+requeued and run again on Z.ai, without bound, for as long as Anthropic stayed out, spending Z.ai
+quota on a run that hangs. Nothing was lost, but the lease budget never stopped the loop.
+
+### Fix (tier 1: the claim's writer records its route)
+
+- **Worker lane.** `worker_dispatch.claim_assignment` takes a required `provider`: the rung
+  `worker_route` chose. It is recorded on the claimed row and on `dispatch_claim_created`. The
+  hook passes its route's provider.
+- **Agent lane.** No new writer is needed. Every native attempt already records its claim and
+  provider (`budget._reserve_native_runtime_attempt` → `runtime_attempt_started`). The reaper
+  reads the claim's newest attempt through `independence_check.attempt_providers_by_claim`,
+  beside the reader of executed routes.
+- **Both reapers** ask `provider_clock.lease_expiry_reason` over that provider.
+- **A claim with no recorded route** keeps the rule it was written under: the ladder head. That
+  is either a claim that never reached a route (no attempt started), or a worker row written
+  before the field existed.
+
+Tests (red on 8c575da19):
+
+- `tests/test_outage_learning_hygiene.py::M444TheLeaseIsJudgedByTheProviderTheClaimRanOn`:
+  - a Z.ai run that hung while Claude was out is charged;
+  - a run whose newest attempt was on the provider the outage hit is still waived;
+  - the M1 cases still hold;
+  - the fixture row is the writer's shape.
+- `tests/test_wip_gate.py`:
+  - a Z.ai worker that hung while the head was out is charged;
+  - the claim's writer requires the route and records it.
+
+### Not a gap: the partial-outage budgets
+
+The step successors (`step_request.py:110`), the queue-item re-mint lineage
+(`autonomy_orchestrator.py:320`, `anchor_stale_effects.py:137`) and the panel reopens
+(`human_required_adjudication.py:1253`) count an `anchor_expired_during_provider_outage:`
+expiry. This is correct. The tag is written only on the path where the request's
+provider-available age already exceeds the window (`agent_invocations.py:3399-3404`). So a tagged
+expiry means the request had its full window with the provider available, and only an outage
+overlapped it.
+
+Measured on a private store with the real mint, cooldown writer and sweep (window 3 d; Claude out
+from day 2 to day 12; Z.ai never out):
+
+- The Z.ai-headed requests expired on day 3, untagged.
+- The Claude-headed requests did not expire during the outage. They expired on day 13, tagged,
+  with an available age of exactly 3 d.

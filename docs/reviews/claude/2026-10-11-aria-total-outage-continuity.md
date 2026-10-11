@@ -185,3 +185,24 @@ plain reader. The paths come from `SEGMENTED_LEDGERS`. The pin follows each path
 names it is bound to, comprehension targets, module tables and same-module helpers. Readers that
 branch on the registry are allowed. The pin flags HEAD's `plan_convergence.py:1183`, and its
 own shape tests keep it from going blind.
+
+## ARIA-LOW-439 — the in-flight reader judged staleness on the wall clock
+
+### Symptom
+
+`in_flight_plan_id` skipped a plan older than 72 h by wall time (`plan_convergence.py:1223`).
+The adoption beside it judges provider-available time (`:1178-1200`). Past 72 h of outage the
+plan source therefore saw no plan in flight while the orchestrator adopted one. The plan source
+then ran the full detector scan (`cycle_phases/plan_source.py:229-237`) and recorded the
+admission-lessons half-open probe (`:290-291`; `PROBE_INTERVAL` is 7 days) on a seed that the
+adopted plan made moot.
+
+### Fix (tier 1: one predicate)
+
+`plan_convergence._plan_stall` is the staleness rule both readers ask. The adoption abandons
+what it returns. `in_flight_plan_id` only skips it.
+
+Tests (`tests/test_provider_outage_timers.py::E439TheInFlightReaderAsksTheAdoptionsQuestion`):
+
+- the reader and the adoption agree on a plan that a 4-day outage holds (failed on HEAD);
+- the reader skips a plan that is really stalled and never abandons it.

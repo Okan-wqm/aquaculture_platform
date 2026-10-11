@@ -211,6 +211,37 @@ class B1APlanWaitingThroughAnOutageIsAdoptedNotAbandoned(_Store):
         self.assertGreater(abandonment["stall"]["provider_available_hours"], 72)
 
 
+class E439TheInFlightReaderAsksTheAdoptionsQuestion(_Store):
+    """ARIA-LOW-439 — ``in_flight_plan_id`` and the adoption read one staleness rule.
+
+    Before: the reader measured the wall clock while the adoption beside it
+    measured provider-available time, so past 72 h of outage the plan source
+    saw no plan in flight, ran the full detector scan and spent the
+    admission-lessons probe on a seed the adopted plan made moot.
+    """
+
+    def _started(self) -> None:
+        start_plan(plan_id="plan-o", initial_revision_id="rev-0", plan_content=_plan_content(), base_dir=self.tools)
+        self.release(self.mint(), "provider_quota_unavailable:anthropic", self.t0 + timedelta(minutes=1))
+
+    def test_a_plan_the_outage_holds_is_in_flight_for_both_readers(self) -> None:
+        from aria_kernel.plan_convergence import in_flight_plan_id
+
+        self._started()
+        self.outage(self.t0 + timedelta(minutes=1), None)
+        with _Clock(self.t0 + timedelta(days=4)):
+            self.assertEqual(in_flight_plan_id(base_dir=self.tools), "plan-o")
+            self.assertEqual(resume_candidate_plan_id(base_dir=self.tools), "plan-o")
+
+    def test_the_reader_skips_a_stalled_plan_and_never_abandons_it(self) -> None:
+        from aria_kernel.plan_convergence import in_flight_plan_id
+
+        self._started()
+        with _Clock(self.t0 + timedelta(days=3, hours=2)):
+            self.assertIsNone(in_flight_plan_id(base_dir=self.tools))
+        self.assertEqual(fold_plan_state(plan_id="plan-o", base_dir=self.tools)["state"], "DRAFT")
+
+
 class B3ARequestWaitingThroughAnOutageKeepsItsAnchor(_Store):
     def _bound(self) -> int:
         from aria_kernel.agent_invocations import _anchor_max_age_seconds

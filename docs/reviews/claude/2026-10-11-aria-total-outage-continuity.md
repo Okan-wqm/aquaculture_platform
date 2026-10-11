@@ -453,3 +453,26 @@ from day 2 to day 12; Z.ai never out):
 - The Z.ai-headed requests expired on day 3, untagged.
 - The Claude-headed requests did not expire during the outage. They expired on day 13, tagged,
   with an available age of exactly 3 d.
+
+## ARIA-LOW-445 — the spawn lane records no claim route (open)
+
+ARIA-MEDIUM-444 closed the native lane and the worker lane. The legacy spawn lane (adaptive
+runtime policy off) still has no route record per claim, so `attempt_providers_by_claim` finds
+nothing for it. The reaper then falls back to the ladder head. A spawn-lane run on the Z.ai rung
+that hangs while Claude is cooled or logged out is waived as an Anthropic outage and requeued
+uncharged for as long as Claude stays out. Nothing is lost; the cost is Z.ai quota.
+
+Writing `runtime_attempt_started` from `invoke_claude_cli`'s rung is not the fix. That writer is
+the native admission's record:
+
+- it refuses the spawn lane's metered admission (`budget.py:545-611`);
+- it validates claim dispatch authority under the ledger lock, and `invoke_claude_cli` holds none
+  of the hashes or the lease token (`ci_executor.py:1902-1960`);
+- its readers reconcile it against native results (`independence_check.py:191-205`,
+  `ci_executor.py:3859`).
+
+The fix is one lane-neutral route record per claim, read by `attempt_providers_by_claim`.
+
+Production runs the native lane (`aria-config/genesis_policy.json`, adaptive runtime enabled on the
+managed subscription), so this needs the policy turned off to occur. Owner claude, deadline
+2026-10-31.

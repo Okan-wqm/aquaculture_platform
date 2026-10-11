@@ -14,7 +14,8 @@
  *
  * Authz: üç rol; MODULE_USER yalnız atandığı sitenin kapsamını okuyabilir
  * (fail-closed) — tenant-geneli fallback kapsamı ('tenant') site ataması
- * yapılmamış scoped kullanıcıya AÇILMAZ.
+ * yapılmamış scoped kullanıcıya AÇILMAZ. Site'li istekte site satırı yoksa
+ * D-9 okuma fallback'i tenant kapsamına iner (poolScope payload'da görünür).
  *
  * @module FeedingProtocol/Resolvers
  */
@@ -99,11 +100,25 @@ export class FeedForecastResolver {
     const scopeKey = siteId ?? TENANT_SCOPE_KEY;
     const horizon = Math.max(1, Math.min(horizonDays ?? DEFAULT_HORIZON_DAYS, MAX_HORIZON_DAYS));
 
-    const snapshot = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
+    // Önce istenen kapsam denenir; site satırı YOKSA ve istek site'li geldiyse
+    // D-9 tenant fallback kapsamına inilir.
+    let snapshot = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
       queryRunner.manager.findOne(FeedingForecastSnapshot, {
         where: { tenantId, siteScopeKey: scopeKey },
       }),
     );
+    if (!snapshot && siteId) {
+      // D-9 (okuma tarafı): storage lokasyonu OLMAYAN sitenin atamaları yalnız
+      // tenant kapsamlı snapshot üretir — site satırı hiç yazılmaz. FE her zaman
+      // siteId gönderdiğinden bu koşuda null dönmek forecast'i tamamen gizlerdi.
+      // Fail-closed site kapısı yukarıda geçildi; kapsam değişimi payload'da
+      // poolScope: 'TENANT' olarak görünür durumda kalır.
+      snapshot = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
+        queryRunner.manager.findOne(FeedingForecastSnapshot, {
+          where: { tenantId, siteScopeKey: TENANT_SCOPE_KEY },
+        }),
+      );
+    }
     if (!snapshot) return null;
     return sliceSnapshotToHorizon(snapshot, horizon);
   }

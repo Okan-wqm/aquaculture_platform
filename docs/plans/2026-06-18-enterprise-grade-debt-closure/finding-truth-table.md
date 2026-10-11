@@ -248,17 +248,19 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-<<<<<<< HEAD
-=======
-| `FARM-CRITICAL-425`   | IN-PROGRESS    | 2026-10-11   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-405`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-406`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-407`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-408`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-409`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-410`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
-| `FARM-CRITICAL-411`   | IN-PROGRESS    | 2026-10-10   | zcode                      | already-fixed-needs-close |
->>>>>>> 291d2adb8 (fix(farm): specialist pass — gateway assertion closure, batch/SQL/date integrity, WQ idempotency, API contracts, SPA preload)
+
+# <<<<<<< HEAD
+
+| `FARM-CRITICAL-425` | IN-PROGRESS | 2026-10-11 | zcode | already-fixed-needs-close |
+| `FARM-CRITICAL-405` | IN-PROGRESS | 2026-10-10 | zcode | already-fixed-needs-close |
+| `FARM-CRITICAL-406` | IN-PROGRESS | 2026-10-10 | zcode | already-fixed-needs-close |
+| `FARM-CRITICAL-407` | IN-PROGRESS | 2026-10-10 | zcode | already-fixed-needs-close |
+| `FARM-CRITICAL-408` | IN-PROGRESS | 2026-10-10 | zcode | already-fixed-needs-close |
+| `FARM-CRITICAL-409` | IN-PROGRESS | 2026-10-10 | zcode | already-fixed-needs-close |
+| `FARM-CRITICAL-410` | IN-PROGRESS | 2026-10-10 | zcode | already-fixed-needs-close |
+| `FARM-CRITICAL-411` | IN-PROGRESS | 2026-10-10 | zcode | already-fixed-needs-close |
+
+> > > > > > > 291d2adb8 (fix(farm): specialist pass — gateway assertion closure, batch/SQL/date integrity, WQ idempotency, API contracts, SPA preload)
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 Updated 2026-10-10 (farm E2E campaign, PR #1951): seven CRITICALs registered

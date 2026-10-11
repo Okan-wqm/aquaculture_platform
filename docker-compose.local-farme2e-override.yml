@@ -1,0 +1,23 @@
+services:
+  farm-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:local-farme2e-2
+  farm-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:local-farme2e-2
+  shell:
+    image: ghcr.io/okan-wqm/aquaculture_platform/shell:local-farme2e-2
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - /var/aqua-saas/infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d:ro
+      - /var/aqua-saas/certs/postgres/postgres-cert.pem:/var/lib/postgresql/ssl/server.crt:ro
+      - /var/aqua-saas/certs/postgres/postgres-key.pem:/var/lib/postgresql/ssl/server.key
+      - /var/aqua-saas/certs/postgres/ca-cert.pem:/var/lib/postgresql/ssl/root.crt:ro
+      - /var/aqua-saas/certs/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro
+  nats:
+    volumes:
+      - nats_data:/data
+      - /var/aqua-saas/infrastructure/docker/nats/nats-tls-enabled.conf:/etc/nats/nats-tls.conf
+      - /var/aqua-saas/.worktrees/fix-farm-e2e/infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf
+      - /var/aqua-saas/certs/nats/ca-cert.pem:/etc/nats/certs/ca-cert.pem
+      - /var/aqua-saas/certs/nats/nats-cert.pem:/etc/nats/certs/nats-cert.pem
+      - /var/aqua-saas/certs/nats/nats-key.pem:/etc/nats/certs/nats-key.pem

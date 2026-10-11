@@ -205,7 +205,11 @@ const FeedingPage: React.FC = () => {
   // bazlıdır; site seçilmediyse ilk site okunur (ForecastTab ile aynı kural).
   // Siteler yüklenmeden sorgu ATILMAZ (enabled — FARM-MEDIUM-232).
   const kpiSiteId = selectedSiteId || sitesData?.items?.[0]?.id;
-  const { data: kpiForecast, isError: kpiForecastFailed } = useProtocolFeedForecast(kpiSiteId, 30, {
+  const {
+    data: kpiForecast,
+    isError: kpiForecastFailed,
+    isLoading: kpiForecastLoading,
+  } = useProtocolFeedForecast(kpiSiteId, 30, {
     enabled: !!kpiSiteId,
   });
 
@@ -228,6 +232,14 @@ const FeedingPage: React.FC = () => {
     }, 0) ?? 0;
 
   const alertCount = kpiForecast?.alerts?.length ?? 0;
+
+  /**
+   * "Veri yok" yanıltıcı sıfırdan AYRILIR (FARM-MEDIUM-233 null-durumu):
+   * sorgu başarılı döndü ama snapshot null — "0 kg / 0 feed types / All
+   * good" boş veriyle yanlış 'her şey yolunda' sinyali verirdi. Yüklenme
+   * (undefined + loading) ve hata halleri bu bayrağa girmez.
+   */
+  const kpiNoData = !kpiForecastLoading && !kpiForecastFailed && kpiForecast == null;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
@@ -291,14 +303,17 @@ const FeedingPage: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Today's Feed</p>
-                {/* Hata durumunda 0 uydurulmaz — '—' + açık not (FARM-MEDIUM-233). */}
+                {/* Hata durumunda 0 uydurulmaz — '—' + açık not (FARM-MEDIUM-233).
+                    Veri yok (null snapshot) aynı dürüstlüğü taşır. */}
                 <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-                  {kpiForecastFailed ? '—' : `${todaysFeed.toFixed(0)} kg`}
+                  {kpiForecastFailed || kpiNoData ? '—' : `${todaysFeed.toFixed(0)} kg`}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {kpiForecastFailed
                     ? 'Forecast unavailable'
-                    : `${totalBiomass > 0 ? ((todaysFeed / totalBiomass) * 100).toFixed(2) : 0}% of biomass`}
+                    : kpiNoData
+                      ? t('chart.noData')
+                      : `${totalBiomass > 0 ? ((todaysFeed / totalBiomass) * 100).toFixed(2) : 0}% of biomass`}
                 </p>
               </div>
             </div>
@@ -313,14 +328,16 @@ const FeedingPage: React.FC = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Feed Stock</p>
                 <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-                  {kpiForecastFailed
+                  {kpiForecastFailed || kpiNoData
                     ? '—'
                     : `${((kpiForecast?.perFeed?.reduce((sum, feed) => sum + feed.currentStockKg, 0) ?? 0) / 1000).toFixed(1)} t`}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {kpiForecastFailed
                     ? 'Forecast unavailable'
-                    : `${kpiForecast?.perFeed?.length ?? 0} feed types`}
+                    : kpiNoData
+                      ? t('chart.noData')
+                      : `${kpiForecast?.perFeed?.length ?? 0} feed types`}
                 </p>
               </div>
             </div>
@@ -344,14 +361,16 @@ const FeedingPage: React.FC = () => {
                 <p
                   className={`text-2xl font-semibold ${alertCount > 0 ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
                 >
-                  {kpiForecastFailed ? '—' : alertCount}
+                  {kpiForecastFailed || kpiNoData ? '—' : alertCount}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {kpiForecastFailed
                     ? 'Forecast unavailable'
-                    : alertCount === 0
-                      ? 'All good'
-                      : 'Action required'}
+                    : kpiNoData
+                      ? t('chart.noData')
+                      : alertCount === 0
+                        ? 'All good'
+                        : 'Action required'}
                 </p>
               </div>
             </div>

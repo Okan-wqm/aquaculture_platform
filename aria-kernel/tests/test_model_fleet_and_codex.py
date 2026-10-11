@@ -170,6 +170,59 @@ class MixedAssignment(unittest.TestCase):
         self.assertIsNone(provider_for_model("unknown-model"))
 
 
+class TheZaiModelOverrideIsZais(unittest.TestCase):
+    """ARIA-MEDIUM-442 — the tier the routes dispatch under ARIA_ZAI_MODEL is
+    the tier every lane binds back to Z.ai (`model_fleet.provider_models`).
+    Before, only the literal default was bound: an override was nobody's
+    model, read as the managed Anthropic session's, sent to the claude
+    binary on the spawn and worker lanes and cooled under anthropic."""
+
+    def setUp(self) -> None:
+        import os
+
+        patcher = mock.patch.dict(os.environ, {"ARIA_ZAI_MODEL": "glm-5.4"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_override_and_the_default_are_both_zais(self) -> None:
+        import os
+
+        from aria_kernel.model_fleet import dispatching_provider_for_model
+
+        self.assertEqual((provider_for_model("glm-5.4"), provider_for_model("glm-5.3")), ("zai", "zai"))
+        self.assertEqual(dispatching_provider_for_model("glm-5.4"), "zai")
+        with mock.patch.dict(os.environ, {"ARIA_ZAI_MODEL": ""}):
+            self.assertIsNone(provider_for_model("glm-5.4"), "without the override the name is nobody's")
+        self.assertIsNone(provider_for_model("glm-5.4", environ={}), "the binding reads the environment it is given")
+
+    def test_every_lane_reads_the_override_as_zai(self) -> None:
+        import os
+
+        import ci_executor
+        import claude_runtime
+        from aria_kernel.agent_runtime_profile import AgentRuntimeProfile
+        from aria_kernel.runtime_profiles import routed_models, worker_route
+
+        self.assertEqual(routed_models("challenger_plan", "aria-challenger-planner", write_capable=False,
+                                       profile_model="opus", environ=os.environ, runtimes=("claude", "zai")),
+                         ("glm-5.4", "opus"))
+        self.assertEqual(ci_executor._provider_for_model("glm-5.4"), "zai", "the spawn lane's zai rung")
+        self.assertEqual(claude_runtime._model_provider("glm-5.4"), "zai")
+        with self.assertRaises(claude_runtime.ClaudePolicyViolation):
+            claude_runtime.assert_model_served_by_claude_runtime("glm-5.4")
+        exhausted = claude_runtime.ClaudeRunResult(returncode=1, stdout="", stderr="", final_message="",
+                                                   usage=None, events=(),
+                                                   credit_exhaustion={"signature": "zai_quota_refusal"})
+        with self.assertRaises(claude_runtime.ClaudeCreditExhausted) as raised:
+            claude_runtime.run_with_model_fallback(run=lambda model, effort: exhausted, model="glm-5.4",
+                                                   failover=None, effort="max", write_capable=True)
+        self.assertEqual(raised.exception.provider, "zai", "the override's exhaustion cools zai, not anthropic")
+        writer = AgentRuntimeProfile(agent_name="aria-worker", model="opus", effort="max", source="kernel_profile",
+                                     tools=("Read", "Edit", "Write", "Bash"), write_scope=("**",))
+        self.assertEqual(worker_route(writer, environ={**os.environ, "ARIA_ZAI_API_KEY_FILE": "/k", "PATH": ""},
+                                      cooled={"anthropic"}), ("zai", "glm-5.4"), "the worker lane's rung")
+
+
 class CodexBridge(unittest.TestCase):
     def test_managed_child_cannot_reach_disposable_host_process_root(self) -> None:
         import os

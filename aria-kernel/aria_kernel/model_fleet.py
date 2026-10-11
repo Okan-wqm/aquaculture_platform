@@ -239,10 +239,30 @@ def zai_provider() -> Provider:
     return next(provider for provider in _FLEET if provider.key == "zai")
 
 
-def provider_for_model(model: str) -> str | None:
-    """The provider key a model belongs to, or None when unlisted."""
+def provider_models(provider: Provider, environ: Mapping[str, str] | None = None) -> frozenset[str]:
+    """The models a provider's routes run on here: its default, and the operator's override.
+
+    ARIA-MEDIUM-442 — the set `provider_for_model` binds back to the
+    provider, so the tier `route_model` dispatches (`provider_model`: the
+    ARIA_ZAI_MODEL override, else glm-5.3) is the tier every lane reads as
+    Z.ai's. Before, only the literal default was bound: an override such as
+    glm-5.4 was nobody's model, `dispatching_provider_for_model` read it as
+    the managed Anthropic session's, and the spawn and worker lanes sent it
+    to the claude binary — and cooled anthropic on its exhaustion.
+    """
+    env = os.environ if environ is None else environ
+    return frozenset({provider.default_model, provider_model(provider, dict(env))})
+
+
+def provider_for_model(model: str, environ: Mapping[str, str] | None = None) -> str | None:
+    """The provider key a model belongs to, or None when unlisted.
+
+    Fleet order decides a name two providers would both claim (an override
+    naming another vendor's default is the operator's error, and the
+    earlier row keeps its own model).
+    """
     for provider in _FLEET:
-        if model == provider.default_model:
+        if model in provider_models(provider, environ):
             return provider.key
     return _MODEL_PROVIDER_ALIASES.get(model)
 

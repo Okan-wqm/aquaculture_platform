@@ -867,3 +867,42 @@ is up to 7 days for the seven-day window. The causes:
   - only the probe reached the vendor.
 
   On dfe4f63fb the test is red: the request is REQUEUED.
+
+## ARIA-MEDIUM-442 — an ARIA_ZAI_MODEL override is Z.ai's model (2026-10-11, wave 3)
+
+### Symptom
+
+- `model_fleet.route_model` gives a zai rung `provider_model(...)`, which is the operator's
+  `ARIA_ZAI_MODEL` or `glm-5.3`.
+- `model_fleet.provider_for_model` (`model_fleet.py:242`) bound only the literal default
+  `glm-5.3` to zai.
+- Under an override such as `glm-5.4`, the name was nobody's. `dispatching_provider_for_model`
+  (`:257`) read it as the managed Anthropic session's.
+- On the spawn lane (`ci_executor.py:2231`) and the worker lane (`worker_executor.py:325`), the
+  zai rung therefore went to `run_claude_exec`. An exhaustion on it was named, and cooled, under
+  anthropic (`claude_runtime._model_provider`).
+- The native lane dispatches on `route["runtime"]`, so it was not affected.
+- Whether production sets `ARIA_ZAI_MODEL` is UNVERIFIED: no workflow sets it, and the runner's
+  `.env` was not read.
+
+### Fix
+
+- `model_fleet.provider_models(provider, environ)` is the set a provider's routes run on here:
+  its default plus `provider_model`'s override.
+- `provider_for_model` binds a model through that set. Every reader goes through it
+  (`dispatching_provider_for_model`, `_model_provider`, the executors, `worker_route`), so the
+  tier a route dispatches is the tier that names its provider.
+- Fleet order decides a name two rows would both claim. An override that names another vendor's
+  default is the operator's error, and the earlier row keeps its own model.
+
+### Tests (`test_model_fleet_and_codex.TheZaiModelOverrideIsZais`, red on 1b84299bd)
+
+With `ARIA_ZAI_MODEL=glm-5.4`:
+
+- `glm-5.4` and `glm-5.3` are both zai, and without the override `glm-5.4` is nobody's.
+- On the spawn lane, `routed_models` gives `glm-5.4` first, and `ci_executor._provider_for_model`
+  says zai.
+- `claude_runtime` refuses to serve the model.
+- An exhaustion on the override raises under provider zai.
+- The worker lane's `worker_route` is `("zai", "glm-5.4")` while anthropic is cooled.
+- Import-graph tiers 0-2 (11 modules): 217 tests OK.

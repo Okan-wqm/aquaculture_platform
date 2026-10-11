@@ -336,3 +336,61 @@ Asserted after the restore:
 
 Red/green: all 12 tests fail on 7eb8bef99 with dfe4f63fb's routing applied (no continuity fix),
 and all 12 pass with the six fixes.
+
+## ARIA-HIGH-443 — the shared Bash gate read a newline-separated command as one argv
+
+Found by continuity's adversarial review of dfe4f63fb (ARIA-HIGH-434). The gate is shared, so the
+defect is older than that commit: the Claude path's PreToolUse hook reads the same argv.
+
+### Symptom
+
+- `command_policy.argv_of` is `shlex.split`. It reads an unquoted newline as whitespace
+  (`command_policy.py:119-125`).
+- `implementation_safety.shell_control_operator` lists `"\n"` among its operators, but its lexer
+  (`whitespace_split`) never yields a newline token, so neither path saw one.
+  `shell_control_operator(["git status\nprintenv"])` returned None, while `&&` was caught.
+- The hook (`hooks._bash_argv`) gates that argv. The Z.ai room runs the raw string under `bash -c`
+  (`tools/aria-poc/zai_tool_loop.py:410`), and bash runs every line.
+
+Reproduced with the real loop, the real hook, real bwrap and a scripted vendor. Each of these was
+recorded `allow command_policy_allow` and ran:
+
+| Command                            | What happened                           |
+| ---------------------------------- | --------------------------------------- |
+| `git status\nprintenv`             | ran                                     |
+| `git status\nchmod 777 apps`       | `apps` became `0o40777`                 |
+| `git status\npython3 -c …`         | ran                                     |
+| `git status\ncat /proc/1/environ`  | ran                                     |
+| `git status\ngit push origin HEAD` | ran, stopped only by the missing remote |
+
+The room's own mitigations held: no network, kernel-enforced read-only mounts, and no secrets in
+its environment.
+
+ANSI-C quoting (`$'…'`) has the same class of gap. It closes its quote where shlex does not:
+`$'\''` is one quote character. So `git status $'\'' && printenv #'` hid a real `&&` from the
+token check.
+
+### Fix (tier 1: a line bash runs as several commands is never one argv)
+
+- `command_policy.unquoted_line_break` is the one quote-aware scanner. A single-quoted span is
+  literal. A backslash takes the next character, so a backslash-newline is a continuation, not a
+  break. An unquoted `#` at a word start comments out the rest of its line, quotes included, and
+  the break that ends the comment is still a break. Trailing whitespace is not a break.
+- `argv_of` keeps such a line as ONE token, and so a line carrying `$'`. This is the same rule it
+  already applied to an unlexable line.
+- `shell_control_operator` refuses an unquoted `\n` / `\r` by name, and `$'` alongside the
+  substitution markers, the way it refuses `&&` and `;`.
+- A line break inside a quoted commit message stays data.
+
+Tests:
+
+- `tests/test_sandbox_and_perimeter_hardening.py`:
+  - the chaining cases (the three repros, CRLF, a quote inside a comment, both `$'` shapes);
+  - the operator detector over `argv_of`'s view of the line;
+  - quoted-newline messages that stay allowed.
+- `tests/test_zai_tool_loop.py::ALineBreakIsACommandSeparator`:
+  - the room with real bwrap refuses each repro by the hook's own verdict, and none ran (the mode
+    of `apps` is unchanged, and no environment reached the vendor);
+  - `hooks.run_hook("pre-tool")` refuses the same payloads in the Claude CLI's shape.
+
+All of them fail on HEAD (`allow command_policy_allow`; "BashDenylistHit not raised").

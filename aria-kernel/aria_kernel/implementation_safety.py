@@ -459,8 +459,10 @@ _SHELL_OPERATOR_TOKENS: frozenset[str] = frozenset({
     "&&", "||", ";", ";;", "|", "|&", "&", "\n", "(", ")", "<", ">", ">>", "<<",
 })
 # Command substitution survives shlex tokenization glued to its neighbours, so
-# it is matched as a substring rather than as a token.
-_SHELL_SUBSTITUTION_MARKERS: tuple[str, ...] = ("`", "$(", "${", "$[")
+# it is matched as a substring rather than as a token. ANSI-C quoting
+# (ARIA-HIGH-443) is matched alike: it closes its quote where no lexer here
+# would, so an operator it hides is invisible to the token check.
+_SHELL_SUBSTITUTION_MARKERS: tuple[str, ...] = ("`", "$(", "${", "$[", _command_policy.ANSI_C_QUOTE)
 
 
 def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
@@ -504,6 +506,12 @@ def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
     for marker in _SHELL_SUBSTITUTION_MARKERS:
         if marker in line:
             return marker
+    # ARIA-HIGH-443 — the lexer below reads a line break as whitespace; bash
+    # runs it as a separator. Quote-aware, so a break inside a quoted commit
+    # message stays data.
+    line_break = _command_policy.unquoted_line_break(line)
+    if line_break is not None:
+        return line_break
     lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     try:

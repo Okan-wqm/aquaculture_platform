@@ -271,6 +271,54 @@ class GoldenParityWithTheClaudeHook(_LoopFixture):
         self.assertEqual((result.tool_calls, result.refused_calls), (7, 5))
 
 
+# ARIA-HIGH-443 — each first line is an allowed command; bash -c runs the rest.
+_SMUGGLED_LINES = (
+    ("n-env", "git status\nprintenv"),
+    ("n-chmod", "git status\nchmod 777 apps"),
+    ("n-push", "git status\ngit push origin HEAD"),
+)
+
+
+class ALineBreakIsACommandSeparator(_LoopFixture):
+    """ARIA-HIGH-443 — the shared gate read `git status\\nprintenv` as one argv.
+
+    `command_policy.argv_of` (shlex) turned the newline into whitespace, the
+    operator detector never saw it, and the room's `bash -c` ran every line:
+    the environment printed, `apps` went 0o777, a push ran (refused only by
+    the missing remote). The same payload reached the Claude path's hook.
+    """
+
+    def test_the_room_refuses_each_smuggled_line_and_runs_none(self) -> None:
+        apps_mode = (self.repo / "apps").stat().st_mode
+        self.vendor.script = [
+            (200, _turn([(call_id, "Bash", {"command": command}) for call_id, command in _SMUGGLED_LINES], rid="r1")),
+            (200, _final("done", rid="r2")),
+        ]
+        result = self._loop()
+        rows = {row["tool_use_id"]: row for row in self._decisions()}
+        answers = self._tool_results()
+        for call_id, _command in _SMUGGLED_LINES:
+            with self.subTest(call=call_id):
+                self.assertEqual(rows[call_id]["decision"], "deny")
+                self.assertTrue(rows[call_id]["reason"].startswith("command_policy_deny:BashDenylistHit"),
+                                rows[call_id]["reason"])
+                self.assertEqual(answers[call_id]["content"], rows[call_id]["reason"])
+        self.assertEqual((result.tool_calls, result.refused_calls), (3, 3))
+        self.assertEqual((self.repo / "apps").stat().st_mode, apps_mode, "chmod never ran")
+        self.assertNotIn("PATH=", json.dumps(self.vendor.received), "printenv never ran")
+
+    def test_the_claude_hook_refuses_the_same_payloads(self) -> None:
+        for call_id, command in _SMUGGLED_LINES:
+            with self.subTest(call=call_id):
+                exit_code, stdout = run_hook("pre-tool", {
+                    "session_id": "cli", "tool_use_id": call_id, "hook_event_name": "PreToolUse",
+                    "tool_name": "Bash", "tool_input": {"command": command}},
+                    base_dir=self.tools, workspace_root=self.repo, request_id="AIR-zai-loop-1")
+                output = json.loads(stdout)["hookSpecificOutput"]
+                self.assertEqual(output["permissionDecision"], "deny", output)
+                self.assertTrue(output["permissionDecisionReason"].startswith("command_policy_deny:BashDenylistHit"))
+
+
 class TheRoomIsTheWritersRoom(_LoopFixture):
     def _room(self):
         from zai_tool_loop import _Room, room_policy

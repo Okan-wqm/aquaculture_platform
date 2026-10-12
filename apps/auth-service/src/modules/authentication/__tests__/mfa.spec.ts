@@ -10,6 +10,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';
 import { MfaService } from '../services/mfa.service';
+import { collaborator } from '@aquaculture/testing';
+import { PreAuthRlsFrameService } from '../services/pre-auth-rls-frame.service';
 import { TokenService } from '../services/token.service';
 
 // ============================================================================
@@ -104,6 +106,13 @@ const mockTokenService = {
   }),
 };
 
+const mockPreAuthRlsFrame = {
+  mintTokensForPrincipal: jest.fn(
+    (u: User, ipAddress?: string, userAgent?: string, options?: unknown) =>
+      mockTokenService.generateTokens(u, ipAddress, userAgent, options),
+  ),
+};
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -122,6 +131,7 @@ describe('MfaService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
+        { provide: PreAuthRlsFrameService, useValue: mockPreAuthRlsFrame },
       ],
     }).compile();
 
@@ -138,6 +148,7 @@ describe('MfaService', () => {
         } as unknown as ConfigService,
         mockAuditLogService as any,
         mockTokenService as any,
+        collaborator<PreAuthRlsFrameService>(mockPreAuthRlsFrame, 'preAuthRlsFrame'),
       );
 
     it('throws during production startup when MFA_ENCRYPTION_KEY is missing', () => {

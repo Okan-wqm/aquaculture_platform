@@ -41,6 +41,7 @@ import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
+import { PreAuthRlsFrameService } from '../services/pre-auth-rls-frame.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
@@ -117,6 +118,22 @@ function invitationQueryBuilder(row: Invitation | null): {
 
 const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
+// PRE-AUTH RLS FRAME double: delegates to the same mocked collaborators so
+// the wiring (operation names, mint arguments) stays asserted while the
+// frame's own contract lives in pre-auth-rls-frame.service.spec.ts.
+const preAuthRlsFrameMock = {
+  runPreAuthTokenFlow: jest.fn(
+    async <T>(_operation: string, work: () => Promise<T> | T): Promise<T> => work(),
+  ),
+  runTenantCredentialWrite: jest.fn(),
+  mintTokensForPrincipal: jest.fn((u: User, ipAddress?: string, userAgent?: string) => ({
+    accessToken: 'a',
+    refreshToken: 'r',
+    user: u,
+    __mintArgs: [ipAddress, userAgent],
+  })),
+};
+
 describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', () => {
   const actionTokenRepository = { findOne: jest.fn(), save: jest.fn() };
   const invitationRepository = { createQueryBuilder: jest.fn(), findOne: jest.fn() };
@@ -149,11 +166,14 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
   let service: AuthenticationService;
 
   beforeEach(async () => {
+    preAuthRlsFrameMock.runPreAuthTokenFlow.mockClear();
+    preAuthRlsFrameMock.mintTokensForPrincipal.mockClear();
     jest.clearAllMocks();
     const module = await Test.createTestingModule({
       providers: [
         AuthenticationService,
         { provide: ActionTokenResolver, useValue: resolver },
+        { provide: PreAuthRlsFrameService, useValue: preAuthRlsFrameMock },
         { provide: getRepositoryToken(User), useValue: userRepository },
         {
           provide: getRepositoryToken(RefreshToken),
@@ -405,6 +425,53 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
       });
       expect(token.status).toBe(ActionTokenStatus.CONSUMED);
       expect(transactionManager.save).toHaveBeenCalledWith(ActionToken, token);
+    });
+
+    it('runs link resolution and redemption inside the audited pre-auth frame', async () => {
+      actionTokenRepository.findOne.mockResolvedValue(actionToken());
+      invitationRepository.createQueryBuilder.mockImplementation(() =>
+        invitationQueryBuilder(invitation()),
+      );
+      userRepository.findOne.mockResolvedValue(user());
+
+      await service.validateInvitation(ACTION_TOKEN_ID);
+      expect(preAuthRlsFrameMock.runPreAuthTokenFlow).toHaveBeenCalledWith(
+        'invitation-validation',
+        expect.any(Function),
+      );
+
+      await service.acceptInvitation(ACTION_TOKEN_ID, 'NewPass123!');
+      expect(preAuthRlsFrameMock.runPreAuthTokenFlow).toHaveBeenCalledWith(
+        'invitation-redemption',
+        expect.any(Function),
+      );
+    });
+
+    it('re-loads the accepted principal and mints through the frame (not bare)', async () => {
+      const acceptedUser = user();
+      actionTokenRepository.findOne.mockResolvedValue(actionToken());
+      invitationRepository.createQueryBuilder.mockImplementation(() =>
+        invitationQueryBuilder(invitation()),
+      );
+      userRepository.findOne.mockResolvedValue(acceptedUser);
+
+      await service.acceptInvitation(
+        ACTION_TOKEN_ID,
+        'NewPass123!',
+        'Ada',
+        'Lovelace',
+        '10.0.0.9',
+        'jest-agent',
+      );
+
+      // The issuance fence needs the post-commit row (trigger-maintained
+      // credentialVersion advanced with the password write).
+      expect(userRepository.findOne).toHaveBeenCalledWith({ where: { id: USER_ID } });
+      expect(preAuthRlsFrameMock.mintTokensForPrincipal).toHaveBeenCalledWith(
+        acceptedUser,
+        '10.0.0.9',
+        'jest-agent',
+      );
     });
   });
 });

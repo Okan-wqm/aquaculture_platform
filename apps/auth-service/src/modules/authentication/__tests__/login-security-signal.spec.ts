@@ -25,7 +25,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DataSource } from 'typeorm';
+import { DataSource, type EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
@@ -40,6 +40,8 @@ import { OutboxPublisher } from '@platform/outbox';
 import { TimingSafeService } from '@aquaculture/backend-common/security';
 import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
+import { AuthPayload } from '../dto/auth-response.dto';
+import { PreAuthRlsFrameService } from '../services/pre-auth-rls-frame.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
@@ -117,6 +119,7 @@ async function build(user: User | null): Promise<Harness> {
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
+      { provide: PreAuthRlsFrameService, useValue: preAuthRlsFrameStub() },
       AuthenticationService,
       { provide: getRepositoryToken(User), useValue: userRepository },
       { provide: getRepositoryToken(RefreshToken), useValue: {} },
@@ -264,3 +267,28 @@ describe('a login fact leaves auth-service as a ledger row AND a signal (ADR-001
     );
   });
 });
+
+/** PRE-AUTH RLS FRAME double — pass-through; the wiring is asserted in the
+ * invitation/password-reset suites and the frame contract in its own spec. */
+function preAuthRlsFrameStub(): PreAuthRlsFrameService {
+  const frame = {
+    runPreAuthTokenFlow: async (_operation: string, work: () => Promise<unknown>) => work(),
+    runTenantCredentialWrite: async (
+      _tenantId: string,
+      work: (manager: EntityManager) => Promise<unknown>,
+    ) => work({} as EntityManager),
+    mintTokensForPrincipal: async (
+      user: User,
+      _ipAddress?: string,
+      _userAgent?: string,
+    ): Promise<AuthPayload> => ({
+      accessToken: '',
+      refreshToken: '',
+      user,
+      expiresIn: 0,
+      tokenType: 'Bearer',
+      redirectUrl: '',
+    }),
+  };
+  return frame as PreAuthRlsFrameService;
+}

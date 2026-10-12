@@ -47,6 +47,7 @@ import { UserModuleAssignment } from '../entities/user-module-assignment.entity'
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { ActionTokenResolver } from '../services/action-token-resolver.service';
+import { PreAuthRlsFrameService } from '../services/pre-auth-rls-frame.service';
 import {
   AuthenticationService,
   decodeRefreshTokenTransport,
@@ -404,6 +405,20 @@ describe('AuthenticationService', () => {
       }),
     );
 
+    // PRE-AUTH RLS FRAME double (contract in pre-auth-rls-frame.service.spec.ts).
+    const preAuthRlsFrameMock = {
+      runPreAuthTokenFlow: jest.fn(
+        async <T>(_operation: string, work: () => Promise<T> | T): Promise<T> => work(),
+      ),
+      runTenantCredentialWrite: jest.fn(
+        async <T>(_tenantId: string, work: (manager: unknown) => Promise<T>): Promise<T> =>
+          work(mockTransactionManager),
+      ),
+      mintTokensForPrincipal: jest.fn((u: User, ipAddress?: string, userAgent?: string) =>
+        mockTokenService.generateTokens(u, ipAddress, userAgent),
+      ),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
@@ -435,6 +450,7 @@ describe('AuthenticationService', () => {
         { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
+        { provide: PreAuthRlsFrameService, useValue: preAuthRlsFrameMock },
         {
           provide: DurableAccessTokenInvalidationService,
           useValue: mockDurableAccessTokenInvalidation,

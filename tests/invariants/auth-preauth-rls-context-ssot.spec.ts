@@ -169,7 +169,7 @@ describe('INVARIANT: authentication transactions and mints run inside an RLS fra
     for (const relative of files) {
       const src = readFileSync(resolve(AUTHENTICATION_DIR, relative), 'utf-8');
       // Frame spans: every approved primitive's call covers its argument list.
-      const frameSpans: ReadonlyArray<readonly [number, number]> = [];
+      const frameSpans: Array<readonly [number, number]> = [];
       for (const frame of APPROVED_FRAMES) {
         for (const m of src.matchAll(new RegExp(frame.replace('(', '\\('), 'g'))) {
           const open = src.indexOf('(', m.index);
@@ -218,7 +218,7 @@ describe('INVARIANT: authentication transactions and mints run inside an RLS fra
     const seen = new Set<string>();
     for (const relative of files) {
       const src = readFileSync(resolve(AUTHENTICATION_DIR, relative), 'utf-8');
-      const frameSpans: ReadonlyArray<readonly [number, number]> = [];
+      const frameSpans: Array<readonly [number, number]> = [];
       for (const frame of APPROVED_FRAMES) {
         for (const m of src.matchAll(new RegExp(frame.replace('(', '\\('), 'g'))) {
           const open = src.indexOf('(', m.index);

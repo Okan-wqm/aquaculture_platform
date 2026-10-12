@@ -129,7 +129,7 @@ interface AssignedSiteSnapshot {
   earliestExpiryEpochSeconds?: number;
 }
 
-interface GenerateTokensOptions {
+export interface GenerateTokensOptions {
   mfaVerified?: boolean;
   familyId?: string;
   rememberMe?: boolean;

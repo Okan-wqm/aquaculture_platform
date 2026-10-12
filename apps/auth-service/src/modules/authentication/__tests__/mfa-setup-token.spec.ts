@@ -11,6 +11,10 @@ import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';
 import { MfaResolver } from '../resolvers/mfa.resolver';
 import { MfaService } from '../services/mfa.service';
+import type { EntityManager } from 'typeorm';
+
+import { AuthPayload } from '../dto/auth-response.dto';
+import { PreAuthRlsFrameService } from '../services/pre-auth-rls-frame.service';
 import { TokenService } from '../services/token.service';
 
 /**
@@ -57,6 +61,7 @@ describe('MFA setup token (ADR-046)', () => {
         },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: { generateTokens: jest.fn() } },
+        { provide: PreAuthRlsFrameService, useValue: preAuthRlsFrameStub() },
       ],
     }).compile();
 
@@ -227,3 +232,28 @@ describe('MFA setup token (ADR-046)', () => {
     expect(typeof getJwtVerifyOptions).toBe('function');
   });
 });
+
+/** PRE-AUTH RLS FRAME double — pass-through; the wiring is asserted in the
+ * invitation/password-reset suites and the frame contract in its own spec. */
+function preAuthRlsFrameStub(): PreAuthRlsFrameService {
+  const frame = {
+    runPreAuthTokenFlow: async (_operation: string, work: () => Promise<unknown>) => work(),
+    runTenantCredentialWrite: async (
+      _tenantId: string,
+      work: (manager: EntityManager) => Promise<unknown>,
+    ) => work({} as EntityManager),
+    mintTokensForPrincipal: async (
+      user: User,
+      _ipAddress?: string,
+      _userAgent?: string,
+    ): Promise<AuthPayload> => ({
+      accessToken: '',
+      refreshToken: '',
+      user,
+      expiresIn: 0,
+      tokenType: 'Bearer',
+      redirectUrl: '',
+    }),
+  };
+  return frame as PreAuthRlsFrameService;
+}

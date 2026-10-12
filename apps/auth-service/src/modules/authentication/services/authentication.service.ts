@@ -76,6 +76,7 @@ import {
   type PostCommitSecurityEffect,
   settlePostCommitSecurityEffects,
 } from './post-commit-security-effects';
+import { PreAuthRlsFrameService } from './pre-auth-rls-frame.service';
 import { TokenService } from './token.service';
 import type { JwtPayload } from './token.service';
 
@@ -226,6 +227,11 @@ export class AuthenticationService {
     private readonly actionTokenResolver: ActionTokenResolver,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
+    // The RLS boundary for every pre-authentication flow (invitation and
+    // password-reset redemption, anonymous session mints). Injected rather
+    // than inlined so the auth-preauth-rls-context-ssot invariant has ONE
+    // audited API to enforce at every call site.
+    private readonly preAuthRlsFrame: PreAuthRlsFrameService,
     private readonly durableAccessTokenInvalidation: DurableAccessTokenInvalidationService,
     private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
     private readonly mfaService: MfaService,
@@ -916,73 +922,84 @@ export class AuthenticationService {
     firstName?: string,
     lastName?: string,
     ipAddress?: string,
+    userAgent?: string,
   ): Promise<AuthPayload> {
+    // PRE-AUTH RLS FRAME: the link segment IS the credential, so its
+    // resolution and redemption are cross-tenant by construction. Under the
+    // forced tenant_isolation_policy an anonymous caller sets no
+    // app.current_tenant, and the auth.action_tokens / auth.invitations
+    // reads below returned ZERO rows — every invitation rendered "invalid"
+    // (the 2026-10-12 outage). The audited bypass is the same primitive the
+    // refresh-token rotation uses; the transaction is opened INSIDE the
+    // callback so the pool checkout lands inside the bypass frame.
     // Execute all reads + validation + writes inside a single transaction
-    const result = await this.dataSource.transaction(async (manager) => {
-      // SEC-HIGH-158: the URL segment is resolved through the ONE resolver
-      // (ActionToken row id first, legacy raw token second) — the same path
-      // validateInvitation reads, so the two can no longer disagree.
-      const { actionToken, invitation } = await this.loadInvitationForSegment(
-        manager,
-        token,
-        'pessimistic_write',
-      );
+    const result = await this.preAuthRlsFrame.runPreAuthTokenFlow('invitation-redemption', () =>
+      this.dataSource.transaction(async (manager) => {
+        // SEC-HIGH-158: the URL segment is resolved through the ONE resolver
+        // (ActionToken row id first, legacy raw token second) — the same path
+        // validateInvitation reads, so the two can no longer disagree.
+        const { actionToken, invitation } = await this.loadInvitationForSegment(
+          manager,
+          token,
+          'pessimistic_write',
+        );
 
-      if (actionToken && !actionToken.isActive()) {
-        throw new BadRequestException('Invalid invitation token');
-      }
-
-      if (!invitation) {
-        throw new BadRequestException('Invalid invitation token');
-      }
-
-      if (!invitation.canBeAccepted()) {
-        if (invitation.isExpired()) {
-          throw new BadRequestException('Invitation has expired');
+        if (actionToken && !actionToken.isActive()) {
+          throw new BadRequestException('Invalid invitation token');
         }
-        throw new BadRequestException('Invitation cannot be accepted');
-      }
 
-      // Find user by invitation token hash (within transaction). Invitation
-      // redemption runs BEFORE tenant context is established — the token IS
-      // the pre-tenant credential, so the lookup scans across all tenants by
-      // construction (auth-service is the one service where cross-tenant auth
-      // flows are first-class; tenantManagerRepo cannot be used here).
-      const user = await this.preTenantAuthRepository(manager, User).findOne({
-        where: { invitationToken: invitation.token },
-      });
+        if (!invitation) {
+          throw new BadRequestException('Invalid invitation token');
+        }
 
-      if (!user) {
-        // SECURITY: Generic message to prevent token enumeration
-        throw new BadRequestException('Invalid or expired invitation');
-      }
+        if (!invitation.canBeAccepted()) {
+          if (invitation.isExpired()) {
+            throw new BadRequestException('Invitation has expired');
+          }
+          throw new BadRequestException('Invitation cannot be accepted');
+        }
 
-      // Update user with password and clear invitation token
-      user.password = password; // Will be hashed by BeforeUpdate hook
-      user.invitationToken = null;
-      user.invitationExpiresAt = null;
-      user.isEmailVerified = true;
+        // Find user by invitation token hash (within transaction). Invitation
+        // redemption runs BEFORE tenant context is established — the token IS
+        // the pre-tenant credential, so the lookup scans across all tenants by
+        // construction (auth-service is the one service where cross-tenant auth
+        // flows are first-class; tenantManagerRepo cannot be used here).
+        const user = await this.preTenantAuthRepository(manager, User).findOne({
+          where: { invitationToken: invitation.token },
+        });
 
-      if (firstName) user.firstName = firstName;
-      if (lastName) user.lastName = lastName;
+        if (!user) {
+          // SECURITY: Generic message to prevent token enumeration
+          throw new BadRequestException('Invalid or expired invitation');
+        }
 
-      await manager.save(User, user);
+        // Update user with password and clear invitation token
+        user.password = password; // Will be hashed by BeforeUpdate hook
+        user.invitationToken = null;
+        user.invitationExpiresAt = null;
+        user.isEmailVerified = true;
 
-      // Update invitation status
-      invitation.status = InvitationStatus.ACCEPTED;
-      invitation.acceptedAt = new Date();
-      invitation.userId = user.id;
-      invitation.acceptedFromIp = ipAddress ?? null;
-      await manager.save(Invitation, invitation);
+        if (firstName) user.firstName = firstName;
+        if (lastName) user.lastName = lastName;
 
-      if (actionToken) {
-        actionToken.status = ActionTokenStatus.CONSUMED;
-        actionToken.consumedAt = new Date();
-        await manager.save(ActionToken, actionToken);
-      }
+        await manager.save(User, user);
 
-      return user;
-    });
+        // Update invitation status
+        invitation.status = InvitationStatus.ACCEPTED;
+        invitation.acceptedAt = new Date();
+        invitation.userId = user.id;
+        invitation.acceptedFromIp = ipAddress ?? null;
+        await manager.save(Invitation, invitation);
+
+        if (actionToken) {
+          actionToken.status = ActionTokenStatus.CONSUMED;
+          actionToken.consumedAt = new Date();
+          await manager.save(ActionToken, actionToken);
+        }
+
+        return user;
+      }),
+    );
 
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Invitation accepted: userId=${result.id} (role: ${result.role})`);
@@ -1007,6 +1024,13 @@ export class AuthenticationService {
       ),
     ]);
 
+    // The password write above advanced the trigger-maintained
+    // `credentialVersion`; the entity returned from the transaction still
+    // carries the pre-write anchor, so TokenService's issuance fence would
+    // refuse the very acceptance that just committed. Re-load the committed
+    // row (auth.users is an identity primitive — no RLS, no frame needed).
+    const principal = await this.reloadIssuancePrincipal(result.id);
+
     // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token ISSUANCE on MFA
     // enrollment through the same shared assertion login uses. The invitation
     // is already accepted and the password committed above — only issuance is
@@ -1014,15 +1038,22 @@ export class AuthenticationService {
     // gets the completable mfaSetupRequired outcome instead of a full session;
     // a user who satisfies enforcement mints normally (the session-TTL clamp
     // is applied inside generateTokens either way).
-    const invitationTenant = await this.resolveTenantForUser(result.tenantId);
-    const invitationEnrollmentGate = await this.resolveMfaEnrollmentGate(result, invitationTenant, {
-      ipAddress,
-    });
+    const invitationTenant = await this.resolveTenantForUser(principal.tenantId);
+    const invitationEnrollmentGate = await this.resolveMfaEnrollmentGate(
+      principal,
+      invitationTenant,
+      {
+        ipAddress,
+      },
+    );
     if (invitationEnrollmentGate) {
       return invitationEnrollmentGate;
     }
 
-    return this.tokenService.generateTokens(result, ipAddress);
+    // PRE-AUTH MINT: runs strictly AFTER the bypass frame returned (see
+    // PreAuthRlsFrameService's sequencing contract) — a tenant user's session
+    // is written under that tenant's bound context, never under bypass.
+    return this.preAuthRlsFrame.mintTokensForPrincipal(principal, ipAddress, userAgent);
   }
 
   /**
@@ -1043,33 +1074,40 @@ export class AuthenticationService {
     // succeeded. The gate is canBeAccepted() (PENDING or RESENT, not expired)
     // for the same reason: a resent invitation that accept admits must not be
     // reported invalid by the pre-check that fronts it.
-    return this.dataSource.transaction(async (manager) => {
-      const { actionToken, invitation } = await this.loadInvitationForSegment(
-        manager,
-        token,
-        'none',
-      );
+    //
+    // PRE-AUTH RLS FRAME: this query fronts the anonymous accept-invitation
+    // page, so it runs with no tenant context and needs the audited bypass to
+    // see auth.action_tokens / auth.invitations at all (read-only; the token
+    // is not consumed here).
+    return this.preAuthRlsFrame.runPreAuthTokenFlow('invitation-validation', () =>
+      this.dataSource.transaction(async (manager) => {
+        const { actionToken, invitation } = await this.loadInvitationForSegment(
+          manager,
+          token,
+          'none',
+        );
 
-      if (actionToken && !actionToken.isActive()) {
-        return { valid: false, expired: actionToken.expiresAt <= new Date() };
-      }
+        if (actionToken && !actionToken.isActive()) {
+          return { valid: false, expired: actionToken.expiresAt <= new Date() };
+        }
 
-      if (!invitation) {
-        return { valid: false };
-      }
+        if (!invitation) {
+          return { valid: false };
+        }
 
-      if (!invitation.canBeAccepted()) {
-        return { valid: false, expired: invitation.isExpired() };
-      }
+        if (!invitation.canBeAccepted()) {
+          return { valid: false, expired: invitation.isExpired() };
+        }
 
-      return {
-        valid: true,
-        email: invitation.email,
-        role: invitation.role,
-        firstName: invitation.firstName ?? undefined,
-        lastName: invitation.lastName ?? undefined,
-      };
-    });
+        return {
+          valid: true,
+          email: invitation.email,
+          role: invitation.role,
+          firstName: invitation.firstName ?? undefined,
+          lastName: invitation.lastName ?? undefined,
+        };
+      }),
+    );
   }
 
   /**
@@ -1849,7 +1887,7 @@ export class AuthenticationService {
       // recovery e-mail, so it rides the durable outbox (system-routed for a
       // platform principal) rather than the lossy best-effort path — a lost
       // event here is a user locked out of their own account, not telemetry.
-      await this.dataSource.transaction(async (manager) => {
+      const persistResetIntent = async (manager: EntityManager): Promise<void> => {
         // Set token and expiry (1 hour)
         user.passwordResetToken = resetTokenHash;
         user.passwordResetExpires = expiresAt;
@@ -1893,7 +1931,23 @@ export class AuthenticationService {
           idempotencyKey: `password-reset-requested:${actionToken.id}`,
           ...(scope.kind === 'platform' ? { routingScope: 'system' as const } : {}),
         });
-      });
+      };
+
+      // PRE-AUTH RLS FRAME: the anonymous forgot-password request carries no
+      // tenant context, so the ActionToken INSERT below (auth.action_tokens is
+      // covered by tenant_isolation_policy) was refused and the catch at the
+      // bottom swallowed it — reset e-mails silently never sent. A tenant
+      // user's intent is written under that tenant's bound context; a platform
+      // principal (tenantId NULL) can satisfy no tenant predicate at any GUC
+      // value and takes the audited bypass instead — the same branch login
+      // makes for its session mint.
+      if (user.tenantId) {
+        await this.preAuthRlsFrame.runTenantCredentialWrite(user.tenantId, persistResetIntent);
+      } else {
+        await this.preAuthRlsFrame.runPreAuthTokenFlow('password-reset-request', () =>
+          this.dataSource.transaction(persistResetIntent),
+        );
+      }
 
       // Audit log
       await this.logSecurityEvent('PASSWORD_RESET_REQUESTED', {
@@ -1930,78 +1984,87 @@ export class AuthenticationService {
     ipAddress?: string,
     userAgent?: string,
   ): Promise<AuthPayload> {
-    const transactionResult = await this.dataSource.transaction(async (manager) => {
-      const actionTokenRepository = this.preTenantAuthRepository(manager, ActionToken);
-      const userRepository = this.preTenantAuthRepository(manager, User);
-      const refreshTokenRepository = this.preTenantAuthRepository(manager, RefreshToken);
-      // SEC-HIGH-158: one resolver for every emailed link segment.
-      const resolution = await this.actionTokenResolver.resolve(
-        token,
-        ActionTokenPurpose.PASSWORD_RESET,
-        manager,
-        'pessimistic_write',
-      );
-      if (resolution.kind === 'unresolvable') {
-        throw new BadRequestException('Invalid or expired password reset token');
-      }
-      const actionToken = resolution.kind === 'action-token' ? resolution.actionToken : null;
-      if (actionToken && !actionToken.isActive()) {
-        throw new BadRequestException('Invalid or expired password reset token');
-      }
-      const tokenHash =
-        resolution.kind === 'action-token'
-          ? resolution.actionToken.tokenHash
-          : resolution.tokenHash;
+    // PRE-AUTH RLS FRAME: the reset segment IS the pre-tenant credential —
+    // its resolution (and the revocation writes that follow) runs before any
+    // tenant context can exist, so it takes the audited bypass. Without it
+    // the resolver saw ZERO auth.action_tokens rows and every reset failed
+    // with "Invalid or expired password reset token".
+    const transactionResult = await this.preAuthRlsFrame.runPreAuthTokenFlow(
+      'password-reset-redemption',
+      () =>
+        this.dataSource.transaction(async (manager) => {
+          const actionTokenRepository = this.preTenantAuthRepository(manager, ActionToken);
+          const userRepository = this.preTenantAuthRepository(manager, User);
+          const refreshTokenRepository = this.preTenantAuthRepository(manager, RefreshToken);
+          // SEC-HIGH-158: one resolver for every emailed link segment.
+          const resolution = await this.actionTokenResolver.resolve(
+            token,
+            ActionTokenPurpose.PASSWORD_RESET,
+            manager,
+            'pessimistic_write',
+          );
+          if (resolution.kind === 'unresolvable') {
+            throw new BadRequestException('Invalid or expired password reset token');
+          }
+          const actionToken = resolution.kind === 'action-token' ? resolution.actionToken : null;
+          if (actionToken && !actionToken.isActive()) {
+            throw new BadRequestException('Invalid or expired password reset token');
+          }
+          const tokenHash =
+            resolution.kind === 'action-token'
+              ? resolution.actionToken.tokenHash
+              : resolution.tokenHash;
 
-      const userQuery = userRepository
-        .createQueryBuilder('user')
-        .setLock('pessimistic_write')
-        .where('user.passwordResetExpires > :now', { now: new Date() })
-        .andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
-      if (actionToken) {
-        userQuery.andWhere('user.id = :userId', { userId: actionToken.userId });
-      }
-      const user = await userQuery.getOne();
-      if (!user?.isActive) {
-        throw new BadRequestException('Invalid or expired password reset token');
-      }
+          const userQuery = userRepository
+            .createQueryBuilder('user')
+            .setLock('pessimistic_write')
+            .where('user.passwordResetExpires > :now', { now: new Date() })
+            .andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
+          if (actionToken) {
+            userQuery.andWhere('user.id = :userId', { userId: actionToken.userId });
+          }
+          const user = await userQuery.getOne();
+          if (!user?.isActive) {
+            throw new BadRequestException('Invalid or expired password reset token');
+          }
 
-      user.password = newPassword;
-      user.passwordResetToken = null;
-      user.passwordResetExpires = null;
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      await userRepository.save(user);
+          user.password = newPassword;
+          user.passwordResetToken = null;
+          user.passwordResetExpires = null;
+          user.failedLoginAttempts = 0;
+          user.lockedUntil = null;
+          await userRepository.save(user);
 
-      if (actionToken) {
-        actionToken.status = ActionTokenStatus.CONSUMED;
-        actionToken.consumedAt = new Date();
-        await actionTokenRepository.save(actionToken);
-      }
+          if (actionToken) {
+            actionToken.status = ActionTokenStatus.CONSUMED;
+            actionToken.consumedAt = new Date();
+            await actionTokenRepository.save(actionToken);
+          }
 
-      // SEC-CRITICAL-002 (2026-08-23 scan №38): a password reset invalidates
-      // every second factor bound to the previous credential set. WebAuthn
-      // credentials deleted here cannot survive the victim rotating their
-      // password, closing the "biometric backdoor outlives reset" chain.
-      // Same transaction as the password write — no window where the new
-      // password is live while old biometric credentials still authenticate.
-      await manager.delete(WebAuthnCredential, { userId: user.id });
+          // SEC-CRITICAL-002 (2026-08-23 scan №38): a password reset invalidates
+          // every second factor bound to the previous credential set. WebAuthn
+          // credentials deleted here cannot survive the victim rotating their
+          // password, closing the "biometric backdoor outlives reset" chain.
+          // Same transaction as the password write — no window where the new
+          // password is live while old biometric credentials still authenticate.
+          await manager.delete(WebAuthnCredential, { userId: user.id });
 
-      const invalidatedAt = new Date();
-      await refreshTokenRepository.update(
-        { userId: user.id, isRevoked: false },
-        { isRevoked: true, revokedAt: invalidatedAt, revokedReason: 'Password reset' },
-      );
-      const intent: UserTokenInvalidationIntent = {
-        userId: user.id,
-        tenantId: this.invalidationTenantForUser(user),
-        invalidatedAt,
-        reason: 'password_reset',
-        idempotencyKey: `password-reset:${actionToken?.id ?? tokenHash}`,
-      };
-      await this.durableUserTokenInvalidation.enqueue(manager, intent);
-      return { user, intent };
-    });
+          const invalidatedAt = new Date();
+          await refreshTokenRepository.update(
+            { userId: user.id, isRevoked: false },
+            { isRevoked: true, revokedAt: invalidatedAt, revokedReason: 'Password reset' },
+          );
+          const intent: UserTokenInvalidationIntent = {
+            userId: user.id,
+            tenantId: this.invalidationTenantForUser(user),
+            invalidatedAt,
+            reason: 'password_reset',
+            idempotencyKey: `password-reset:${actionToken?.id ?? tokenHash}`,
+          };
+          await this.durableUserTokenInvalidation.enqueue(manager, intent);
+          return { user, intent };
+        }),
+    );
 
     const effects: PostCommitSecurityEffect[] = [
       {
@@ -2023,6 +2086,10 @@ export class AuthenticationService {
     });
 
     const { user } = transactionResult;
+    // The password write advanced the trigger-maintained `credentialVersion`;
+    // re-load the committed row so the issuance fence compares the anchor the
+    // database actually holds (see reloadIssuancePrincipal).
+    const principal = await this.reloadIssuancePrincipal(user.id);
     this.logger.log(JSON.stringify({ event: 'password_reset_success' }));
 
     // Audit log + event publish in parallel
@@ -2052,8 +2119,8 @@ export class AuthenticationService {
     // outcome instead of a session. Without this gate a signed-out user could
     // self-serve a reset back into an MFA-free session, durably defeating the
     // revocation-on-flip.
-    const resetTenant = await this.resolveTenantForUser(user.tenantId);
-    const resetEnrollmentGate = await this.resolveMfaEnrollmentGate(user, resetTenant, {
+    const resetTenant = await this.resolveTenantForUser(principal.tenantId);
+    const resetEnrollmentGate = await this.resolveMfaEnrollmentGate(principal, resetTenant, {
       ipAddress,
       userAgent,
     });
@@ -2061,13 +2128,32 @@ export class AuthenticationService {
       return resetEnrollmentGate;
     }
 
-    // Generate new tokens so user is immediately logged in
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+    // PRE-AUTH MINT: strictly AFTER the bypass frame returned — a tenant
+    // user's session rows are written under that tenant's bound context.
+    return this.preAuthRlsFrame.mintTokensForPrincipal(principal, ipAddress, userAgent);
   }
 
   // ==========================================================================
   // ADR-046 — tenant MFA enforcement (ADMIN-HIGH-014)
   // ==========================================================================
+
+  /**
+   * Re-load the committed user row for token issuance. Password-writing
+   * flows (acceptInvitation, resetPassword) advance the trigger-maintained
+   * `credentialVersion` inside their transaction; the entity they return
+   * holds the stale pre-write anchor, and TokenService's issuance fence
+   * compares exactly that column — minting from the stale entity would fail
+   * closed AFTER the password change already committed (password set,
+   * invitation consumed, no session). auth.users is an identity primitive
+   * with no RLS policy, so this read needs no frame.
+   */
+  private async reloadIssuancePrincipal(userId: string): Promise<User> {
+    const principal = await this.userRepository.findOne({ where: { id: userId } });
+    if (!principal) {
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+    return principal;
+  }
 
   /**
    * Load the user's tenant row for the MFA-enrollment gate on the

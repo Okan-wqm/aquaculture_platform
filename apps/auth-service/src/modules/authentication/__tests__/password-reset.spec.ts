@@ -27,6 +27,7 @@ import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
+import { PreAuthRlsFrameService } from '../services/pre-auth-rls-frame.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
@@ -236,6 +237,22 @@ const mockSessionManager = {
   revokeAllSessions: jest.fn().mockResolvedValue(undefined),
 };
 
+// PRE-AUTH RLS FRAME double (see pre-auth-rls-frame.service.spec.ts for the
+// frame's own contract): tenant-branch writes receive the transaction
+// manager; mints delegate to the mocked TokenService.
+const preAuthRlsFrameMock = {
+  runPreAuthTokenFlow: jest.fn(
+    async <T>(_operation: string, work: () => Promise<T> | T): Promise<T> => work(),
+  ),
+  runTenantCredentialWrite: jest.fn(
+    async <T>(_tenantId: string, work: (manager: unknown) => Promise<T>): Promise<T> =>
+      work(mockTransactionManager),
+  ),
+  mintTokensForPrincipal: jest.fn((u: User, ipAddress?: string, userAgent?: string) =>
+    mockTokenService.generateTokens(u, ipAddress, userAgent),
+  ),
+};
+
 const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 describe('AuthenticationService - Password Reset Flow', () => {
@@ -299,6 +316,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
+        { provide: PreAuthRlsFrameService, useValue: preAuthRlsFrameMock },
         {
           provide: DurableAccessTokenInvalidationService,
           useValue: mockDurableAccessTokenInvalidation,
@@ -384,7 +402,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
       expect(mockEventBus.publish).not.toHaveBeenCalled();
       const { event, manager, options } = enqueuedPasswordResetRequested();
       expect(manager).toBe(mockTransactionManager);
-      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
+      // A tenant user's reset intent is written through the pre-auth frame's
+      // tenant-bound transaction (mocked here), not a bare dataSource call.
+      expect(preAuthRlsFrameMock.runTenantCredentialWrite).toHaveBeenCalledTimes(1);
+      expect(preAuthRlsFrameMock.runTenantCredentialWrite).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        expect.any(Function),
+      );
       expect(options).toEqual({
         aggregateId: 'user-uuid-123',
         idempotencyKey: 'password-reset-requested:action-token-id',
@@ -515,6 +539,11 @@ describe('AuthenticationService - Password Reset Flow', () => {
         getOne: jest.fn(),
       };
       mockUserRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+      // The post-commit issuance-fence re-load reads through findOne; the
+      // per-test getOne prime below is the authoritative user, so delegate.
+      mockUserRepository.findOne.mockImplementation(
+        () => (mockQueryBuilder.getOne as jest.Mock).mock.results[0]?.value ?? undefined,
+      );
     });
 
     it('should reset password for valid token', async () => {

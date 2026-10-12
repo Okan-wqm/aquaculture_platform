@@ -27,6 +27,7 @@ import { AccountService } from './services/account.service';
 import { ActionTokenResolver } from './services/action-token-resolver.service';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
+import { PreAuthRlsFrameService } from './services/pre-auth-rls-frame.service';
 import { TokenService } from './services/token.service';
 import { WebAuthnService } from './services/webauthn.service';
 
@@ -59,6 +60,10 @@ import { WebAuthnService } from './services/webauthn.service';
     AccountService,
     ActionTokenResolver,
     TokenService,
+    // The single RLS boundary for pre-authentication flows (invitation and
+    // password-reset link redemption, anonymous session mints). Registered
+    // before its consumers only for readability — Nest resolves by type.
+    PreAuthRlsFrameService,
     MfaService,
     WebAuthnService,
     AuthenticationService,

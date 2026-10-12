@@ -369,6 +369,15 @@ export const PROJECT_LINT_OVERRIDES = [
           "@typescript-eslint/no-floating-promises": "off",
           "@typescript-eslint/unbound-method": "off"
         }
+      }      ,
+      {
+        "files": [
+          "src/**/__tests__/e2e/helpers/**"
+        ],
+        "rules": {
+          "no-restricted-syntax": "off"
+        },
+        "_why": "Shared REAL-repository fixtures (preauth-service-fixture.ts, farm-tenant-fixture.ts precedent): a suite that drives a production service against a real database hands it the Repository<T> instances its constructor declares — there is no tenant-scoped equivalent of that shape, and the tenant scoping is exactly what those suites assert. banned-construct.ts exempts the same path; specs themselves stay fully subject to the rule (lint-gates pins 6 selectors on .spec.ts)."
       }
     ]
   },

@@ -106,8 +106,7 @@ export class AuthResolver {
     limit: 5,
     windowMs: 15 * 60_000,
     identifier: ({ args }) =>
-      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() ||
-      undefined,
+      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() || undefined,
   })
   @Public()
   @Mutation(() => AuthPayload)
@@ -150,9 +149,7 @@ export class AuthResolver {
     // narrow before the token flows into the auth service.
     const cookieToken: unknown = context.req.cookies?.refresh_token;
     const token =
-      typeof cookieToken === 'string' && cookieToken.length > 0
-        ? cookieToken
-        : input.refreshToken;
+      typeof cookieToken === 'string' && cookieToken.length > 0 ? cookieToken : input.refreshToken;
     if (!token) {
       throw new UnauthorizedException('No refresh token provided');
     }
@@ -173,13 +170,14 @@ export class AuthResolver {
     @Context() context: GqlContext,
   ): Promise<AuthPayload> {
     // ORPHAN-MEDIUM-319: gateway-resolved client identity (see login()).
-    const { ip: ipAddress } = resolveClientNetworkContext(context.req);
+    const { ip: ipAddress, userAgent } = resolveClientNetworkContext(context.req);
     const result = await this.authService.acceptInvitation(
       input.token,
       input.password,
       input.firstName,
       input.lastName,
       ipAddress,
+      userAgent,
     );
     // Invitation acceptance / password reset is not a "remember me" event → session cookie.
     this.setRefreshTokenCookie(context.res, result.refreshToken, false);
@@ -202,8 +200,7 @@ export class AuthResolver {
     limit: 3,
     windowMs: 60 * 60_000,
     identifier: ({ args }) =>
-      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() ||
-      undefined,
+      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() || undefined,
   })
   @Public()
   @Mutation(() => Boolean)
@@ -251,7 +248,13 @@ export class AuthResolver {
 
   /**
    * Validate invitation token (to show accept form)
+   *
+   * SEC-CRITICAL-002 contract surface: every anonymous DB-backed auth query is
+   * rate limited. The fix that made this query resolve rows under RLS also
+   * made each probe emit an audited bypass WARN pair — the limit keeps
+   * unauthenticated scanning from amplifying that log channel.
    */
+  @RateLimit({ name: 'invitation-validation', limit: 10, windowMs: 5 * 60_000 })
   @Public()
   @Query(() => InvitationValidationResponse)
   async validateInvitation(@Args('token') token: string): Promise<InvitationValidationResponse> {

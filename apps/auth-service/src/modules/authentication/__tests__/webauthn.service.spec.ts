@@ -11,6 +11,7 @@ import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { User } from '../entities/user.entity';
 import { WebAuthnRegisterCredentialInput, WebAuthnVerifyLoginInput } from '../dto/webauthn.dto';
+import { PreAuthRlsFrameService } from '../services/pre-auth-rls-frame.service';
 import { TokenService } from '../services/token.service';
 import { WebAuthnService } from '../services/webauthn.service';
 
@@ -126,6 +127,15 @@ const mockRedis = {
 const mockAuditLog = { log: jest.fn().mockResolvedValue(undefined) };
 const mockGenerateTokens = jest.fn().mockResolvedValue({ accessToken: 'at', refreshToken: 'rt' });
 
+// PRE-AUTH RLS FRAME double: the biometric login mint routes through the
+// shared pre-auth boundary; the double delegates so existing mint assertions
+// keep testing the arguments the real frame forwards.
+const mockPreAuthRlsFrame = {
+  mintTokensForPrincipal: jest.fn((u: User, ipAddress?: string, userAgent?: string) =>
+    mockGenerateTokens(u, ipAddress, userAgent),
+  ),
+};
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -165,6 +175,7 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
         },
         { provide: AuditLogService, useValue: mockAuditLog },
         { provide: TokenService, useValue: { generateTokens: mockGenerateTokens } },
+        { provide: PreAuthRlsFrameService, useValue: mockPreAuthRlsFrame },
         { provide: RedisService, useValue: mockRedis },
       ],
     }).compile();

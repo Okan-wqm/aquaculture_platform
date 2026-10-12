@@ -30,6 +30,7 @@ import {
   type WebAuthnTransport,
 } from '../dto/webauthn.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
+import { PreAuthRlsFrameService } from './pre-auth-rls-frame.service';
 import { TokenService } from './token.service';
 
 /**
@@ -79,6 +80,11 @@ export class WebAuthnService {
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
+    // PRE-AUTH RLS FRAME: the biometric login mint writes auth.refresh_tokens
+    // on an anonymous request; without a frame the INSERT was refused by
+    // tenant_isolation_policy and the login failed AFTER a successful
+    // assertion. Routed through the shared pre-auth boundary.
+    private readonly preAuthRlsFrame: PreAuthRlsFrameService,
     private readonly redisService: RedisService,
   ) {
     // RP ID is the domain without protocol or port
@@ -449,7 +455,7 @@ export class WebAuthnService {
       ipAddress,
     });
 
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+    return this.preAuthRlsFrame.mintTokensForPrincipal(user, ipAddress, userAgent);
   }
 
   // ==========================================================================

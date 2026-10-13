@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "lint-rules:security/detect-non-literal-regexp:apps/alert-engine/src/__tests__/support/redis-service.mock.ts:27:10",
+    "judgment_group_id": "judge:lint-rules-adapter:finding:b4c40c99eedef155a03ab3b200a47f01f983b5783e1aeb6e27c46fb502c1975f",
+    "kind": "consensus_escalation",
+    "run_id": "fd648da4-5a09-42ce-a745-52ea5190abec",
+    "tool_id": "lint-rules-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'lint-rules:security/detect-non-literal-regexp:apps/alert-engine/src/__tests__/support/redis-service.mock.ts:27:10' (tool 'lint-rules-adapter', run 'fd648da4-5a09-42ce-a745-52ea5190abec'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-13T16:35:43Z",
+  "request_id": "consensus-b8051f7d342204c5",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-16T16:35:43Z",
+  "status": "open"
+}

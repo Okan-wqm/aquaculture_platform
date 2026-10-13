@@ -570,6 +570,7 @@ def claim_assignment(
     *,
     assignment_id: str,
     agent_id: str,
+    provider: str,
     lease_seconds: int = DEFAULT_LEASE_SECONDS,
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
@@ -587,11 +588,19 @@ def claim_assignment(
     is what gets persisted to claims.jsonl. Caller MUST forward the
     raw token via env var (ARIA_LEASE_TOKEN) per the lease-token
     redaction discipline.
+
+    ARIA-MEDIUM-444 — ``provider`` is the rung the dispatch routed this
+    claim to (``runtime_profiles.worker_route``), recorded on the row so
+    the lease reaper judges an expiry by the provider the work ran on.
+    Required: a claim without its route is how the reaper came to blame
+    the ladder's head for a Z.ai run that hung.
     """
     if lease_seconds <= 0:
         raise GovernanceError("lease_seconds must be positive")
     if not agent_id or not agent_id.strip():
         raise GovernanceError("agent_id is required")
+    if not provider or not provider.strip():
+        raise GovernanceError("provider is required")
     root = ensure_tools_dir(base_dir)
     claims_path = _claims_path(root)
     with state_transaction([claims_path]) as transaction:
@@ -627,6 +636,7 @@ def claim_assignment(
             "assignment_id": assignment_id,
             "pressure_event_id": (assignment or {}).get("pressure_event_id"),
             "agent_id": agent_id,
+            "provider": provider,
             "lease_token_hash": _hash_lease_token(lease_token),
             "lease_seconds": lease_seconds,
             "recorded_at": _iso(now),
@@ -658,7 +668,7 @@ def claim_assignment(
         root, "dispatch_claim_created",
         {
             "claim_id": cid, "assignment_id": assignment_id,
-            "agent_id": agent_id, "lease_expires_at": _iso(expires),
+            "agent_id": agent_id, "provider": provider, "lease_expires_at": _iso(expires),
         },
     )
     return {**row, "lease_token": lease_token}
@@ -1020,6 +1030,7 @@ def active_dispatch_assignments(
                 "plan_id": row.get("plan_id"),
                 "pressure_event_id": row.get("pressure_event_id"),
                 "created_at": row.get("created_at"),
+                "target_agent": row.get("target_agent"),
             })
     return active
 
@@ -1052,15 +1063,48 @@ def _lease_expiry_count(root: Path, assignment_id: str) -> int:
     `assignment_retry_count` is: the dispatch row is append-only, and
     rewriting it for a counter would re-open the write-side defect
     Plan 024 §H-1 closed.
+
+    ARIA-MEDIUM-437 — a lease an outage of the worker's provider ate is not
+    the assignment's (``provider_clock.lease_expiry_reason``), so its row is
+    not counted. A row written before the reason was recorded is.
     """
+    from .release_reason import LEASE_EXPIRED_DURING_OUTAGE_PREFIX
+
     count = 0
     for row in load_jsonl(root / "governance.jsonl"):
         if row.get("kind") != "dispatch_claim_lease_expired":
             continue
         details = row.get("details") or {}
-        if details.get("assignment_id") == assignment_id:
+        if details.get("assignment_id") == assignment_id and not str(
+                details.get("reason") or "").startswith(LEASE_EXPIRED_DURING_OUTAGE_PREFIX):
             count += 1
     return count
+
+
+def _worker_lease_reason(
+    root: Path, assignment: dict[str, Any], claimed: dict[str, Any], expires: datetime,
+    clock: Any, heads: dict[str, frozenset[str]],
+) -> str:
+    """``lease_expired``, or the outage reason when the worker's provider was out (ARIA-MEDIUM-437).
+
+    ARIA-MEDIUM-444 — the provider is the one the claim was routed to, as its
+    writer recorded it (``claim_assignment``): since ARIA-HIGH-434 a worker
+    runs on Z.ai while Claude is cooled, and judging its lease by the head
+    waived a Z.ai run that hung for as long as Claude stayed out. A claim
+    written before the route was recorded keeps the rule it was written
+    under: the head of the ladder its target is routed over, read by the
+    hook's own resolver (``worker_ladder_for_target``).
+    """
+    from .provider_clock import lease_expiry_reason
+    from .worker_dispatch_hook import worker_ladder_for_target
+
+    routed = str(claimed.get("provider") or "")
+    if routed:
+        return lease_expiry_reason(clock, _parse_iso(claimed.get("claimed_at")), expires, frozenset({routed}))
+    target = str(assignment.get("target_agent") or "")
+    if target not in heads:
+        heads[target] = frozenset(worker_ladder_for_target(target, base_dir=root)[:1]) if target else frozenset()
+    return lease_expiry_reason(clock, _parse_iso(claimed.get("claimed_at")), expires, heads[target])
 
 
 def reap_expired_assignment_claims(
@@ -1104,7 +1148,10 @@ def reap_expired_assignment_claims(
     # on an assignment that has already died has nothing to release, and
     # writing it another terminal row would put noise in the audit trail where
     # the first row is the fact.
-    live = {row["assignment_id"] for row in active_dispatch_assignments(base_dir=root)}
+    live = {row["assignment_id"]: row for row in active_dispatch_assignments(base_dir=root)}
+    # ARIA-MEDIUM-437 — read only when some lease has actually expired.
+    lease_clock: Any = None
+    heads: dict[str, frozenset[str]] = {}
 
     reaped: dict[str, list[dict[str, Any]]] = {
         "expired": [],
@@ -1131,7 +1178,17 @@ def reap_expired_assignment_claims(
         assignment_id = str(claimed.get("assignment_id") or "")
         if not assignment_id or assignment_id not in live:
             continue
-        expiry_count = _lease_expiry_count(root, assignment_id) + 1
+        if lease_clock is None:
+            from .provider_clock import provider_clock
+
+            lease_clock = provider_clock(root)
+        # ARIA-MEDIUM-437 — a lease that ran out inside an open outage of the
+        # worker's provider (a runner killed in a network loss, a spawn that
+        # waited on a vendor that was not serving) is released harness-class
+        # and spends nothing of the lease budget: the agent-request lane's
+        # rule (ARIA-HIGH-367 M1), asked through its one owner.
+        reason = _worker_lease_reason(root, live[assignment_id], claimed, expires, lease_clock, heads)
+        expiry_count = _lease_expiry_count(root, assignment_id) + (1 if reason == "lease_expired" else 0)
         requeue = expiry_count <= max_requeues
         disposition = "requeued" if requeue else "human_required"
         recorded_at = _iso(moment)
@@ -1142,7 +1199,7 @@ def reap_expired_assignment_claims(
             "assignment_id": assignment_id,
             "pressure_event_id": claimed.get("pressure_event_id"),
             "agent_id": claimed.get("agent_id"),
-            "reason": "lease_expired",
+            "reason": reason,
             "lease_expires_at": claimed.get("lease_expires_at"),
             "expiry_count": expiry_count,
             "recorded_at": recorded_at,
@@ -1160,6 +1217,7 @@ def reap_expired_assignment_claims(
                 "lease_expires_at": claimed.get("lease_expires_at"),
                 "expiry_count": expiry_count,
                 "disposition": disposition,
+                "reason": reason,
             },
         )
         pressure_event_id = claimed.get("pressure_event_id")
@@ -1173,7 +1231,7 @@ def reap_expired_assignment_claims(
                     "from_state": "picked_up",
                     "to_state": "pending",
                     "claim_id": claim_id,
-                    "reason": "lease_expired",
+                    "reason": reason,
                 },
             )
         reaped["expired"].append(row)

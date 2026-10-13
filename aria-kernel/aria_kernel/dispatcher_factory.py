@@ -51,6 +51,7 @@ from .tool_registry import ensure_tools_dir
 
 __all__ = [
     "SUPPORTED_ROLES",
+    "accepted_response",
     "DispatcherConfig",
     "select_drafter",
     "select_judge",
@@ -255,20 +256,27 @@ def select_sandbox_runner(config: DispatcherConfig | None = None):
 
     Returns ``skill_genesis.execute_adapter_against_corpus`` (V6.2
     B-V3-2 surface) wrapped to match the SandboxFn signature.
+
+    ARIA-HIGH-414 — the adapter it calibrates is the one the primary
+    drafter's ACCEPTED result delivered, named by the request id this module
+    stamped on the draft (``invocation_request_id``). It used to run
+    ``adapter_path or draft_id``, and no draft ever carried ``adapter_path``,
+    so it ran ``python3 <draft_id>``: a path the drafter wrote. The workspace
+    and the store are the loop's, never a draft field or the process cwd.
     """
     def _sandbox_fn(
         *,
         primary_draft: dict[str, Any],
         calibration_corpus_path: Path,
+        workspace_root: str | Path,
+        base_dir: str | Path | None,
     ) -> dict[str, Any]:
         from .skill_genesis import execute_adapter_against_corpus
-        adapter_path = primary_draft.get("adapter_path") or primary_draft.get("draft_id", "unknown")
-        adapter_lang = primary_draft.get("adapter_lang", "python")
         return execute_adapter_against_corpus(
-            adapter_path=adapter_path,
-            adapter_lang=adapter_lang,
+            invocation_request_id=str(primary_draft.get("invocation_request_id") or ""),
             corpus_path=calibration_corpus_path,
-            workspace_root=primary_draft.get("_workspace_root", Path.cwd()),
+            workspace_root=workspace_root,
+            base_dir=base_dir,
         )
 
     return _sandbox_fn
@@ -297,9 +305,9 @@ def _poll_for_drafter_response(
     deadline = time.monotonic() + float(cfg.get("poll_timeout_seconds", _DEFAULT_POLL_TIMEOUT_SECONDS))
     interval = float(cfg.get("poll_interval_seconds", _DEFAULT_POLL_INTERVAL_SECONDS))
     while time.monotonic() < deadline:
-        payload = _find_response_payload(request_id, base_dir)
-        if payload is not None:
-            return _normalize_drafter_response(payload, role=fallback_role)
+        found = accepted_response(request_id, base_dir)
+        if found is not None:
+            return _normalize_drafter_response(found[1], role=fallback_role, request_id=request_id)
         time.sleep(interval)
     # E3/F7 — no consumer fulfilled in time. The unavailability is stated
     # honestly (empty draft + dispatchers_unavailable=True) and the drainer
@@ -320,14 +328,16 @@ def _poll_for_judge_response(
     deadline = time.monotonic() + float(cfg.get("poll_timeout_seconds", _DEFAULT_POLL_TIMEOUT_SECONDS))
     interval = float(cfg.get("poll_interval_seconds", _DEFAULT_POLL_INTERVAL_SECONDS))
     while time.monotonic() < deadline:
-        payload = _find_response_payload(request_id, base_dir)
-        if payload is not None:
-            return _normalize_judge_response(payload)
+        found = accepted_response(request_id, base_dir)
+        if found is not None:
+            return _normalize_judge_response(found[1])
         time.sleep(interval)
     return {"verdict": "gaps_open", "gaps": [], "dispatchers_unavailable": True}
 
 
-def _find_response_payload(request_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:
+def accepted_response(
+    request_id: str, base_dir: str | Path | None, *, role: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """E3/F7 — read the ACCEPTED result through the kernel's own contract.
 
     The old reader polled `agent-invocations/responses/<id>.json` — a
@@ -341,41 +351,58 @@ def _find_response_payload(request_id: str, base_dir: str | Path | None) -> dict
     (`output_path`) and WHAT its bytes hash to (`output_hash`), so the
     payload is read from the producer's real location and refused on a
     hash mismatch rather than trusted blind.
+
+    ARIA-HIGH-414 — this is also the provenance a drafted adapter's bytes
+    rest on (``genesis_adapter_custody.stage_accepted_draft``), so the row
+    is returned beside the payload, a row without ``output_hash`` is no
+    evidence (all 569 accepted rows in aria/state f5c5c86a1 carry one), and
+    the artifact is read as one bounded regular file without following a
+    symlink (``agent_invocations._read_stable_submission_artifact``, the
+    submission path's own reader). ``role`` binds the row to the role asked.
     """
     if not request_id or base_dir is None:
         return None
-    from .agent_invocations import accepted_result_for_request
+    from .agent_invocations import (
+        _read_stable_submission_artifact,
+        accepted_result_for_request,
+        resolve_output_artifact_path,
+    )
 
-    row = accepted_result_for_request(request_id=request_id, base_dir=base_dir)
+    row = accepted_result_for_request(request_id=request_id, role=role, base_dir=base_dir)
     if row is None:
         return None
-    from .agent_invocations import resolve_output_artifact_path
-    from .tool_registry import ensure_tools_dir
-
+    expected_hash = str(row.get("output_hash") or "")
+    if not expected_hash:
+        return None
     output_path = resolve_output_artifact_path(
         ensure_tools_dir(base_dir), str(row.get("output_path") or ""),
     )
-    if not output_path.is_file():
+    try:
+        raw = _read_stable_submission_artifact(output_path)
+    except OSError:
         return None
-    raw = output_path.read_bytes()
-    expected_hash = str(row.get("output_hash") or "")
-    if expected_hash:
-        import hashlib as _hashlib
+    import hashlib as _hashlib
 
-        actual = "sha256:" + _hashlib.sha256(raw).hexdigest()
-        if actual != expected_hash and expected_hash != _hashlib.sha256(raw).hexdigest():
-            return None
+    digest = _hashlib.sha256(raw).hexdigest()
+    if expected_hash not in (digest, "sha256:" + digest):
+        return None
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
-    return payload if isinstance(payload, dict) else None
+    return (row, payload) if isinstance(payload, dict) else None
 
 
-def _normalize_drafter_response(payload: dict[str, Any], *, role: str) -> dict[str, Any]:
-    """Normalize a drafter agent's response envelope into the DrafterFn return shape."""
+def _normalize_drafter_response(payload: dict[str, Any], *, role: str, request_id: str) -> dict[str, Any]:
+    """Normalize a drafter agent's response envelope into the DrafterFn return shape.
+
+    ``invocation_request_id`` is the kernel's own request id, never a payload
+    field: calibration and registration re-read the drafted adapter from
+    that request's accepted result (ARIA-HIGH-414).
+    """
     details = payload.get("details") or {}
     return {
+        "invocation_request_id": request_id,
         "draft_id": details.get("draft_id") or payload.get("request_id", ""),
         "role": "primary" if role == "primary_authoring" else "challenger",
         "rules": list(details.get("rules") or []),

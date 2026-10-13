@@ -282,6 +282,23 @@ def outage_opened_by_claim(base_dir: str | Path | None, *, provider: str, claim_
     return bool(opened) and opened[-1].get("claim_id") == claim_id
 
 
+def standing_outage(
+    base_dir: str | Path | None, *, provider: str, kinds: Iterable[str], before: datetime,
+) -> OutageInterval | None:
+    """The provider's open outage of one of ``kinds`` that was already open at ``before``, or None.
+
+    ARIA-MEDIUM-438 — a probe launched at ``before`` that then meets such an
+    outage observed nothing new: the outage was counted once, at its
+    transition (``open_provider_outage``). ``opened_at`` is stamped to the
+    second, so ``before`` is compared at that resolution: an outage opened in
+    the second the probe started is the probe's own.
+    """
+    cutoff = before.astimezone(timezone.utc).replace(microsecond=0)
+    wanted = frozenset(kinds)
+    return next((interval for interval in open_outages(base_dir) if interval.provider == provider
+                 and interval.kind in wanted and interval.opened_at < cutoff), None)
+
+
 def _prolonged_id(interval: OutageInterval) -> str:
     return f"{interval.signal_id}-prolonged"
 
@@ -331,5 +348,5 @@ __all__ = [
     "ADMISSION_RESTORABLE_KINDS", "OUTAGE_ESCALATION_AFTER", "OUTAGE_KINDS", "OUTAGE_OPENED_KIND",
     "PROVIDER_RESTORED_KIND", "OutageInterval", "escalate_prolonged_outages", "open_outages",
     "open_provider_outage", "outage_intervals", "outage_opened_by_claim", "outage_remedy",
-    "record_provider_restored", "render_outage_section",
+    "record_provider_restored", "render_outage_section", "standing_outage",
 ]

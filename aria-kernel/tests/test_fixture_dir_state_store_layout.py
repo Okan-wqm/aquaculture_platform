@@ -23,6 +23,7 @@ from pathlib import Path
 from aria_kernel import register_tool, run_fixture_suite
 from aria_kernel.fixture_runner import resolve_fixture_dir
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, get_tool
+from tests._helpers.git_fixtures import track_existing
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -41,7 +42,6 @@ class StateStoreLayoutTests(unittest.TestCase):
         # The runner shape: a checkout whose .git exists (discovery anchor),
         # the state store restored inside it, tools two levels below the root.
         self.workspace = Path(tempfile.mkdtemp(prefix="aria-779-workspace-"))
-        (self.workspace / ".git").mkdir()
         self.tools = self.workspace / ".aria-state-store" / "tools"
         ensure_tools_dir(self.tools)
 
@@ -56,6 +56,9 @@ class StateStoreLayoutTests(unittest.TestCase):
         src_dir = self.workspace / "src"
         src_dir.mkdir()
         (src_dir / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
+        # A real checkout (the store inside it stays untracked, as on the
+        # runner): the adapter room shows what git tracks (ARIA-MEDIUM-432).
+        track_existing(self.workspace, "src", "tools")
         # An unrelated CWD: resolution must not depend on where the process
         # happens to stand. (The pre-fix CWD-relative first branch did.)
         self._saved_cwd = os.getcwd()

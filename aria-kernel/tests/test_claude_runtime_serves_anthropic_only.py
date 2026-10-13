@@ -87,16 +87,20 @@ class TheFleetIsTheOneBinding(unittest.TestCase):
 
     def test_an_anthropic_auth_failure_still_walks_to_the_zai_rung(self) -> None:
         """ARIA-HIGH-023 survives the transport change, and since ARIA-HIGH-290
-        the rung is the next one of the role's routing ladder: glm-5.3 for a
-        READ-ONLY role on a Claude-led ladder, opus for a glm-led one, and no
-        rung for a write-scope profile (the Z.ai transport admits no writes)."""
+        the rung is the next one of the role's routing ladder: glm-5.3 on a
+        Claude-led ladder, opus on a glm-led one — for a write-scope profile
+        too since ARIA-HIGH-434 (the Z.ai rung of a writer is the kernel's
+        tool loop, never the claude binary); codex never hosts a writer."""
         from aria_kernel.runtime_profiles import routed_models
 
         spawn = {"environ": {}, "runtimes": ("claude", "zai"), "profile_model": "opus"}
         self.assertEqual(routed_models("primary_plan", "aria-primary-planner", write_capable=False, **spawn)[1],
                          "glm-5.3")
         self.assertEqual(routed_models("primary_plan", "aria-primary-planner", write_capable=True, **spawn),
-                         ("opus",))
+                         ("opus", "glm-5.3"))
+        self.assertEqual(routed_models("primary_plan", "aria-primary-planner", write_capable=True,
+                                       **{**spawn, "runtimes": ("claude", "zai", "codex")}),
+                         ("opus", "glm-5.3"), "the codex rung is dropped for a writer")
         self.assertEqual(routed_models("challenger_plan", "aria-challenger-planner", write_capable=False,
                                        **spawn), ("glm-5.3", "opus"))
 

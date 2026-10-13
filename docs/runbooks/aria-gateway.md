@@ -5,8 +5,9 @@ Authority for the gateway's code paths is aria-kernel/aria_kernel/gateway/. -->
 
 The gateway is the droplet daemon that turns GitHub webhooks, Alertmanager notifications and
 operator commands into rows on `gateway/inbox.jsonl`, routes them deterministically (issue labelled
-`aria` → mission; PR events → `pr-events.jsonl`; failed CI / firing alerts → runtime signals;
-operator command → `control/commands.jsonl`) and runs a closed-vocabulary schedule table (`cycle |
+`aria` → mission; PR events → `ignored` with reason `pr_lifecycle_has_one_writer`, because a PR's
+lifecycle has one ledger, `pr-lifecycle.jsonl` (ARIA-LOW-424); failed CI / firing alerts → runtime
+signals; operator command → `control/commands.jsonl`) and runs a closed-vocabulary schedule table (`cycle |
 drain | daily_report | doctor | telemetry_export | deliver | inbox_drain`). There is no action that
 hands text to a model.
 

@@ -14,9 +14,16 @@ from .inbox import mark_routed, pending_events
 from .normalize import ARIA_ISSUE_LABEL, NormalizedEvent, event_from_dict as _event_from_dict
 
 ROUTE_ACTIONS: tuple[str, ...] = (
-    "mission_open", "issue_command_recorded", "pr_event", "runtime_signal", "alert_resolved_recorded",
+    "mission_open", "issue_command_recorded", "runtime_signal", "alert_resolved_recorded",
     "operator_control", "ignored",
 )
+# ARIA-LOW-424 — why a PR delivery routes nowhere: a PR's lifecycle has one
+# ledger, `pr-lifecycle.jsonl`, whose terminal rows only `merge_record` writes
+# (ARIA-HIGH-390), fed by the merge lane and the merge reconciler. The route
+# wrote `pr_tracking`'s copy of it (`pr-events.jsonl`), which is retired; a
+# webhook becoming a second PR ledger, or a second merge observer, is what the
+# owner forbids. The delivery itself stays on the inbox.
+PR_DELIVERY_PARKED = "pr_lifecycle_has_one_writer"
 ISSUE_MISSION_NEXT_ACTION = "triage_github_issue"
 ISSUE_MISSION_SOURCE_KIND = "github_issue"
 _MISSION_ROUTE_NOT_PENDING = "mission_route_not_pending"
@@ -148,17 +155,7 @@ def _route(event: NormalizedEvent, *, base_dir: str | Path | None, workspace_roo
         })
         return RouteOutcome("issue_command_recorded", {"issue": subject.get("number")})
     if kind in {"github.pr_opened", "github.pr_synchronize", "github.pr_closed"}:
-        from ..pr_tracking import observe_pr_event
-
-        pr_event = {"github.pr_opened": "opened", "github.pr_synchronize": "synchronize", "github.pr_closed": "closed"}[kind]
-        if kind == "github.pr_closed" and subject.get("merged"):
-            pr_event = "merged"
-        row = observe_pr_event(payload={
-            "event": pr_event, "pr_number": subject.get("number"), "head_sha": subject.get("head_sha"), "base_sha": subject.get("base_sha"),
-            "author": subject.get("author"), "labels": subject.get("labels") or [], "merged_at": subject.get("merged_at"),
-            "source": "github_webhook",
-        }, base_dir=root)
-        return RouteOutcome("pr_event", {"pr_number": subject.get("number"), "event": row.get("event")})
+        return RouteOutcome("ignored", {"reason": PR_DELIVERY_PARKED, "pr_number": subject.get("number")})
     if kind in {"github.check_suite_failed", "github.workflow_run_failed"}:
         from ..runtime_signal_bridge import ingest_runtime_signal
 
@@ -209,4 +206,5 @@ def drain_inbox(*, base_dir: str | Path | None, workspace_root: str | Path, limi
     return out
 
 
-__all__ = ["ISSUE_MISSION_NEXT_ACTION", "ISSUE_MISSION_SOURCE_KIND", "ROUTE_ACTIONS", "RouteOutcome", "drain_inbox", "route_event"]
+__all__ = ["ISSUE_MISSION_NEXT_ACTION", "ISSUE_MISSION_SOURCE_KIND", "PR_DELIVERY_PARKED", "ROUTE_ACTIONS", "RouteOutcome", "drain_inbox",
+           "route_event"]

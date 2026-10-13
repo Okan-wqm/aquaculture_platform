@@ -20,6 +20,24 @@ module is the one reader of that spelling (``expiry_fault_class``). It has
 no kernel imports at module scope, so the writer in ``agent_invocations``
 can import it without a cycle.
 
+AN AGE EXPIRY AFTER HARNESS RELEASES (ARIA-MEDIUM-422). The plain age
+expiry (``ANCHOR_EXPIRED``, spelled here and written by the clock) says only
+that the window ran out. A request the queue DID reach, claimed and handed
+back solely for the harness's reasons (``native_runtime_*``,
+``claude_cli_exit_<n>``: the harness class of
+``agent_invocations.classify_release_reason``), ran out because the host
+could not serve it, the same statement an outage expiry makes. So
+``expiry_causes`` reads each expired request's claim rows, and prices such
+an expiry harness-class. Whether a release charges the request is decided by
+its one owner, ``agent_invocations._request_fault_requeue_count``, so a
+contract violation past its free allowance still spends. Measured on the
+bound runner store 2026-10-10: 46 of 1,202 expiries; the five consensus
+arbiters with four contract violations each stay request-class. A reader,
+not a new ledger reason, so the rows already written are priced the same way
+and no reason vocabulary grows. ``anchor_unreachable`` and
+``anchor_undatable`` are facts about the request's own anchor and keep their
+class whatever its releases were.
+
 THE CAP. A harness-class expiry is free, but a lineage is not unbounded:
 ``MAX_EXPIRY_LINEAGE_REMINTS`` successors per lineage whatever the causes,
 the same bound as ``step_request.MAX_STEP_REQUEST_REMINTS`` and
@@ -29,9 +47,13 @@ never serves cannot make the kernel re-mint forever.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 ANCHOR_EXPIRED_IN_OUTAGE_PREFIX = "anchor_expired_during_provider_outage:"
+
+# The plain age expiry: the window ran out in provider-available time and no
+# outage overlapped it (`agent_invocations._anchor_expiry_reason`).
+ANCHOR_EXPIRED = "anchor_expired"
 
 # Request-class expiries one lineage may re-mint after: a successor that
 # expires for a reason of its own has shown the queue cannot reach it.
@@ -73,16 +95,45 @@ class ExpiryCause:
 
     @property
     def spends_remint_budget(self) -> bool:
-        """An outage expiry says nothing about the request (module docstring)."""
+        """A harness-class expiry says nothing about the request (module docstring)."""
         return self.fault_class != HARNESS_FAULT_CLASS
 
 
+def expiry_causes(claims: list[dict[str, Any]]) -> dict[str, ExpiryCause]:
+    """Each expired request's cause, from its claim rows: the last ``anchor_stale`` row and the releases.
+
+    ``claims`` is the claims ledger the caller already loaded; only requests
+    with an ``anchor_stale`` row get a cause.
+    """
+    from .agent_invocations import _request_fault_requeue_count
+
+    rows_of: dict[str, list[dict[str, Any]]] = {}
+    for row in claims:
+        if row.get("request_id"):
+            rows_of.setdefault(str(row["request_id"]), []).append(row)
+    causes: dict[str, ExpiryCause] = {}
+    for request_id, rows in rows_of.items():
+        expiries = [row for row in rows if row.get("event") == "anchor_stale"]
+        if not expiries:
+            continue
+        cause = ExpiryCause.from_reason(str(expiries[-1].get("reason") or ""))
+        # The queue reached it (a claim) and no release charged it: every
+        # hand-back was the harness's, so the window ran out on the host.
+        if (cause.reason == ANCHOR_EXPIRED and any(row.get("event") == "claimed" for row in rows)
+                and _request_fault_requeue_count(rows, request_id) == 0):
+            cause = ExpiryCause(reason=cause.reason, fault_class=HARNESS_FAULT_CLASS)
+        causes[request_id] = cause
+    return causes
+
+
 __all__ = [
+    "ANCHOR_EXPIRED",
     "ANCHOR_EXPIRED_IN_OUTAGE_PREFIX",
     "ANCHOR_STALE_REMINT_BUDGET",
     "ExpiryCause",
     "HARNESS_FAULT_CLASS",
     "MAX_EXPIRY_LINEAGE_REMINTS",
     "anchor_expiry_reason_in_outage",
+    "expiry_causes",
     "expiry_fault_class",
 ]

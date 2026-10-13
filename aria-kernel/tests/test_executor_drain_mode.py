@@ -505,7 +505,7 @@ class DrainJudgeBatchTests(unittest.TestCase):
                 child_output.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
             return _FakeProc(returncode=child_rc)
 
-        def fake_route(*, request, repo_root):
+        def fake_route(*, request, repo_root, cooled):
             return DispatchRoute(provider="zai", model="glm-5.3", role=str(request.get("role") or ""),
                                  target_agent=str(request.get("target_agent") or ""))
 

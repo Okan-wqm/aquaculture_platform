@@ -162,7 +162,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .change_paths import name_status_args, parse_name_status_z
-from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
+from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS, without_ambient_git_config
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .pr_manager import ARIA_PR_BASE, REVERT_BRANCH_PREFIX
 from .self_merge_freeze import (
@@ -246,12 +246,10 @@ REVERT_COMMITTER_EMAIL = "aria-self-revert@users.noreply.github.com"
 # commit, pinned: a signature makes a different commit, and
 # `revert.reference` a different message.
 _REVERT_CONFIG_ARGS: tuple[str, ...] = ("-c", "commit.gpgsign=false", "-c", "revert.reference=false")
-# Ambient environment that sets a commit's identity, its dates or injected
-# git config; none of it reaches the revert commit.
-_AMBIENT_COMMIT_ENV_PREFIXES: tuple[str, ...] = (
-    "GIT_AUTHOR_", "GIT_COMMITTER_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_",
-)
-_AMBIENT_COMMIT_ENV_NAMES: frozenset[str] = frozenset({"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"})
+# Ambient environment that sets a commit's identity or its dates; none of it
+# reaches the revert commit. Injected git configuration is stripped by its
+# one owner (`git_containment.without_ambient_git_config`, ARIA-HIGH-234).
+_AMBIENT_COMMIT_IDENTITY_PREFIXES: tuple[str, ...] = ("GIT_AUTHOR_", "GIT_COMMITTER_")
 # The bound of the one `gh pr list` the delivery asks before it creates.
 GH_PR_LOOKUP_TIMEOUT_SECONDS = 60
 # Every worktree this producer makes lives in a holder named for its key, so
@@ -551,8 +549,8 @@ def _revert_environment(date: str) -> dict[str, str]:
     anything that sets a commit's identity, dates or injected config, plus
     the producer's identity and the merge's own date."""
     env = {
-        name: value for name, value in os.environ.items()
-        if not name.startswith(_AMBIENT_COMMIT_ENV_PREFIXES) and name not in _AMBIENT_COMMIT_ENV_NAMES
+        name: value for name, value in without_ambient_git_config(os.environ).items()
+        if not name.startswith(_AMBIENT_COMMIT_IDENTITY_PREFIXES)
     }
     env.update({
         "GIT_AUTHOR_NAME": REVERT_COMMITTER_NAME, "GIT_AUTHOR_EMAIL": REVERT_COMMITTER_EMAIL, "GIT_AUTHOR_DATE": date,
@@ -1471,7 +1469,11 @@ def _deliver(
         except DeliveryCredentialError as exc:
             raise _Pending(DECISION_CREDENTIAL_UNAVAILABLE, str(exc)[:300], {"change_id": change_id}) from exc
         credential_env: dict[str, str] = dict(credential.env) if credential is not None else {}
-        environment = {**os.environ, **credential_env}
+        # ARIA-HIGH-234 — the push and the PR lookup carry the credential this
+        # hold chose and its own helper configuration, never an ambient
+        # injected header, url rewrite or `-c` export (`GIT_CONFIG_PARAMETERS`
+        # survived the credential's own triple).
+        environment = {**without_ambient_git_config(os.environ), **credential_env}
         if remote_head is None:
             _push_revert(branch=branch, worktree=worktree, workspace=workspace, revert_sha=revert_sha,
                          change_id=change_id, purity=purity, request_id=request_id,

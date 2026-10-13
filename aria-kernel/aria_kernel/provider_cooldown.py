@@ -51,6 +51,18 @@ releases on 2026-09-18/19) and ``unreachable`` (HTTP 429, overload, network).
 While the outage stands the back-off doubles per re-probe up to
 ``MAX_REPROBE_SECONDS``: a dead credential re-probed every 900 s wrote 96
 rows a day that said nothing new.
+
+ARIA-HIGH-425 (2026-10-10; operator decision: when the Claude quota runs out,
+every role Z.ai can serve moves to Z.ai until the window resets) — the
+exhaustion is read from the vendor's own STRUCTURED quota reading, not only
+from a notice's wording. Every Claude Code stream carries the CLI's
+``rate_limit_event`` (per-window utilization and reset); 397 of 543 harness
+releases fell inside an exhausted window that no reader saw, and the notice
+regex above it has never fired in production. The reading cools Anthropic
+(``claude_rate_limit_event``) when it says ``rejected`` or when a window has
+reached ``QUOTA_WINDOW_EXHAUSTED_UTILIZATION``, and the cooldown ends at the
+window's own reset (``detection["resets_at"]``), so the native admission
+routes every read-only seat to the next rung until then and back after.
 """
 from __future__ import annotations
 
@@ -96,7 +108,16 @@ PROVIDER_EXHAUSTION_SIGNATURES: dict[str, tuple[str, str]] = {
     "codex_logged_out": ("openai", "logged_out"),        # `codex login status`: Not logged in
     "claude_unreachable": ("anthropic", "unreachable"),  # API 429 / 529 overload / connection error
     "zai_unreachable": ("zai", "unreachable"),           # HTTP transport timeout / DNS / connection
+    "claude_rate_limit_event": ("anthropic", "quota"),   # the CLI's rate_limit_event: rejected, or a spent window
 }
+# ARIA-HIGH-425 — the utilization at which a quota window the vendor reports
+# counts as spent, pinned with ARIA-HIGH-425's design (2026-10-10): the CLI rounds
+# the reading to two decimals, and in the 2026-09 window 0.98 turned into
+# the hard stop 5.6 h later (last success 09-21 08:21Z); cooling there keeps
+# a long run from starting into the wall and leaves the account's shared
+# interactive sessions their headroom. A `rejected` reading cools whatever
+# its utilization.
+QUOTA_WINDOW_EXHAUSTED_UTILIZATION = 0.98
 # The re-probe back-off ceiling while an outage stands (ARIA-HIGH-366): the
 # operator's fix is noticed within an hour, and a standing outage writes at
 # most 24 back-off rows a day instead of 96.
@@ -198,6 +219,25 @@ def stated_reset(text: str, *, now: datetime) -> datetime | None:
     return instant
 
 
+def detection_reset(detection: dict[str, Any], *, now: datetime) -> datetime | None:
+    """The instant a detection record says the quota comes back, or None.
+
+    A structured reset (``resets_at``, ISO — the window's own reset from the
+    CLI's ``rate_limit_event``) is the vendor's number and is read first; a
+    notice's wording (``reset_hint``, read by ``stated_reset``) second. Either
+    must lie in ``(now, now + MAX_STATED_RESET_SECONDS]``; outside it, or
+    absent, the caller applies the declared default.
+    """
+    stamp = detection.get("resets_at")
+    if stamp is not None:
+        instant = _parse_iso(stamp)
+        if instant is None or not now < instant <= now + timedelta(seconds=MAX_STATED_RESET_SECONDS):
+            return None
+        return instant
+    hint = detection.get("reset_hint")
+    return stated_reset(hint, now=now) if isinstance(hint, str) else None
+
+
 def record_provider_cooldown(
     base_dir: str | Path | None,
     *,
@@ -214,8 +254,8 @@ def record_provider_cooldown(
     `detection` is the runtime's own record and must name a member of
     `PROVIDER_EXHAUSTION_SIGNATURES` attributed to `provider`; it is kept on
     the row so the operator tunes the table from production evidence. The
-    window ends at the reset the record's `reset_hint` states, else after
-    `cooldown_seconds` (`until_source` says which). Once per transition: the
+    window ends at the reset the record states (`detection_reset`), else
+    after `cooldown_seconds` (`until_source` says which). Once per transition: the
     read and the append share one ledger transaction, and while a cooldown
     for `provider` stands its row is returned and nothing is written.
     """
@@ -226,8 +266,7 @@ def record_provider_cooldown(
     if member is None or member[0] != provider:
         raise GovernanceError(f"provider_cooldown_signature_unknown:{provider}:{signature!r}")
     started = now or _utc_now()
-    hint = detection.get("reset_hint")
-    reset = stated_reset(hint, now=started) if isinstance(hint, str) else None
+    reset = detection_reset(detection, now=started)
     until = reset or started + timedelta(seconds=int(cooldown_seconds))
     root = ensure_tools_dir(base_dir)
     governance = root / "governance.jsonl"
@@ -368,7 +407,9 @@ __all__ = [
     "PROVIDER_COOLDOWN_GOVERNANCE_KIND",
     "PROVIDER_COOLDOWN_REASON",
     "PROVIDER_COOLDOWN_SCHEMA_VERSION",
+    "QUOTA_WINDOW_EXHAUSTED_UTILIZATION",
     "active_provider_cooldowns",
+    "detection_reset",
     "provider_cooldown_for_claim",
     "provider_cooldown_seconds",
     "record_provider_cooldown",

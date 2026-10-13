@@ -24,7 +24,8 @@ expiry cause (``anchor_expiry_cause``) and its owner (``expiry_ownership``):
    name when the finding no longer needs that judge (``subject_closed:``);
    hand to the operator when the lineage is spent
    (``MAX_EXPIRY_LINEAGE_REMINTS``, or ``ANCHOR_STALE_REMINT_BUDGET``
-   request-class expiries; an outage expiry spends no budget); otherwise
+   request-class expiries; a harness-class expiry, an outage or one after
+   only harness releases, spends no budget); otherwise
    re-mint at HEAD the way the fan-out mints today (``judge_remint``).
 
 THE BACKLOG. ``dispose_anchor_stale_requests`` runs inside the lease sweep
@@ -36,7 +37,9 @@ before any ledger is read and costs one dict lookup. When nothing is due the
 sweep reads no ledger beyond the ones its caller already holds. Idempotent:
 a resolved record is never read again, an open record already carries the
 kernel's decision, and a crash mid-batch leaves a started row whose
-unfinished items the next sweep decides again.
+unfinished items the next sweep decides again. The one open record read
+again is an operator hand-off ``owner_of`` made that it no longer makes
+(ARIA-HIGH-418): its owner is decided once, by the same rule.
 """
 from __future__ import annotations
 
@@ -45,7 +48,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .anchor_expiry_cause import ANCHOR_STALE_REMINT_BUDGET, MAX_EXPIRY_LINEAGE_REMINTS, ExpiryCause
+from .anchor_expiry_cause import (
+    ANCHOR_STALE_REMINT_BUDGET,
+    MAX_EXPIRY_LINEAGE_REMINTS,
+    ExpiryCause,
+    expiry_causes,
+)
 from .anchor_stale_effects import (
     DISPOSITION_DROPPED,
     DISPOSITION_OPERATOR,
@@ -57,7 +65,14 @@ from .anchor_stale_effects import (
     reoffer_queue_item,
     remint_judge,
 )
-from .expiry_ownership import OWNER_KERNEL_REMINT, OWNER_OPERATOR, OWNER_PRODUCER, OWNER_REOFFER, owner_of
+from .expiry_ownership import (
+    OWNER_KERNEL_REMINT,
+    OWNER_OPERATOR,
+    OWNER_PRODUCER,
+    OWNER_REOFFER,
+    is_ownership_verdict,
+    owner_of,
+)
 from .human_required import DEFAULT_SEVERITY, list_human_required, write_kernel_disposition
 from .human_required_adjudication import _adjudications_path
 from .judge_subject_liveness import JudgeSubjectLiveness
@@ -138,14 +153,6 @@ def decide_expiry_disposition(
     return ExpiryDecision(ACTION_REMINT, "subject_live")
 
 
-def _causes(claims: list[dict[str, Any]]) -> dict[str, ExpiryCause]:
-    """Each expired request's cause, from its terminal ``anchor_stale`` claim row."""
-    return {
-        str(row["request_id"]): ExpiryCause.from_reason(str(row.get("reason") or ""))
-        for row in claims if row.get("event") == "anchor_stale" and row.get("request_id")
-    }
-
-
 def _lineage(by_id: Mapping[str, Mapping[str, Any]], causes: Mapping[str, ExpiryCause], rid: str) -> Lineage:
     depth = spent = 0
     seen = {rid}
@@ -157,7 +164,8 @@ def _lineage(by_id: Mapping[str, Mapping[str, Any]], causes: Mapping[str, Expiry
         seen.add(parent)
         depth += 1
         cause = causes.get(parent)
-        # Only an outage expiry is free; an ancestor that died otherwise spends.
+        # Only a harness-class expiry is free (anchor_expiry_cause); an ancestor
+        # that died otherwise spends.
         if cause is None or cause.spends_remint_budget:
             spent += 1
         current = by_id.get(parent)
@@ -176,25 +184,44 @@ def _record_ids(root: Path) -> set[str]:
     return {path.stem for path in directory.glob("*.json")} if directory.exists() else set()
 
 
-def _undecided_open_records(root: Path) -> list[dict[str, Any]]:
-    """Open anchor_stale records the kernel has not decided (the pre-ARIA-HIGH-360 panel questions)."""
-    return [
-        record for record in list_human_required(base_dir=root)
-        if (record.get("context") or {}).get("kind") == ANCHOR_STALE_KIND
-        and record.get("request_id") and "kernel_disposition" not in record
-    ]
+def _open_records(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Open anchor_stale records: (never decided, handed to the operator by ownership).
+
+    The first are the pre-ARIA-HIGH-360 panel questions. The second carry an
+    ``owner_of`` verdict (``expiry_ownership.is_ownership_verdict``); the
+    sweep re-reads one only once ``owner_of`` names another owner.
+    """
+    undecided: list[dict[str, Any]] = []
+    handed: list[dict[str, Any]] = []
+    for record in list_human_required(base_dir=root):
+        if (record.get("context") or {}).get("kind") != ANCHOR_STALE_KIND or not record.get("request_id"):
+            continue
+        disposition = record.get("kernel_disposition")
+        if disposition is None:
+            undecided.append(record)
+        elif disposition.get("disposition") == DISPOSITION_OPERATOR and is_ownership_verdict(
+                str(disposition.get("reason") or "")):
+            handed.append(record)
+    return undecided, handed
 
 
 def _notify_operator(root: Path, handed: list[str], now: datetime) -> None:
-    """One notification per batch for the records left open for the operator."""
+    """One notification per batch for the records left open for the operator.
+
+    ARIA-HIGH-415 — the title is FIXED: the GitHub-issue channel finds its
+    issue by the exact title, so the count it used to carry opened one issue
+    per distinct count. Every batch is now one comment on one issue; the
+    count rides the body.
+    """
     if not handed:
         return
     from .notify import notify_best_effort
 
     notify_best_effort(
         kind="human_required_opened", key=f"anchor-stale:{handed[0]}:{len(handed)}", base_dir=root, now=now,
-        title=f"ARIA: {len(handed)} expired request(s) need an operator",
-        body="No producer recovers these expired requests; each record names why.\n" + "\n".join(handed[:50]),
+        title="ARIA: expired requests need an operator",
+        body=f"{len(handed)} expired request(s) need an operator. No producer recovers them; each record names why.\n"
+             + "\n".join(handed[:50]),
     )
 
 
@@ -216,19 +243,29 @@ def dispose_anchor_stale_requests(
     by_id = {str(r["request_id"]): r for r in requests if r.get("request_id")}
     order = {rid: position for position, rid in enumerate(by_id)}
     successor_of = {str(r["remint_of"]): str(r["request_id"]) for r in requests if r.get("remint_of") and r.get("request_id")}
-    open_records = sorted(_undecided_open_records(root), key=lambda r: -order.get(str(r["request_id"]), len(order)))
+    undecided, handed = _open_records(root)
     recorded = _record_ids(root)
     stale = [r for r in reversed(requests) if r.get("request_id") and states.get(str(r["request_id"])) == "ANCHOR_STALE"
              and str(r["request_id"]) not in recorded]
-    panels = _panel_request_ids(root) if open_records or any(
-        r.get("role") == "human_required_adjudication" for r in stale) else {}
+    handed_requests = [by_id[str(record["request_id"])] for record in handed if str(record["request_id"]) in by_id]
+    panels = _panel_request_ids(root) if undecided or any(
+        r.get("role") == "human_required_adjudication" for r in (*stale, *handed_requests)) else {}
     panel_ids = frozenset(rid for ids in panels.values() for rid in ids)
     gate = RemintGate(root, requests, states, cycle_id=cycle_id)
-    owners = {str(r["request_id"]): owner_of(r, panel_ids) for r in stale}
-    for record in open_records:
+    owners = {str(r["request_id"]): owner_of(r, panel_ids) for r in (*stale, *handed_requests)}
+    for record in undecided:
         request = by_id.get(str(record["request_id"]))
         if request is not None:
             owners[str(request["request_id"])] = owner_of(request, panel_ids)
+    # ARIA-HIGH-418 — an operator hand-off by ownership is re-read once
+    # `owner_of` names another owner (466 fan-out judges on 2026-10-10,
+    # whose group-key shapes the first signature did not know). A record
+    # whose owner is still the operator is not: re-deciding the 39
+    # legitimate operator records every sweep would take the sweep's slots
+    # (the ARIA-HIGH-364 starvation) and notify again for nothing.
+    reread = [record for record in handed if str(record["request_id"]) in by_id
+              and owners[str(record["request_id"])][0] != OWNER_OPERATOR]
+    open_records = sorted([*undecided, *reread], key=lambda r: -order.get(str(r["request_id"]), len(order)))
     work: list[tuple[str, dict[str, Any] | None, dict[str, Any] | None]] = [
         (str(record["request_id"]), by_id.get(str(record["request_id"])), record) for record in open_records
     ] + [
@@ -248,10 +285,11 @@ def dispose_anchor_stale_requests(
     # decided.
     candidates = [item for item in work if item[0] not in waiting_ids]
     summary: dict[str, Any] = {"disposed": [], "waiting_judge_backlog_full": len(waiting),
-                               "waiting_sample": waiting[:20], "bound": ANCHOR_STALE_DISPOSITIONS_PER_SWEEP}
+                               "waiting_sample": waiting[:20], "bound": ANCHOR_STALE_DISPOSITIONS_PER_SWEEP,
+                               "reread_ownership": len(reread)}
     if not candidates:
         return summary
-    causes = _causes(claims)
+    causes = expiry_causes(claims)
     subjects = JudgeSubjectLiveness(base_dir=root, now=reference)
     planned: list[tuple[str, dict[str, Any], dict[str, Any] | None, ExpiryCause, ExpiryDecision]] = []
     waiting_admission: list[str] = []
@@ -306,7 +344,10 @@ def dispose_anchor_stale_requests(
             effect = operator_required(f"disposition_effect_failed:{type(exc).__name__}", error=str(exc)[:300])
         disposition = {"role": request.get("role"), "expiry_reason": cause.reason,
                        "expiry_fault_class": cause.fault_class, **effect}
-        if record is not None:
+        if record is not None and "kernel_disposition" in record:
+            # The hand-off this decision replaces stays on the record.
+            disposition["supersedes"] = record["kernel_disposition"]
+        elif record is not None:
             disposition["closed_panel_request_ids"] = panels.get(rid, [])
         written = write_kernel_disposition(item={
             "request_id": rid, "severity": str(request.get("severity") or DEFAULT_SEVERITY),

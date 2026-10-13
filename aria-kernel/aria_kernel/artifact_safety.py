@@ -32,6 +32,28 @@ def scrub_text(value: str) -> str:
     return out
 
 
+# An absolute POSIX path inside free text; group 1 is its last component.
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.\-~])/(?:[^\s/:'\"]+/)*([^\s/:'\"]+)")
+
+
+def published_text(text: Any, *, store_root: Path | None, limit: int) -> str:
+    """Free text as it may leave the host: on aria/state or a GitHub issue.
+
+    Both places are public. A failure's text — a phase's error, a crashed
+    cycle's exception, a refusal, a human-required reason — routinely names
+    host paths and can carry anything an exception or an agent put into it.
+    One sanitizer for all of them (the review of the 2026-10-10 repair stack
+    found four that each did part of this): secret shapes redacted, a path
+    under the store kept store-relative (``memory/beliefs.jsonl``), any other
+    absolute path reduced to its file name, then bounded.
+    """
+    out = str(text)
+    if store_root is not None:
+        for prefix in {Path(store_root).as_posix(), Path(store_root).resolve().as_posix()}:
+            out = out.replace(f"{prefix}/", "")
+    return scrub_text(_ABSOLUTE_PATH.sub(r"\1", out))[:limit]
+
+
 def scrub_json(value: Any) -> Any:
     if isinstance(value, str):
         return scrub_text(value)

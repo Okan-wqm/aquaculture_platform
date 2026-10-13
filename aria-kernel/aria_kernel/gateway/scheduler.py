@@ -34,6 +34,14 @@ ACTION_WORKFLOWS: dict[str, tuple[str, dict[str, str]]] = {
 }
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
+# ARIA-HIGH-415 — FIXED titles: the GitHub-issue channel finds its issue by the
+# exact title, so a title carrying the failing organs or a date opened one
+# issue per value. What varies rides the body; each notice is one comment.
+DOCTOR_UNHEALTHY_TITLE = "ARIA doctor unhealthy"
+DAILY_DELIVERY_TITLE = "ARIA daily delivery summary"
+# One organ's reason can list every lapsed request id (>1000 chars on the
+# 2026-10-10 store); the result, the body and the CI summary carry a bounded one.
+DOCTOR_FAILING_REASON_MAX_CHARS = 300
 
 
 def _field_matches(spec: str, value: int, lo: int, hi: int) -> bool:
@@ -178,6 +186,8 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
     root = ensure_tools_dir(base_dir)
     action = validate_action(action, base_dir=root)
     result: dict[str, Any] = {"action": action, "status": "ran", "detail": {}}
+    # Facts an action adds to its `gateway_action_ran` governance row.
+    ran_facts: dict[str, Any] = {}
     if action in ACTION_WORKFLOWS:
         from ..control import effective_control
 
@@ -202,13 +212,22 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
         from ..doctor import run_doctor
 
         report = run_doctor(base_dir=root, workspace_root=workspace_root)
-        result["detail"] = {"healthy": report.healthy, "summary": report.to_dict()["summary"]}
+        summary = report.to_dict()["summary"]
+        # ARIA-HIGH-415 (gate g1) — WHICH organs failed, on the result and, by
+        # name, on the governance row, so "what was unhealthy on night N" is
+        # one ledger read. Names and reason codes only: an organ's `detail`
+        # carries host paths, and the issue this reaches is public.
+        failing = [{"name": c.name, "reason": c.reason[:DOCTOR_FAILING_REASON_MAX_CHARS]}
+                   for c in report.checks if c.status == "fail"]
+        result["detail"] = {"healthy": report.healthy, "summary": summary, "failing": failing}
+        ran_facts["failing"] = [organ["name"] for organ in failing]
         if not report.healthy:
             from ..notify import notify_best_effort
 
-            failing = [c.name for c in report.checks if c.status == "fail"]
-            notify_best_effort(kind="doctor_unhealthy", key=",".join(failing), base_dir=root,
-                               title="ARIA doctor unhealthy: " + ", ".join(failing), body=json.dumps(report.to_dict()["summary"]))
+            notify_best_effort(kind="doctor_unhealthy", key=",".join(ran_facts["failing"]), base_dir=root,
+                               title=DOCTOR_UNHEALTHY_TITLE,
+                               body="\n".join([f"{organ['name']}: {organ['reason']}" for organ in failing]
+                                              + [json.dumps(summary, sort_keys=True)]))
     elif action == "telemetry_export":
         from ..telemetry import export_telemetry
         from ..workspace import workspace_paths
@@ -221,11 +240,19 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
     elif action == "deliver":
         from ..delivery_closure import compute_delivery_closure
         from ..notify import notify_best_effort
+        from ..reflection import _human_required_summary
 
         summary = compute_delivery_closure(base_dir=root).summary
-        rows = notify_best_effort(kind="daily_report", key=utc_now()[:10], base_dir=root, title="ARIA daily delivery summary",
-                                  body=json.dumps(summary, sort_keys=True))
-        result["detail"] = {"channels": [r["channel"] + ":" + r["status"] for r in rows]}
+        # ARIA-HIGH-415 — the HUMAN_REQUIRED backlog reaches the operator HERE,
+        # as counts in the one daily comment; a record notifies on its own only
+        # when CRITICAL (`human_required.record_human_required`). The counts
+        # are the daily report's own (`reflection._human_required_summary`).
+        backlog = _human_required_summary(root)
+        human_required = {"open": backlog["open"], "breaching_sla": backlog["breaching_sla"], "tiers": backlog["tiers"]}
+        rows = notify_best_effort(kind="daily_report", key=utc_now()[:10], base_dir=root, title=DAILY_DELIVERY_TITLE,
+                                  body=json.dumps({"delivery": summary, "human_required": human_required}, sort_keys=True))
+        result["detail"] = {"channels": [r["channel"] + ":" + r["status"] for r in rows],
+                            "human_required_open": human_required["open"]}
     elif action == "inbox_drain":
         from .router import drain_inbox
 
@@ -263,7 +290,8 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
         # clock of the write — the once-per-minute rule folds on it.
         _append(root, {"event": "ran", "name": schedule_name, "action": action, "status": result["status"], "detail": result["detail"],
                        "ran_at": ran_at or utc_now()})
-    append_tools_governance(root, "gateway_action_ran", {"action": action, "schedule": schedule_name, "status": result["status"]})
+    append_tools_governance(root, "gateway_action_ran",
+                            {"action": action, "schedule": schedule_name, "status": result["status"], **ran_facts})
     return result
 
 
@@ -300,6 +328,7 @@ def tick(*, base_dir: str | Path | None, workspace_root: str | Path, now: dateti
     return {"routed": routed, "ran": ran, "heartbeat": beat}
 
 
-__all__ = ["ACTION_WORKFLOWS", "SCHEDULES_RELPATH", "SCHEDULES_SURFACE", "SCHEDULE_ACTIONS", "SCHEDULE_EVENTS", "Schedule",
+__all__ = ["ACTION_WORKFLOWS", "DAILY_DELIVERY_TITLE", "DOCTOR_FAILING_REASON_MAX_CHARS", "DOCTOR_UNHEALTHY_TITLE",
+           "SCHEDULES_RELPATH", "SCHEDULES_SURFACE", "SCHEDULE_ACTIONS", "SCHEDULE_EVENTS", "Schedule",
            "add_schedule", "change_schedule", "cron_matches", "due_schedules", "fold_schedules", "run_action", "schedules_path",
            "tick", "validate_cron"]

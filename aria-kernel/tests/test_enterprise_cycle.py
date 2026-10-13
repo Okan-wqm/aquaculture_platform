@@ -550,8 +550,11 @@ class EnterpriseCycleTests(unittest.TestCase):
             "architecture_spine_baseline", "architecture_spine_regression", "architecture_spine_postcheck",
             "architecture_spine_baseline", "architecture_spine_baseline",
         ])
+        # `status` and `error` are the cycle's projection of the regression
+        # (ARIA-MEDIUM-413: a payload-failed phase states its reason); the
+        # spine event carries the evidence only.
         self.assertEqual([row["details"] for row in rows],
-                         [baseline, {key: value for key, value in failed.items() if key != "status"},
+                         [baseline, {key: value for key, value in failed.items() if key not in ("status", "error")},
                           clean, following, explicit])
 
     def test_native_other_plan_is_independent_and_replaced_anchor_is_unavailable(self) -> None:

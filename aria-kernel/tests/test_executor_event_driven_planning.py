@@ -375,7 +375,7 @@ class OneRunTakesThePlanToItsImplementationRequest(_PlanCase):
             stack.enter_context(mock.patch.object(ci_executor_drain, "_judge_batch_policy", return_value=(1, ())))
             stack.enter_context(mock.patch.object(
                 ci_executor_drain._dispatch_failure, "resolve_dispatch_route",
-                side_effect=lambda *, request, repo_root: DispatchRoute(
+                side_effect=lambda *, request, repo_root, cooled: DispatchRoute(
                     provider="anthropic", model="opus", role=str(request.get("role") or ""),
                     target_agent=str(request.get("target_agent") or "")),
             ))

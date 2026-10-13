@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING, Any, Iterator
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES, ImplementationSettlement
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
-from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, verify_jsonl
+from .ledger import (
+    append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, load_segments, verify_jsonl,
+)
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -963,7 +965,7 @@ def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
     return active
 
 
-_IMPLEMENTATION_PHASE_STATES = {
+IMPLEMENTATION_PHASE_STATES = {
     "IMPLEMENTATION_REQUESTED",
     "IMPLEMENTATION_IN_FLIGHT",
     "IMPLEMENTATION_RECORDED",
@@ -1084,7 +1086,7 @@ def decide_orphan_reap(
     says False for both. Combined with sparing the undateable, that made a
     plan with an unreadable clock IMMORTAL — spared by the reaper forever,
     and never seen by `resume_candidate_plan_id`, which skips
-    `_IMPLEMENTATION_PHASE_STATES` outright and so was never the backstop an
+    `IMPLEMENTATION_PHASE_STATES` outright and so was never the backstop an
     earlier version of this comment claimed it was.
 
     So the age is established here, once, from the two stamps the scanner
@@ -1161,8 +1163,7 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     event is older than STALE_PLAN_MAX_AGE_HOURS is abandoned (recorded,
     reason carries the stall timestamp) and the scan moves on.
     """
-    from .outage_causality import request_awaits_provider
-    from .provider_clock import provider_clock, role_head_providers
+    from .provider_clock import provider_clock
 
     root = ensure_tools_dir(base_dir)
     last_seen = _last_event_at_by_plan(root)
@@ -1172,38 +1173,61 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
         if not isinstance(state, dict):
             continue
-        if state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+        if state.get("state") in IMPLEMENTATION_PHASE_STATES:
             continue
-        stamp = last_seen.get(plan_id)
-        if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
-            # ARIA-MEDIUM-291 — the abandonment says WHY the plan stopped,
-            # read from its newest request's claim ledger; the invocation
-            # ledgers are read once per scan, and only when a plan stalled.
-            if not invocations:
-                invocations.extend(load_jsonl(root / "agent-invocations" / name)
-                                   for name in ("requests.jsonl", "claims.jsonl"))
-            stall = _stall_cause(plan_id, requests=invocations[0], claims=invocations[1])
-            # ARIA-HIGH-365 (B1) — the bound is on PROVIDER-AVAILABLE time:
-            # wall time minus the outage of the provider the plan's waiting
-            # request is routed to. A plan whose 72 h are a provider outage
-            # (measured: `stalled:provider_quota_unavailable:anthropic`) was
-            # not neglected; it is adopted and continues where it stopped.
-            # Review HIGH-1: only while that request is still WAITING on a
-            # provider (`outage_causality`); one a fallback rung answered and
-            # that died for its own reason is held to the wall clock.
-            waiting = request_awaits_provider(stall.get("request_id"), base_dir=root, claims=invocations[1])
-            available = clock.available_age(
-                parse_utc_stamp(stamp), datetime.now(timezone.utc),
-                role_head_providers([stall["role"]]) if waiting and stall.get("role") else frozenset(),
-            )
-            if available <= timedelta(hours=STALE_PLAN_MAX_AGE_HOURS):
-                return plan_id
-            stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS,
-                         provider_available_hours=round(available.total_seconds() / 3600.0, 3))
-            abandon_plan(plan_id=plan_id, reason=f"stalled:{stall['cause']}", stall=stall, base_dir=base_dir)
-            continue
-        return plan_id
+        stall = _plan_stall(plan_id, last_seen.get(plan_id), root=root, clock=clock, invocations=invocations)
+        if stall is None:
+            return plan_id
+        abandon_plan(plan_id=plan_id, reason=f"stalled:{stall['cause']}", stall=stall, base_dir=base_dir)
     return None
+
+
+def _plan_stall(
+    plan_id: str, stamp: str | None, *, root: Path, clock: "ProviderClock",
+    invocations: list[list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    """The stall record of a plan idle past ``STALE_PLAN_MAX_AGE_HOURS``, or None while it is in flight.
+
+    The one staleness rule both readers ask (ARIA-LOW-439): the adoption,
+    which abandons the stalled plan, and :func:`in_flight_plan_id`, which only
+    skips it. ``invocations`` is the caller's per-scan cache of the request
+    and claim ledgers, filled on the first plan that is old by the wall clock.
+    """
+    from .outage_causality import request_awaits_provider
+    from .provider_clock import role_head_providers
+
+    if not stamp or not _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
+        return None
+    # ARIA-MEDIUM-291 — the abandonment says WHY the plan stopped, read from
+    # its newest request's claim ledger; the invocation ledgers are read once
+    # per scan, and only when a plan stalled. ARIA-HIGH-440 — the requests
+    # through the one reader of their segmented ledger (`load_segments`):
+    # since the monthly segments (2026-10-02) a new request is never in
+    # segment 0, so reading `requests.jsonl` alone found no request for any
+    # new plan, the cause read `no_request`, and the outage pause below never
+    # applied.
+    if not invocations:
+        invocations.extend((load_segments(root, "agent_invocation_requests"),
+                            load_jsonl(root / "agent-invocations" / "claims.jsonl")))
+    stall = _stall_cause(plan_id, requests=invocations[0], claims=invocations[1])
+    # ARIA-HIGH-365 (B1) — the bound is on PROVIDER-AVAILABLE time: wall time
+    # minus the outage of the provider the plan's waiting request is routed
+    # to. A plan whose 72 h are a provider outage (measured:
+    # `stalled:provider_quota_unavailable:anthropic`) was not neglected; it is
+    # adopted and continues where it stopped. Review HIGH-1: only while that
+    # request is still WAITING on a provider (`outage_causality`); one a
+    # fallback rung answered and that died for its own reason is held to the
+    # wall clock.
+    waiting = request_awaits_provider(stall.get("request_id"), base_dir=root, claims=invocations[1])
+    available = clock.available_age(
+        parse_utc_stamp(stamp), datetime.now(timezone.utc),
+        role_head_providers([stall["role"]]) if waiting and stall.get("role") else frozenset(),
+    )
+    if available <= timedelta(hours=STALE_PLAN_MAX_AGE_HOURS):
+        return None
+    stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS,
+                 provider_available_hours=round(available.total_seconds() / 3600.0, 3))
+    return stall
 
 
 def in_flight_plan_id(*, base_dir: str | Path | None = None) -> str | None:
@@ -1212,17 +1236,23 @@ def in_flight_plan_id(*, base_dir: str | Path | None = None) -> str | None:
     The orchestrator adopts before it synthesizes, so after its call this is
     the adopted plan; a reader (the plan provider deciding whether a new
     envelope will be used at all) must not abandon anything itself.
+    ARIA-LOW-439 — it asks the adoption's own staleness rule (``_plan_stall``):
+    on the wall clock it read a plan an outage held past 72 h as not in
+    flight, so the plan source ran the detectors and spent the
+    admission-lessons probe on a seed the adopted plan made moot.
     """
+    from .provider_clock import provider_clock
+
     root = ensure_tools_dir(base_dir)
     last_seen = _last_event_at_by_plan(root)
+    clock = provider_clock(root)
+    invocations: list[list[dict[str, Any]]] = []
     for plan_id in reversed(list_active_plans(base_dir=base_dir)):
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-        if not isinstance(state, dict) or state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+        if not isinstance(state, dict) or state.get("state") in IMPLEMENTATION_PHASE_STATES:
             continue
-        stamp = last_seen.get(plan_id)
-        if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
-            continue
-        return plan_id
+        if _plan_stall(plan_id, last_seen.get(plan_id), root=root, clock=clock, invocations=invocations) is None:
+            return plan_id
     return None
 
 
@@ -1363,7 +1393,7 @@ def force_plan_human_required(
         _require_started(state, "force human required")
         current = state.get("state")
         allowed = (current in from_states) if from_states is not None else (
-            current not in TERMINAL_STATES and current not in _IMPLEMENTATION_PHASE_STATES
+            current not in TERMINAL_STATES and current not in IMPLEMENTATION_PHASE_STATES
         )
         if not allowed:
             raise PlanStateRefused(

@@ -2663,6 +2663,10 @@ def _runner_summary(runner: Any) -> dict[str, Any]:
         "scoped_mutations": runner.get("scoped_mutations", []),
         "scope_out_mutations": runner.get("scope_out_mutations", []),
         "parse_error": runner.get("parse_error"),
+        # ARIA-CRITICAL-399 — the published row says each run was contained:
+        # the backend's short name (`bwrap`), None when the adapter never
+        # started. A name, never a path; the env report stays in runs.jsonl.
+        "sandbox_backend": runner.get("sandbox_backend"),
     }
 
 

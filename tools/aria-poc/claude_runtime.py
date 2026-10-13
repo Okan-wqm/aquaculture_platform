@@ -33,6 +33,7 @@ import threading
 import time
 from contextlib import ExitStack as _ExitStack
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -114,9 +115,10 @@ def _provider_admits_writes(provider: str) -> bool:
     """Whether a provider's runtime can host a write-scope spawn (fleet fact).
 
     Read from the fleet row rather than restated here: the managed Claude CLI
-    runs under the write-containment sandbox, while the Codex read-only
-    sandbox and the Z.ai HTTP transport cannot edit a workspace at all. An
-    unlisted provider admits nothing — the fail-closed direction.
+    runs under the write-containment sandbox and the Z.ai runtime under the
+    same gate and room through the kernel's tool loop (ARIA-HIGH-434), while
+    the Codex read-only sandbox cannot edit a workspace at all. An unlisted
+    provider admits nothing — the fail-closed direction.
     """
     from aria_kernel.model_fleet import provider_admits_writes
 
@@ -264,6 +266,13 @@ class ClaudeRunResult:
     # ARIA-HIGH-366 — the vendor-did-not-serve record (`extract_unreachable`),
     # or None; run_with_model_fallback turns it into ClaudeProviderUnreachable.
     unreachable: dict[str, Any] | None = None
+    # ARIA-HIGH-425 — the quota reading of a run the vendor SERVED whose
+    # window is spent (`extract_rate_limit_exhaustion`, trigger
+    # `utilization_threshold` or `overage_serving`), or None. Not a failure:
+    # the answer stands and the executor that holds the claim cools the
+    # provider with it. A `rejected` reading is a `credit_exhaustion` instead
+    # (the run was refused).
+    quota_window: dict[str, Any] | None = None
     # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
     # failure / credit-exhaustion markers, process exit), stamped by the
     # runtime through dispatch_failure.classify_dispatch_failure before the
@@ -1594,6 +1603,10 @@ def run_claude_exec(
         )
     if proc.returncode == 0 and require_usage and usage is None:
         raise ClaudeUsageUnavailable("claude_stream_json_missing_result_usage")
+    credit_exhaustion = extract_credit_exhaustion(
+        returncode=proc.returncode, stderr=proc.stderr, events=events, final_message=final_message,
+    )
+    quota_reading = extract_rate_limit_exhaustion(events)
     result = ClaudeRunResult(
         returncode=proc.returncode,
         stdout=proc.stdout,
@@ -1608,11 +1621,9 @@ def run_claude_exec(
             stderr=proc.stderr,
             final_message=final_message,
         ),
-        credit_exhaustion=extract_credit_exhaustion(
-            returncode=proc.returncode, stderr=proc.stderr, events=events,
-            final_message=final_message,
-        ),
+        credit_exhaustion=credit_exhaustion,
         unreachable=extract_unreachable(returncode=proc.returncode, stderr=proc.stderr, events=events),
+        quota_window=quota_reading if credit_exhaustion is None else None,
     )
     # ARIA-HIGH-002 — stamp the typed classification on the result itself so
     # downstream consumers (drains, evidence surfaces) read one vocabulary
@@ -1780,6 +1791,7 @@ USAGE_LIMIT_NOTICE_RX = re.compile(
 # only shapes a provider cooldown may be written for.
 CLAUDE_EXHAUSTION_SIGNATURES: tuple[str, ...] = (
     "claude_usage_credits_hint", "claude_usage_limit_notice", "claude_credit_error", "claude_auth_failure",
+    "claude_rate_limit_event",
 )
 # (2) API CREDIT/QUOTA ERROR — an actual failure (returncode != 0) whose text
 #     names a credit/quota/billing problem.
@@ -1937,10 +1949,9 @@ def run_with_model_fallback(
     * ARIA-HIGH-023 — an AUTH failure retries once on ``failover``, the
       caller's next rung of the role's routing ladder (ARIA-HIGH-290), at
       the original effort: a dead credential is a vendor-level fact, and the
-      other vendor's credential is genuinely different. ``None`` (a
-      write-scope profile, whose other vendors' runtimes are read-only, or
-      the native lane, whose admission owns failover) makes the auth failure
-      terminal at once. A ``failover`` on the same vendor, or a read-only
+      other vendor's credential is genuinely different. ``None`` (the worker
+      lane, whose dispatch hook routes, or the native lane, whose admission
+      owns failover) makes the auth failure terminal at once. A ``failover`` on the same vendor, or a read-only
       one for a write-scope profile, is refused before any attempt. Both vendors failing auth raises
       :class:`ClaudeAuthFailure`; no mock verdict is ever produced here. The
       failover attempt's own credit exhaustion is the same terminal raise,
@@ -1982,8 +1993,8 @@ def run_with_model_fallback(
             return _stamp_model(_raise_if_unserved(retried, model=cross, on_credit=on_credit), cross)
         raise ClaudeAuthFailure(
             f"claude_auth_failure: {completed.auth_failure.get('marker')} on {model!r}"
-            + (" — a write-scope profile has no cross-vendor rung (the other "
-               "runtimes are read-only)" if write_capable else " — no cross-vendor rung")
+            + (" — this write-scope dispatch has no cross-vendor rung here (its lane "
+               "routes before the claim)" if write_capable else " — no cross-vendor rung")
             + f"; {completed.auth_failure.get('remedy')}",
             provider=_model_provider(model), model=model, detail=dict(completed.auth_failure),
         )
@@ -2040,6 +2051,100 @@ def _raise_if_exhausted(
     )
 
 
+# ARIA-HIGH-425 — the CLI's own quota reading. Every Claude Code stream
+# carries `{"type": "rate_limit_event", "rate_limit_info": {...}}`, emitted
+# whenever the reading changes. Its schema, read from the runner's CLI
+# (2.1.278) and from 2.1.296: `status` allowed | allowed_warning | rejected;
+# `resetsAt` (epoch seconds) and `rateLimitType` (five_hour | seven_day |
+# seven_day_opus | seven_day_sonnet | seven_day_overage_included | overage)
+# for the window that binds, with its `utilization` when known; and
+# `unifiedWindows.<window>.{utilization, resetsAt}` for every window the
+# account has. The 239 stored transcripts of aria/state f5c5c86a1 carry 339 of
+# them (176 `allowed` five_hour, 163 `allowed_warning` seven_day, 0.63 rising
+# to 0.98 before the 2026-09-21 hard stop) and nothing read one.
+RATE_LIMIT_EVENT_TYPE = "rate_limit_event"
+
+
+def extract_rate_limit_exhaustion(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None:
+    """The quota windows the run's NEWEST reading says are spent, as a detection record, or None.
+
+    A window is spent when the reading's status is ``rejected`` and the
+    window is the one that binds (``rateLimitType``), or when its
+    utilization has reached the kernel's
+    ``provider_cooldown.QUOTA_WINDOW_EXHAUSTED_UTILIZATION``. The record names
+    ``trigger``, every spent window with its utilization and reset, and
+    ``resets_at``: the LATEST of their resets (ISO), because the quota is back
+    only when every spent window is — or None when the reading states none.
+    Detection only: ``rejected`` (the vendor refused the run) is the run's
+    credit exhaustion (`extract_credit_exhaustion`); ``utilization_threshold``
+    and ``overage_serving`` ride a served result as ``quota_window``.
+
+    ``overage_serving`` (review of 79b82c8d3, queue): a ``rejected`` window
+    while ``isUsingOverage`` is true is a run that billed extra usage — its
+    answer stands, so it is no refusal. The subscription window is still
+    spent, and the operator's decision moves work to Z.ai when the quota runs
+    out rather than onto spend beyond it, so the window cools all the same.
+    Every reading stored so far says ``isUsingOverage: false`` (overage is
+    disabled for the organisation).
+    """
+    from aria_kernel.provider_cooldown import QUOTA_WINDOW_EXHAUSTED_UTILIZATION
+
+    info = next((event["rate_limit_info"] for event in reversed(events)
+                 if event.get("type") == RATE_LIMIT_EVENT_TYPE and isinstance(event.get("rate_limit_info"), dict)),
+                None)
+    if info is None:
+        return None
+    readings: dict[str, tuple[float | None, int | None]] = {}
+    unified = info.get("unifiedWindows")
+    for name, window in (unified.items() if isinstance(unified, dict) else ()):
+        if isinstance(window, dict):
+            readings[str(name)] = (_reading_number(window.get("utilization")), _reading_epoch(window.get("resetsAt")))
+    binding = info.get("rateLimitType") if isinstance(info.get("rateLimitType"), str) else None
+    if binding is not None:
+        # The window's own entry is the specific reading; the top-level
+        # utilization and reset fill only what it does not state.
+        utilization, reset = readings.get(binding, (None, None))
+        readings[binding] = (_reading_number(info.get("utilization")) if utilization is None else utilization,
+                             reset or _reading_epoch(info.get("resetsAt")))
+    rejected = info.get("status") == "rejected"
+    spent = {name: reading for name, reading in readings.items()
+             if (rejected and name == binding)
+             or (reading[0] is not None and reading[0] >= QUOTA_WINDOW_EXHAUSTED_UTILIZATION)}
+    if not spent and not rejected:
+        return None
+    resets = [reset for _utilization, reset in spent.values() if reset is not None]
+    top_reset = _reading_epoch(info.get("resetsAt"))
+    if rejected and top_reset is not None:
+        resets.append(top_reset)
+    trigger = (("overage_serving" if info.get("isUsingOverage") is True else "rejected") if rejected
+               else "utilization_threshold")
+    return {
+        "source": RATE_LIMIT_EVENT_TYPE,
+        "signature": "claude_rate_limit_event",
+        "trigger": trigger,
+        "matched_marker": f"rate_limit_{trigger}",
+        "status": str(info.get("status")),
+        "threshold": QUOTA_WINDOW_EXHAUSTED_UTILIZATION,
+        "windows": {name: {"utilization": utilization, "resets_at": _epoch_iso(reset)}
+                    for name, (utilization, reset) in sorted(spent.items())},
+        "resets_at": _epoch_iso(max(resets)) if resets else None,
+    }
+
+
+def _reading_number(value: Any) -> float | None:
+    return float(value) if type(value) in (int, float) else None
+
+
+def _reading_epoch(value: Any) -> int | None:
+    return value if type(value) is int and value > 0 else None
+
+
+def _epoch_iso(value: int | None) -> str | None:
+    if value is None:
+        return None
+    return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def extract_credit_exhaustion(
     *,
     returncode: int,
@@ -2062,9 +2167,19 @@ def extract_credit_exhaustion(
       real failure (``returncode != 0``), so a plan that merely mentions
       "billing" on a clean run is never misread.
 
+    ARIA-HIGH-425 — before either text shape, the structured one: a
+    ``rate_limit_event`` whose newest reading is ``rejected`` is the vendor
+    refusing the run on quota, whatever the exit and whatever the notice says
+    (the notice is not always on a channel this reader sees: 2026-10-01's
+    recorded tail held only the workspace-trust notice). Its record carries
+    the window's own reset (``resets_at``).
+
     Returns a record naming the matched marker and its ``signature`` (a
     member of ``CLAUDE_EXHAUSTION_SIGNATURES``), or ``None``.
     """
+    reading = extract_rate_limit_exhaustion(events)
+    if reading is not None and reading["trigger"] == "rejected":
+        return reading
     haystacks: list[str] = [stderr or "", final_message or ""]
     for event in events:
         if event.get("type") == "assistant":

@@ -14,7 +14,7 @@ name: aria-readiness-claim
 
 on:
   workflow_run:
-    workflows: ["aria-merge-authority"]
+    workflows: ['aria-merge-authority']
     types: [completed]
   workflow_dispatch: {}
 
@@ -202,7 +202,7 @@ jobs:
             --github-file "${WORK_DIR}/github-payload.json" \
             --pr-file "${WORK_DIR}/pr-flat.json" \
             --cycle-id "readiness-claim-${{ steps.pr.outputs.run_id }}" \
-            --tools-dir "$ARIA_TOOLS_DIR" | jq '{recorded_at, ready_state, failure_count}'
+            --tools-dir "$ARIA_TOOLS_DIR" | jq '{recorded_at, gate_ref, failure_count}'
 
       - name: Fetch and hash the lane evidence artifact
         if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
@@ -287,7 +287,7 @@ jobs:
           # The claim family attests a scoped installation token; a PAT
           # fallback is a weaker isolation mode and poisons the claim. Fail
           # loudly until the operator completes the GitHub App setup.
-          ARIA_REQUIRE_MODE_A: "true"
+          ARIA_REQUIRE_MODE_A: 'true'
           ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
           ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
           ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}

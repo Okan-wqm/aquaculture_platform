@@ -254,6 +254,12 @@ carries `poll_interval_seconds`; the doctor organ `gateway_heartbeat_fresh` FAIL
 the beat is older than `HEARTBEAT_STALE_AFTER_BEATS` beats of that cadence, or absent while a
 schedule table exists.
 
+Amendment 2026-10-10 (ARIA-LOW-424): `pr_event` left `ROUTE_ACTIONS`. A PR delivery
+(`github.pr_opened|pr_synchronize|pr_closed`, still in `EVENT_KINDS`) is routed `ignored` with
+reason `pr_lifecycle_has_one_writer`: the route wrote `pr-events.jsonl`, a copy of the PR lifecycle
+whose one ledger is `pr-lifecycle.jsonl` (terminal rows by `merge_record` only, ARIA-HIGH-390). No
+inbox row ever carried the action (no gateway rows on aria/state f5c5c86a1).
+
 ## 15. MCP registry, strict per-spawn config, call ledger + quarantine (Plan 032 Faz 032g)
 
 **Decision:** `aria_kernel/data/mcp_registry.json` is the only source of MCP servers an autonomous

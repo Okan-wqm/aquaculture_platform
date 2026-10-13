@@ -38,6 +38,7 @@ from aria_kernel import gh_token_factory
 from aria_kernel.implementation_identity import ImplementationIdentityRefusal, hold_implementation_identity
 from aria_kernel.tool_registry import ensure_tools_binding
 
+from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG
 from tests._helpers.git_fixtures import _git, make_git_worktree, make_repo_with_initial_commit
 
 CYCLE_ID = "cyc-identity-387"
@@ -355,6 +356,14 @@ class TheCheckIgnoresAmbientIdentityTests(unittest.TestCase):
             "GIT_DIR": "/elsewhere", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "user.name",
             "GIT_CONFIG_VALUE_0": "x", "GIT_CONFIG_GLOBAL": "/home/op/.gitconfig",
         })
+        self.assertEqual(env, {"PATH": "/usr/bin", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
+
+    def test_no_ambient_git_config_reaches_the_check(self) -> None:
+        # ARIA-HIGH-234 — the identity is read from the checkout's own config:
+        # no injected header, url rewrite, `-c` export or `git config` file.
+        from aria_kernel.implementation_identity import commit_identity_environment
+
+        env = commit_identity_environment({"PATH": "/usr/bin", **AMBIENT_GIT_CONFIG})
         self.assertEqual(env, {"PATH": "/usr/bin", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
 
 

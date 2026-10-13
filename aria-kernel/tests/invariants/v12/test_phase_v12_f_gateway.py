@@ -8,7 +8,8 @@ Invariants:
   I-V12-GW-02  normalizers map onto the closed EVENT_KINDS (unknown → ignored, never
                a new kind); the inbox accepts once per delivery id.
   I-V12-GW-03  routing is deterministic and closed: `aria`-labelled issue → mission
-               (source_kind github_issue, idempotent on replay); PR → pr-events row;
+               (source_kind github_issue, idempotent on replay); PR → ignored
+               (`pr_lifecycle_has_one_writer`, ARIA-LOW-424: no second PR ledger);
                failed CI / firing alert → runtime signal; operator verb → control
                ledger; unlabelled issue → ignored; a routing exception is an outcome
                row, never a crash.
@@ -492,7 +493,8 @@ class Routing(_Store):
         by_id = {r["delivery_id"]: r for r in routed}
         self.assertEqual(by_id["i-7"]["action"], "mission_open")
         self.assertEqual(by_id["i-8"], {**by_id["i-8"], "action": "ignored", "refs": {"reason": "label_missing"}})
-        self.assertEqual(by_id["pr-3"]["action"], "pr_event")
+        self.assertEqual(by_id["pr-3"], {**by_id["pr-3"], "action": "ignored",
+                                         "refs": {"reason": gr.PR_DELIVERY_PARKED, "pr_number": 3}})
         self.assertEqual(by_id["wr-9"]["action"], "runtime_signal")
         self.assertEqual(by_id["am:0"]["action"], "runtime_signal")
         self.assertEqual(by_id["op-1"]["action"], "operator_control")
@@ -503,7 +505,8 @@ class Routing(_Store):
         missions = list_open_missions(base_dir=self.tools)
         self.assertEqual([(m["source_kind"], m["source_id"]) for m in missions], [("github_issue", "issue-7")])
         self.assertTrue(effective_control(self.tools).paused_all)
-        self.assertTrue((self.tools / "pr-events.jsonl").exists())
+        # The PR's lifecycle has one ledger: the delivery writes no copy of it.
+        self.assertFalse((self.tools / "pr-events.jsonl").exists())
         self.assertEqual(gi.pending_events(self.tools), [])
         # replaying the same issue (new delivery id) is idempotent on the mission
         self._ingest(gn.normalize_github("issues", "i-7b", _issue_payload(7, ["aria"])))

@@ -1511,8 +1511,9 @@ to its provider: `claude_runtime._model_provider` and `dispatch_failure.resolve_
 
 Operator decision 2026-09-12 (opus is a leaf; see
 [CURRENT_STATE](./CURRENT_STATE.md#quota-exhaustion-policy-amendment-2026-09-12)): each `Provider`
-row states `admits_writes` (anthropic only) and `provider_admits_writes` is what the auth failover
-and the admission read. `_native_runtime_admission` takes `cooled_providers` and decides two
+row states `admits_writes` (anthropic, and since ARIA-HIGH-434 zai, whose write runtime is the
+kernel's own tool loop `tools/aria-poc/zai_tool_loop.py` under the Claude writer's hooks and bwrap
+room; never openai) and `provider_admits_writes` is what the auth failover and the admission read. `_native_runtime_admission` takes `cooled_providers` and decides two
 refusals without a probe — `provider_quota_cooldown` (the provider's newest
 `provider_quota_cooldown` governance row has not reached `until`; `quota_observation` unavailable,
 the window on the row) and `provider_readonly_runtime` (a write-capable profile on a runtime that

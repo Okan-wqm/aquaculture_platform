@@ -106,7 +106,13 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Iterator
 
 from .gh_token_factory import GitCommitIdentity
-from .git_containment import GitContainment, GitContainmentRefusal, SandboxSigning, derive_git_containment
+from .git_containment import (
+    GitContainment,
+    GitContainmentRefusal,
+    SandboxSigning,
+    derive_git_containment,
+    without_ambient_git_config,
+)
 from .release_reason import IMPLEMENTATION_SIGNING_UNAVAILABLE
 from .signing_agent import SigningAgentUnavailable, hold_signing_agent, lifetime_until
 from .turn_budget import JOB_DEADLINE_EPOCH_ENV, parse_deadline_epoch
@@ -146,12 +152,13 @@ _AMBIENT_IDENTITY_ENV_NAMES: frozenset[str] = frozenset({
     "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
     "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE", "EMAIL",
 })
-# Variables that move git off the repository its cwd implies, or inject
-# config through the environment; none may decide what the tree resolves.
-_AMBIENT_GIT_LOCATION_AND_CONFIG_NAMES: frozenset[str] = frozenset({
+# Variables that move git off the repository its cwd implies; none may
+# decide what the tree resolves. Config injected through the environment is
+# stripped by its one owner (`git_containment.without_ambient_git_config`,
+# ARIA-HIGH-234).
+_AMBIENT_GIT_LOCATION_NAMES: frozenset[str] = frozenset({
     "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CEILING_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX",
-    "GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS",
 })
 _IDENT_TIMEOUT_SECONDS = 10
 
@@ -204,12 +211,10 @@ def commit_identity_environment(base: dict[str, str] | None = None) -> dict[str,
     place git can find an identity is the checkout's own config — which is
     what the sandbox's git sees as well (its HOME is an empty tmpfs and its
     environment carries no ``GIT_*`` identity)."""
-    source = dict(os.environ if base is None else base)
+    source = without_ambient_git_config(os.environ if base is None else base)
     env = {
         name: value for name, value in source.items()
-        if name not in _AMBIENT_IDENTITY_ENV_NAMES
-        and name not in _AMBIENT_GIT_LOCATION_AND_CONFIG_NAMES
-        and not name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+        if name not in _AMBIENT_IDENTITY_ENV_NAMES and name not in _AMBIENT_GIT_LOCATION_NAMES
     }
     env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
     return env

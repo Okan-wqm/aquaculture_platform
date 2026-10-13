@@ -98,6 +98,13 @@ def request_skill_genesis(
             "convergent=True needs seed (declared_scope, claim_types, "
             "must_satisfy, calibration_corpus_path)"
         )
+    if convergent and seed.get("adapter_lang", "python") != "python":
+        # ARIA-HIGH-414 — a drafted adapter is Python: the import allowlist
+        # exists, and is enforced at runtime, for Python only.
+        raise GovernanceError(
+            "request_skill_genesis_adapter_lang_unsupported: "
+            f"{str(seed.get('adapter_lang'))[:40]!r} (drafted adapters are python only)"
+        )
     capability_resolution = resolve_capability(
         capability_key=capability_gap_key,
         requested_kind="skill",
@@ -331,10 +338,10 @@ def validate_generated_adapter(
 
 def execute_adapter_against_corpus(
     *,
-    adapter_path: str | Path,
-    adapter_lang: str,
+    invocation_request_id: str,
     corpus_path: str | Path,
     workspace_root: str | Path,
+    base_dir: str | Path | None,
     timeout_seconds: float = 300.0,
 ) -> dict[str, Any]:
     """Plan ARIA-V6 §2d v2 B-V3-2 — sandbox subprocess executor.
@@ -343,14 +350,23 @@ def execute_adapter_against_corpus(
     calibration corpus. Returns precision / recall / TP / FP / FN
     counts + the raw run output.
 
-    Supports:
-      * adapter_lang="typescript" → ``tsx <adapter>``
-      * adapter_lang="python"     → ``python3 <adapter>``
+    ARIA-HIGH-414 — WHICH adapter: the one the primary drafter's ACCEPTED
+    result delivered for ``invocation_request_id``, staged by
+    ``genesis_adapter_custody`` (re-read and re-hashed from the result
+    artifact, Python only, statically pre-checked) and run as those exact
+    bytes through the kernel launcher, which enforces the import allowlist
+    at runtime. It used to take an ``adapter_path``, and the live caller
+    passed a path the drafter named. The digest the run used is recorded
+    (``skill-genesis/sandbox.jsonl``) and returned as ``adapter_sha256`` +
+    ``calibration_ledger_hash``; registration requires exactly that digest.
+    A draft that cannot be staged never runs: its zero-metrics result
+    carries ``exit_code=-6`` and the refusal's name.
 
-    The adapter receives JSON on stdin with the corpus fixtures and
-    emits JSON on stdout with finding predictions. The function
-    aligns predictions with operator-labeled TP/FP via
-    ``finding_fingerprint`` and computes the precision metrics.
+    The adapter receives JSON on stdin with the corpus fixtures — each
+    one's location only (``calibration_fixture_view``, ARIA-HIGH-433: never
+    the operator's label) — and emits JSON on stdout with finding
+    predictions. The function aligns predictions with operator-labeled TP/FP
+    via ``finding_fingerprint`` and computes the precision metrics.
 
     Returns:
       {
@@ -364,13 +380,16 @@ def execute_adapter_against_corpus(
         "raw_stdout_tail": str,
         "raw_stderr_tail": str,
         "exit_code": int,
+        "adapter_sha256": str,        # absent when nothing ran
+        "calibration_ledger_hash": str,
       }
 
     Returns precision=recall=0.0 on subprocess failure (the
     convergent loop interprets as imperfect → loop continues OR
     cap-hits to authored_max_rounds).
     """
-    import json as _json
+    from .genesis_adapter_custody import GenesisCustodyRefusal, record_calibration, stage_accepted_draft
+
     corpus = Path(corpus_path)
     fixtures_file = corpus / "fixtures.jsonl" if corpus.is_dir() else corpus
     if not fixtures_file.exists():
@@ -386,25 +405,64 @@ def execute_adapter_against_corpus(
     if not fixtures:
         return _zero_metrics_result(0, exit_code=-1, stderr="corpus_empty")
 
-    if adapter_lang == "typescript":
-        argv = ["tsx", str(adapter_path)]
-    elif adapter_lang == "python":
-        argv = ["python3", str(adapter_path)]
-    else:
-        return _zero_metrics_result(
-            len(fixtures), exit_code=-1,
-            stderr=f"unsupported_adapter_lang: {adapter_lang}",
-        )
-
-    stdin_payload = _json.dumps({"fixtures": fixtures}).encode("utf-8")
     try:
-        completed = subprocess.run(
-            argv,
-            cwd=str(Path(workspace_root).resolve()),
-            input=stdin_payload,
-            capture_output=True,
-            timeout=timeout_seconds,
-            check=False,
+        staged = stage_accepted_draft(invocation_request_id, base_dir=base_dir)
+    except GenesisCustodyRefusal as exc:
+        return _zero_metrics_result(len(fixtures), exit_code=-6, stderr=str(exc))
+    result = _calibrate_staged(
+        staged, fixtures, workspace_root=workspace_root, base_dir=base_dir, timeout_seconds=timeout_seconds,
+    )
+    row = record_calibration(staged, metrics=result, corpus_path=fixtures_file, base_dir=base_dir)
+    return {**result, "adapter_sha256": staged.sha256, "calibration_ledger_hash": row["ledger_hash"]}
+
+
+# ARIA-HIGH-433 — what a drafted adapter may see of a calibration fixture:
+# where the case is, never how it was judged. The operator's label and every
+# field that carries or annotates it (`label`, `verdict`, `legacy_label`,
+# `labeled_at`, `severity`, `note`, `source_type`) stay kernel-side for the
+# scoring below; an adapter that saw them could echo the fingerprints
+# labelled `tp` and score precision = recall = 1.0 without detecting
+# anything. An allowlist, so a label field added later is withheld too.
+CALIBRATION_FIXTURE_VISIBLE_FIELDS: tuple[str, ...] = (
+    "finding_fingerprint", "finding_id", "evidence_refs", "file_path", "path", "line", "rule_id", "claim_type",
+)
+
+
+def calibration_fixture_view(fixture: dict[str, Any]) -> dict[str, Any]:
+    """The part of one fixture the adapter under calibration receives."""
+    return {key: fixture[key] for key in CALIBRATION_FIXTURE_VISIBLE_FIELDS if key in fixture}
+
+
+def _calibrate_staged(
+    staged: Any,
+    fixtures: list[dict[str, Any]],
+    *,
+    workspace_root: str | Path,
+    base_dir: str | Path | None,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """Run the staged bytes over the corpus and score them (B-V3-2)."""
+    import json as _json
+
+    # ARIA-CRITICAL-399 — a drafted adapter is adapter code: it runs only in
+    # the room every adapter runs in (`adapter_room`), never as a bare child
+    # holding the night's job token and the App key file. No room is a
+    # refusal by name (-4), never an unconfined run. ARIA-HIGH-414 — and it
+    # runs as the staged bytes through the launcher, the store masked.
+    from .genesis_adapter_custody import run_staged_adapter
+    from .implementation_safety import SandboxUnavailable
+
+    try:
+        completed = run_staged_adapter(
+            staged,
+            workspace_root=workspace_root,
+            input_text=_json.dumps({"fixtures": [calibration_fixture_view(fixture) for fixture in fixtures]}),
+            timeout_seconds=timeout_seconds,
+            store=ensure_tools_dir(base_dir),
+        )
+    except SandboxUnavailable as exc:
+        return _zero_metrics_result(
+            len(fixtures), exit_code=-4, stderr=f"adapter_sandbox_unavailable: {exc}",
         )
     except subprocess.TimeoutExpired:
         return _zero_metrics_result(
@@ -414,9 +472,13 @@ def execute_adapter_against_corpus(
         return _zero_metrics_result(
             len(fixtures), exit_code=-3, stderr=f"runner_not_found: {exc}",
         )
+    except UnicodeDecodeError:
+        return _zero_metrics_result(
+            len(fixtures), exit_code=-5, stderr="adapter_output_not_utf8",
+        )
 
-    stdout_text = completed.stdout.decode("utf-8", errors="replace")
-    stderr_text = completed.stderr.decode("utf-8", errors="replace")
+    stdout_text = completed.stdout or ""
+    stderr_text = completed.stderr or ""
 
     if completed.returncode != 0:
         return _zero_metrics_result(
@@ -431,16 +493,25 @@ def execute_adapter_against_corpus(
             len(fixtures), exit_code=completed.returncode,
             stdout=stdout_text, stderr=stderr_text + "\nadapter_stdout_not_json",
         )
+    # The adapter's stdout is untrusted output: anything but an object whose
+    # `findings` is a list of objects is a shape refusal, never a kernel
+    # AttributeError that ends the authoring run (ARIA-HIGH-414 review).
+    findings = prediction_payload.get("findings") if isinstance(prediction_payload, dict) else None
+    if not isinstance(findings, list) or not all(isinstance(p, dict) for p in findings):
+        return _zero_metrics_result(
+            len(fixtures), exit_code=completed.returncode,
+            stdout=stdout_text, stderr=stderr_text + "\nadapter_stdout_not_findings",
+        )
 
     predicted: set[str] = {
         str(p.get("finding_fingerprint") or "")
-        for p in (prediction_payload.get("findings") or [])
+        for p in findings
         if p.get("finding_fingerprint")
     }
     critical_fps: set[str] = {
         str(p.get("finding_fingerprint") or "")
-        for p in (prediction_payload.get("findings") or [])
-        if p.get("severity", "").upper() == "CRITICAL"
+        for p in findings
+        if str(p.get("severity") or "").upper() == "CRITICAL"
         and p.get("finding_fingerprint")
     }
     operator_labels: dict[str, str] = {

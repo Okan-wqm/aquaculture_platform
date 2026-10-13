@@ -10,8 +10,16 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .adapter_fixture_contract import expected_run_status
+from .adapter_room import prepare_adapter_spawn, run_adapter
+from .genesis_adapter_custody import verify_genesis_dispatch
 from .evidence_validator import validate_tool_output_evidence
-from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
+from .implementation_safety import (
+    BashAllowlistMiss,
+    BashDenylistHit,
+    KERNEL_CHECKOUT_ROOT,
+    SandboxUnavailable,
+    verify_bash_command_allowed,
+)
 from .ledger import (
     LEDGER_ROW_MAX_BYTES,
     LedgerIntegrityError,
@@ -24,6 +32,7 @@ from .ledger_inline import spill_evidence_validation
 from .state_manifest import surface_for_path
 from .tool_registry import GovernanceError, declared_bound_repo_root, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
+from .workspace_view import hermetic_git
 
 
 SEMANTIC_FIXTURE_REQUIRED_TOOLS = {
@@ -86,7 +95,7 @@ def run_fixture_suite(
         case = read_json(case_path)
         if not isinstance(case, dict):
             raise GovernanceError(f"fixture case must be a JSON object: {case_path}")
-        case_results.append(run_fixture_case(tool, case, case_path, fixture_dir, workspace_root))
+        case_results.append(run_fixture_case(tool, case, case_path, fixture_dir, workspace_root, store=base_dir))
 
     # Plan 023 v3 §A-1 — suite-level provenance fields. execution_run_id
     # is a UUIDv7 issued at this exact run; downstream genesis-sandbox
@@ -326,12 +335,7 @@ def _git(workspace_root: str | os.PathLike[str], *args: str, timeout: int = 60) 
     or GIT_INDEX_FILE from the caller's environment, or an fsmonitor hook from
     the repository config, would let a caller decide what `git status` reports.
     """
-    hermetic = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    return subprocess.run(
-        ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
-         "-C", str(workspace_root), *args],
-        capture_output=True, text=True, timeout=timeout, check=False, env=hermetic,
-    )
+    return hermetic_git(workspace_root, *args, timeout=timeout)
 
 
 def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
@@ -746,6 +750,8 @@ def run_fixture_case(
     case_path: Path,
     fixture_dir: Path,
     default_workspace_root: str | os.PathLike[str],
+    *,
+    store: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
     name = str(case.get("name") or case_path.stem)
     lane = str(case.get("lane") or _default_fixture_lane(name))
@@ -757,14 +763,36 @@ def run_fixture_case(
     if not runner:
         raise GovernanceError(f"tool has no runner configuration: {tool['tool_id']}")
     try:
+        # An adapter's absolute program is trusted only as the running
+        # kernel's own code (ARIA-HIGH-431; the room binds by the same rule).
         verify_bash_command_allowed(
             list(runner.get("argv") or []),
             cwd=str(runner.get("cwd") or "."),
+            checkout_root=KERNEL_CHECKOUT_ROOT,
         )
     except (BashAllowlistMiss, BashDenylistHit) as exc:
         raise GovernanceError(f"runner_argv_policy_rejected:{exc}") from exc
+    # ARIA-HIGH-414 — a fixture case of a skill-genesis drafted adapter runs
+    # the same verified custody bytes, through the same launcher, as the
+    # night's run (`tool_runner.run_tool`); a curated tool gets None.
+    genesis = verify_genesis_dispatch(tool, base_dir=store)
     cwd = (workspace_root / runner["cwd"]).resolve()
     input_bytes = _canonical_json_bytes(input_payload)
+    # ARIA-CRITICAL-399 — a fixture case runs the SAME adapter code the
+    # night runs, so it runs in the same room (`adapter_room`); it used to
+    # pass no `env=` at all and inherit the whole job. Without a room the
+    # suite is refused by name — `refresh_fixture_suites` records it as a
+    # blocked refresh — rather than written as a verdict on the tool.
+    try:
+        spawn = prepare_adapter_spawn(
+            genesis.argv if genesis is not None else runner["argv"],
+            workspace_root=workspace_root,
+            cwd=cwd,
+            node_heap_mb=runner.get("node_max_old_space_mb"),
+            store=store,
+        )
+    except SandboxUnavailable as exc:
+        raise GovernanceError(f"adapter_sandbox_unavailable:{exc}") from exc
     started = time.monotonic()
     stdout = ""
     stderr = ""
@@ -774,14 +802,11 @@ def run_fixture_case(
     timed_out = False
 
     try:
-        completed = subprocess.run(
-            runner["argv"],
-            cwd=cwd,
-            input=input_bytes.decode("utf-8") if runner.get("stdin_json") else None,
-            capture_output=True,
-            text=True,
-            timeout=runner["timeout_ms"] / 1000,
-            shell=False,
+        stdin_text = input_bytes.decode("utf-8") if runner.get("stdin_json") else None
+        completed = run_adapter(
+            spawn,
+            input_text=genesis.stdin_header + (stdin_text or "") if genesis is not None else stdin_text,
+            timeout_seconds=runner["timeout_ms"] / 1000,
         )
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""

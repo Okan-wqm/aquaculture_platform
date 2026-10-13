@@ -90,8 +90,11 @@ ATTRIBUTABLE_GATE_CODES: frozenset[str] = CROSS_REVIEW_REASON_CODES | frozenset(
 #: The codes the kernel's own ``force_plan_human_required`` callers write
 #: (convergence_drainer, plan_round_controller, converged_delivery). A forced
 #: row carrying any other code was written by ``plan force-human-required``.
+#: Listed is not attributed: only ``ENVELOPE_DEAD`` and the gate codes above
+#: are (``attribute_evaluation``), so the last two stay off every scorecard.
 KERNEL_FORCED_CODES: frozenset[str] = frozenset({
     ENVELOPE_DEAD, "max_rounds_reached", "unresolved_material_risk", "implementation_delivery_exhausted",
+    "cross_review_self_agreement", "implementation_envelope_no_writable_scope",
 })
 #: Result rejection codes that are the kernel's own judgement of its own
 #: artefacts, never the agent's work.

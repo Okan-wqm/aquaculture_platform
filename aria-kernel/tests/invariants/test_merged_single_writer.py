@@ -37,6 +37,13 @@ _OWNED_PLAN_EVENTS = ("implementation_merged", "implementation_merge_lineage_att
 _CREDIT_READERS = ("merged_row_is_arias", "lineage_credits_aria")
 _FOLDS = ("fold_merged_rows", "fold_lineage", "fold_plan_state")
 _APPENDERS = {"append_jsonl", "append_declared_jsonl", "append_declared_jsonl_rows", "_append_jsonl_unlocked"}
+# ARIA-LOW-424 — pr_tracking's retired copies of pr-lifecycle's merged rows.
+# Only the manifest names them (it must keep declaring them: published
+# snapshots claim them); a module that names them again is a second record of
+# "this PR merged", writer or reader.
+_RETIRED_COPY_SURFACES = ("pr_events", "merge_events")
+_RETIRED_COPY_FILES = ("pr-events.jsonl", "merge-events.jsonl")
+_MANIFEST = "aria-kernel/aria_kernel/state_manifest.py"
 
 
 def _sources() -> list[tuple[str, ast.AST]]:
@@ -118,6 +125,16 @@ def unfolded_credit_offenders(sources: list[tuple[str, ast.AST]]) -> list[str]:
     return offenders
 
 
+def retired_copy_offenders(sources: list[tuple[str, ast.AST]]) -> list[str]:
+    return [
+        f"{relative}:{node.lineno}:{node.value}"
+        for relative, tree in sources if relative != _MANIFEST
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and (node.value in _RETIRED_COPY_SURFACES or node.value.endswith(_RETIRED_COPY_FILES))
+    ]
+
+
 class MergedHasOneWriter(unittest.TestCase):
     def test_no_module_but_the_owner_names_a_private_writer(self) -> None:
         self.assertEqual(private_name_offenders(_sources()), [])
@@ -130,6 +147,27 @@ class MergedHasOneWriter(unittest.TestCase):
 
     def test_every_reader_that_credits_aria_folds_the_attestation(self) -> None:
         self.assertEqual(unfolded_credit_offenders(_sources()), [])
+
+    def test_no_module_keeps_a_copy_of_the_merged_rows(self) -> None:
+        self.assertEqual(retired_copy_offenders(_sources()), [])
+
+    def test_the_retired_copies_stay_declared(self) -> None:
+        # Every published snapshot claims both files, and the publish refuses a
+        # parent snapshot that claims an undeclared surface.
+        from aria_kernel.state_manifest import surface_by_name
+
+        self.assertEqual([surface_by_name(name).path_pattern for name in _RETIRED_COPY_SURFACES],
+                         list(_RETIRED_COPY_FILES))
+
+    def test_a_copy_by_path_or_by_surface_is_caught(self) -> None:
+        forged = ast.parse(
+            "append_jsonl(root / 'merge-events.jsonl', row)\n"
+            "load_jsonl(root / f'{x}/pr-events.jsonl')\n"
+            "load_declared_jsonl(path, expected_surface='pr_events')\n"
+            "append_declared_jsonl(path, row, expected_surface='merge_events')\n"
+        )
+        self.assertEqual(len(retired_copy_offenders([("aria-kernel/aria_kernel/forged.py", forged)])), 4)
+        self.assertEqual(retired_copy_offenders([(_MANIFEST, forged)]), [])
 
     def test_every_bypass_the_review_named_is_caught(self) -> None:
         forged = ast.parse(

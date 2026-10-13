@@ -163,6 +163,7 @@ import re
 import shutil
 import subprocess
 import zlib
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -670,16 +671,45 @@ def stand_on_implementation_branch(containment: GitContainment, *, branch: str, 
 # so a push that mints no credential would otherwise go out under that job's
 # identity, and `url.*.insteadOf` could send it elsewhere. The delivery's own
 # credential is added back explicitly (`delivery_credentials`), after this.
-_AMBIENT_GIT_CONFIG_NAMES: frozenset[str] = frozenset({"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"})
+# ARIA-HIGH-234 — this module is the ONE owner of these names
+# (tests/invariants/test_git_config_env_single_owner.py): every seam that
+# builds a git or `gh` child's environment from the ambient one strips them
+# here, and the kernel's own env-only configuration is spelled here too.
+# `GIT_CONFIG` names the file `git config` reads and writes; no other git
+# command reads it, so stripping it changes nothing but that redirect.
+_AMBIENT_GIT_CONFIG_NAMES: frozenset[str] = frozenset({"GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"})
 _AMBIENT_GIT_CONFIG_PREFIXES: tuple[str, ...] = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
 
 
+def without_ambient_git_config(environ: Mapping[str, str]) -> dict[str, str]:
+    """``environ`` without any git configuration it injects.
+
+    The base every kernel seam builds a git or ``gh`` child's environment
+    from: the delivery's push (``_publish_environment``), ``gh pr create``
+    (``pr_manager``), the revert's push, lookup and commit (``self_revert``)
+    and the commit-identity check (``implementation_identity``). What the
+    child should carry is added after this, by the caller who chose it.
+    """
+    return {name: value for name, value in environ.items()
+            if name not in _AMBIENT_GIT_CONFIG_NAMES and not name.startswith(_AMBIENT_GIT_CONFIG_PREFIXES)}
+
+
+def git_config_environment(entries: Mapping[str, str]) -> dict[str, str]:
+    """The kernel's own env-only git configuration: ``entries`` (key to value),
+    spelled as git's ``GIT_CONFIG_COUNT`` / ``GIT_CONFIG_KEY_n`` /
+    ``GIT_CONFIG_VALUE_n``. Nothing is written to any config file, so the
+    configuration lives exactly as long as the one child that carries it."""
+    env = {"GIT_CONFIG_COUNT": str(len(entries))}
+    for index, (key, value) in enumerate(entries.items()):
+        env[f"GIT_CONFIG_KEY_{index}"] = key
+        env[f"GIT_CONFIG_VALUE_{index}"] = value
+    return env
+
+
 def _publish_environment() -> dict[str, str]:
-    env = {name: value for name, value in os.environ.items()
+    env = {name: value for name, value in without_ambient_git_config(os.environ).items()
            if name not in (GIT_OBJECT_DIRECTORY_ENV, "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_DIR",
-                           "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
-           and name not in _AMBIENT_GIT_CONFIG_NAMES
-           and not name.startswith(_AMBIENT_GIT_CONFIG_PREFIXES)}
+                           "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")}
     env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
     return env
 
@@ -892,6 +922,8 @@ __all__ = [
     "SSH_AUTH_SOCK_ENV",
     "SandboxSigning",
     "derive_git_containment",
+    "git_config_environment",
     "publish_quarantine",
     "stand_on_implementation_branch",
+    "without_ambient_git_config",
 ]

@@ -132,7 +132,10 @@ def decide_pre_tool(payload: Mapping[str, Any], *, workspace_root: str | Path) -
             argv = _bash_argv(payload)
             if not argv:
                 return HookVerdict("deny", "bash_empty_command", tool, EXIT_BLOCK)
-            verify_bash_command_allowed(argv, cwd=workspace)
+            # The broker's own workspace anchors a program's trust
+            # (ARIA-HIGH-431); the command runs at its root, because
+            # `cd` is not in the policy, so nothing moves the Bash tool.
+            verify_bash_command_allowed(argv, checkout_root=workspace)
             if argv[:2] == ["gh", "api"]:
                 for token in argv[2:]:
                     if token.startswith("/") and is_gh_api_path_forbidden(token):

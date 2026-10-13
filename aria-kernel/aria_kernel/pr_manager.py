@@ -12,6 +12,7 @@ from .apply_engine import list_apply_actions, verify_plan_converged_approval
 from .auto_merge import record_pr_lifecycle
 from .canonical_path import normalize_repo_relpath
 from .gh_token_factory import GitCommitIdentity
+from .git_containment import without_ambient_git_config
 from .github_writes import require_installation_credential, run_gh_write
 from .implementation_safety import (
     GATE_PRE_PR_OPEN,
@@ -802,7 +803,12 @@ def _create_pull_request(
     # ARIA-CRITICAL-246 — the PR is authored by the credential that opens it,
     # which must be an installation token. It is checked before the intent,
     # so a refused create leaves no unresolved intent for recovery to chase.
-    create_env = {**os.environ, **dict(command_environment)} if command_environment else dict(os.environ)
+    # ARIA-HIGH-234 — and it runs on that credential alone: `gh` resolves the
+    # repository through git, so an ambient injected auth header or url
+    # rewrite would ride the create. The caller's environment (the delivery
+    # credential and its own helper configuration) is laid over a base
+    # stripped of every ambient one.
+    create_env = {**without_ambient_git_config(os.environ), **dict(command_environment or {})}
     require_installation_credential(create_env)
     intent = record_intent(
         request_id=effect_request_id, effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",

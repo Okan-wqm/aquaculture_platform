@@ -73,7 +73,10 @@ class _LaneFixture(unittest.TestCase):
         os.chdir(self.tmp)
         self._env = patch.dict(os.environ, {"ARIA_WORKSPACE_BASE": str(self.tmp / "workspaces")})
         self._env.start()
-        for volatile in ("RUNNER_TEMP", "GITHUB_OUTPUT"):
+        # ARIA-HIGH-434 — the Z.ai credential boundary decides whether a
+        # cooled Claude moves the worker to Z.ai (`worker_route`): these pins
+        # are about a host where it does not, whatever the ambient shell has.
+        for volatile in ("RUNNER_TEMP", "GITHUB_OUTPUT", "ARIA_ZAI_API_KEY_FILE", "ARIA_ZAI_API_KEY"):
             os.environ.pop(volatile, None)
 
     def tearDown(self) -> None:

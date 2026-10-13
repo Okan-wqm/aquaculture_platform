@@ -188,12 +188,10 @@ def update_memory(
         quarantined_tool_ids = _quarantined_tool_ids(root)
         beliefs_written += _mark_quarantined_source_beliefs(root, cycle_id, quarantined_tool_ids)
         beliefs_written += _ingest_memory_candidates(root, cycle_id, quarantined_tool_ids, workspace_root=workspace_root)
-    # E21-c (ORPHAN-693) — reproduced findings feed the belief system
-    # through THIS module (İ1: memory.py stays the only belief author; the
-    # experiment lane never writes beliefs itself).
-    beliefs_written += _record_experiment_reproduction_beliefs(
-        root, cycle_id, workspace_root=workspace_root, base_dir=base_dir,
-    )
+    # Experiment reproductions are NOT remembered here. This phase runs before
+    # the bench (experiment_night) writes them, so it can never see tonight's.
+    # `record_experiment_reproduction_beliefs` is its own phase right after
+    # the bench (ARIA-MEDIUM-421), and it is still in this module (İ1).
     return {
         "schema_version": 1,
         "cycle_id": cycle_id,
@@ -597,6 +595,7 @@ def _record_belief(
     confidence: float,
     source_tool_ids: list[str] | None = None,
     workspace_root: str | Path | None = None,
+    source_validation_run_id: str | None = None,
 ) -> dict[str, Any]:
     validate_repo_evidence(evidence_refs, workspace_root=workspace_root)
     existing = {
@@ -682,6 +681,11 @@ def _record_belief(
         "source_tool_ids": sorted(set(source_tool_ids or (existing or {}).get("source_tool_ids", []))),
         "glob_match_history": _next_glob_history(existing, cycle_id, evidence_state),
     }
+    # ARIA-MEDIUM-421 — the experiment run this row was written from, so the
+    # reproduction is remembered exactly once (`_remembered_experiment_runs`).
+    # Absent on every other belief row, which comes from no run.
+    if source_validation_run_id is not None:
+        row["source_validation_run_id"] = source_validation_run_id
     # Plan ARIA-V3.2 §2a (F-010 D1) — route freshness fields through
     # the single ``_stamp_belief_freshness`` chokepoint so every
     # writer to beliefs.jsonl uses the same logic. Pre-V3.2 this
@@ -1598,6 +1602,54 @@ def _ingest_memory_candidates(
     return written
 
 
+def record_experiment_reproduction_beliefs(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-MEDIUM-421 — the cycle's `experiment_beliefs` phase.
+
+    WHY a phase of its own: the writer used to run inside `update_memory`,
+    whose phase comes before the bench, and it read only its own cycle's
+    observations. Every reproduction was recorded after the only reader that
+    would ever look at it. The one matched red in production
+    (`cyc-20261008T151306Z`, F-020, recorded 15:56:12Z) came 27 minutes after
+    that cycle's memory phase wrote, and no belief followed.
+
+    The frozen-profile gate is the one `update_memory` applies. Belief rows
+    are observation-class writes.
+    """
+    from .runtime_profile import enforce_profile_for_write
+
+    enforce_profile_for_write("observation", base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "beliefs_written": _record_experiment_reproduction_beliefs(
+            root, cycle_id, workspace_root=workspace_root, base_dir=base_dir,
+        ),
+    }
+
+
+def _remembered_experiment_runs(root: Path) -> set[str]:
+    """Validation runs memory has already answered.
+
+    Each run is answered by a belief row that cites it, or by an uncertainty
+    row naming why no belief could be written. The whole ledger is read
+    rather than the latest belief row, because a later writer
+    (`_record_belief`, the decay writers) may rebuild the row without
+    carrying the field forward.
+    """
+    return {
+        str(row["source_validation_run_id"])
+        for name in ("beliefs.jsonl", "uncertainties.jsonl")
+        for row in load_jsonl(root / "memory" / name)
+        if row.get("source_validation_run_id")
+    }
+
+
 def _record_experiment_reproduction_beliefs(
     root: Path,
     cycle_id: str,
@@ -1612,24 +1664,41 @@ def _record_experiment_reproduction_beliefs(
     FINDING record and taught the memory nothing: the next night's judges
     would re-derive from scratch what an experiment had already proven.
 
-    WHAT: for every observation in THIS cycle that matched its contract
-    with a RED run on a finding-bound experiment, record (or re-support)
-    the belief that the finding reproduces deterministically. Evidence
-    refs are the finding's own scope files, so the standard repo-evidence
-    policy applies unchanged — no new evidence class, no parallel writer.
+    WHAT: for every observation that matched its contract with a RED run on
+    a finding-bound experiment and that memory has not answered yet, record
+    (or re-support) the belief that the finding reproduces deterministically.
+    Evidence refs are the finding's own scope files, so the standard
+    repo-evidence policy applies unchanged: no new evidence class and no
+    parallel writer.
+
+    "Not answered yet" is keyed on the observation's `validation_run_id`, not
+    on this cycle's id (ARIA-MEDIUM-421). A night that skipped this phase
+    (job deadline) loses nothing. Each finding-bound red run whose
+    experiment resolves is answered exactly once, as a belief or as an
+    uncertainty that names why not. So a reproduction that can never become a
+    belief does not re-record its refusal, or fail the phase, every night;
+    the refusal is final for that run. A run whose experiment is missing or
+    carries no `finding_ref` is not a finding reproduction: it is passed over
+    every night with no row. `cycle_id` stamps the rows this call writes.
     """
     if workspace_root is None:
         return 0
     from .experiment import get_experiment, list_experiment_observations
-    try:
-        observations = list_experiment_observations(base_dir=base_dir)
-    except GovernanceError:
-        return 0
+
+    # No GovernanceError guard. The strict reader's LedgerIntegrityError
+    # always propagated; the old guard only turned a refused surface
+    # declaration into "nothing was reproduced". Now that is a failed phase
+    # (record_and_continue).
+    observations = list_experiment_observations(base_dir=base_dir)
+    remembered = _remembered_experiment_runs(root)
     written = 0
     for row in observations:
-        if row.get("cycle_id") != cycle_id or row.get("matched") is not True:
+        if row.get("matched") is not True or str(row.get("run_status") or "") != "failed":
             continue
-        if str(row.get("run_status") or "") != "failed":
+        # run_experiment always writes the run id (experiment.py), so a red
+        # row without one is a ledger defect. The KeyError says so.
+        run_id = str(row["validation_run_id"])
+        if run_id in remembered:
             continue
         try:
             experiment = get_experiment(
@@ -1640,6 +1709,7 @@ def _record_experiment_reproduction_beliefs(
         finding_ref = experiment.get("finding_ref")
         if not finding_ref:
             continue
+        belief_id = f"finding-reproduced-{str(finding_ref).lower()}"
         try:
             from .finding import show_finding
 
@@ -1648,9 +1718,10 @@ def _record_experiment_reproduction_beliefs(
             _record_uncertainty(
                 root,
                 cycle_id=cycle_id,
-                belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+                belief_id=belief_id,
                 reason=f"experiment reproduction belief skipped: {exc}",
                 evidence_refs=[],
+                source_validation_run_id=run_id,
             )
             continue
         scope_files = [
@@ -1662,15 +1733,35 @@ def _record_experiment_reproduction_beliefs(
             _record_uncertainty(
                 root,
                 cycle_id=cycle_id,
-                belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+                belief_id=belief_id,
                 reason="experiment reproduction belief skipped: finding carries no scope files to cite",
                 evidence_refs=[],
+                source_validation_run_id=run_id,
+            )
+            continue
+        try:
+            # The repo-evidence policy, asked before the write. A refusal (for
+            # example, scope files deleted since the finding was emitted) is
+            # this run's answer, recorded once. Without this, the same refusal
+            # would fail the phase again every night. `_record_belief` applies
+            # the same check again as the writer's own gate. Only the policy
+            # check is caught here: a store that refuses the append still
+            # fails the phase.
+            validate_repo_evidence(scope_files, workspace_root=workspace_root)
+        except GovernanceError as exc:
+            _record_uncertainty(
+                root,
+                cycle_id=cycle_id,
+                belief_id=belief_id,
+                reason=f"experiment reproduction belief refused: {exc}",
+                evidence_refs=scope_files,
+                source_validation_run_id=run_id,
             )
             continue
         _record_belief(
             root,
             cycle_id=cycle_id,
-            belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+            belief_id=belief_id,
             claim=(
                 f"finding {finding_ref} reproduces deterministically under "
                 f"recipe {experiment.get('recipe_ref')} "
@@ -1679,6 +1770,7 @@ def _record_experiment_reproduction_beliefs(
             evidence_refs=scope_files,
             confidence=0.75,
             workspace_root=workspace_root,
+            source_validation_run_id=run_id,
         )
         written += 1
     return written
@@ -1691,19 +1783,22 @@ def _record_uncertainty(
     belief_id: str,
     reason: str,
     evidence_refs: list[str],
+    source_validation_run_id: str | None = None,
 ) -> None:
-    append_jsonl(
-        root / "memory" / "uncertainties.jsonl",
-        {
-            "schema_version": 1,
-            "recorded_at": utc_now(),
-            "cycle_id": cycle_id,
-            "belief_id": belief_id,
-            "reason": reason,
-            "evidence_refs": evidence_refs,
-            "status": "open",
-        },
-    )
+    row: dict[str, Any] = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "belief_id": belief_id,
+        "reason": reason,
+        "evidence_refs": evidence_refs,
+        "status": "open",
+    }
+    # The experiment run this uncertainty answers (ARIA-MEDIUM-421); absent
+    # on every other uncertainty, which answers no run.
+    if source_validation_run_id is not None:
+        row["source_validation_run_id"] = source_validation_run_id
+    append_jsonl(root / "memory" / "uncertainties.jsonl", row)
 
 
 def _record_contradiction(

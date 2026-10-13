@@ -3391,7 +3391,7 @@ def _anchor_expiry_reason(
     """
     if (now - created).total_seconds() <= max_age_seconds:
         return None
-    from .anchor_expiry_cause import anchor_expiry_reason_in_outage
+    from .anchor_expiry_cause import ANCHOR_EXPIRED, anchor_expiry_reason_in_outage
     from .provider_clock import role_head_providers
 
     role = str(request.get("role") or "")
@@ -3400,7 +3400,7 @@ def _anchor_expiry_reason(
         return None
     overlapped = clock.overlapping(created, now, providers)
     if not overlapped:
-        return "anchor_expired"
+        return ANCHOR_EXPIRED
     return anchor_expiry_reason_in_outage(interval.provider for interval in overlapped)
 
 
@@ -6711,38 +6711,6 @@ def _verified_evidence_target_sha(
     return verified
 
 
-# The share of a lease an outage must have covered to own its expiry when the
-# outage had already ended by then (review MEDIUM-3): half — more of the
-# lease was the provider's than the request's.
-LEASE_OUTAGE_MIN_SHARE = 0.5
-
-
-def _lease_expiry_reason(
-    clock: "ProviderClock", claimed_at: datetime | None, expires: datetime, role: str,
-) -> str:
-    """``lease_expired``, or the harness-class reason when an outage ate the lease.
-
-    ARIA-HIGH-367 (M1). An expired lease was charged to the request
-    (``lease_expired`` is request-class: "the agent hung"), and three of them
-    escalate it. A lease that ran out while the provider its role is routed to
-    was in an open outage — a job killed in a network loss, a spawn that
-    waited on a vendor that was not serving — says nothing about the request.
-    """
-    from .provider_clock import role_head_providers
-
-    providers = role_head_providers([role]) if role else frozenset()
-    if claimed_at is None or not providers or expires <= claimed_at:
-        return "lease_expired"
-    # PR #1835 review MEDIUM-3 — ANY overlap used to waive the charge, so a
-    # 2-minute blip made a genuinely hung request un-chargeable forever. The
-    # outage must be standing when the lease ran out, or have eaten at least
-    # LEASE_OUTAGE_MIN_SHARE of the lease.
-    share = clock.covered(claimed_at, expires, providers) / (expires - claimed_at)
-    if not (clock.outage_active(providers, expires) or share >= LEASE_OUTAGE_MIN_SHARE):
-        return "lease_expired"
-    return f"lease_expired_during_provider_outage:{'+'.join(sorted(providers))}"
-
-
 def reap_stale_claims(
     *,
     base_dir: str | Path | None = None,
@@ -6814,14 +6782,28 @@ def reap_stale_claims(
             request_id = str(claim_event.get("request_id") or "")
             agent_id = claim_event.get("agent_id")
             if lease_clock is None:
-                from .provider_clock import provider_clock
+                from .independence_check import attempt_providers_by_claim
+                from .provider_clock import lease_expiry_reason, provider_clock, role_head_providers
 
                 lease_clock = provider_clock(root)
                 request_roles = {str(row.get("request_id")): str(row.get("role") or "")
                                  for row in load_segments(root, "agent_invocation_requests")}
-            reason = _lease_expiry_reason(
+                governance_path = root / "governance.jsonl"
+                routed = attempt_providers_by_claim(
+                    load_declared_jsonl(governance_path, expected_surface="tools_governance")
+                    if governance_path.is_file() else [])
+            # ARIA-HIGH-367 (M1) — the one lease-outage rule (the worker lane
+            # asks it too, ARIA-MEDIUM-437). ARIA-MEDIUM-444 — over the
+            # provider the claim RAN on (its newest native attempt): since
+            # ARIA-HIGH-434 a Claude-headed seat runs on Z.ai while Claude is
+            # cooled, and the head's outage waived a Z.ai run that hung, so it
+            # was re-run uncharged for as long as Claude stayed out. A claim
+            # that never reached a route waited on its ladder: the head.
+            role = request_roles.get(request_id, "")
+            reason = lease_expiry_reason(
                 lease_clock, _parse_iso(claim_event.get("claimed_at")), expires,
-                request_roles.get(request_id, ""),
+                frozenset({routed[cid]}) if cid in routed
+                else role_head_providers([role]) if role else frozenset(),
             )
             stale_row = {
                 "schema_version": 1,

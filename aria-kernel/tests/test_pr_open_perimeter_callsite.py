@@ -235,6 +235,14 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
 
 
 
+# What the phase previews: an operator approval whose apply action the gate
+# passed, with no PR yet (a machine approval is its plan's, never previewed
+# here; see test_pr_lifecycle_plan_ownership.py).
+_OPERATOR_GATED_ACTION = {
+    "status": "ready_for_pr", "plan_id": None, "change_id": None,
+}
+
+
 class BreakerProducerCallsiteTests(unittest.TestCase):
     """RC-2 — an OBSERVATION cannot trip a safety breaker.
 
@@ -276,8 +284,12 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
         refusal = GovernanceError(f"{PERIMETER_REFUSED_PREFIX}: secret_scan_diff_clean:x")
         # cycle.py imports these INSIDE the function, so they are not module
         # attributes of cycle_mod; patch them where they are looked up.
-        with patch("aria_kernel.proposal.list_proposals", return_value=[
-            {"proposal_id": "PROP-1", "status": "approved_for_apply"},
+        with patch(
+            "aria_kernel.apply_engine.latest_apply_action",
+            return_value=_OPERATOR_GATED_ACTION,
+        ), patch("aria_kernel.proposal.list_proposals", return_value=[
+            {"proposal_id": "PROP-1", "status": "approved_for_apply",
+             "approval_source": "operator"},
         ]), patch(
             "aria_kernel.pr_manager.open_pr_for_action", side_effect=refusal
         ), patch(
@@ -331,8 +343,12 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
         from aria_kernel import cycle as cycle_mod
 
         calls: list[dict] = []
-        with patch("aria_kernel.proposal.list_proposals", return_value=[
-            {"proposal_id": "PROP-2", "status": "approved_for_apply"},
+        with patch(
+            "aria_kernel.apply_engine.latest_apply_action",
+            return_value=_OPERATOR_GATED_ACTION,
+        ), patch("aria_kernel.proposal.list_proposals", return_value=[
+            {"proposal_id": "PROP-2", "status": "approved_for_apply",
+             "approval_source": "operator"},
         ]), patch(
             "aria_kernel.pr_manager.open_pr_for_action",
             side_effect=GovernanceError("open_pr_change_id_required: nope"),
@@ -365,8 +381,12 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
         from aria_kernel import cycle as cycle_mod
         from aria_kernel.pr_manager import PERIMETER_REFUSED_PREFIX
 
-        with patch("aria_kernel.proposal.list_proposals", return_value=[
-            {"proposal_id": "PROP-3", "status": "approved_for_apply"},
+        with patch(
+            "aria_kernel.apply_engine.latest_apply_action",
+            return_value=_OPERATOR_GATED_ACTION,
+        ), patch("aria_kernel.proposal.list_proposals", return_value=[
+            {"proposal_id": "PROP-3", "status": "approved_for_apply",
+             "approval_source": "operator"},
         ]), patch(
             "aria_kernel.pr_manager.open_pr_for_action",
             side_effect=GovernanceError(f"{PERIMETER_REFUSED_PREFIX}: x:y"),

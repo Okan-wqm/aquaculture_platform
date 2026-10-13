@@ -25,7 +25,6 @@ from aria_kernel.converged_delivery import (
     authority_absent_request_id,
     escalate_exhausted_plan,
     DELIVERY_EXHAUSTED_REASON,
-    HUMAN_REQUIRED_CONTEXT_KIND,
     MAX_DELIVERY_ATTEMPTS,
     ORIGIN_CONVERGED,
     ORIGIN_REDELIVERY,
@@ -34,10 +33,10 @@ from aria_kernel.converged_delivery import (
     WITHHELD_REQUEST_LIVE,
     converged_plan_ids,
     deliver_converged_plan,
-    human_required_request_id,
     live_implementation_request_ids,
     redeliver_stranded_converged_plans,
 )
+from aria_kernel.convergence_outcome import PARKED_PLAN_CONTEXT_KIND, parked_plan_request_id
 from aria_kernel.cycle_phases.implementer import (
     AutonomousV9ImplementationRunner,
     NoOpV9ImplementationRunner,
@@ -63,6 +62,19 @@ from tests.test_implementation_lifecycle_continuity import (
 )
 
 PLAN = "plan-362"
+
+
+def deliverable_plan_content(title: str = "ARIA-HIGH-362 plan") -> dict:
+    """A body the envelope mint can deliver: its surface is writable. The
+    shared fixture's default surface is under READONLY_PATHS, a plan the
+    delivery door parks before staging (ARIA-HIGH-416), so a test that
+    offers a plan to a runner needs one production could implement."""
+    return converging_plan_content(
+        title,
+        affected_surfaces=[{"paths": ["apps/farm-service/src/sample.ts"]}],
+        key_changes=[{"id": "kc-1", "description": "set the interval",
+                      "paths": ["apps/farm-service/src/sample.ts"], "imports": []}],
+    )
 
 
 class _DispatchingRunner:
@@ -109,12 +121,7 @@ class ConvergedDeliveryTests(unittest.TestCase):
         operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         drive_plan_to_converged(
             plan_id=PLAN, tools=self.tools, workspace_root=self.workspace,
-            plan_content=converging_plan_content(
-                "ARIA-HIGH-362 plan",
-                affected_surfaces=[{"paths": ["apps/farm-service/src/sample.ts"]}],
-                key_changes=[{"id": "kc-1", "description": "set the interval",
-                              "paths": ["apps/farm-service/src/sample.ts"], "imports": []}],
-            ),
+            plan_content=deliverable_plan_content(),
         )
 
     def tearDown(self) -> None:
@@ -224,13 +231,17 @@ class ConvergedDeliveryTests(unittest.TestCase):
         self.assertEqual(state["state"], "HUMAN_REQUIRED")
         evaluated = [event for event in state["events"] if event["event_type"] == "plan_evaluated"]
         self.assertEqual(evaluated[-1]["payload"]["reason_codes"], [DELIVERY_EXHAUSTED_REASON])
+        # ARIA-MEDIUM-429 — the parking is ONE operator item, the plan's own,
+        # carrying the exhaustion's facts; the sweep's reconcile adds none.
         records = [row for row in list_human_required(base_dir=self.tools)
-                   if row["request_id"] == human_required_request_id(PLAN)]
-        self.assertEqual(len(records), 1)
-        self.assertEqual(records[0]["context"]["kind"], HUMAN_REQUIRED_CONTEXT_KIND)
-        self.assertEqual(records[0]["context"]["reason_code"], DELIVERY_EXHAUSTED_REASON)
-        self.assertEqual([row["attempt"] for row in records[0]["context"]["attempts"]], [1, 2, 3])
-        self.assertEqual(records[0]["context"]["last_rejection_class"], "runner_exception:RuntimeError")
+                   if (row.get("context") or {}).get("plan_id") == PLAN]
+        self.assertEqual([row["request_id"] for row in records], [parked_plan_request_id(PLAN)])
+        context = records[0]["context"]
+        self.assertEqual((context["kind"], context["origin"]), (PARKED_PLAN_CONTEXT_KIND, "converged_delivery"))
+        self.assertEqual(context["reason_codes"], [DELIVERY_EXHAUSTED_REASON])
+        self.assertEqual([row["attempt"] for row in context["delivery_attempts"]], [1, 2, 3])
+        self.assertEqual(context["last_rejection_class"], "runner_exception:RuntimeError")
+        self.assertEqual(last["parked"], {"recorded": [], "resolved": [], "folded": [], "failed": []})
 
         # Terminal: never offered again.
         self.assertEqual(self._sweep(raising, cycle_id="cyc-4")["stranded"], [])
@@ -374,7 +385,7 @@ class ReviewCorrectionTests(unittest.TestCase):
         self.assertEqual(report["withheld"], {PLAN: WITHHELD_REQUEST_LIVE})
         self.assertEqual(report["escalated"], [])
         self.assertEqual(self._state()["state"], "CONVERGED")
-        self.assertNotIn(human_required_request_id(PLAN), self._records())
+        self.assertNotIn(parked_plan_request_id(PLAN), self._records())
 
     def test_the_human_required_write_is_guarded_against_a_concurrent_mint(self) -> None:
         from aria_kernel import plan_convergence
@@ -395,7 +406,7 @@ class ReviewCorrectionTests(unittest.TestCase):
             outcome = escalate_exhausted_plan(PLAN, base_dir=self.tools)
         self.assertEqual(outcome["status"], "not_converged")
         self.assertEqual(self._state()["state"], "IMPLEMENTATION_REQUESTED")
-        self.assertNotIn(human_required_request_id(PLAN), self._records())
+        self.assertNotIn(parked_plan_request_id(PLAN), self._records())
         with self.assertRaises(PlanStateRefused):
             force_plan_human_required(plan_id=PLAN, round_number=1, reason_codes=["fixture"],
                                       from_states=frozenset({"CONVERGED"}), base_dir=self.tools)
@@ -407,11 +418,16 @@ class ReviewCorrectionTests(unittest.TestCase):
         with patch.object(human_required, "record_human_required", side_effect=OSError("disk full")):
             report = self._sweep(_DispatchingRunner(), cycle_id="cyc-9")
         self.assertEqual(report["escalated"][0]["status"], "escalation_failed")
+        self.assertEqual(report["parked"]["failed"], [PLAN])
         self.assertEqual(self._state()["state"], "HUMAN_REQUIRED")
-        self.assertNotIn(human_required_request_id(PLAN), self._records())
+        self.assertNotIn(parked_plan_request_id(PLAN), self._records())
+        # The sweep's reconcile is the one repair (ARIA-MEDIUM-429), and the
+        # item it writes carries the attempts from the plan's own ledger.
         repaired = self._sweep(_DispatchingRunner(), cycle_id="cyc-10")
-        self.assertEqual(repaired["repaired"], [PLAN])
-        self.assertIn(human_required_request_id(PLAN), self._records())
+        self.assertEqual(repaired["parked"]["recorded"], [parked_plan_request_id(PLAN)])
+        self.assertEqual(self._records(), [parked_plan_request_id(PLAN)])
+        item = next(row for row in list_human_required(base_dir=self.tools))
+        self.assertEqual([row["attempt"] for row in item["context"]["delivery_attempts"]], [1, 2, 3])
 
     # M4 ----------------------------------------------------------------
     def test_a_long_run_without_authority_is_surfaced_without_a_transition(self) -> None:
@@ -483,7 +499,8 @@ class SweepBoundTests(unittest.TestCase):
         seed_reviewer_agent(self.workspace)
         operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         for plan_id in ("plan-old", "plan-new"):
-            drive_plan_to_converged(plan_id=plan_id, tools=self.tools, workspace_root=self.workspace)
+            drive_plan_to_converged(plan_id=plan_id, tools=self.tools, workspace_root=self.workspace,
+                                    plan_content=deliverable_plan_content(plan_id))
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -573,7 +590,7 @@ class OrchestratorWiringTests(unittest.TestCase):
 
         def converge_once(**kwargs):
             drive_plan_to_converged(plan_id=kwargs["plan_id"], tools=self.tools,
-                                    workspace_root=self.workspace)
+                                    workspace_root=self.workspace, plan_content=deliverable_plan_content())
             converged.append(kwargs["plan_id"])
             return fixtures._fake_convergence_runner(**kwargs)
 

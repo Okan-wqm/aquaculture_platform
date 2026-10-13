@@ -78,6 +78,7 @@ from .ledger import (
     tools_index_group_ledgers,
 )
 from .file_lock import ExclusiveLockHandle, with_exclusive_lock
+from .write_root_owner import refuse_foreign_owned_root
 from .state_manifest import (
     iter_surfaces,
     normalize_surface_relative_path,
@@ -258,9 +259,18 @@ def _git_common_directory(repo_root: Path) -> Path:
 
 @contextmanager
 def _state_store_lifecycle_lock(repo_root: Path):
-    """Serialize Git lifecycle changes before any state/index/file locks."""
+    """Serialize Git lifecycle changes before any state/index/file locks.
 
-    common_dir = _git_common_directory(Path(repo_root).resolve())
+    ARIA-HIGH-426 — the repository and its git common directory are asked
+    first: every checkout and publish passes here before its lock file and
+    its first git write, and a lock file another account created is one the
+    owner's lanes can never open again.
+    """
+
+    repo_path = Path(repo_root).resolve()
+    refuse_foreign_owned_root(repo_path, role="state store repository")
+    common_dir = _git_common_directory(repo_path)
+    refuse_foreign_owned_root(common_dir, role="state store git directory")
     key = common_dir.as_posix()
     held: dict[str, tuple[ExclusiveLockHandle, int]] = getattr(
         _LIFECYCLE_LOCKS,

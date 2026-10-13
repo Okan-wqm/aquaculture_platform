@@ -186,7 +186,9 @@ class SandboxFn:
 
     Runs the candidate adapter against the operator-labeled calibration
     corpus. Returns precision / recall / critical_false_positives
-    measured against REAL historical TP/FP labels.
+    measured against REAL historical TP/FP labels. ``workspace_root`` and
+    ``base_dir`` are the loop's: the runner never takes either from the
+    draft (ARIA-HIGH-414).
     """
 
     def __call__(
@@ -194,6 +196,8 @@ class SandboxFn:
         *,
         primary_draft: dict[str, Any],
         calibration_corpus_path: Path,
+        workspace_root: Path,
+        base_dir: str | Path | None,
     ) -> dict[str, Any]:
         ...
 
@@ -239,7 +243,8 @@ def run_convergent_authoring(
       max_authoring_rounds: round cap. Default 6.
       recall_floor: exhaustiveness floor for "100% valide". Default 0.90.
       min_calibration_fixtures: hard floor on corpus size. Default 10.
-      materialize_fn: optional shim to ``skill_genesis.materialize_skill``.
+      materialize_fn: registers a validated draft; the drainer passes
+        ``genesis_adapter_custody.materialize_drafted_adapter``.
       plan_start_fn: optional shim to ``plan_convergence.start_plan``.
 
     Returns:
@@ -471,9 +476,13 @@ def run_convergent_authoring(
             continue
 
         # ---- Phase 2 — Sandbox ----
+        # ARIA-HIGH-414 — the workspace and store are the loop's own (the
+        # drainer's), never a field of the agent-written draft.
         sandbox_result = sandbox_runner(
             primary_draft=primary_draft,
             calibration_corpus_path=Path(calibration_corpus_path),
+            workspace_root=Path(workspace_root),
+            base_dir=base_dir,
         )
         _persist_round_artifact(root, plan_id, round_number, {
             "phase": "sandbox", "round": round_number,
@@ -538,11 +547,15 @@ def run_convergent_authoring(
             manifest_path = None
             if materialize_fn is not None:
                 try:
+                    # ARIA-HIGH-414 — the calibration this round passed
+                    # rides along: registration requires its recorded
+                    # digest to be the digest of the bytes it registers.
                     mat = materialize_fn(
                         primary_draft=primary_draft,
                         seed=seed,
                         evidence_pack=evidence_pack,
                         base_dir=base_dir,
+                        sandbox_result=sandbox_result,
                     )
                     adapter_path = mat.get("adapter_path")
                     manifest_path = mat.get("manifest_path")

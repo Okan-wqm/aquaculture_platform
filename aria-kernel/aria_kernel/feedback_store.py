@@ -1311,7 +1311,7 @@ def _sampleable_raw_findings(
         run_id = str(row.get("run_id") or "")
         if not finding_id or not run_id or (run_id, finding_id) in existing_feedback:
             continue
-        fingerprint = str(row.get("finding_fingerprint") or finding_fingerprint(tool_id, finding))
+        fingerprint = raw_row_fingerprint(tool_id, row, lambda: finding)
         if fingerprint in settled_fingerprints:
             continue
         if (tool_id, str(finding.get("rule") or "").strip()) in quarantined:
@@ -1372,6 +1372,18 @@ def _sample_item_from_finding(
         "evidence": finding.get("evidence", []) if isinstance(finding.get("evidence"), list) else [],
         "finding_fingerprint": fingerprint,
     }
+
+
+def raw_row_fingerprint(tool_id: str, row: dict[str, Any], resolve_finding: Callable[[], dict[str, Any]]) -> str:
+    """The fingerprint a raw-findings row is offered under: the one its writer recorded.
+
+    The writer fingerprints the full finding (``record_raw_findings_for_run``);
+    the finding a compact row resolves to may be only its ``{rule, id}``
+    summary, whose own fingerprint differs. Only a row with no recorded
+    fingerprint is fingerprinted from ``resolve_finding()``. The one rule for
+    the sampler and the judge re-mint (ARIA-HIGH-418).
+    """
+    return str(row.get("finding_fingerprint") or finding_fingerprint(tool_id, resolve_finding()))
 
 
 def finding_fingerprint(tool_id: str, finding: dict[str, Any]) -> str:

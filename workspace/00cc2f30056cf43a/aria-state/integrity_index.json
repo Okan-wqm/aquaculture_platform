@@ -9,7 +9,7 @@
   },
   "ledger_hashes": {
     "external_feedback": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "governance": "c27d493b0f9922f582d73762e6e0120a10da0bd518cf0b6b02f7e792660a9cea",
+    "governance": "f9e0b7cbb13d4ffe2a96ca633b675cf00075f9b126822ed035ac666d5b05ae68",
     "missed_signals": "5dbdde2a3247abb11ee7cb6f62c5ce841c754fea0cb5809b7dd3ac23552e2e68",
     "pressure": "8a4e7bcc2e4406c7d1b82dffca61e641fc0a7595190ed6c47418520f2f388c3c",
     "pressure_state": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",

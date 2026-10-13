@@ -2002,6 +2002,7 @@
     "PROC-HIGH-039",
     "PROC-HIGH-046",
     "PROC-HIGH-047",
+    "PROC-HIGH-048",
     "PROC-LOW-038",
     "PROC-MEDIUM-001",
     "PROC-MEDIUM-002",
@@ -2106,6 +2107,10 @@
     "SEC-HIGH-165",
     "SEC-HIGH-166",
     "SEC-HIGH-167",
+    "SEC-HIGH-196",
+    "SEC-HIGH-197",
+    "SEC-HIGH-199",
+    "SEC-HIGH-200",
     "SEC-LOW-001",
     "SEC-LOW-060",
     "SEC-LOW-062",
@@ -2182,6 +2187,8 @@
     "SEC-MEDIUM-127",
     "SEC-MEDIUM-130",
     "SEC-MEDIUM-172",
+    "SEC-MEDIUM-198",
+    "SEC-MEDIUM-201",
     "SENSOR-CRITICAL-001",
     "SENSOR-CRITICAL-002",
     "SENSOR-CRITICAL-003",
@@ -2575,6 +2582,6 @@
     "ULTRA-MEDIUM-052",
     "ULTRA-MEDIUM-053"
   ],
-  "rebuilt_at": "2026-10-12T11:36:27Z",
+  "rebuilt_at": "2026-10-13T11:24:32Z",
   "schema_version": 1
 }

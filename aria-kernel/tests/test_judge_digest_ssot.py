@@ -187,5 +187,34 @@ class JudgeDigestDeliberateBreaks(unittest.TestCase):
             shutil.rmtree(tmp_root, ignore_errors=True)
 
 
+class JudgeDigestEvidenceGateNamesTheTrustGrade(unittest.TestCase):
+    """ARIA-HIGH-500 / ARIA-HIGH-499 — the judges are told the L1 gate the kernel enforces.
+
+    The §5 passage called the source_type list a closed allowlist whose
+    violation is "claim rejected at the gate". No envelope carries a
+    source_type and no gate reads one; the gate is the ``repo_verified`` trust
+    grade (finding emission and agent-evidence validation).
+    """
+
+    def test_digest_names_the_real_gates(self):
+        from aria_kernel import evidence_trust, finding
+
+        digest = render_judge_digest(REPO_ROOT)
+        for symbol in (
+            "`repo_verified`",
+            "finding.emit_finding",
+            "evidence_trust.classify_evidence_ref",
+            "EvidencePolicy.require_repo_verified",
+        ):
+            self.assertTrue(symbol in digest, f"the judge digest does not name {symbol}")
+        self.assertFalse(
+            "Anything else = L1 violation" in digest,
+            "the judge digest still teaches a source_type gate no code enforces",
+        )
+        self.assertTrue(callable(evidence_trust.EvidencePolicy.require_repo_verified))
+        self.assertTrue(callable(evidence_trust.classify_evidence_ref))
+        self.assertTrue(callable(finding.emit_finding))
+
+
 if __name__ == "__main__":
     unittest.main()

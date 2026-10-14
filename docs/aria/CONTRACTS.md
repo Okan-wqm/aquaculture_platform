@@ -46,7 +46,7 @@ cycle lifecycle rows are tools-owned. Workspace cycle artifacts are not created 
 Covered ledgers are:
 
 - Workspace: `unknowns`, `missed_signals`, `external_feedback`, `pressure`, `pressure_state`,
-  `since_migration_events`, `governance`.
+  `vocabulary_rejections`, `since_migration_events`, `governance`.
 
 - Tools: `runs`, `health`, `cycles`, `governance`. Optional tools ledgers become integrity-covered
   when present: `problem_clusters`, `triage_decisions`, `dispatch_requests`, `worker_results`,
@@ -126,7 +126,13 @@ derivation.
 
 ## 0.2 — Phase-2A Learning Pass Contract
 
-Each cycle runs an ordered learning pass before normal cycle work:
+Each cycle runs an ordered learning pass. The list mirrors
+`aria-kernel/aria_kernel/learning.py::LEARNING_HOOK_ORDER` (pinned by
+`aria-kernel/tests/test_contracts_mirror_code.py`). In an enterprise cycle
+(`cycle.run_enterprise_cycle`), hooks 1–4 (`learning.py::PRE_CYCLE_LEARNING_HOOKS`) run before
+normal cycle work and the rest (`POST_EVIDENCE_LEARNING_HOOKS`) run after evidence closure; burn-in
+cycles skip the pass. The legacy `cycle` entry (`cycle.run_cycle(paths)`) runs the whole pass in
+order (`learning.run_learning_pass`):
 
 1. `decay_recompute`
 2. `artifact_prune`
@@ -138,7 +144,14 @@ Each cycle runs an ordered learning pass before normal cycle work:
 8. `trust_escalation_derive`
 9. `ref_staleness_check`
 10. `triage_policy_apply`
-11. `agent_fitness_score` (weekly-gated)
+11. `agent_network_index`
+12. `capability_gap_detect`
+13. `plan_convergence_advance`
+14. `impact_graph_compute`
+15. `skill_or_agent_genesis`
+16. `service_auditor_targeting`
+17. `genesis_panel_sweep`
+18. `agent_fitness_score` (weekly-gated)
 
 Hooks are idempotent. Hook-to-hook communication is ledger-only; no shared in-memory hook state is
 authoritative. Workspace integrity drift, workspace precondition failures, and tools lock failures
@@ -261,10 +274,11 @@ worktree and checks the expected trailer. `auto_fix_safe` expects `Closes-Pressu
 `--auto-merge-eligible` is explicitly set, and even then remains bounded by the existing low-risk
 policy.
 
-Snapshot mode enum is `{committed, working_tree, staged}`. `committed` is the default and CI mode;
-it reads the HEAD-tracked snapshot and ignores dirty/staged changes with a governance event.
-`working_tree` is Phase-1 supported and includes dirty/staged/untracked files. `staged` is Phase-2
-reserved.
+Snapshot mode enum is `{committed, working_tree, working-tree}` (`snapshot.py::SNAPSHOT_MODES`;
+`working-tree` is an alias the snapshot builder normalises to `working_tree`). `committed` is the
+default and CI mode; it reads the HEAD-tracked snapshot and ignores dirty/staged changes with a
+governance event. `working_tree` includes dirty/staged/untracked files. Any other mode is refused
+as `unknown snapshot mode`.
 
 Fail-closed bootstrap/migration codes are CLI error codes, not governance events, because the root
 lock/ownership is not trusted yet: `tools_migration_required = 10`, `ambiguous_tools_root = 11`,
@@ -291,8 +305,10 @@ both technically satisfy the laws. This document closes that gap.
 It is also the operator's decision tool: the Phase-1 PoC at the end (§13) is the smallest concrete
 artifact that answers "do we actually need ARIA?" before committing to months of kernel work.
 
-**Honesty floor:** the PoC at §13 IS implemented (`tools/aria-poc/poc.py`). All other schemas are
-contracts for code that has not been written.
+**Implementation status:** this document defines contracts. Which of them the kernel implements,
+and where, is recorded in `docs/aria/CURRENT_STATE.md` (§Current Normative Anchors), the single
+owner of implementation status; this document does not restate it. The PoC at §13 is
+`tools/aria-poc/poc.py`.
 
 ---
 
@@ -467,22 +483,22 @@ class AdapterResult:
 ARIA'nın "su gibi şekil alması" iddiasının test edilebilir olması için adapter set'in bu 14 ekseni
 karşılaması zorunlu. Eksen-adapter eşleştirmesi §1.2'de.
 
-| #   | Eksen                         | Pattern manifesti                                                           | Hangi servisleri etkiler              |
-| --- | ----------------------------- | --------------------------------------------------------------------------- | ------------------------------------- |
-| 1   | CQRS folder topology          | `commands/ handlers/ queries/ query-handlers/` per domain                   | 17 backend                            |
-| 2   | Event contracts               | `BaseEvent extends` + JSON Schema + upcaster chain                          | event-store + tüm event publisher'lar |
-| 3   | Outbox pattern                | `@PublishToOutbox` + outbox table + consumer                                | 12 service                            |
-| 4   | Dual-alias                    | `@aquaculture/backend-common` ↔ `@platform/backend-common` aynı modül      | tüm backend                           |
-| 5   | NATS BEGIN GENERATED          | `services.yaml` SSoT → `nats.conf` generated region (ADR-015)               | infrastructure                        |
-| 6   | Schema drift validator        | `SchemaDriftModule.forRoot` per service, boot-time check (ADR-012)          | 13 schema-owning                      |
-| 7   | Banned-phrase enforcement     | `tools/gates/banned-phrase.ts` CI gate (CLAUDE.md)                          | tüm commit'ler                        |
-| 8   | Nx graph weighting            | `nx.json` + `project.json` dependency depth                                 | 17 backend + 7 frontend               |
-| 9   | Tenant scoping discipline     | `getScopedRepository()` + tenant_id where-clause + JWT trust anchor         | tüm tenant-data services              |
-| 10  | Sensor protocol register maps | Modbus / OPC UA / Atlas EZO register definitions                            | sens-api-gateway + sensor-service     |
-| 11  | Path → agent mapping          | `apps/auth-service/**` → `auth-security-expert`, vs.                        | 38+ agent ↔ 17+7+1 servis            |
-| 12  | Sensor-ingestion sidecar      | Rust sidecar + NATS publish + TS consumer (hybrid runtime)                  | hybrid TS+Rust                        |
-| 13  | TypeORM auto-mapping          | snake_case column ↔ camelCase property (drift değil, framework convention) | tüm TypeORM kullanan                  |
-| 14  | NATS cert-CN identity         | `services.yaml` + cert mint + `verify_and_map: true` (ADR-014/015)          | NATS infrastructure                   |
+| #   | Eksen                         | Pattern manifesti                                                           | Hangi servisleri etkiler                                            |
+| --- | ----------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| 1   | CQRS folder topology          | `commands/ handlers/ queries/ query-handlers/` per domain                   | 17 backend                                                          |
+| 2   | Event contracts               | `BaseEvent extends` + JSON Schema + upcaster chain                          | event-store + tüm event publisher'lar                               |
+| 3   | Outbox pattern                | `@PublishToOutbox` + outbox table + consumer                                | 12 service                                                          |
+| 4   | Dual-alias                    | `@aquaculture/backend-common` ↔ `@platform/backend-common` aynı modül      | tüm backend                                                         |
+| 5   | NATS BEGIN GENERATED          | `services.yaml` SSoT → `nats.conf` generated region (ADR-015)               | infrastructure                                                      |
+| 6   | Schema drift validator        | `SchemaDriftModule.forRoot` per service, boot-time check (ADR-012)          | 13 schema-owning                                                    |
+| 7   | Banned-phrase enforcement     | `tools/gates/banned-phrase.ts` CI gate (CLAUDE.md)                          | tüm commit'ler                                                      |
+| 8   | Nx graph weighting            | `nx.json` + `project.json` dependency depth                                 | `apps/` + `web/modules/`                                            |
+| 9   | Tenant scoping discipline     | `getScopedRepository()` + tenant_id where-clause + JWT trust anchor         | tüm tenant-data services                                            |
+| 10  | Sensor protocol register maps | Modbus / OPC UA / Atlas EZO register definitions                            | sens-api-gateway + sensor-service                                   |
+| 11  | Path → agent mapping          | `apps/auth-service/**` → `auth-security-expert`, vs.                        | `.claude/agents/` ↔ `apps/` + `web/modules/` + `sens-api-gateway/` |
+| 12  | Sensor-ingestion sidecar      | Rust sidecar + NATS publish + TS consumer (hybrid runtime)                  | hybrid TS+Rust                                                      |
+| 13  | TypeORM auto-mapping          | snake_case column ↔ camelCase property (drift değil, framework convention) | tüm TypeORM kullanan                                                |
+| 14  | NATS cert-CN identity         | `services.yaml` + cert mint + `verify_and_map: true` (ADR-014/015)          | NATS infrastructure                                                 |
 
 ### 1.2 — First-day adapter set (15 adapter, repo-aware)
 
@@ -752,9 +768,14 @@ Every finding's L1 compliance proof.
      VERBATIM — this file stays the SSoT; edit here, then regenerate the digest. -->
 <!-- judge-digest:begin -->
 
-**source_type allowlist:** `code_reference`, `external_authoritative_source`, `test_demand`,
+**source_type categories:** `code_reference`, `external_authoritative_source`, `test_demand`,
 `git_history`, `trusted_config_file`, `trusted_prior_doc` (CLAUDE.md, ADRs, knowledge layers per
-SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
+SPEC §5.1) classify evidence by origin. They are descriptive: the evidence envelope carries no
+`source_type` field and no gate reads one. The L1 gate is the trust grade at the target SHA —
+`finding.emit_finding` rejects a ref that `evidence_trust.classify_evidence_ref` does not grade
+`repo_verified`, and agent evidence must pass
+`evidence_trust.EvidencePolicy.require_repo_verified` (claim rejected). Runtime signals enter only
+as `runtime_unverified` leads that point the repo evidence at an area; they are never evidence.
 
 <!-- judge-digest:end -->
 
@@ -879,7 +900,7 @@ record` CHILD passed the reason through the operator CLI's free-text `--reason` 
   "status": "OPEN" | "IN_PROGRESS" | "RESOLVED" | "SUPPRESSED" | "WITHDRAWN",
   "claim_type": "spine_drift" | "naming_drift" | "convention_inconsistency" | "wrong_code" |
     "absence_in_scope" | "currency_gap" | "duplication" | "contradiction" | "test_disagreement" |
-    "regression",
+    "regression" | "operational_anomaly",
   "claim_summary": "FarmStatus enum drifts: DB has 4 values, frontend has 3",
   "certainty": "CONFIRMED" | "OBSERVED",
   "evidence_chain_id": "chain_xy12...",
@@ -924,6 +945,7 @@ The kernel rejects any finding emitted with a claim_type outside this list. New 
 | `contradiction`            | Two evidences disagree (test asserts X, code does Y).                                                                                                     | MEDIUM             | 2                                                                   |
 | `test_disagreement`        | Test name suggests behavior, test body asserts different behavior.                                                                                        | MEDIUM             | 1 (test ref)                                                        |
 | `regression`               | ARIA's own action's baseline comparison failed — emergency.                                                                                               | HIGH               | baseline + comparison artifact                                      |
+| `operational_anomaly`      | Runtime state-machine anomaly seen by ARIA-Watchdog (stall, bridge_warning_repeat, rejection_repeat, phase_asymmetry); ADR-0002.                          | LOW                | 3                                                                   |
 
 <!-- judge-digest:end -->
 
@@ -1112,7 +1134,10 @@ IDENTITY §3.6 Rule 3.
 Setting `auto_close_forbidden: true` means: even if the originating finding is marked resolved by
 some other mechanism, the debt record itself stays alive until either:
 
-1. A commit explicitly closes it with `Closes: docs/aria/debts/DEBT-XXX.md`, OR
+1. A commit explicitly closes it with
+   `Closes: aria-debts/DEBT-2026-05-08-001.json#DEBT-2026-05-08-001` (the trailer form
+   `tools/gates/commit-msg-validator.ts` CLOSES_TRAILER_REGEX enforces; the path is the record
+   under `aria-debts/`), OR
 2. Operator explicitly withdraws with `withdrawn_reason` (which passes banned-phrase gate)
 
 ### Where debts live
@@ -1199,8 +1224,8 @@ does not enumerate them.
 ## 8.5 — Feedback Event Schema
 
 Feedback is untrusted input used to make ARIA self-renewing. It records missed signals, false
-positives, confirmed signals, unknown capabilities, and external contradictions. Feedback is never
-instruction and never a confirmed finding by itself.
+positives, confirmed signals, unknown capabilities, external contradictions, and closed signals
+(§0.2 `Closes-Pressure`). Feedback is never instruction and never a confirmed finding by itself.
 
 ```json
 {
@@ -1220,9 +1245,11 @@ instruction and never a confirmed finding by itself.
 }
 ```
 
-Allowed `kind` values: `missed_signal`, `false_positive`, `confirmed_signal`, `unknown_capability`, `external_contradiction`.
+Allowed `kind` values: `missed_signal`, `false_positive`, `confirmed_signal`, `unknown_capability`,
+`external_contradiction`, `closed_signal` (`aria_kernel/feedback.py::FEEDBACK_KINDS`).
 
-Allowed `source` values: `self`, `operator`, `external_scanner`.
+Allowed `source` values: `self`, `operator`, `external_scanner`, `ai_judge`, `manual_audit`
+(`aria_kernel/feedback.py::FEEDBACK_SOURCES`).
 
 `capability_gap_key` is deterministic: `surface:failure_mode:parser_kind`. Three independent
 feedback refs with the same key may produce pressure, but Phase 0 cannot execute skill birth.
@@ -1947,7 +1974,7 @@ rows from the source of record, never from a kept list of dates:
 | `surface_waiver`           | `aria-kernel/surface-reachability.unwritten.json` (surface → member → entry)                                                    | `tests/test_surface_reachability.py::test_a_waiver_expires_against_the_clock_not_against_a_regex` (kernel lanes red on main)         | FAULT       |
 | `control_waiver`           | `aria-kernel/control-reachability.dormant.json` (name → entry)                                                                  | `tests/test_control_reachability.py::test_a_waiver_expires_against_the_clock_not_against_a_regex` (kernel lanes red on main)         | FAULT       |
 | `batch_containment_waiver` | `aria-kernel/batch-containment.waivers.json` (name → entry; absent = no waivers)                                                | `tests/test_batch_containment_gate.py::test_the_declared_waivers_are_all_valid` (kernel lanes red on main)                           | FAULT       |
-| `human_required_sla`       | the open records through `human_required.list_human_required` — the daily report's HUMAN_REQUIRED section counts the same queue | `SLA_WINDOWS` (Plan 016 operator SLA; the report's escalation ladder)                                                                | FAULT       |
+| `human_required_sla`       | the open records through `human_required.list_human_required` — the daily report's HUMAN_REQUIRED section counts the same queue | `HUMAN_REQUIRED_SLA_WINDOWS` (Plan 016 operator SLA; the report's escalation ladder)                                                 | FAULT       |
 | `registry_finding`         | `docs/reviews/_registry/findings.jsonl`, every finding not RESOLVED or BLOCKED that carries a `deadline`                        | `finding-state-sweep.yml` → sweep PR (`finding-registry.ts planSweep` plans BLOCKED; the state lands when a CODEOWNER merges the PR) | information |
 
 **The waiver manifests are one closed registry.** `surface_waivers.WAIVER_MANIFESTS`
@@ -2056,8 +2083,7 @@ Before committing to months of kernel work, the operator runs this PoC to answer
 need ARIA?"**
 
 This PoC is **implemented** at `tools/aria-poc/poc.py` with stdlib tests at
-`tools/aria-poc/invariants/test_poc.py` (no LLM, no API). All other content in this document remains
-unimplemented contracts.
+`tools/aria-poc/invariants/test_poc.py` (no LLM, no API).
 
 ### How to run
 
@@ -2144,13 +2170,13 @@ This single finding alone gives the operator concrete data for decision question
 After running the PoC, the operator answers (PoC report has the checkboxes):
 
 1. Did the fingerprint reveal anything you did not already know? (yes/no)
-2. Did the mechanical drift scan surface real drift not caught by existing 38 specialized agents on
-   PR cycles? (yes/no)
+2. Did the mechanical drift scan surface real drift not caught by the existing specialized agents
+   on PR cycles? (yes/no)
 
 3. Is the value surface of (2) large enough to justify months of kernel work? (yes/no)
 4. Is the LLM cost (Claude Code session-based, NOT direct API — see §0.6) within scope? (yes/no)
 
-If **3 of 4 are NO**: archive SPEC, IDENTITY, CONTRACTS as research artifacts. The 38 specialized
+If **3 of 4 are NO**: archive SPEC, IDENTITY, CONTRACTS as research artifacts. The specialized
 agents + Nx + CI cover the value surface.
 
 If **3 of 4 are YES**: proceed to Phase 0 (kernel skeleton — orchestrator slash command + Discovery
@@ -2165,8 +2191,7 @@ Phase 0 ships: Memory + redactor + budget observer + kill switch + integrity has
 - `.claude/commands/aria-poc.md` — Claude Code slash command wrapper
 - `.gitignore` — adds `.aria-poc/` exclusion
 
-The PoC is the only ARIA-related code allowed in this branch without the full kernel surrounding it.
-It is the operator's "do we even start?" gate.
+The PoC is the operator's "do we even start?" gate.
 
 ---
 
@@ -2180,14 +2205,9 @@ Three documents now define ARIA on paper:
 | `IDENTITY.md`         | Behavior — daily rhythm, refusals, speech, trajectory, self-honesty, missing-protocols (§12–§22) |
 | `CONTRACTS.md` (this) | Data shapes, protocol contracts, LLM discipline, state machine, Phase-1 PoC                      |
 
-What is **still missing on paper:** runtime implementation, not plan shape. The physical
-implementation plans live in `docs/aria/plans/`, with the phase-level summary in
-`docs/aria/ROADMAP.md`.
-
-What is missing **as code:** all of it. None of these contracts are implemented.
-
-The next legitimate step is still the Phase-1 PoC (§13). If the PoC decision gate passes, Phase 0
-begins from `docs/aria/plans/001-phase-0-kernel-skeleton.md`.
+The physical implementation plans live in `docs/aria/plans/`, with the phase-level summary in
+`docs/aria/ROADMAP.md`. What is implemented as code, and what is not, is recorded in
+`docs/aria/CURRENT_STATE.md`, the single owner of implementation status.
 
 ## 12.5 — Runtime v2 Ledger Promotion Contract
 
@@ -2230,9 +2250,10 @@ Promotion is blocked if any consumer reads `runs.jsonl` directly instead of
 resolve to artifact payload, or any omission/truncation/suppression lacks a count, reason code,
 artifact ref, hash, and verification status.
 
-The current implementation records `suppressed_count` and `truncated_count` in the summary contract.
-Real `v2` source-of-truth promotion remains blocked until those counters are derived from runtime
-evidence and covered by tests; hard-coded zero counters are smoke evidence only.
+The summary contract's `suppressed_count` and `truncated_count` are derived from runtime evidence:
+they sum the producer markers named by `runtime_artifacts.py::_SUPPRESSED_MARKER_KEYS` and
+`_TRUNCATED_MARKER_KEYS` (ORPHAN-HIGH-424), and `aria-kernel/tests/test_runtime_artifacts.py`
+(`AutonomySummaryDerivedCountersTests`) pins the derivation.
 
 ### Compaction ↔ verification (ARIA-HIGH-117)
 

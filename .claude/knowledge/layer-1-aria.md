@@ -1,6 +1,6 @@
 # Layer-1 ARIA — Repository-shaped intelligence (anchor, not behavior)
 
-**Audience:** specialized review agents (CATCHER / TEACHER / WRITER) that may encounter ARIA-emitted artifacts in `aria-findings/`, `aria-debts/`, `agent-workspace/`, `.aria-poc/`, or commit messages with `Closes: docs/aria/...` references.
+**Audience:** specialized review agents (CATCHER / TEACHER / WRITER) that may encounter ARIA-emitted artifacts in `aria-findings/`, `aria-debts/`, `agent-workspace/`, `.aria-poc/`, or commit messages with `Closes: aria-findings/...` / `Closes: aria-debts/...` references.
 **Anchor:** this is a discoverable pointer, not ARIA's own configuration.
 
 This file exists so other agents can recognize ARIA's outputs without confusing them for application code, and so review pipelines do not treat ARIA artifacts as in-scope for normal lint/test/build gates.
@@ -39,7 +39,7 @@ When SPEC and IDENTITY conflict, SPEC wins. When CONTRACTS specifies a schema, a
 | `docs/aria/` | ARIA spec | committed docs. If touched, `commercial-legal-writer` style applies (boundary contract docs). |
 | `aria-findings/F-*.json` | ARIA | committed; one promoted finding per file with evidence chain. Treat like other `docs/reviews/*` findings. |
 | `aria-debts/DEBT-*.json` | ARIA (when implemented) | committed; one debt per file with owner + due_date. OVERDUE debts surface in daily reports. |
-| Commit messages with `Closes: docs/aria/debts/DEBT-XXX` | ARIA-driven fix | normal commit; the closure reference replaces an audit-report `Closes:` line. |
+| Commit messages with `Closes: aria-debts/DEBT-2026-05-08-001.json#DEBT-2026-05-08-001` | ARIA-driven fix | normal commit; the closure reference replaces an audit-report `Closes:` line. |
 
 ## ARIA enforces CLAUDE.md back on itself
 

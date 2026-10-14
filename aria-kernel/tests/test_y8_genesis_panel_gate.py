@@ -232,6 +232,33 @@ class PanelApprovalChainTests(_GapStoreCase):
             evidence["resolved_panel_adjudication"]["adjudication_ref"], escalation_id,
         )
 
+    def test_panel_approval_returns_the_minted_draft_id(self) -> None:
+        # ARIA-MEDIUM-468 — the approval names the draft it minted. The draft row carries
+        # `draft_id`; it has no top-level `row_id`/`name`, which is what the
+        # return used to read, so it always reported None.
+        from unittest import mock
+
+        from aria_kernel import agent_genesis
+        from aria_kernel.agent_genesis import load_jsonl
+
+        captured: list[dict] = []
+        real = agent_genesis.execute_genesis_panel_approval
+
+        def spy(**kwargs):
+            result = real(**kwargs)
+            captured.append(result)
+            return result
+
+        escalation_id = self._escalate_one_gap()
+        self._panel_resolve(escalation_id, hra.RESOLVE_VERDICT)
+        with mock.patch.object(agent_genesis, "execute_genesis_panel_approval", spy):
+            hra.adjudicate_human_required(
+                escalation_request_id=escalation_id, base_dir=self.tools,
+            )
+        drafts = load_jsonl(self.tools / "agent-genesis" / "drafts.jsonl")
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0]["draft"], drafts[-1]["draft_id"])
+
     def test_refuse_quorum_closes_without_minting(self) -> None:
         escalation_id = self._escalate_one_gap()
         self._panel_resolve(escalation_id, hra.REFUSE_VERDICT)

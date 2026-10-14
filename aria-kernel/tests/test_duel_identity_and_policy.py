@@ -123,6 +123,35 @@ class SuperiorityPolicyThreadingTests(unittest.TestCase):
                     pass
         self.assertEqual(captured.get("repo_root"), "/some/repo")
 
+    def test_record_transition_defaults_repo_root_to_the_bound_workspace(self) -> None:
+        # ARIA-MEDIUM-468 — the production producer passes no repo_root; the policy must
+        # then come from the workspace the tools store is bound to.
+        from aria_kernel import genesis_lifecycle
+        from aria_kernel.tool_registry import bound_workspace_root
+
+        captured: dict = {}
+
+        def _capture(**kwargs):
+            captured.update(kwargs)
+            return {"passed": False, "reasons": ["captured"], "duel": {}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            with mock.patch(
+                "aria_kernel.genesis_superiority.compute_eval_window_superiority",
+                side_effect=_capture,
+            ):
+                with self.assertRaises(genesis_lifecycle.GovernanceError):
+                    genesis_lifecycle.record_transition(
+                        entity_id="agent-x",
+                        entity_kind="agent",
+                        to_state="ACTIVE",
+                        evidence={},
+                        base_dir=root,
+                    )
+            self.assertEqual(captured.get("repo_root"), bound_workspace_root(root))
+            self.assertEqual(captured.get("repo_root"), Path(tmp).resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ reducer fold rules.
 """
 from __future__ import annotations
 
+import ast
 import json
 import tempfile
 import unittest
@@ -217,6 +218,25 @@ class ReducerFoldTests(unittest.TestCase):
         })
         # Without verification → "submitted" (not terminal).
         self.assertEqual(_latest_assignment_states(self.base)["A-NT"], "submitted")
+
+    def test_reducer_module_never_compares_governance_state_event(self) -> None:
+        # ARIA-MEDIUM-459 — the module that owns the §G.2 reducer may PRODUCE
+        # dispatch_request_state_changed audit rows, but no code in it may
+        # select on that kind: a comparison is a governance-driven state
+        # read, which the fold forbids. Whole subtrees count, so `kind in
+        # {...}` and tuple membership are caught too.
+        module = Path(__file__).resolve().parents[1] / "aria_kernel" / "worker_dispatch.py"
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        offending = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Compare)
+            and any(
+                isinstance(sub, ast.Constant) and sub.value == "dispatch_request_state_changed"
+                for sub in ast.walk(node)
+            )
+        ]
+        self.assertEqual(offending, [])
 
 
 class OrphanGovernanceRecoveryTests(unittest.TestCase):

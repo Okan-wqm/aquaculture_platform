@@ -16,6 +16,7 @@ from .ledger import (
     load_declared_jsonl,
     state_transaction,
 )
+from .agent_invocations import DEFAULT_LEASE_SECONDS
 from .agent_network import latest_agent_network_hash
 from .pressure import effective_workspace_pressures
 from .tool_registry import (
@@ -33,9 +34,8 @@ from .workspace import WorkspacePaths
 DEFAULT_WORKTREE_TTL_DAYS = 7
 DEFAULT_AUTO_BATCH_LIMIT = 10
 # Plan 025 §E — assignment claim primitives (mirror of agent_invocations
-# claim primitives). worker_dispatch operates on dispatch/requests.jsonl
-# rows; the claim ledger lives at dispatch/claims.jsonl.
-DEFAULT_LEASE_SECONDS = 1800
+# claim primitives, under its DEFAULT_LEASE_SECONDS). worker_dispatch operates
+# on dispatch/requests.jsonl rows; the claim ledger lives at dispatch/claims.jsonl.
 LEASE_TOKEN_BYTES = 24
 
 # PLAN Wave 2 PR 1.4 (ORPHAN-HIGH-487) — the assignment states in which work
@@ -56,6 +56,16 @@ ACTIVE_ASSIGNMENT_STATES: frozenset[str] = frozenset({
     "picked_up",
     "submitted",
 })
+
+# ARIA-MEDIUM-459 — the assignment states that free their pressure for a NEW dispatch.
+# Named as the complement on purpose: every other state means the pressure
+# still has work, or the state machine has already ruled on it (`verified`,
+# `stale`, `human_required`, `submit_rejected`, `verification_failed`,
+# `multiple_active_claims_corruption`), and re-dispatching would restart that
+# work with a fresh per-assignment retry budget. Only the legacy request-row
+# seeds `cancelled` / `expired` mean the work is gone; a state the reducer
+# learns later therefore blocks re-dispatch by default.
+REDISPATCHABLE_ASSIGNMENT_STATES: frozenset[str] = frozenset({"cancelled", "expired"})
 
 # How many times an expired lease returns its assignment to the queue before
 # the assignment is escalated instead. Mirrors
@@ -346,7 +356,7 @@ def auto_batch_dispatch(
         pe = str(row.get("pressure_event_id") or "")
         if not pe or pe in seen:
             continue
-        if states_by_pressure.get(pe, set()) & {"pending", "prepared", "picked_up", "submitted", "verified", "completed"}:
+        if states_by_pressure.get(pe, set()) - REDISPATCHABLE_ASSIGNMENT_STATES:
             continue
         seen.add(pe)
         candidates.append(row)
@@ -518,22 +528,25 @@ def _find_assignment(root: Path, assignment_id: str) -> dict[str, Any] | None:
 def _derive_assignment_state(root: Path, assignment_id: str) -> str:
     """Derive an assignment's current state by following its lifecycle.
 
-    Sources (in precedence order):
-      1. Latest ``dispatch_request_state_changed`` event for the
-         assignment's pressure_event_id in governance.jsonl.
-      2. The assignment row's own ``state`` field.
+    The state is the §G.2 fold in ``_latest_assignment_states``. It is
+    SEEDED from the request row's own ``state`` (``dispatch/requests.jsonl``
+    enters the fold at source priority 0, and ``prepared`` comes only from
+    there), then advanced by ``dispatch/claims.jsonl``,
+    ``dispatch/worker-results.jsonl`` and
+    ``dispatch/verification-results.jsonl``. ``governance.jsonl`` is
+    audit-only: its ``dispatch_request_state_changed`` rows never feed the
+    state. Returns ``missing`` when no request row has this assignment id.
 
-    States: pending / prepared / picked_up / completed / cancelled /
-    expired. The worker daemon writes ``picked_up`` (via the claim
-    primitive below); ``completed`` is set after verification.
+    States the fold produces: pending, prepared, picked_up, submitted,
+    submit_rejected, verified, verification_failed, stale, human_required,
+    multiple_active_claims_corruption. ``completed``, ``cancelled`` and
+    ``expired`` enter only as legacy request-row seeds: nothing in the fold
+    produces them, and ``cancel_dispatch_request`` writes governance only.
 
-    PLAN Wave 2 PR 1.4 — this docstring previously said "the reaper writes
-    ``expired`` when a lease times out". There was no reaper, and nothing
-    has ever produced ``expired``. `reap_expired_assignment_claims` is that
-    reaper now, and it writes into the claims vocabulary this fold already
-    understands (``released`` back to pending, or terminal
-    ``human_required``) rather than a state with no producer. ``expired``
-    survives only as a state `prune_worktrees` still recognises.
+    PLAN Wave 2 PR 1.4 — lease expiry is settled by
+    ``reap_expired_assignment_claims``, which writes the claims vocabulary
+    this fold already understands (``released`` back to pending, or terminal
+    ``human_required``) rather than a new ``expired`` state with no producer.
     """
     assignment = _find_assignment(root, assignment_id)
     if assignment is None:
@@ -825,29 +838,13 @@ def pr_for_assignment(
     return pr_number
 
 
-def _latest_request_states(root: Path) -> dict[str, str]:
-    states: dict[str, str] = {}
-    for row in load_jsonl(root / "dispatch" / "requests.jsonl"):
-        pe = row.get("pressure_event_id")
-        if pe:
-            states[pe] = row.get("state", "pending")
-    for row in load_jsonl(root / "governance.jsonl"):
-        if row.get("kind") != "dispatch_request_state_changed":
-            continue
-        details = row.get("details") or {}
-        pe = details.get("pressure_event_id")
-        to_state = details.get("to_state")
-        if pe and to_state:
-            states[pe] = str(to_state)
-    return states
-
-
 def _latest_assignment_states(root: Path) -> dict[str, str]:
     """Plan 026R §G.1+§G.2 — assignment-id-keyed state derivation.
 
-    Pre-§G.1 ``_latest_request_states`` was pressure_event_id-keyed
-    so two assignments for the same pressure (e.g. a retry after a
-    rejected first attempt) clobbered each other in the state map.
+    Pre-§G.1 the (since-removed) ``_latest_request_states`` fold was
+    pressure_event_id-keyed, so two assignments for the same pressure
+    (e.g. a retry after a rejected first attempt) clobbered each other in
+    the state map.
     Multi-assignment-per-pe is a real flow; the legacy keying made
     list_dispatch_requests / mark_dispatch_picked_up ambiguous.
 

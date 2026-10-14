@@ -7,6 +7,7 @@ from typing import Any
 
 from .agent_priors import _parse_agent  # reuse the local parser; this remains an internal ARIA module boundary.
 from .fitness import latest_agent_fitness
+from .ledger import sha256_of_canonical_json
 from .tool_registry import ensure_tools_dir, utc_now
 
 
@@ -34,11 +35,10 @@ def agent_network_index(
     fitness_by_agent = {row.get("agent_name"): row for row in fitness}
     maintenance = [agent for agent in agents if agent["path"].startswith(".claude/agents/_maintenance/")]
     legacy = _legacy_agents(repo)
-    dispatchable = [
-        agent["name"]
-        for agent in agents
-        if not agent["path"].startswith(".claude/agents/_maintenance/")
-    ]
+    # No dispatch list here: what the kernel may dispatch is
+    # agent_surface.DEFAULT_TARGET_AGENT_WHITELIST, and "every agent outside
+    # _maintenance" (the field this index used to carry, read by nothing)
+    # contradicted it in both directions.
     payload = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -49,7 +49,6 @@ def agent_network_index(
         "skills": _skill_files(repo),
         "maintenance_agents": [agent["name"] for agent in maintenance],
         "legacy_agents": legacy,
-        "dispatchable_agents": sorted(dispatchable),
         "fitness_snapshot": fitness_by_agent,
     }
     payload["index_hash"] = _hash_payload(payload)
@@ -132,8 +131,7 @@ def _source_hashes(manifest: dict[str, Any]) -> dict[str, str]:
 
 
 def _hash_payload(payload: dict[str, Any]) -> str:
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return "sha256:" + sha256_of_canonical_json(payload)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

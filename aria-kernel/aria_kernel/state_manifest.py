@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Literal
+from typing import Iterable, Literal, get_args
 
 from .file_lock import lock_sidecar_path, lock_sidecar_target
 
@@ -20,6 +20,14 @@ RootKind = Literal["tools", "workspace", "repo"]
 StateClass = Literal["ledger", "index", "runtime_state", "artifact", "lock"]
 DurabilityPolicy = Literal["append_fsync", "rewrite_fsync", "ephemeral"]
 ObserveClass = Literal["observation", "action", "mutation", "diagnostic"]
+# A Literal annotation is not checked at runtime, so `StateSurface` checks
+# these fields itself. Derived from the aliases above, never re-listed.
+_CLOSED_VOCABULARIES: dict[str, frozenset[str]] = {
+    "state_class": frozenset(get_args(StateClass)),
+    "durability": frozenset(get_args(DurabilityPolicy)),
+    "root_kind": frozenset(get_args(RootKind)),
+    "observe_class": frozenset(get_args(ObserveClass)),
+}
 
 MAX_SURFACE_PATH_BYTES = 4096
 MAX_SURFACE_PATH_COMPONENTS = 128
@@ -234,6 +242,13 @@ class StateSurface:
         )
         object.__setattr__(self, "profile_surface", profile_surface)
         object.__setattr__(self, "observe_class", observe_class)
+        for field, allowed in _CLOSED_VOCABULARIES.items():
+            value = getattr(self, field)
+            if value not in allowed:
+                raise ValueError(
+                    f"state_surface_{field}_invalid:{self.name}:{value!r} "
+                    f"not in {sorted(allowed)}"
+                )
 
 
 STATE_SURFACES: tuple[StateSurface, ...] = (
@@ -594,11 +609,11 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # ARIA scope discipline — out-of-scope observations captured from
     # rejected evidence (operator requirement 2026-08-29: don't fix what
     # isn't yours, but don't stay silent about it either).
-    StateSurface("pressure_out_of_scope_observations", "pressure/out-of-scope-observations.jsonl", "ledger", "append_declared", "runtime", True, "fsync", False),
+    StateSurface("pressure_out_of_scope_observations", "pressure/out-of-scope-observations.jsonl", "ledger", "append_declared", "runtime", True, "append_fsync", False),
     # Execution spine (Faz 1A 2026-08-30) — the session lifecycle ledger:
     # session_started → mission_bound → provider_bound → ... → completed.
     # Every row carries the full ExecutionContext audit block.
-    StateSurface("session_ledger", "sessions/session-ledger.jsonl", "ledger", "append_declared", "runtime", True, "fsync", False),
+    StateSurface("session_ledger", "sessions/session-ledger.jsonl", "ledger", "append_declared", "runtime", True, "append_fsync", False),
     StateSurface("retention_events", "retention/events.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_v2_promotions", "runtime/v2-promotions.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("autonomy_state", "autonomy_state.jsonl", "ledger", "autonomy", "runtime", True, "append_fsync", True),

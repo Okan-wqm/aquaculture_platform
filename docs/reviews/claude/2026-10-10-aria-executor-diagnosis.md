@@ -1,4 +1,4 @@
-# ARIA — executor diagnosis: what the 543 harness releases were, and why #1906's challenger waited 11 h (2026-10-10)
+# ARIA — executor diagnosis: the 543 harness releases, and #1906's 11 h challenger wait (2026-10-10)
 
 Owner: claude (implementation and diagnosis), okan (review; the capacity decision in
 ARIA-HIGH-425; the runner action in ARIA-HIGH-426).
@@ -78,7 +78,7 @@ charged a request's requeue budget.
 
 ## ARIA-MEDIUM-422 — an expiry after only harness releases spent the single re-mint
 
-### Symptom
+### Symptom (ARIA-MEDIUM-422)
 
 An `anchor_stale` claim row from the age sweep says `anchor_expired`
 (`agent_invocations.py:3403`). The release-reason table classifies that reason as
@@ -108,7 +108,7 @@ for harness reasons:
   `FREE_CONTRACT_VIOLATIONS` a violation is the request's own fault, so they correctly keep
   spending.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-422)
 
 Two owners already existed and the cause consulted neither:
 
@@ -143,7 +143,7 @@ sweep that disposes. It pins:
 - contract violations past the free allowance still spend;
 - an ancestor nobody claimed still spends.
 
-### Not done here
+### Not done here (ARIA-MEDIUM-422)
 
 - The lineage cap (`MAX_EXPIRY_LINEAGE_REMINTS = 2`) is unchanged, so a lineage whose host never
   serves still ends at the operator.
@@ -152,7 +152,7 @@ sweep that disposes. It pins:
 
 ## ARIA-HIGH-425 — the seven-day window is spent to exhaustion every week, and nothing paces it
 
-### Symptom
+### Symptom (ARIA-HIGH-425)
 
 397 of the 543 releases fall inside an exhausted Anthropic seven-day window (table above). The
 exhaustion recurs every week:
@@ -166,7 +166,7 @@ exhaustion recurs every week:
 The current window (resets 10-16 06:00Z) read 0.44 at 10-10 10Z, 1.2 days in. The account is
 shared with interactive Claude Code sessions, so not every unit of consumption is ARIA's.
 
-### Root cause
+### Root cause (ARIA-HIGH-425)
 
 Every Claude transcript carries the CLI's `rate_limit_event`, including at 0.98:
 
@@ -210,12 +210,12 @@ The runner's own job logs:
 The aria/state publish history agrees. After `rescue-20261008-manual-2` at 21:15Z, the next
 publish is `executor-37891508302` at 07:47Z.
 
-### Root cause
+### Root cause (ARIA-HIGH-426)
 
 Every self-hosted ARIA lane runs in one persistent workspace (concurrency group
 `aria-selfhosted-workspace`, `aria-agent-executor.yml:76-78`). Its first step is:
 
-```
+```bash
 set -euo pipefail; git reset --hard; git clean -ffdx -e node_modules
 ```
 
@@ -276,7 +276,7 @@ UNVERIFIED: the 19:24Z failure predates the earliest backed-up file (19:52Z). It
 
 ## ARIA-MEDIUM-427 — a task-binding refusal is released under the fleet's admission reason
 
-### Symptom
+### Symptom (ARIA-MEDIUM-427)
 
 All 70 `native_runtime_admission_unavailable` releases are one request,
 AIR-aria-challenger-planner-2d16fdbb749e:
@@ -292,7 +292,7 @@ outage seam docstring and the executor comment read these 70 as "73 logged-out r
 The loop itself ended when #1619 (1b75edf22, 09-20 00:41Z) gave the planner hook a per-request
 worktree. There has been no such release since.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-427)
 
 `ci_executor.TASK_BINDING_REFUSAL` (`tools/aria-poc/ci_executor.py:3945-3951` at 2b8385600, used
 at `:4310` and `ci_executor_judge_batch.py:244-247`) released with
@@ -320,16 +320,16 @@ So nothing that the release reason drives changes:
 The child's summary class (`policy_violation`, non-retryable) is unchanged, as is the
 fleet's own refusal.
 
-### Not done here
+### Not done here (ARIA-MEDIUM-427)
 
 The "73 logged-out releases" sentence in `provider_outage_seams.py:4-8` and
 `tests/test_provider_outage_signal.py:5` is left as written. It is history in another PR's
 docstring, and this review records the measurement. The seam itself is right for a logged-out
 session.
 
-## ARIA-HIGH-425 — fix: a spent Claude window moves every read seat to Z.ai until the reset (2026-10-10, wave 2)
+## ARIA-HIGH-425 — fix: a spent Claude window moves every read seat to Z.ai until reset (wave 2)
 
-### Decision
+### Decision (ARIA-HIGH-425)
 
 Operator decision 2026-10-10: "if the Claude quota runs out, switch to Z.ai in every area until
 the window resets, then return to Claude." Z.ai was already registered. The fix extends the one
@@ -386,7 +386,7 @@ owner of provider exhaustion, `provider_cooldown`. There is no second router.
   Genesis skill drafting is `primary_authoring` / `challenger_authoring` on the native lane, and
   those move.
 
-### Fix
+### Fix (ARIA-HIGH-425)
 
 1. **The reader** (`claude_runtime.extract_rate_limit_exhaustion`).
    - The run's newest reading decides.
@@ -472,7 +472,7 @@ credit_exhausted)` circuit. It then skipped every claude_first request, and five
   - Worker lane: a served run at the threshold keeps its answer and cools under its claim. The
     hook then holds the worker with no claim.
 
-### Not done here
+### Not done here (ARIA-HIGH-425)
 
 - **The write-seat move to Z.ai** is ARIA-HIGH-434 (OPEN, decision with okan).
 - **The live `rejected` emission on a refused 429 is UNVERIFIED.** No refused attempt stores a
@@ -568,7 +568,7 @@ It is inline because it runs before checkout. If `git reset --hard` or
 A failure with no foreign path gets its own `::error`. The happy path is unchanged: there is no
 scan. The step comes before the lease gate, so the abort-gate contract is untouched.
 
-### Evidence
+### Evidence (ARIA-HIGH-426)
 
 - **Parent code.** `ensure_tools_dir` run as root on a store path inside a tree owned by
   `nobody` creates `.aria-state-store/tools`, owned by root. That is the incident's shape.
@@ -613,7 +613,7 @@ scan. The step comes before the lease gate, so the abort-gate contract is untouc
   `aria_kernel`, which the invariant reads as kernel code running before setup. The text now
   says "python and kernel commands", and that suite is green.
 
-### Not done here
+### Not done here (ARIA-HIGH-426)
 
 - **No host change.** `find /home/gharunner/actions-runner/_work -xdev ! -user gharunner` printed
   0 paths on 2026-10-10. That was a read-only scan, and nothing was changed on the runner host.
@@ -636,14 +636,14 @@ scan. The step comes before the lease gate, so the abort-gate contract is untouc
 
 ## ARIA-HIGH-434 — fix (wave 3): the write seats move to Z.ai through a kernel-owned tool loop (2026-10-11)
 
-### Decision
+### Decision (ARIA-HIGH-434)
 
 Operator decision 2026-10-10/11: "if the Claude quota runs out, switch to Z.ai in every area".
 For the write seats this overrides ARIA-HIGH-290's "wait by name" decision of 2026-10-02. The
 2026-09-11 policy stays: the Z.ai key never reaches the `claude` CLI. The write runtime is
 therefore the kernel's own. Claude first stays the default.
 
-### Symptom
+### Symptom (ARIA-HIGH-434)
 
 While Anthropic was cooled, the implementer was `no_eligible_provider` and the worker lane
 skipped every assignment (`provider_cooldown`). Nothing could write until the window reset, which
@@ -678,7 +678,7 @@ is up to 7 days for the seven-day window. The causes:
 - **After the spawn**, nothing depends on the runtime (`ci_executor._main`): the quarantine
   publication, the identity retirement, the apply gate, the push and the PR.
 
-### Fix
+### Fix (ARIA-HIGH-434)
 
 1. **`zai_runtime.run_zai_turn`.** This is the documented OpenAI-compatible function-calling
    form of the same call. The endpoint, the Authorization header built from the held
@@ -764,7 +764,7 @@ is up to 7 days for the seven-day window. The causes:
   (`zai_room_env_carries_credential_names`), or if the Z.ai key file lies under any path it
   binds (`zai_room_binds_the_credential`).
 
-### Evidence
+### Evidence (ARIA-HIGH-434)
 
 - **Per-call room overhead.** The median is 58 ms over 5 runs on this host (bwrap, the
   `timeout` limiter as root, `/bin/true`).
@@ -831,7 +831,7 @@ is up to 7 days for the seven-day window. The causes:
   - `test_provider_routing` (new class): `worker_ladder` and `worker_route` honour suspension;
     a read-only target never writes on zai.
 
-### Not done here
+### Not done here (ARIA-HIGH-434)
 
 - **Context compaction.** The Claude CLI compacts a long session; the loop does not. A vendor
   refusal of an over-long conversation ends the attempt by name (`vendor_refused`), and the
@@ -868,9 +868,50 @@ is up to 7 days for the seven-day window. The causes:
 
   On dfe4f63fb the test is red: the request is REQUEUED.
 
+## ARIA-HIGH-441 — a Claude login that is gone holds work Z.ai could do (OPEN, 2026-10-11)
+
+Registered with be6ed002c (owner claude, deadline 2026-10-14). This section is the finding's
+account, the one the registry row's `review_file` points at. It is not fixed on this branch: the
+three places below still behave as registered, and the line numbers are the current tree's.
+
+### Symptom (ARIA-HIGH-441)
+
+The operator decision of 2026-10-10/11 is that every area moves to Z.ai while Claude is out. Three
+places still stop on a missing Claude login before the per-request route owner is asked:
+
+- **The executor job.** On a live (non-mock) dispatch the job exits 1 when the managed-auth
+  directory holds neither `.credentials.json` nor `config.json`, before any request is routed
+  (`.github/workflows/aria-agent-executor.yml:528-532`).
+- **The spawn lane.** `_pre_claim_environment_gate` preflights Claude auth for every request it
+  would claim and refuses with `claude_auth_unavailable`
+  (`tools/aria-poc/ci_executor.py:4275-4298`).
+- **The worker lane.** A missing login raises `ClaudeAuthUnavailable` from `run_claude_exec`'s
+  preflight (`tools/aria-poc/claude_runtime.py:1417`). It lands in the arm that cools nothing
+  (`tools/aria-poc/worker_executor.py:419-421`), and the hook releases the claim as
+  `worker_executor_failed` (`aria-kernel/aria_kernel/worker_dispatch_hook.py:459`) until the
+  retry budget ends in `max_retries_exceeded`.
+
+### Root cause (ARIA-HIGH-441)
+
+A host-wide Claude gate answers a question that belongs to the per-request route owner (the
+admission, the routing ladder, `worker_route`). The native lane already asks that owner: the gate
+runs only when no native route was admitted (`tools/aria-poc/ci_executor.py:4658`), and a
+logged-out `claude auth status` cools anthropic under `claude_logged_out`
+(`aria-kernel/aria_kernel/provider_outage_seams.py:44`), so the admission admits zai. The job-level
+check, the spawn-lane gate and the worker arm do not.
+
+### Fix direction (ARIA-HIGH-441, stub)
+
+Make it automatic: only the route owner decides whether a request needs Claude. The job-level
+check moves behind the route, the spawn-lane gate asks the admission instead of preflighting Claude
+for every request, and a logged-out worker preflight cools anthropic under `claude_logged_out`, as
+the native admission does, so the next route is zai. The tests drive each lane with a logged-out
+session and a live zai route, and require the request to be served or held, never released as a
+failure.
+
 ## ARIA-MEDIUM-442 — an ARIA_ZAI_MODEL override is Z.ai's model (2026-10-11, wave 3)
 
-### Symptom
+### Symptom (ARIA-MEDIUM-442)
 
 - `model_fleet.route_model` gives a zai rung `provider_model(...)`, which is the operator's
   `ARIA_ZAI_MODEL` or `glm-5.3`.
@@ -885,7 +926,7 @@ is up to 7 days for the seven-day window. The causes:
 - Whether production sets `ARIA_ZAI_MODEL` is UNVERIFIED: no workflow sets it, and the runner's
   `.env` was not read.
 
-### Fix
+### Fix (ARIA-MEDIUM-442)
 
 - `model_fleet.provider_models(provider, environ)` is the set a provider's routes run on here:
   its default plus `provider_model`'s override.

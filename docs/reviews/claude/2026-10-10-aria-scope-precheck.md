@@ -4,7 +4,7 @@ Owner: claude (implementation), okan (review).
 
 ## ARIA-HIGH-416 — `implementation_envelope_no_writable_scope` was learned after staging, three times
 
-### Symptom
+### Symptom (ARIA-HIGH-416)
 
 On an archive of `origin/aria/state` (f5c5c86a1, 2026-10-10 10:37Z), two plans ended
 HUMAN_REQUIRED with `implementation_delivery_exhausted`. Each declared exactly one surface, under
@@ -32,7 +32,7 @@ Each offer paid for a full staging first:
 - two operator items per plan: `converged-delivery-exhausted-<plan>` and the parked-plan item
   `plan-human-required-<plan>` that `reconcile_parked_plans` wrote next to it.
 
-### Root cause
+### Root cause (ARIA-HIGH-416)
 
 The refusal depends on the plan body alone. `cross_review_bridge.issue_implementation_envelope`
 derives the envelope's scope from the CONVERGED body's surfaces, held to the plan's admission bound,
@@ -109,7 +109,8 @@ Run against the unfixed module, the file goes 8 failed, 4 passed. The 4 that pas
 controls: a writable plan, a partly readonly plan, the mint's own refusal, and a live request.
 The replay counts `(proposals, apply actions, baseline runs, counted attempts)` and reads
 `(3, 3, 12, 3)` where it now reads `(0, 0, 0, 0)`. That is production's per-plan shape: three
-stagings of four baseline commands each. After the fix the file passes 12 of 12 (15 of 15 with the review follow-up).
+stagings of four baseline commands each. After the fix the file passes 12 of 12 (15 of 15 with
+the review follow-up).
 
 Two existing fixtures in `tests/test_converged_delivery.py`, `SweepBoundTests` and
 `OrchestratorWiringTests`, offered a dispatching runner a plan whose only surface was the shared
@@ -144,7 +145,7 @@ The same follow-up also makes two small changes `main` approved, each red then g
   code does not make it attributable: `attribute_evaluation` attributes only
   `convergence_envelope_dead` and the gate codes. The tests pin both stamped rows as unattributed.
 
-### Not done here
+### Not done here (ARIA-HIGH-416)
 
 - **No staging reuse or idempotency across offers.** That is an optimisation for plans the mint
   accepts, and it is outside this plan by design (plan v4 §PR-4). The six stale actions are
@@ -170,7 +171,7 @@ The same follow-up also makes two small changes `main` approved, each red then g
 
 ## ARIA-MEDIUM-429 — one exhausted plan, two operator items (fix, wave 2)
 
-### Symptom
+### Symptom (ARIA-MEDIUM-429)
 
 On the archive (f5c5c86a1, `human-required/`), both plans that delivery exhausted have two open
 items for one parking:
@@ -196,7 +197,7 @@ The second carries neither. Both describe one `plan_evaluated` row,
 - `converged_delivery.py:720-726` (parent): the sweep's repair branch rewrote a missing
   exhaustion record. That made a second writer for the same fact.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-429)
 
 `convergence_outcome.record_parked_plan` is documented as the ONE operator item per parked plan.
 The independence migration and the no-writable-scope parking (ARIA-HIGH-416) both use it.
@@ -254,7 +255,7 @@ All 4 are red on the parent.
 as the reconcile's. `test_converged_delivery_scope_precheck.py` changed only for the rename and
 the report's new `folded` key.
 
-### Not done here
+### Not done here (ARIA-MEDIUM-429)
 
 - **The two production pairs are not changed by this commit.** They fold on the first cycle
   sweep that runs this code. The resolved legacy item keeps all of its content.

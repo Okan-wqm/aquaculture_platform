@@ -7,7 +7,7 @@ Measured on an archive of `origin/aria/state` (f5c5c86a1, 2026-10-10 10:37Z). Th
 
 ## ARIA-HIGH-418 — 466 fan-out judges were handed to the operator as unverified and never read again
 
-### Symptom
+### Symptom (ARIA-HIGH-418)
 
 505 of the 628 open records are `anchor_stale` records the kernel handed to the operator
 (`expired_operator_required`):
@@ -25,7 +25,7 @@ two shapes:
 - 414 are `judge:<tool>:<run uuid>:<finding id>`;
 - 52 are `judge:<tool>:finding:<64 hex>`.
 
-### Root cause
+### Root cause (ARIA-HIGH-418)
 
 Three defects stack, each in the reader of one fact:
 
@@ -49,7 +49,7 @@ Three defects stack, each in the reader of one fact:
    `finding_settled` and the fingerprint half of `already_judged` for these requests
    (`judge_subject_liveness.py:115`, `:127`).
 
-### Fix
+### Fix (ARIA-HIGH-418)
 
 1. **One parser (tier 1).** A judge request is the fan-out's when its `judgment_group_id`
    starts with `judge:<tool_id>:`. This covers both legacy shapes and today's. The operator CLI
@@ -122,7 +122,7 @@ The sweep ran on a full copy of the archive with this PR's code, at the archive'
 - **Draining the 192.** They go only at the pace the door admits them and the executor drains
   judges, under the 50-decision bound.
 
-### Not done here
+### Not done here (ARIA-HIGH-418)
 
 - The 20 `queue_item_not_reofferable:queue_full` records stay with the operator. Whether a
   re-offer refused by a full queue should be retried is a queue-capacity question, not an
@@ -139,7 +139,7 @@ The sweep ran on a full copy of the archive with this PR's code, at the archive'
 
 ## ARIA-MEDIUM-419 — an exhausted panel escalation was folded and disclosed again every cycle
 
-### Symptom
+### Symptom (ARIA-MEDIUM-419)
 
 `governance.jsonl` holds 802 `human_required_adjudication_reopen_exhausted` rows, written from
 2026-09-04 20:26Z to 2026-10-10 08:30Z, every one with `attempts: 3, budget: 2`. Each of the last
@@ -147,7 +147,7 @@ six cycles (10-09 11h, 16h, 21h; 10-10 01h, 03h, 08h) wrote exactly 28. The 28 e
 24 `consensus_escalation` (16 MEDIUM, 8 HIGH), 3 `lease_lifecycle` and 1 `genesis_candidate`.
 All 28 are still open, unstamped, at their original severity.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-419)
 
 When a dead panel's re-open budget (`MAX_PANEL_REOPENS = 2`) is spent, the exhaustion arm in
 `sweep_human_required_adjudications` (`human_required_adjudication.py:1405-1414`) appends the
@@ -158,7 +158,7 @@ operator calls `_stamp_escalated_to_operator` (`:808-825`; callers at `:873`, `:
 record again, folded the dead panel again, found it terminally dead again, and disclosed the
 exhaustion again.
 
-### Fix
+### Fix (ARIA-MEDIUM-419)
 
 The exhaustion arm calls the existing `_stamp_escalated_to_operator(..., reason=
 "panel_reopen_exhausted")` after its disclosure row. The record is then the operator's in the
@@ -185,7 +185,7 @@ and SLA ladder. Their `sla_deadline` is not recomputed for CRITICAL, as with eve
 stamp. `notify` (PR-3) confirmed it adds no notification to the stamp. The daily summary
 reports the HR backlog counts.
 
-### Not done here
+### Not done here (ARIA-MEDIUM-419)
 
 No exhausted escalation is resolved or re-panelled. "A human genuinely must act" is the
 designed terminal (X4, ORPHAN-699). The plan's "~6 min per cycle" cost of the re-fold was not

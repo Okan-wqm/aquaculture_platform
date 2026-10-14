@@ -4,7 +4,7 @@ Owner: claude (implementation), okan (review).
 
 ## ARIA-MEDIUM-423 — the CI observer wrote the merge lane's decision ledger
 
-### Symptom
+### Symptom (ARIA-MEDIUM-423)
 
 `tools/auto-merge-decisions.jsonl` on aria/state f5c5c86a1 holds 185 rows, dated 2026-09-04 to
 2026-10-10. All 185 are `decision: blocked` with `dry_run: true`. Each carries the same four
@@ -20,7 +20,7 @@ cycle (185 of 185), and its reasons are a subset of that gate row's `blocked_by`
 wrote none of them. All 185 were counted as `pre_merge_perimeter` evidence
 (`premerge_decision_blocked`) and in the cycle reflection's `auto_merge_summary.blocked`.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-423)
 
 `ci.evaluate_pr_ci_gate` (`ci.py:172-180`) evaluates the PR through
 `auto_merge.evaluate_auto_merge`, so that the merge lane's reasons gate `ready_for_human_merge`
@@ -58,7 +58,7 @@ checks, check result and enterprise lane.
 - on a store only the observer touched, every `pre_merge_perimeter` count is 0 (red before the
   fix: `premerge_decision_blocked` was 1).
 
-### Behaviour change, declared
+### Behaviour change, declared (ARIA-MEDIUM-423)
 
 The 185 existing rows stay, because the ledger is append-only. In production the counts stop
 growing; they do not drop. From now on, the counts and the reflection's `auto_merge_summary`
@@ -67,7 +67,7 @@ count only rows the merge lane writes.
 The semantic authority (`capability_semantic_authority.json`) is unchanged: the fold is the same,
 and one producer stopped writing.
 
-### Not done here
+### Not done here (ARIA-MEDIUM-423)
 
 The gate is still structurally blocked. Its snapshot reads no diff, reviews or conversations, so
 `ready_for_human_merge` is never true, and nothing outside `ci.py` reads it. This change does not
@@ -78,7 +78,7 @@ alter what the gate decides.
 Recorded, not fixed in this PR. Scope decision 2026-10-10: a LOW cleanup that ARIA does not need
 in order to run. Owner: claude. Deadline: 2026-11-07.
 
-### Symptom
+### Symptom (ARIA-LOW-424)
 
 The change_intelligence phase copies every new `merged` row from `pr-lifecycle.jsonl` into
 `merge-events.jsonl` and `pr-events.jsonl`:
@@ -98,7 +98,7 @@ already disagrees with its owner.
 The gateway's PR route is the copy's second writer (`gateway/router.py:150-161`). It has never
 run: there are no gateway rows on aria/state.
 
-### Root cause
+### Root cause (ARIA-LOW-424)
 
 `merge_record.record_merge` is the only writer of `merged` (ARIA-HIGH-390,
 `auto_merge.py:559-562`). Readers are meant to read merges through
@@ -179,7 +179,7 @@ The designed patch was applied on `0b88b2ccb` and re-proved there. It needed no 
   - both copies stay declared;
   - a forged writer or reader of either spelling is caught.
 
-### Evidence
+### Evidence (ARIA-LOW-424)
 
 - **Red before**, in a snapshot of HEAD with only the new tests added: 3 failed.
   - `test_a_merge_is_planned_and_asked_about_without_a_copy`: the copy was written.
@@ -204,7 +204,7 @@ The designed patch was applied on `0b88b2ccb` and re-proved there. It needed no 
     and after.
   - The copy was then deleted.
 
-### Not done here
+### Not done here (ARIA-LOW-424)
 
 The two frozen files keep their single row (PR 1906). They are history, and ARIA history is never
 deleted.
@@ -213,7 +213,7 @@ deleted.
 
 Owner: claude. Raised and fixed 2026-10-10 (wave 2).
 
-### Symptom
+### Symptom (ARIA-MEDIUM-430)
 
 `ci.evaluate_pr_ci_gate` sets `ready_for_human_merge` only when the merge lane's evaluation has no
 reasons and no protected or failed workflow blocks (`ci.py:190-199`). On aria/state f5c5c86a1,
@@ -273,7 +273,7 @@ token, in its own workspace. It records the verdict in `auto-merge-decisions.jso
 `test_lane_readers_read_git` keeps its L1 case: everything the fixture supplies is clean, so
 `blocked_by` is empty.
 
-### Evidence
+### Evidence (ARIA-MEDIUM-430)
 
 - **Red before**, on `f5701d69e`: 4 tests of `test_enterprise_ci_loop` failed (`ready_state` present,
   both claims present in `ci.py`, no `MERGE_VERDICT_SURFACE`).
@@ -288,7 +288,42 @@ token, in its own workspace. It records the verdict in `auto-merge-decisions.jso
   `test_readiness_claim_lane`, `test_executor_workflow_sandbox_contract` (with `test_i_sbx_05`),
   `test_workflow_kernel_cli_contract` and `test_own_pr_ci_feedback`: 59 passed.
 
-### Behaviour change, declared
+### Behaviour change, declared (ARIA-MEDIUM-430)
 
 The 185 existing rows stay; the ledgers are append-only. New rows carry no verdict. A reader that
 wants to know whether a PR may merge reads `auto-merge-decisions.jsonl`.
+
+## ARIA-LOW-447 — the ambient-git-env owner passes git's transport and auth redirects (OPEN)
+
+Registered with 0ffd209dd (owner claude, deadline 2026-10-17), found by the independent security
+review of 0b88b2ccb..2d70a127e. This section is the finding's account, the one the registry row's
+`review_file` points at. It is not fixed on this branch, and the line numbers are the current
+tree's.
+
+### Symptom (ARIA-LOW-447)
+
+`without_ambient_git_config` is the one owner of "the ambient environment minus what redirects
+git", and it strips only the `GIT_CONFIG*` names (`aria-kernel/aria_kernel/git_containment.py:680-694`).
+Git's program lookup, transport and credential prompts pass through: `GIT_EXEC_PATH`,
+`GIT_SSH_COMMAND`, `GIT_ASKPASS`, `SSH_ASKPASS` and `GIT_PROXY_COMMAND`. Every seam built on it
+inherits them: the kernel's delivery push (`_publish_environment`, `git_containment.py:709-714`)
+and `gh pr create` (`aria-kernel/aria_kernel/pr_manager.py:811`). The state publish does not use
+the owner at all and passes `{**os.environ}` (`aria-kernel/aria_kernel/state_store.py:6187`).
+The review's repro: with `GIT_EXEC_PATH` pointing at a planted `git-receive-pack`, a push through
+`_publish_environment()` ran it with `GH_TOKEN` present.
+
+### Root cause (ARIA-LOW-447)
+
+The owner was named for the configuration channel, not for everything that redirects git, so its
+invariant (`aria-kernel/tests/invariants/test_git_config_env_single_owner.py`) pins the literal
+`GIT_CONFIG*` names and nothing else. That is a gap in ARIA-HIGH-234's every-seam claim. It is
+LOW because exploiting it needs control of the runner process's environment: no workflow writes
+untrusted data to `GITHUB_ENV`, the agent room cannot reach it, and no ARIA workflow sets these
+names.
+
+### Fix direction (ARIA-LOW-447, stub)
+
+Fix at the one owner: `without_ambient_git_config` strips the redirect names as well, the state
+publish (which keeps its own `GIT_CONFIG_*` credential on purpose) drops the redirect names
+through the same owner, and the invariant widens from the literal `GIT_CONFIG*` names to every
+variable that redirects git's configuration, program lookup, transport or credential prompt.

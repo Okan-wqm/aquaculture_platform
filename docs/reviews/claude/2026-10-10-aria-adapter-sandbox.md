@@ -4,7 +4,7 @@ Owner: claude (implementation), okan (review).
 
 ## ARIA-CRITICAL-399 — adapters ran unconfined with the runner's credentials (adapter-runtime scope)
 
-### Symptom
+### Symptom (ARIA-CRITICAL-399)
 
 Every adapter run started as a bare child of the kernel:
 
@@ -44,7 +44,7 @@ Through `run_tool`, the probe:
 The fixture runner ran the same probe the same way (`crash`, exit 3: the probe's "I reached a
 secret" code).
 
-### Root cause
+### Root cause (ARIA-CRITICAL-399)
 
 There was no single place where an adapter is started. Three call sites each spawned the
 adapter themselves, and each chose its own environment and containment. Scrubbing the
@@ -58,8 +58,8 @@ environment alone would not have closed this, for two reasons:
 
 `aria_kernel/adapter_room.py` is the one place adapter code starts:
 `prepare_adapter_spawn` builds the run and `run_adapter` executes it. The tool runner, the
-fixture runner, the genesis sandbox and the genesis calibration executor all go through it. It reuses the owners that already
-exist:
+fixture runner, the genesis sandbox and the genesis calibration executor all go through it. It
+reuses the owners that already exist:
 
 - **Environment.** `validation_env.build_validation_env`, the closed allowlist the validation
   lane uses. Exactly two names are declared on top of it:
@@ -301,9 +301,10 @@ Recorded, not changed here:
 
 ## ARIA-HIGH-414 — drafted adapter bytes: allowlist, custody, provenance, promotion (genesis, wave 2)
 
-### Symptom
+### Symptom (ARIA-HIGH-414)
 
-Reproduced on this branch at 314c6a18e (`scratchpad/genesis/repro/head_repro.py` against `git archive HEAD`):
+Reproduced on this branch at 314c6a18e (`scratchpad/genesis/repro/head_repro.py` against
+`git archive HEAD`):
 
 - **H1 is live on main.** The nightly calibration (`autonomy_orchestrator.py:2101-2116` →
   `skill_genesis_drainer.py:299` → `convergent_skill_authoring.py:474` →
@@ -335,7 +336,7 @@ Reproduced on this branch at 314c6a18e (`scratchpad/genesis/repro/head_repro.py`
 Production (aria/state f5c5c86a1): 20 skill-genesis requests, all `convergent=false`; 15
 curated tools, 0 genesis tools. Latent, never run.
 
-### Root cause
+### Root cause (ARIA-HIGH-414)
 
 Nothing owned the drafted bytes. Each step re-derived them from something the drafter wrote:
 
@@ -445,7 +446,7 @@ static check and are refused at runtime
 
 ### ARIA-HIGH-431: trusted repo code is anchored to the checkout's root
 
-#### Symptom
+#### Symptom (ARIA-HIGH-431)
 
 Measured on 0b88b2ccb through `hooks.decide_pre_tool`, the gate the implementer's Bash
 actually meets, with the workspace set to the checkout:
@@ -462,7 +463,7 @@ actually meets, with the workspace set to the checkout:
 
 The gate was exactly backwards.
 
-#### Root cause
+#### Root cause (ARIA-HIGH-431)
 
 `verify_bash_command_allowed`'s `cwd` meant two things, depending on the caller:
 
@@ -504,7 +505,7 @@ create a file under a trusted prefix of its own checkout.
 Consequence: the implementer may now run `python3 tools/aria-poc/poc.py --help`, as the
 policy always stated.
 
-#### Evidence
+#### Evidence (ARIA-HIGH-431)
 
 - `tests/test_python_script_trust.py`, run against 0b88b2ccb's kernel: 6 of the 8 gate
   subtests fail. The reviewer's four repros are allowed and the two relative trusted
@@ -578,7 +579,7 @@ because `subprocess` with `env=` searches that environment. So the probe could v
 binary while a room ran another. Six tests that pinned `argv[0] == "bwrap"` now pin an
 absolute path ending in `bwrap`.
 
-#### Evidence
+#### Evidence (ARIA-MEDIUM-432)
 
 - **Red at 0b88b2ccb.** Two live tests fail, the first with the probe's `crash` (exit 3):
   - `test_what_git_does_not_track_is_not_in_the_room_and_what_it_tracks_is`: the room read
@@ -682,7 +683,7 @@ commit:
 
 ## ARIA-HIGH-433 — calibration handed the adapter its answer key (genesis, wave 2)
 
-### Symptom
+### Symptom (ARIA-HIGH-433)
 
 `execute_adapter_against_corpus` piped every fixture whole to the adapter
 (`skill_genesis.py:410`, `json.dumps({"fixtures": fixtures})`, labels included). It then scored

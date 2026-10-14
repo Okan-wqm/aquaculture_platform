@@ -4,9 +4,9 @@ Owner: claude (implementation), okan (review).
 
 ## ARIA-HIGH-412 — pr_lifecycle read a machine staging's frozen action status
 
-### Symptom
+### Symptom (ARIA-HIGH-412)
 
-#1930 stopped the pr_lifecycle phase from re-opening PR 1906, and the first cycle after it
+PR #1930 stopped the pr_lifecycle phase from re-opening PR 1906, and the first cycle after it
 (`cyc-20261010T080114Z`) completed. The candidate loop still answered "who owns this
 proposal's next step" from the apply action's status. Nothing advances that status after the
 gate (`merge_record.py:164-166`).
@@ -35,7 +35,7 @@ branch:
 - an approved proposal with no apply action yet (the refusal is "no apply action exists");
 - any of the 8 above once its action left `staged_for_implementation`.
 
-### Root cause
+### Root cause (ARIA-HIGH-412)
 
 This phase never opens a PR: its call is `dry_run=True` (`cycle.py:3155-3160`). A
 machine-lane staging's PR is opened by the executor (`implementation_delivery.py:945/1011`).
@@ -87,7 +87,7 @@ to `open_pr_for_action`: the operator may still open a PR for a REJECTED orphan-
 
 ## ARIA-MEDIUM-413 — a payload-failed phase sealed FAILED with no reason and an `ok` verdict
 
-### Symptom
+### Symptom (ARIA-MEDIUM-413)
 
 The five FAILED cycles from `cyc-20261009T104405Z` to `cyc-20261010T025128Z` each show:
 
@@ -98,7 +98,7 @@ The five FAILED cycles from `cyc-20261009T104405Z` to `cyc-20261010T025128Z` eac
 `orchestrator_exit_history.py:181` reads `error`, so the reason for those nights was never
 recorded.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-413)
 
 Three phases report failure through their payload rather than by raising: pr_lifecycle,
 validation_matrix and architecture_postcheck. The seal listed them by name only

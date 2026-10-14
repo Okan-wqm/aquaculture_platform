@@ -1,8 +1,8 @@
-# ARIA — the doctor tells the truth about notifications, and the self-improvement loop can repair a failing cycle (2026-10-10)
+# ARIA — an honest doctor on notifications, and a repair loop that can fix a failing cycle (2026-10-10)
 
 Owner: claude (implementation), okan (review).
 
-## ARIA-MEDIUM-417 — a silent lane read healthy, and the repair loop could not have repaired a failed cycle
+## ARIA-MEDIUM-417 — a silent lane read healthy, and the repair loop could not repair a failed cycle
 
 ### Symptom
 

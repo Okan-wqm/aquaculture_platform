@@ -47,7 +47,7 @@ Observed and left as is (not a loss, or not reachable in a total outage):
 
 ## ARIA-HIGH-435 — a Z.ai refusal decided at the admission never cooled Z.ai
 
-### Symptom
+### Symptom (ARIA-HIGH-435)
 
 Z.ai's admission probe is a real one-token completion (`zai_runtime.probe_zai_status`). Its
 refusal is the vendor's own answer: 429/402 and the quota codes are DECIDED UNAVAILABLE as
@@ -69,7 +69,7 @@ cooldown (`open_outages() == ()`, `active_provider_cooldowns() == {}`). Two cons
    The planner hook claimed, the child refused (exit 0, `planner_dispatch_hook.py:734`) and
    released, and the daemon never backed off. Every claim spent one real Z.ai probe.
 
-### Root cause
+### Root cause (ARIA-HIGH-435)
 
 The admission was made a detection seam for one fact, the logged-out session (ARIA-HIGH-366).
 It was not made one for the other facts a real completion probe decides.
@@ -100,7 +100,7 @@ reason prefixes are stable.
 
 ## ARIA-MEDIUM-436 — a queued item aged on the wall clock its request does not use
 
-### Symptom
+### Symptom (ARIA-MEDIUM-436)
 
 `fold_queue` set its horizon to `now - max_age_seconds` on wall time (`next_cycle_queue.py:213`).
 Its own window is "the agent request before its mint" (`item_max_age_seconds`, `:141-154`). The
@@ -130,7 +130,7 @@ The first two failed on HEAD.
 
 ## ARIA-HIGH-440 — the plan-stall rule read only segment 0 of the request ledger
 
-### Symptom
+### Symptom (ARIA-HIGH-440)
 
 The 10-day end-to-end test (below) mints its requests through the real writer. Its plan waits
 on a challenger request through the outage, and on day 3 it was ABANDONED with stall
@@ -150,7 +150,7 @@ Production (origin/aria/state 75b6e407a, read-only): `requests/2026-10.jsonl` ho
 abandoned yet (the last abandonment is 2026-09-29), so the defect fires on the first outage that
 runs past 72 h.
 
-### Root cause
+### Root cause (ARIA-HIGH-440)
 
 The B1 tests appended request rows straight into segment 0 (`append_declared_fixture` into
 `requests.jsonl`). No writer has put a row there since 2026-10-02. The reader that saw only
@@ -177,8 +177,9 @@ is fixed here. No ARIA-MEDIUM-441 was needed.
 ### Fix (tier 1 for the reader, tier 3 for the class)
 
 The stall rule reads the requests through `load_segments`. `_plan_stall`, the one staleness
-rule that ARIA-LOW-439 extracts next, keeps that reader. The B1 tests mint through `create_agent_invocation_request`. With the
-segment-0 reader restored, three of them fail (two in B1A, one in E439).
+rule that ARIA-LOW-439 extracts next, keeps that reader. The B1 tests mint through
+`create_agent_invocation_request`. With the segment-0 reader restored, three of them fail (two
+in B1A, one in E439).
 `tests/invariants/test_segmented_ledgers_are_read_whole.py` fails any production module (in
 aria_kernel, tools/aria-poc and tools/aria) that hands a segmented family's segment-0 path to a
 plain reader. The paths come from `SEGMENTED_LEDGERS`. The pin follows each path through the
@@ -188,7 +189,7 @@ own shape tests keep it from going blind.
 
 ## ARIA-LOW-439 — the in-flight reader judged staleness on the wall clock
 
-### Symptom
+### Symptom (ARIA-LOW-439)
 
 `in_flight_plan_id` skipped a plan older than 72 h by wall time (`plan_convergence.py:1223`).
 The adoption beside it judges provider-available time (`:1178-1200`). Past 72 h of outage the
@@ -209,7 +210,7 @@ Tests (`tests/test_provider_outage_timers.py::E439TheInFlightReaderAsksTheAdopti
 
 ## ARIA-MEDIUM-438 — a re-probe of a standing outage was counted as a new harness failure
 
-### Symptom
+### Symptom (ARIA-MEDIUM-438)
 
 A drain child that re-probed a provider already in an open outage (the back-off ran out and the
 vendor still refused) was `harness_failed` (`ci_executor_drain.py:960-1001`). The run exited red
@@ -220,7 +221,7 @@ A tripped breaker makes preflight block every action-authority profile, strict i
 (`autonomy_orchestrator.py:863-869`). Every kernel-only phase then stopped for the rest of the
 outage, and for up to 96 h after the provider came back.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-438)
 
 ARIA-HIGH-366 made the outage one fact per transition: one item, and one `::error::` from the
 claim that opened it (`ci_executor.py:5373-5380`). The drain's count was the last place that
@@ -251,7 +252,7 @@ The first three failed on HEAD (exit 1, and no `standing_outage` key).
 
 ## ARIA-MEDIUM-437 — the worker lane charged every expired lease to the assignment
 
-### Symptom
+### Symptom (ARIA-MEDIUM-437)
 
 `worker_dispatch.reap_expired_assignment_claims` wrote `lease_expired` and counted every expiry
 (`_lease_expiry_count`). The budget is two (`DEFAULT_MAX_LEASE_REQUEUES`), and the third expiry
@@ -342,7 +343,7 @@ and all 12 pass with the six fixes.
 Found by continuity's adversarial review of dfe4f63fb (ARIA-HIGH-434). The gate is shared, so the
 defect is older than that commit: the Claude path's PreToolUse hook reads the same argv.
 
-### Symptom
+### Symptom (ARIA-HIGH-443)
 
 - `command_policy.argv_of` is `shlex.split`. It reads an unquoted newline as whitespace
   (`command_policy.py:119-125`).
@@ -399,7 +400,7 @@ All of them fail on HEAD (`allow command_policy_allow`; "BashDenylistHit not rai
 
 Raised by zaiwriter's review of 96f233284 and confirmed here.
 
-### Symptom
+### Symptom (ARIA-MEDIUM-444)
 
 Both lease reapers asked the lease rule over the head of the ladder:
 
@@ -482,7 +483,7 @@ managed subscription), so this needs the policy turned off to occur. Owner claud
 The independent security review of `0b88b2ccb..2d70a127e` found it. main reproduced it on
 2d70a127e and on origin/main 08b0f4d19, so it is in production today.
 
-### Symptom
+### Symptom (ARIA-CRITICAL-446)
 
 `hooks.decide_pre_tool` returned `allow command_policy_allow` for each of these:
 

@@ -4,7 +4,7 @@ Owner: claude (implementation), okan (review).
 
 ## ARIA-HIGH-420 — the orchestrator's failed exits wrote no reflection
 
-### Symptom
+### Symptom (ARIA-HIGH-420)
 
 On an archive of `origin/aria/state` (f5c5c86a1, 2026-10-10 10:37Z), each of the 22 cycles that
 completed since 2026-10-01 has a row in `reflections.jsonl`. None of the 5 failed cycles has one:
@@ -13,7 +13,7 @@ completed since 2026-10-01 has a row in `reflections.jsonl`. None of the 5 faile
 nights ARIA wrote no daily report and queued no next-cycle work. Those were the nights whose cause
 most needed to reach the next cycle.
 
-### Evidence
+### Evidence (ARIA-HIGH-420)
 
 - `aria_kernel/autonomy_orchestrator.py:1780-1785` (base 2b8385600): `cycle_status == "failed"`
   with `fail_closed_on_cycle_failure` → `per_cycle_results.append` → `break`.
@@ -24,7 +24,7 @@ most needed to reach the next cycle.
   exits (`:2079-2091`, `:2115-2127`, `:2263-2275`, `:2364-2381`, `:2692-2704`, `:2901-2913`) are
   therefore the only writers of the row.
 
-### Root cause
+### Root cause (ARIA-HIGH-420)
 
 V3.3 §2b moved reflection from the cycle into the orchestrator's post-drain exits. The two exits
 that break before the drainers did not get it, so a failed night had no reflection writer at all.
@@ -47,7 +47,7 @@ that break before the drainers did not get it, so a failed night had no reflecti
 - The shape was agreed with `notify` (PR-3), who adds the operator notification. That
   notification goes out before this reflection, so a reflection that raises cannot swallow it.
 
-### Production evidence
+### Production evidence (ARIA-HIGH-420)
 
 `run_reflection` was run in this exact shape for `cyc-20261010T025128Z` on a copy of the archive,
 with the store's bound repo root and the archive's `findings/` as `ARIA_REPO_STATE_ROOT`. It
@@ -56,7 +56,7 @@ returned normally and wrote the row (14 tool runs, 0 failed) and `reports/daily/
 `pressure:runtime-signal:unknown`). Both were already pending, because `pressure_id` is the queue's
 idempotency key (`next_cycle_queue.py:180-190`), so the night added no new row.
 
-### Not done here
+### Not done here (ARIA-HIGH-420)
 
 - Review of 0c9fd8f35 (dedupe, confirmed): a ledger that fails strict verification made the
   failed-exit reflection raise `LedgerIntegrityError` out of the orchestrator. That night lost its
@@ -80,23 +80,24 @@ idempotency key (`next_cycle_queue.py:180-190`), so the night added no new row.
   reflection does not read and which drift on exactly the crash nights this finding is about.
   Anything else still raises, as on the six ok/degraded exits.
 
-- The archive's next-cycle queue is at its depth cap: 32 pending rows against `DEFAULT_QUEUE_DEPTH` 32. Several are duplicates written before the C10 dedupe, for example 8 rows for
-  `pressure:migration-surface-repeat:repetition` from cycles 2026-09-19..10-07. A pressure that is
-  genuinely new to a failed night would be overflow-blocked. That block is visible
+- The archive's next-cycle queue is at its depth cap: 32 pending rows against
+  `DEFAULT_QUEUE_DEPTH` 32. Several are duplicates written before the C10 dedupe, for example 8
+  rows for `pressure:migration-surface-repeat:repetition` from cycles 2026-09-19..10-07. A
+  pressure that is genuinely new to a failed night would be overflow-blocked. That block is visible
   (`next_cycle_queue_overflow_blocked`), but no work gets queued. Draining or deduping the stale
   rows is not in this PR's plan section. It is ARIA-MEDIUM-428 (stub to `main`, owner claude,
   deadline 2026-10-24).
 
 ## ARIA-MEDIUM-421 — an executed reproduction never became a belief
 
-### Symptom
+### Symptom (ARIA-MEDIUM-421)
 
 The archive's `experiments/observations.jsonl` holds 63 rows, and exactly one matched its
 contract with a red run: `exp-auto-f-020` → F-020, cycle `cyc-20261008T151306Z`, recorded
 15:56:12Z. `memory/beliefs.jsonl` (237 rows) holds no `finding-reproduced-*` belief. The
 experiment lane confirmed the finding (E21-c), but memory never learned it.
 
-### Evidence
+### Evidence (ARIA-MEDIUM-421)
 
 - `aria_kernel/memory.py:194` (base 2b8385600): `update_memory` calls the writer, so it runs in
   the `memory` phase.
@@ -106,7 +107,7 @@ experiment lane confirmed the finding (E21-c), but memory never learned it.
 - That cycle's memory phase wrote its rows at 15:28:41Z, 27 minutes before the reproduction
   existed. None of the 8 later cycles on the archive passes the filter.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-421)
 
 The only reader of the bench's output ran before the bench, and it was keyed on "this cycle". The
 reproduction landed after the only reader that would ever look at it.
@@ -141,7 +142,7 @@ reproduction landed after the only reader that would ever look at it.
   The pins at `test_x2_experiment_author.py:194-201` and `test_change_outcome.py:395-406` are kept
   (index order only).
 
-### Production evidence
+### Production evidence (ARIA-MEDIUM-421)
 
 `record_experiment_reproduction_beliefs` was run for `cyc-20261010T080114Z` on a copy of the
 archive (workspace = this checkout, `ARIA_REPO_STATE_ROOT` = the archive's `findings/`). It wrote
@@ -153,7 +154,7 @@ archive (workspace = this checkout, `ARIA_REPO_STATE_ROOT` = the archive's `find
 
 A second night wrote 0. No uncertainty was needed.
 
-### Not done here
+### Not done here (ARIA-MEDIUM-421)
 
 - An observation whose experiment row is missing, or whose experiment has no `finding_ref`, is
   not a finding reproduction. It is passed over each night with no row written, as before.
@@ -165,7 +166,7 @@ A second night wrote 0. No uncertainty was needed.
 
 ## ARIA-MEDIUM-428 — the next-cycle queue held 10 pressures in its 32 slots (fix, wave 2)
 
-### Symptom
+### Symptom (ARIA-MEDIUM-428)
 
 On a copy of the archive's `queues/` and `governance.jsonl` (f5c5c86a1), the parent code
 (0b88b2ccb) reads:
@@ -177,7 +178,7 @@ On a copy of the archive's `queues/` and `governance.jsonl` (f5c5c86a1), the par
 The archive's governance already has 3 `next_cycle_queue_overflow_blocked` rows, all for
 `pressure:runtime-signal:unknown` (10-08 16:41Z, 10-08 19:10Z, 10-09 09:19Z).
 
-### Evidence
+### Evidence (ARIA-MEDIUM-428)
 
 - 8 items for `pressure:migration-surface-repeat:repetition`, 6 for
   `pressure:shadow-raw-delta:doc-staleness-adapter`, 6 for `pressure:own-pr-ci:pr-1335`, 5 for
@@ -198,7 +199,7 @@ The archive's governance already has 3 `next_cycle_queue_overflow_blocked` rows,
 
   An item the drain cannot mint stays pending, so the queue is the only holder of that work.
 
-### Root cause
+### Root cause (ARIA-MEDIUM-428)
 
 `pressure_id` is the queue's idempotency key, but nothing folded the queue by it. Two writers
 could leave several pending items for one pressure: the pre-C10 appends, and the HIGH-360
@@ -273,7 +274,7 @@ The existing suites stay green: `test_next_cycle_queue`, `test_anchor_stale_disp
 `test_anchor_stale_migration`, `test_failed_cycle_reflection` and
 `test_state_manifest_transaction`.
 
-### Not done here
+### Not done here (ARIA-MEDIUM-428)
 
 - **Throughput.** This fix ends the saturation: the cap now counts work, and a new pressure is
   admitted. It does not change how fast the queue drains. The drain is still refused by request

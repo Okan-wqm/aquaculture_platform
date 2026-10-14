@@ -633,7 +633,7 @@ def enforce_validation_matrix(
         # change ship with ZERO test evidence as long as the
         # detector flagged no risk types. The ``historical_attestation``
         # mode preserves the vacuous-pass for legacy chain replay
-        # (handled at line 432).
+        # (the historical_attestation branch above).
         # ARIA-MEDIUM-231 — the runs at the committed tip, the set the
         # candidate refs come from: a verified staging baseline at the
         # base is not evidence that the change was validated.

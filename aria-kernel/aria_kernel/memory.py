@@ -57,7 +57,7 @@ def update_memory(
     """Update memory ledgers (observations + beliefs + ...).
 
     Plan 026R §A.4 — frozen-profile gate at function entry via the
-    ``observation`` surface_kind. The observation row at line 54 + every
+    ``observation`` surface_kind. The observation row written first + every
     downstream belief append are observation-class writes that the
     Plan 020 SCOPED no-write invariant now covers under frozen.
 

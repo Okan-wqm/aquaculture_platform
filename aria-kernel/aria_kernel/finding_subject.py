@@ -2,8 +2,8 @@
 
 WHY. The drift seeder deduped by ``finding._evidence_chain_id``, a hash over
 every evidence ``ref`` and ``summary`` — and a ref carries the line number,
-a summary carries the value list. The LeavesPage status filter moved from
-line 346 to 358, 355, 353 and 389 across nights while the drift itself
+a summary carries the value list. The LeavesPage status filter moved to a
+different source line on five nights while the drift itself
 (the ``leave-filter-status`` option group against ``LeaveRequestStatus``)
 never changed; each move minted a new F (F-003, F-005, F-007, F-008, F-015,
 measured on the aria/state store 2026-10-06). Five open findings for one

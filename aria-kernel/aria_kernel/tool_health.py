@@ -173,7 +173,7 @@ def record_run(
     # artifact, so stripping the arrays there would lose the observation
     # content entirely (adversarial review caught this) — v1 keeps them.
     # Copy the arrays for record_findings_for_run (which reads them from the
-    # envelope AFTER the append — popping before line 169 starves
+    # envelope AFTER the append — popping before the append starves
     # findings.jsonl), then strip from the row only when the artifact exists.
     _saved_emitted_findings = list(envelope.get("emitted_findings") or [])
     envelope["emitted_counts"] = {

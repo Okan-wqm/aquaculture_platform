@@ -570,7 +570,7 @@ def run_enterprise_cycle(
     """
     # Plan ARIA-V3.3 §2b — ``defer_reflection`` opt-in for the autonomy
     # orchestrator. When True, the in-cycle ``run_reflection`` call
-    # (line ~397 below) is skipped and ``state["reflection"]`` is
+    # (``_phase_reflection``) is skipped and ``state["reflection"]`` is
     # ``None``; the orchestrator invokes reflection itself AFTER its
     # planner+bridge+worker+auto_merge drainer phases complete so the
     # operator-visible daily report counts the full cycle (~25+ events)

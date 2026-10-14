@@ -426,8 +426,8 @@ def mint_unpredictable_feature_branch_name(plan_id: str) -> str:
 
 
 def verify_no_path_escape(path: str | Path, workspace_root: str | Path) -> Path:
-    """Hard-fail check 9 — path-escape guard (mirror of
-    agent_compliance.py:168-178 pattern). Resolves ``..`` and
+    """Hard-fail check 9 — path-escape guard (mirror of the
+    ``agent_compliance._check_evidence_schema_valid`` pattern). Resolves ``..`` and
     symlinks, asserts the result is inside workspace_root.
 
     Relative paths are interpreted relative to workspace_root (NOT

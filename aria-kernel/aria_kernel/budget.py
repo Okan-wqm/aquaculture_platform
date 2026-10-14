@@ -29,7 +29,7 @@ MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     # This row is what stops the `opus` CLI alias from recording $0.00. ARIA
     # passes the ALIAS, and the alias means "latest opus"; the id written to the
     # cost ledger is the full name the CLI resolved (scraped from stream-json at
-    # ci_executor.py:1154). So the moment the installed CLI's `opus` started
+    # the executor). So the moment the installed CLI's `opus` started
     # resolving to claude-opus-5, every opus-tier dispatch fell through to the
     # unknown-model 0.0 below — silently, because the caller's
     # cost_pricing_unknown_model event is emitted inside a nested try/except.

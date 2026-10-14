@@ -316,7 +316,7 @@ def _pr_open_inputs(
     #
     # Required for non-dry-run: real PR creation MUST carry change_id.
     # Optional for dry_run: the cycle pr_lifecycle preview path
-    # (cycle.py:638) builds bodies without needing change_id; that
+    # (``cycle._run_pr_lifecycle_phase``) builds bodies without needing change_id; that
     # path's downstream consumer (the actual merge) will fail-closed
     # if change_id is absent at merge time.
     if not dry_run and (not change_id or not change_id.strip()):

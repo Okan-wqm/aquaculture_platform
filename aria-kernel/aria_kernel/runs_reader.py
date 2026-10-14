@@ -3,10 +3,13 @@
 Pre-§A.3 four+ callsites of ``aria-tools/runs.jsonl`` each repeated
 the silent-skip ``except json.JSONDecodeError: continue`` pattern:
 
-* ``spine_orchestrator._latest_adapter_run`` (lines 105-120)
-* ``architecture_spine_gate._check_auth_security`` (lines 280-310)
-* ``architecture_spine_gate._check_harness_security`` (lines 332-360)
+* ``spine_orchestrator._latest_run_for_adapter``
+* ``architecture_spine_gate._check_auth_security``
+* ``architecture_spine_gate._check_harness_security``
 * (plus historical callsites prior to Plan 024)
+
+The callees are cited by name; line locators are not used, because they
+go stale on the first unrelated edit above them.
 
 This module collapses those into a single strict primitive on top of
 ``strict_jsonl_reader.read_strict_jsonl`` with the runs-specific

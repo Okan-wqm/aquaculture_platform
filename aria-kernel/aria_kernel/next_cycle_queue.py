@@ -1,6 +1,6 @@
 """Plan 026R §F.2 — bounded scheduler queue for next-cycle plan items.
 
-Pre-§F.2 ``reflection.run_reflection`` (reflection.py:46-81) wrote
+Pre-§F.2 ``reflection.run_reflection`` wrote
 ``next_cycle_plan`` items only to the reflection JSONL row + the
 text daily report; the autonomy orchestrator had no machine-
 readable queue to drain at cycle-start. §F.2 adds a dedicated

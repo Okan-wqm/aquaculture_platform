@@ -1933,7 +1933,7 @@ def plan_status(*, plan_id: str, base_dir: str | Path | None = None) -> dict[str
 # 15M JSON rows parsed. C0 adds a per-(events_path_mtime_ns, plan_id)
 # cache keyed on the events file's mtime; invalidated automatically
 # when _append_event() writes (mtime advances). Mirrors the cache
-# pattern in list_active_plans (line 296-313).
+# pattern in list_active_plans.
 #
 # WHY a module-level dict: thread-safe enough for the single-threaded
 # orchestrator loop. WHEN to invalidate: every write to events.jsonl
@@ -2486,7 +2486,7 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         # read state["current_round"] = N and tried to register cross-
         # review tasks for round N, which already existed in
         # state["cross_reviews"][N] from the previous P+C+CR. The
-        # validator at _validate_cross_review_task_payload (line 1623)
+        # validator at _validate_cross_review_task_payload
         # raised "round has already requested cross-review" and the
         # bridge fold fired agent_bridge_warning — cycle 1 (cyc-
         # 20260520T141138Z-auto) stalled at CHALLENGER_DRAFTED after
@@ -3858,7 +3858,7 @@ def converged_plan_body(
     ``key_changes``, ``validation_commands``, ``evidence_refs`` — were
     therefore absent, which is the same "required argument with no producer"
     defect three separate call sites had grown independently
-    (``drainer`` line 1473, ``implementer`` must_satisfy/allowed_scope,
+    (``drainer``, ``implementer`` must_satisfy/allowed_scope,
     ``autonomy_orchestrator`` touched-services).
 
     The body is not returned on trust: the ledger records the CONVERGED

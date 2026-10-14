@@ -854,9 +854,9 @@ def validate_agent_response_evidence(
     # entirely under "preserves backward compatibility with legacy
     # aria/agent-invocation-request/v1 rows that pre-date Plan 016".
     # That path is now closed: legacy rows are caught at
-    # _strict_request_view (line ~964); by the time validate_agent_-
-    # response_evidence sees the request the strict fields are
-    # present.
+    # agent_invocations._strict_request_view; by the time
+    # validate_agent_response_evidence sees the request the strict
+    # fields are present.
     if request is not None:
         if "allowed_scope" not in request:
             errors.append({"code": "evidence_request_missing_allowed_scope"})

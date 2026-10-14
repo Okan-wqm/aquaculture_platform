@@ -3,8 +3,8 @@
 Plan 024 §H-1 + §H-2 need atomic compare-and-swap around the
 claims.jsonl read-state→check→append sequence and the results.jsonl
 existing-result lookup→append sequence. The pre-existing kernel had
-no OS-level file lock helper (executor.py:713-735 carries a JSONL
-append-only "logical lock" pattern but two readers race against the
+no OS-level file lock helper (the executor carried a JSONL
+append-only "logical lock" pattern, but two readers race against the
 single writer). Without an exclusive lock, two concurrent workers
 can both pass the state check and both write a claim row — the
 "who actually owns the lease" answer becomes append-order rather
@@ -21,8 +21,10 @@ as a context manager that:
   on the create indicates another process holds the lock; the
   caller-side deadline polls until success or timeout.
 
-Both branches release by closing the fd (POSIX flock auto-release
-on close) and removing the side-car file. Caller-side timeout is
+Both branches release by closing the fd (POSIX unlocks with
+``LOCK_UN`` first; flock would also auto-release on close); only the
+Windows branch unlinks the side-car file — the POSIX side-car persists
+by design (see ``with_exclusive_lock``). Caller-side timeout is
 enforced via ``time.monotonic`` rather than ``signal.alarm`` so the
 helper composes cleanly inside thread-pooled callers (alarms are
 process-global and break ThreadPoolExecutor).

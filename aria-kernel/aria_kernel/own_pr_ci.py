@@ -183,7 +183,7 @@ def scan_merged_own_prs(
     readable, reason = reader.readable()
     if not readable:
         return {"status": "unreadable", "readable": False, "reason": reason,
-                "scanned": [], "red": [], "green": []}
+                "scanned": [], "red": [], "green": [], "not_green": []}
     latest: dict[int, dict[str, Any]] = {}
     for row in load_declared_jsonl(
         merge_outcomes_path(root), expected_surface="merge_outcomes",
@@ -194,6 +194,10 @@ def scan_merged_own_prs(
     scanned: list[dict[str, Any]] = []
     red: list[int] = []
     green: list[int] = []
+    # A merge whose main runs are missing or still running has no verdict
+    # yet; filing it under green would claim main stayed green before any
+    # workflow said so.
+    not_green: list[dict[str, Any]] = []
     for pr in reader.list_merged_own_prs(limit=limit):
         number = pr.get("number")
         head_ref = str(pr.get("headRefName") or "")
@@ -260,9 +264,14 @@ def scan_merged_own_prs(
                 },
             )
         scanned.append({"pr_number": number, "status": status})
-        (red if status == "red" else green).append(number)
+        if status == "red":
+            red.append(number)
+        elif status == "green":
+            green.append(number)
+        else:
+            not_green.append({"pr_number": number, "status": status})
     return {"status": "scanned", "readable": True, "scanned": scanned,
-            "red": red, "green": green}
+            "red": red, "green": green, "not_green": not_green}
 
 
 def repo_pr_health_path(base_dir: str | Path | None = None) -> Path:
@@ -395,6 +404,12 @@ __all__ = [
     "bridge_path",
     "is_own_pr_head",
     "load_open_own_pr_reds",
+    "load_post_merge_reds",
+    "load_third_party_pr_reds",
+    "merge_outcomes_path",
     "red_jobs_of",
+    "repo_pr_health_path",
+    "scan_merged_own_prs",
     "scan_own_prs",
+    "scan_repo_pr_health",
 ]

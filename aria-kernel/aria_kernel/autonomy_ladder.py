@@ -205,6 +205,8 @@ __all__ = [
     "MODE_REAL",
     "MODE_MOCK",
     "LADDER_MODES",
+    "BURN_IN_REASON_PREFIX",
     "record_clean_cycle",
+    "record_burn_in_acceptance",
     "evaluate_mock_unlock",
 ]

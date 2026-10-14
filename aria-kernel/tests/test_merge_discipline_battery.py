@@ -231,6 +231,43 @@ class PostMergeScanTests(unittest.TestCase):
         rows = [json.loads(l) for l in merge_outcomes_path(self.tools).read_text(encoding="utf-8").splitlines() if l.strip()]
         self.assertEqual(rows[0]["status"], "no_runs_observed")
 
+    def test_unobserved_and_pending_merges_are_not_green(self) -> None:
+        # A merge with no main runs yet, or with runs still in progress, has
+        # not shown main stayed green; reporting it as green claims a verdict
+        # no workflow has returned.
+        reader = _FakeMergedReader(
+            [self._merged_pr(105, "sha-none"), self._merged_pr(106, "sha-run"),
+             self._merged_pr(107, "sha-ok")],
+            {
+                "sha-run": [{"name": "CI-Affected", "status": "in_progress",
+                             "conclusion": None, "headBranch": "main"}],
+                "sha-ok": [{"name": "CI-Affected", "status": "completed",
+                            "conclusion": "success", "headBranch": "main"}],
+            },
+        )
+        result = scan_merged_own_prs(cycle_id="cyc-1", base_dir=self.tools, reader=reader)
+        self.assertEqual(result["green"], [107])
+        self.assertEqual(result["red"], [])
+        self.assertEqual(
+            result["not_green"],
+            [{"pr_number": 105, "status": "no_runs_observed"},
+             {"pr_number": 106, "status": "pending"}],
+        )
+
+    def test_unreadable_result_carries_every_bucket(self) -> None:
+        class _Unreadable(_FakeMergedReader):
+            def readable(self):
+                return (False, "no_token")
+
+        result = scan_merged_own_prs(
+            cycle_id="cyc-1", base_dir=self.tools, reader=_Unreadable([], {}),
+        )
+        self.assertEqual(result["status"], "unreadable")
+        self.assertEqual(
+            {k: result[k] for k in ("scanned", "red", "green", "not_green")},
+            {"scanned": [], "red": [], "green": [], "not_green": []},
+        )
+
     def test_recording_reader_reports_unreadable(self) -> None:
         from aria_kernel.github_adapters import RecordingChecksReader
 

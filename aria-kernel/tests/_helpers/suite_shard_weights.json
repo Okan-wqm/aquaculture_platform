@@ -1,6 +1,5 @@
 {
   "seconds": {
-    "test_feedback_loop": 4.7,
     "tests.invariants.test_fable_is_selected_by_nothing": 0.0,
     "tests.invariants.test_kernel_lanes_check_out_full_history": 3.0,
     "tests.invariants.v10.test_phase_v10_2_skill_genesis_trigger": 0.0,
@@ -356,6 +355,7 @@
     "tests.test_faz_e_modules": 4.8,
     "tests.test_feedback_ai_judge_consensus": 3.2,
     "tests.test_feedback_evidence_refs": 3.5,
+    "tests.test_feedback_loop": 4.7,
     "tests.test_file_lock_and_claim_idempotency": 49.7,
     "tests.test_finding_and_debt_emission": 11.9,
     "tests.test_finding_driven_evidence": 0.0,

@@ -61,26 +61,6 @@ REQUEST_REQUIRED_FIELDS = (
     "expected_output_path",
 )
 
-REQUEST_OPTIONAL_FIELDS = (
-    "pressure_event_id",
-    "plan_id",
-    "converged_plan_hash",
-    "impact_graph_refs",
-    "repository_map",
-    "context_source_paths",
-    "context_source_paths_status",
-    "separation_of_duties",
-    "round_number",
-    "created_at",
-    "plan_contract",
-    # ARIA-HIGH-104 (4) — the commit contract an implementation envelope
-    # carries: the trailer the plan's origin admits (or none) and the commit
-    # types the commit-msg gate accepts without one. Derived by
-    # `plan_origin.commit_contract_for_plan`, REQUIRED of role=implementation
-    # (checked below), absent on every other role.
-    "commit_contract",
-)
-
 RESPONSE_REQUIRED_FIELDS = (
     "$schema",
     "request_id",
@@ -242,11 +222,10 @@ def validate_request(
     if "impact_graph_refs" in envelope and not isinstance(envelope["impact_graph_refs"], list):
         raise GovernanceError("agent-request.impact_graph_refs must be a list")
     # The repository map is ORIENTATION, not evidence: a projection derived
-    # from the repo at `indexed_sha`, recomputable and never citable. It is
-    # type-checked here rather than only listed in REQUEST_OPTIONAL_FIELDS
-    # because that tuple is read by nothing (ORPHAN-MEDIUM-572) — adding a
-    # name to an unenforced list would be the appearance of a contract
-    # without one.
+    # from the repo at `indexed_sha`, recomputable and never citable. Each
+    # optional field is type-checked here, where it is enforced, rather than
+    # listed in a name tuple nothing reads (ORPHAN-MEDIUM-572, ARIA-MEDIUM-464): an
+    # unenforced list is the appearance of a contract without one.
     if "repository_map" in envelope and not isinstance(envelope["repository_map"], dict):
         raise GovernanceError("agent-request.repository_map must be an object")
     if "context_source_paths" in envelope:
@@ -467,7 +446,7 @@ def validate_response(
                 f"{request.get('request_id')!r}"
             )
         # Plan 024 v3 §H-4 — envelope.role must match request.role.
-        # Pre-fix only the membership check above (line 322) ensured
+        # Pre-fix only the REQUEST_ROLES membership check above ensured
         # the role was in REQUEST_ROLES; a request bound to role
         # `domain_review` could accept a response with role
         # `architectural_judgment` and pass cross-checks because the
@@ -608,6 +587,29 @@ def render_refusal(
     if at is not None:
         payload["at"] = at
     return payload
+
+
+def refusal_envelope_defects(refusal: Any) -> tuple[str, ...]:
+    """The ``aria/agent-refusal/v1`` clauses a received refusal fails.
+
+    The inverse of ``render_refusal``, kept beside it so the field
+    vocabulary has one owner: a consumer grading a refusal calls this
+    rather than re-spelling the producer's field names (ARIA-MEDIUM-464 — the grader
+    read a ``reason`` field the producer never writes). Returns the failed
+    clause names in a fixed order — ``$schema``, ``reason_class``,
+    ``reason_text`` — and an empty tuple for a conforming envelope. A
+    non-object refusal fails every clause.
+    """
+    fields = refusal if isinstance(refusal, dict) else {}
+    defects: list[str] = []
+    if fields.get("$schema") != REFUSAL_SCHEMA:
+        defects.append("$schema")
+    if fields.get("reason_class") not in REASON_CLASSES:
+        defects.append("reason_class")
+    reason_text = fields.get("reason_text")
+    if not isinstance(reason_text, str) or not reason_text.strip():
+        defects.append("reason_text")
+    return tuple(defects)
 
 
 def envelope_hash(envelope: dict[str, Any]) -> str:

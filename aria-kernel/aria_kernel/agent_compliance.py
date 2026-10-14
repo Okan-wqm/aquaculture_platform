@@ -40,7 +40,9 @@ SOFT-COMPLIANCE (single fail → warning event; 2+ kümülatif fail → reject):
                                  the agent reordering for cosmetic reasons —
                                  worth flagging, not worth rejecting alone.
   6. refusal_trigger_valid     — when response.status == 'rejected', refusal
-                                 envelope conforms to aria/agent-refusal/v1.
+                                 envelope conforms to aria/agent-refusal/v1,
+                                 as validated by its producer's own inverse,
+                                 agent_contract.refusal_envelope_defects.
                                  Mismatch is a soft signal; the response may
                                  be substantively correct but the refusal
                                  envelope shape is off.
@@ -68,6 +70,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .agent_contract import refusal_envelope_defects
 from .agent_genesis import BANNED_PHRASES
 from .ledger import StateTransaction, append_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
@@ -242,14 +245,15 @@ def _check_refusal_trigger_valid(*, response: dict[str, Any]) -> dict[str, Any]:
     if response.get("status") != "rejected":
         return {"passed": True, "severity": "soft",
                 "evidence": {"status": response.get("status"), "reason": "non_refusal"}}
-    refusal = response.get("refusal") or {}
-    schema = refusal.get("$schema")
-    has_reason = isinstance(refusal.get("reason"), str) and refusal["reason"].strip()
-    valid = schema == "aria/agent-refusal/v1" and has_reason
+    refusal = response.get("refusal")
+    defects = refusal_envelope_defects(refusal)
     return {
-        "passed": bool(valid),
+        "passed": not defects,
         "severity": "soft",
-        "evidence": {"refusal_schema": schema, "has_reason": bool(has_reason)},
+        "evidence": {
+            "refusal_schema": refusal.get("$schema") if isinstance(refusal, dict) else None,
+            "defects": list(defects),
+        },
     }
 
 

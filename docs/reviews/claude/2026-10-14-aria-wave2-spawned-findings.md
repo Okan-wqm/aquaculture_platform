@@ -50,6 +50,25 @@ verb can record are listed at the end.
 - **Planned fix:** bucket `SYN-conflict-marker-gate` (landing L1) deletes the three lines and adds
   `tests/invariants/no-committed-conflict-markers.spec.ts`, which fails on any tracked text line
   that starts with seven `<` or seven `>` characters and a space.
+- **Landed (L1):** the three marker lines are deleted (both sides were empty; the theirs-side rows
+  had already been retired as RESOLVED). `no-committed-conflict-markers.spec.ts` (layer 1, run by
+  `invariants:fast` on every PR) `git grep`s tracked text for `^(<{7,}|>{7,})( |$)`, which also
+  covers a widened `conflict-marker-size` and unlabelled markers. It was red on the old tree, and
+  its detector tests use markers written by `git merge-file` itself.
+
+### PROC-LOW-050 — the hermetic fixture-git environment has no shared owner
+
+- **Raised by:** the `SYN-conflict-marker-gate` implementer and its reviewer (landing L1).
+- **Problem:** specs that build a throwaway git repository each keep a private copy of the
+  hermetic environment (drop inherited `GIT_*`, `GIT_CONFIG_GLOBAL=/dev/null`,
+  `GIT_CONFIG_NOSYSTEM=1`): `no-committed-conflict-markers.spec.ts`,
+  `aria-doc-runtime-ssot.spec.ts`, `backup-restore-verification-contract.spec.ts`,
+  `derived-merge-pins.spec.ts`, `aria-authority-hash.spec.ts`, `banned-phrase.spec.ts`,
+  `format-scope-derived.spec.ts`, and `finding-registry.ts` (`HERMETIC_GIT_ENV`, not exported).
+  The copies differ: `aria-doc-runtime-ssot.spec.ts:816-819` keeps inherited `GIT_DIR` and
+  `GIT_INDEX_FILE`, so a run from a git hook can point its fixture git at the real repository.
+- **Planned fix:** one exported owner under `tools/gates` that every spec and `finding-registry.ts`
+  import, and a tier-3 check that no spec builds its own copy. Deadline: 2027-04-12.
 
 ### ORPHAN-MEDIUM-840 — observability-service never runs its security-events consumer
 

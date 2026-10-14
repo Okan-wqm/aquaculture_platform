@@ -1,0 +1,19 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "claim_id": "claim_4fddd41d82d24e09",
+    "code": "agent_refused:evidence",
+    "kind": "executor_escalation",
+    "reason_class": "evidence",
+    "reason_summary": "Neither verdict is supportable on the admissible evidence, so I refuse rather than emit a directional claim I cannot verify. What the task needs: premise:1 requires reading the exact sentence at docs/db/19-improvement-specs.md:280 that names apps/ai-service/src/middleware/tenant-schema.middleware.ts, and premise:2 requires a repository-tree fact about whether that path exists at commit 99689e46bd86eb980ca2bad74df3c6b072eb4e90. Why it matters: this verdict feeds the consensus arbiter and, downstr...",
+    "request_id": "AIR-aria-evidence-judge-e24126c5cf24",
+    "stage": "agent_refusal"
+  },
+  "reason": "agent_refused:evidence: the agent refused the request; its summary is on the record",
+  "recorded_at": "2026-10-14T22:54:40Z",
+  "request_id": "AIR-aria-evidence-judge-e24126c5cf24",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-21T22:54:40Z",
+  "status": "open"
+}

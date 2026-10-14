@@ -64,6 +64,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .agent_invocations import DEFAULT_LEASE_SECONDS
+
 
 __all__ = [
     "DEFAULT_POLL_INTERVAL_SECONDS",
@@ -76,7 +78,6 @@ __all__ = [
 DEFAULT_POLL_INTERVAL_SECONDS: float = 30.0
 DEFAULT_DAEMON_ID: str = "worker-scheduler"
 DEFAULT_MAX_WORKERS: int = 1
-DEFAULT_LEASE_SECONDS: int = 1800
 _DAEMON_LOCK_TIMEOUT_SECONDS: float = 2.0
 _DAEMON_AGENT_KIND: str = "agent_claim"  # piggy-back on existing profile gate
 
@@ -100,10 +101,12 @@ def run_worker_scheduler_daemon(
     See module docstring for the state machine + termination
     conditions. ``max_workers > 1`` accepted at the public surface
     for forward compatibility; the per-tick hook owns its own
-    concurrency model (sequential by default; the per-assignment
-    lock at ``dispatch/locks/<assignment_id>.lock`` already
-    prevents two threads from claiming the same row regardless of
-    pool size).
+    concurrency model (sequential by default). There are no
+    per-assignment lock files: two threads cannot both claim one row
+    because ``worker_dispatch.claim_assignment`` re-derives the
+    assignment state and appends ``claimed`` inside one
+    ``state_transaction`` over ``dispatch/claims.jsonl``, so the second
+    claimant sees the row already ``picked_up`` and is refused.
     """
     from .file_lock import with_exclusive_lock
     from .runtime_profile import enforce_profile_for_action

@@ -52,9 +52,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .agent_invocations import DEFAULT_LEASE_SECONDS, executor_timeout_seconds
+
 
 __all__ = [
-    "DEFAULT_LEASE_SECONDS",
     "DEFAULT_MAX_RETRIES",
     "STATUSES",
     "dispatch_one_pending_worker_assignment",
@@ -63,7 +64,6 @@ __all__ = [
 ]
 
 
-DEFAULT_LEASE_SECONDS: int = 1800
 DEFAULT_MAX_RETRIES: int = 3
 LEASE_TOKEN_ENV_VAR: str = "ARIA_LEASE_TOKEN"
 
@@ -306,8 +306,11 @@ def dispatch_one_pending_worker_assignment(
             assignment_id=assignment_id, agent_id=agent_id, provider=provider,
             lease_seconds=lease_seconds, base_dir=root,
         )
-        # claim_assignment emits agent_claim_created (1) + the state-
-        # transition event (1) = 2 governance events.
+        # claim_assignment emits dispatch_request_state_changed (1; written
+        # when the row carries a pressure_event_id, which every dispatch-row
+        # writer sets: create_dispatch_request, and promotion_controller,
+        # which synthesises plan-promotion:<plan>:<cycle>) +
+        # dispatch_claim_created (1) = 2 governance events.
         governance_count += 2
     except GovernanceError as exc:
         append_tools_governance(
@@ -342,7 +345,7 @@ def dispatch_one_pending_worker_assignment(
         "PYTHONPATH": str(repo_root / "aria-kernel"),
         LEASE_TOKEN_ENV_VAR: lease_token,
     }
-    timeout_seconds = lease_seconds + 60
+    timeout_seconds = executor_timeout_seconds(lease_seconds)
     try:
         proc = subprocess.run(
             argv, capture_output=True, text=True,
@@ -351,6 +354,12 @@ def dispatch_one_pending_worker_assignment(
         exit_code = proc.returncode
         stderr_text = proc.stderr or ""
     except subprocess.TimeoutExpired:
+        # No release here, deliberately. The killed child's claim is settled
+        # by reap_expired_assignment_claims under the counted lease-expiry
+        # ladder (DEFAULT_MAX_LEASE_REQUEUES, then human_required). A free
+        # release would requeue a deterministic hang forever: this lane's
+        # retry budget (assignment_retry_count) counts only
+        # verification_gate_failed, and this hook records no breaker failure.
         append_tools_governance(
             root, "worker_dispatch_executor_timeout",
             {

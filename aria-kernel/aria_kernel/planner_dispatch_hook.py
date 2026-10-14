@@ -37,6 +37,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .agent_invocations import DEFAULT_LEASE_SECONDS, executor_timeout_seconds
 from .ledger import read_jsonl
 from .release_reason import NATIVE_RUNTIME_CONTROL_UNAVAILABLE, NATIVE_RUNTIME_PROVIDER_UNDECIDED
 
@@ -45,7 +46,6 @@ __all__ = [
     "ADMISSION_BACKOFF_STATUSES",
     "ADMISSION_HALT_STATUSES",
     "DEFAULT_PLANNER_ROLES",
-    "DEFAULT_LEASE_SECONDS",
     "PROVIDER_CONTROL_UNAVAILABLE_STATUS",
     "PROVIDER_COOLDOWN_STATUS",
     "PROVIDER_UNDECIDED_STATUS",
@@ -84,7 +84,6 @@ ADMISSION_BACKOFF_STATUSES: frozenset[str] = frozenset(
 
 
 DEFAULT_PLANNER_ROLES: tuple[str, ...] = ("primary_plan", "challenger_plan")
-DEFAULT_LEASE_SECONDS: int = 1800
 LEASE_TOKEN_ENV_VAR: str = "ARIA_LEASE_TOKEN"
 # Plan 026R §B.5 — single-claim env separation. ARIA_LEASE_TOKEN carries
 # the raw token (sensitive, NEVER in metadata / argv / logs).
@@ -141,7 +140,7 @@ def _serialise_claim_metadata_for_env(
     before invoking (the dispatch hook does so via a documented
     dict-comprehension).
     """
-    # Lazy import — mirrors dispatch_planner_tick (line 183) keeping
+    # Lazy import — mirrors dispatch_planner_tick, keeping
     # kernel cold-start light.
     from .tool_registry import GovernanceError
     # Plan 026R §B.5 — forbidden-key check on the INPUT claim dict.
@@ -208,18 +207,6 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
     if not lease_token:
         return message
     return message.replace(lease_token, "<lease-token-redacted>")
-
-
-def _executor_timeout_seconds(lease_seconds: int) -> int:
-    """Y1 (ORPHAN-703) — the child's wall-clock budget sits STRICTLY inside
-    the lease. The shipped value was ``lease_seconds + 60``: the lease was
-    already dead before the subprocess timeout could fire, so every timeout
-    became a silent ``lease_expired`` requeue charged to the REQUEST (106 in
-    one week; every planner HUMAN_REQUIRED escalation carried this signature).
-    The 120s margin leaves room for the release write below to land while
-    the lease is still live. Floor of 300s keeps test-scale leases usable.
-    """
-    return max(300, int(lease_seconds) - 120)
 
 
 def _release_abandoned_claim(
@@ -598,7 +585,7 @@ def dispatch_one_pending_planner_request(
         LEASE_TOKEN_ENV_VAR: lease_token,
         CLAIM_METADATA_FILE_ENV_VAR: str(metadata_path),
     }
-    timeout_seconds = _executor_timeout_seconds(lease_seconds)
+    timeout_seconds = executor_timeout_seconds(lease_seconds)
     try:
         # The file lives exactly as long as the child: subprocess.run returns
         # (or raises) only once the executor has exited, so removing it here

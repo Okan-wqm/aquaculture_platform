@@ -40,6 +40,7 @@ from .ledger import (
     append_declared_jsonl,
     append_jsonl,
     append_segment_rows,
+    is_sha256_digest,
     load_declared_jsonl,
     load_segments,
     segment_paths,
@@ -78,6 +79,21 @@ MAX_SUBMISSION_ARTIFACT_BYTES = 16 * 1024 * 1024
 DERIVED_STATES = DERIVED_REQUEST_STATES
 
 
+def executor_timeout_seconds(lease_seconds: int) -> int:
+    """Y1 (ORPHAN-703) — a dispatched child's wall-clock budget, for every lane.
+
+    The child must be dead before its lease expires. The shipped value was
+    ``lease_seconds + 60``: the lease was already dead before the subprocess
+    timeout could fire, so every timeout became a silent ``lease_expired``
+    requeue charged to the work item (106 in one week on the planner lane).
+    The 120s margin leaves room for the hook's own post-timeout writes to land
+    while the lease is still live. The 300s floor keeps test-scale leases
+    usable, which also means the budget sits inside the lease only for leases
+    of at least 420s.
+    """
+    return max(300, int(lease_seconds) - 120)
+
+
 def _target_is_shadow(root: Path, target_agent: str) -> bool:
     if not target_agent:
         return False
@@ -91,14 +107,6 @@ def _target_is_shadow(root: Path, target_agent: str) -> bool:
         if target:
             state_by_target[target] = state
     return state_by_target.get(target_agent) == "SHADOW"
-
-
-def _is_sha256_digest(value: str) -> bool:
-    return (
-        value.startswith("sha256:")
-        and len(value) == len("sha256:") + 64
-        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
-    )
 
 
 def _sha256_text(value: str) -> str:
@@ -1185,7 +1193,7 @@ def record_invocation_prompt(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Persist the exact prompt payload hash for replay."""
-    if not _is_sha256_digest(context_hash):
+    if not is_sha256_digest(context_hash):
         raise GovernanceError("invocation_prompt_context_hash_must_be_sha256")
     root = ensure_tools_dir(base_dir)
     row = {
@@ -1381,7 +1389,7 @@ def create_agent_invocation_request(
     # AND convergence_id. Pre-V5 the envelope carried convergence_id
     # alone — primary↔challenger could refer to different revisions of
     # the same plan and the cross-review collusion check at
-    # plan_convergence.py:473 would not catch it. The field is
+    # plan_convergence._results_pair_hash_check would not catch it. The field is
     # optional (None = "not applicable") so legacy callers continue
     # to work; convergent_planning_bridge.py forwards a value on the
     # convergent-plan flow.
@@ -1434,9 +1442,9 @@ def create_agent_invocation_request(
     # Plan 024 §B-2 — strict fields enforcement at write-side. The legacy
     # request schema lacked must_satisfy / allowed_scope, so a request
     # written without them entered the queue, was claimed via the strict
-    # path, and the strict path's _strict_request_view (line ~964) silently
-    # defaulted both to []. evidence_validator.py:291 only enforced
-    # allowed_scope when non-empty, so a judge response with
+    # path, and the strict path's _strict_request_view silently defaulted
+    # both to []. evidence_validator.validate_agent_response_evidence only
+    # enforced allowed_scope when non-empty, so a judge response with
     # satisfaction_matrix=[] passed consensus uncontested. Closing the
     # read-side default alone is not enough — the write-side must persist
     # the fields so future reads carry the same fail-closed contract.
@@ -1829,7 +1837,7 @@ def record_transcript(
     """Persist a transcript anchor for ledger-bound real/shadow eval proof."""
     if not invocation_id or not str(invocation_id).strip():
         raise GovernanceError("transcript_invocation_id_required")
-    if not _is_sha256_digest(str(transcript_hash)):
+    if not is_sha256_digest(str(transcript_hash)):
         raise GovernanceError("transcript_hash_must_be_sha256")
     if not target_agent or not str(target_agent).strip():
         raise GovernanceError("transcript_target_agent_required")
@@ -1873,7 +1881,7 @@ def _verify_transcript_artifact_ref(
     transcript_hash: str,
     workspace_root: str | Path | None,
 ) -> Path:
-    if not _is_sha256_digest(str(transcript_hash)):
+    if not is_sha256_digest(str(transcript_hash)):
         raise GovernanceError("transcript_hash_must_be_sha256")
     artifact = Path(artifact_ref)
     if not artifact.is_absolute() and workspace_root is not None:
@@ -2404,7 +2412,7 @@ def _submission_artifact_target(
     artifact_kind: str,
     content_hash: str,
 ) -> Path:
-    if not _is_sha256_digest(content_hash):
+    if not is_sha256_digest(content_hash):
         raise GovernanceError("submission_artifact_content_hash_invalid")
     if artifact_kind not in {"responses", "transcripts"}:
         raise GovernanceError("submission_artifact_kind_invalid")
@@ -3890,8 +3898,8 @@ def claim_request(
     root = ensure_tools_dir(base_dir)
     # Plan 024 §H-1 — atomic state-read → check → append under an
     # OS-level exclusive lock on claims.jsonl. Pre-fix two concurrent
-    # workers could both pass the PENDING/REQUEUED state check at line
-    # 595 and both append a "claimed" row at line 624 — the "who owns
+    # workers could both pass the PENDING/REQUEUED state check and both
+    # append a "claimed" row — the "who owns
     # the lease" answer became append-order rather than mutual-
     # exclusion. The lock + CAS recheck guarantee that exactly one
     # worker wins the race; the loser sees the same
@@ -4286,7 +4294,7 @@ def release_claim(
     authorisation gap because the lease_token is the proof-of-claim
     issued by ``claim_request``. ``submit_claim_result`` and
     ``heartbeat_claim`` ALREADY require + hash-verify the lease_token
-    (lines 681, 868); ``release_claim`` was the lone outlier. The
+    already; ``release_claim`` was the lone outlier. The
     ``ci_executor._release_claim`` subprocess argv already passes
     ``--lease-token-from-env`` but the CLI parser did not register
     the flag, so today's CI release path FAILS at argparse before
@@ -4892,7 +4900,7 @@ def _verify_prepared_artifact(
         raise GovernanceError(
             f"submission_prepared_{artifact_kind}_artifact_ref_invalid"
         )
-    if not isinstance(expected_hash, str) or not _is_sha256_digest(expected_hash):
+    if not isinstance(expected_hash, str) or not is_sha256_digest(expected_hash):
         raise GovernanceError(
             f"submission_prepared_{artifact_kind}_hash_invalid"
         )
@@ -5349,7 +5357,7 @@ def _prepare_submission_transcript_artifact(
     output_content_hash: str,
     workspace_root: str | Path,
 ) -> tuple[Path, bytes]:
-    if not _is_sha256_digest(transcript_hash):
+    if not is_sha256_digest(transcript_hash):
         raise GovernanceError("transcript_hash_must_be_sha256")
     artifact = Path(artifact_ref)
     if not artifact.is_absolute():
@@ -5811,11 +5819,11 @@ def submit_claim_result(
 
     if not lease_token or not lease_token.strip():
         raise GovernanceError("lease_token is required")
-    if context_hash is not None and not _is_sha256_digest(str(context_hash)):
+    if context_hash is not None and not is_sha256_digest(str(context_hash)):
         raise GovernanceError("submit_claim_result_context_hash_must_be_sha256")
-    if prompt_hash is not None and not _is_sha256_digest(str(prompt_hash)):
+    if prompt_hash is not None and not is_sha256_digest(str(prompt_hash)):
         raise GovernanceError("submit_claim_result_prompt_hash_must_be_sha256")
-    if transcript_hash is not None and not _is_sha256_digest(str(transcript_hash)):
+    if transcript_hash is not None and not is_sha256_digest(str(transcript_hash)):
         raise GovernanceError("submit_claim_result_transcript_hash_must_be_sha256")
     root = ensure_tools_dir(base_dir)
     output = Path(output_path)
@@ -5859,12 +5867,12 @@ def submit_claim_result(
             raise GovernanceError("submit_claim_result_prepared_binding_malformed")
         submitted_hash = journal_row.get("envelope_evidence_hash")
         if not isinstance(submitted_hash, str) or not (
-            _is_sha256_digest(submitted_hash)
+            is_sha256_digest(submitted_hash)
             or submitted_hash == "sha256:envelope_unreadable"
         ):
             raise GovernanceError("submit_claim_result_prepared_hash_malformed")
         output_content_hash = stored_binding.get("output_content_hash")
-        if not isinstance(output_content_hash, str) or not _is_sha256_digest(
+        if not isinstance(output_content_hash, str) or not is_sha256_digest(
             output_content_hash
         ):
             raise GovernanceError(

@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from .ledger import atomic_write_json
 from .snapshot import build_repo_snapshot
 from .tool_registry import append_tools_governance, ensure_tools_binding, ensure_tools_dir, utc_now
 
@@ -47,7 +48,7 @@ def run_discovery(
             # governance event MUST carry cycle_id so replay tools
             # filtering by cycle correctly surface the dirty-tree
             # decision. Sibling event ``discovery_legacy_field_emitted``
-            # below also includes it (line 66). Invariant I-V3.2-08
+            # below also includes it. Invariant I-V3.2-08
             # locks the closed allowlist contract.
             {
                 "dirty_files_count": len(dirty_paths),
@@ -97,11 +98,11 @@ def run_discovery(
     }
 
     output_dir = tools_root / "discovery" / cycle_id
-    _write_json(output_dir / "FATES.json", {"schema_version": 1, "cycle_id": cycle_id, "files": fates})
-    _write_json(output_dir / "SNAPSHOT.json", {key: value for key, value in snapshot.items() if key != "fates"})
-    _write_json(output_dir / "REPO_FINGERPRINT.json", fingerprint)
-    _write_json(output_dir / "SERVICE_MAP.json", service_map)
-    _write_json(output_dir / "COMPLETION_PROOF.json", completion_proof)
+    atomic_write_json(output_dir / "FATES.json", {"schema_version": 1, "cycle_id": cycle_id, "files": fates})
+    atomic_write_json(output_dir / "SNAPSHOT.json", {key: value for key, value in snapshot.items() if key != "fates"})
+    atomic_write_json(output_dir / "REPO_FINGERPRINT.json", fingerprint)
+    atomic_write_json(output_dir / "SERVICE_MAP.json", service_map)
+    atomic_write_json(output_dir / "COMPLETION_PROOF.json", completion_proof)
     return {
         "fates": fates,
         "fingerprint": fingerprint,
@@ -222,19 +223,13 @@ def _service_map(root: Path) -> dict[str, Any]:
     }
 
 
-# Plan ARIA-V2 §3.5 — MFE allowlist used as a fallback signal in
-# ``is_leaf_project``. Children matching this allowlist are recognized
-# as leaf projects even when project.json is missing; the gap is
-# surfaced separately via ``web_modules_missing_project_json``.
-_MFE_NAME_ALLOWLIST: frozenset[str] = frozenset({
-    "dashboard",
-    "farm-module",
-    "sensor-module",
-    "hr-module",
-    "admin-panel",
-    "tenant-admin",
-    "hydroponics-module",
-})
+# Plan ARIA-V2 §3.5 — the MFE fallback signal in ``is_leaf_project``. Every
+# direct child of ``web/modules`` is a federated remote, so it is a leaf
+# project even before it gains project.json; the gap is surfaced separately
+# via ``web_modules_missing_project_json``. Derived from the layout (ARIA-LOW-478): a
+# hand-kept name list here silently dropped the fallback for each remote added
+# after it (messaging-module).
+_MFE_PARENT_PARTS: tuple[str, str] = ("web", "modules")
 
 
 def is_leaf_project(child: Path) -> bool:
@@ -250,15 +245,15 @@ def is_leaf_project(child: Path) -> bool:
     Markers (any one is sufficient):
       * ``child / "project.json"`` exists (Nx project)
       * ``child / "Cargo.toml"`` exists (Rust crate)
-      * child name is in the MFE allowlist (legacy guard for MFEs
-        that haven't gained project.json yet; surfaced separately
-        via ``web_modules_missing_project_json`` belief)
+      * child is a direct child of ``web/modules`` (a federated remote
+        that hasn't gained project.json yet; surfaced separately via
+        the ``web_modules_missing_project_json`` belief)
     """
     if (child / "project.json").is_file():
         return True
     if (child / "Cargo.toml").is_file():
         return True
-    if child.name in _MFE_NAME_ALLOWLIST:
+    if (child.parent.parent.name, child.parent.name) == _MFE_PARENT_PARTS:
         return True
     return False
 
@@ -312,10 +307,3 @@ def _children(path: Path) -> list[Path]:
     if not path.exists() or not path.is_dir():
         return []
     return sorted(child for child in path.iterdir() if child.is_dir())
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-        handle.write("\n")

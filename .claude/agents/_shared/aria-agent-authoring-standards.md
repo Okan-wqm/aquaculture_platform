@@ -24,8 +24,8 @@ kernel validators win on any conflict.
   nodes on the top tier, judge/validator layer one tier below — resolved at
   runtime by `aria_kernel/agent_runtime_profile.py`. Never hardcode a model
   value inside a body's prose; cite the resolver. Agents holding Edit/Write/
-  Bash belong in `WRITE_TIER_AGENTS` (python) + `ARIA_WRITE_TIER` (jest) in
-  the same change.
+  Bash belong in `WRITE_TIER_AGENTS` (python); the jest frontmatter spec reads
+  that set.
 - `tools:` is the minimal set the role needs; expanding a tool surface is an
   operator decision, not a drafting convenience.
 - `pedagogy-tier:` matches the agent's `.claude/agents/_pedagogy-registry.json`

@@ -252,7 +252,7 @@ def dispatch_judges_for_sample(
     """Mint two judge envelopes per finding in a judgment sample.
 
     Returns a summary; the envelopes are picked up asynchronously by the
-    dispatcher (claim_and_dispatch_one), so the resulting ai_judge rows — and
+    executor drain (``ci_executor_drain``), so the resulting ai_judge rows — and
     thus consensus — land in a later tick, not this one.
 
     ``repo_root`` is the workspace the findings were produced against. Without

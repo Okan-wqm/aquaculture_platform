@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Any
 
 from claude_runtime import (
-    CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthFailure,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
@@ -49,6 +48,7 @@ from claude_runtime import (
     ClaudeRunResult,
     ClaudeUsageUnavailable,
     UsageRecording,
+    is_mock_mode,
     run_claude_exec,
     run_with_model_fallback,
 )
@@ -65,7 +65,6 @@ from kernel_cli import kernel_cli_argv
 
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
-MOCK_MODE_ENV_VAR = CLAUDE_MOCK_ENV_VAR
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -75,7 +74,9 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 def _is_mock_mode() -> bool:
-    return os.environ.get(MOCK_MODE_ENV_VAR, "0").strip().lower() in {"1", "true", "yes", "on"}
+    # ARIA-MEDIUM-463 — the one CLAUDE_CLI_MOCK parser (claude_runtime): an unknown
+    # value raises ClaudePolicyViolation instead of silently reading as off.
+    return is_mock_mode()
 
 
 def _resolve_assignment(

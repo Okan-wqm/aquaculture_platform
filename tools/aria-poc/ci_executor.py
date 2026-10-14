@@ -1319,115 +1319,12 @@ class CostCapExceeded(Exception):
     """The request would exceed the configured cost cap; skip + log."""
 
 
-# Plan ARIA-V7 §2g v2 Phase 7.3 — closed enum of dispatchable roles.
-# Mirrors aria_kernel/dispatcher_factory.SUPPORTED_ROLES. Adding a
-# role requires updating BOTH the consumer (this file) AND the
-# kernel factory module. Closed enum prevents typo'd roles from
-# silently flowing into the queue.
+# Plan ARIA-V7 §2g v2 Phase 7.3 — closed enum of dispatchable roles: the
+# kernel's `agent_surface.DISPATCHABLE_ROLES` (or the standalone mirror
+# above). Its live consumer is `ci_executor_drain.require_dispatchable_arc`,
+# which refuses at import a drain arc naming a role outside this set, so a
+# typo'd or unroutable role cannot reach the queue round.
 SUPPORTED_ROLES: frozenset[str] = frozenset(_DISPATCHABLE_ROLES)
-
-
-
-def claim_and_dispatch_one(
-    *,
-    role: str,
-    tools_dir: Path,
-    repo_root: Path,
-) -> dict[str, Any]:
-    """Plan ARIA-V7 §2g v2 Phase 7.3 — single-role claim + dispatch.
-
-    Workflow:
-      1. Validate role is in SUPPORTED_ROLES.
-      2. Check Claude Code CLI auth/session preflight. Unavailable → return
-         ``{"status": "dispatchers_unavailable"}``.
-      3. Find next pending request of the given role via
-         ``aria-kernel agent-invocations list --role <role>
-         --pending-only``.
-      4. If no pending → return ``{"status": "no_pending"}``.
-      5. Spawn this script as subprocess with ``request_id`` to
-         exercise the existing claim → invoke → release flow.
-      6. Capture subprocess result + return.
-
-    Returns a dict with keys: ``status``, ``request_id``,
-    ``role``, ``stdout_tail``, ``stderr_tail``, ``exit_code``.
-
-    Used by the operator-runnable consumer loop:
-      python tools/aria-poc/ci_executor.py --consume specialist_domain_review
-    """
-    if role not in SUPPORTED_ROLES:
-        raise ValueError(
-            f"claim_and_dispatch_one_unknown_role: {role!r} "
-            f"(must be one of {sorted(SUPPORTED_ROLES)})"
-        )
-
-    try:
-        preflight_claude_auth()
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
-        return {
-            "status": "dispatchers_unavailable",
-            "role": role,
-            "reason": f"claude_preflight_failed: {exc}",
-        }
-
-    # Find next pending request for this role.
-    list_proc = subprocess.run(
-        _kernel_cli_argv(
-            "agent-invocations", "list",
-            "--role", role,
-            "--pending-only",
-            "--limit", "1",
-            "--tools-dir", str(tools_dir),
-        ),
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
-    )
-    if list_proc.returncode != 0:
-        return {
-            "status": "list_failed",
-            "role": role,
-            "stderr_tail": list_proc.stderr[-1000:],
-            "exit_code": list_proc.returncode,
-        }
-
-    try:
-        pending = json.loads(list_proc.stdout)
-    except json.JSONDecodeError:
-        return {
-            "status": "list_output_not_json",
-            "role": role,
-            "stdout_tail": list_proc.stdout[-500:],
-        }
-
-    if not pending:
-        return {"status": "no_pending", "role": role}
-
-    request = pending[0] if isinstance(pending, list) else pending
-    request_id = request.get("request_id") or request.get("id")
-    if not request_id:
-        return {
-            "status": "request_missing_id",
-            "role": role,
-            "raw": request,
-        }
-
-    target_agent = request.get("target_agent", "")
-    dispatch_proc = subprocess.run(
-        ["python3", str(Path(__file__).resolve()), request_id, target_agent],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
-        cwd=str(repo_root),
-    )
-    return {
-        "status": "dispatched" if dispatch_proc.returncode == 0 else "dispatch_failed",
-        "request_id": request_id,
-        "role": role,
-        "target_agent": target_agent,
-        "exit_code": dispatch_proc.returncode,
-        "stdout_tail": dispatch_proc.stdout[-2000:],
-        "stderr_tail": dispatch_proc.stderr[-2000:],
-    }
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -1518,38 +1415,6 @@ def _request_delivery_seconds(*, tools_dir: Path, request_id: str) -> int:
 # for billing control"), and after the dispatch gate moved to wall clock they
 # had no readers at all. A tunable that gates nothing is worse than no
 # tunable: an operator who lowers it believes they have tightened something.
-
-
-_TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
-_FALSY_BOOL_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off", ""})
-
-
-def _parse_bool_env(name: str, default: str = "0") -> bool:
-    """Plan 026R §B.2 — case-insensitive multi-token bool env var parser.
-
-    Pre-§B.2 ``_is_mock_mode`` did ``os.environ.get(...) == "1"`` only,
-    so a workflow that exported ``CLAUDE_CLI_MOCK=true`` (the common
-    shell convention) silently fell to mock=OFF → ``ClaudeCliUnavailable``
-    raise → CI exit code 1. The bug is REAL in today's CI.
-
-    Accepts the canonical truthy/falsy set:
-
-    * Truthy: ``1``, ``true``, ``yes``, ``on`` (any case).
-    * Falsy:  ``0``, ``false``, ``no``, ``off``, empty string.
-
-    Any other value raises ``ValueError`` (no silent fallback to either
-    side — typo in a workflow should fail loud).
-    """
-    raw = os.environ.get(name, default).strip().lower()
-    if raw in _TRUTHY_BOOL_VALUES:
-        return True
-    if raw in _FALSY_BOOL_VALUES:
-        return False
-    raise ValueError(
-        f"{name}={raw!r} is not a recognised boolean "
-        f"(truthy={sorted(_TRUTHY_BOOL_VALUES)}, "
-        f"falsy={sorted(_FALSY_BOOL_VALUES)})"
-    )
 
 
 def _is_mock_mode() -> bool:
@@ -5291,8 +5156,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         try:
             # Plan 024 v3 §B-8 — pass real lease identity + role from
             # request row into the mock envelope writer. claim_id +
-            # agent_id come from the kernel CLI's claim output (line 209-
-            # 211); role + must_satisfy come from the request_envelope
+            # agent_id come from the kernel CLI's claim output; role +
+            # must_satisfy come from the request_envelope
             # we already loaded for cost-cap evaluation.
             if native_runtime is not None:
                 _invoke_native = {
@@ -5569,8 +5434,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # `aria_kernel human-required record` immediately, releases the
     # claim with `reason=agent_refused:<class>`, and returns 0 so the
     # consumer does NOT retry. The kernel state machine recognizes
-    # the human_required event as terminal (line 596 of
-    # agent_invocations.py). The drainer's poll observes no state
+    # the human_required event as terminal
+    # (``agent_invocations.derive_request_state``). The drainer's poll observes no state
     # transition and times out as usual — verdict=challenger_unavailable
     # — but Opus cost stays at 1× per refusal instead of N×.
     try:

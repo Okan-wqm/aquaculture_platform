@@ -520,10 +520,11 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
 class DispatchableRolesTest(unittest.TestCase):
     """Minting and draining are one contract.
 
-    `ci_executor.claim_and_dispatch_one` refuses a role outside
-    `DISPATCHABLE_ROLES`, so a producer for a non-dispatchable role would fill
-    the queue with envelopes no consumer may claim — alive in the ledger, dead
-    on the lane, which is the same defect class E14 removes.
+    `ci_executor_drain.require_dispatchable_arc` refuses, at import, a drain
+    arc naming a role outside the executor's `SUPPORTED_ROLES`
+    (`DISPATCHABLE_ROLES`), so a producer for a non-dispatchable role would
+    fill the queue with envelopes no consumer may claim — alive in the
+    ledger, dead on the lane, which is the same defect class E14 removes.
     """
 
     def test_every_role_with_a_new_producer_can_be_claimed(self) -> None:

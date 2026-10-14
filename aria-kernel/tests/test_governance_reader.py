@@ -7,18 +7,19 @@ _consecutive_regression_count + list_spine_events). Mirrors
 Plan 024 §H-7 list_handoffs strict-default + diagnostic-sink
 contract.
 
-Cases (9):
+Cases (10):
 1. clean strict — 3 valid rows, no diagnostic emitted.
 2. corrupt strict — raises GovernanceError, diagnostic emitted.
 3. corrupt tolerant — yields valid rows + diagnostic emitted.
-4. invalid mode — raises at function entry, no iteration.
-5. reverse iteration — preserves original line numbers.
-6. nonexistent path — empty iterator, no exception.
-7. blank lines — skipped without counter increments.
-8. AST invariant — no governance.jsonl reader has private
+4. non-object row — corruption in both modes, diagnostic emitted.
+5. invalid mode — raises at function entry, no iteration.
+6. reverse iteration — preserves original line numbers.
+7. nonexistent path — empty iterator, no exception.
+8. blank lines — skipped without counter increments.
+9. AST invariant — no governance.jsonl reader has private
    ``except json.JSONDecodeError`` (only the helper does).
-9. emit failure — helper does not swallow the diagnostic
-   sink's exceptions (sink owns its own stderr fallback).
+10. emit failure — helper does not swallow the diagnostic
+    sink's exceptions (sink owns its own stderr fallback).
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from aria_kernel import governance_reader
+from aria_kernel import strict_jsonl_reader
 from aria_kernel.governance_reader import read_governance_rows
 from aria_kernel.tool_registry import GovernanceError
 
@@ -122,6 +123,51 @@ class CorruptTolerantTests(unittest.TestCase):
         self.assertEqual(len(sink_rows), 1)
         self.assertEqual(sink_rows[0]["kind"], "ledger_row_corrupt")
         self.assertEqual(sink_rows[0]["line_no"], 2)
+
+
+class NonObjectRowTests(unittest.TestCase):
+    """A row that decodes to a non-object is corruption, not a skip.
+
+    The contract above promises a diagnostic for EVERY corrupt row in
+    BOTH modes; a private decode loop once dropped ``[1, 2]`` silently.
+    """
+
+    def setUp(self) -> None:
+        self.base, self.gov = _seed_governance([
+            json.dumps({"kind": "row_a"}),
+            "[1, 2]",
+        ])
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.base.parent, ignore_errors=True)
+
+    def _sink_rows(self) -> list[dict]:
+        sink = self.base / SINK_REL
+        self.assertTrue(sink.exists())
+        return [
+            json.loads(line)
+            for line in sink.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def test_non_object_row_is_corruption_in_both_modes(self) -> None:
+        with self.assertRaisesRegex(
+            GovernanceError,
+            r"governance_row_corrupt_strict_mode: .*:2: row_not_object",
+        ):
+            list(read_governance_rows(self.gov, base_dir=self.base))
+        strict_sink = self._sink_rows()
+        self.assertEqual(len(strict_sink), 1)
+        self.assertEqual(strict_sink[0]["error"], "row_not_object")
+        self.assertEqual(strict_sink[0]["line_no"], 2)
+
+        rows = list(read_governance_rows(
+            self.gov, on_corruption="tolerant", base_dir=self.base,
+        ))
+        self.assertEqual([r["kind"] for r in rows], ["row_a"])
+        tolerant_sink = self._sink_rows()
+        self.assertEqual(len(tolerant_sink), 2)
+        self.assertEqual(tolerant_sink[1]["error"], "row_not_object")
 
 
 class InvalidModeTests(unittest.TestCase):
@@ -277,8 +323,10 @@ class EmitFailureNotSwallowedTests(unittest.TestCase):
 
     def test_helper_does_not_swallow_diagnostic_emit_failures(self) -> None:
         boom = IOError("simulated sink write failure")
+        # Rows are decoded (and corrupt rows diagnosed) by the shared
+        # strict_jsonl_reader.iter_stored_jsonl_rows loop.
         with mock.patch.object(
-            governance_reader,
+            strict_jsonl_reader,
             "emit_ledger_corruption_diagnostic",
             side_effect=boom,
         ):

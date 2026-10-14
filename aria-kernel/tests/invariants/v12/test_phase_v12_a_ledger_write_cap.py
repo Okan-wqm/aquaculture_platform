@@ -25,7 +25,13 @@ from unittest import mock
 
 from tests.invariants.v12 import _helpers  # noqa: F401 — sys.path
 
-from aria_kernel import fixture_runner, ledger, state_snapshot
+from aria_kernel import (
+    autonomy_evidence,
+    fixture_runner,
+    governance_reader,
+    ledger,
+    state_snapshot,
+)
 from aria_kernel.ledger import (
     LEDGER_ROW_MAX_BYTES,
     LedgerRowTooLargeError,
@@ -77,6 +83,8 @@ class LedgerWriteCap(unittest.TestCase):
     def test_I_V12_LEDGER_02_readers_share_the_writers_constant(self) -> None:
         self.assertIs(state_snapshot.SNAPSHOT_MAX_LEDGER_LINE_BYTES, LEDGER_ROW_MAX_BYTES)
         self.assertIs(fixture_runner.FIXTURE_RUN_LEDGER_MAX_LINE_BYTES, LEDGER_ROW_MAX_BYTES)
+        self.assertIs(governance_reader._MAX_GOVERNANCE_LEDGER_LINE_BYTES, LEDGER_ROW_MAX_BYTES)
+        self.assertIs(autonomy_evidence._MAX_SNAPSHOT_LEDGER_LINE_BYTES, LEDGER_ROW_MAX_BYTES)
         self.assertEqual(LEDGER_ROW_MAX_BYTES, 1024 * 1024)
         self.assertIn("LedgerRowTooLargeError", ledger.__all__)
         self.assertIn("LEDGER_ROW_MAX_BYTES", ledger.__all__)

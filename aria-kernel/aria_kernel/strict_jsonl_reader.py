@@ -22,7 +22,10 @@ need the hash-chain check ``load_jsonl_verified`` enforces
 integrity is required; ``read_strict_jsonl`` is the right primitive
 when "every line is valid JSON" is the contract).
 
-Mirror of ``governance_reader.read_governance_rows``:
+Both this reader and ``governance_reader.read_governance_rows`` decode
+rows through ``iter_stored_jsonl_rows`` — one loop, so the two readers
+cannot drift on what a corrupt row is (an unparseable line OR a line
+that decodes to a non-object):
 
 * ``on_corruption="strict"`` (default) — corrupt row raises
   ``GovernanceError`` AFTER ``emit_ledger_corruption_diagnostic``.
@@ -59,6 +62,67 @@ from .tool_registry import GovernanceError
 VALID_ON_CORRUPTION_MODES: frozenset[str] = frozenset({"strict", "tolerant"})
 
 
+def iter_stored_jsonl_rows(
+    raw_text: str,
+    *,
+    path: Path,
+    on_corruption: str,
+    sink_base: Path,
+    strict_error_code: str,
+) -> Iterator[dict[str, Any]]:
+    """Decode stored JSONL text under the shared strict/tolerant contract.
+
+    A corrupt row is a line that fails ``json.loads`` or decodes to a
+    non-object. Either way ``emit_ledger_corruption_diagnostic`` runs in
+    BOTH modes; ``strict`` then raises ``GovernanceError`` prefixed with
+    the caller's ``strict_error_code`` and ``tolerant`` skips the row.
+    Blank lines are not rows. ``line_no`` is the 1-based forward line.
+
+    Lazy: rows before the first corrupt row are yielded before a strict
+    raise. Callers that must inspect every row first (the replay-transport
+    claim) materialise the iterator themselves.
+    """
+    for line_no, raw in enumerate(raw_text.splitlines(), start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            emit_ledger_corruption_diagnostic(
+                {
+                    "kind": "ledger_row_corrupt",
+                    "ledger": str(path),
+                    "line_no": line_no,
+                    "error": str(exc),
+                    "raw_excerpt": line[:200],
+                },
+                base_dir=sink_base,
+            )
+            if on_corruption == "strict":
+                raise GovernanceError(
+                    f"{strict_error_code}: {path}:{line_no}: {exc}"
+                ) from exc
+            continue
+        if not isinstance(row, dict):
+            emit_ledger_corruption_diagnostic(
+                {
+                    "kind": "ledger_row_corrupt",
+                    "ledger": str(path),
+                    "line_no": line_no,
+                    "error": "row_not_object",
+                    "raw_excerpt": line[:200],
+                },
+                base_dir=sink_base,
+            )
+            if on_corruption == "strict":
+                raise GovernanceError(
+                    f"{strict_error_code}: {path}:{line_no}: row_not_object"
+                )
+            continue
+        yield row
+
+
 def read_strict_jsonl(
     path: Path,
     *,
@@ -75,7 +139,8 @@ def read_strict_jsonl(
     on_corruption
         ``"strict"`` (default) raises ``GovernanceError`` after emitting
         ``ledger_row_corrupt`` to the diagnostic sink on the first
-        corrupt row. ``"tolerant"`` skips the corrupt row from the
+        corrupt row (unparseable, or not a JSON object).
+        ``"tolerant"`` skips the corrupt row from the
         iterator + still emits to the sink. Any other value raises
         ``GovernanceError`` at entry — silent degradation is BANNED.
     base_dir
@@ -93,108 +158,54 @@ def read_strict_jsonl(
     sink_base = base_dir if base_dir is not None else path.parent
     raw_text = path.read_text(encoding="utf-8")
     declared = surface_for_path(path)
-    if declared is not None:
-        decoded: list[dict[str, Any]] = []
-        transport_claimed = False
-        for line_no, raw in enumerate(raw_text.splitlines(), start=1):
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as exc:
-                corruption = {
-                    "kind": "ledger_row_corrupt",
-                    "ledger": str(path),
-                    "line_no": line_no,
-                    "error": str(exc),
-                    "raw_excerpt": line[:200],
-                }
-                emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
-                if on_corruption == "strict":
-                    raise GovernanceError(
-                        f"strict_jsonl_row_corrupt: {path}:{line_no}: {exc}"
-                    ) from exc
-                continue
-            if not isinstance(row, dict):
-                corruption = {
-                    "kind": "ledger_row_corrupt",
-                    "ledger": str(path),
-                    "line_no": line_no,
-                    "error": "row_not_object",
-                    "raw_excerpt": line[:200],
-                }
-                emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
-                if on_corruption == "strict":
-                    raise GovernanceError(
-                        f"strict_jsonl_row_corrupt: {path}:{line_no}: row_not_object"
-                    )
-                continue
-            decoded.append(row)
-            transport_claimed = transport_claimed or is_replay_transport_row(row)
-        if not transport_claimed:
-            yield from decoded
-            return
-        try:
-            yield from read_jsonl(path, expected_surface=declared[0].name)
-            return
-        except (LedgerIntegrityError, OSError, UnicodeError) as exc:
-            corruption = {
+    rows = iter_stored_jsonl_rows(
+        raw_text,
+        path=path,
+        on_corruption=on_corruption,
+        sink_base=sink_base,
+        strict_error_code="strict_jsonl_row_corrupt",
+    )
+    if declared is None and REPLAY_TRANSPORT_SCHEMA_PREFIX not in raw_text:
+        # Nothing in an undeclared file without the transport prefix can
+        # claim the transport: stream the rows lazily.
+        yield from rows
+        return
+    # A declared surface, or text naming the transport: every row passes the
+    # row contract above BEFORE the transport question is asked, so a
+    # non-object row is corruption here too (it used to reach the caller
+    # unchecked through ``read_jsonl``, which keeps legacy rows as stored).
+    decoded = list(rows)
+    if not any(is_replay_transport_row(row) for row in decoded):
+        yield from decoded
+        return
+    try:
+        # A transport payload is exposed only after the complete outer chain
+        # and exact envelope have been verified by the shared ledger owner.
+        verified = read_jsonl(
+            path,
+            expected_surface=None if declared is None else declared[0].name,
+        )
+    except (LedgerIntegrityError, OSError, UnicodeError) as exc:
+        emit_ledger_corruption_diagnostic(
+            {
                 "kind": "ledger_row_corrupt",
                 "ledger": str(path),
                 "line_no": 0,
                 "error": str(exc),
                 "raw_excerpt": REPLAY_TRANSPORT_SCHEMA_PREFIX,
-            }
-            emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
-            if on_corruption == "strict":
-                raise GovernanceError(
-                    f"strict_jsonl_replay_transport_corrupt: {path}: {exc}"
-                ) from exc
-            return
-    if REPLAY_TRANSPORT_SCHEMA_PREFIX in raw_text:
-        try:
-            # A transport payload is exposed only after the complete outer
-            # chain and exact envelope have been verified by the shared
-            # ledger owner.  Legacy/hashless files retain the line-oriented
-            # strict/tolerant behavior below.
-            yield from read_jsonl(path)
-            return
-        except (LedgerIntegrityError, OSError, UnicodeError) as exc:
-            corruption = {
-                "kind": "ledger_row_corrupt",
-                "ledger": str(path),
-                "line_no": 0,
-                "error": str(exc),
-                "raw_excerpt": REPLAY_TRANSPORT_SCHEMA_PREFIX,
-            }
-            emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
-            if on_corruption == "strict":
-                raise GovernanceError(
-                    f"strict_jsonl_replay_transport_corrupt: {path}: {exc}"
-                ) from exc
-            return
-    for line_no, raw in enumerate(raw_text.splitlines(), start=1):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            yield json.loads(line)
-        except json.JSONDecodeError as exc:
-            corruption = {
-                "kind": "ledger_row_corrupt",
-                "ledger": str(path),
-                "line_no": line_no,
-                "error": str(exc),
-                "raw_excerpt": line[:200],
-            }
-            emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
-            if on_corruption == "strict":
-                raise GovernanceError(
-                    f"strict_jsonl_row_corrupt: "
-                    f"{path}:{line_no}: {exc}"
-                )
-            continue
+            },
+            base_dir=sink_base,
+        )
+        if on_corruption == "strict":
+            raise GovernanceError(
+                f"strict_jsonl_replay_transport_corrupt: {path}: {exc}"
+            ) from exc
+        return
+    yield from verified
 
 
-__all__ = ["VALID_ON_CORRUPTION_MODES", "read_strict_jsonl"]
+__all__ = [
+    "VALID_ON_CORRUPTION_MODES",
+    "iter_stored_jsonl_rows",
+    "read_strict_jsonl",
+]

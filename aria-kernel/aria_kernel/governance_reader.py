@@ -27,6 +27,10 @@ Mirror of the Plan 024 §H-7 contract
 - ``on_corruption='tolerant'`` — corrupt row skipped from the
   iterator, diagnostic still emitted. Operators who need partial
   reads (e.g. recovery / forensic dump) opt in explicitly.
+- Rows are decoded by ``strict_jsonl_reader.iter_stored_jsonl_rows``,
+  the one loop ``read_strict_jsonl`` uses too, so the two readers
+  agree on what a corrupt row is: an unparseable line OR a line that
+  decodes to a non-object.
 - ``emit_ledger_corruption_diagnostic`` is called for EVERY
   corrupt row in BOTH modes. The sink owns its stderr fallback
   (Plan 024 §H-7 — recursion-safe write surface), so the helper
@@ -49,6 +53,7 @@ from typing import Any, Iterator
 
 from .diagnostics import emit_ledger_corruption_diagnostic
 from .ledger import (
+    LEDGER_ROW_MAX_BYTES,
     LedgerIntegrityError,
     LedgerReadLimitError,
     REPLAY_TRANSPORT_SCHEMA_PREFIX,
@@ -56,10 +61,8 @@ from .ledger import (
     read_jsonl,
     read_jsonl_reverse_verified,
 )
+from .strict_jsonl_reader import VALID_ON_CORRUPTION_MODES, iter_stored_jsonl_rows
 from .tool_registry import GovernanceError
-
-
-VALID_ON_CORRUPTION_MODES: frozenset[str] = frozenset({"strict", "tolerant"})
 
 
 def read_governance_rows(
@@ -107,33 +110,14 @@ def read_governance_rows(
         return
     sink_base = base_dir if base_dir is not None else path.parent
     raw_text = path.read_text(encoding="utf-8")
-    decoded: list[dict[str, Any]] = []
-    transport_claimed = False
-    for line_no, raw in enumerate(raw_text.splitlines(), start=1):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            corruption = {
-                "kind": "ledger_row_corrupt",
-                "ledger": str(path),
-                "line_no": line_no,
-                "error": str(exc),
-                "raw_excerpt": line[:200],
-            }
-            emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
-            if on_corruption == "strict":
-                raise GovernanceError(
-                    f"governance_row_corrupt_strict_mode: "
-                    f"{path}:{line_no}: {exc}"
-                ) from exc
-            continue
-        if not isinstance(row, dict):
-            continue
-        decoded.append(row)
-        transport_claimed = transport_claimed or is_replay_transport_row(row)
+    decoded = list(iter_stored_jsonl_rows(
+        raw_text,
+        path=path,
+        on_corruption=on_corruption,
+        sink_base=sink_base,
+        strict_error_code="governance_row_corrupt_strict_mode",
+    ))
+    transport_claimed = any(is_replay_transport_row(row) for row in decoded)
     if transport_claimed:
         try:
             rows = read_jsonl(path, expected_surface="tools_governance")
@@ -166,7 +150,9 @@ def read_governance_rows(
 
 
 _BOUNDED_READ_CHUNK_SIZE: int = 65536  # 64 KB
-_MAX_GOVERNANCE_LEDGER_LINE_BYTES: int = 1024 * 1024
+# The writer's row cap (ledger.LEDGER_ROW_MAX_BYTES), bound rather than
+# retyped so a reader cannot drift from what the writer admits.
+_MAX_GOVERNANCE_LEDGER_LINE_BYTES: int = LEDGER_ROW_MAX_BYTES
 _MAX_GOVERNANCE_LEDGER_ROWS: int = 1_000_000
 _REPLAY_TRANSPORT_RAW_MARKERS: tuple[bytes, ...] = (
     b'"producer_event_id"',
@@ -345,7 +331,6 @@ def read_governance_rows_reverse(
 
 
 __all__ = [
-    "VALID_ON_CORRUPTION_MODES",
     "read_governance_rows",
     "read_governance_rows_reverse",
 ]

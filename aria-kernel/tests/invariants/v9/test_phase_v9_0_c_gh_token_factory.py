@@ -69,13 +69,16 @@ class TestV9SigningKeyFactory(unittest.TestCase):
 
     def test_i_v9_token_factory_mint_signing_key_idempotent(self):
         """Re-minting the SAME cycle_id without overwrite=True returns
-        the SAME fingerprint."""
+        the SAME fingerprint and no wiring receipt: the re-mint opened no
+        config transaction, so a caller that commits must refuse it
+        (ARIA-HIGH-114)."""
         with tempfile.TemporaryDirectory() as workspace:
             if shutil.which("ssh-keygen") is None:
                 self.skipTest("ssh-keygen not on PATH")
             k1 = _tf.mint_signing_key(cycle_id="test-cycle-004", workspace_root=workspace)
             k2 = _tf.mint_signing_key(cycle_id="test-cycle-004", workspace_root=workspace)
             self.assertEqual(k1.fingerprint, k2.fingerprint)
+            self.assertIsNone(k2.git_signing)
 
     def test_i_v9_token_factory_mint_signing_key_overwrite(self):
         """overwrite=True regenerates the key → different fingerprint."""

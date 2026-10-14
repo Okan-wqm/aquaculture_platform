@@ -13,15 +13,16 @@ from typing import Any
 
 from .ledger import (
     append_declared_jsonl,
-    append_jsonl as _append_jsonl,
     file_hash,
     load_index,
     read_jsonl,
+    sha256_of_canonical_json,
     verify_index_hashes,
     write_index,
 )
 from .phase2_utils import git_head
 from .pressure import close_pressures_from_signals
+from .tool_registry import GovernanceError
 from .workspace import WorkspacePaths, record_workspace_governance, require_workspace_v2
 
 FEEDBACK_KINDS = {
@@ -62,7 +63,7 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
         surface = _WORKSPACE_MEMORY_SURFACE_BY_FILENAME.get(concrete.name)
         if surface is not None:
             return append_declared_jsonl(path, record, expected_surface=surface)
-    return _append_jsonl(path, record)
+    raise GovernanceError(f"feedback_append_unknown_surface:{concrete.as_posix()}")
 
 
 def now_iso() -> str:
@@ -416,7 +417,7 @@ def _validate_closed_signal_evidence(evidence_refs: list[str]) -> None:
 
 
 def _stable_event_id(prefix: str, slug_source: str, identity: dict[str, Any]) -> str:
-    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    digest = sha256_of_canonical_json(identity)
     return f"{prefix}-{slug(slug_source)[:48]}-{digest[:16]}"
 
 

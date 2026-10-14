@@ -13,12 +13,10 @@ from .feedback_store import load_jsonl as load_findings_rows
 from .feedback_store import rewrite_jsonl as rewrite_findings_rows
 from .ledger import (
     append_declared_jsonl,
-    append_jsonl as _append_jsonl,
     load_declared_jsonl,
-    load_jsonl as _load_jsonl,
 )
 from .memory import latest_beliefs
-from .tool_registry import ensure_tools_dir, list_tools, utc_now
+from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 
 
 # E14 — the change-intelligence agent the `change_intelligence` role always
@@ -61,14 +59,14 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return append_declared_jsonl(path, record, expected_surface=surface)
-    return _append_jsonl(path, record)
+    raise GovernanceError(f"pr_tracking_append_unknown_surface:{Path(path).as_posix()}")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return load_declared_jsonl(path, expected_surface=surface)
-    return _load_jsonl(path)
+    raise GovernanceError(f"pr_tracking_load_unknown_surface:{Path(path).as_posix()}")
 
 
 def _merges(root: Path) -> list[dict[str, Any]]:

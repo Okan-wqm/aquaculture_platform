@@ -1,0 +1,28 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "kind": "anchor_stale",
+    "request_id": "AIR-aria-adversarial-judge-ef9dec51a56a",
+    "role": "adversarial_judgment",
+    "target_agent": "aria-adversarial-judge"
+  },
+  "kernel_disposition": {
+    "disposition": "expired_reminted",
+    "expiry_fault_class": "unclassified",
+    "expiry_reason": "anchor_expired",
+    "reason": "subject_live",
+    "role": "adversarial_judgment",
+    "successor_request_id": "AIR-aria-adversarial-judge-afbb0014fd77",
+    "target_sha": "99689e46bd86eb980ca2bad74df3c6b072eb4e90"
+  },
+  "reason": "request 'AIR-aria-adversarial-judge-ef9dec51a56a' expired ANCHOR_STALE unclaimed",
+  "recorded_at": "2026-10-14T21:09:35Z",
+  "request_id": "AIR-aria-adversarial-judge-ef9dec51a56a",
+  "resolution_note": "kernel disposition expired_reminted: subject_live",
+  "resolved_at": "2026-10-14T21:09:35Z",
+  "resolved_by": "kernel",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-17T21:09:35Z",
+  "status": "resolved"
+}

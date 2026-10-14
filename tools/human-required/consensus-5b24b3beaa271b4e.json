@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/superpowers/plans/agent-03-admin-api.md:21:apps/admin-api-service/src/tenant/handlers/create-tenant.handler.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:f73821ed4f74bfcc30a56a9101a2305bb3059193c7a85c310a7b6dc62d07458a",
+    "kind": "consensus_escalation",
+    "run_id": "a5cd4aa0-086d-4786-96e9-7206cf9694d1",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "evidence_inadmissible"
+  },
+  "reason": "AI consensus could not be reached (evidence_inadmissible) for finding 'doc-staleness:missing:docs/superpowers/plans/agent-03-admin-api.md:21:apps/admin-api-service/src/tenant/handlers/create-tenant.handler.ts' (tool 'doc-staleness-adapter', run 'a5cd4aa0-086d-4786-96e9-7206cf9694d1'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-14T21:09:13Z",
+  "request_id": "consensus-5b24b3beaa271b4e",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-17T21:09:13Z",
+  "status": "open"
+}

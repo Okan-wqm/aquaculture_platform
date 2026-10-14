@@ -127,13 +127,13 @@ e2e/playwright-report/
 e2e/test-results/
 e2e/messaging/results/
 
-# Environment variables
+# Environment variables — deny by default, re-include the committed templates.
+# A list of known names missed backups and new stages (.env.bak-*, .env.staging);
+# tests/invariants/env-files-ignored.spec.ts pins both directions (ARIA-HIGH-497).
 .env
-.env.local
-.env.*.local
-.env.development
-.env.test
-.env.production
+.env.*
+!.env.example
+!.env.*.example
 *.env
 
 # Logs

@@ -42,7 +42,6 @@ One-time consumption (locked by I-V3-19):
 from __future__ import annotations
 
 import hmac
-import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -54,7 +53,7 @@ from .hmac_keyring import (
     mint_key_entry as _mint_key_entry,
     utc_now_stamp as _utc_now,
 )
-from .ledger import append_declared_jsonl, load_declared_jsonl, state_transaction
+from .ledger import append_declared_jsonl, canonical_json, load_declared_jsonl, state_transaction
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _LEDGER_RELATIVE = ("acks", "acks.jsonl")
@@ -95,13 +94,15 @@ def _canonical_row_bytes(row: dict[str, Any]) -> bytes:
     ``consumed_by_event_id`` because consumption used to rewrite the
     mint row in place. New append-only consumption rows bind those
     fields into the signature because they are immutable transition
-    data.
+    data. The encoding is ``ledger.canonical_json``, the kernel's one
+    canonicalizer, so the HMAC subject cannot drift from the ledger's
+    hash contract.
     """
     exclude = set(_HASH_SUBJECT_BASE_EXCLUDE)
     if row.get("event") != "consumed":
         exclude.update({"consumed_at", "consumed_by_event_id"})
     subject = {k: v for k, v in row.items() if k not in exclude}
-    return json.dumps(subject, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return canonical_json(subject).encode("utf-8")
 
 
 def _load_keys(base_dir: str | Path) -> list[dict[str, Any]]:
@@ -231,6 +232,89 @@ def list_keys(*, base_dir: str | Path) -> list[dict[str, Any]]:
     return _keyring(base_dir).redacted()
 
 
+def _mint_ack(
+    *,
+    base_dir: str | Path,
+    draft_id: str,
+    intent_id: str,
+    target_path: str,
+    kind: str,
+    actor_kind: str,
+    actor_user_id: str | None,
+    profile_name: str,
+    lane: str | None,
+    classifier_decision_hash: str | None,
+    reason: str | None,
+    auto_reason_code: str | None,
+    profile_state_at_mint: str,
+    commit_sha_at_mint: str,
+    breaker_state_at_mint: str,
+    parent_observation_id: str | None,
+    governance_event_extra: dict[str, Any] | None,
+) -> AckLedgerRow:
+    """The one mint body for both actor kinds.
+
+    Only the actor-conditional values differ between an operator and an
+    autonomous mint, so the row is built, signed, appended and announced
+    here once. The returned dataclass is built from the signed dict itself
+    BEFORE anything is written, so a row key the dataclass does not declare
+    is a TypeError at mint — refusing it with no signed, consumable token
+    already on the ledger — instead of a silent schema widening.
+    """
+    if kind not in ("agent", "skill"):
+        raise GovernanceError(f"ack_mint_unknown_kind: {kind!r}")
+    root = ensure_tools_dir(base_dir)
+    head_key = _resolve_key(root)
+    ack_id = str(uuid.uuid4())
+    row_dict: dict[str, Any] = {
+        "schema_version": 1,
+        "ack_id": ack_id,
+        "event_time": _utc_now(),
+        "actor_kind": actor_kind,
+        "actor_user_id": actor_user_id,
+        "profile_name": profile_name,
+        "lane": lane,
+        "classifier_decision_hash": classifier_decision_hash,
+        "draft_id": draft_id,
+        "intent_id": intent_id,
+        "target_path": target_path,
+        "kind": kind,
+        "reason": reason,
+        "auto_reason_code": auto_reason_code,
+        "signed_key_id": head_key["key_id"],
+        "consumed_at": None,
+        "consumed_by_event_id": None,
+        "breaker_state_at_mint": breaker_state_at_mint,
+        "profile_state_at_mint": profile_state_at_mint,
+        "commit_sha_at_mint": commit_sha_at_mint,
+        "parent_observation_id": parent_observation_id,
+    }
+    row_dict["signature"] = _hmac_sign(
+        head_key["secret"], _canonical_row_bytes(row_dict),
+    )
+    row = AckLedgerRow(**row_dict)
+    append_declared_jsonl(
+        _ledger_path(root),
+        row_dict,
+        expected_surface="ack_ledger",
+    )
+    from .tool_registry import append_tools_governance
+    append_tools_governance(
+        root,
+        "ack_token_minted",
+        {
+            "ack_id": ack_id,
+            "actor_kind": actor_kind,
+            "draft_id": draft_id,
+            "intent_id": intent_id,
+            "target_path": target_path,
+            "kind": kind,
+            **(governance_event_extra or {}),
+        },
+    )
+    return row
+
+
 def mint_operator_ack(
     *,
     base_dir: str | Path,
@@ -253,78 +337,24 @@ def mint_operator_ack(
     BEFORE reaching this function. Here we just trust the string
     and persist.
     """
-    if kind not in ("agent", "skill"):
-        raise GovernanceError(f"ack_mint_unknown_kind: {kind!r}")
-    root = ensure_tools_dir(base_dir)
-    head_key = _resolve_key(root)
-    ack_id = str(uuid.uuid4())
-    event_time = _utc_now()
-    row_dict: dict[str, Any] = {
-        "schema_version": 1,
-        "ack_id": ack_id,
-        "event_time": event_time,
-        "actor_kind": "operator",
-        "actor_user_id": operator_user_id,
-        "profile_name": profile_name,
-        "lane": None,
-        "classifier_decision_hash": None,
-        "draft_id": draft_id,
-        "intent_id": intent_id,
-        "target_path": target_path,
-        "kind": kind,
-        "reason": reason,
-        "auto_reason_code": None,
-        "signed_key_id": head_key["key_id"],
-        "consumed_at": None,
-        "consumed_by_event_id": None,
-        "breaker_state_at_mint": breaker_state_at_mint,
-        "profile_state_at_mint": profile_state_at_mint,
-        "commit_sha_at_mint": commit_sha_at_mint,
-        "parent_observation_id": parent_observation_id,
-    }
-    row_dict["signature"] = _hmac_sign(
-        head_key["secret"], _canonical_row_bytes(row_dict),
-    )
-    append_declared_jsonl(
-        _ledger_path(root),
-        row_dict,
-        expected_surface="ack_ledger",
-    )
-    from .tool_registry import append_tools_governance
-    append_tools_governance(
-        root,
-        "ack_token_minted",
-        {
-            "ack_id": ack_id,
-            "actor_kind": "operator",
-            "draft_id": draft_id,
-            "intent_id": intent_id,
-            "target_path": target_path,
-            "kind": kind,
-        },
-    )
-    return AckLedgerRow(
-        ack_id=ack_id,
-        event_time=event_time,
+    return _mint_ack(
+        base_dir=base_dir,
+        draft_id=draft_id,
+        intent_id=intent_id,
+        target_path=target_path,
+        kind=kind,
         actor_kind="operator",
         actor_user_id=operator_user_id,
         profile_name=profile_name,
         lane=None,
         classifier_decision_hash=None,
-        draft_id=draft_id,
-        intent_id=intent_id,
-        target_path=target_path,
-        kind=kind,
         reason=reason,
         auto_reason_code=None,
-        signature=row_dict["signature"],
-        signed_key_id=head_key["key_id"],
-        consumed_at=None,
-        consumed_by_event_id=None,
-        breaker_state_at_mint=breaker_state_at_mint,
         profile_state_at_mint=profile_state_at_mint,
         commit_sha_at_mint=commit_sha_at_mint,
+        breaker_state_at_mint=breaker_state_at_mint,
         parent_observation_id=parent_observation_id,
+        governance_event_extra=None,
     )
 
 
@@ -350,80 +380,24 @@ def mint_auto_ack(
     mainline authority does not derive any autonomous auto-ack lane; callers
     must consume an operator-minted ack token.
     """
-    if kind not in ("agent", "skill"):
-        raise GovernanceError(f"ack_mint_unknown_kind: {kind!r}")
-    root = ensure_tools_dir(base_dir)
-    head_key = _resolve_key(root)
-    ack_id = str(uuid.uuid4())
-    event_time = _utc_now()
-    row_dict: dict[str, Any] = {
-        "schema_version": 1,
-        "ack_id": ack_id,
-        "event_time": event_time,
-        "actor_kind": "autonomous_profile",
-        "actor_user_id": None,
-        "profile_name": profile_name,
-        "lane": lane,
-        "classifier_decision_hash": classifier_decision_hash,
-        "draft_id": draft_id,
-        "intent_id": intent_id,
-        "target_path": target_path,
-        "kind": kind,
-        "reason": None,
-        "auto_reason_code": auto_reason_code,
-        "signed_key_id": head_key["key_id"],
-        "consumed_at": None,
-        "consumed_by_event_id": None,
-        "breaker_state_at_mint": breaker_state_at_mint,
-        "profile_state_at_mint": profile_state_at_mint,
-        "commit_sha_at_mint": commit_sha_at_mint,
-        "parent_observation_id": parent_observation_id,
-    }
-    row_dict["signature"] = _hmac_sign(
-        head_key["secret"], _canonical_row_bytes(row_dict),
-    )
-    append_declared_jsonl(
-        _ledger_path(root),
-        row_dict,
-        expected_surface="ack_ledger",
-    )
-    from .tool_registry import append_tools_governance
-    append_tools_governance(
-        root,
-        "ack_token_minted",
-        {
-            "ack_id": ack_id,
-            "actor_kind": "autonomous_profile",
-            "draft_id": draft_id,
-            "intent_id": intent_id,
-            "target_path": target_path,
-            "kind": kind,
-            "lane": lane,
-            "auto_reason_code": auto_reason_code,
-        },
-    )
-    return AckLedgerRow(
-        ack_id=ack_id,
-        event_time=event_time,
+    return _mint_ack(
+        base_dir=base_dir,
+        draft_id=draft_id,
+        intent_id=intent_id,
+        target_path=target_path,
+        kind=kind,
         actor_kind="autonomous_profile",
         actor_user_id=None,
         profile_name=profile_name,
         lane=lane,
         classifier_decision_hash=classifier_decision_hash,
-        draft_id=draft_id,
-        intent_id=intent_id,
-        target_path=target_path,
-        kind=kind,
         reason=None,
         auto_reason_code=auto_reason_code,
-        signature=row_dict["signature"],
-        signed_key_id=head_key["key_id"],
-        consumed_at=None,
-        consumed_by_event_id=None,
-        breaker_state_at_mint=breaker_state_at_mint,
         profile_state_at_mint=profile_state_at_mint,
         commit_sha_at_mint=commit_sha_at_mint,
+        breaker_state_at_mint=breaker_state_at_mint,
         parent_observation_id=parent_observation_id,
+        governance_event_extra={"lane": lane, "auto_reason_code": auto_reason_code},
     )
 
 

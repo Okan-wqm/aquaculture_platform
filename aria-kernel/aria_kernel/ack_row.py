@@ -1,12 +1,14 @@
 """Plan ARIA-V3 §A5 + §2h + AUDITTRAIL-CRITICAL-002 — ack-ledger row schema.
 
 Every operator-mint OR autonomous-profile-mint produces an
-``AckLedgerRow`` with 17 mandatory fields. The schema is locked by
-I-V3-19a (set-equality on field names) and I-V3-19b
-(``actor_kind`` discriminates operator vs autonomous).
+``AckLedgerRow``; every field of that dataclass is mandatory on a minted
+row. I-V3-19a locks a minted row's key set to exactly
+``ACK_ROW_REQUIRED_FIELDS`` plus the ledger hash-chain envelope, and
+I-V3-19b locks ``actor_kind`` as the operator vs autonomous discriminator.
 
 Field semantics:
 
+  ``schema_version`` — row format version; every mint writes ``1``.
   ``ack_id`` — UUID4 minted at ack creation; primary key.
   ``event_time`` — ISO-8601 UTC at mint.
   ``actor_kind`` — ``"operator"`` (CLI mint with explicit reason) or
@@ -45,33 +47,8 @@ append-only reducer: ``consume_token`` rejects if either a legacy
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, fields
 from typing import Any
-
-# Plan ARIA-V3 §2h — 17 mandatory field names. Locked by I-V3-19a.
-ACK_ROW_REQUIRED_FIELDS: frozenset[str] = frozenset({
-    "ack_id",
-    "event_time",
-    "actor_kind",
-    "actor_user_id",
-    "profile_name",
-    "lane",
-    "classifier_decision_hash",
-    "draft_id",
-    "intent_id",
-    "target_path",
-    "kind",
-    "reason",
-    "auto_reason_code",
-    "signature",
-    "signed_key_id",
-    "consumed_at",
-    "consumed_by_event_id",
-    "breaker_state_at_mint",
-    "profile_state_at_mint",
-    "commit_sha_at_mint",
-    "parent_observation_id",
-})
 
 
 ACK_ACTOR_KINDS: frozenset[str] = frozenset({
@@ -118,6 +95,16 @@ class AckLedgerRow:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+# Plan ARIA-V3 §2h — the mandatory field names, derived from the dataclass
+# so the row schema has one owner: a hand-kept copy drifted (it said 17,
+# held 21, and missed the ``schema_version`` every mint writes). I-V3-19a
+# pins SET-EQUALITY between this set and every minted row minus the ledger
+# chain envelope.
+ACK_ROW_REQUIRED_FIELDS: frozenset[str] = frozenset(
+    f.name for f in fields(AckLedgerRow)
+)
 
 
 __all__ = [

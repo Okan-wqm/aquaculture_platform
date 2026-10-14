@@ -14,6 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.cycle_guard import _open_finding_count
 from aria_kernel.finding import list_findings, show_finding
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
@@ -68,6 +69,9 @@ class SeedMintTests(unittest.TestCase):
         # event-ledger'da yaşıyor — replay görüyor
         doc = show_finding(self.repo, record["finding_id"])
         self.assertEqual(doc["originating_skill"], "seed:drift-scan")
+        # ARIA-MEDIUM-493 — the kernel's index is the cycle_guard contract the retired
+        # seeder writer used to hand-write; minting alone must satisfy it.
+        self.assertEqual(_open_finding_count(self.repo), 1)
 
     def test_same_drift_next_night_is_one_durable_record(self) -> None:
         seeder.mint_candidates(self.repo, [_drift()], base_dir=self.repo / 'aria-tools')

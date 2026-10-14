@@ -2,8 +2,8 @@
 
 WHY this module exists
 ----------------------
-ARIA dispatches work to 80+ agent .md files (root + _maintenance + product-
-audit), each declaring a `tools:` allowlist + body content + transitive
+ARIA dispatches work to 80+ agent .md files (resolved through
+agent_resolver._AGENT_MD_DIRECTORIES), each declaring a `tools:` allowlist + body content + transitive
 `@.claude/knowledge/...` references. Pre-Plan-020 there was no audit between
 "this request looks small" and "this request actually fills 80 % of Claude's
 context window". Once a planner packet exceeds the role-class cap the agent

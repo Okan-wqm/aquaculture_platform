@@ -431,7 +431,7 @@ def verify_agent_mirrors(*, repo_root: str | Path) -> list[dict[str, Any]]:
     Returns one row per defect; empty means every mirror agrees with the
     kernel. Used by the Plan 032 invariant test and available to `doctor`.
     """
-    from .agent_runtime_profile import _find_agent_file, _parse_frontmatter_field  # noqa: PLC0415
+    from .agent_runtime_profile import _parse_frontmatter_field  # noqa: PLC0415
 
     root = Path(repo_root)
     agents_dir = root / ".claude" / "agents"

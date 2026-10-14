@@ -174,6 +174,39 @@ class AgentRuntimeProfileReaderTests(unittest.TestCase):
         self.assertEqual(resolve_claude_model("aria-implementer"), "opus")
 
 
+class ResolverParityTests(unittest.TestCase):
+    """ARIA-MEDIUM-465 — the tier reader resolves agent files through agent_resolver.
+
+    It used to glob ``**/<name>.md`` under every subdirectory, so a
+    standards document under ``_shared/`` read as an agent here while the
+    surface validator called it absent.
+    """
+
+    def _repo(self) -> Path:
+        scratch = tempfile.TemporaryDirectory(prefix="aria-a2-5-")
+        self.addCleanup(scratch.cleanup)
+        root = Path(scratch.name)
+        (root / ".claude" / "agents" / "_shared").mkdir(parents=True)
+        (root / ".claude" / "agents" / "db-audit").mkdir(parents=True)
+        return root
+
+    def test_a_document_under_shared_is_not_an_agent(self) -> None:
+        root = self._repo()
+        (root / ".claude" / "agents" / "_shared" / "aria-shared-doc.md").write_text(
+            "---\nname: aria-shared-doc\nmodel: opus\neffort: high\n---\n", encoding="utf-8",
+        )
+        prof = read_agent_runtime_profile("aria-shared-doc", repo_root=root)
+        self.assertEqual(prof.source, "default_missing_file")
+
+    def test_a_db_audit_agent_resolves(self) -> None:
+        root = self._repo()
+        (root / ".claude" / "agents" / "db-audit" / "db-audit-probe.md").write_text(
+            "---\nname: db-audit-probe\nmodel: opus\neffort: high\n---\n", encoding="utf-8",
+        )
+        prof = read_agent_runtime_profile("db-audit-probe", repo_root=root)
+        self.assertEqual((prof.source, prof.model, prof.effort), ("frontmatter", "opus", "high"))
+
+
 class ModelTierInvariantTests(unittest.TestCase):
     def test_every_aria_agent_frontmatter_is_valid(self) -> None:
         names = _all_aria_agent_names()

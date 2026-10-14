@@ -5,7 +5,7 @@ WHY this module exists
 ARIA's runtime depends on multiple manifests staying in sync:
 - .claude/agents/**/*.md frontmatter shape (name + tools + model + ...).
 - agent_contract.DEFAULT_TARGET_AGENT_WHITELIST entries map to real .md
-  files (root + _maintenance + product-audit lookup).
+  files (the agent_resolver._AGENT_MD_DIRECTORIES lookup).
 - agent_contract.ROLE_TARGET_PAIRING entries reference whitelist agents.
 - aria-tools/registry.json runner.argv paths resolve on disk.
 - docs/aria/plans/*.md don't reference RESOLVED debts as 'in progress'.
@@ -137,8 +137,8 @@ def validate_agent_frontmatter(*, repo_root: Path) -> list[dict[str, Any]]:
 
 
 def validate_target_agent_existence(*, repo_root: Path) -> list[dict[str, Any]]:
-    """Layer 2: every whitelist entry resolves to a real .md (root +
-    _maintenance + product-audit search per agent_resolver)."""
+    """Layer 2: every whitelist entry resolves to a real .md (the
+    agent_resolver._AGENT_MD_DIRECTORIES search)."""
     from .agent_contract import DEFAULT_TARGET_AGENT_WHITELIST
     failures: list[dict[str, Any]] = []
     for target in DEFAULT_TARGET_AGENT_WHITELIST:
@@ -147,7 +147,7 @@ def validate_target_agent_existence(*, repo_root: Path) -> list[dict[str, Any]]:
             failures.append({
                 "validator": "validate_target_agent_existence",
                 "target_agent": target,
-                "reason": "no_md_file_in_root_maintenance_or_product_audit",
+                "reason": "no_md_file_in_agent_resolver_directories",
             })
     return failures
 
@@ -361,7 +361,7 @@ def validate_registry_adapter_sync(
     Pre-Plan-022 the v1 audit's "registry-adapter synchronized" verdict
     missed deeper drift: tools/aria-adapters/typeorm-entity-schema-adapter
     .tool.json existed on disk but was never bound to aria-tools/registry
-    .json, and aria_kernel/adapter_portfolio.py:43 carried admitted
+    .json, and aria_kernel/adapter_portfolio.py carried admitted
     stub-runner pattern. M-6 surfaces both:
 
     1. Every tools/aria-adapters/*.tool.json MUST have a registry row

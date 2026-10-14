@@ -104,6 +104,19 @@ class Delivery(_Fixture):
         with self.assertRaises(AgentContractUnavailable):
             render_agent_contract("../escape", repo_root=self.tmp)
 
+    def test_agent_files_resolve_through_the_shared_resolver(self) -> None:
+        # ARIA-MEDIUM-465 — a standards document under _shared/ is not an agent the
+        # model can be handed; a db-audit agent is.
+        (self.tmp / ".claude/agents/_shared").mkdir()
+        (self.tmp / ".claude/agents/_shared/shared-standards.md").write_text("# Standards\n", encoding="utf-8")
+        with self.assertRaises(AgentContractUnavailable):
+            render_agent_contract("shared-standards", repo_root=self.tmp)
+        (self.tmp / ".claude/agents/db-audit").mkdir()
+        (self.tmp / ".claude/agents/db-audit/db-audit-probe.md").write_text(
+            "---\nname: db-audit-probe\n---\nAudit body.\n", encoding="utf-8",
+        )
+        self.assertIn("Audit body.", render_agent_contract("db-audit-probe", repo_root=self.tmp).text)
+
 
 class TheValidatorSpeaksLast(_Fixture):
     def test_the_delivered_contract_ends_with_the_validators_rules(self) -> None:

@@ -5,10 +5,12 @@ WHY this is a shared utility (not duplicated)
 Phase 2 (context_budget_gate.audit_dispatch_context) needs to read the agent
 .md file's frontmatter `tools:` block + body length to estimate context tokens.
 Phase 11 (surface_manifest_validator.validate_target_agent_existence) needs to
-confirm every whitelist entry has a real file on disk. Both phases must follow
-the same lookup order — root first, then `_maintenance/`, then
-`product-audit/`. A copy-pasted resolver would drift the moment one phase adds
-a new agent directory; the shared utility keeps both phases honest.
+confirm every whitelist entry has a real file on disk. The model/effort tier
+reader (agent_runtime_profile) and the contract delivered to a model
+(agent_contract_delivery) read the same files. All of them follow the one
+lookup order below; a copy-pasted resolver would drift the moment one layer
+adds a new agent directory (ARIA-MEDIUM-465: the two private recursive-glob copies
+already disagreed with the validator about which agents exist).
 
 Lookup order (operator gap correction)
 --------------------------------------
@@ -24,20 +26,29 @@ Lookup order (operator gap correction)
 3. .claude/agents/product-audit/<target>.md
                                           — Lane-B product-audit roster
                                           (product-audit-orchestrator, etc.).
+4. .claude/agents/db-audit/<target>.md  — database-audit roster
+                                          (db-audit-farm-operations, ...).
+5. .claude/agents/edge-docs/<target>.md — Lane-C edge-documentation roster
+                                          (edge-docs-orchestrator, ...).
 
-First match wins. None returned when no candidate exists.
+`_shared/` is deliberately absent: it holds standards and contract documents
+that agents cite, not agents. First match wins. None returned when no
+candidate exists.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-# Search order (left-to-right) for resolve_agent_md_path. The order is the
-# Plan 020 v3.3 §Phase 2 + §Phase 11 contract; do NOT rearrange without
-# updating both phases' tests.
+# Search order (left-to-right) for resolve_agent_md_path. The first three are
+# the Plan 020 v3.3 §Phase 2 + §Phase 11 contract; do NOT rearrange without
+# updating both phases' tests. db-audit/edge-docs come after them, so every
+# earlier lookup keeps its precedence.
 _AGENT_MD_DIRECTORIES: tuple[tuple[str, ...], ...] = (
     (".claude", "agents"),
     (".claude", "agents", "_maintenance"),
     (".claude", "agents", "product-audit"),
+    (".claude", "agents", "db-audit"),
+    (".claude", "agents", "edge-docs"),
 )
 
 

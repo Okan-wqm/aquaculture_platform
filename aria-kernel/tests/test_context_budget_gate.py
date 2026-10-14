@@ -9,7 +9,8 @@ What this suite pins (≥10 tests):
   context_budget_exceeded governance event on breach.
 - context_budget_audited governance event always emitted.
 - aria-tools/context-audits.jsonl Plan 020 surface persistence.
-- agent_resolver three-directory lookup (root + _maintenance + product-audit).
+- agent_resolver lookup (root + _maintenance + product-audit + db-audit +
+  edge-docs).
 - Knowledge bookmark @.claude/knowledge/... reference parsing.
 - Frozen profile blocks the audit ledger write
   (enforce_profile_for_write('context_audits', ...)).
@@ -47,14 +48,16 @@ class _FakeRepo:
         (root / ".claude" / "agents").mkdir(parents=True, exist_ok=True)
         (root / ".claude" / "agents" / "_maintenance").mkdir(parents=True, exist_ok=True)
         (root / ".claude" / "agents" / "product-audit").mkdir(parents=True, exist_ok=True)
+        (root / ".claude" / "agents" / "db-audit").mkdir(parents=True, exist_ok=True)
+        (root / ".claude" / "agents" / "edge-docs").mkdir(parents=True, exist_ok=True)
         (root / ".claude" / "knowledge").mkdir(parents=True, exist_ok=True)
 
     def write_agent(self, location: str, name: str, body: str) -> Path:
         target = self.root / ".claude" / "agents"
         if location == "maintenance":
             target = target / "_maintenance"
-        elif location == "product-audit":
-            target = target / "product-audit"
+        elif location in {"product-audit", "db-audit", "edge-docs"}:
+            target = target / location
         path = target / f"{name}.md"
         path.write_text(body, encoding="utf-8")
         return path
@@ -142,6 +145,14 @@ class AgentResolverTests(unittest.TestCase):
 
     def test_returns_none_when_no_match(self) -> None:
         self.assertIsNone(resolve_agent_md_path("nope-doesnt-exist", self.repo))
+
+    def test_resolves_db_audit_agent_md(self) -> None:
+        path = self.fake.write_agent("db-audit", "db-audit-farm-operations", "---\nname: db\n---\n")
+        self.assertEqual(resolve_agent_md_path("db-audit-farm-operations", self.repo), path)
+
+    def test_resolves_edge_docs_agent_md(self) -> None:
+        path = self.fake.write_agent("edge-docs", "edge-docs-orchestrator", "---\nname: edge\n---\n")
+        self.assertEqual(resolve_agent_md_path("edge-docs-orchestrator", self.repo), path)
 
     def test_path_traversal_rejected(self) -> None:
         self.assertIsNone(resolve_agent_md_path("../../../etc/passwd", self.repo))

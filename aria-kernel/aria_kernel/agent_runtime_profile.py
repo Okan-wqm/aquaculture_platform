@@ -34,15 +34,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from .agent_resolver import resolve_agent_md_path
 
-# ORPHAN-HIGH-763 — `glm-5.3` (Z.ai) joins the dispatchable vocabulary.
-# It reaches the same `claude` binary through the provider swap Z.ai
-# publishes (ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic), so this is
-# one more member of an existing vocabulary rather than a second runtime.
-# The lane still refuses API-key mode unless ARIA_ALLOW_CLAUDE_API_KEY_MODE=1
-# is set "under a new policy" (claude_runtime.assert_claude_policy_environment)
-# — that operator policy, not this constant, is what actually enables it.
-VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable", "glm-5.3"})
+
 VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 DEFAULT_MODEL: str = "opus"
@@ -63,6 +57,18 @@ DEFAULT_MODEL: str = "opus"
 # stated rank — which is the honest position once a model actually runs.
 MODEL_TIER_ORDER: tuple[str, ...] = ("fable", "glm-5.3", "opus", "sonnet", "haiku")
 MIN_AGENT_AUTHORING_TIER: str = "opus"
+
+# ORPHAN-HIGH-763 — `glm-5.3` (Z.ai) joins the dispatchable vocabulary.
+# It reaches the same `claude` binary through the provider swap Z.ai
+# publishes (ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic), so this is
+# one more member of an existing vocabulary rather than a second runtime.
+# The lane still refuses API-key mode unless ARIA_ALLOW_CLAUDE_API_KEY_MODE=1
+# is set "under a new policy" (claude_runtime.assert_claude_policy_environment)
+# — that operator policy, not this constant, is what actually enables it.
+# ARIA-MEDIUM-465 — admission IS ranking: a model the kernel dispatches is a model the
+# tier order ranks, so the vocabulary is derived from MODEL_TIER_ORDER and a
+# second literal can no longer admit a model the order cannot place.
+VALID_MODELS: frozenset[str] = frozenset(MODEL_TIER_ORDER)
 
 
 def model_tier_rank(model: str | None) -> int:
@@ -133,8 +139,8 @@ WRITE_TIER_AGENTS: frozenset[str] = frozenset({
     "aria-implementer",
     "aria-drafter",
     "aria-prompt-writer",
-    # Plan 030 / K3 — write-capable agents the jest mirror already pinned;
-    # the two sets must never diverge (ORPHAN-HIGH-285).
+    # Plan 030 / K3 — write-capable agents. The jest frontmatter spec reads
+    # this set; there is no second copy (ORPHAN-HIGH-285, ARIA-MEDIUM-466).
     "aria-acceptance-gap-fixer",
     "aria-worker",
 })
@@ -181,21 +187,6 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _agents_dir(repo_root: Path | None) -> Path:
-    return (repo_root or _repo_root()) / ".claude" / "agents"
-
-
-def _find_agent_file(agent_name: str, repo_root: Path | None) -> Path | None:
-    base = _agents_dir(repo_root)
-    if not base.exists():
-        return None
-    direct = base / f"{agent_name}.md"
-    if direct.is_file():
-        return direct
-    matches = sorted(base.glob(f"**/{agent_name}.md"))
-    return matches[0] if matches else None
-
-
 def _parse_frontmatter_field(text: str, field: str) -> str | None:
     match = _FRONTMATTER_RX.match(text)
     if not match:
@@ -210,7 +201,7 @@ def _parse_frontmatter_field(text: str, field: str) -> str | None:
 @lru_cache(maxsize=256)
 def _read_profile_cached(agent_name: str, repo_root_str: str | None) -> AgentRuntimeProfile:
     repo_root = Path(repo_root_str) if repo_root_str else None
-    path = _find_agent_file(agent_name, repo_root)
+    path = resolve_agent_md_path(agent_name, repo_root or _repo_root())
     if path is None:
         return AgentRuntimeProfile(agent_name, DEFAULT_MODEL, DEFAULT_EFFORT, "default_missing_file")
     text = path.read_text(encoding="utf-8")

@@ -28,12 +28,14 @@ import types
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 _KERNEL = Path(__file__).resolve().parents[1]
 if str(_KERNEL) not in sys.path:
     sys.path.insert(0, str(_KERNEL))
 
 import aria_kernel.capability_gap as cg  # noqa: E402
+from aria_kernel import observation_coverage  # noqa: E402
 from aria_kernel.observation_coverage import (  # noqa: E402
     MIN_UNOBSERVED_NIGHTS_BEFORE_GAP,
     ObservationVerdict,
@@ -216,6 +218,49 @@ class UnobservedSurfaceGapTests(unittest.TestCase):
             history[-2:],
         )
         self.assertGreater(gaps[0]["score"], minimum[0]["score"])
+
+    def test_the_cited_paths_are_observation_coverage_s_own(self) -> None:
+        # The adapter directory and the observation policy belong to
+        # observation_coverage, which reads them; a copy here would cite a
+        # stale path the day either one moves.
+        gaps, _ = self._run(
+            _verdict(_blind_root("sens-api-gateway")),
+            [_night(2, ["sens-api-gateway"]), _night(1, ["sens-api-gateway"])],
+        )
+        self.assertEqual(
+            gaps[0]["evidence_refs"],
+            [
+                "sens-api-gateway",
+                "/".join(observation_coverage.ADAPTER_DIR),
+                "/".join(observation_coverage.POLICY_RELATIVE_PATH),
+            ],
+        )
+        self.assertIs(cg.ADAPTER_DIR, observation_coverage.ADAPTER_DIR)
+        self.assertIs(cg.POLICY_RELATIVE_PATH, observation_coverage.POLICY_RELATIVE_PATH)
+        self.assertFalse(hasattr(cg, "ADAPTER_MANIFEST_DIR"))
+        self.assertFalse(hasattr(cg, "OBSERVATION_POLICY_REL"))
+
+
+class AdapterManifestDirectoryTests(unittest.TestCase):
+    """The registry-vs-manifest comparison reads manifests from the same
+    adapter directory observation_coverage measures, not from a literal."""
+
+    def test_registry_gaps_read_manifests_through_the_shared_adapter_dir(self) -> None:
+        moved = ("tools", "moved-adapters")
+        with tempfile.TemporaryDirectory() as tmp:
+            tools_root = Path(tmp) / "aria-tools"
+            tools_root.mkdir()
+            (tools_root / "registry.json").write_text('{"tools": []}', encoding="utf-8")
+            repo = Path(tmp) / "repo"
+            manifest_dir = repo.joinpath(*moved)
+            manifest_dir.mkdir(parents=True)
+            (manifest_dir / "x.tool.json").write_text('{"tool_id": "x"}', encoding="utf-8")
+            paths = types.SimpleNamespace(repo_root=str(repo))
+            with mock.patch.object(cg, "ADAPTER_DIR", moved):
+                gaps = cg._gaps_from_adapter_registry("c1", paths, tools_root, "idx")
+        self.assertEqual(
+            [gap["capability_gap_key"] for gap in gaps], ["registry:orphan:x"],
+        )
 
 
 class NightlyRecordTests(unittest.TestCase):

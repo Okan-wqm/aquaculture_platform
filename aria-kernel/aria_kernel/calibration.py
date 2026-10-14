@@ -82,23 +82,19 @@ MIN_LABELS = 10
 
 def _pressure_weight_recommendations(feedback_rows: list[dict[str, Any]], *, base_dir=None) -> list[dict[str, Any]]:
     """One recommendation per dial the labels measure (ARIA-HIGH-370:
-    ``calibration_dials.feedback_dial``), read against that dial's CURRENT
+    ``calibration_dials.feedback_dial``, counted by
+    ``calibration_dials.feedback_counts_by_dial``), read against that dial's CURRENT
     value — a pressure source's effective weight, or a tool dial's weight
     after the actuator's applications — never a default for a dial that
     does not exist."""
-    from .calibration_dials import SOURCE_DIAL, TOOL_DIAL_NEUTRAL, feedback_dial, tool_pressure_weights
+    from .calibration_dials import (
+        SOURCE_DIAL,
+        TOOL_DIAL_NEUTRAL,
+        feedback_counts_by_dial,
+        tool_pressure_weights,
+    )
 
-    by_dial: dict[tuple[str, str], dict[str, int]] = {}
-    for row in feedback_rows:
-        dial = feedback_dial(row)
-        if dial is None:
-            continue
-        verdict = str(row.get("verdict") or row.get("kind") or "")
-        bucket = by_dial.setdefault(dial, {"tp": 0, "fp": 0})
-        if verdict == "true_positive":
-            bucket["tp"] += 1
-        elif verdict == "false_positive":
-            bucket["fp"] += 1
+    by_dial = feedback_counts_by_dial(feedback_rows)
     source_weights = _effective_source_weights(base_dir)
     tool_weights = tool_pressure_weights(base_dir)
     recommendations = []

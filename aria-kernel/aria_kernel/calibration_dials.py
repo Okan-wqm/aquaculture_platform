@@ -18,15 +18,17 @@ which an adapter's findings reach the pressure table is the
 the label measures: :data:`TOOL_DIAL`, one weight per tool, neutral at
 :data:`TOOL_DIAL_NEUTRAL`, scaling that tool's raw-delta pressures
 (``pressure.run_pressure``). :func:`feedback_dial` is the one reading of a
-row, shared by the recommendation producer and the Beta-Binomial source
-calibration (ORPHAN-HIGH-627) so the two cannot disagree about attribution;
+row and :func:`feedback_counts_by_dial` the one tp/fp count over rows, both
+shared by the recommendation producer and the Beta-Binomial source
+calibration (ORPHAN-HIGH-627) so the two cannot disagree about attribution
+or about how many labels a dial has;
 :func:`tool_pressure_weights` folds the actuator's ledger
 (``calibration_actuator``) into the current value of each tool dial.
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 TOOL_DIAL = "tool_pressure_weight"
 SOURCE_DIAL = "pressure_source"
@@ -63,6 +65,31 @@ def feedback_dial(row: Mapping[str, Any]) -> tuple[str, str] | None:
     if isinstance(tool, str) and tool.strip():
         return TOOL_DIAL, tool.strip()
     return None
+
+
+def feedback_counts_by_dial(
+    feedback_rows: Iterable[Mapping[str, Any]],
+) -> dict[tuple[str, str], dict[str, int]]:
+    """tp/fp per dial, from the labelled feedback rows.
+
+    The one count both views of the ledger use (the recommendation pass and
+    the Beta-Binomial source calibration): sharing only :func:`feedback_dial`
+    left each view its own copy of the verdict reading and the buckets, free
+    to drift apart on how many labels a dial has. Insertion order is first
+    sighting, so a caller that wants a stable order sorts.
+    """
+    by_dial: dict[tuple[str, str], dict[str, int]] = {}
+    for row in feedback_rows:
+        dial = feedback_dial(row)
+        if dial is None:
+            continue
+        verdict = str(row.get("verdict") or row.get("kind") or "")
+        bucket = by_dial.setdefault(dial, {"tp": 0, "fp": 0})
+        if verdict == "true_positive":
+            bucket["tp"] += 1
+        elif verdict == "false_positive":
+            bucket["fp"] += 1
+    return by_dial
 
 
 #: The judge id the gold-set replay seeds its ground-truth anchors under
@@ -145,6 +172,7 @@ def tool_pressure_weights(base_dir: str | Path | None) -> dict[str, int]:
 
 __all__ = [
     "AUTO_APPLIED_PATH", "AUTO_APPLIED_SURFACE", "SECURITY_TOOLS", "SOURCE_DIAL", "clamp_dial", "dial_bounds", "TOOL_DIAL", "TOOL_DIAL_MAX",
-    "TOOL_DIAL_MIN", "TOOL_DIAL_NEUTRAL", "auto_applied_rows", "feedback_dial", "tool_pressure_weights",
+    "TOOL_DIAL_MIN", "TOOL_DIAL_NEUTRAL", "auto_applied_rows", "feedback_counts_by_dial", "feedback_dial",
+    "tool_pressure_weights",
     "GOLDSET_REPLAY_JUDGE_ID", "moves_auto_applied_dial",
 ]

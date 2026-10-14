@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .enterprise_readiness import READINESS_BINDING_FIELDS
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -482,7 +483,7 @@ def probe_runner_attestations_for_claims(
 
 def _validate_attestation(row: dict[str, Any]) -> None:
     required = (
-        "repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id",
+        *READINESS_BINDING_FIELDS,
         "runner_id", "runner_group", "claude_auth", "run_id", "run_attempt",
     )
     missing = [key for key in required if row.get(key) in (None, "", [], {})]

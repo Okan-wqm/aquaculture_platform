@@ -3,8 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .enterprise_readiness import READINESS_BINDING_FIELDS
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+
+# ARIA-LOW-491 — the incident events this ledger accepts: exactly the three its
+# producers below write. `incident_opened` was accepted too, with no
+# producer and no reader.
+INCIDENT_EVENTS: frozenset[str] = frozenset({
+    "pre_merge_no_incident",
+    "merge_finalized_no_incident",
+    "merge_failed",
+})
 
 
 def record_incident_event(
@@ -20,7 +30,7 @@ def record_incident_event(
     }
     row.setdefault("row_id", f"{row.get('incident_event')}:{row.get('pr_number')}:{row.get('head_sha')}")
     _require_common(row)
-    if row.get("incident_event") not in {"pre_merge_no_incident", "merge_finalized_no_incident", "merge_failed", "incident_opened"}:
+    if row.get("incident_event") not in INCIDENT_EVENTS:
         raise GovernanceError("incident_event_unknown")
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "enterprise" / "incidents.jsonl",
@@ -116,13 +126,13 @@ def record_merge_failed_incident(
 
 
 def _require_common(row: dict[str, Any]) -> None:
-    required = ("repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id")
-    missing = [key for key in required if row.get(key) in (None, "", [], {})]
+    missing = [key for key in READINESS_BINDING_FIELDS if row.get(key) in (None, "", [], {})]
     if missing:
         raise GovernanceError("incident_event_missing_fields:" + ",".join(missing))
 
 
 __all__ = [
+    "INCIDENT_EVENTS",
     "ensure_pre_merge_incident_row",
     "finalize_merge_incident",
     "record_incident_event",

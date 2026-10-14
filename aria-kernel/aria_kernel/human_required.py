@@ -27,13 +27,14 @@ from typing import Any, Mapping
 
 from .agent_invocations import _claims_path, _request_event_count, derive_request_states
 from .artifact_safety import published_text
-from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments
+from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments, state_transaction
 from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
 from .strict_jsonl_reader import read_strict_jsonl
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, tools_dir, utc_now
 
-# The longest `record_human_required` can legitimately wait: its governance
-# append (one state transaction behind a live holder) and the notification
+# The longest `record_human_required` can legitimately wait: its record write
+# and governance append (ONE state transaction behind a live holder —
+# `_write_human_required_record` takes both locks under one deadline) and the notification
 # it sends (`notify.NOTIFY_WORST_CASE_SECONDS`: every channel at its wall
 # clock, then one transaction for the outbox rows). The executor runs this
 # function as a kernel child on its refusal exits and derives that child's
@@ -58,8 +59,10 @@ HUMAN_REQUIRED_RECORD_WAIT_SECONDS: float = STATE_LOCK_LIVENESS_SECONDS + NOTIFY
 EXECUTOR_ESCALATION_KIND: str = "executor_escalation"
 
 # Plan 016 SLA windows per severity. CRITICAL/HIGH share the 72h window;
-# MEDIUM gets 7 days; everything else falls back to 14 days.
-SLA_WINDOWS = {
+# MEDIUM gets 7 days; everything else falls back to 14 days. Named for its
+# surface: critical_observation keeps a different table of
+# (acknowledge, resolve) windows, CRITICAL_OBSERVATION_SLA_WINDOWS.
+HUMAN_REQUIRED_SLA_WINDOWS = {
     "CRITICAL": timedelta(hours=72),
     "HIGH": timedelta(hours=72),
     "MEDIUM": timedelta(days=7),
@@ -77,14 +80,53 @@ def _human_required_path(tools_root: Path, request_id: str) -> Path:
     return _human_required_dir(tools_root) / f"{request_id}.json"
 
 
+def _write_human_required_record(
+    root: Path,
+    path: Path,
+    record: dict[str, Any],
+    *,
+    event: tuple[str, dict[str, Any]] | None,
+) -> None:
+    """The one writer of a HUMAN_REQUIRED record file (ARIA-MEDIUM-461).
+
+    The file is the declared ``human_required_requests`` surface
+    (``rewrite_fsync``, profile surface ``human_required``), so every write
+    goes through the governed declared-JSON writer: the manifest assertion,
+    the write-profile gate, and the atomic fsync'd rename. Raw ``write_text``
+    skipped all three, so a resolve under ``frozen`` landed on disk before
+    the governance append refused.
+
+    ``event`` is the ``(kind, details)`` governance row the write is audited
+    by. Record and row share ONE ``state_transaction`` (both group locks
+    under one monotonic deadline), so the path waits behind a live holder
+    once — the single wait ``HUMAN_REQUIRED_RECORD_WAIT_SECONDS`` prices and
+    the executor sizes its terminal-writer slot from. Two transactions
+    would wait twice. The record lands first: its profile gate refuses
+    before either write. ``None`` only for ``write_kernel_disposition``,
+    whose caller writes the batch's governance rows.
+    """
+    paths = [path] if event is None else [path, root / "governance.jsonl"]
+    with state_transaction(paths) as transaction:
+        transaction.rewrite_declared_json(path, record, expected_surface="human_required_requests")
+        if event is not None:
+            kind, details = event
+            append_tools_governance(root, kind, details, transaction=transaction)
+
+
 def open_human_required_record(request_id: str, *, base_dir: str | Path | None = None) -> dict[str, Any] | None:
     """The request's HUMAN_REQUIRED record while it is OPEN (no
     ``resolved_at``), else None. ARIA-HIGH-124 (round 2) — the claim
     release reads it: a request an executor escalated (the record is
     written before the release) derives HUMAN_REQUIRED from that release,
     not after two more wasted claims. A resolved record is a closed
-    episode and binds nothing."""
-    path = _human_required_path(ensure_tools_dir(base_dir), request_id)
+    episode and binds nothing.
+
+    A pure read: the root is resolved (``tools_dir``), never bootstrapped.
+    ``ensure_tools_dir`` refreshes the tools integrity index under the
+    governance group lock, so a writer that asks this inside its own
+    governance transaction (``provider_outage_ledger.record_provider_restored``
+    deciding its items' profile before its row) would wait on itself."""
+    path = _human_required_path(tools_dir(base_dir), request_id)
     if not path.exists():
         return None
     try:
@@ -104,7 +146,7 @@ def human_required_record_exists(request_id: str, *, base_dir: str | Path | None
 def _resolve_severity(severity: str | None) -> str:
     if isinstance(severity, str):
         upper = severity.strip().upper()
-        if upper in SLA_WINDOWS:
+        if upper in HUMAN_REQUIRED_SLA_WINDOWS:
             return upper
     return DEFAULT_SEVERITY
 
@@ -142,7 +184,7 @@ def record_human_required(
 
     sev = _resolve_severity(severity)
     ts = now or datetime.now(timezone.utc)
-    sla_deadline = ts + SLA_WINDOWS[sev]
+    sla_deadline = ts + HUMAN_REQUIRED_SLA_WINDOWS[sev]
     record = {
         "$schema": "aria/human-required/v1",
         "schema_version": 1,
@@ -157,10 +199,7 @@ def record_human_required(
     # operator's resolution can fan back into the ground-truth feedback ledger.
     if context:
         record["context"] = context
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    append_tools_governance(
-        root,
+    _write_human_required_record(root, out_path, record, event=(
         "human_required_recorded",
         {
             "request_id": request_id,
@@ -168,7 +207,7 @@ def record_human_required(
             "sla_deadline": record["sla_deadline"],
             "path": out_path.relative_to(root).as_posix(),
         },
-    )
+    ))
     # Plan 032 Faz 032e — a person is needed; say so on the configured channels.
     # ARIA-HIGH-415 — on its own only when CRITICAL. The live store opens 5-41
     # records a day, and each one notified is one issue (the title names the
@@ -391,6 +430,11 @@ def resolve_human_required(
     """
     if not isinstance(resolution_note, str) or not resolution_note.strip():
         raise GovernanceError("resolution_note is required")
+    # ARIA-MEDIUM-461 — gated at entry like record_human_required: a resolve writes the
+    # record, may fan the verdict into the feedback ledger and may close a
+    # provider outage, so a refused profile must refuse before any of them.
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("human_required", base_dir=base_dir)
     if resolved_by not in RESOLVED_BY_VALUES:
         raise GovernanceError(
             f"resolved_by must be one of {sorted(RESOLVED_BY_VALUES)}"
@@ -492,9 +536,7 @@ def resolve_human_required(
             )
             record["operator_verdict"] = verdict
 
-    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    append_tools_governance(
-        root,
+    _write_human_required_record(root, path, record, event=(
         "human_required_resolved",
         {
             "request_id": request_id,
@@ -504,7 +546,7 @@ def resolve_human_required(
             # either; both appeared as one `human_required_resolved` row.
             "panel_outcome": panel_outcome,
         },
-    )
+    ))
     context = record.get("context") or {}
     if context.get("kind") == "provider_outage" and resolved_by == RESOLVED_BY_OPERATOR:
         # ARIA-HIGH-366 (PR #1835 review HIGH-2) — the operator closing an
@@ -540,8 +582,9 @@ def refresh_open_record_context(
     if (record.get("context") or {}).get("kind") != context.get("kind"):
         raise GovernanceError(f"human_required_context_kind_is_fixed:{request_id}")
     record["context"] = context
-    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    append_tools_governance(root, "human_required_context_refreshed", {"request_id": request_id})
+    _write_human_required_record(
+        root, path, record, event=("human_required_context_refreshed", {"request_id": request_id}),
+    )
     return True
 
 
@@ -604,7 +647,7 @@ def write_kernel_disposition(
             "severity": sev,
             "reason": str(item["reason"]),
             "recorded_at": stamp,
-            "sla_deadline": (ts + SLA_WINDOWS[sev]).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "sla_deadline": (ts + HUMAN_REQUIRED_SLA_WINDOWS[sev]).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "context": dict(item["context"]),
         }
     note = f"kernel disposition {disposition.get('disposition')}: {disposition.get('reason')}"
@@ -616,8 +659,7 @@ def write_kernel_disposition(
         record["resolution_note"] = note
     else:
         record["reason"] = f"{record.get('reason') or item['reason']}; {note}"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_human_required_record(root, path, record, event=None)
     return record
 
 

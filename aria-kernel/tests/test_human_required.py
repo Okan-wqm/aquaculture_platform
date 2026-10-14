@@ -13,7 +13,7 @@ from aria_kernel.agent_invocations import (
     release_claim,
 )
 from aria_kernel.human_required import (
-    SLA_WINDOWS,
+    HUMAN_REQUIRED_SLA_WINDOWS,
     list_human_required,
     record_human_required,
     resolve_human_required,
@@ -61,7 +61,7 @@ class HumanRequiredRecordTests(unittest.TestCase):
 
     def test_sla_deadline_per_severity(self) -> None:
         ts = datetime(2026, 5, 7, 0, 0, tzinfo=timezone.utc)
-        for sev, expected_window in SLA_WINDOWS.items():
+        for sev, expected_window in HUMAN_REQUIRED_SLA_WINDOWS.items():
             row = record_human_required(
                 request_id=f"req-{sev}",
                 severity=sev,
@@ -147,6 +147,128 @@ class HumanRequiredListResolveTests(unittest.TestCase):
             resolve_human_required(
                 request_id="req-X", resolution_note="", base_dir=self.tools
             )
+
+
+class HumanRequiredGovernedWriteTests(unittest.TestCase):
+    """ARIA-MEDIUM-461 — the record file is a declared ``rewrite_fsync`` surface.
+
+    Every write goes through the governed declared-JSON writer
+    (``StateTransaction.rewrite_declared_json``: manifest assertion, profile
+    gate, atomic fsync'd rename) in the same transaction as its governance
+    row, and a resolve refuses at entry under a profile that forbids the
+    surface — before, the record was already rewritten as resolved when the
+    governance append refused.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self._tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _status(self, request_id: str) -> str:
+        import json
+
+        from aria_kernel.human_required import _human_required_path
+
+        return json.loads(_human_required_path(self.tools, request_id).read_text(encoding="utf-8"))["status"]
+
+    def test_frozen_profile_refuses_resolve_before_any_write(self) -> None:
+        from aria_kernel.runtime_profile import set_profile
+
+        record_human_required(request_id="req-frozen", severity="HIGH", reason="r", base_dir=self.tools)
+        set_profile("frozen", operator_approval_ref="op:freeze", base_dir=self.tools)
+        with self.assertRaisesRegex(GovernanceError, "human_required"):
+            resolve_human_required(request_id="req-frozen", resolution_note="n", base_dir=self.tools)
+        self.assertEqual(self._status("req-frozen"), "open")
+
+    def test_every_record_write_shares_one_transaction_with_its_governance_row(self) -> None:
+        # The governed writer AND the bound: the record and its audit row are
+        # written under one `state_transaction` (one lock wait, the one
+        # `HUMAN_REQUIRED_RECORD_WAIT_SECONDS` prices), never a record
+        # transaction followed by a second, independent governance one.
+        from unittest import mock
+
+        from aria_kernel import human_required, ledger
+        from aria_kernel.human_required import refresh_open_record_context
+
+        opened: list[list[str]] = []
+        surfaces: list[str] = []
+        real_transaction = ledger.state_transaction
+        real_rewrite = ledger.StateTransaction.rewrite_declared_json
+
+        def recording_transaction(paths, *args, **kwargs):
+            opened.append(sorted(Path(path).name for path in paths))
+            return real_transaction(paths, *args, **kwargs)
+
+        def recording_rewrite(transaction, path, payload, *, expected_surface, **kwargs):
+            surfaces.append(expected_surface)
+            return real_rewrite(transaction, path, payload, expected_surface=expected_surface, **kwargs)
+
+        with mock.patch.object(human_required, "state_transaction", recording_transaction), \
+                mock.patch.object(ledger, "state_transaction", recording_transaction), \
+                mock.patch.object(ledger.StateTransaction, "rewrite_declared_json", recording_rewrite), \
+                mock.patch.object(human_required, "notify_best_effort"):
+            record_human_required(
+                request_id="req-w", severity="HIGH", reason="r", base_dir=self.tools,
+                context={"kind": "human_merge", "pr": 1},
+            )
+            refresh_open_record_context(
+                request_id="req-w", context={"kind": "human_merge", "pr": 2}, base_dir=self.tools,
+            )
+            resolve_human_required(request_id="req-w", resolution_note="n", base_dir=self.tools)
+        self.assertEqual(surfaces, ["human_required_requests"] * 3)
+        record_transactions = [paths for paths in opened if "req-w.json" in paths]
+        self.assertEqual(record_transactions, [["governance.jsonl", "req-w.json"]] * 3)
+        lone_governance = [
+            paths for paths in opened
+            if "governance.jsonl" in paths and "req-w.json" not in paths
+            and "integrity_index.json" not in paths
+        ]
+        self.assertEqual(lone_governance, [])
+        self.assertEqual(self._status("req-w"), "resolved")
+
+    def test_a_kernel_disposition_writes_its_record_alone(self) -> None:
+        # The disposition's caller writes the batch's governance rows, so
+        # its record transaction is the record only.
+        from unittest import mock
+
+        from aria_kernel import human_required
+        from aria_kernel.human_required import RESOLVED_BY_KERNEL, write_kernel_disposition
+
+        opened: list[list[str]] = []
+        real_transaction = human_required.state_transaction
+
+        def recording_transaction(paths, *args, **kwargs):
+            opened.append(sorted(Path(path).name for path in paths))
+            return real_transaction(paths, *args, **kwargs)
+
+        with mock.patch.object(human_required, "state_transaction", recording_transaction):
+            written = write_kernel_disposition(base_dir=self.tools, item={
+                "request_id": "req-k", "severity": "HIGH", "reason": "expired", "context": {"kind": "k"},
+                "status": "resolved", "disposition": {"disposition": "reminted", "reason": "rule"},
+            })
+        self.assertEqual(opened, [["req-k.json"]])
+        self.assertEqual(written["resolved_by"], RESOLVED_BY_KERNEL)
+        self.assertEqual(self._status("req-k"), "resolved")
+
+    def test_no_raw_record_writes_remain(self) -> None:
+        import ast
+
+        kernel = Path(__file__).resolve().parents[1] / "aria_kernel"
+        raw: list[str] = []
+        for name in ("human_required.py", "human_required_adjudication.py"):
+            tree = ast.parse((kernel / name).read_text(encoding="utf-8"))
+            raw.extend(
+                f"{name}:{node.lineno}"
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "write_text"
+            )
+        self.assertEqual(raw, [])
 
 
 class SweepLeaseLifecycleTests(unittest.TestCase):

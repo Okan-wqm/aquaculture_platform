@@ -77,6 +77,32 @@ class OneSignalPerTransitionResolvedByTheNextSuccess(_Store):
         self.assertIsNone(record_provider_restored(self.tools, provider="anthropic", seam="spawn",
                                                    request_id="AIR-10", now=_T0 + timedelta(hours=6)))
 
+    def test_a_profile_that_refuses_the_item_refuses_the_close_too(self) -> None:
+        # `observe` permits the `provider_restored` governance row but refuses
+        # the item's `human_required` write. Committing the row first closed
+        # the outage while its item stayed open, and the next restore found
+        # no open outage to finish the job. Neither may land alone.
+        from aria_kernel.human_required import RESOLVED_BY_KERNEL
+        from aria_kernel.provider_outage_ledger import open_outages, record_provider_restored
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import GovernanceError
+
+        self.cool(_T0)
+        set_profile("observe", operator_approval_ref="op:observe", base_dir=self.tools)
+        with self.assertRaisesRegex(GovernanceError, "human_required"):
+            record_provider_restored(self.tools, provider="anthropic", seam="spawn", request_id="AIR-9",
+                                     now=_T0 + timedelta(hours=1))
+        self.assertEqual(self.kinds("provider_restored"), [])
+        self.assertEqual(len(open_outages(self.tools)), 1)
+        self.assertEqual(len(self.items()), 1)
+        set_profile("standard", operator_approval_ref="op:thaw", base_dir=self.tools)
+        restored = record_provider_restored(self.tools, provider="anthropic", seam="spawn", request_id="AIR-10",
+                                            now=_T0 + timedelta(hours=2))
+        self.assertEqual(restored["details"]["closed_kinds"], ["auth"])
+        self.assertEqual(open_outages(self.tools), ())
+        self.assertEqual(self.items(), [])
+        self.assertEqual([row["resolved_by"] for row in self.items(resolved=True)], [RESOLVED_BY_KERNEL])
+
     def test_a_second_outage_after_a_restore_is_a_second_transition(self) -> None:
         from aria_kernel.provider_outage_ledger import record_provider_restored
 

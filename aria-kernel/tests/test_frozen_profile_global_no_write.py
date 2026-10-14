@@ -248,6 +248,8 @@ class GateWiringAstInvariantTests(unittest.TestCase):
         ("critical_observation.py", "record_critical_observation"): "critical_observation",
         ("agent_genesis.py", "request_agent_genesis"): "agent_genesis",
         ("human_required.py", "record_human_required"): "human_required",
+        # ARIA-MEDIUM-461 — a resolve rewrites the record, so it is gated at entry too.
+        ("human_required.py", "resolve_human_required"): "human_required",
         ("tool_registry.py", "append_tools_governance"): "tool_governance",
         ("memory.py", "update_memory"): "observation",
     }

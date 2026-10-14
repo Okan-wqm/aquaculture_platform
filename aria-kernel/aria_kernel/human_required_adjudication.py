@@ -65,6 +65,7 @@ from .human_required import (
     OUTCOME_STILL_ESCALATED,
     RESOLVED_BY_AGENT_PANEL,
     _human_required_path,
+    _write_human_required_record,
     list_human_required,
     resolve_human_required,
 )
@@ -548,7 +549,6 @@ def _load_opinion(
     if not isinstance(output_path, str) or not output_path:
         return None
     from .agent_invocations import resolve_output_artifact_path
-    from .tool_registry import ensure_tools_dir
 
     path = resolve_output_artifact_path(ensure_tools_dir(base_dir), output_path)
     if not path.exists():
@@ -816,12 +816,10 @@ def _stamp_escalated_to_operator(
     record["severity"] = "CRITICAL"
     record["panel_disposition"] = DISPOSITION_ESCALATE_OPERATOR
     record["panel_escalation_reason"] = reason
-    path = _human_required_path(root, request_id)
-    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    append_tools_governance(
-        root, "human_required_escalated_to_operator",
+    _write_human_required_record(root, _human_required_path(root, request_id), record, event=(
+        "human_required_escalated_to_operator",
         {"escalation_request_id": request_id, "reason": reason},
-    )
+    ))
 
 
 def _panel_producer(root: Path, escalation_request_id: str) -> str:
@@ -1106,13 +1104,10 @@ def adjudicate_human_required(
             reopened = dict(_load_escalation_record(root, escalation_request_id) or record)
             reopened["status"] = "open"
             reopened["promotion_execution_failure"] = str(exc)[:300]
-            _human_required_path(root, escalation_request_id).write_text(
-                json.dumps(reopened, indent=2, sort_keys=True) + "\n", encoding="utf-8",
-            )
-            append_tools_governance(
-                root, "tool_promotion_panel_execution_failed",
+            _write_human_required_record(root, _human_required_path(root, escalation_request_id), reopened, event=(
+                "tool_promotion_panel_execution_failed",
                 {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
-            )
+            ))
         return verdict
 
     if kind == "genesis_candidate" and record:
@@ -1144,13 +1139,10 @@ def adjudicate_human_required(
             reopened = dict(_load_escalation_record(root, escalation_request_id) or record)
             reopened["status"] = "open"
             reopened["genesis_execution_failure"] = str(exc)[:300]
-            _human_required_path(root, escalation_request_id).write_text(
-                json.dumps(reopened, indent=2, sort_keys=True) + "\n", encoding="utf-8",
-            )
-            append_tools_governance(
-                root, "genesis_panel_execution_failed",
+            _write_human_required_record(root, _human_required_path(root, escalation_request_id), reopened, event=(
+                "genesis_panel_execution_failed",
                 {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
-            )
+            ))
         return verdict
 
     if kind == BELIEF_ESCALATION_KIND and record:
@@ -1205,13 +1197,10 @@ def adjudicate_human_required(
             reopened = dict(_load_escalation_record(root, escalation_request_id) or record)
             reopened["status"] = "open"
             reopened["belief_correction_failure"] = str(exc)[:300]
-            _human_required_path(root, escalation_request_id).write_text(
-                json.dumps(reopened, indent=2, sort_keys=True) + "\n", encoding="utf-8",
-            )
-            append_tools_governance(
-                root, "belief_panel_correction_failed",
+            _write_human_required_record(root, _human_required_path(root, escalation_request_id), reopened, event=(
+                "belief_panel_correction_failed",
                 {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
-            )
+            ))
         return verdict
 
     disposition_note = ""
@@ -1260,7 +1249,9 @@ MAX_PANEL_REOPENS = 2
 # the envelope is unclaimable afterwards — so a panel whose every member
 # was rejected (e.g. by the pre-#1271 evidence-law contradiction) wedged
 # in panel_incomplete forever. MAX_PANEL_REOPENS still bounds the retry.
-_TERMINALLY_DEAD_STATES = frozenset({"ANCHOR_STALE", "STALE", "EXPIRED", "REJECTED"})
+# No EXPIRED (ARIA-MEDIUM-462): derive_request_state never returns it; a lease expiry
+# derives STALE.
+_TERMINALLY_DEAD_STATES = frozenset({"ANCHOR_STALE", "STALE", "REJECTED"})
 
 
 def _panel_rows_for(root: Path, escalation_request_id: str) -> list[dict[str, Any]]:

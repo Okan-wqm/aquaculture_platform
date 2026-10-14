@@ -172,7 +172,7 @@ def read_human_required_deadlines(tools_dir: Path, workspace_root: Path) -> list
             kind=HUMAN_REQUIRED_SLA,
             key=str(record["request_id"]),
             due_at=_parse_instant(str(record["sla_deadline"])),
-            enforced_by="human_required.SLA_WINDOWS (Plan 016 operator SLA; reflection escalation ladder)",
+            enforced_by="human_required.HUMAN_REQUIRED_SLA_WINDOWS (Plan 016 operator SLA; reflection escalation ladder)",
             consequence=f"the operator SLA is breached [{record.get('severity')}]",
             lapse_is_fault=True,
         ))

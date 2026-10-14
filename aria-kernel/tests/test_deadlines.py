@@ -565,10 +565,30 @@ class EveryKernelWaiverManifest(_Fixture):
         when this was written, due 2026-09-21T00:00Z) are `control_waiver`
         rows, each due at the start of the day after its `expires_on`.
         Compared against the manifest read through the one reader — count,
-        keys, instants — so the pin survives the operator re-dating them."""
-        loaded = surface_waivers.load_waiver_manifest(_REPO_ROOT, DORMANT_CONTROL_MANIFEST)
-        self.assertTrue(loaded, "the live checkout declares control waivers; when the last one is wired away, re-point this pin at a synthetic manifest")
-        readout = read_deadlines(tools_dir=self.tools, workspace_root=_REPO_ROOT, now=self.now)
+        keys, instants — so the pin survives the operator re-dating them.
+
+        ARIA-HIGH-502 wired the last waived control (`require_lifecycle_state`
+        in the shadow-eval bridge) and emptied the live manifest. The live
+        checkout is still read and still pinned, whatever it holds; the
+        per-entry contract is pinned again over a synthetic manifest in the
+        live file's exact shape, so the entry loop never runs over zero
+        waivers and proves nothing."""
+        live = surface_waivers.load_waiver_manifest(_REPO_ROOT, DORMANT_CONTROL_MANIFEST)
+        self._assert_control_waivers_are_rows(_REPO_ROOT, live)
+        self.write_manifest(DORMANT_CONTROL_MANIFEST, {
+            "require_lifecycle_state": {
+                "expires_on": "2026-10-20", "finding_id": "ORPHAN-HIGH-573", "owner": "okan", "reason": "r",
+            },
+            "verify_adapter_imports": {
+                "expires_on": "2026-09-20", "finding_id": "ORPHAN-HIGH-573", "owner": "okan", "reason": "r",
+            },
+        })
+        synthetic = surface_waivers.load_waiver_manifest(self.ws, DORMANT_CONTROL_MANIFEST)
+        self.assertEqual(len(synthetic), 2)
+        self._assert_control_waivers_are_rows(self.ws, synthetic)
+
+    def _assert_control_waivers_are_rows(self, workspace_root: Path, loaded: surface_waivers.LoadedManifest) -> None:
+        readout = read_deadlines(tools_dir=self.tools, workspace_root=workspace_root, now=self.now)
         self.assertNotIn(f"{CONTROL_WAIVER}:", ";".join(readout.undecided), readout.undecided)
         rows = {row.key: row for row in readout.rows if row.kind == CONTROL_WAIVER}
         self.assertEqual(sorted(rows), sorted(loaded))

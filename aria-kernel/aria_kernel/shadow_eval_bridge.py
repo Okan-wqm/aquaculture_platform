@@ -26,10 +26,31 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from .agent_eval import run_agent_eval
-from .genesis_lifecycle import record_transition
+from .genesis_lifecycle import (
+    ALLOWED_TRANSITIONS,
+    GenesisState,
+    record_transition,
+    require_lifecycle_state,
+)
 from .ledger import load_declared_jsonl, segment_rows
 from .ledger_refs import ledger_ref_for_row
 from .tool_registry import GovernanceError, ensure_tools_dir
+
+
+# The lifecycle moves this bridge records, in order. One module constant so
+# the transition loop and the entry-state derivation below read the same
+# chain (literal_provenance resolves a module-level Name, so both states stay
+# "written" for the surface-reachability gate).
+_BRIDGE_TRANSITIONS: tuple[GenesisState, ...] = ("REAL_SANDBOX", "SHADOW")
+# The states a target may be in for the bridge to start: every state from
+# which ALLOWED_TRANSITIONS permits the first bridge move (today {"DRAFT"}).
+# Derived from the one transition table, never restated, so a table edit
+# cannot leave the pre-write check guarding a stale set.
+_BRIDGE_ENTRY_STATES: frozenset[GenesisState] = frozenset(
+    state
+    for state, successors in ALLOWED_TRANSITIONS.items()
+    if _BRIDGE_TRANSITIONS[0] in successors
+)
 
 
 def _rows(root: Path, ledger_path: str, surface: str) -> list[dict[str, Any]]:
@@ -114,8 +135,11 @@ def bridge_shadow_eval_from_invocation(
     eval bound to them, and records DRAFT → REAL_SANDBOX → SHADOW with
     the proof fields `verify_shadow_eval_proof` re-derives. Refuses —
     before any write — on a missing/ambiguous row, a legacy row without
-    source identity, a non-passing fixture suite, or a target-agent
-    mismatch across the chain.
+    source identity, a non-passing fixture suite, a target-agent
+    mismatch across the chain, or a target that is not in a state that
+    may enter REAL_SANDBOX (`genesis_lifecycle_state_required`). The
+    lifecycle refusal is pre-write for one bridge run per agent at a
+    time: no lock spans this check and the two transitions.
     """
     invocation_id = str(invocation_id or "").strip()
     fixture_id = str(fixture_id or "").strip()
@@ -234,6 +258,24 @@ def bridge_shadow_eval_from_invocation(
             f"approval={approval_scope!r}!=fixture={target_agent!r}"
         )
 
+    # WHY here, before run_agent_eval (ARIA-HIGH-502, ex ORPHAN-HIGH-573):
+    # the lifecycle precondition used to be checked only inside
+    # record_transition, AFTER run_agent_eval had appended an eval run row
+    # and its governance row — so re-bridging a SHADOW agent, or bridging
+    # one with no genesis chain, left an orphan eval row behind a refusal.
+    # Checking the entry state here makes "every refusal lands before any
+    # ledger write" true for the lifecycle too, for one bridge run per
+    # agent at a time: no lock spans this check, the eval and the two
+    # transitions, so two concurrent runs on one DRAFT agent can both pass
+    # here and the loser refuses inside record_transition after its eval
+    # rows (as before this check; record_transition re-validates, so no
+    # wrong promotion follows).
+    require_lifecycle_state(
+        entity_id=target_agent,
+        allowed_states=_BRIDGE_ENTRY_STATES,
+        base_dir=base_dir,
+    )
+
     transcript_hash = str(transcript.get("transcript_hash") or "")
     envelope = _resolve_response_envelope(result, root)
 
@@ -304,7 +346,7 @@ def bridge_shadow_eval_from_invocation(
             repo_root=repo_root,
             operator_approval_ref=operator_approval_ref,
         )
-        for to_state in ("REAL_SANDBOX", "SHADOW")
+        for to_state in _BRIDGE_TRANSITIONS
     ]
     return {
         "schema_version": 1,

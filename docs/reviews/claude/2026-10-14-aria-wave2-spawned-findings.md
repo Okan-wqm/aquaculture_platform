@@ -32,6 +32,14 @@ verb can record are listed at the end.
 - **Planned fix:** bucket `G013-573-waivers` (landing L1) calls `require_lifecycle_state` in the
   bridge after the target agent is resolved and before `run_agent_eval`, with the entry states
   derived from `ALLOWED_TRANSITIONS`, and deletes the waiver. Deadline: 2026-10-20.
+- **Landed (L1):** the bridge calls `require_lifecycle_state` with `_BRIDGE_ENTRY_STATES` (derived
+  from `ALLOWED_TRANSITIONS`, today `{DRAFT}`) before `run_agent_eval`, and
+  `control-reachability.dormant.json` is `{}`. `test_shadow_eval_bridge.py` proves a refused
+  bridge (target at SHADOW, or with no genesis chain) leaves every `*.jsonl` byte-identical (red
+  before the fix); `test_control_reachability` holds the call as the production caller, and the
+  `test_deadlines.py` waiver pin now runs over the live manifest plus a synthetic two-entry one.
+  The pre-write guarantee holds for one bridge run per agent at a time (no lock spans the check,
+  the eval and the transitions; `record_transition` still re-validates).
 
 ### PROC-LOW-049 — committed conflict markers in a gated document, and no gate refuses them
 

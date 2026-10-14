@@ -1,6 +1,6 @@
 """Plan ARIA-V4 Phase B — narrative shape + imperative-residue + consequence-leak + token-budget + banned-phrase canonical-drift invariants.
 
-Five cases (I-V4-04..08):
+Six cases (I-V4-04..09):
 
   * I-V4-04 — every ``### Prohibition:`` block in a Tier-2/3 file
     contains the required 4 narrative sections (Plan §2b).
@@ -14,6 +14,8 @@ Five cases (I-V4-04..08):
   * I-V4-08 — CLAUDE.md banned-phrase canonical list and
     tools/gates/banned-phrase.ts regex source remain co-equal
     (Plan §2f).
+  * I-V4-09 — the kernel's ``draft_intent.BANNED_PHRASES_DEFAULT``
+    is the third co-equal source: it equals the CLAUDE.md list.
 
 Transitional behavior: until Phase D + E convert content, no
 ``### Prohibition:`` H3 blocks exist in the corpus, so I-V4-04 +
@@ -39,6 +41,31 @@ _BANNED_PHRASE_TS = _REPO_ROOT / "tools" / "gates" / "banned-phrase.ts"
 
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
+
+
+def _claude_md_banned_phrases() -> set[str]:
+    """The canonical banned-phrase list, lower-cased, from CLAUDE.md.
+
+    The "Phrases BANNED as gating excuses" section carries it as
+    bullet lines of quoted phrases, possibly several per bullet via
+    " / " separators, up to the next bold heading.
+    """
+    claude_md = _CLAUDE_MD.read_text(encoding="utf-8")
+    section_match = re.search(
+        r"\*\*Phrases BANNED as gating excuses:?\*\*\s*\n(.*?)\n\*\*",
+        claude_md,
+        re.DOTALL,
+    )
+    if section_match is None:
+        raise AssertionError("CLAUDE.md missing 'Phrases BANNED' canonical section")
+    phrases: set[str] = set()
+    for line in section_match.group(1).splitlines():
+        line = line.strip()
+        if not line.startswith("-"):
+            continue
+        for q in re.findall(r'"([^"]+)"', line):
+            phrases.add(q.lower())
+    return phrases
 
 
 def _aria_agent_files() -> list[Path]:
@@ -106,32 +133,8 @@ class PhaseV4BNarrativeShape(unittest.TestCase):
         Pull both sources, extract the phrase list, assert
         set-equality.
         """
-        claude_md = _CLAUDE_MD.read_text(encoding="utf-8")
         banned_ts = _BANNED_PHRASE_TS.read_text(encoding="utf-8")
-
-        # CLAUDE.md "Phrases BANNED as gating excuses" section
-        # carries the canonical list. Extract bullet items between
-        # the section header and the next "**" heading.
-        section_match = re.search(
-            r"\*\*Phrases BANNED as gating excuses:?\*\*\s*\n(.*?)\n\*\*",
-            claude_md,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(
-            section_match,
-            msg="CLAUDE.md missing 'Phrases BANNED' canonical section",
-        )
-        section_text = section_match.group(1)
-        # Each bullet line: ``- "phrase"`` possibly with " / " variants.
-        claude_phrases: set[str] = set()
-        for line in section_text.splitlines():
-            line = line.strip()
-            if not line.startswith("-"):
-                continue
-            # Extract quoted phrases (may be multiple per bullet
-            # via " / " separator).
-            for q in re.findall(r'"([^"]+)"', line):
-                claude_phrases.add(q.lower())
+        claude_phrases = _claude_md_banned_phrases()
 
         # banned-phrase.ts source — extract phrases from the
         # docstring at lines 9-21 (per file header).
@@ -185,6 +188,29 @@ class PhaseV4BNarrativeShape(unittest.TestCase):
                 "Plan ARIA-V4 §2f banned-phrase drift — phrases in "
                 "banned-phrase.ts regex source but missing from "
                 f"CLAUDE.md canonical list: {sorted(only_in_ts)}"
+            ),
+        )
+
+    # I-V4-09 — the kernel's banned-phrase tuple mirrors CLAUDE.md.
+    def test_i_v4_09_kernel_banned_phrases_equal_claude_md(self) -> None:
+        """Plan ARIA-V3 §A3 — ``draft_validator`` and every kernel
+        banned-phrase gate read ``BANNED_PHRASES_DEFAULT``, and agent
+        prompts promise that gate catches the CLAUDE.md list. A phrase
+        CLAUDE.md bans but the tuple lacks passes every kernel gate;
+        a phrase only the tuple carries is a ban CLAUDE.md never made.
+        """
+        from aria_kernel.draft_intent import BANNED_PHRASES_DEFAULT
+
+        kernel_phrases = {p.lower() for p in BANNED_PHRASES_DEFAULT}
+        claude_phrases = _claude_md_banned_phrases()
+        self.assertEqual(
+            kernel_phrases,
+            claude_phrases,
+            msg=(
+                "Plan ARIA-V3 §A3 banned-phrase drift — in CLAUDE.md but "
+                f"not the kernel: {sorted(claude_phrases - kernel_phrases)}; "
+                "in the kernel but not CLAUDE.md: "
+                f"{sorted(kernel_phrases - claude_phrases)}"
             ),
         )
 

@@ -35,10 +35,12 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-# Plan ARIA-V3 §A3 banned-phrase list MUST mirror CLAUDE.md so a
-# drafter that wants to slip "for now" / "interim" / "temporary" /
-# etc. into the body is rejected by draft_validator. Sourced from
-# CLAUDE.md "Phrases BANNED as gating excuses" section.
+# Plan ARIA-V3 §A3 banned-phrase list: the CLAUDE.md section
+# "Phrases BANNED as gating excuses", so a drafter that slips
+# "for now" / "interim" / "temporary" / etc. into the body is rejected by
+# draft_validator. I-V4-09 (test_phase_v4_b_narrative_shape) fails when
+# this tuple and CLAUDE.md differ. New phrases are appended: callers and
+# tests index the tuple by position.
 BANNED_PHRASES_DEFAULT: tuple[str, ...] = (
     "for now",
     "interim solution",
@@ -52,6 +54,8 @@ BANNED_PHRASES_DEFAULT: tuple[str, ...] = (
     "out of scope",
     "good enough",
     "sufficient for now",
+    "interim",
+    "follow-up commit will handle it",
 )
 
 

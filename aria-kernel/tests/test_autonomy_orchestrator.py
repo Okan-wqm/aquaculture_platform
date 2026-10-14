@@ -1809,6 +1809,37 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(result["exit_reason"], "profile_frozen")
         self.assertEqual(result["cycles_completed"], 0)
 
+    def test_injected_profile_gate_refusal_stops_the_loop(self) -> None:
+        # ARIA-MEDIUM-455 — the profile_gate seam is the per-cycle preflight. A gate
+        # that refuses must stop the loop before any cycle starts, with its
+        # exit reason and its reasons recorded on the refusal row.
+        from aria_kernel.cycle_phases.profile_gate import ProfileGateVerdict
+
+        class _RefusingGate:
+            def evaluate(self, *, profile, base_dir, workspace_root):
+                return ProfileGateVerdict(
+                    permitted=False,
+                    exit_reason="cost_breaker_tripped",
+                    reasons=("daily cap",),
+                )
+
+        result = self._run(max_cycles=2, profile_gate=_RefusingGate())
+        self.assertEqual(result["exit_reason"], "cost_breaker_tripped")
+        self.assertEqual(result["cycles_completed"], 0)
+        rows = load_jsonl(autonomy_state_path(self.base))
+        refusals = [row for row in rows if row.get("phase") == "cost_breaker_tripped"]
+        self.assertEqual(len(refusals), 1)
+        self.assertEqual(refusals[0]["details"]["preflight_detail"], "daily cap")
+        self.assertEqual([row for row in rows if row.get("phase") == "cycle_started"], [])
+
+    def test_default_gate_is_the_cycle_preflight(self) -> None:
+        # ARIA-MEDIUM-455 — with no gate injected, the failure breaker still stops a
+        # profile holding action authority.
+        with patch("aria_kernel.circuit_breaker.current_state", return_value="tripped"):
+            result = self._run(max_cycles=2, profile="standard")
+        self.assertEqual(result["exit_reason"], "failure_breaker_tripped")
+        self.assertEqual(result["cycles_completed"], 0)
+
     def test_max_cycles_cap_honored(self) -> None:
         result = self._run(max_cycles=1)
         self.assertEqual(result["cycles_completed"], 1)

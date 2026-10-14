@@ -62,7 +62,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, NamedTuple
+from typing import TYPE_CHECKING, Any, Callable
 
 from .artifact_safety import published_text, scrub_text
 from .autonomy_state import (
@@ -775,134 +775,6 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-class PreflightVerdict(NamedTuple):
-    """RC-5 — a preflight outcome that can carry WHY without a positional tuple.
-
-    ``detail`` exists because a refused policy is only actionable if the
-    operator is told which key in which file is wrong. The reason code is for
-    the state machine; the detail is for the human, carried verbatim from the
-    GovernanceError rather than re-worded, so the message the operator reads is
-    the message the code raised.
-    """
-
-    status: str
-    reason: str | None = None
-    detail: str | None = None
-
-
-def _cycle_preflight(
-    *,
-    base_dir: Path,
-    profile_snapshot: str,
-) -> PreflightVerdict:
-    """Plan ARIA-V3 §B2 — cost + failure + lease preflight.
-
-    Returns ``PreflightVerdict("ok")`` when the cycle is permitted to proceed;
-    ``PreflightVerdict("blocked", reason_code, detail)`` when refused.
-
-    ORPHAN-CRITICAL-420 S2 — renamed from ``_autonomous_preflight``. The old
-    name described the old behaviour: the whole body short-circuited OK unless
-    profile was ``autonomous``, on the stated rationale that "strict/standard/
-    observe/frozen have their own gates". They do not. `strict` holds pr_open
-    authority and `standard` holds change_committed authority, and neither
-    consulted the failure breaker anywhere — so a tripped breaker stopped
-    nothing on the profile the scheduled lane actually runs.
-
-    The checks now have three DIFFERENT scopes, which is why they can no
-    longer share one profile test:
-
-      * failure breaker — every profile in PROFILES_WITH_ACTION_AUTHORITY.
-        It exists to stop the system from acting after repeated rejections,
-        so it must cover everything that can act. observe/frozen are exempt
-        by construction (they hold no authority), which also preserves the
-        operator's ability to run a read-only diagnostic cycle while tripped.
-      * cost breaker — autonomous only, unchanged. Cost accrues through the
-        autonomous agent-invocation lane; extending it needs the B0 producer
-        and window analysis that ORPHAN-HIGH-466 tracks, and widening the
-        scope without that would gate profiles against a counter nothing
-        currently increments.
-      * host lease — autonomous only, unchanged, and correctly so: it is a
-        cross-host mutual exclusion for the autonomous daemon. A standard
-        operator-driven cycle has no daemon to race.
-
-    Autonomous evaluation ORDER is preserved exactly (cost, failure, lease)
-    so the reason code an autonomous run reports does not change.
-
-    Reason codes (exit_reason values):
-      * ``cost_breaker_tripped`` — B0 cost circuit breaker tripped
-      * ``failure_breaker_tripped`` — B2 failure circuit breaker tripped
-      * ``autonomous_host_lease_blocked`` — §2n cross-host lease held
-        by a different host
-      * ``policy_refused`` — RC-5. The genesis policy itself is invalid, so no
-        breaker verdict can be computed. Named for the class rather than for
-        one cause: ``circuit_breaker_policy`` refuses BOTH a renamed key
-        (``threshold_24h``) and a ``failure_window_hours`` below the derived
-        floor, and calling the reason ``policy_migration_required`` — as the
-        plan specified — would mislabel the second as a migration when it is a
-        range violation. The specific GovernanceError message is carried in
-        ``detail`` and lands in the governance row, so nothing is lost by
-        having one code.
-    """
-    is_autonomous = profile_snapshot == "autonomous"
-    # Lazy imports — keep run_autonomy_orchestrator importable when
-    # the new B2 modules are absent (e.g. cold downgrade scenarios).
-    if is_autonomous:
-        try:
-            from .cost_budget import current_state as _cost_state
-            if _cost_state(base_dir) == "tripped":
-                return PreflightVerdict("blocked", "cost_breaker_tripped")
-        except ImportError:
-            pass
-    # current_state() is safe to gate on: evaluate_breaker returns
-    # BREAKER_STATE_TRIPPED for dropped/unreadable evidence as well as for a
-    # genuine threshold breach, so damaged evidence blocks rather than reading
-    # as "ok". Operators separate the two causes with `aria-kernel breaker
-    # status`, which prints the verdict reason.
-    from .runtime_profile import PROFILES_WITH_ACTION_AUTHORITY
-
-    if profile_snapshot in PROFILES_WITH_ACTION_AUTHORITY:
-        from .tool_registry import GovernanceError as _PolicyError
-
-        try:
-            from .circuit_breaker import current_state as _failure_state
-            if _failure_state(base_dir) == "tripped":
-                return PreflightVerdict("blocked", "failure_breaker_tripped")
-        except ImportError:
-            pass
-        except _PolicyError as exc:
-            # RC-5. This guard used to catch ImportError ONLY, while the call it
-            # wraps reads the genesis policy: `current_state` -> evaluate_breaker
-            # -> circuit_breaker_policy, which raises GovernanceError by design
-            # when an override carries a renamed key. So an operator with an
-            # untracked aria-config/genesis_policy.json got a traceback out of
-            # run_autonomy_orchestrator, on a path whose whole purpose is to exit
-            # cleanly with a reason code.
-            #
-            # RC-4 widened the trigger rather than leaving it latent: a
-            # failure_window_hours below the derived floor now raises here too.
-            # That is why the two land in one commit — shipping RC-4 alone would
-            # have turned a documented misconfiguration into a crash.
-            #
-            # A misconfiguration is an operator-actionable BLOCKED cycle: not a
-            # crash, and not a swallowed exception that runs the breaker on
-            # defaults the operator never chose.
-            return PreflightVerdict("blocked", "policy_refused", str(exc))
-    if not is_autonomous:
-        return PreflightVerdict("ok")
-    try:
-        from .autonomous_host_lease import acquire_lease
-        from .tool_registry import GovernanceError as _GE
-        try:
-            acquire_lease(base_dir=base_dir)
-        except _GE as exc:
-            if "autonomous_host_lease_blocked" in str(exc):
-                return PreflightVerdict("blocked", "autonomous_host_lease_blocked")
-            raise
-    except ImportError:
-        pass
-    return PreflightVerdict("ok")
-
-
 def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
     """Turn a preflight verdict into the profile's contracted consequence.
 
@@ -1246,12 +1118,13 @@ def run_autonomy_orchestrator(
         worker_drainer = run_worker_scheduler_daemon
     if bridge_drainer is None:
         bridge_drainer = _default_bridge_drainer
-    # Plan ARIA-V3.1-0 — lazy-resolve NoOp defaults for the 5 phase
-    # hooks. Cold-start discipline: each `from .cycle_phases.X import
-    # NoOp*` happens ONLY when the caller did not inject a concrete
-    # runner, so a hermetic `import aria_kernel.autonomy_orchestrator`
-    # never touches the phase modules' transitive dependencies
-    # (closes I-V31-0-05).
+    # Plan ARIA-V3.1-0 — lazy-resolve defaults for the 5 phase hooks.
+    # Cold-start discipline: each `from .cycle_phases.X import ...` happens
+    # ONLY when the caller did not inject a concrete hook, so a hermetic
+    # `import aria_kernel.autonomy_orchestrator` never touches the phase
+    # modules' transitive dependencies (closes I-V31-0-05). Four default to
+    # their NoOp; the profile gate defaults to the per-cycle preflight
+    # (ARIA-MEDIUM-455), since its NoOp would disarm the breakers.
     if plan_content_provider is None:
         from .cycle_phases.plan_source import NoOpPlanContentProvider
         plan_content_provider = NoOpPlanContentProvider()
@@ -1265,8 +1138,8 @@ def run_autonomy_orchestrator(
         from .cycle_phases.cost_telemetry import NoOpCostTelemetryHook
         cost_telemetry_hook = NoOpCostTelemetryHook()
     if profile_gate is None:
-        from .cycle_phases.profile_gate import NoOpProfileGate
-        profile_gate = NoOpProfileGate()
+        from .cycle_phases.profile_gate import PreflightProfileGate
+        profile_gate = PreflightProfileGate()
 
     root = ensure_tools_dir(base_dir)
     daemons_dir = root / "daemons"
@@ -1719,7 +1592,7 @@ def run_autonomy_orchestrator(
                 # Hard-bound by I-V7.7-04 source-substring invariant.
                 _cycle_started_at = time.monotonic()
                 # ARIA_STOP precedes the profile gate (matches
-                # daemons + cycle.py:244 ordering).
+                # daemons + cycle.run_enterprise_cycle ordering).
                 if aria_stop_path.exists():
                     AutonomyStateReducer.transition(
                         root,
@@ -1752,12 +1625,16 @@ def run_autonomy_orchestrator(
                 #   2. circuit_breaker (B2) — failure overrun    [any actor]
                 #   3. autonomous_host_lease (§2n) — cross-host  [autonomous]
                 # On any breaker tripped, exit cleanly with the matching
-                # reason code (no error, no retry storm).
-                preflight_status, preflight_reason, preflight_detail = _cycle_preflight(
+                # reason code (no error, no retry storm). ARIA-MEDIUM-455 — the checks
+                # run through the injectable profile_gate; the default,
+                # `cycle_phases.profile_gate.PreflightProfileGate`, owns them.
+                gate_verdict = profile_gate.evaluate(
+                    profile=profile_snapshot,
                     base_dir=root,
-                    profile_snapshot=profile_snapshot,
+                    workspace_root=Path(workspace_root) if workspace_root else None,
                 )
-                if preflight_status == "blocked":
+                if not gate_verdict.permitted:
+                    preflight_reason = gate_verdict.exit_reason
                     AutonomyStateReducer.transition(
                         root,
                         cycle_id=None,
@@ -1772,7 +1649,7 @@ def run_autonomy_orchestrator(
                             # breaker/lease reasons, which are self-describing;
                             # present for policy_refused, where the reason code
                             # alone would not say which key in which file.
-                            "preflight_detail": preflight_detail,
+                            "preflight_detail": "; ".join(gate_verdict.reasons) or None,
                         },
                     )
                     exit_reason = preflight_reason or "autonomous_preflight_blocked"
@@ -2671,7 +2548,7 @@ def run_autonomy_orchestrator(
                     # implementation phase between CONVERGED and
                     # specialist_review." Pre-F-027 the runner was plumbed
                     # via the v9_implementation_runner parameter (defaulted
-                    # to NoOpV9ImplementationRunner at line 368-370) but
+                    # to NoOpV9ImplementationRunner) but
                     # .run() was never invoked — F-024+F-025+F-026 trinity
                     # delivered CONVERGED cycles in production
                     # (v10-5-f-026-validation cycle 3 at 21:24:46) but the
@@ -3034,7 +2911,7 @@ def run_autonomy_orchestrator(
                 # auto_merge so the operator-facing daily report covers
                 # the FULL cycle including Gate A + Gate B verdicts.
                 # V3.3 closes F-010-D2-POSTMORTEM by relocating
-                # reflection from cycle.py:397 to here; V5.4 bumps the
+                # reflection out of the cycle body to here; V5.4 bumps the
                 # schema to v2 and injects the Gate A + Gate B + V5.3
                 # pedagogy snapshots so the daily report's
                 # ``## Convergence`` + ``## Pedagogy`` sections render

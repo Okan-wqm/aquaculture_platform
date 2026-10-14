@@ -2,7 +2,8 @@
 
 Why this file exists
 ====================
-`_cycle_preflight` (formerly `_autonomous_preflight`) short-circuited OK for
+The per-cycle preflight (now `cycle_phases.profile_gate.PreflightProfileGate`,
+formerly `_cycle_preflight` / `_autonomous_preflight`) short-circuited OK for
 every profile except `autonomous`, justified in its own docstring by the claim
 that "strict/standard/observe/frozen have their own gates". They did not.
 `strict` holds pr_open authority and `standard` holds change_committed
@@ -27,7 +28,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from aria_kernel.autonomy_orchestrator import _cycle_preflight
+from aria_kernel.cycle_phases.profile_gate import PreflightProfileGate, ProfileGateVerdict
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.runtime_profile import (
     ACTION_PERMISSIONS,
@@ -36,20 +37,23 @@ from aria_kernel.runtime_profile import (
 )
 
 
-def _reason_of(verdict) -> tuple[str, str | None]:
-    """RC-5 — compare (status, reason) and leave `detail` out of the contract.
+def _preflight(base: Path, profile: str) -> ProfileGateVerdict:
+    return PreflightProfileGate().evaluate(profile=profile, base_dir=base, workspace_root=None)
 
-    `_cycle_preflight` now returns a PreflightVerdict carrying an operator-facing
-    `detail`, so whole-object equality against a 2-tuple no longer holds. These
-    tests are about WHICH gate fired, not about its message, and pinning the
-    message here would make every wording change a failing invariant.
+
+def _reason_of(verdict: ProfileGateVerdict) -> tuple[str, str | None]:
+    """RC-5 — compare (status, reason) and leave the message out of the contract.
+
+    The verdict carries an operator-facing message in `reasons`, so these
+    tests compare WHICH gate fired, not its message: pinning the message here
+    would make every wording change a failing invariant.
     """
-    return (verdict.status, verdict.reason)
+    return ("ok", None) if verdict.permitted else ("blocked", verdict.exit_reason)
 
 
 class BreakerProfileScopeTests(unittest.TestCase):
 
-    def _preflight(self, profile: str, breaker: str) -> tuple[str, str | None]:
+    def _preflight(self, profile: str, breaker: str) -> ProfileGateVerdict:
         with tempfile.TemporaryDirectory(prefix="aria-420-s2-") as tmp:
             base = Path(tmp) / "aria-tools"
             with unittest.mock.patch(
@@ -59,7 +63,7 @@ class BreakerProfileScopeTests(unittest.TestCase):
             ), unittest.mock.patch(
                 "aria_kernel.autonomous_host_lease.acquire_lease", return_value=None,
             ):
-                return _cycle_preflight(base_dir=base, profile_snapshot=profile)
+                return _preflight(base, profile)
 
     def _verdict(self, profile: str, breaker_state: str) -> tuple[str, str | None]:
         """(status, reason) for the profile/breaker pair — see :func:`_reason_of`."""
@@ -117,14 +121,14 @@ class BreakerProfileScopeTests(unittest.TestCase):
                     (root / "aria-config" / "genesis_policy.json").write_text(
                         json.dumps({"circuit_breaker": block}), encoding="utf-8",
                     )
-                    verdict = _cycle_preflight(base_dir=base, profile_snapshot="standard")
+                    verdict = _preflight(base, "standard")
 
-                self.assertEqual(verdict.status, "blocked")
-                self.assertEqual(verdict.reason, "policy_refused")
+                self.assertFalse(verdict.permitted)
+                self.assertEqual(verdict.exit_reason, "policy_refused")
                 # The detail is what makes it actionable: without it the operator
                 # is told "policy_refused" and not which key in which file.
-                self.assertIsNotNone(verdict.detail)
-                self.assertIn("genesis_policy", str(verdict.detail))
+                self.assertEqual(len(verdict.reasons), 1)
+                self.assertIn("genesis_policy", verdict.reasons[0])
 
     def test_the_gated_set_is_derived_not_enumerated(self) -> None:
         """A literal set here would rot the first time ACTION_PERMISSIONS
@@ -152,7 +156,7 @@ class BreakerProfileScopeTests(unittest.TestCase):
                 "aria_kernel.circuit_breaker.current_state", return_value="tripped",
             ):
                 self.assertEqual(
-                    _reason_of(_cycle_preflight(base_dir=base, profile_snapshot="autonomous")),
+                    _reason_of(_preflight(base, "autonomous")),
                     ("blocked", "cost_breaker_tripped"),
                 )
 
@@ -168,7 +172,7 @@ class BreakerProfileScopeTests(unittest.TestCase):
                 "aria_kernel.circuit_breaker.current_state", return_value="ok",
             ):
                 self.assertEqual(
-                    _reason_of(_cycle_preflight(base_dir=base, profile_snapshot="standard")),
+                    _reason_of(_preflight(base, "standard")),
                     ("ok", None),
                 )
 

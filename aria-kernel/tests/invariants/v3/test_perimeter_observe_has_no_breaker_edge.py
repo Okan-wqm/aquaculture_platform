@@ -50,7 +50,7 @@ SANCTIONED_PRODUCER_CALLERS: frozenset[str] = frozenset({
     # `state_integrity_gap` when a cycle finds a tree it cannot show descends
     # from the last published state. Added here as the review this gate exists
     # to force, and the reasoning is the same one that made it a breaker edge
-    # rather than a new mechanism: `_cycle_preflight` already consults the
+    # rather than a new mechanism: `PreflightProfileGate` already consults the
     # breaker for every profile holding action authority, so feeding it is how
     # a state-integrity gap stops the system by the route everything else
     # already uses. A separate freeze flag would be a second answer to "how

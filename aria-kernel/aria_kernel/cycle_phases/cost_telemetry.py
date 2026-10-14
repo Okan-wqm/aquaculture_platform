@@ -22,10 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Protocol
-
-if TYPE_CHECKING:  # pragma: no cover
-    pass
+from typing import Any, Mapping, Protocol
 
 
 @dataclass(frozen=True)

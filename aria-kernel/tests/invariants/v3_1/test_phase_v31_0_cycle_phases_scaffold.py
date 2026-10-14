@@ -85,6 +85,8 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "NoOpProfileGate",
             "NoOpV9ImplementationRunner",
             "PlanContentProvider",
+            # ARIA-MEDIUM-455 — the default profile gate: the per-cycle preflight.
+            "PreflightProfileGate",
             "ProfileGate",
             # Plan ARIA-V3.1-A — concrete PlanContentProvider variants
             # (V9PressureSourceProvider for 5-source mining;

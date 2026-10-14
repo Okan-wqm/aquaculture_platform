@@ -22,13 +22,15 @@ contract without re-touching the orchestrator body.
   `runtime_profile.ACTION_PERMISSIONS` (derived, never re-enumerated).
 * `cost_telemetry.CostTelemetryHook` — V10.4 invocation-role
   threading + record_cost_attribution (V3.1-D consumes).
-* `profile_gate.ProfileGate` — V9.7 profile + V9.0-C preflight
-  (V3.1-E consumes).
+* `profile_gate.ProfileGate` — the per-cycle breaker + host-lease
+  preflight (V3.1-E consumes).
 
-Every Protocol has a `NoOp*` default that preserves the V3 baseline
-behavior (no new side-effects). The orchestrator accepts each phase
-hook as an optional kwarg defaulting to its NoOp variant — a caller
-that does not opt in sees the pre-v3.1 cycle exactly.
+Every Protocol has a `NoOp*` variant with no side-effects. The
+orchestrator accepts each phase hook as an optional kwarg; four default
+to their NoOp variant, so a caller that does not opt in sees the
+pre-v3.1 cycle exactly. `profile_gate` defaults to
+`PreflightProfileGate` instead, because its NoOp would disarm the
+breakers.
 
 Tier-1 anchor: Protocol typing makes the contract a compile-time
 artifact; a future phase that drops a method becomes a static-type
@@ -78,7 +80,7 @@ from .plan_source import (
     V7GitDiffProvider,
     V9PressureSourceProvider,
 )
-from .profile_gate import NoOpProfileGate, ProfileGate
+from .profile_gate import NoOpProfileGate, PreflightProfileGate, ProfileGate
 
 __all__ = [
     "IMPLEMENTATION_ACTION_KIND",
@@ -97,6 +99,7 @@ __all__ = [
     "NoOpProfileGate",
     "NoOpV9ImplementationRunner",
     "PlanContentProvider",
+    "PreflightProfileGate",
     "ProfileGate",
     "V7GitDiffProvider",
     "V9ImplementationResult",

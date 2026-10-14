@@ -364,12 +364,13 @@ class TheCiObserverRecordsNoMergeDecision(unittest.TestCase):
     def test_the_pre_merge_perimeter_counts_no_observer_row(self):
         # The capability's counts are the decision ledger's rows; an observer
         # run adds none, so on a store only the observer touched every count is 0.
-        from aria_kernel.autonomy_evidence import _capability_safe_counts
+        # Counted by the production streaming fold `autonomy status` reports
+        # through (ARIA-MEDIUM-450 deleted the test-only `_capability_safe_counts` twin).
+        from tests.test_autonomy_evidence_status import _folded_counts
 
         record_ci_report(pr=pr_snapshot(), github=github_snapshot(), base_dir=self.tools_dir, workspace_root=None)
-        counts = _capability_safe_counts(
-            "pre_merge_perimeter", {"auto_merge_decisions": tuple(self._decision_rows())},
-        )
+        all_counts, _blockers = _folded_counts({"auto_merge_decisions": tuple(self._decision_rows())})
+        counts = all_counts["pre_merge_perimeter"]
         self.assertEqual(set(counts.values()), {0})
         self.assertEqual(counts["premerge_decision_blocked"], 0)
 

@@ -27,10 +27,14 @@ every cycle on this repository today, whose committed anchors all predate the
 not being a broken chain, and ``outcome_status`` defaulting to ``unknown``
 rather than ``verified``.
 
-Restore-and-replay is NOT here. Restoring needs a transport — the state-store
-lane cutover — and the plan puts that in PR 2.6. A restore primitive with no
-lane to carry it would be a capability with no caller, which is the defect
-class this file is closing one instance of.
+DIAGNOSE, THEN RECOVER. ``restore_and_replay`` below is the recovery half: it
+adopts the published tree, re-applies this run's rows and re-judges. The
+cycle calls it on a critical verdict BEFORE ``freeze_autonomous_writes``, and
+freezes only when recovery did not resolve the gap; its docstring explains why
+that order departs from the plan. The plan once held recovery back until the
+state-store transport existed (PR 2.6), so that it would not ship as a
+capability with no caller; the transport has landed and the cycle is its
+caller.
 """
 
 from __future__ import annotations
@@ -794,7 +798,7 @@ def freeze_autonomous_writes(
     """Record a positive finding of amnesia where everything that acts reads it.
 
     ONE mechanism, deliberately. `record_failure(kind="state_integrity_gap")`
-    trips the circuit breaker, and `_cycle_preflight` already consults that
+    trips the circuit breaker, and `PreflightProfileGate` already consults that
     breaker for every profile in `PROFILES_WITH_ACTION_AUTHORITY` — so the
     next cycle is stopped by the same route every other failure kind stops it.
     A separate "frozen" flag would be a second answer to *how does ARIA stop*,

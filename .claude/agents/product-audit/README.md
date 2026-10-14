@@ -117,8 +117,8 @@ Past promotion targets: contract parity guidance now belongs to Lane-A `contract
 Recommended output locations:
 
 - Per-agent reviews: `docs/product-audits/{agent}/{YYYY-MM-DD}-{topic}.md`
-- Unified reviews: `docs/product-audits/product-audit-orchestrator/{YYYY-MM-DD}-{topic}.md`
-- Unified recommendations: `docs/recommendations/product-audits/product-audit-orchestrator/{YYYY-MM-DD}-{topic}.md`
+- Unified reviews: `docs/product-audits/orchestrator/{YYYY-MM-DD}-{topic}.md`
+- Unified recommendations: `docs/recommendations/product-audits/orchestrator/{YYYY-MM-DD}-{topic}.md`
 
 All reviewer agents should assign finding IDs in format `PRODUCT-{AGENT-PREFIX}-{SEVERITY}-{NNN}`.
 

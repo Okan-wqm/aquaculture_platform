@@ -24,17 +24,14 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .tool_registry import utc_now
 
 
 LEDGER_CORRUPTION_SINK_DIRNAME: str = "diagnostics"
 LEDGER_CORRUPTION_SINK_FILENAME: str = "ledger-corruption.jsonl"
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
 
 def emit_ledger_corruption_diagnostic(
@@ -71,7 +68,7 @@ def emit_ledger_corruption_diagnostic(
     row = {
         "$schema": "aria/ledger-corruption-diagnostic/v1",
         "schema_version": 1,
-        "recorded_at": _utc_now_iso(),
+        "recorded_at": utc_now(),
         **corruption,
     }
     try:

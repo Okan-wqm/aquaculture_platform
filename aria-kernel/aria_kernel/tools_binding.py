@@ -44,6 +44,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .ledger import atomic_write_json
 from .migration import _resolve_repo_root, migrate_tools_bootstrap, tools_lock
 from .tool_registry import (
     GovernanceError,
@@ -142,7 +143,7 @@ def _mint_host_identity(
         # `repo_identity.json`, so a governance row written before this line
         # would take the raw appender with the gate inert — the same blind
         # window this finding is about, reopened one row wide.
-        _atomic_write_json(
+        atomic_write_json(
             root / "repo_identity.json",
             {
                 "aria_tools_contract_version": version,
@@ -242,13 +243,6 @@ def _assert_store_belongs_to_this_repository(root: Path, expected_identity: str)
             f"{expected_identity!r}; binding would adopt another repository's "
             "memory as this one's"
         )
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
 
 
 __all__ = ["bind_tools_root"]

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,8 +8,8 @@ from typing import Any
 
 from .feedback import add_feedback, build_feedback_event, slug
 from .batch_containment import guard_item, with_item_failures
-from .ledger import append_declared_jsonl
-from .phase2_utils import atomic_write_json, utc_now_iso
+from .ledger import append_declared_jsonl, atomic_write_json, sha256_of_canonical_json
+from .phase2_utils import utc_now_iso
 from .tool_registry import GovernanceError, ensure_tools_dir
 from .workspace import WorkspacePaths, record_workspace_governance
 
@@ -439,7 +438,7 @@ def _finding_key(row: dict[str, Any]) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
     identity = {"summary": row.get("summary") or row.get("title") or row.get("message"), "refs": _refs(row), "owner_agent": _owner_agent(row)}
-    return "finding:" + hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+    return "finding:" + sha256_of_canonical_json(identity)[:16]
 
 
 def _owner_agent(row: dict[str, Any]) -> str:

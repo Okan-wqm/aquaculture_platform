@@ -724,7 +724,11 @@ def verify_workflow_preflight(
         reasons=tuple(reasons),
     )
     if audit_artifact_path is not None:
-        _write_workflow_preflight_audit(Path(audit_artifact_path), verdict)
+        from dataclasses import asdict
+
+        from .ledger import atomic_write_json
+
+        atomic_write_json(Path(audit_artifact_path), asdict(verdict))
     return verdict
 
 
@@ -815,15 +819,6 @@ def _git_worktree_offending_paths(workspace: Path) -> list[str]:
         if not any(path.startswith(prefix) for prefix in _CYCLE_WRITE_PREFIXES):
             offending.append(path)
     return offending
-
-
-def _write_workflow_preflight_audit(path: Path, verdict: WorkflowPreflightVerdict) -> None:
-    from dataclasses import asdict
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(asdict(verdict), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
 
 
 __all__ = (

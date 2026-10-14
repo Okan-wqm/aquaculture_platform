@@ -32,8 +32,9 @@ from .finding import (
     _check_banned_phrases,
     show_finding,
 )
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import append_declared_jsonl, atomic_write_json, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
+from .tool_registry import utc_now_datetime as _utc_now
 
 
 SHORT_TERM_ACTION_KINDS = (
@@ -77,10 +78,6 @@ def _index_path(repo_root: Path) -> Path:
 
 def _events_path(repo_root: Path) -> Path:
     return debts_dir(repo_root) / "debt-events.jsonl"
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _allocate_debt_id(repo_root: Path, *, when: datetime) -> str:
@@ -167,13 +164,6 @@ def _validate_short_term_action(
     return dict(action)
 
 
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
-
 def _refresh_index(repo_root: Path) -> dict[str, Any]:
     # ORPHAN-MEDIUM-307 — the index is DERIVED from the (uncommitted)
     # debt-events ledger, but the index itself is COMMITTED audit
@@ -219,7 +209,7 @@ def _refresh_index(repo_root: Path) -> dict[str, Any]:
             }
         )
     index["debts"] = rows
-    _atomic_write_json(_index_path(repo_root), index)
+    atomic_write_json(_index_path(repo_root), index)
     return index
 
 
@@ -327,7 +317,7 @@ def emit_debt(
         output_path = debts_root / f"{debt_id}.json"
         if output_path.exists():
             raise GovernanceError(f"debt {debt_id} already exists at {output_path}")
-        _atomic_write_json(output_path, record)
+        atomic_write_json(output_path, record)
         _refresh_index(repo_path)
 
     append_tools_governance(

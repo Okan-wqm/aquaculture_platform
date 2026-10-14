@@ -11,6 +11,7 @@ from typing import Any
 
 from .canonical_path import lexical_repo_path
 from .cycle_progress import emit_progress
+from .ledger import sha256_of_canonical_json
 from .tool_registry import GovernanceError, utc_now
 
 
@@ -30,7 +31,7 @@ SNAPSHOT_MODES = ("committed", "working_tree", "working-tree")
 #
 # Note on tool_runner audit-trail: record_run appends the runner's own
 # row to aria-tools/runs.jsonl AFTER the post-snapshot is taken
-# (tool_health.py:97 runs after _partition_mutations in tool_runner.py).
+# (``tool_health.record_run`` runs after ``tool_runner._partition_mutations``).
 # The runner's own ledger write therefore does not appear in the
 # before/after diff and no allowlist for it is needed.
 DIRTY_IGNORE_PREFIXES = (
@@ -333,7 +334,7 @@ def _snapshot_hash(snapshot: dict[str, Any]) -> str:
         "base_commit_sha": snapshot.get("base_commit_sha"),
         "files": [(row.get("path"), row.get("content_hash")) for row in snapshot.get("fates", [])],
     }
-    return _sha256(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    return "sha256:" + sha256_of_canonical_json(stable)
 
 
 def _repo_state_id(snapshot: dict[str, Any]) -> str:
@@ -389,8 +390,7 @@ def _scoped_input_digest(rows: list[dict[str, Any]]) -> str | None:
     encoded_rows = [{"path": row["path"], "status": "available", "reason": "explicit_file_observed",
                      "size_bytes": row["size_bytes"], "content_hash": row["content_hash"]}
                     for row in sorted(rows, key=lambda item: item["path"])]
-    return _sha256(json.dumps({"schema_version": 1, "files": encoded_rows}, sort_keys=True,
-                             separators=(",", ":"), ensure_ascii=True).encode("utf-8"))
+    return "sha256:" + sha256_of_canonical_json({"schema_version": 1, "files": encoded_rows})
 
 
 def _read_scoped_working_file(

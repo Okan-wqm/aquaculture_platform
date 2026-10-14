@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .ledger import atomic_write_json
 from .secret_scrub import secret_patterns
 
 # One pattern set, one policy: the compiled patterns live in
@@ -92,11 +93,8 @@ def write_sanitized_json(path: str | Path, payload: Any, *, max_bytes: int = 1_0
     raw = json.dumps(scrubbed, indent=2, sort_keys=True)
     if len(raw.encode("utf-8")) > max_bytes:
         raise ArtifactSafetyError(f"artifact exceeds max_bytes={max_bytes}: {path}")
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f".{target.name}.tmp")
-    tmp.write_text(raw + "\n", encoding="utf-8")
-    tmp.replace(target)
+    # The size above is measured on the bytes the format owner writes.
+    atomic_write_json(Path(path), scrubbed)
 
 
 __all__ = [

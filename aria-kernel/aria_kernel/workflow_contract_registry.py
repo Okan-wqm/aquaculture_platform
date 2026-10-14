@@ -43,6 +43,8 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 
+from .ledger import sha256_of_canonical_json
+
 
 @dataclass(frozen=True)
 class WorkflowAbortGate:
@@ -992,9 +994,7 @@ def workflow_job_contract_hash(workflow_id: str, job_id: str) -> str | None:
         "workflow_file": contract.workflow_file,
         "job_contract": asdict(job),
     }
-    return "sha256:" + hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    return "sha256:" + sha256_of_canonical_json(payload)
 
 
 # Minutes reserved between ARIA's self-imposed ceiling and the runner's hard

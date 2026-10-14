@@ -26,6 +26,7 @@ from .ledger import (
     LedgerReadLimitError,
     append_declared_jsonl,
     append_jsonl as append_chained_jsonl,
+    sha256_of_canonical_json,
     verify_jsonl_chunks,
 )
 from .ledger_inline import spill_evidence_validation
@@ -1181,7 +1182,7 @@ def tool_manifest_hash(tool: dict[str, Any]) -> str:
         for key, value in tool.items()
         if key not in {"created_at", "updated_at", "last_transition"}
     }
-    return sha256(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    return "sha256:" + sha256_of_canonical_json(stable)
 
 
 def fixture_set_hash(fixture_dir: Path) -> str:
@@ -1192,7 +1193,7 @@ def fixture_set_hash(fixture_dir: Path) -> str:
                 payload.append((path.relative_to(fixture_dir).as_posix(), sha256(path.read_bytes())))
             except OSError:
                 payload.append((path.relative_to(fixture_dir).as_posix(), "unreadable"))
-    return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    return "sha256:" + sha256_of_canonical_json(payload)
 
 
 def _default_fixture_lane(name: str) -> str:

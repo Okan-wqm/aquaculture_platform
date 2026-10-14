@@ -12,6 +12,7 @@ from .ledger import (
     StateTransaction,
     append_declared_jsonl,
     append_jsonl,
+    atomic_write_json,
     file_hash,
     load_jsonl,
     rewrite_declared_json,
@@ -104,6 +105,16 @@ class GovernanceError(ValueError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def utc_now_datetime() -> datetime:
+    """The current instant as a tz-aware UTC ``datetime``.
+
+    The datetime counterpart of ``utc_now``: modules that compute windows
+    and deadlines read the instant here instead of each keeping a private
+    ``datetime.now(timezone.utc)`` helper.
+    """
+    return datetime.now(timezone.utc)
 
 
 def parse_utc_stamp(raw: str) -> datetime | None:
@@ -265,7 +276,7 @@ def sync_tools_contract(root: Path) -> dict[str, Any]:
         for field in PUBLISHABLE_IDENTITY_FIELDS
         if identity.get(field) is not None
     }
-    _atomic_write_json(root / TOOLS_CONTRACT_FILENAME, contract)
+    atomic_write_json(root / TOOLS_CONTRACT_FILENAME, contract)
     return contract
 
 
@@ -292,10 +303,10 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
             "schema_version": 2,
         }
         _prepare_tools_dirs(root)
-        _atomic_write_json(identity_file, identity)
+        atomic_write_json(identity_file, identity)
         sync_tools_contract(root)
         if not registry_path(root).exists():
-            _atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
+            atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
         append_tools_governance(
             root,
             "tools_root_bootstrapped",
@@ -413,7 +424,7 @@ def ensure_tools_binding(
         identity["bound_repo_root"] = str(repo_root)
         identity["aria_tools_contract_version"] = SCHEMA_VERSION
         identity["schema_version"] = SCHEMA_VERSION
-        _atomic_write_json(identity_file, identity)
+        atomic_write_json(identity_file, identity)
         sync_tools_contract(root)
         append_tools_governance(
             root,
@@ -446,7 +457,7 @@ def ensure_tools_binding(
             identity["bound_canonical_identity"] = legacy_bound
             identity["aria_tools_contract_version"] = SCHEMA_VERSION
             identity["schema_version"] = SCHEMA_VERSION
-            _atomic_write_json(identity_file, identity)
+            atomic_write_json(identity_file, identity)
             sync_tools_contract(root)
             append_tools_governance(
                 root,
@@ -730,13 +741,6 @@ def _tools_has_covered_state(root: Path) -> bool:
     if (root / "integrity_index.json").exists():
         return True
     return any(path.exists() and path.stat().st_size > 0 for path in covered_tool_ledgers(root).values())
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
 
 
 def _guard_tools_lock(root: Path) -> None:

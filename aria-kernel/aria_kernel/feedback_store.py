@@ -10,6 +10,7 @@ from typing import Any
 
 from .confidence import confidence_in_unit_interval
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
+from .ledger import sha256_of_canonical_json
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
 from .runtime_artifacts import resolve_finding_from_artifact, run_ledger_format
@@ -1395,14 +1396,14 @@ def finding_fingerprint(tool_id: str, finding: dict[str, Any]) -> str:
         "evidence_hash": evidence_hash,
         "message": _normalize_message(str(finding.get("message") or "")),
     }
-    digest = hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    digest = sha256_of_canonical_json(normalized)
     return f"finding:{digest}"
 
 
 def evidence_hash_for_finding(finding: dict[str, Any]) -> str:
     evidence = finding.get("evidence", [])
     stable = evidence if isinstance(evidence, list) else []
-    return "sha256:" + hashlib.sha256(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return "sha256:" + sha256_of_canonical_json(stable)
 
 
 def _select_findings(
@@ -1590,7 +1591,7 @@ def _confirmed_false_positive_fingerprints(
     accepting any row regardless of source_type. A single raw `ai_judge`
     verdict could suppress identical findings forever — no human review,
     no consensus, no audit trail. The pre-existing `compute_ai_consensus_
-    for_tool` aggregator (lines 300-356) already produces ai_consensus
+    for_tool` aggregator already produces ai_consensus
     rows from ≥2 raw ai_judge verdicts with verdict agreement +
     avg_confidence threshold, but the suppression filter never required
     them.

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .feedback import normalize_feedback_event, pressure_evidence_fingerprint, slug
-from .ledger import append_jsonl, read_jsonl, rewrite_jsonl, stamp_row_format, verify_jsonl, write_index
+from .ledger import append_jsonl, atomic_write_json, read_jsonl, rewrite_jsonl, stamp_row_format, verify_jsonl, write_index
 from .tool_registry import GovernanceError, SCHEMA_VERSION as TOOLS_SCHEMA_VERSION, append_tools_governance, covered_tool_ledgers, sync_tools_contract, tools_contract_version, update_tools_index
 from .workspace import WorkspacePaths, canonical_identity, canonical_identity_source, default_actor, governance_event, record_workspace_governance, repo_hash, workspace_paths
 
@@ -165,10 +165,10 @@ def migrate_tools_v1_to_v2(
                 "bound_repo_root": str(repo_root),
                 "schema_version": 2,
             }
-            _atomic_write_json(root / "repo_identity.json", identity)
+            atomic_write_json(root / "repo_identity.json", identity)
             sync_tools_contract(root)
             if not (root / "registry.json").exists():
-                _atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
+                atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
             _append_tools_migration_governance(
                 root,
                 "tools_root_bootstrapped",
@@ -227,10 +227,10 @@ def migrate_tools_v1_to_v2(
             "bound_repo_root": str(repo_root),
             "schema_version": 2,
         }
-        _atomic_write_json(root / "repo_identity.json", identity)
+        atomic_write_json(root / "repo_identity.json", identity)
         sync_tools_contract(root)
         if not (root / "registry.json").exists():
-            _atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
+            atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
         index = _read_json(root / "integrity_index.json")
         if "pressure_keys_emitted" in index:
             dropped_legacy_fields.append("pressure_keys_emitted")
@@ -250,7 +250,7 @@ def migrate_tools_v1_to_v2(
         )
         state = _read_json(root / "migration_state.json")
         state.update({"status": "completed", "completed_at": _now()})
-        _atomic_write_json(root / "migration_state.json", state)
+        atomic_write_json(root / "migration_state.json", state)
         update_tools_index(root)
         return state
 
@@ -397,7 +397,7 @@ def migrate_tools_v2_to_v3(
         "bound_repo_hash": new_canonical,  # legacy mirror for tolerance
         "bound_repo_root": str(repo_root),
     }
-    _atomic_write_json(root / "repo_identity.json", new_identity)
+    atomic_write_json(root / "repo_identity.json", new_identity)
     sync_tools_contract(root)
     post_strip_hash = hashlib.sha256(json.dumps(new_identity, sort_keys=True).encode()).hexdigest()
     append_tools_governance(
@@ -544,7 +544,7 @@ def rollback_tools_v3_to_v2(
         "bound_repo_hash": identity.get("bound_repo_hash") or identity.get("bound_canonical_identity"),
         "bound_repo_root": identity.get("bound_repo_root"),
     }
-    _atomic_write_json(root / "repo_identity.json", rolled_back)
+    atomic_write_json(root / "repo_identity.json", rolled_back)
     # The rollback is a WRITER too. `sync_tools_contract` was wired into every
     # forward writer and the reverse ones were missed, so a rollback downgraded
     # the identity to v2 while the published contract went on claiming v3 —
@@ -693,7 +693,7 @@ def _write_migration_state(root: Path, phase: str, backup: Path) -> None:
         "backup_path": backup.as_posix(),
         "updated_at": _now(),
     }
-    _atomic_write_json(root / "migration_state.json", payload)
+    atomic_write_json(root / "migration_state.json", payload)
     update_tools_index(root)
 
 
@@ -777,13 +777,6 @@ def _read_json(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
 
 
 def _discarded_event_count(current: dict[str, Path], backup_root: Path) -> int:

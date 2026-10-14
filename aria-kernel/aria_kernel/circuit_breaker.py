@@ -60,6 +60,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .hmac_keyring import utc_now_stamp
+from .ledger import atomic_write_json
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -84,7 +86,7 @@ FAILURE_KINDS: frozenset[str] = frozenset(
         # PLAN Wave 1 §2.5 — a cycle that found its own state tree cannot be
         # shown to descend from the last state anyone can attest to. Recorded
         # HERE rather than through a second freeze mechanism of its own: the
-        # breaker is already the one thing `_cycle_preflight` consults for
+        # breaker is already the one thing `PreflightProfileGate` consults for
         # every profile holding action authority, so a state-integrity gap
         # stops the system acting by the same route every other failure kind
         # does. A parallel "frozen" flag would be a second answer to "how does
@@ -129,20 +131,6 @@ def _failures_path(base_dir: str | Path) -> Path:
 
 def _state_path(base_dir: str | Path) -> Path:
     return _breaker_dir(base_dir) / _STATE_FILENAME
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp.{id(payload)}")
-    tmp.write_text(
-        json.dumps(payload, sort_keys=True, indent=2),
-        encoding="utf-8",
-    )
-    tmp.replace(path)
 
 
 def _load_breaker_policy(base_dir: str | Path) -> tuple[int, int]:
@@ -409,7 +397,7 @@ def record_failure(
     row = {
         "schema_version": 1,
         "kind": kind,
-        "ts": _utc_now_iso(),
+        "ts": utc_now_stamp(),
         "materialize_event_id": materialize_event_id,
         "extra": extra or {},
     }
@@ -441,11 +429,11 @@ def record_failure(
     # false audit row.
     verdict = evaluate_breaker(root)
     if verdict.state == BREAKER_STATE_TRIPPED:
-        _atomic_write_json(
+        atomic_write_json(
             _state_path(root),
             {
                 "state": BREAKER_STATE_TRIPPED,
-                "tripped_at": _utc_now_iso(),
+                "tripped_at": utc_now_stamp(),
                 "tripped_reason": verdict.reason,
                 "tripped_by_kind": kind,
                 "tripped_by_event_id": materialize_event_id,
@@ -517,7 +505,7 @@ def reset_breaker(
     if not (reason or "").strip():
         raise GovernanceError("circuit_breaker_reset_requires_reason")
     root = ensure_tools_dir(base_dir)
-    _atomic_write_json(_state_path(root), {"state": "ok"})
+    atomic_write_json(_state_path(root), {"state": "ok"})
     failures_path = _failures_path(root)
     if failures_path.exists():
         failures_path.write_text("", encoding="utf-8")
@@ -630,7 +618,7 @@ def quarantine_breaker_evidence(
             "against a different definition of decodable than the evaluator uses."
         )
 
-    stamped = _utc_now_iso()
+    stamped = utc_now_stamp()
     quarantine_path = _quarantine_path(root)
     with quarantine_path.open("a", encoding="utf-8") as sidecar:
         sidecar.write(

@@ -34,9 +34,10 @@ Public surface:
   * ``collect_evidence_pack()`` — Phase 0 entry point
 
 CONCERN-tracked Phase 0 work (Plan §10):
-  * Item 5 — sample correctness sub-check (re-verify 3 random
-    observations against fresh ``git show`` to detect base_commit_sha
-    drift mid-collection). Implemented below as ``_sample_resnap``.
+  * Item 5 — sample correctness sub-check (re-verify 3 deterministic
+    observations, first/middle/last, against fresh ``git show`` to detect
+    base_commit_sha drift mid-collection). Implemented below as
+    ``_sample_resnap``.
   * Item 2 — stale base_commit_sha detection (verify the sha is
     reachable from HEAD before pack is sealed).
 """
@@ -48,7 +49,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from .tool_registry import ensure_tools_dir, utc_now
 
@@ -66,13 +67,6 @@ __all__ = [
 MIN_OBSERVATIONS_DEFAULT = 10
 
 
-# Plan ARIA-V6 §2d — discovery method tag for each observation.
-# Used by the cross-verify protocol to weight evidence: AST > grep
-# > regex (AST is structurally sound; grep matches lexical token;
-# regex may include comment-only matches).
-DISCOVERY_METHOD_RANK: dict[str, int] = {"ast": 3, "grep": 2, "regex": 1}
-
-
 class Observation(TypedDict):
     """Plan ARIA-V6 §2d v2 — single file:line repository snippet."""
 
@@ -80,7 +74,9 @@ class Observation(TypedDict):
     line: int                 # 1-indexed
     snippet: str              # ≤ 200 chars of actual code
     claim_class: str          # one of seed.claim_types
-    discovered_by: str        # "grep" | "ast" | "regex"
+    # The only discovery method collect_evidence_pack mints; widen the
+    # Literal together with a new mint site.
+    discovered_by: Literal["regex"]
 
 
 class EvidencePack(TypedDict):
@@ -243,8 +239,8 @@ def collect_evidence_pack(
         )
 
     # Plan §10 item 5 — sample correctness sub-check. Re-verify 3
-    # random observations against a fresh ``git show <sha>:<file>``
-    # to catch base_commit_sha drift mid-collection.
+    # deterministic observations (first/middle/last) against a fresh
+    # ``git show <sha>:<file>`` to catch base_commit_sha drift mid-collection.
     sample_status = _sample_resnap(
         workspace_root=workspace_root,
         sha=sha,
@@ -395,7 +391,7 @@ def _sample_resnap(
     observations: list[Observation],
     sample_size: int = 3,
 ) -> str:
-    """Plan §10 item 5 — re-snap 3 random observations.
+    """Plan §10 item 5 — re-snap 3 deterministic observations (first/middle/last).
 
     Verify that the file:line snippet stored at collection time STILL
     matches what ``git show <sha>:<file>`` returns. Mismatch means

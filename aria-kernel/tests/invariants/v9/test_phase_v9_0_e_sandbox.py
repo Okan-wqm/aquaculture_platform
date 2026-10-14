@@ -12,6 +12,7 @@ their tests.
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from . import _helpers  # noqa: F401
 
@@ -84,6 +85,48 @@ def detect(payload: str) -> dict:
         source = "this is not python at all >>> )"
         with self.assertRaises(_sb.UnsafeAdapterImport):
             _sb.verify_adapter_imports(source)
+
+    def test_i_v9_skill_03_deny_set_wins_over_leaked_allowlist_entry(self):
+        """An exact deny-set name stays rejected even if it leaks into
+        ALLOWED; the dotted ``os.path`` carve-out keeps working."""
+        leaked = _sb.ALLOWED_ADAPTER_IMPORTS | {"socket"}
+        with mock.patch.object(_sb, "ALLOWED_ADAPTER_IMPORTS", leaked):
+            with self.assertRaises(_sb.UnsafeAdapterImport) as ctx:
+                _sb.verify_adapter_imports("import socket\n")
+            self.assertIn("forbidden=['socket']", str(ctx.exception))
+            # The aliased spelling: a plain `import os.path` binds `os`
+            # (ARIA-HIGH-414) and is refused on its own.
+            _sb.verify_adapter_imports("import os.path as osp\n")  # MUST NOT raise
+
+    def test_i_v9_skill_03_allow_and_deny_sets_disjoint(self):
+        """The deny-first order cannot catch a leaked DOTTED entry such as
+        ``subprocess.run`` (exact-ALLOWED permits it before the root check),
+        so the sets themselves are pinned: no shared name, and ``os.path``
+        is the only deliberate ALLOWED entry under a forbidden root."""
+        self.assertEqual(
+            _sb.ALLOWED_ADAPTER_IMPORTS & _sb.FORBIDDEN_ADAPTER_IMPORTS,
+            frozenset(),
+        )
+        carve_outs = {
+            name for name in _sb.ALLOWED_ADAPTER_IMPORTS
+            if name.split(".")[0] in _sb.FORBIDDEN_ADAPTER_IMPORTS
+        }
+        self.assertEqual(carve_outs, {"os.path"})
+
+    def test_i_v9_skill_03_ast_rejects_relative_import(self):
+        """An adapter is a standalone file: a relative import resolves to a
+        sibling module the allowlist never judged. ``from . import x`` has no
+        module name at all, and ``from .json import y`` is not stdlib json."""
+        for source, spelling in (
+            ("from . import helper\n", "."),
+            ("from .json import loads\n", ".json"),
+            ("from .helper import thing\n", ".helper"),
+            ("from ..pkg import other\n", "..pkg"),
+        ):
+            with self.subTest(source=source):
+                with self.assertRaises(_sb.UnsafeAdapterImport) as ctx:
+                    _sb.verify_adapter_imports(source)
+                self.assertIn(f"relative=['{spelling}']", str(ctx.exception))
 
     def test_i_v9_skill_03_error_redacts_body(self):
         """Error message lists offending NAMES but not full source

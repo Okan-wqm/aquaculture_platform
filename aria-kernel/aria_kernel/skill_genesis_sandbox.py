@@ -63,8 +63,11 @@ ALLOWED_ADAPTER_IMPORTS: frozenset[str] = frozenset({
     "sys",
 })
 
-# Plan ARIA-V9.0-E — explicit deny set. Even if a name leaks into
-# ALLOWED via accident, the deny set fires first.
+# Plan ARIA-V9.0-E — explicit deny set. An exact name here is rejected
+# even if it also appears in ALLOWED. A dotted ALLOWED entry under a
+# forbidden root (``os.path``) is a deliberate carve-out that exact-ALLOWED
+# permits before the root check, so the sandbox invariants pin the carve-out
+# set: a leaked dotted entry is caught at test time, not here.
 FORBIDDEN_ADAPTER_IMPORTS: frozenset[str] = frozenset({
     "urllib", "urllib.request", "urllib.parse", "urllib.error",
     "http", "http.client", "http.server", "http.cookies",
@@ -103,7 +106,8 @@ def verify_adapter_imports(source: str) -> None:
     """Parse ``source`` as Python AST; refuse any ``import X`` /
     ``from X import ...`` outside ALLOWED_ADAPTER_IMPORTS (or inside
     FORBIDDEN_ADAPTER_IMPORTS), any name a plain ``import a.b`` BINDS outside
-    the allowlist (``import os.path`` binds ``os``), any call of a
+    the allowlist (``import os.path`` binds ``os``), every relative import
+    (``from . import x``, ``from .mod import y``), any call of a
     DYNAMIC_IMPORT_PRIMITIVES name, and ``sys.modules``.
 
     The pre-check of the launcher's runtime allowlist (module docstring):
@@ -123,6 +127,7 @@ def verify_adapter_imports(source: str) -> None:
     forbidden_hits: list[str] = []
     not_in_allowlist: list[str] = []
     dynamic_hits: list[str] = []
+    relative_hits: list[str] = []
 
     for node in ast.walk(tree):
         names: list[str] = []
@@ -132,6 +137,13 @@ def verify_adapter_imports(source: str) -> None:
             # allowed `import os.path` handed the adapter `os.system`.
             names += [alias.name.split(".")[0] for alias in node.names if alias.asname is None and "." in alias.name]
         elif isinstance(node, ast.ImportFrom):
+            # An adapter is a standalone file, so a relative import resolves
+            # to a sibling module the allowlist never judged; judging only
+            # ``node.module`` let ``from . import x`` through with no name
+            # and read ``from .json import y`` as stdlib json.
+            if node.level > 0:
+                relative_hits.append("." * node.level + (node.module or ""))
+                continue
             # `from foo.bar import baz` → import root foo.bar
             if node.module:
                 names = [node.module]
@@ -143,18 +155,20 @@ def verify_adapter_imports(source: str) -> None:
         ):
             dynamic_hits.append("sys.modules")
         for name in names:
-            # Resolution order (Tier-1 precedence):
-            #   1. Exact name in ALLOWED → permit (lets caller import a
-            #      narrow safe subpath like ``os.path`` AS a name, e.g.
-            #      ``import os.path as osp``, even though root ``os`` is
-            #      FORBIDDEN).
-            #   2. Exact name in FORBIDDEN → reject.
-            #   3. Root in FORBIDDEN (and name NOT in ALLOWED) → reject.
+            # Resolution order (Tier-1 precedence, deny set first):
+            #   1. Exact name in FORBIDDEN → reject, even if the name also
+            #      sits in ALLOWED.
+            #   2. Exact name in ALLOWED → permit (a deliberate dotted
+            #      carve-out such as ``os.path`` under the forbidden root
+            #      ``os``, reachable only AS a name, e.g. ``import os.path
+            #      as osp``: a plain ``import os.path`` also binds ``os``,
+            #      which step 1 refuses).
+            #   3. Root in FORBIDDEN → reject.
             #   4. Root NOT in ALLOWED → reject (closed allowlist).
-            if name in ALLOWED_ADAPTER_IMPORTS:
-                continue
             if name in FORBIDDEN_ADAPTER_IMPORTS:
                 forbidden_hits.append(name)
+                continue
+            if name in ALLOWED_ADAPTER_IMPORTS:
                 continue
             root = name.split(".")[0]
             if root in FORBIDDEN_ADAPTER_IMPORTS:
@@ -163,12 +177,13 @@ def verify_adapter_imports(source: str) -> None:
             if root not in ALLOWED_ADAPTER_IMPORTS:
                 not_in_allowlist.append(name)
 
-    if forbidden_hits or not_in_allowlist or dynamic_hits:
+    if forbidden_hits or not_in_allowlist or dynamic_hits or relative_hits:
         raise UnsafeAdapterImport(
             f"adapter imports rejected — "
             f"forbidden={sorted(set(forbidden_hits))} "
             f"not-in-allowlist={sorted(set(not_in_allowlist))} "
-            f"dynamic={sorted(set(dynamic_hits))}"
+            f"dynamic={sorted(set(dynamic_hits))} "
+            f"relative={sorted(set(relative_hits))}"
         )
 
 

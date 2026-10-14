@@ -111,10 +111,12 @@ def _scan_evidence_refs(body: str) -> set[str]:
 
 def _scan_target_paths_in_body(body: str) -> set[str]:
     """Find every repo-relative path the body mentions as a write
-    target. Heuristic: paths in backticks under a section named
-    ``## Target paths`` or ``## Writes to``. False positives are
-    OK (better-safe-than-sorry); false negatives are bug-class so
-    the regex is liberal.
+    target. The scan covers the WHOLE body, not a ``## Target paths``
+    or ``## Writes to`` section: a write target named in any section
+    must still be classified against the lane's exclusion globs. Any
+    single-backtick token shaped like a path with a file extension is
+    collected. False positives are OK (better-safe-than-sorry); false
+    negatives are bug-class so the regex is liberal.
     """
     out: set[str] = set()
     # Anything in single-backticks that looks like a repo path.

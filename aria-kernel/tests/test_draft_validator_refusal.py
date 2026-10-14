@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from aria_kernel.draft_validator import (  # noqa: E402
     DRAFTER_REFUSAL_CLASS_BY_CODE,
     DRAFTER_REFUSAL_REASON_CODES,
+    _scan_target_paths_in_body,
     parse_drafter_refusal,
 )
 
@@ -36,3 +37,14 @@ class DrafterRefusalSentinelTests(unittest.TestCase):
 
     def test_unknown_code_surfaces_raw(self) -> None:
         self.assertEqual(parse_drafter_refusal("DRAFTER_REFUSAL:novel"), "novel")
+
+
+class TargetPathScanTests(unittest.TestCase):
+    def test_a_path_outside_any_target_section_is_still_a_candidate(self) -> None:
+        # The lane check classifies every path the body names; scanning only
+        # a "## Target paths" section would let a write target declared
+        # elsewhere skip it.
+        self.assertEqual(
+            _scan_target_paths_in_body("## Notes\nsee `apps/x/y.ts`\n"),
+            {"apps/x/y.ts"},
+        )

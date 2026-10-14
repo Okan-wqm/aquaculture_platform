@@ -7,19 +7,18 @@ from pathlib import Path
 from typing import Any
 
 from .capability_resolver import resolve_capability
+from .convergent_skill_authoring import MIN_CALIBRATION_FIXTURES
 from .draft_intent import (
-    BANNED_PHRASES_DEFAULT,
     AcceptanceTest,
     SkillDraftIntent,
 )
 from .draft_pii_filter import mask_pii_in_intent
 from .ledger import (
     append_declared_jsonl,
-    append_jsonl as _append_jsonl,
     load_declared_jsonl,
-    load_jsonl as _load_jsonl,
 )
 from .runtime_profile import enforce_profile_for_write
+from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -57,14 +56,14 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return append_declared_jsonl(path, record, expected_surface=surface)
-    return _append_jsonl(path, record)
+    raise GovernanceError(f"skill_genesis_append_unknown_surface:{Path(path).as_posix()}")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return load_declared_jsonl(path, expected_surface=surface)
-    return _load_jsonl(path)
+    raise GovernanceError(f"skill_genesis_load_unknown_surface:{Path(path).as_posix()}")
 
 
 def request_skill_genesis(
@@ -196,15 +195,23 @@ def seed_adapter_requests(
 def validate_calibration_corpus_sanity(
     *,
     corpus_path: str | Path,
-    min_fixtures: int = 10,
+    min_fixtures: int = MIN_CALIBRATION_FIXTURES,
     min_tp_fraction: float = 0.2,
     min_fp_fraction: float = 0.2,
     max_age_days: int = 90,
+    base_dir: str | Path,
 ) -> dict[str, Any]:
     """Plan ARIA-V6 §2d v2 B-V2-2 — corpus sanity pre-flight.
 
     BEFORE sandbox runs against the corpus, verify:
-      * Fixture count >= min_fixtures
+      * Fixture count >= min_fixtures (default: the authoring loop's own
+        ``convergent_skill_authoring.MIN_CALIBRATION_FIXTURES`` floor)
+      * Every row is a JSON object: rows are read through
+        ``read_strict_jsonl``, which stops at the first corrupt row
+        (``fixture_row_corrupt``) and records a corruption diagnostic
+        under ``base_dir`` (the tools store; required, because the
+        reader's own default sink is the corpus directory) — a read-only
+        pre-flight never writes into the operator's corpus directory
       * TP fraction >= min_tp_fraction AND FP fraction >= min_fp_fraction
         (a corpus that's 100% TP can't distinguish over-fitting)
       * No duplicate fixtures (same finding_fingerprint)
@@ -218,7 +225,6 @@ def validate_calibration_corpus_sanity(
     to ``authoring_verdict = sandbox_systematic_failure``.
     """
     import datetime as _dt
-    import json as _json
     path = Path(corpus_path)
     reasons: list[str] = []
     stats: dict[str, Any] = {"fixture_count": 0, "tp_count": 0, "fp_count": 0}
@@ -232,16 +238,11 @@ def validate_calibration_corpus_sanity(
     fingerprints: set[str] = set()
     latest_label: _dt.datetime | None = None
     rows: list[dict[str, Any]] = []
-    for line in fixtures_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or line == "[]":
-            continue
-        try:
-            row = _json.loads(line)
-        except _json.JSONDecodeError:
-            reasons.append("fixture_invalid_json")
-            continue
-        rows.append(row)
+    try:
+        for row in read_strict_jsonl(fixtures_file, base_dir=Path(base_dir)):
+            rows.append(row)
+    except GovernanceError:
+        reasons.append("fixture_row_corrupt")
 
     stats["fixture_count"] = len(rows)
     if len(rows) < min_fixtures:
@@ -398,7 +399,6 @@ def execute_adapter_against_corpus(
     # Plan 026R §A.3 — route JSONL row read through read_strict_jsonl
     # (tolerant mode) so corrupt rows emit a diagnostic to
     # ``aria-tools/diagnostics/`` instead of being silently dropped.
-    from .strict_jsonl_reader import read_strict_jsonl
     fixtures: list[dict[str, Any]] = list(
         read_strict_jsonl(fixtures_file, on_corruption="tolerant")
     )
@@ -853,7 +853,7 @@ def materialize_skill(
                 "draft_id": draft_id,
                 "intent_id": intent_obj.intent_id,
                 "validator_result": "valid",
-                "body_sha256": __import__("hashlib").sha256(body.encode("utf-8")).hexdigest(),
+                "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
                 "kind": "skill",
             },
         )
@@ -887,7 +887,6 @@ def materialize_skill(
             subprocess.run(["git", "restore", "--", target_path], cwd=worktree, text=True, capture_output=True, check=False)
             status = "rejected"
     # Plan ARIA-V3 §2g event 3 — materialize_committed.
-    import hashlib as _hl
     from .tool_registry import append_tools_governance
     append_tools_governance(
         ensure_tools_dir(base_dir),
@@ -896,7 +895,7 @@ def materialize_skill(
             "materialize_event_id": materialize_event_id,
             "target_path": target_path,
             "file_sha256_pre": file_sha256_pre,
-            "file_sha256_post": _hl.sha256(body.encode("utf-8")).hexdigest(),
+            "file_sha256_post": hashlib.sha256(body.encode("utf-8")).hexdigest(),
             "commit_sha": _git_head(worktree),
             "draft_id": draft_id,
             "assignment_id": assignment_id,
@@ -933,8 +932,7 @@ def _git_head(path: Path) -> str:
 def _file_sha256(path: Path) -> str:
     if not path.exists() or not path.is_file():
         return ""
-    import hashlib as _hashlib
-    return _hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def list_skill_genesis(*, base_dir: str | Path | None = None, kind: str = "drafts") -> list[dict[str, Any]]:
     filename = {

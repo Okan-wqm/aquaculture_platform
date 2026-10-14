@@ -20,6 +20,10 @@ guarantee):
                 ``Path.exists()`` AND ``git show`` cross-verification
                 call site so a refactor cannot silently weaken the
                 guarantee
+  * I-V6.2-08 — the evidence-grounded gate bounds the RULE space: a rule
+                whose claim_class is outside seed.claim_types, or a rule
+                that is not an object, ends the round as
+                evidence_hallucination_detected (ARIA-HIGH-470)
 """
 
 from __future__ import annotations
@@ -175,6 +179,20 @@ def _sandbox_too_small_corpus(**kwargs):
         "false_positives": [],
         "false_negatives": [],
     }
+
+
+def _drafter_with_rules(role: str, rules: list):
+    """Verified refs, caller-chosen rules — exercises the grounded gate only."""
+    def _fn(**kwargs):
+        return {
+            "draft_id": f"{role}-r{kwargs['round_number']}",
+            "role": role,
+            "rules": rules,
+            "evidence_refs": ["apps/svc.ts:8", "apps/svc.ts:12", "apps/svc.ts:16"],
+            "peer_audit": [],
+            "critiques": [],
+        }
+    return _fn
 
 
 def _judge_no_gaps(**kwargs):
@@ -420,6 +438,61 @@ class PhaseV6_2ConvergentAuthoring(unittest.TestCase):
             result["hallucination_rejection_count"], 1,
             msg="hallucination_rejection_count must increment on rejection",
         )
+
+    # I-V6.2-08 — the grounded gate bounds the rule space (ARIA-HIGH-470).
+    def _run_with_drafters(self, request_id: str, primary, challenger) -> dict:
+        from aria_kernel.convergent_skill_authoring import run_convergent_authoring
+
+        return run_convergent_authoring(
+            request_id=request_id,
+            seed=_make_seed(self.workspace, self.corpus),
+            workspace_root=self.workspace,
+            base_dir=self.base,
+            primary_drafter=primary,
+            challenger_drafter=challenger,
+            evidence_judge=_judge_no_gaps,
+            adversarial_judge=_judge_no_gaps,
+            sandbox_runner=_sandbox_perfect,
+            materialize_fn=lambda **kw: {"adapter_path": "/tmp/a.ts", "manifest_path": "/tmp/a.tool.json"},
+            max_authoring_rounds=2,
+        )
+
+    def _grounded_gate_reasons(self, result: dict) -> list[str]:
+        self.assertEqual(result["authoring_verdict"], "evidence_hallucination_detected")
+        gate_rows = [row for row in result["judge_consensus_log"] if row.get("phase") == "evidence_grounded_gate"]
+        self.assertEqual(len(gate_rows), 1)
+        return list(gate_rows[0]["reasons"])
+
+    def test_i_v6_2_grounded_gate_rejects_claim_class_outside_seed(self) -> None:
+        result = self._run_with_drafters(
+            "req-v6-2-08a",
+            _drafter_with_rules("primary", [{"claim_class": "invented_class", "summary": "p"}]),
+            _drafter_with_verified_refs(self.workspace, role="challenger"),
+        )
+        self.assertIn(
+            "primary_rule_claim_class_outside_seed: invented_class",
+            self._grounded_gate_reasons(result),
+        )
+        self.assertGreaterEqual(result["hallucination_rejection_count"], 1)
+
+    def test_i_v6_2_grounded_gate_rejects_challenger_rule_without_claim_class(self) -> None:
+        result = self._run_with_drafters(
+            "req-v6-2-08b",
+            _drafter_with_verified_refs(self.workspace, role="primary"),
+            _drafter_with_rules("challenger", [{"summary": "counter-rule"}]),
+        )
+        self.assertIn(
+            "challenger_rule_claim_class_outside_seed: None",
+            self._grounded_gate_reasons(result),
+        )
+
+    def test_i_v6_2_grounded_gate_names_a_non_object_rule(self) -> None:
+        result = self._run_with_drafters(
+            "req-v6-2-08c",
+            _drafter_with_rules("primary", ["x"]),
+            _drafter_with_verified_refs(self.workspace, role="challenger"),
+        )
+        self.assertIn("primary_rule_not_object", self._grounded_gate_reasons(result))
 
     # I-V6.2-07 — source-substring invariant pins Path.exists + git show.
     def test_i_v6_2_07_source_substring_pins_cross_verify_call_site(

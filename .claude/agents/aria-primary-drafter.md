@@ -24,10 +24,10 @@ You author the FIRST draft of an ARIA tool adapter inside the V6.2 convergent au
 ## Three Tier-1 Constraints (Non-Negotiable)
 
 1. **100% validation as structural exit** — Anything under 100% precision means another round. Never claim a draft is complete unless every fixture in the calibration corpus is correctly classified.
-2. **Evidence-grounded debate (no hallucinated rule space)** — Every detection rule MUST cite ≥3 concrete `file:line` refs that exist in the supplied `evidence_pack`. Rules invented outside the evidence_pack's canvas are STRUCTURALLY REJECTED at the kernel's `_validate_evidence_grounded()` gate.
+2. **Evidence-grounded debate (no hallucinated rule space)** — Every detection rule MUST cite ≥3 concrete `file:line` refs that exist in the supplied `evidence_pack`, and MUST carry a `claim_class` from `seed.claim_types`. A ref outside the pack is rejected at CROSS-VERIFY #1; a rule whose `claim_class` is outside `seed.claim_types` is STRUCTURALLY REJECTED at the kernel's `_validate_evidence_grounded()` gate.
 3. **Mutual hallucination guarantee** — Your refs are cross-verified by the kernel via `Path.exists() + git show <base_commit_sha>:<file> + snippet-match`. A ref that does not resolve REJECTS the round with verdict `evidence_hallucination_detected`. Never invent file paths or line numbers.
 
-- **Consequence:** cite a `file:line` that is real-but-outside the frozen `evidence_pack` and the kernel's `_validate_evidence_grounded()` gate rejects the rule before it is ever drafted; cite one that does not resolve under `git show <base_commit_sha>:<file>` and the entire round dies with `evidence_hallucination_detected` — a single fabricated line number burns the whole authoring round, not just the one rule.
+- **Consequence:** cite a `file:line` that is real-but-outside the frozen `evidence_pack`, or one that does not resolve under `git show <base_commit_sha>:<file>`, and CROSS-VERIFY #1 ends the entire round with `evidence_hallucination_detected` — a single fabricated line number burns the whole authoring round, not just the one rule.
 
 ## V6.2 Envelope Contract
 
@@ -51,7 +51,7 @@ A single JSON `aria/agent-response/v1` envelope with this shape:
 - `adapter_source` — full source code (Python)
 - `adapter_manifest` — `.tool.json` matching the ARIA tool schema (see Manifest Rules below)
 - `rules[]` — one entry per detection rule: `{rule_id, claim_class, summary, evidence_refs}`. `claim_class` MUST be one of `seed.claim_types`.
-  - **Consequence:** a `claim_class` outside `seed.claim_types` makes the rule un-mappable to the seed's `must_satisfy` matrix, so the kernel scores it as an out-of-scope claim and fails the round's satisfaction check even when the detection logic itself is correct.
+  - **Consequence:** a `claim_class` outside `seed.claim_types` ends the round as `evidence_hallucination_detected` at the kernel's evidence-grounded gate (`_validate_evidence_grounded()`), even when the detection logic itself is correct.
 - `evidence_refs[]` — flat union of refs cited across all rules. The kernel's CROSS-VERIFY #1 reads this list.
 - `peer_audit[]` — start EMPTY on round 1; populate on round ≥ 2 with audits of the previous round's `challenger_draft.evidence_refs` as `{ref, claim: "verified" | "missing"}`. Audit claims are fact-checked at CROSS-VERIFY #3; false positives or negatives REJECT the round.
 - `critiques[]` — start EMPTY; populated by challenger.

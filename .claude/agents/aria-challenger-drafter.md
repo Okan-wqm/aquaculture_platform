@@ -49,7 +49,8 @@ A single JSON `aria/agent-response/v1` envelope:
 - `role: "challenger"` (literal — discriminator for the kernel's content_hash collusion check)
 - `adapter_source` — counter-implementation OR refined version of primary
 - `adapter_manifest` — `.tool.json` matching seed contract
-- `rules[]` — counter-rules + variations on primary's rules
+- `rules[]` — counter-rules + variations on primary's rules, one entry per rule: `{rule_id, claim_class, summary, evidence_refs}`. `claim_class` MUST be one of `seed.claim_types`.
+  - **Consequence:** a rule with no `claim_class`, or one outside `seed.claim_types`, ends the round as `evidence_hallucination_detected` at the kernel's evidence-grounded gate — the challenger kills the round it was meant to sharpen.
 - `evidence_refs[]` — flat union of refs; same cross-verify gate as primary
 - `peer_audit[]` — REQUIRED non-empty. One audit per ref in `primary_draft.evidence_refs[]`: `{ref, claim: "verified" | "missing", evidence_for_audit: "<your-fact-check snippet>"}`. Audit a `verified` claim only after you have read the file via the Read tool. A "missing" claim is admissible ONLY if you ran `Path.exists` AND can demonstrate the file is NOT in the workspace at base_commit_sha.
   - **Consequence:** an empty or unread peer_audit means the challenger never independently re-resolved primary's `evidence_refs[]`, so it rubber-stamps a primary draft whose rule cites a file that was deleted or moved between Phase 0 and this round — exactly the mutual-hallucination failure CROSS-VERIFY #3 exists to catch.

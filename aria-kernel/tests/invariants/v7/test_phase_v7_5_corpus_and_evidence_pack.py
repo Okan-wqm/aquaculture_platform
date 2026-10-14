@@ -12,6 +12,11 @@ Five invariants pin the chicken-and-egg break:
   * I-V7.5-04 — evidence-pack-only authoring marked in result
   * I-V7.5-05 — operator-visible counts in result
                 (requests_skipped_evidence_insufficient)
+
+Plus ARIA-HIGH-470: the corpus sanity pre-flight reads fixtures through the strict
+JSONL reader, names a corrupt row instead of crashing, takes its floor from
+convergent_skill_authoring.MIN_CALIBRATION_FIXTURES, and writes corruption
+diagnostics to the tools store, never into the operator's corpus directory.
 """
 
 from __future__ import annotations
@@ -255,6 +260,81 @@ class PhaseV7_5CorpusAndEvidencePack(unittest.TestCase):
                     "for reflection v3 operator visibility."
                 ),
             )
+
+
+class CorpusSanityReaderTests(unittest.TestCase):
+    """ARIA-HIGH-470 — validate_calibration_corpus_sanity on untrusted corpus rows."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.corpus = self.tmp / "corpus"
+        self.corpus.mkdir()
+        self.tools = self.tmp / "aria-tools"
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _write(self, extra_lines: list[str]) -> None:
+        from aria_kernel.tool_registry import utc_now
+
+        rows = [
+            json.dumps({
+                "finding_fingerprint": f"fp-{i}",
+                "label": "tp" if i % 2 == 0 else "fp",
+                "labeled_at": utc_now(),
+            })
+            for i in range(12)
+        ]
+        (self.corpus / "fixtures.jsonl").write_text(
+            "\n".join([*rows, *extra_lines]) + "\n", encoding="utf-8",
+        )
+
+    def _sanity(self) -> dict:
+        from aria_kernel.skill_genesis import validate_calibration_corpus_sanity
+
+        return validate_calibration_corpus_sanity(corpus_path=self.corpus, base_dir=self.tools)
+
+    def test_a_non_object_row_is_named_not_a_crash(self) -> None:
+        self._write(["[1,2]"])
+        result = self._sanity()
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("fixture_row_corrupt", result["reasons"])
+
+    def test_a_non_object_row_beside_transport_text_is_corruption(self) -> None:
+        # Text naming the replay transport takes the reader's transport
+        # branch; the reader applies the same row contract there, so the
+        # pre-flight sees the same named corruption, not a passed-through row.
+        from aria_kernel.ledger import REPLAY_TRANSPORT_SCHEMA_PREFIX
+
+        self._write([json.dumps({"note": REPLAY_TRANSPORT_SCHEMA_PREFIX}), "[1,2]"])
+        result = self._sanity()
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("fixture_row_corrupt", result["reasons"])
+
+    def test_corrupt_row_diagnostic_lands_in_the_tools_store(self) -> None:
+        self._write(["{not json"])
+        result = self._sanity()
+        self.assertIn("fixture_row_corrupt", result["reasons"])
+        self.assertFalse((self.corpus / "diagnostics").exists())
+        self.assertTrue((self.tools / "diagnostics").is_dir())
+
+    def test_fixture_floor_has_one_owner(self) -> None:
+        import ast
+        import inspect
+        import textwrap
+
+        from aria_kernel import skill_genesis
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(skill_genesis.validate_calibration_corpus_sanity)))
+        func = tree.body[0]
+        defaults = {
+            arg.arg: default
+            for arg, default in zip(func.args.kwonlyargs, func.args.kw_defaults)
+            if default is not None
+        }
+        self.assertIsInstance(defaults["min_fixtures"], ast.Name)
+        self.assertEqual(defaults["min_fixtures"].id, "MIN_CALIBRATION_FIXTURES")
 
 
 if __name__ == "__main__":

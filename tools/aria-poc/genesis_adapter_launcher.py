@@ -103,6 +103,7 @@ def main():
         if entry != script_dir and "site-packages" not in entry and "dist-packages" not in entry
     ]
     import hashlib
+    import importlib
     import json
 
     try:
@@ -115,8 +116,11 @@ def main():
         return _refuse("header_unreadable")
     if hashlib.sha256(source.encode("utf-8")).hexdigest() != expected:
         return _refuse("source_digest_mismatch")
+    # The names are data, so the import is by name: `importlib.import_module`,
+    # never a `__import__` call (ARIA-HIGH-470, tests/test_no_dunder_import_calls.py).
+    # Same loaded set: the allowlist's own imports load `importlib` anyway.
     for name in [*allowed, *_LAZY_STDLIB_HELPERS]:
-        __import__(str(name))
+        importlib.import_module(str(name))
     machinery = sys.modules["_imp"]
     for builder in _MODULE_BUILDERS:
         if hasattr(machinery, builder):

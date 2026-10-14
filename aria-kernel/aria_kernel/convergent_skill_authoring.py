@@ -19,9 +19,11 @@ Three non-negotiable Tier-1 constraints derived from operator vision:
 
   2. **Evidence-grounded debate (no hallucinated rule space)** —
      Phase 0's ``evidence_pack`` is the bounding box of what can be
-     debated. Primary's drafts MUST cite ``evidence_refs`` present in
-     the pack; challenger's counter-examples MUST also resolve.
-     ``_validate_evidence_grounded()`` is the structural Tier-1 gate.
+     debated. Both drafts' ``evidence_refs`` MUST resolve inside the
+     pack (check 3 of CROSS-VERIFY #1/#2), and every drafted rule MUST
+     carry a ``claim_class`` from ``seed.claim_types``:
+     ``_validate_evidence_grounded()`` is that rule-space gate, run after
+     CROSS-VERIFY #2.
 
   3. **Mutual hallucination guarantee** — every claim is fact-checked
      by THREE CROSS-VERIFY passes against ``base_commit_sha``:
@@ -42,8 +44,8 @@ I-V6.2-07 source-substring invariant pins the literal call site
 the mutual-hallucination guarantee.
 
 V6.2 binds to ``plan_convergence.start_plan(plan_id=f'adapter-{seed_id}')``
-(B-V3-1) so collusion detection (``_results_pair_hash_check`` at
-plan_convergence.py:473) reuses the existing primary↔challenger
+(B-V3-1) so collusion detection
+(``plan_convergence._results_pair_hash_check``) reuses the existing primary↔challenger
 content_hash machinery — no parallel collusion check needed.
 
 Exit verdicts (Plan §2d v2 — AdapterAuthoringResult.authoring_verdict):
@@ -72,7 +74,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, TypedDict
+from typing import Any, Callable, Literal, TypedDict
 
 from .evidence_collector import (
     EvidencePack,
@@ -434,6 +436,33 @@ def run_convergent_authoring(
                 hallucination_rejection_count=hallucination_rejection_count,
             )
 
+        # Evidence-grounded gate — the RULE space. CROSS-VERIFY #1/#2
+        # bounded the refs to the pack; this bounds every rule to a
+        # claim_class the seed declared. Drafter output is untrusted, so a
+        # malformed rule is a named rejection here, never an exception.
+        grounded, grounded_reasons = _validate_evidence_grounded(
+            primary_draft=primary_draft,
+            challenger_draft=challenger_draft,
+            evidence_pack=evidence_pack,
+        )
+        if not grounded:
+            hallucination_rejection_count += 1
+            judge_consensus_log.append({
+                "phase": "evidence_grounded_gate",
+                "round": round_number,
+                "reasons": grounded_reasons,
+            })
+            return _terminal_result(
+                request_id=request_id, plan_id=plan_id, seed_id=seed_id,
+                verdict="evidence_hallucination_detected",
+                rounds_count=round_number,
+                judge_consensus_log=judge_consensus_log,
+                evidence_pack_path=str(_pack_path(root, seed_id)),
+                evidence_pack_size=len(evidence_pack["observations"]),
+                calibration_corpus_path=calibration_corpus_path,
+                hallucination_rejection_count=hallucination_rejection_count,
+            )
+
         # CROSS-VERIFY #3 — peer-review. Primary checks challenger's
         # claims and vice versa. Failure means one side's "fail to
         # verify" cannot be demonstrated by the other.
@@ -777,30 +806,24 @@ def _validate_evidence_grounded(
     challenger_draft: dict[str, Any],
     evidence_pack: EvidencePack,
 ) -> tuple[bool, list[str]]:
-    """Plan ARIA-V6 §2d v2 — Tier-1 evidence-grounding gate.
+    """Plan ARIA-V6 §2d v2 — Tier-1 evidence-grounding gate (the rule space).
 
-    For EACH evidence_ref cited by primary OR challenger:
-      - MUST belong to a claim_class declared in seed.claim_types
-      - MUST point to a file present in evidence_pack.observations
-        (line ±5 tolerance)
+    Every rule drafted by primary OR challenger MUST be an object whose
+    ``claim_class`` is one of ``seed.claim_types`` (carried on the pack as
+    ``claim_types``). Pack membership of the cited refs is not re-checked
+    here: it is check 3 of ``_cross_verify_evidence_refs`` (CROSS-VERIFY
+    #1/#2), which has already passed for both drafts when this runs.
     """
     reasons: list[str] = []
     claim_types_allowed = set(evidence_pack["claim_types"])
-    obs_index = _index_observations(evidence_pack["observations"])
-
     for side_name, draft in (("primary", primary_draft), ("challenger", challenger_draft)):
         for rule in (draft.get("rules") or []):
+            if not isinstance(rule, dict):
+                reasons.append(f"{side_name}_rule_not_object")
+                continue
             cc = rule.get("claim_class")
             if cc not in claim_types_allowed:
                 reasons.append(f"{side_name}_rule_claim_class_outside_seed: {cc}")
-        for ref in (draft.get("evidence_refs") or []):
-            parsed = _parse_evidence_ref(ref)
-            if parsed is None:
-                reasons.append(f"{side_name}_malformed_ref: {ref}")
-                continue
-            file_path, line_no, _ = parsed
-            if not _ref_in_pack(obs_index, file_path, line_no, tolerance=5):
-                reasons.append(f"{side_name}_ref_outside_pack: {ref}")
     return (len(reasons) == 0, reasons)
 
 

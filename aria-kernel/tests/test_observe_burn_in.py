@@ -8,7 +8,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from aria_kernel import burn_in
 from aria_kernel.burn_in import (
     DISALLOWED_OBSERVE_SURFACES,
     _require_clean_worktree,
@@ -75,16 +77,31 @@ class ObserveBurnInTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_observe_burn_in_runs_without_action_surfaces(self) -> None:
-        report = run_observe_burn_in(
-            workspace_root=self.repo,
-            workspace_base=self.workspace_base,
-            base_dir=self.tools_dir,
-            target_ref="HEAD",
-            cycles=30,
-            min_valid_cycles=20,
-            output_dir=self.output_dir,
-        )
+        # Every pressure-log read the report assembly makes, so the test can
+        # prove the pressure summary and the candidate observations describe
+        # ONE read of the ledger, not two reads that may straddle an append.
+        pressure_reads: list[list[dict]] = []
+        real_load = burn_in.load_declared_jsonl
 
+        def spy_load(path, *args, **kwargs):
+            rows = real_load(path, *args, **kwargs)
+            if kwargs.get("expected_surface") == "pressure_log":
+                pressure_reads.append(rows)
+            return rows
+
+        with mock.patch.object(burn_in, "load_declared_jsonl", side_effect=spy_load):
+            report = run_observe_burn_in(
+                workspace_root=self.repo,
+                workspace_base=self.workspace_base,
+                base_dir=self.tools_dir,
+                target_ref="HEAD",
+                cycles=30,
+                min_valid_cycles=20,
+                output_dir=self.output_dir,
+            )
+
+        self.assertEqual(len(pressure_reads), 1)
+        self.assertEqual(report["pressure_summary"]["pressure_log_rows"], len(pressure_reads[0]))
         self.assertEqual(report["schema_version"], "aria/autonomy-burn-in-report/v1")
         self.assertEqual(report["acceptance_verdict"], "passed", _verdict_diagnostics(report))
         self.assertEqual(report["profile"], "observe")

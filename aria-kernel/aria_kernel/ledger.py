@@ -40,7 +40,10 @@ __all__ = [
     "append_declared_jsonl",
     "append_segment_rows",
     "append_jsonl",
+    "atomic_write_json",
+    "is_sha256_digest",
     "canonical_json",
+    "sha256_of_canonical_json",
     "stamp_row_format",
     "file_hash",
     "load_index",
@@ -242,6 +245,16 @@ _REPLAY_TRANSACTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CHAIN_FIELDS = frozenset({"ledger_hash", "previous_ledger_hash"})
 
 
+def is_sha256_digest(value: str) -> bool:
+    """True when ``value`` is a ``sha256:``-prefixed lowercase 64-hex digest.
+
+    The one owner of the digest shape the ledger mints and verifies as
+    ``ledger_hash`` (``_LEDGER_EVENT_ID``); proof and claim gates check
+    their hash fields against it rather than restating the shape.
+    """
+    return _LEDGER_EVENT_ID.fullmatch(value) is not None
+
+
 def stamp_row_format(row: dict[str, Any]) -> dict[str, Any]:
     """Fill a SILENT row with the format version — never overwrite a spoken one.
 
@@ -396,7 +409,7 @@ def _lock_requirements_for_path(path: Path) -> LockRequirement:
       → both locks.
     * Anything else → file-lock only.
 
-    Mirrors the routing predicate that the original `_refresh_adjacent_index`
+    Mirrors the routing predicate that the pre-§A.1 `_refresh_adjacent_index`
     used (parent dir + sibling existence) so callers + AST invariants always
     derive the same answer.
     """
@@ -603,10 +616,7 @@ class StateTransaction:
             expected_surface=expected_surface,
             enforce_write_profile=not bypass_profile_gate,
         )
-        _atomic_write_text(
-            resolved,
-            json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        )
+        atomic_write_json(resolved, payload)
 
     def rewrite_jsonl(
         self,
@@ -863,18 +873,9 @@ def file_hash(path: Path) -> str:
 def _read_jsonl_stored(path: Path) -> list[dict[str, Any]]:
     """Private byte-shape reader for append/verification/replay internals."""
 
-    records: list[dict[str, Any]] = []
     if not path.exists():
-        return records
-    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            records.append(json.loads(stripped))
-        except (json.JSONDecodeError, RecursionError, ValueError) as exc:
-            raise LedgerIntegrityError(f"Invalid JSONL at {path}:{line_no}: {exc}") from exc
-    return records
+        return []
+    return _parse_jsonl_stored_text(path, path.read_text(encoding="utf-8"))
 
 
 def read_jsonl(
@@ -899,18 +900,7 @@ def read_jsonl(
         for row in stored
     ):
         return stored
-    result, rows = _verify_jsonl_from_text(
-        path,
-        content,
-        expected_surface=expected_surface,
-    )
-    if not result.get("valid", False) or result.get("torn_tail_bytes"):
-        raise LedgerIntegrityError(
-            f"strict verification failed for {path.as_posix()}: "
-            f"reason={result.get('reason') or 'immutable_torn_tail'} "
-            f"line={result.get('line')}",
-        )
-    return rows
+    return _verify_text_or_raise(path, content, expected_surface=expected_surface)
 
 
 def read_jsonl_reverse_verified(
@@ -1021,7 +1011,7 @@ def load_jsonl(
     return read_jsonl(resolved)
 
 
-def canonical_json(record: dict[str, Any]) -> str:
+def canonical_json(record: Any) -> str:
     """The kernel's ONE canonical JSON encoding for hashed payloads.
 
     Every hash the kernel chains — ledger row hashes, and the state
@@ -1032,6 +1022,16 @@ def canonical_json(record: dict[str, Any]) -> str:
     second canonicalizer, which is how hash contracts drift apart.
     """
     return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def sha256_of_canonical_json(value: Any) -> str:
+    """Hex sha256 of ``canonical_json(value)`` — the kernel's content digest.
+
+    Identity and evidence digests (feedback event ids, finding ids,
+    evidence hashes) used to re-spell the canonical encoding inline. Any
+    JSON value is accepted: some callers hash a list of evidence items.
+    """
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def _parse_jsonl_stored_text(path: Path, content: str) -> list[dict[str, Any]]:
@@ -1460,7 +1460,7 @@ def _append_jsonl_unlocked(path: Path, record: dict[str, Any]) -> dict[str, Any]
     that read the tail outside the lock window would re-corrupt the chain.
 
     Stale-chain stripping (caught by A.2 strict verify on
-    ``memory.py:322``-style ``row = dict(belief)`` re-appends): both
+    ``memory``'s ``row = dict(belief)`` re-appends): both
     ``previous_ledger_hash`` and ``ledger_hash`` are always unconditionally
     overwritten with the actual chain values. A caller that passes a row
     dict re-loaded from an earlier ledger entry (carrying its old chain
@@ -1817,17 +1817,6 @@ def rewrite_jsonl(
         )
 
 
-def _rewrite_jsonl_locked(path: Path, rows: list[dict[str, Any]]) -> None:
-    requirement = _lock_requirements_for_path(path)
-    if requirement.index_group_lock_path is None:
-        with with_exclusive_lock(requirement.file_lock_path):
-            _rewrite_jsonl_unlocked(path, rows)
-            return
-    with with_exclusive_lock(requirement.index_group_lock_path):
-        with with_exclusive_lock(requirement.file_lock_path):
-            _rewrite_jsonl_unlocked(path, rows)
-
-
 def _assert_raw_jsonl_rewrite_allowed(
     path: Path,
     *,
@@ -2085,11 +2074,46 @@ def load_jsonl_verified(
     """
     if not path.exists():
         return []
+    return _verify_file_or_raise(path, expected_surface=expected_surface)
+
+
+def _load_jsonl_stored_verified(
+    path: Path,
+    *,
+    expected_surface: str,
+    expected_surface_instance: str | None = None,
+) -> list[dict[str, Any]]:
+    """Private strict loader retaining transport identity for replay only."""
+    if not path.exists():
+        return []
+    return _verify_file_or_raise(
+        path,
+        expected_surface=expected_surface,
+        expected_surface_instance=expected_surface_instance,
+        unwrap_transport=False,
+    )
+
+
+def _verify_file_or_raise(
+    path: Path,
+    *,
+    expected_surface: str | None,
+    expected_surface_instance: str | None = None,
+    unwrap_transport: bool = True,
+) -> list[dict[str, Any]]:
+    """Strictly verify an existing file's chain or raise ``LedgerIntegrityError``.
+
+    The one verify-and-raise body of the file loaders. Unlike the text loaders
+    it does not refuse a torn tail: a live file may carry one that the next
+    append heals (``heal_torn_tail``), and the verdict already excludes it.
+    """
     try:
         result, rows = _verify_jsonl_from_text(
             path,
             path.read_text(encoding="utf-8"),
             expected_surface=expected_surface,
+            expected_surface_instance=expected_surface_instance,
+            unwrap_transport=unwrap_transport,
         )
     except OSError as exc:
         # E18 (ORPHAN-672) — name the environment fault so a full-disk or
@@ -2106,32 +2130,31 @@ def load_jsonl_verified(
     return rows
 
 
-def _load_jsonl_stored_verified(
-    path: Path,
+def _verify_text_or_raise(
+    source_path: Path,
+    content: str,
     *,
-    expected_surface: str,
+    expected_surface: str | None,
     expected_surface_instance: str | None = None,
+    unwrap_transport: bool = True,
 ) -> list[dict[str, Any]]:
-    """Private strict loader retaining transport identity for replay only."""
-    if not path.exists():
-        return []
-    try:
-        result, rows = _verify_jsonl_from_text(
-            path,
-            path.read_text(encoding="utf-8"),
-            expected_surface=expected_surface,
-            expected_surface_instance=expected_surface_instance,
-            unwrap_transport=False,
-        )
-    except OSError as exc:
+    """Strictly verify immutable JSONL text or raise ``LedgerIntegrityError``.
+
+    The one verify-and-raise body of the text loaders. Immutable bytes are
+    never healed, so a torn tail is refused here as ``immutable_torn_tail``.
+    """
+    result, rows = _verify_jsonl_from_text(
+        source_path,
+        content,
+        expected_surface=expected_surface,
+        expected_surface_instance=expected_surface_instance,
+        unwrap_transport=unwrap_transport,
+    )
+    if not result.get("valid", False) or result.get("torn_tail_bytes"):
         raise LedgerIntegrityError(
-            f"strict verification failed for {path.as_posix()}: "
-            f"reason_kind=io_error errno={exc.errno} reason={exc}",
-        ) from exc
-    if not result.get("valid", False):
-        raise LedgerIntegrityError(
-            f"strict verification failed for {path.as_posix()}: "
-            f"reason={result.get('reason')} line={result.get('line')}",
+            f"strict verification failed for {source_path.as_posix()}: "
+            f"reason={result.get('reason') or 'immutable_torn_tail'} "
+            f"line={result.get('line')}"
         )
     return rows
 
@@ -2144,21 +2167,13 @@ def _load_jsonl_stored_verified_text(
     expected_surface_instance: str,
 ) -> list[dict[str, Any]]:
     """Verify already-attested replay bytes while retaining transport rows."""
-    source_path = Path(source)
-    result, rows = _verify_jsonl_from_text(
-        source_path,
+    return _verify_text_or_raise(
+        Path(source),
         content,
         expected_surface=expected_surface,
         expected_surface_instance=expected_surface_instance,
         unwrap_transport=False,
     )
-    if not result.get("valid", False) or result.get("torn_tail_bytes"):
-        raise LedgerIntegrityError(
-            f"strict verification failed for {source_path.as_posix()}: "
-            f"reason={result.get('reason') or 'immutable_torn_tail'} "
-            f"line={result.get('line')}",
-        )
-    return rows
 
 
 def load_jsonl_verified_text(
@@ -2168,19 +2183,7 @@ def load_jsonl_verified_text(
     expected_surface: str | None = None,
 ) -> list[dict[str, Any]]:
     """Strictly verify immutable JSONL content without a filesystem rewrite."""
-    source_path = Path(source)
-    result, rows = _verify_jsonl_from_text(
-        source_path,
-        content,
-        expected_surface=expected_surface,
-    )
-    if not result.get("valid", False) or result.get("torn_tail_bytes"):
-        raise LedgerIntegrityError(
-            f"strict verification failed for {source_path.as_posix()}: "
-            f"reason={result.get('reason') or 'immutable_torn_tail'} "
-            f"line={result.get('line')}"
-        )
-    return rows
+    return _verify_text_or_raise(Path(source), content, expected_surface=expected_surface)
 
 
 def verify_jsonl_chunks(
@@ -2426,7 +2429,7 @@ def _write_index_unlocked(
     index.pop("pressure_keys_emitted", None)
     index["ledger_hashes"] = {name: file_hash(path) for name, path in ledgers.items()}
     index["schema_version"] = 2
-    _atomic_write_text(index_path, json.dumps(index, indent=2, sort_keys=True) + "\n")
+    atomic_write_json(index_path, index)
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -2481,6 +2484,34 @@ def _atomic_write_text(path: Path, content: str) -> None:
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
+
+
+def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write ``payload`` as the kernel's JSON-file byte format, durably.
+
+    ARIA-MEDIUM-490 — the owner of the format (indent=2, sorted keys, trailing newline)
+    and of its temp-and-rename write (``_atomic_write_text``: unique tmp,
+    fsync, rename, directory fsync). The private copies that restated both —
+    most with a shared fixed ``.<name>.tmp`` side-car (the ORPHAN-062 race)
+    and none with fsync — are gone, and
+    ``tests/test_rewrite_jsonl_safe_mode.py`` fails on a kernel function that
+    pairs this format with its own temp-and-rename (the variants it names
+    write other bytes or another file mode). Direct, non-atomic
+    ``write_text(json.dumps(...))`` writes elsewhere are not this writer and
+    are not covered by that gate.
+
+    UNGOVERNED: no manifest assertion, profile gate or lock is applied here.
+    ``rewrite_declared_json`` (or ``StateTransaction.rewrite_declared_json``)
+    is the governed writer of a declared state surface and calls this after
+    its own checks. Not every declared ``rewrite_fsync`` surface is written
+    that way: finding and debt documents and indexes, the tool registry,
+    critical observations, discovery artifacts, burn-in reports and agent-eval
+    fixture files are among the declared surfaces whose writers call this
+    directly, so the manifest's profile gate and lock do not apply to them.
+    Moving each onto the governed writer changes what it refuses under a
+    profile (ARIA-MEDIUM-461 did so for HUMAN_REQUIRED records) and is its own change.
+    """
+    _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
 def _refresh_adjacent_index_grouped(
@@ -2543,18 +2574,7 @@ def _refresh_adjacent_index_grouped(
         current.pop("pressure_keys_emitted", None)
         current["ledger_hashes"] = ledger_hashes
         current["schema_version"] = 2
-        _atomic_write_text(
-            index_path,
-            json.dumps(current, indent=2, sort_keys=True) + "\n",
-        )
-
-
-# Backward-compatibility alias: the previous helper is retained so any
-# legacy callers that may have imported it directly continue to work,
-# but it now routes through the held-lock-aware variant. New code MUST
-# call `_refresh_adjacent_index_grouped` explicitly with the held lock.
-def _refresh_adjacent_index(path: Path) -> None:
-    _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
+        atomic_write_json(index_path, current)
 
 
 # ARIA-HIGH-275 — WHY: the request and prompt ledgers grow 1-2 MiB a day,

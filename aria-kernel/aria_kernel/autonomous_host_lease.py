@@ -4,7 +4,7 @@ PROBLEM:
   The autonomous orchestrator can run BOTH as a local daemon AND as
   a GHA cron job (`aria-agent-executor.yml`). If both fire
   simultaneously — operator running `aria-kernel autonomy run` on
-  their laptop while the 02:00 UTC cron also starts — two processes
+  their laptop while the executor's scheduled cron also starts — two processes
   race on the same ack-ledger + materialize chain + outbox. Worst
   case: duplicate auto-mints + double-commit of the same draft. The
   Git layer would catch some of this; the kernel ledger would not.
@@ -411,7 +411,6 @@ def acquire_lease(
     base_dir: str | Path,
     host_id: str | None = None,
     pid: int | None = None,
-    allow_same_host_refresh: bool = True,
 ) -> HostLease:
     """Plan ARIA-V3 §2n + INFRA-HIGH-004 — acquire or refresh the
     autonomous-loop host lease.
@@ -420,17 +419,16 @@ def acquire_lease(
     ``GovernanceError`` with ``autonomous_host_lease_blocked`` when
     the existing lease is fresh AND belongs to a different host.
 
-    ``allow_same_host_refresh`` (default True) lets a long-running
-    local daemon refresh its OWN lease without restart; the GHA cron
-    sets it to False because the cron is short-lived and should not
-    extend a stale local lease.
+    The same host always refreshes its own fresh lease (a long-running
+    daemon renews without restart, and a GHA-runner-held lease renews
+    through this same path); a different host's fresh lease is refused.
     """
     host = host_id or _resolve_host_id()
     own_pid = pid or os.getpid()
     root = ensure_tools_dir(base_dir)
     existing = _read_lease(root)
     if existing is not None and existing.is_fresh():
-        if existing.host_id == host and allow_same_host_refresh:
+        if existing.host_id == host:
             refreshed = _build_lease(host, own_pid)
             _atomic_write_lease(_lease_path(root), refreshed)
             append_tools_governance(

@@ -9,8 +9,9 @@ task HB-1
 ## Purpose
 
 ARIA's entire runtime habitat is one machine: the self-hosted GitHub
-Actions runner that `aria-auto-cycle` (01:13 UTC producer) and
-`aria-agent-executor` (drain; `workflow_run` + 02:29 UTC cron) run on.
+Actions runner that `aria-auto-cycle` (the producer) and
+`aria-agent-executor` (the drain: dispatched by the cycle's `chain-executor`
+job, plus its own cron) run on.
 ARIA's _state_ survives the machine (it lives on the `aria/state`
 branch), but the _habitat_ — runner service, sandbox backend, secrets
 file, Claude login, policy override — existed only as hand-applied
@@ -37,7 +38,7 @@ only.
 | Labels               | `self-hosted`, `linux`, `claude` (both lanes pin `runs-on: [self-hosted, linux, claude]`)                                                                                                                                                                              |
 | systemd service      | `actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service`                                                                                                                                                                                          |
 | Secrets file         | `/home/gharunner/actions-runner/.env` (key: `ARIA_OBSERVABILITY_API_KEY`; `ARIA_GH_TOKEN` must be absent)                                                                                                                                                              |
-| Claude CLI floor     | `2.1.197` (both lanes' preflight rejects older)                                                                                                                                                                                                                        |
+| Claude CLI floor     | `claude_code_floor` in `.github/manifests/aria-claude-floor.json` (both lanes' preflight rejects older)                                                                                                                                                                |
 | Workspace checkout   | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`                                                                                                                                                                                       |
 | Runner limits        | `MemoryHigh=2300M MemoryMax=3G OOMPolicy=continue CPUQuota=200% CPUWeight=400` (`scripts/aria/runner-habitat/systemd/actions-runner.limits.conf`)                                                                                                                      |
 | Session limits       | `user-.slice MemoryHigh=2816M MemoryMax=3G` (`scripts/aria/runner-habitat/systemd/user-.slice.d/50-aria-memory-discipline.conf`)                                                                                                                                       |
@@ -254,7 +255,8 @@ login** on this trusted runner (`docs/aria/CURRENT_STATE.md` §Runtime).
 API-key mode is rejected by both lanes' preflight.
 
 1. Install Claude Code so the `gharunner` user can run it; verify the
-   floor: `sudo -u gharunner claude --version` ≥ `2.1.197`.
+   floor: `sudo -u gharunner claude --version` ≥ the `claude_code_floor` in
+   `.github/manifests/aria-claude-floor.json`.
 2. Log in interactively AS `gharunner` (`sudo -u gharunner -i claude`,
    then `/login`) with the managed subscription account.
 3. Confirm no API-key variables anywhere in the runner environment or
@@ -330,9 +332,9 @@ claude` (or `gh api repos/Okan-wqm/aquaculture_platform/actions/runners`).
    ```
 
    A healthy run shows, in order: the CLI preflight passing the
-   `2.1.197` floor, `aria/state checked out (restored)` (NOT
+   manifest's `claude_code_floor`, `aria/state checked out (restored)` (NOT
    `bootstrap`), and a green `Publish ARIA state to the aria/state branch` step.
-   The executor drain follows automatically via `workflow_run`.
+   The executor drain follows, dispatched by the cycle's `chain-executor` job.
 
 4. **Drift gate:** `scripts/aria/provision_runner.sh --dry-run` exits 0.
 

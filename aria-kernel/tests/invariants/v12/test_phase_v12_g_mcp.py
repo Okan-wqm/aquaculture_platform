@@ -23,8 +23,10 @@ Invariants:
                 answer from the store; write tools are absent without --allow-writes
                 and need an approval ref with it; every call is a server-side ledger
                 row; a tool exception is an isError result, never a dead server.
-  I-V12-MCP-05  the CLI floor is 2.1.221 everywhere it is pinned; .mcp.json exposes
-                the same server to humans; the CLI exposes mcp serve/registry/health/
+  I-V12-MCP-05  the CLI floor (>= 2.1.221) has one owner,
+                .github/manifests/aria-claude-floor.json, and every consumer reads it
+                through doctor.claude_cli_version_floor; .mcp.json exposes the same
+                server to humans; the CLI exposes mcp serve/registry/health/
                 release/config.
 
 NOT RUN at authoring time (operator instruction 2026-09-03).
@@ -250,14 +252,24 @@ class PlanVerifyAnswersAuthenticity(_Store):
 
 class FloorAndSurfaces(_Store):
     def test_I_V12_MCP_05_floor_mcp_json_cli(self) -> None:
-        from aria_kernel.doctor import CLAUDE_CLI_VERSION_FLOOR
+        from aria_kernel.doctor import _version_tuple, claude_cli_version_floor
 
-        self.assertEqual(CLAUDE_CLI_VERSION_FLOOR, "2.1.221")
-        for rel in (".github/workflows/aria-agent-executor.yml", ".github/workflows/aria-auto-cycle.yml", "scripts/aria/provision_runner.sh",
-                    "tools/aria-poc/ci_executor_contract_proven.md"):
+        # ARIA-HIGH-500 — the floor lives in .github/manifests/aria-claude-floor.json;
+        # the consumers read it, and the proof record names the same value.
+        floor = claude_cli_version_floor()
+        self.assertGreaterEqual(_version_tuple(floor), (2, 1, 221))
+        for rel in (".github/workflows/aria-agent-executor.yml", ".github/workflows/aria-auto-cycle.yml",
+                    "scripts/aria/provision_runner.sh"):
             text = (_REPO_ROOT / rel).read_text(encoding="utf-8")
-            self.assertIn("2.1.221", text, rel)
+            # A consumer reads the floor through its one reader; it never
+            # restates the value or parses the manifest itself.
+            self.assertIn("claude_cli_version_floor", text, rel)
+            self.assertNotIn(floor, text, rel)
+            self.assertNotIn('["claude_code_floor"]', text, rel)
             self.assertNotIn("2.1.197", text, rel)
+        proof = (_REPO_ROOT / "tools/aria-poc/ci_executor_contract_proven.md").read_text(encoding="utf-8")
+        self.assertIn(f"claude-code {floor}", proof)
+        self.assertNotIn("2.1.197", proof)
         mcp_json = json.loads((_REPO_ROOT / ".mcp.json").read_text(encoding="utf-8"))
         self.assertEqual(mcp_json["mcpServers"]["aria"]["args"][:4], ["-m", "aria_kernel", "mcp", "serve"])
         from aria_kernel.cli import build_parser

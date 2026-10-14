@@ -20,7 +20,6 @@ from unittest import mock
 from aria_kernel import doctor
 from aria_kernel.cli import build_parser
 from aria_kernel.doctor import (
-    CLAUDE_CLI_VERSION_FLOOR,
     DOCTOR_EXIT_HEALTHY,
     DOCTOR_EXIT_UNHEALTHY,
     DoctorCheck,
@@ -61,22 +60,35 @@ class ReportShape(unittest.TestCase):
 
 
 class TheFloorIsOneValue(unittest.TestCase):
-    def test_workflows_and_provisioner_pin_the_same_claude_floor(self) -> None:
-        literals: dict[str, str] = {}
+    """ARIA-HIGH-500 — the Claude CLI floor has one owner, a manifest every consumer reads."""
+
+    def test_the_doctor_reads_the_manifest(self) -> None:
+        import json
+
+        manifest = json.loads((_REPO_ROOT / doctor.CLAUDE_FLOOR_MANIFEST_RELPATH).read_text(encoding="utf-8"))
+        self.assertEqual(doctor.claude_cli_version_floor(), manifest["claude_code_floor"])
+
+    def test_no_consumer_restates_the_floor(self) -> None:
         for rel in (
             ".github/workflows/aria-auto-cycle.yml",
             ".github/workflows/aria-agent-executor.yml",
         ):
             text = (_REPO_ROOT / rel).read_text(encoding="utf-8")
-            match = re.search(r'REQUIRED_CLAUDE_VERSION="([0-9.]+)"', text)
-            self.assertIsNotNone(match, rel)
-            literals[rel] = match.group(1)
+            self.assertIn("claude_cli_version_floor", text, rel)
+            self.assertIsNone(re.search(r'REQUIRED_CLAUDE_VERSION="[0-9.]+"', text), rel)
         provision = (_REPO_ROOT / "scripts/aria/provision_runner.sh").read_text(encoding="utf-8")
-        match = re.search(r'CLAUDE_FLOOR="([0-9.]+)"', provision)
-        self.assertIsNotNone(match)
-        literals["scripts/aria/provision_runner.sh"] = match.group(1)
+        # The provisioner reads through the same reader as the lanes, not a
+        # private parse of the manifest.
+        self.assertIn("claude_cli_version_floor", provision)
+        self.assertNotIn('["claude_code_floor"]', provision)
+        self.assertIsNone(re.search(r'CLAUDE_FLOOR="[0-9.]+"', provision))
 
-        self.assertEqual(set(literals.values()), {CLAUDE_CLI_VERSION_FLOOR}, literals)
+    def test_an_unreadable_manifest_is_a_named_refusal(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(GovernanceError, "claude_floor_manifest_unreadable"):
+                doctor.claude_cli_version_floor(repo_root=tmp)
 
 
 class ClaudeCliCheck(unittest.TestCase):

@@ -2,9 +2,9 @@ name: aria-auto-cycle
 
 # ARIA Operationalization S1+S2 (operator-approved plan 2026-07-02,
 # ORPHAN-MEDIUM-296) — the scheduled PRODUCER lane. aria-agent-executor
-# (02:00 UTC) only drains an already-minted queue; this workflow runs the
+# only drains an already-minted queue; this workflow runs the
 # full `aria-kernel autonomy run` orchestration (discovery → pressure →
-# triage → planner/bridge/worker drains) nightly.
+# triage → planner/bridge/worker drains) on its schedule.
 #
 # ORPHAN-HIGH-728 — the profile is RESOLVED, not fixed, and the resolution
 # is BOUNDED. The `profile_gate` step calls
@@ -306,7 +306,8 @@ jobs:
       - name: Pre-flight - Claude Code CLI present
         run: |
           set -euo pipefail
-          REQUIRED_CLAUDE_VERSION="2.1.221"
+          # The floor's one owner is .github/manifests/aria-claude-floor.json (ARIA-HIGH-500).
+          REQUIRED_CLAUDE_VERSION="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -c 'from aria_kernel.doctor import claude_cli_version_floor; print(claude_cli_version_floor())')"
           CLAUDE_VERSION="$(claude --version | awk '{print $1}')"
           python3 - "$REQUIRED_CLAUDE_VERSION" "$CLAUDE_VERSION" <<'PY'
           import sys

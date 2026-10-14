@@ -19,7 +19,6 @@ REPO_SLUG="${REPO_SLUG:-Okan-wqm/aquaculture_platform}"
 RUNNER_NAME="${RUNNER_NAME:-suderra-droplet-claude}"
 SERVICE_NAME="actions.runner.${REPO_SLUG//\//-}.${RUNNER_NAME}.service"
 WORKSPACE_COPY="${RUNNER_ROOT}/_work/${REPO_SLUG##*/}/${REPO_SLUG##*/}"
-CLAUDE_FLOOR="2.1.221" # both lanes' preflight reject older — keep in lockstep with the workflows
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 POLICY_REL="aria-config/genesis_policy.json" # genesis_policy.OVERRIDE_RELPATH — resolved per repo root, hence TWO copies
@@ -261,6 +260,12 @@ for key in ARIA_GH_TOKEN; do
   fi
 done
 
+# ARIA-HIGH-500 — the floor's one owner is .github/manifests/aria-claude-floor.json, and
+# its one reader is aria_kernel.doctor.claude_cli_version_floor, the call both
+# lanes' preflight steps make (it validates the field; a private parse would
+# not). python3, not jq: an earlier section reports a missing jq and continues,
+# and under `set -e` a jq read here would abort the dry-run report.
+CLAUDE_FLOOR="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${REPO_ROOT}/aria-kernel" python3 -c 'import sys; from aria_kernel.doctor import claude_cli_version_floor; print(claude_cli_version_floor(sys.argv[1]))' "${REPO_ROOT}")"
 section "Claude Code CLI (managed login required; floor ${CLAUDE_FLOOR})"
 if claude_ver="$(sudo -n -u "$RUNNER_USER" claude --version 2>/dev/null | awk '{print $1}')" && [ -n "$claude_ver" ]; then
   ok "claude present as ${RUNNER_USER}: ${claude_ver} (floor ${CLAUDE_FLOOR} — workflows enforce it)"

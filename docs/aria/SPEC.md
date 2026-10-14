@@ -9,14 +9,6 @@
 > **Target:** `Okan-wqm/aquaculture_platform`
 > **Length budget:** ≤900 lines. Detail belongs in implementation, not specification.
 
-## 0.1 — v9 Enterprise Hardening Delta
-
-Snowball v9 preserves the two-root operating model: workspace state and tools state are independent contract owners. Mutating workspace commands require workspace v2; mutating tools commands require tools v2. `integrity verify` is read-only, verifies both roots together, bootstraps a fresh empty workspace as v2, and exits non-zero on drift.
-
-`discovery run --snapshot-mode committed` reads the HEAD-tracked snapshot. Dirty or staged paths are ignored for the snapshot, reported on stderr, and recorded as a tools governance event. Discovery is tools-mutating only: it does not create or modify workspace identity, workspace integrity index, workspace governance, or workspace cycle artifacts. Lifecycle integrity is tracked by tools `cycles.jsonl`.
-
----
-
 ## 0 — Why v7.2 exists
 
 v7.1 was a thoughtful spec with three structural problems for THIS repo:
@@ -31,6 +23,23 @@ v7.1 was a thoughtful spec with three structural problems for THIS repo:
 v7.2 keeps v7.1's epistemology (grounded evidence, baseline preservation, ops safety) and discards the rest. **Three laws, three mastery levels, five engines, one repo-recognition bootstrap.**
 
 The snowball still discovers what this document does not say. It just starts on a slope this repo actually has.
+
+---
+
+## 0.1 — Two-Root Hardening Delta ("Snowball v9"; amends v7.2)
+
+This delta records the "Snowball v9" two-root hardening (`ROADMAP.md` §Snowball v9 Hardening,
+`CONTRACTS.md` §0.1); "v9" labels that hardening, not a spec version — this document remains v7.2.
+It preserves the two-root operating model: workspace state and tools state are independent
+contract owners. Mutating workspace commands require workspace v2; mutating tools commands require
+tools v2. `integrity verify` is read-only, verifies both roots together, bootstraps a fresh empty
+workspace as v2, and exits non-zero on drift.
+
+`discovery run --snapshot-mode committed` reads the HEAD-tracked snapshot. Dirty or staged paths
+are ignored for the snapshot, reported on stderr, and recorded as a tools governance event.
+Discovery is tools-mutating only: it does not create or modify workspace identity, workspace
+integrity index, workspace governance, or workspace cycle artifacts. Lifecycle integrity is tracked
+by tools `cycles.jsonl`.
 
 ---
 
@@ -273,7 +282,7 @@ INGEST_ORDER (deterministic, hash-recorded):
      → integrated into ADR_PRIORS.md sections
      Trust: HIGH (curated knowledge SSoT).
 
-  4. .claude/agents/*.md  (38 specialized review agents)
+  4. .claude/agents/*.md  (the specialized review agents)
      → AGENT_PRIORS.md
      Extract: per-agent name, scope, primary domain.
      Treat as: prior-art capability map.
@@ -299,6 +308,9 @@ INGEST_ORDER (deterministic, hash-recorded):
 
 ### 5.2 — Repo fingerprint (computed once, refreshed weekly)
 
+Counted fields are computed each cycle by `discovery.py::_repo_fingerprint`; this block names how,
+not how many.
+
 ```
 REPO_FINGERPRINT.json:
   primary_languages:    [TypeScript, Rust, SQL]   (from histogram)
@@ -307,13 +319,14 @@ REPO_FINGERPRINT.json:
   test_orchestrator:    jest + playwright
   database:             postgres + timescaledb
   message_bus:          nats (mtls cert-is-identity)
-  service_count:        17 backend + 7 frontend MFEs + 1 rust edge
+  service_count:        len(apps/*)   (members: CLAUDE.md Architecture Map)
+  web_mfe_count:        len(web/modules/*)   (federated remotes; Rust edge sens-api-gateway/ is outside apps/)
   multi_tenant_model:   schema-per-tenant (ADR-011)
   auth_model:           jwt-rs256 + tenant-from-jwt-claim
   domain:               aquaculture SaaS, Norwegian regulatory adjacent
   has_clauseMd:         true
-  has_canonical_adrs:   true (count: 20+)
-  has_specialized_agents: true (count: 38)
+  has_canonical_adrs:   true (adr_count = len(docs/adr/*.md))
+  has_specialized_agents: true (population: §0 measurement)
   has_existing_audit_findings: true (docs/audits, docs/reviews)
 ```
 
@@ -329,9 +342,13 @@ Day 0 adapter birth order is no longer "guess from histogram":
 
 These four cover ≥95% of files in this repo. Generic Bootstrap Scanner handles the remaining 5%.
 
+> **Measured caveat:** ≥95% is the design target of this birth order, not a measurement; the
+> dated measurement of what adapters can read is `BEHAVIOUR.md` §2.
+
 ### 5.4 — Existing-agent integration policy
 
-The 107 agents in `.claude/agents/` are **prior art**, not competition. ARIA's policy:
+The agents in `.claude/agents/` (population: §0 measurement) are **prior art**, not competition.
+ARIA's policy:
 
 - **Read-only:** ARIA never invokes these agents (it does not have Agent tool in its kernel).
 - **Domain map:** the agent set defines the canonical domain decomposition. ARIA's spines and capabilities align to this decomposition.
@@ -361,7 +378,9 @@ Three layers, delivered with the kernel:
 
 **Layer A — `agent-workspace/.gitignore`** ships with the kernel and is committed to the repo. Whitelist-based: only known-safe artifacts allowed.
 
-**Layer B — `.claude/settings.json` deny rules** for `agent-workspace/` paths so domain agents (the 38 in `.claude/agents/`) never attempt to read ARIA's outputs as application code (closes a small but real cross-pollination risk).
+**Layer B — `.claude/settings.json` deny rules** for `agent-workspace/` paths so domain agents
+(the review agents in `.claude/agents/`) never attempt to read ARIA's outputs as application code
+(closes a small but real cross-pollination risk).
 
 **Layer C — Discovery exclusion** is enforced in code, not just policy: `discovery_engine.py` has a hardcoded skip for `agent-workspace/**`. Removing this exclusion requires kernel modification, which fails the hash-chain (§6.4).
 
@@ -572,7 +591,8 @@ Hard Limits (§2 L3) hold at every level.
 
 ### 8.4 — Commit format (this repo's convention, enforced by v7.2)
 
-ARIA's commits follow CLAUDE.md format exactly:
+ARIA's commits follow the CLAUDE.md subject/body format; the trailer is derived per plan origin
+(below):
 
 ```
 {type}({scope}): {subject}
@@ -582,7 +602,14 @@ ARIA's commits follow CLAUDE.md format exactly:
 Closes: docs/reviews/{agent}/{YYYY-MM-DD}-{topic}.md#{finding-id}
 ```
 
-ARIA findings live under `docs/reviews/aria/{YYYY-MM-DD}-{topic}.md`. Every fix commit references its finding ID. No `Closes:` = process-tier finding against ARIA itself.
+ARIA's own findings are `F-NNN.json` records in the `aria-findings/` surface of the repo state root
+(`aria_kernel.finding.findings_dir`, manifest surface `repo_finding_docs`). `docs/reviews/aria/`
+holds review reports ABOUT ARIA; their `ARIA-<SEV>-NNN` findings are closed with the `Closes:` form
+above like any review agent's. ARIA's own commits take their trailer from
+`aria_kernel.plan_origin.commit_contract_for_plan`: an F-NNN-origin plan carries no `Closes:`
+trailer and only the trailerless commit types; an ORPHAN-origin plan carries
+`Closes: docs/reviews/orphan-findings.md#<id>`. `plan_origin.verify_commits_honour_contract`
+refuses a delivery whose commits deviate.
 
 ### 8.5 — CVE applicability (kept from v7.1, condensed)
 
@@ -640,7 +667,7 @@ ARIA's own PR descriptions, finding texts, and proposal bodies are scanned for C
 
 ### 9.5 — Specialized-agent complementarity
 
-The 107 agents in `.claude/agents/` run on review cycles (PR-triggered). ARIA runs
+The agents in `.claude/agents/` run on review cycles (PR-triggered). ARIA runs
 continuously. The complementarity:
 
 | Specialized agent (cycle-mode) | ARIA (continuous-mode) |
@@ -667,7 +694,7 @@ ARIA does not reimplement repository tooling. It delegates. This rule prevents t
 | `tools/gates/finding-registry.ts` | INTEGRATE | ARIA findings (`F-*`) write into the existing finding registry, not a parallel one. |
 | `tools/gates/commit-msg-validator.ts` | DELEGATE | ARIA's own commit messages pass through this validator. The `Closes:` line discipline is shared. |
 | `tools/gates/tier-claim-lint.ts` | DELEGATE | ARIA's tier-N claims (when emitted in commits) pass through the existing linter. |
-| 38+ specialized review agents (`.claude/agents/*.md`) | COMPLEMENTARY | `agent-priors-mapper` adapter (#13) builds the path → agent reference table; ARIA findings cite via `related_specialized_agent_domains`. |
+| Specialized review agents (`.claude/agents/*.md`) | COMPLEMENTARY | `agent-priors-mapper` adapter (#13) builds the path → agent reference table; ARIA findings cite via `related_specialized_agent_domains`. |
 | `.claude/shared/operating-modes.md` (CATCHER/TEACHER/WRITER) | RESPECT | ARIA-emitted artifacts comply with operating-mode output expectations; ARIA does not propose a fourth mode. |
 
 **Delegation discipline:** if ARIA wants to implement a check that an existing tool already covers, the implementer must first author `delegation-record.md` justifying why existing is insufficient. Without this record, the second implementation is rejected at the kernel. This is the rule that keeps ARIA from becoming "yet another linter".
@@ -763,7 +790,7 @@ v7.2 changes from v7.1, summarized:
 | Mastery levels | 7 | 3 |
 | Cold-start latency | 90+ days mute | 30 days to first finding |
 | Repo-awareness | generic | Day-0 priors from CLAUDE.md, ADRs, knowledge layers, .claude/agents, nx graph |
-| Existing 107 agents | unmentioned | complementary, prior-art capability map |
+| Existing review agents | unmentioned | complementary, prior-art capability map |
 | Validation engine | implicit | explicit `nx affected` |
 | Kernel integrity | chmod | hash chain |
 | Budget enforcement | optional metric | kernel-level circuit breaker |

@@ -18,6 +18,7 @@ organ is a finding, not a crash.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -26,13 +27,34 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .tool_registry import ensure_tools_dir_readonly
+from .tool_registry import GovernanceError, ensure_tools_dir_readonly
 
-# The floor both live lanes' preflight steps enforce (aria-auto-cycle.yml /
-# aria-agent-executor.yml `REQUIRED_CLAUDE_VERSION`) and provision_runner.sh
-# names as CLAUDE_FLOOR. Pinned here so the doctor and the lanes cannot drift;
-# tests/test_doctor.py compares the three literals.
-CLAUDE_CLI_VERSION_FLOOR = "2.1.221"
+# ARIA-HIGH-500 — the Claude Code CLI floor has one owner, a manifest that both live
+# lanes' preflight steps (`REQUIRED_CLAUDE_VERSION`), provision_runner.sh and
+# this doctor all read. Read lazily, at check time: importing the doctor never
+# depends on the manifest being present.
+CLAUDE_FLOOR_MANIFEST_RELPATH = ".github/manifests/aria-claude-floor.json"
+# The kernel lives at <repo>/aria-kernel/aria_kernel, as for the other
+# repo-relative manifest readers (watchdog_freeze, risk_policy).
+_DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def claude_cli_version_floor(repo_root: str | Path | None = None) -> str:
+    """The Claude Code CLI version floor, read from its manifest.
+
+    Raises ``GovernanceError`` naming the path when the manifest is missing,
+    unreadable, or carries no non-empty string ``claude_code_floor``: a floor
+    nobody can read is not a floor of zero.
+    """
+    path = Path(repo_root or _DEFAULT_REPO_ROOT) / CLAUDE_FLOOR_MANIFEST_RELPATH
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise GovernanceError(f"claude_floor_manifest_unreadable: {path.as_posix()}: {exc}") from exc
+    floor = manifest.get("claude_code_floor") if isinstance(manifest, dict) else None
+    if not isinstance(floor, str) or not floor.strip():
+        raise GovernanceError(f"claude_floor_manifest_floor_missing: {path.as_posix()}")
+    return floor.strip()
 
 CHECK_STATUSES: tuple[str, ...] = ("ok", "warn", "fail")
 DOCTOR_EXIT_HEALTHY = 0
@@ -189,7 +211,9 @@ def _check_sandbox() -> DoctorCheck:
     )
 
 
-def _check_claude_cli(*, floor: str = CLAUDE_CLI_VERSION_FLOOR) -> DoctorCheck:
+def _check_claude_cli(*, floor: str | None = None) -> DoctorCheck:
+    if floor is None:
+        floor = claude_cli_version_floor()
     binary = shutil.which("claude")
     if binary is None:
         return DoctorCheck("claude_cli", "fail", "claude_binary_missing", {"floor": floor})
@@ -712,7 +736,7 @@ def run_doctor(
     *,
     base_dir: str | Path | None = None,
     workspace_root: str | Path | None = None,
-    claude_version_floor: str = CLAUDE_CLI_VERSION_FLOOR,
+    claude_version_floor: str | None = None,
 ) -> DoctorReport:
     """Run every organ probe and return the report. Read-only by construction:
     every probe is a reader, and the tools root is resolved read-only — an
@@ -772,13 +796,14 @@ def render_doctor_text(report: DoctorReport) -> str:
 
 
 __all__ = [
-    "CLAUDE_CLI_VERSION_FLOOR",
+    "CLAUDE_FLOOR_MANIFEST_RELPATH",
     "HEARTBEAT_STALE_AFTER_BEATS",
     "DOCTOR_EXIT_HEALTHY",
     "DOCTOR_EXIT_UNHEALTHY",
     "DoctorCause",
     "DoctorCheck",
     "DoctorReport",
+    "claude_cli_version_floor",
     "render_doctor_text",
     "run_doctor",
 ]

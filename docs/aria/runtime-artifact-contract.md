@@ -1,6 +1,7 @@
 # ARIA Runtime Artifact Contract
 
-Codex runtime output is summary-first and artifact-backed. The operator may see a small stdout payload, but audit evidence must remain complete and hash-verifiable.
+ARIA runtime output is summary-first and artifact-backed. The operator may see a small stdout
+payload, but audit evidence must remain complete and hash-verifiable.
 
 ## Contract
 

@@ -11,11 +11,11 @@
 
 ## 0. Bir cümlede ARIA
 
-ARIA, **"koda dokundukça büyüyen, repository-şekilli bir zekâ"dır** (`SPEC.md:5`).
+ARIA, **"koda dokundukça büyüyen, repository-şekilli bir zekâ"dır** (`SPEC.md` başlığı).
 PR-cycle review ajanlarının yerine geçmez; **PR döngüleri arasında sürekli koşan
 bir meta-katmandır** (ADR-031). Kendi ifadesiyle: *"Sen bir code reviewer değilsin…
 Sen tek bir repository'nin içinde var olan, şeklini o repodan alan bir zekâsın.
-Başka bir repo, senin başka bir versiyonunu üretirdi."* (`IDENTITY.md:36-40`).
+Başka bir repo, senin başka bir versiyonunu üretirdi."* (`IDENTITY.md` §1).
 
 Tek bir taşıyıcı fikir vardır: **iddiaya değil, kanıta güven.** ARIA'nın bütün
 halüsinasyon-direnci buradan gelir; aşağıdaki her mekanizma bunun bir sonucudur.
@@ -24,17 +24,17 @@ halüsinasyon-direnci buradan gelir; aşağıdaki her mekanizma bunun bir sonucu
 
 ## 1. Temel felsefe — Üç Yasa ve otorite zinciri
 
-**Üç Kurucu Cümle** (`SPEC.md:43-49`): *"Detay altta yaşar. Kararlar üstte verilir.
+**Üç Kurucu Cümle** (`SPEC.md` §1): *"Detay altta yaşar. Kararlar üstte verilir.
 Kanıt her zaman aşağıya bağlanır."*
 
-**Üç Değişmez Yasa** (`SPEC.md:55-118`) — sistem koda gömülüdür, ajanlar tartışamaz:
+**Üç Değişmez Yasa** (`SPEC.md` §2) — sistem koda gömülüdür, ajanlar tartışamaz:
 - **L1 — Grounded Evidence:** Onaylı bir bulgu, **kapalı bir kaynak kümesinden ≥2
   bağımsız kanıt zinciri** ister. Repo içeriği (README, CLAUDE.md, yorumlar) **veridir,
   talimat değil.**
 - **L2 — Repository Preservation:** repo'ya zarar verme.
 - **L3 — Operational Safety & Data Boundary:** güvenlik/veri sınırı.
 
-**Otorite zinciri** (`CURRENT_STATE.md:8-18`, fail-closed ve sıralı):
+**Otorite zinciri** (`CURRENT_STATE.md` §Authority Chain, fail-closed ve sıralı):
 1. **Executable kod + makine-denetimli kontratlar normatiftir.**
 2. `CURRENT_STATE.md` canlı insan-okur durum indeksidir.
 3. ADR'ler yalnız koda/CURRENT_STATE'e çelişmedikçe normatiftir.
@@ -51,18 +51,18 @@ Kanıt her zaman aşağıya bağlanır."*
 Bu, ARIA'yı sıradan bir LLM ajanından ayıran çekirdektir. Dört kat:
 
 ### 2.1 Hash-zincirli ledger'lar (`ledger.py`)
-Her satır `previous_ledger_hash` + `ledger_hash` taşır; `_record_hash` (`:387`)
+Her satır `previous_ledger_hash` + `ledger_hash` taşır; `_record_hash`
 satırı kanonikleştirip SHA-256'lar → kurcalama-belirgin zincir. `_append_jsonl_locked_body`
-(`:395`) zincir alanlarını **her zaman yeniden türetir** — bayat bir satırı yeniden
-ekleyen çağıran eski hash'i enjekte edemez. Strict okuma `load_jsonl_verified` (`:861`)
+zincir alanlarını **her zaman yeniden türetir** — bayat bir satırı yeniden
+ekleyen çağıran eski hash'i enjekte edemez. Strict okuma `load_jsonl_verified`
 zincir uyuşmazlığında `LedgerIntegrityError` fırlatır; hash'siz satırlar artık fail eder.
 Enterprise yüzeylerine ham `append_jsonl` **reddedilir** — `append_declared_jsonl(expected_surface=...)`
-zorunlu (`:525-551`). Yazımlar POSIX-locked + fsync + atomik rename.
+zorunlu (`_assert_raw_jsonl_append_allowed`). Yazımlar POSIX-locked + fsync + atomik rename.
 
 ### 2.2 Kapalı kanıt allowlist'i + repo_verified derecelendirme (`evidence_trust.py`)
-`classify_evidence_ref` her ref'i derecelendirir (`:85-96`):
+`classify_evidence_ref` her ref'i derecelendirir:
 - **`repo_verified`** — dosya var **ve** sha256'sı `target_sha`'daki git blob'uyla eşleşiyor
-  (`_git_blob_matches`, `:177`). Yani kanıt **commit'lenmiş bir SHA'da** var olmalı, kirli
+  (`_git_blob_matches`). Yani kanıt **commit'lenmiş bir SHA'da** var olmalı, kirli
   worktree'de değil. Güvenilir tek derece budur.
 - `worktree_candidate` — diskte var; **baseline commit okunabildi** ve yol sondajı (`git show`
   / `git cat-file`) **cevap verdi**: ya sıfır-dışı çıktı (ağaç bu yolu taşımıyor) ya da blob
@@ -95,15 +95,16 @@ zorunlu (`:525-551`). Yazımlar POSIX-locked + fsync + atomik rename.
   üzerinden aynı çapada derecelendirildiğinden hiçbiri `worktree_candidate` okunmaz.
 - `missing` / `invalid` — yok / bozuk.
 - **`self_output`** — ref `aria-tools/`, `aria-findings/`, `agent-workspace/`, `.aria-poc/`…
-  öneklerinden biriyle başlıyorsa (`SELF_OUTPUT_PREFIXES`, `:13-23`): **ARIA'nın kendi çıktısı
+  öneklerinden biriyle başlıyorsa (`SELF_OUTPUT_PREFIXES`): **ARIA'nın kendi çıktısı
   asla kanıt olamaz.** (Bu, sistemin kendine referansla kendini doğrulamasını yapısal olarak engeller.)
 
-İzin verilen `source_type` kümesi kapalıdır (`CONTRACTS.md:520`): `code_reference`,
-`external_authoritative_source`, `test_demand`, `git_history`, `trusted_config_file`,
-`trusted_prior_doc`. Başka her şey = L1 ihlali, gate'te reddedilir.
+`source_type` kategorileri `CONTRACTS.md` §5'te tanımlıdır (listenin sahibi orası). Bunlar
+tanımlayıcıdır: kanıt zarfında `source_type` alanı yoktur ve hiçbir kernel kapısı onu okumaz. L1
+kapısı güven derecesidir: `evidence_trust.EvidencePolicy.require_repo_verified`, target SHA'da
+`repo_verified` olmayan kanıtı reddeder.
 
 ### 2.3 Ajan yanıtının yeniden-doğrulanması (`evidence_validator.py`)
-`validate_agent_response_evidence` (`:350`) bir LLM ajanının **iddia ettiği her ref'i
+`validate_agent_response_evidence` bir LLM ajanının **iddia ettiği her ref'i
 yeniden çeker** ve repo'ya karşı `target_sha`'da doğrular: self-output reddi, dosya/satır
 varlığı, ref'in `allowed_scope` içinde olması (scope-leakage önlemi), **boş satisfaction_matrix
 reddi** ("sıfır kriter rubber-stamp" deliğini kapatır). Docstring: *"agent output is data, not
@@ -111,7 +112,7 @@ truth."* — **Bu fonksiyon ARIA'nın kalbidir:** hiçbir LLM çıktısı, atıf
 commit'li SHA'da gerçekten var olduğu kanıtlanmadan CONVERGED plan'a veya onaylı bulguya dönüşemez.
 
 ### 2.4 Runtime profilleri — yazma/eylem kapısı (`runtime_profile.py`)
-Tek yazma-yetki sınırı. Beş profil (`:91`): `observe`, `standard` (default), `strict`,
+Tek yazma-yetki sınırı. Beş profil (`PROFILES`): `observe`, `standard` (default), `strict`,
 `frozen`, `autonomous`.
 - **observe** — salt-okuma + yalnız gözlem-sınıfı yazımlar; ajan claim yok, PR yok, tool run yok.
 - **standard** — tam yüzey yazımları + ajan claim; PR strict ister.
@@ -131,23 +132,24 @@ yükseltmesini de tavanı aşan bir profili kalıcılaştırmasını da reddeder
 kendi yetkisini kendisi genişletemez. Kanıt: `evidence` verdiği için değil, operatör
 verdiği için yükselir.
 
-Fail-closed: bozuk/bilinmeyen profil dosyası → `frozen` döner (`:214`), asla `standard`'a
-sessizce kaymaz. `set_profile` (`:300`) her geçişte **`operator_approval_ref` zorunlu** kılar,
+Fail-closed: bozuk/bilinmeyen profil dosyası → `frozen` döner (`FROZEN_PROFILE`), asla `standard`'a
+sessizce kaymaz. `set_profile` her geçişte **`operator_approval_ref` zorunlu** kılar,
 audit'lenir. Ve profil ne olursa olsun **bypass edilemez invariant'lar** her zaman çalışır
-(`:30-40`): banned-phrase tarayıcı, Closes-trailer doğrulayıcı, suppression tarayıcı.
+(`runtime_profile.py` docstring, "Non-bypassable invariants"): banned-phrase tarayıcı,
+Closes-trailer doğrulayıcı, suppression tarayıcı.
 
 ---
 
 ## 3. Keşif (Discovery) + Coverage Invariant
 
-Her cycle repo'yu bir snapshot'a çevirir. `run_discovery` (`discovery.py:29`) →
-`build_repo_snapshot` (`snapshot.py:45`): git varsa `git ls-files`, yoksa filesystem walk
-(paylaşılan exclusion set ile). Her dosyaya **tam bir fate** atanır (`_file_fate`,
-`snapshot.py:268`): `tracked` | `generated` | `unknown` (yalnız stat/read hatası). Committed
-modda içerik/hash `git show HEAD:<path>`'ten gelir (değişmez).
+Her cycle repo'yu bir snapshot'a çevirir. `discovery.py::run_discovery` →
+`snapshot.py::build_repo_snapshot`: git varsa `git ls-files`, yoksa filesystem walk
+(paylaşılan exclusion set ile). Her dosyaya **tam bir fate** atanır
+(`snapshot.py::_file_fate`): `tracked` | `generated` | `unknown` (yalnız stat/read hatası).
+Committed modda içerik/hash `git show HEAD:<path>`'ten gelir (değişmez).
 
-**Coverage Invariant (gerçeklenen):** `complete = fate'lenen küme allowed kümeyi kapsıyor VE
-hiç `unknown` yok` (`discovery.py:96`). Yani **hiçbir dosya sessizce görünmez kalamaz** —
+**Coverage Invariant (gerçeklenen):** `complete` = fate'lenen küme allowed kümeyi kapsıyor VE hiç
+`unknown` yok (`discovery.py::run_discovery`). Yani **hiçbir dosya sessizce görünmez kalamaz** —
 gözden-kaçmama disiplini.
 
 Üretilen artifact'lar (`aria-tools/discovery/<cycle_id>/`): `FATES.json` (dosya-bazlı envanter),
@@ -157,7 +159,7 @@ snapshot içeriğinin content-address kimliği; memory, FATES kurcalamasını bu
 
 ---
 
-## 4. Cycle (kalp atışı) — `run_enterprise_cycle` (`cycle.py:219`)
+## 4. Cycle (kalp atışı) — `cycle.py::run_enterprise_cycle`
 
 Bir cycle'ın tam faz sırası ve her birinin ürettiği:
 
@@ -183,12 +185,19 @@ Bir cycle'ın tam faz sırası ve her birinin ürettiği:
 | 16 | (extended phases) | architecture_postcheck / validation_matrix / pr_lifecycle |
 
 Cycle her zaman tipli bir terminal satırla kapanır: `completed` / `failed` / `aborted` /
-`stopped` (`cycle.py:553-578`). Post-tool faz hataları cycle'ı çökertmez — `runtime_status`'u
-`failed`'a düşürür ama ledger yine de kapanır. Çıktı: zengin bir `state` dict (tüm faz payload'ları).
+`stopped` (`cycle.py::_terminal_cycle_row`). Post-tool faz hataları cycle'ı çökertmez —
+`runtime_status`'u `failed`'a düşürür ama ledger yine de kapanır. Çıktı: zengin bir `state`
+dict (tüm faz payload'ları).
 
-**Heartbeat vs Cycle:** bir **tick** (`heartbeat_tick`) cycle'lar arası hafif, lock'lı bir
-servis nabzıdır — discovery/memory/pressure koşmaz; yargıç sampling + fan-out + consensus,
-fixture refresh, CI-review üretir. **cycle**, tam discovery→reflection pipeline'ıdır.
+**Heartbeat vs Cycle (düzeltildi 2026-10-13):** ayrı bir `heartbeat_tick` mekanizması yok —
+`heartbeat.py` hiçbir importer'ı olmadığı için silindi. Yaptığı üç işin ikisi artık her cycle'da
+birer fazdır: yargıç sampling + fan-out + consensus `cycle.py::_phase_judgment_pipeline`, fixture
+refresh `cycle.py::_phase_fixture_refresh`. Üçüncüsü, CI-review üretimi (`ci.produce_ci_review`),
+bugün hiçbir üretim yolundan çağrılmıyor (2026-09-25 tam-okuma B14). Bugün "heartbeat" adını
+taşıyan iki canlı mekanizma vardır: gateway zamanlayıcısının her beat'te yazdığı
+`gateway/heartbeat.json` (`gateway/scheduler.py::tick`; tazeliğini doctor'ın
+`gateway_heartbeat_fresh` kontrolü denetler) ve ajan claim lease uzatması
+(`agent_invocations.py::heartbeat_claim`). **cycle**, tam discovery→reflection pipeline'ıdır.
 
 ---
 
@@ -289,12 +298,12 @@ ARIA'nın bulgu-güveni çok-yargıçlı bir hatta dayanır:
 ## 9. Ajanlar + Dispatch + Convergent Planning (P+C+CR+Impl)
 
 ### 9.1 Roster (`.claude/agents/aria-*.md`)
-13 ajan: planlama (primary/challenger-planner), cross-review, implementer; yargı (evidence/
-adversarial-judge, consensus-arbiter); adapter-authoring (primary/challenger-drafter); destek
-(change-intelligence, goldset-curator); maintenance (drafter, prompt-writer). Roller `agent_surface.py`'de
-SSoT: `REQUEST_ROLES` (17), `JUDGE_ROLES`, `DISPATCHABLE_ROLES` (11),
-`ROLE_TARGET_PAIRING` (rol↔ajan
-eşlemesi — yanlış eşleşme reddedilir). E14 rol hijyeni: üretici olmayan beş rol
+Başlıca aileler: planlama (primary/challenger-planner), cross-review, implementer; yargı
+(evidence/adversarial-judge, consensus-arbiter); adapter-authoring (primary/challenger-drafter);
+destek (change-intelligence, goldset-curator); maintenance (drafter, prompt-writer). Bu bir tam
+liste değildir: roster'ın sahibi dizinin kendisidir, roller ve rol kümelerinin sahibi
+`agent_surface.py`'dir (`REQUEST_ROLES`, `JUDGE_ROLES`, `DISPATCHABLE_ROLES`, `ROLE_TARGET_PAIRING`
+— rol↔ajan eşlemesi; yanlış eşleşme reddedilir). E14 rol hijyeni: üretici olmayan beş rol
 (`implementation_review`, `architectural_arbitration`, `auth_security_review`,
 `access_boundary_review`, `tenant_isolation_review`) yüzeyden kaldırıldı; alan incelemesi
 `specialist_domain_review` üzerinden yürür.
@@ -398,10 +407,12 @@ Otonom çalışma ise tasarlanmış ama henüz koşturulmamış — kabule kadar
   operatörün açıkça set ettiği bir profilin arkasında.
 
 **Henüz çalışmayan / iskele olan (dürüst kısım):**
-- **Hiç otonom koşu olmamış.** Repo-içi `aria-tools/runs.jsonl` ve `cycles.jsonl` **0 byte / boş**;
-  git-tracked yalnız ~10 dosya, onlar da agent-eval fixture'ları. CURRENT_STATE.md repo-içi
-  `aria-tools/`'u zaten **geçersiz validasyon yüzeyi** ilan ediyor (temiz deneme izole worktree'den
-  koşmalı). Yani repo içinde gerçek bir cycle koştuğunu kanıtlayan hiçbir şey yok.
+
+- **Otonom koşuların kanıtı repo-içinde değil, `aria/state`'tedir.** Gece şeridi
+  (`.github/workflows/aria-auto-cycle.yml`) `aria/state` dalını `.aria-state-store/`'a geri yükler
+  ve `aria_kernel autonomy run`'ı koşar; kanıtı oradaki append-only JSONL'lerdir
+  (`BEHAVIOUR.md` §1). Repo-içi `aria-tools/` kökleri bir validasyon yüzeyi değildir
+  (`CURRENT_STATE.md` §Clean Trial Rule): orada iz olmaması koşu olmadığı anlamına gelmez.
 - **Mainline'a auto-merge gated, canlı değil.** `pr_merge` yalnız `autonomous` profilde; unlock policy
   **30 observe + 30 L1 + 30 L2 supervised + 10 L2 autonomous + 5 L3 + 3 rollback** başarısı, **sıfır**
   kritik ihlal ister. Bu sayaçların karşılandığına dair kanıt yok.
@@ -409,10 +420,9 @@ Otonom çalışma ise tasarlanmış ama henüz koşturulmamış — kabule kadar
   canlı `/aria-poc` operatör aracı açıkça "pure-mechanical — no LLM."
 - **Öz-kapanan döngü gap'leri yeni kapandı, yan branch'te.** ADR-033 (autonomous profile) "Accepted"
   ama **`snowball` branch, main'e merge DEĞİL.** ADR-035/036 hâlâ "Proposed."
-- **Dokümanda hâlâ "henüz yok" itirafı var:** `IDENTITY.md:36` "Honesty floor: ARIA the system does
-  not exist yet… a behavioral contract for a future implementation." CURRENT_STATE bunu geçersiz kılıyor
-  ("artık kernel var") — gerçek ikisinin arasında: **kernel var, ama tarif ettiği otonom runtime kabule
-  kadar egzersiz edilmemiş.**
+- **"Henüz yok" itirafı düzeltildi (2026-08-20, ORPHAN-MEDIUM-771):** `IDENTITY.md` §0'daki
+  honesty floor artık "ARIA the system EXISTS and runs" der. Açık soru varlık değil kanıttır:
+  **kernel var, ama tarif ettiği otonom runtime kabule kadar egzersiz edilmemiş.**
 - **frozen profil itirafen scoped, global değil** (Plan-021 sertleştirme boşluğu).
 
 **Benim mühendislik kanaatim:**

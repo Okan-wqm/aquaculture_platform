@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 _KERNEL = Path(__file__).resolve().parents[1]
+_REPO_ROOT = _KERNEL.parent
 if str(_KERNEL) not in sys.path:
     sys.path.insert(0, str(_KERNEL))
 
@@ -36,10 +37,26 @@ _TABLE = """# Routing
 """
 
 
-def _repo_with_table(td: Path) -> Path:
+# The live table's cross-cutting prose rows (no code span) and a brace glob
+# whose comma is part of ONE pattern, next to two ordinary glob rows.
+_PROSE_AND_BRACE_TABLE = """# Routing
+| File Pattern | Primary Agent | Also Notify |
+|---|---|---|
+| `apps/farm-service/**` | farm-expert | |
+| `apps/*/src/gdpr/**` (handler implementations) | gdpr-erasure-executor | compliance-expert (review) |
+| destructive action paths (cross-cutting) | legal-hold-auditor | *primary destructive handler owner* |
+| every CQRS COMMAND handler audit capture | audit-trail-completeness-auditor | *respective domain expert* |
+| Performance / N+1 / EXPLAIN evidence reviews (cross-cutting) | performance-expert | *primary domain expert* |
+| Supply-chain CVE / license / SLSA (cross-cutting on package.json, Cargo.toml, Dockerfile) | supply-chain-auditor | infra-expert, security-reviewer |
+| Memory-leak pattern reviews (cross-cutting) | memory-leak-auditor | performance-expert |
+| `apps/auth-service/src/{privacy,modules/gdpr}/**` | compliance-expert | auth-security-expert |
+"""
+
+
+def _repo_with_table(td: Path, table: str = _TABLE) -> Path:
     root = td / "repo"
     (root / ".claude" / "shared").mkdir(parents=True)
-    (root / ".claude" / "shared" / "orchestrator-routing-table.md").write_text(_TABLE, encoding="utf-8")
+    (root / ".claude" / "shared" / "orchestrator-routing-table.md").write_text(table, encoding="utf-8")
     return root
 
 
@@ -57,10 +74,37 @@ class RoutingParseTests(unittest.TestCase):
             ec_row = next(r for r in rows if r["prefixes"] == ["libs/event-contracts"])
             self.assertEqual(ec_row["also_notify"], [])
 
+    def test_only_code_span_globs_yield_prefixes(self) -> None:
+        # A prose row names no path, and a comma inside a brace glob does not
+        # start a second pattern; neither may surface as a path prefix.
+        with tempfile.TemporaryDirectory() as td:
+            root = _repo_with_table(Path(td), _PROSE_AND_BRACE_TABLE)
+            rows = load_routing_table(root)
+            self.assertEqual(
+                [row["prefixes"] for row in rows],
+                [["apps/farm-service"], ["apps"], ["apps/auth-service/src"]],
+            )
+
     def test_missing_table_returns_empty(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             self.assertEqual(load_routing_table(Path(td)), [])
             self.assertTrue(ROUTING_TABLE_REL.endswith("orchestrator-routing-table.md"))
+
+
+class LiveRoutingTableTests(unittest.TestCase):
+    """The parser over the real SSoT table, not a fixture copy of it."""
+
+    def test_every_live_prefix_is_a_path(self) -> None:
+        rows = load_routing_table(_REPO_ROOT)
+        self.assertGreater(len(rows), 40)
+        prefixes = [prefix for row in rows for prefix in row["prefixes"]]
+        not_paths = [
+            prefix for prefix in prefixes
+            if any(ch.isspace() or ch in "(){}" for ch in prefix)
+        ]
+        self.assertEqual(not_paths, [])
+        self.assertIn("apps/farm-service", prefixes)
+        self.assertIn("infrastructure", prefixes)
 
 
 class RecommendTests(unittest.TestCase):

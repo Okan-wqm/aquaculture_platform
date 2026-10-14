@@ -510,7 +510,7 @@ def verify_route_distinctness(
 # It was a pure ADAPTER: it built three `RoundDispatch` rows from three request
 # ids and returned `verify_principal_disjointness(...)` unchanged. Same question,
 # same answer, different argument shape — and no production caller, while
-# `verify_principal_disjointness` is live from `human_required_adjudication.py:519`
+# `verify_principal_disjointness` is live from `human_required_adjudication.fold_adjudication`
 # and from two callsites in this module.
 #
 # Its ORPHAN-HIGH-421 docstring is preserved in the surviving function, which is
@@ -644,10 +644,3 @@ def verify_independence(
         if reason not in ordered:
             ordered.append(reason)
     return (len(ordered) == 0), ordered
-
-
-def compute_agent_text_hash(text: str) -> str:
-    """Helper for governance event payloads — never include the raw
-    text in the event, only the hash (operator forensics + redaction
-    discipline)."""
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()

@@ -16,11 +16,23 @@ Companion documents that anchor the architectural narrative:
 - `docs/aria/SPEC.md` — section-numbered laws + engines (this report mirrors that structure)
 - `docs/aria/IDENTITY.md` §3.6 — visible-problem discipline; banned-phrase rules
 - `docs/aria/CONTRACTS.md` — envelope schemas referenced by F-017 / F-018 / F-019 / F-020
-- `aria-findings/F-016.json..F-022.json` — the seven finding documents that ARE the diagnostic record (no precursor plan document exists; the findings ARE the plan)
+- `aria-findings/F-016.json..F-022.json` — the seven finding documents that ARE the diagnostic
+  record (no precursor plan document exists; the findings ARE the plan). These records left the
+  tree with 5d93f9059 (2026-06-20, `chore(aria): retire snowball runtime ownership`); read them
+  with `git show 5d93f9059^:aria-findings/F-0NN.json`. The bare IDs F-016..F-021 were later
+  re-allocated by the live finding ledger to unrelated findings (`aria/state`
+  `findings/aria-findings/F-016.json`, 2026-10-06), so every `aria-findings/F-0NN.json`
+  reference in this report means the 5d93f9059^ record.
 
 This report is read-only over evidence: every quantified claim cites a commit SHA, finding ID, repo file:line, governance event, or cycle ID. The session's empirical evidence (governance.jsonl rows, cycle telemetry) is documented inline via cycle IDs; the runtime artifacts at `aria-tools/agent-invocations/outputs/` are not gitignored but are time-bounded by the session window 2026-05-20 06:00:00..15:30:00 UTC.
 
-One factual reconciliation: aria-findings/F-016.json declares `status: OPEN`. F-016 was architecturally CLOSED by commit c4e4dfac on 2026-05-20 10:46:26 UTC (Phase 3.H inline planner dispatch). The JSON file's `status` field has not been advanced to RESOLVED — this is a finding-state-machine bookkeeping gap, not an architectural defect. Tracked: F-AUTO-V10.6-FINDING-STATE-RECONCILIATION (to be emitted in V10.5 Phase E).
+One factual reconciliation: aria-findings/F-016.json declares `status: OPEN`. F-016 was
+architecturally CLOSED by commit c4e4dfac on 2026-05-20 10:46:26 UTC (Phase 3.H inline planner
+dispatch). The JSON file's `status` field has not been advanced to RESOLVED — this is a
+finding-state-machine bookkeeping gap, not an architectural defect. Tracked:
+F-AUTO-V10.6-FINDING-STATE-RECONCILIATION (emitted; record at
+`5d93f9059^:aria-findings/F-AUTO-V10.6-FINDING-STATE-RECONCILIATION.json`, status OPEN when the
+tree copy was retired).
 
 ---
 
@@ -273,7 +285,9 @@ Tier-1 audit per CLAUDE.md hierarchy: every fix in V10.4 is Tier-1 by classifica
 
 ## §8 — V10.5 Forward Pointers + V10.6 Deferrals
 
-**V10.5 Phase E will emit four V10.6 tracked-deferral findings** (per the v2 plan revision at `/root/.claude/plans/immutable-sparking-waterfall.md`):
+**V10.5 Phase E will emit five V10.6 tracked-deferral findings** (corrected 2026-10-13: this
+sentence said four; the table lists five) (per the v2 plan revision at
+`/root/.claude/plans/immutable-sparking-waterfall.md`):
 
 | Finding ID | Topic | Owner | Deadline |
 |------------|-------|-------|----------|
@@ -324,7 +338,11 @@ Tier-1 audit per CLAUDE.md hierarchy: every fix in V10.4 is Tier-1 by classifica
 **Branch:** snowball (never merged to main during V10.4 session)
 **Architectural arc:** c4e4dfac..9d8f0dd8 (9 commits inclusive of the c4e4dfac F-016 closure)
 
-**Closure declaration:** V10.4 closes the convergent-planning pipeline at the bridge-listener + envelope-construction + SSoT + bridge-mechanics + state-machine-counter layers. F-016 (CRITICAL) + F-018, F-019, F-020, F-021, F-022 (HIGH) — six closures, six invariant test files, 18 new invariants. F-017 (MEDIUM) explicitly deferred to V10.5 with kernel-reviewer owner + 2026-06-01 deadline.
+**Closure declaration:** V10.4 closes the convergent-planning pipeline at the bridge-listener +
+envelope-construction + SSoT + bridge-mechanics + state-machine-counter layers. F-016 (CRITICAL) +
+F-018, F-019, F-020, F-021, F-022 (HIGH) — six closures, five invariant test files (corrected
+2026-10-13: said six; §4 and §9 list five), 18 new invariants. F-017 (MEDIUM) explicitly
+deferred to V10.5 with kernel-reviewer owner + 2026-06-01 deadline.
 
 **Remaining work:** V10.5 sprint (currently in progress per `/root/.claude/plans/immutable-sparking-waterfall.md` v2) — F-023 API backoff, ARIA-Watchdog MVP, ADR drafts, soak harness. Phase 2 self-feed + Phase 4 bounded auto-apply explicitly deferred to V10.6 with owner + deadline + tracked finding IDs.
 

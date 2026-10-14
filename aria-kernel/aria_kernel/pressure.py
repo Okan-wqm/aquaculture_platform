@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import json
 import math
-import hashlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl, sha256_of_canonical_json
 from .pressure_evidence import require_citable_evidence, split_citable_refs
 from .runs_reader import read_runs_rows
+from .state_manifest import surface_for_path
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 from .workspace import WorkspacePaths, default_actor
 
-SOURCE_WEIGHTS = {
+SOURCE_WEIGHTS: dict[str, int] = {
     "tool_quarantine": 90,
     "evidence_gone": 80,
     "belief_stale": 60,
@@ -54,7 +54,7 @@ SOURCE_WEIGHTS = {
     # and registered in neither table until the reachability gate learned to
     # look in this direction. Weighted above open-PR reds: the defect is
     # already on the default branch, so the action is fix-forward.
-    "post_merge_ci": 95.0,
+    "post_merge_ci": 95,
 }
 
 # ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
@@ -66,6 +66,16 @@ SOURCE_WEIGHTS = {
 # defaults had already drifted from SOURCE_WEIGHTS — evidence_gone 65 vs 80 —
 # which is exactly why the SSoT for "current" must be this module.)
 WEIGHT_OVERRIDES_PATH = ("calibration", "weight-overrides.jsonl")
+
+
+def _is_override_weight(value: object) -> bool:
+    """The one weight rule the override writer enforces and the reader applies.
+
+    bool is an int subclass, so JSON ``true`` would otherwise pass as weight 1;
+    and a ledger row that bypassed the ceremony must not smuggle in a weight
+    the ceremony would have refused.
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 100
 
 
 def load_weight_overrides(base_dir=None) -> dict[str, int]:
@@ -88,7 +98,7 @@ def load_weight_overrides(base_dir=None) -> dict[str, int]:
         except ValueError:
             continue
         src, w = row.get("source"), row.get("weight")
-        if isinstance(src, str) and src in SOURCE_WEIGHTS and isinstance(w, int):
+        if isinstance(src, str) and src in SOURCE_WEIGHTS and _is_override_weight(w):
             out[src] = w  # last-write-wins: ledger is append-only history
     return out
 
@@ -111,7 +121,7 @@ def record_weight_override(
         raise GovernanceError(
             f"unknown pressure source {source!r}; valid: {sorted(SOURCE_WEIGHTS)}"
         )
-    if not isinstance(weight, int) or not (1 <= weight <= 100):
+    if not _is_override_weight(weight):
         raise GovernanceError("weight must be an int in [1, 100]")
     if len(reason.strip()) < 10:
         raise GovernanceError("reason must carry at least 10 non-whitespace characters")
@@ -180,44 +190,25 @@ DISCOVERY_OWNER_PATH = "aria-kernel/aria_kernel/discovery.py"
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
 TERMINAL_STATES = {"closed", "satisfied"}
-DECAY_BUCKETS = (
-    ("archived", 365),
-    ("sleeping", 180),
-    ("faded", 90),
-)
 DEFAULT_DECAY_THRESHOLDS = {"faded": 90, "sleeping": 180, "archived": 365}
-_DECLARED_SURFACE_BY_FILENAME = {
-    ("memory", "beliefs.jsonl"): "memory_beliefs",
-    ("memory", "contradictions.jsonl"): "memory_contradictions",
-    ("memory", "uncertainties.jsonl"): "memory_uncertainties",
-    ("pressure", "pressure-log.jsonl"): "pressure_log",
-    ("aria-memory", "unknowns.jsonl"): "workspace_memory_unknowns",
-    ("aria-memory", "missed_signals.jsonl"): "workspace_memory_missed_signals",
-    ("aria-memory", "external_feedback.jsonl"): "workspace_memory_external_feedback",
-    ("aria-memory", "pressure.jsonl"): "workspace_memory_pressure",
-    ("aria-memory", "pressure_state.jsonl"): "workspace_memory_pressure_state",
-    ("aria-memory", "vocabulary_rejections.jsonl"): "workspace_memory_vocabulary_rejections",
-    ("aria-memory", "since_migration_events.jsonl"): "workspace_memory_since_migration_events",
-    ("aria-memory", "governance.jsonl"): "workspace_memory_governance",
-}
 
 
-def _surface_for_local_path(path: Path) -> str | None:
-    return _DECLARED_SURFACE_BY_FILENAME.get((path.parent.name, path.name))
-
-
+# The state manifest is the one owner of "which declared surface is this
+# path": a local filename table here could only drift from it (ARIA-MEDIUM-473).
+# ledger._assert_declared_surface re-resolves the same way, so passing the
+# resolved name changes nothing for a path the manifest declares.
 def append_jsonl(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
-    surface = _surface_for_local_path(path)
-    if surface:
-        return append_declared_jsonl(path, payload, expected_surface=surface)
-    raise GovernanceError(f"pressure_append_unknown_surface:{path.as_posix()}")
+    match = surface_for_path(path)
+    if match is None:
+        raise GovernanceError(f"pressure_append_unknown_surface:{path.as_posix()}")
+    return append_declared_jsonl(path, payload, expected_surface=match[0].name)
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    surface = _surface_for_local_path(path)
-    if surface:
-        return load_declared_jsonl(path, expected_surface=surface)
-    raise GovernanceError(f"pressure_load_unknown_surface:{path.as_posix()}")
+    match = surface_for_path(path)
+    if match is None:
+        raise GovernanceError(f"pressure_load_unknown_surface:{path.as_posix()}")
+    return load_declared_jsonl(path, expected_surface=match[0].name)
 
 
 def run_pressure(
@@ -1163,7 +1154,7 @@ def _stable_state_event_id(
         "evidence_refs": sorted(evidence_refs),
         "feedback_event_ids": sorted(feedback_event_ids),
     }
-    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    digest = sha256_of_canonical_json(identity)
     return f"PSE-{_slug(pressure_event_id)[:48]}-{digest[:16]}"
 
 

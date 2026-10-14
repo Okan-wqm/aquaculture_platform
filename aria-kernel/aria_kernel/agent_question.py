@@ -17,8 +17,9 @@ Architecture:
     invocation).
   * Target emits ``aria/agent-question-response/v1`` row carrying
     answered_tier + rationale + counter_evidence_refs OR a
-    ``verdict: refused`` with reason_class per
-    ``aria/agent-refusal/v1`` semantics.
+    ``verdict: refused`` with a ``refusal_reason`` from
+    ``REFUSAL_REASON_CLASSES`` — the question protocol's own enum, not
+    the ``aria/agent-refusal/v1`` ``reason_class`` vocabulary.
   * Asker's plan MUST cite ``question_id`` in its satisfaction
     matrix when the answer changed its tier choice (invariant
     I-V4-12).
@@ -33,7 +34,7 @@ Anti-coupling (Plan §2e — challenger-planner §7 mitigation):
 
 Refusal discipline:
   * A target that can't ground its answer in SPEC / IDENTITY /
-    CONTRACTS emits ``verdict: refused`` with ``reason_class:
+    CONTRACTS emits ``verdict: refused`` with ``refusal_reason:
     evidence``. The asker treats refusal as "no signal" — does NOT
     interpret silence as agreement (challenger-planner §4
     "consequence-as-cost-benefit" mitigation).
@@ -66,8 +67,10 @@ RESPONSE_VERDICTS: frozenset[str] = frozenset({
     "refused",
 })
 
-# Plan ARIA-V4 §2e — closed enum for refusal reason_class
-# (mirrors aria/agent-refusal/v1 vocabulary).
+# Plan ARIA-V4 §2e — closed enum for a refused answer's ``refusal_reason``.
+# The question protocol's OWN vocabulary, not a mirror of
+# aria/agent-refusal/v1 (``agent_contract.REASON_CLASSES``: law, scope,
+# evidence, safety); the two share only ``scope`` and ``evidence`` (ARIA-MEDIUM-458).
 REFUSAL_REASON_CLASSES: frozenset[str] = frozenset({
     "scope",
     "evidence",
@@ -138,8 +141,8 @@ def _validate_question_inputs(
     rule_text: str,
 ) -> None:
     """Plan ARIA-V4 §2e — validate envelope shape at construction.
-    Raises ValueError on any malformed field; the caller routes
-    that to ``aria/agent-refusal/v1`` (envelope reason_class).
+    Raises ValueError on any malformed field, so a malformed question
+    is refused at construction and never written.
     """
     if question_kind not in QUESTION_KINDS:
         raise ValueError(

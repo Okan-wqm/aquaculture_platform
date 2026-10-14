@@ -102,5 +102,59 @@ class AgentRefusalVocabulary(unittest.TestCase):
                 )
 
 
+class TwoRefusalVocabularies(unittest.TestCase):
+    """ARIA-MEDIUM-458 — the question protocol's refusal enum is its own, not a mirror.
+
+    ``agent_question.REFUSAL_REASON_CLASSES`` was documented as mirroring
+    aria/agent-refusal/v1 while holding a different set, and the CLI
+    re-typed it (and the question kinds and verdicts) as literals.
+    """
+
+    def test_the_two_enums_are_distinct_and_overlap_only_on_scope_and_evidence(self) -> None:
+        from aria_kernel.agent_question import REFUSAL_REASON_CLASSES
+
+        self.assertEqual(set(REASON_CLASSES), {"law", "scope", "evidence", "safety"})
+        self.assertEqual(
+            set(REFUSAL_REASON_CLASSES), {"scope", "evidence", "envelope", "operator_required"},
+        )
+        self.assertEqual(set(REASON_CLASSES) & set(REFUSAL_REASON_CLASSES), {"scope", "evidence"})
+
+    def test_cli_refusal_reason_choices_are_the_owner_enum(self) -> None:
+        # Patching the owner's name in cli proves the parser reads it; a CLI
+        # that re-types the literal rejects the probe value (SystemExit).
+        from unittest import mock
+
+        from aria_kernel import cli
+
+        with mock.patch.object(cli, "REFUSAL_REASON_CLASSES", frozenset({"probe_class"}), create=True):
+            args = cli.build_parser().parse_args([
+                "question", "answer", "--question-id", "q-1", "--answerer-agent-id", "a-1",
+                "--verdict", "refused", "--refusal-reason", "probe_class", "--cycle-id", "c-1",
+            ])
+        self.assertEqual(args.refusal_reason, "probe_class")
+
+    def test_cli_question_kind_and_verdict_choices_are_the_owner_enums(self) -> None:
+        from unittest import mock
+
+        from aria_kernel import cli
+
+        with mock.patch.object(cli, "QUESTION_KINDS", frozenset({"probe_kind"}), create=True), mock.patch.object(
+            cli, "RESPONSE_VERDICTS", frozenset({"probe_verdict"}), create=True,
+        ):
+            parser = cli.build_parser()
+            ask = parser.parse_args([
+                "question", "ask", "--asker-agent-id", "a-1", "--target-agent-id", "a-2",
+                "--question-kind", "probe_kind", "--rule-text", "rule under question",
+                "--hypothesised-tier", "1", "--evidence-ref", "docs/aria/SPEC.md:1",
+                "--cycle-id", "c-1",
+            ])
+            answer = parser.parse_args([
+                "question", "answer", "--question-id", "q-1", "--answerer-agent-id", "a-1",
+                "--verdict", "probe_verdict", "--cycle-id", "c-1",
+            ])
+        self.assertEqual(ask.question_kind, "probe_kind")
+        self.assertEqual(answer.verdict, "probe_verdict")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -233,8 +233,8 @@ def classify_pr_change(
     try:
         change = read_change_paths(
             workspace_root,
-            _first_string(pr, "base_sha", "baseRefOid"),
-            _first_string(pr, "head_sha", "headRefOid", "head"),
+            first_present_string(pr, "base_sha", "baseRefOid"),
+            first_present_string(pr, "head_sha", "headRefOid", "head"),
         )
     except GovernanceError:
         return PrChangeVerdict(
@@ -272,20 +272,20 @@ def record_risk_decision_for_pr(
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
-        "row_id": f"risk:{pr.get('number')}:{_first_string(pr, 'head_sha', 'headRefOid', 'head')}",
+        "row_id": f"risk:{pr.get('number')}:{first_present_string(pr, 'head_sha', 'headRefOid', 'head')}",
         "row_type": "enterprise_risk_decision",
         "pr_number": pr.get("number"),
-        "repo": _first_string(pr, "repository", "repo", "repo_full_name"),
-        "target_ref": _first_string(pr, "base_branch", "baseRefName", "base", "target_ref"),
-        "head_ref": _first_string(pr, "head_ref", "headRefName", "head_branch"),
-        "head_sha": _first_string(pr, "head_sha", "headRefOid", "head"),
+        "repo": first_present_string(pr, "repository", "repo", "repo_full_name"),
+        "target_ref": first_present_string(pr, "base_branch", "baseRefName", "base", "target_ref"),
+        "head_ref": first_present_string(pr, "head_ref", "headRefName", "head_branch"),
+        "head_sha": first_present_string(pr, "head_sha", "headRefOid", "head"),
         "valid": verdict.valid,
         "lane": verdict.lane,
         "policy_hash": verdict.policy_hash,
         "reason_codes": list(verdict.reason_codes),
         "changed_files": list(verdict.changed_files),
         "matched_lanes": list(verdict.matched_lanes),
-        "base_sha": _first_string(pr, "base_sha", "baseRefOid"),
+        "base_sha": first_present_string(pr, "base_sha", "baseRefOid"),
         "changed_files_source": CHANGE_PATHS_SOURCE,
         "changed_entries": [[status, path] for status, path in read.change.entries] if read.change is not None else [],
         "platform_listed_files": len(read.listed_paths),
@@ -552,11 +552,21 @@ def _changed_file_path(item: str | dict[str, Any]) -> str:
     return ""
 
 
-def _first_string(payload: dict[str, Any], *keys: str) -> str | None:
+def first_present_string(payload: dict[str, Any], *keys: str) -> str | None:
+    """The first of ``keys`` whose value is a string with content, stripped.
+
+    ARIA-MEDIUM-467 — the one reader of a PR payload's fallback fields (``head_sha``
+    or ``headRefOid`` or ``head``, ...). Six private copies disagreed: some
+    treated a whitespace-only value as present and returned it, so a blank
+    SHA counted as known in one gate and missing in the next. Whitespace is
+    never part of a SHA, ref or repository name, so a value judged present
+    by its stripped content is returned as that content; ``None`` when no
+    key holds one.
+    """
     for key in keys:
         value = payload.get(key)
-        if isinstance(value, str) and value:
-            return value
+        if isinstance(value, str) and value.strip():
+            return value.strip()
     return None
 
 
@@ -576,6 +586,7 @@ __all__ = [
     "codeowners_globs",
     "codeowners_last_match",
     "codeowners_rules",
+    "first_present_string",
     "PrChangeVerdict",
     "classify_pr_change",
     "load_risk_policy",

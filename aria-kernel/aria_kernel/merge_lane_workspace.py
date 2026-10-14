@@ -53,6 +53,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
+from .risk_policy import first_present_string
 from .state_store import GIT_TIMEOUT_SECONDS
 from .tool_registry import GovernanceError
 
@@ -99,23 +100,15 @@ def _checked_out_refs(root: Path) -> dict[str, str]:
     return checked_out
 
 
-def _first(pr: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = pr.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
-
-
 def pr_workspace_identity(pr: dict[str, Any]) -> dict[str, Any]:
     """The live PR fields the workspace is shaped from, validated."""
     number = pr.get("number")
     identity: dict[str, Any] = {
         "number": number,
-        "head_ref": _first(pr, "head_ref", "headRefName"),
-        "head_sha": _first(pr, "head_sha", "headRefOid", "head"),
-        "base_branch": _first(pr, "base_branch", "baseRefName", "base", "target_ref"),
-        "live_base_sha": _first(pr, "base_sha", "baseRefOid"),
+        "head_ref": first_present_string(pr, "head_ref", "headRefName") or "",
+        "head_sha": first_present_string(pr, "head_sha", "headRefOid", "head") or "",
+        "base_branch": first_present_string(pr, "base_branch", "baseRefName", "base", "target_ref") or "",
+        "live_base_sha": first_present_string(pr, "base_sha", "baseRefOid") or "",
     }
     missing = [
         name for name, value in identity.items()

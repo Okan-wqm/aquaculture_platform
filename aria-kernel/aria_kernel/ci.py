@@ -11,11 +11,10 @@ from .agent_priors import related_agents_for_paths
 from .auto_merge import evaluate_auto_merge
 from .ledger import (
     append_declared_jsonl,
-    append_jsonl as _append_jsonl,
     load_declared_jsonl,
-    load_jsonl as _load_jsonl,
 )
 from .proposal import record_proposal
+from .risk_policy import first_present_string
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -89,14 +88,14 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     surface = _ci_surface_name(path)
     if surface is not None:
         return append_declared_jsonl(path, record, expected_surface=surface)
-    return _append_jsonl(path, record)
+    raise GovernanceError(f"ci_append_unknown_surface:{Path(path).as_posix()}")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     surface = _ci_surface_name(path)
     if surface is not None:
         return load_declared_jsonl(path, expected_surface=surface)
-    return _load_jsonl(path)
+    raise GovernanceError(f"ci_load_unknown_surface:{Path(path).as_posix()}")
 
 
 def inventory_workflows(
@@ -163,7 +162,7 @@ def record_ci_report(
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "pr_number": pr.get("number"),
-        "head_sha": _first_string(pr, "head_sha", "headRefOid", "head"),
+        "head_sha": first_present_string(pr, "head_sha", "headRefOid", "head"),
         "changed_files": changed,
         "workflow_run_refs": [run["ledger_hash"] for run in recorded_runs],
         "failure_refs": [failure["ledger_hash"] for failure in failures],
@@ -218,7 +217,7 @@ def evaluate_pr_ci_gate(
     ]
     blockers.extend(f"failed workflow requires review: {name}" for name in unknown_failures if name)
     pr_number = pr.get("number")
-    head_sha = _first_string(pr, "head_sha", "headRefOid", "head")
+    head_sha = first_present_string(pr, "head_sha", "headRefOid", "head")
     row = {
         "schema_version": _GATE_ROW_SCHEMA_VERSION,
         "recorded_at": utc_now(),
@@ -468,7 +467,7 @@ def _workflow_run_row(run: dict[str, Any], pr: dict[str, Any], cycle_id: str | N
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "pr_number": pr.get("number"),
-        "head_sha": run.get("head_sha") or _first_string(pr, "head_sha", "headRefOid", "head"),
+        "head_sha": run.get("head_sha") or first_present_string(pr, "head_sha", "headRefOid", "head"),
         "workflow_run_id": workflow_run_id,
         "name": run.get("name") or run.get("workflow_name") or run.get("workflow"),
         "status": run.get("status"),
@@ -938,14 +937,6 @@ def _string_list(value: Any) -> list[str]:
             if isinstance(path, str) and path.strip():
                 output.append(path.replace("\\", "/"))
     return sorted(set(output))
-
-
-def _first_string(payload: dict[str, Any], *keys: str) -> str | None:
-    for key in keys:
-        value = payload.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
 
 
 def _hash_text(text: str) -> str:

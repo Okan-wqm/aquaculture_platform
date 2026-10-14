@@ -135,6 +135,57 @@ class PhaseA2RequiredGithubAdapter(unittest.TestCase):
                 self.assertIn("recorded_at", row)
                 self.assertIn("args", row)
 
+    def test_i_v3_05_recording_adapter_read_stubs_fail_closed(self) -> None:
+        """ARIA-MEDIUM-467 — a recording profile fetched nothing, so every read stub
+        says so (``readable: False``) and the merge gate blocks on it.
+
+        The stubs used to return empty lists without the flag, which the
+        gate's readers default to readable: "no required checks, no
+        reviews, zero unresolved conversations" — every read sub-gate passed.
+        """
+        from aria_kernel.auto_merge import (
+            _conversation_result,
+            _required_checks,
+            _required_checks_result,
+            _review_result,
+            collect_github_snapshot,
+            evaluate_auto_merge,
+        )
+        from aria_kernel.github_adapters import RecordingGitHubAdapter
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        with tempfile.TemporaryDirectory(prefix="aria-a8-1-") as tmp:
+            tools = ensure_tools_dir(Path(tmp) / "aria-tools")
+            adapter = RecordingGitHubAdapter(base_dir=tools, profile="observe")
+            for result in (
+                adapter.get_required_checks("main"),
+                adapter.get_checks("a" * 40),
+                adapter.get_reviews(7),
+                adapter.get_unresolved_conversation_count(7),
+                adapter.get_open_issues(labels=[]),
+            ):
+                self.assertIs(result.get("readable"), False, result)
+
+            sha = "a" * 40
+            pr = {"number": 7, "base_branch": "main", "head_sha": sha}
+            snap = collect_github_snapshot(adapter, pr)
+            self.assertIs(_required_checks(snap)["readable"], False)
+            self.assertIs(_required_checks_result(snap, [], sha)["readable"], False)
+            self.assertIs(_review_result({}, snap)["readable"], False)
+            self.assertIs(_conversation_result(snap)["readable"], False)
+
+            decision = evaluate_auto_merge(
+                pr=pr, github=snap, base_dir=tools, workspace_root=Path(tmp),
+                diff_text="+++ b/docs/x.md\n+text\n",
+            )
+        self.assertFalse(decision["eligible"])
+        for reason in (
+            "branch protection required checks unreadable",
+            "review state unreadable",
+            "unresolved conversation state unreadable",
+        ):
+            self.assertIn(reason, decision["reasons"])
+
     def test_i_v3_05_recording_adapter_never_calls_gh_cli(self) -> None:
         """The recording adapter must NOT shell out to gh. Source
         inspection: no ``subprocess.run`` reference inside the class.
@@ -169,14 +220,14 @@ class PhaseA2RequiredGithubAdapter(unittest.TestCase):
         ``test_strict_profile_uses_real_runner`` (which monkeypatches
         ``merge_if_green``) and by Phase B1's live-claude shake-out.
         """
-        from aria_kernel import github_adapters
+        from aria_kernel import github_adapters, runtime_profile
         from aria_kernel.github_adapters import GhCliGitHubAdapter
 
         # Branch invariant: the factory must dispatch ``strict`` to
-        # the GhCliGitHubAdapter class. We inspect the constant set
+        # the GhCliGitHubAdapter class. We inspect the classification
         # directly so the test does not depend on the live `gh` CLI.
-        self.assertIn("strict", github_adapters._REAL_ADAPTER_PROFILES)
-        self.assertIn("autonomous", github_adapters._REAL_ADAPTER_PROFILES)
+        self.assertIn("strict", runtime_profile.GITHUB_LIVE_PROFILES)
+        self.assertIn("autonomous", runtime_profile.GITHUB_LIVE_PROFILES)
         # Source-inspection: select_github_adapter returns
         # GhCliGitHubAdapter for the real-profile branch.
         source = inspect.getsource(github_adapters.select_github_adapter)
@@ -204,6 +255,36 @@ class PhaseA2RequiredGithubAdapter(unittest.TestCase):
                 select_github_adapter(
                     profile="permissive", base_dir=tmp, cwd=tmp,
                 )
+
+    def test_i_v3_06_every_profile_is_classified(self) -> None:
+        """ARIA-MEDIUM-467 — the GitHub classification is derived in runtime_profile.
+
+        github_adapters and auto_merge_runners each carried literal profile
+        sets; now both read one partition of ``PROFILES`` derived from
+        ``ACTION_PERMISSIONS``. The pinned values are today's behaviour.
+        """
+        import os as _os
+        from unittest import mock
+
+        from aria_kernel.auto_merge_runners import select_auto_merge_runner
+        from aria_kernel.github_adapters import select_github_adapter
+        from aria_kernel.runtime_profile import (
+            GITHUB_CHECKS_READ_PROFILES,
+            GITHUB_LIVE_PROFILES,
+            GITHUB_RECORDING_PROFILES,
+            PROFILES,
+        )
+
+        self.assertEqual(GITHUB_LIVE_PROFILES & GITHUB_RECORDING_PROFILES, frozenset())
+        self.assertEqual(GITHUB_LIVE_PROFILES | GITHUB_RECORDING_PROFILES, frozenset(PROFILES))
+        self.assertEqual(GITHUB_LIVE_PROFILES, frozenset({"strict", "autonomous"}))
+        self.assertEqual(GITHUB_CHECKS_READ_PROFILES, frozenset({"standard", "strict", "autonomous"}))
+        with tempfile.TemporaryDirectory(prefix="aria-a8-6-") as tmp:
+            with mock.patch.dict(_os.environ, {"ARIA_DRY_RUN": "true"}):
+                for profile in PROFILES:
+                    with self.subTest(profile=profile):
+                        select_github_adapter(profile=profile, base_dir=tmp, cwd=tmp)
+                        select_auto_merge_runner(profile=profile, executes_merges=False, base_dir=tmp)
 
     def test_i_v3_06a_audit_dir_gitignored(self) -> None:
         """V2 I-23 + V3 §A2 — aria-tools/audit/ MUST be gitignored.

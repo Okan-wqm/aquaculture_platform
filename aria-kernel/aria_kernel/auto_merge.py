@@ -23,6 +23,7 @@ from .risk_policy import (
     change_entries,
     classify_path,
     classify_pr_change,
+    first_present_string,
 )
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -261,8 +262,8 @@ def evaluate_auto_merge(
     active_policy = normalize_policy(policy)
     reasons: list[str] = []
     pr_number = pr.get("number")
-    base_branch = _first_string(pr, "base_branch", "baseRefName", "base")
-    head_sha = _first_string(pr, "head_sha", "headRefOid", "head")
+    base_branch = first_present_string(pr, "base_branch", "baseRefName", "base")
+    head_sha = first_present_string(pr, "head_sha", "headRefOid", "head")
     # Plan 023 v3 §P-4 — strict latest_head_sha lookup. Pre-fix the
     # `or head_sha` fallback meant a failed lookup (network 5xx, gh
     # adapter bug, missing snapshot field) silently substituted the
@@ -271,7 +272,7 @@ def evaluate_auto_merge(
     # force-push detection that latest_head_sha exists to provide.
     # Post-fix: empty / missing falls through to the
     # "latest PR head SHA unavailable" reason below; gate blocks.
-    latest_head_sha = _first_string(github, "latest_head_sha")
+    latest_head_sha = first_present_string(github, "latest_head_sha")
     read = classify_pr_change(pr, workspace_root=workspace_root)
     risk = {
         **classify_changed_files(read.change if read.change is not None else [], policy=active_policy),
@@ -566,8 +567,8 @@ def record_pr_lifecycle(
         "cycle_id": cycle_id,
         "event": event,
         "pr_number": pr.get("number"),
-        "base_branch": _first_string(pr, "base_branch", "baseRefName", "base"),
-        "head_sha": _first_string(pr, "head_sha", "headRefOid", "head"),
+        "base_branch": first_present_string(pr, "base_branch", "baseRefName", "base"),
+        "head_sha": first_present_string(pr, "head_sha", "headRefOid", "head"),
         "task_id": pr.get("task_id"),
         "proposal_id": pr.get("proposal_id"),
         "assignment_id": assignment_id or pr.get("assignment_id"),
@@ -825,8 +826,8 @@ def merge_if_green(
 
 def collect_github_snapshot(adapter: GitHubAdapter, pr: dict[str, Any]) -> dict[str, Any]:
     pr_number = int(pr["number"])
-    base_branch = _first_string(pr, "base_branch", "baseRefName", "base")
-    head_sha = _first_string(pr, "head_sha", "headRefOid", "head")
+    base_branch = first_present_string(pr, "base_branch", "baseRefName", "base")
+    head_sha = first_present_string(pr, "head_sha", "headRefOid", "head")
     snapshot: dict[str, Any] = {}
     snapshot["latest_head_sha"] = _safe_call(lambda: adapter.get_latest_head_sha(pr_number), default=None)
     snapshot["branch_protection"] = _safe_call(
@@ -1595,14 +1596,6 @@ def _changed_file_path(item: str | dict[str, Any]) -> str:
 
 def _matches_any(path: str, patterns: list[str]) -> bool:
     return any(matches_repo_glob(path, pattern) for pattern in patterns)
-
-
-def _first_string(payload: dict[str, Any], *keys: str) -> str | None:
-    for key in keys:
-        value = payload.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
 
 
 def _safe_call(func: Any, *, default: Any) -> Any:

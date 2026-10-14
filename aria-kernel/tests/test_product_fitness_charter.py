@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.product_fitness import (
+    _verdict_for_workflows,
     evaluate_fitness,
     load_charter,
     streak_from_history,
@@ -97,6 +98,36 @@ class UnknownIsNeverGreen(unittest.TestCase):
             workspace_root=_REPO, head_sha="x", reader=_Reader(runs),
         )
         self.assertEqual(verdict.status, "red")
+
+    def test_a_lane_still_running_is_unknown_not_red(self) -> None:
+        # The newest run of a lane shadows its older ones, so an in-progress
+        # re-run has not concluded anything yet: it is not a failure.
+        runs = _all_lanes()
+        runs[0] = {**runs[0], "status": "in_progress", "conclusion": None}
+        verdict = evaluate_fitness(
+            workspace_root=_REPO, head_sha="x", reader=_Reader(runs),
+        )
+        self.assertEqual(verdict.status, "unknown")
+        self.assertTrue(
+            any("still running" in d.detail for d in verdict.dimensions),
+            [d.as_dict() for d in verdict.dimensions],
+        )
+        self.assertFalse(
+            any(d.status == "red" for d in verdict.dimensions),
+            [d.as_dict() for d in verdict.dimensions],
+        )
+
+    def test_a_completed_failure_stays_red_beside_a_running_lane(self) -> None:
+        # A lane that already failed is a known failure; another lane still
+        # running must not turn it into unknown.
+        verdict = _verdict_for_workflows(
+            ["ci", "e2e"],
+            [
+                {"name": "ci", "status": "in_progress", "conclusion": None},
+                {"name": "e2e", "status": "completed", "conclusion": "failure"},
+            ],
+        )
+        self.assertEqual(verdict, ("red", "failing: e2e"))
 
     def test_unknown_breaks_the_streak_exactly_like_red(self) -> None:
         for breaker in ("unknown", "red"):

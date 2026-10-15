@@ -74,7 +74,7 @@ function user(overrides: Partial<AuthUser> = {}): AuthUser {
 
 /** Controlled AuthContextValue — mirrors the provider's helper semantics. */
 function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
-  const currentUser = 'user' in overrides ? overrides.user : null;
+  const currentUser = 'user' in overrides ? (overrides.user ?? null) : null;
   const modules: UserModule[] = 'modules' in overrides ? (overrides.modules ?? []) : [];
   const role = currentUser?.role;
   return {

@@ -33,11 +33,20 @@
     "plan_id": "plan-cyc-20261008T151306Z-auto",
     "reason_code": "implementation_delivery_exhausted"
   },
+  "kernel_disposition": {
+    "disposition": "folded_into_parked_plan_item",
+    "finding_id": "ARIA-MEDIUM-429",
+    "kept_request_id": "plan-human-required-plan-cyc-20261008T151306Z-auto",
+    "reason": "one operator item per parked plan: plan-human-required-plan-cyc-20261008T151306Z-auto"
+  },
   "reason": "implementation_delivery_exhausted: CONVERGED plan plan-cyc-20261008T151306Z-auto was offered to an implementation runner that could deliver it 3 times and stayed CONVERGED; it is now HUMAN_REQUIRED. Re-stage it or abandon it",
   "recorded_at": "2026-10-10T09:21:07Z",
   "request_id": "converged-delivery-exhausted-plan-cyc-20261008T151306Z-auto",
+  "resolution_note": "kernel disposition folded_into_parked_plan_item: one operator item per parked plan: plan-human-required-plan-cyc-20261008T151306Z-auto",
+  "resolved_at": "2026-10-15T14:44:55Z",
+  "resolved_by": "kernel",
   "schema_version": 1,
   "severity": "HIGH",
   "sla_deadline": "2026-10-13T09:21:07Z",
-  "status": "open"
+  "status": "resolved"
 }

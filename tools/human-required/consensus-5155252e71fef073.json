@@ -8,11 +8,13 @@
     "tool_id": "security-boundary-adapter",
     "uncertainty_reason": "low_confidence"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (low_confidence) for finding 'public-write-endpoint-without-allowlist:apps/auth-service/src/modules/authentication/resolvers/mfa.resolver.ts:251' (tool 'security-boundary-adapter', run '2ac65894-6357-4097-bf7d-4b23a92249e4'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T14:55:46Z",
   "request_id": "consensus-5155252e71fef073",
   "schema_version": 1,
-  "severity": "MEDIUM",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-06T14:55:46Z",
   "status": "open"
 }

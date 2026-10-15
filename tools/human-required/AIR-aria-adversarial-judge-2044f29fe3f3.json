@@ -7,17 +7,27 @@
     "target_agent": "aria-adversarial-judge"
   },
   "kernel_disposition": {
-    "disposition": "expired_operator_required",
+    "disposition": "expired_dropped",
     "expiry_fault_class": "unclassified",
     "expiry_reason": "anchor_expired",
-    "reason": "producer_unverified:anchor_stale",
-    "role": "adversarial_judgment"
+    "reason": "subject_closed:finding_not_reported_recently",
+    "role": "adversarial_judgment",
+    "supersedes": {
+      "disposition": "expired_operator_required",
+      "expiry_fault_class": "unclassified",
+      "expiry_reason": "anchor_expired",
+      "reason": "producer_unverified:anchor_stale",
+      "role": "adversarial_judgment"
+    }
   },
   "reason": "request 'AIR-aria-adversarial-judge-2044f29fe3f3' expired ANCHOR_STALE unclaimed; kernel disposition expired_operator_required: producer_unverified:anchor_stale",
   "recorded_at": "2026-10-09T11:08:00Z",
   "request_id": "AIR-aria-adversarial-judge-2044f29fe3f3",
+  "resolution_note": "kernel disposition expired_dropped: subject_closed:finding_not_reported_recently",
+  "resolved_at": "2026-10-15T13:26:14Z",
+  "resolved_by": "kernel",
   "schema_version": 1,
   "severity": "HIGH",
   "sla_deadline": "2026-10-12T11:08:00Z",
-  "status": "open"
+  "status": "resolved"
 }

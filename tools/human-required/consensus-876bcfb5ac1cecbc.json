@@ -8,11 +8,13 @@
     "tool_id": "test-gap-adapter",
     "uncertainty_reason": "judge_disagreement"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (judge_disagreement) for finding 'migration-without-test:apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts' (tool 'test-gap-adapter', run '31f76115-1fd5-49e3-ab0a-789a0f32994c'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T21:52:13Z",
   "request_id": "consensus-876bcfb5ac1cecbc",
   "schema_version": 1,
-  "severity": "HIGH",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-02T21:52:13Z",
   "status": "open"
 }

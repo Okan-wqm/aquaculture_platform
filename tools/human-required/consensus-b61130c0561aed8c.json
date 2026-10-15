@@ -8,11 +8,13 @@
     "tool_id": "doc-staleness-adapter",
     "uncertainty_reason": "judge_disagreement"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (judge_disagreement) for finding 'doc-staleness:missing:docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:597:apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts' (tool 'doc-staleness-adapter', run '1710fe2e-111a-4ab0-af0a-39c591ff6c2f'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T21:52:17Z",
   "request_id": "consensus-b61130c0561aed8c",
   "schema_version": 1,
-  "severity": "HIGH",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-02T21:52:17Z",
   "status": "open"
 }

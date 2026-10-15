@@ -34,11 +34,13 @@
     "kind": "genesis_candidate",
     "valid_cycles": 1
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "capability gap 'shadow_run:lint-rules-adapter' proposes agent genesis; panel adjudication required (resolver decision: request).",
   "recorded_at": "2026-09-29T16:27:07Z",
   "request_id": "genesis-4d1137191774b32c",
   "schema_version": 1,
-  "severity": "MEDIUM",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-06T16:27:07Z",
   "status": "open"
 }

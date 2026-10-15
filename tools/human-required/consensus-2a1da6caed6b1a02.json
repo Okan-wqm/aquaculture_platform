@@ -8,11 +8,13 @@
     "tool_id": "doc-staleness-adapter",
     "uncertainty_reason": "low_confidence"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/system-mgmt.md:1038:libs/backend-common/src/metrics/prometheus-query.module.ts' (tool 'doc-staleness-adapter', run 'b0c2c6c1-4a68-42b4-863e-773e5a6f3eed'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T14:56:07Z",
   "request_id": "consensus-2a1da6caed6b1a02",
   "schema_version": 1,
-  "severity": "MEDIUM",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-06T14:56:07Z",
   "status": "open"
 }

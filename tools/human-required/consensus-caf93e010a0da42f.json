@@ -8,11 +8,13 @@
     "tool_id": "test-gap-adapter",
     "uncertainty_reason": "judge_disagreement"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (judge_disagreement) for finding 'migration-without-test:apps/hr-service/src/database/migrations/1800000000000-Baseline.ts' (tool 'test-gap-adapter', run 'd090521b-ac6a-4a03-a9ad-d3ad6248b171'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T21:52:14Z",
   "request_id": "consensus-caf93e010a0da42f",
   "schema_version": 1,
-  "severity": "HIGH",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-02T21:52:14Z",
   "status": "open"
 }

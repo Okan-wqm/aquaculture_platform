@@ -8,11 +8,13 @@
     "tool_id": "security-boundary-adapter",
     "uncertainty_reason": "judge_disagreement"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (judge_disagreement) for finding 'public-write-endpoint-without-allowlist:apps/auth-service/src/modules/authentication/resolvers/auth.resolver.ts:200' (tool 'security-boundary-adapter', run '6209889b-3092-41b4-8867-a60b0a7352b1'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-18T23:38:59Z",
   "request_id": "consensus-bd4b689c1f0620d4",
   "schema_version": 1,
-  "severity": "HIGH",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-09-21T23:38:59Z",
   "status": "open"
 }

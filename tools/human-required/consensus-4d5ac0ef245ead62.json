@@ -8,11 +8,13 @@
     "tool_id": "doc-staleness-adapter",
     "uncertainty_reason": "low_confidence"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/reviews/_audit/2026-04-22-cold-audit/02-jscpd-clusters.md:29:apps/messaging-service/src/ai/safety/ssrf-validator.service.ts' (tool 'doc-staleness-adapter', run 'f1c2f0ab-8295-4d12-b037-69b48a300557'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T21:52:21Z",
   "request_id": "consensus-4d5ac0ef245ead62",
   "schema_version": 1,
-  "severity": "MEDIUM",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-06T21:52:21Z",
   "status": "open"
 }

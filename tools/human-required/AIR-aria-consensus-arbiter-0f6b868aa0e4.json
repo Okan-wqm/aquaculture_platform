@@ -7,11 +7,13 @@
     "role": "consensus_arbitration",
     "target_agent": "aria-consensus-arbiter"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "lease lifecycle exhausted requeues for request 'AIR-aria-consensus-arbiter-0f6b868aa0e4' (requeue_count=14); operator follow-up required.",
   "recorded_at": "2026-09-29T15:11:13Z",
   "request_id": "AIR-aria-consensus-arbiter-0f6b868aa0e4",
   "schema_version": 1,
-  "severity": "HIGH",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-02T15:11:13Z",
   "status": "open"
 }

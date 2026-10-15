@@ -8,11 +8,13 @@
     "tool_id": "tenant-scoping-adapter",
     "uncertainty_reason": "low_confidence"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (low_confidence) for finding 'tenant-raw-query-missing-predicate:apps/sensor-service/src/edge-device/mqtt-auth.service.ts:475' (tool 'tenant-scoping-adapter', run '967108d5-aa09-42a6-843d-d93e4a621ef4'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T14:55:52Z",
   "request_id": "consensus-34f878860e977303",
   "schema_version": 1,
-  "severity": "MEDIUM",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-06T14:55:52Z",
   "status": "open"
 }

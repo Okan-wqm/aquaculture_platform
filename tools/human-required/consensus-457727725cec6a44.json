@@ -8,11 +8,13 @@
     "tool_id": "doc-staleness-adapter",
     "uncertainty_reason": "low_confidence"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/FUXA_GAP_IMPLEMENTATION_PLAN.md:285:apps/sensor-service/src/scada-runtime/services/api-key.service.ts' (tool 'doc-staleness-adapter', run '605e35ac-3107-405b-87fb-bdb713dab19e'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T14:56:04Z",
   "request_id": "consensus-457727725cec6a44",
   "schema_version": 1,
-  "severity": "MEDIUM",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-06T14:56:04Z",
   "status": "open"
 }

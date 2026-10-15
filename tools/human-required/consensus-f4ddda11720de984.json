@@ -8,11 +8,13 @@
     "tool_id": "doc-staleness-adapter",
     "uncertainty_reason": "low_confidence"
   },
+  "panel_disposition": "escalate_operator",
+  "panel_escalation_reason": "panel_reopen_exhausted",
   "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/reviews/_audit/2026-04-W16-anti-patterns.md:276:e2e/playwright-report' (tool 'doc-staleness-adapter', run '1710fe2e-111a-4ab0-af0a-39c591ff6c2f'); independent judges disagreed or were low-confidence. Operator adjudication required.",
   "recorded_at": "2026-09-29T14:56:00Z",
   "request_id": "consensus-f4ddda11720de984",
   "schema_version": 1,
-  "severity": "MEDIUM",
+  "severity": "CRITICAL",
   "sla_deadline": "2026-10-06T14:56:00Z",
   "status": "open"
 }

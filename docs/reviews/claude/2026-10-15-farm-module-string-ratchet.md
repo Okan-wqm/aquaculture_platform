@@ -42,28 +42,39 @@ Proposed fix (its counts are verified; it is not applied):
 Checked against the TypeScript parser over the 924 `.tsx` files the check reads: the fix drops
 284 matches, none of them a `JsxText` node or a text attribute, and adds none. New counts:
 
-| Package              | Today | With the fix |
-| -------------------- | ----- | ------------ |
-| `aquamobil`          | 607   | 555          |
-| `dashboard`          | 90    | 85           |
-| `farm-module`        | 2616  | 2597         |
-| `hr-module`          | 559   | 556          |
-| `hydroponics-module` | 190   | 187          |
-| `sensor-module`      | 3172  | 3081         |
-| `tenant-admin`       | 503   | 494          |
-| `shared-ui`          | 190   | 93           |
-| `shell`              | 154   | 149          |
+| Package              | This branch | With the detector fix |
+| -------------------- | ----------- | --------------------- |
+| `aquamobil`          | 607         | 555                   |
+| `dashboard`          | 90          | 85                    |
+| `farm-module`        | 2614        | 2595                  |
+| `hr-module`          | 559         | 556                   |
+| `hydroponics-module` | 190         | 187                   |
+| `sensor-module`      | 3172        | 3081                  |
+| `tenant-admin`       | 503         | 494                   |
+| `shared-ui`          | 190         | 93                    |
+| `shell`              | 153         | 148                   |
 
 Status: OPEN. The session's permission policy refused the edit to the spec's detector as a change
-to a CI gate, so this change registers the finding and the detector fix waits for okan's decision.
-The other way to clear the red keeps the detector as it is: localize three real strings (two in
-farm-module, one in the shell) so the counts return to their ceilings. It leaves the false
-positives in the count, and the next arrow return type or JSDoc tag fails the ratchet again.
+to a CI gate, twice, the second time after okan had chosen the detector fix. okan then chose to
+clear the red by localizing three real strings, and this branch does that:
+
+- `web/modules/farm-module/src/Module.tsx`: the route Suspense fallback `Laster…` (Norwegian, a
+  locale the product does not ship) renders `t('common.pageLoading')`.
+- `web/modules/farm-module/src/pages/water-chemistry/components/ConfigFormModal.tsx`: the dialog's
+  `Cancel` button renders `t('common.cancel')`.
+- `web/shell/src/components/ai/AiAssistantDrawer.tsx`: the drawer title `AI Assistant` renders
+  `t('header.aiAssistant')`, the key of the header button that opens the drawer.
+
+All three keys exist in `en` and `tr`; no key was added. farm-module is back at 2614 and the shell
+at 153, equal to their ceilings; no ceiling and no spec line changed. The false positives stay in
+the count, so the next arrow return type or JSDoc tag that names a component fails the ratchet
+again. FE-MEDIUM-323 stays OPEN, and its remedy is still the detector fix above.
 
 Not part of this finding: the detector's other textual approximations (a ternary's `) : x ? (`
 between two tags counts; JSX text that holds a `{expression}` does not).
 
 PR #1955 (`fix/farm-e2e-campaign-20261010`) touches none of these files and is count-neutral under
-both detectors. Its ratchet run is red for the same reason and clears when the fix is on main.
+both detectors. Its ratchet run is red for the same reason and clears when this branch is on main.
 
-Proving test: the ratchet spec, red on main 6f205b988, green with the fix, plus the detector test.
+Proving test: the ratchet spec, red on main 6f205b988 (farm-module 2616 against 2614) and green
+on this branch. The detector test lands with the detector fix.

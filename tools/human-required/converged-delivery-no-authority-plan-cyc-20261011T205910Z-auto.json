@@ -1,0 +1,28 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "ARIA-HIGH-362",
+    "kind": "converged_plan_delivery",
+    "plan_id": "plan-cyc-20261011T205910Z-auto",
+    "reason_code": "implementation_authority_absent",
+    "uncounted_cycles": [
+      "cyc-20261013T101234Z-auto",
+      "cyc-20261013T131952Z-auto",
+      "cyc-20261013T160841Z-auto",
+      "cyc-20261013T221853Z-auto",
+      "cyc-20261014T204102Z-auto",
+      "cyc-20261014T234932Z-auto",
+      "cyc-20261015T025757Z-auto"
+    ],
+    "withheld_reasons": [
+      "no_implementation_authority"
+    ]
+  },
+  "reason": "implementation_authority_absent: CONVERGED plan plan-cyc-20261011T205910Z-auto could not be offered to an implementation runner in 7 cycles (no_implementation_authority). The plan stays CONVERGED and is offered again once the cause clears",
+  "recorded_at": "2026-10-15T04:29:38Z",
+  "request_id": "converged-delivery-no-authority-plan-cyc-20261011T205910Z-auto",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-22T04:29:38Z",
+  "status": "open"
+}

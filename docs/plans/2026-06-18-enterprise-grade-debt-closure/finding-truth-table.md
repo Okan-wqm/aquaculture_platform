@@ -230,8 +230,8 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-078`  | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
 | `ORPHAN-CRITICAL-419` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-506` | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-513` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-506` | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-513` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
@@ -285,14 +285,14 @@ litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it 
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
-| `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | real-open |
+| `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | already-fixed-needs-close |
 | `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | real-open |
-| `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
+| `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | already-fixed-needs-close |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
-| `ARIA-CRITICAL-399` | OPEN | 2026-10-16 | claude | real-open |
-| `ARIA-CRITICAL-446` | OPEN | 2026-10-13 | claude | real-open |
+| `ARIA-CRITICAL-399` | OPEN | 2026-10-16 | claude | already-fixed-needs-close |
+| `ARIA-CRITICAL-446` | OPEN | 2026-10-13 | claude | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -427,12 +427,52 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   work, owner infra-expert (registry owner_user okan), placed in the go-live gate beside
   `DEPLOY-CRITICAL-017` (`docs/reviews/orphan-findings.md`).
 
-- `ARIA-CRITICAL-214`, `ARIA-CRITICAL-215`, `ARIA-CRITICAL-216` (2026-09-26, plan 037 merge-lane
-  review): a rename's source escaped the risk classifier, the L1 scope reached paths no CI gate
-  covers, and operator approval was a free string. Real open work until the plan 037 integration
-  merges (units L and O carry the `Closes:` lines); owner claude (registry owner_user okan),
-  deadline 2026-10-31
-  (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
+- `ARIA-CRITICAL-214`, `ARIA-CRITICAL-216` (2026-09-26, plan 037 merge-lane review): a rename's
+  source escaped the risk classifier, and operator approval was a free string. Fixed by
+  `bd8d2c6f5` (#1676, plan 037 units L and O), whose squash message kept only the ARIA-HIGH-237
+  trailer, so neither row was closed. `risk_policy.classify_pr_change` reads git's `--no-renames`
+  name-status (a rename source is `D`, so a code-owned file moved into `docs/` is never L1), and
+  the four surfaces plan 037 unit O moved (grant, unfreeze, profile, promote) go through
+  `operator_approval.verify_operator_approval` (a `gh:` comment or review by a listed operator,
+  naming the surface and scope, consumed once). ARIA-HIGH-238 (OPEN) holds the kernel modules that
+  still take `operator_approval_ref` as an unverified free string. Proof: `aria-suite-run.sh` over
+  `test_risk_change_paths.py`, `test_operator_approval.py` and `test_operator_approval_callers.py`;
+  each pin turns red when its mechanism is reverted. The closing `Closes:` commit merges with this
+  entry (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
+- `ARIA-CRITICAL-215` (2026-09-26, same review): the L1 scope reached paths no CI gate covers.
+  `bd8d2c6f5` fixed the cited instances, but the residual reproduces: the L1 entries
+  `apps/**/__tests__/**`, `libs/**/__tests__/**` and `web/**/__tests__/**` admit any added file,
+  including a `__mocks__` module that jest applies to every existing spec of the project. Real
+  open work, owner claude (registry owner_user okan), deadline 2026-10-31. `3ff275a5f` (PR #1743)
+  claims 215 fixed; the registry rejects that commit as its closer.
+- `ARIA-CRITICAL-399` (2026-10-09, genesis adapter execution): an adapter ran unconfined with the
+  runner's environment. Fixed on the repair stack (`d188cad26`, `211895946`, `78966eda4`,
+  `8961e645f`, each carrying its `Closes:` line): `tool_runner`, `fixture_runner` and genesis
+  custody spawn adapters only through `adapter_room.prepare_adapter_spawn` and `run_adapter`, one
+  bwrap room with no network, a read-only tracked view of the workspace, private PID/IPC/UTS
+  namespaces and the `validation_env` allowlist; without a backend the spawn refuses. Proof:
+  `aria-suite-run.sh` over `test_adapter_room.py`. The genesis half is ARIA-HIGH-414
+  (`docs/reviews/claude/2026-10-09-aria-genesis-adapter-execution.md`).
+- `ARIA-CRITICAL-446` (2026-10-11, total-outage continuity): a shell control operator glued to a
+  word passed the Bash gate. Fixed on the repair stack by `0ffd209dd` (carrying its `Closes:`
+  line): `command_policy.unquoted_control_operator` is the one quote-aware scanner, and `argv_of`
+  returns the whole line as one token when it finds an operator, which the gate refuses. Proof:
+  `aria-suite-run.sh` over `test_sandbox_and_perimeter_hardening.py` and `test_zai_tool_loop.py`.
+  An unquoted newline is ARIA-HIGH-443, and unquoted word expansions (brace, parameter, glob,
+  tilde) are ARIA-HIGH-505: other classes, not this finding
+  (`docs/reviews/claude/2026-10-11-aria-total-outage-continuity.md`).
+- `ORPHAN-CRITICAL-506`, `ORPHAN-CRITICAL-513` (2026-07-30, RC close-out): an undecodable breaker
+  row tripped the breaker forever and only deleting the state artifact recovered it, and the
+  producer lane's private restore copy could publish an empty tree over the accumulated state.
+  Fixed by `fd9638615` (#1045), which registered both rows OPEN in the same change and carried no
+  `Closes:` line for them, with the restore path finished by `249a5e940` (#1073) and `8a86ee392`
+  (#1127): `circuit_breaker.quarantine_breaker_evidence` moves only undecodable rows, the executor
+  runs it in-band between restore and publish (a required step in `workflow_contract_registry`),
+  and both lanes use the one `.github/actions/restore-aria-state` action with every publish gated
+  on its `restored` or `bootstrap` output. Proof: `aria-suite-run.sh` over
+  `test_breaker_evidence_quarantine.py` and `test_cli_workflow_verify_registry.py`, and
+  `tests/invariants/aria-single-restore-path.spec.ts`. The closing `Closes:` commit merges with
+  this entry (`docs/reviews/2026-07-26-aria-codex-audit-verification.md`).
 
 - `ALERT-CRITICAL-004` (2026-09-29, ai-service program plan review): farm-signal incidents (critical
   water quality, mortality, low stock, feed stockout) reach nobody — no tenant has an escalation

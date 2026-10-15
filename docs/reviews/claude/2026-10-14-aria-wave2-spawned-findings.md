@@ -327,6 +327,17 @@ verb can record are listed at the end.
   envelopes are never scanned (`:5661-5671`).
 - **Planned fix:** bucket `R6-refused-output` (landing L2) withholds refused and unscannable output
   from every published surface. Deadline: 2026-10-31.
+- **Landed (L2):** a rejection carrying any of `agent_invocations.CREDENTIAL_REFUSAL_CODES` is never
+  sealed. Its row has `output_path: null`, `output_withheld: "credential_refusal"` and
+  `withheld_sources` (each raw file under `outputs/` with the digest it was judged at). The kernel
+  deletes those files before the journal append, on journal replay and on idempotent replay, only
+  when their bytes still hash to the judged digest and no path component is a symlink. Unreadable
+  envelope bytes are scanned, the verdict reduces every other reason to its code, and no
+  out-of-scope observation is copied from a refused envelope. `integrity verify` and every publish
+  refuse `refused_output_present`: any file under `outputs/` whose bytes hash to a refused digest,
+  rows from before the fix included. `test_submit_withholds_refused_output.py` (22 tests) was red
+  before and is green after. The submit path is the one this row names; the delivery path that
+  never submits is ARIA-HIGH-540, and refused validation logs are ARIA-MEDIUM-539.
 
 ### ARIA-MEDIUM-516 — spine refresh runs adapters without their declared input
 
@@ -578,6 +589,33 @@ verb can record are listed at the end.
 - **Planned fix:** a fail-closed command-length bound in the hook, or the one scanner producing the
   argv in its own linear pass, checked against bash by `test_bash_expansion_differential.py`. No
   wave-2 bucket owns it. Deadline: 2027-01-13.
+
+### ARIA-MEDIUM-539 — refused secret-shaped validation logs stay published
+
+- **Raised by:** the `R6-refused-output` reviewers, accepted by its fix round (landing L2).
+- **Problem:** the implementation delivery refuses a run whose recorded validation output is
+  secret-shaped (`gate_output_secret_shaped`, `implementation_delivery.py:893-900`), reading that
+  output back from the store's validation logs (`:437-465`). Nothing withholds those log files, and
+  no publish gate checks them, so they stay on the published `validation_run_logs` surface
+  (`state_manifest.py:562`). Same rule as ARIA-HIGH-515.
+- **Planned fix:** the refusal withholds the refused log files, and the publish gate refuses a log
+  whose digest a refusal recorded, both through the one `CREDENTIAL_REFUSAL_CODES` owner. No wave-2
+  bucket owns it. Deadline: 2026-10-31.
+
+### ARIA-HIGH-540 — a delivery-path credential refusal leaves the refused bytes published
+
+- **Raised by:** the `R6-refused-output` reviewers, accepted by its fix round (landing L2).
+- **Problem:** on the implementation-delivery path the kernel judges the envelope
+  (`implementation_delivery.py:855-873`) and a rejection raises `ImplementationDeliveryRefusal`. The
+  executor then records governance and HUMAN_REQUIRED and releases the claim
+  (`ci_executor.py:5632-5690`) without `submit_claim_result`, the only caller of
+  `_withhold_submission_sources` (`agent_invocations.py:6355-6458`). The refused envelope and
+  transcript stay under `outputs/`, and the publish gate has no row to read. A reviewer probe showed
+  the raw envelope still in place with `integrity verify` valid. The verdict text is already
+  redacted (ARIA-HIGH-515's fix); the bytes are not.
+- **Planned fix:** bucket `R6-transcripts` (holds `ci_executor.py`): on a `result_admissible` refusal
+  whose codes meet `CREDENTIAL_REFUSAL_CODES`, the executor submits (the kernel records the withheld
+  row and deletes the sources), then escalates as today. Deadline: 2026-10-31.
 
 ## Registry amendments recorded at the L1 registry step
 

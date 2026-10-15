@@ -8,7 +8,7 @@ import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from .agent_contract import CONTRACT_ENFORCED_ROLES, REQUEST_SCHEMA, validate_request
 from .agent_surface import (
@@ -1883,9 +1883,7 @@ def _verify_transcript_artifact_ref(
 ) -> Path:
     if not is_sha256_digest(str(transcript_hash)):
         raise GovernanceError("transcript_hash_must_be_sha256")
-    artifact = Path(artifact_ref)
-    if not artifact.is_absolute() and workspace_root is not None:
-        artifact = Path(workspace_root).resolve() / artifact
+    artifact = _submission_source_path(artifact_ref, workspace_root)
     if not artifact.exists() or not artifact.is_file():
         raise GovernanceError("transcript_artifact_ref_missing")
     observed = "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
@@ -2148,10 +2146,35 @@ def _find_request_by_id(root: Path, request_id: str) -> dict[str, Any] | None:
     return None
 
 
+# The kernel's outputs directory (the ``agent_output_artifacts`` surface and
+# the raw transcripts beside it) and, inside it, the directory of its
+# content-addressed seals. ONE spelling, read by the raw-output default, the
+# seal writer, the withholding bound (ARIA-HIGH-515) and the publish gate's
+# scan (`runtime_artifacts._verify_withheld_outputs`, via
+# `submission_outputs_dir`): a layout change cannot leave one of them blind.
+_SUBMISSION_OUTPUTS_PARTS: tuple[str, str] = ("agent-invocations", "outputs")
+_SUBMISSION_SEALS_PART = "content-addressed"
+
+
+def submission_outputs_dir(root: Path) -> Path:
+    """The store's outputs directory: raw submission files and their seals."""
+    return root.joinpath(*_SUBMISSION_OUTPUTS_PARTS)
+
+
 def _default_expected_output_path(root: Path, request_id: str, convergence_id: str | None, round_number: int | None, role: str) -> str:
     group = convergence_id or "general"
     round_part = f"round-{round_number}" if round_number is not None else "round-na"
-    return (root / "agent-invocations" / "outputs" / group / f"{round_part}-{role}-{request_id}.md").resolve().as_posix()
+    return (submission_outputs_dir(root) / group / f"{round_part}-{role}-{request_id}.md").resolve().as_posix()
+
+
+def _submission_source_path(ref: str | Path, workspace_root: str | Path | None) -> Path:
+    """A caller-named submission file: absolute as given, or relative to the
+    resolved workspace root. The ONE reading of a transcript ref for every
+    step that opens it (binding, sealing, withholding)."""
+    path = Path(ref)
+    if not path.is_absolute() and workspace_root is not None:
+        path = Path(workspace_root).resolve() / path
+    return path
 
 
 def store_relative_artifact_path(root: Path, path: Path) -> str:
@@ -2302,9 +2325,8 @@ def _ensure_submission_artifact_directory(
     """Create the content-addressed directory one verified component at a time."""
     current = root.resolve()
     for part in (
-        "agent-invocations",
-        "outputs",
-        "content-addressed",
+        *_SUBMISSION_OUTPUTS_PARTS,
+        _SUBMISSION_SEALS_PART,
         artifact_kind,
     ):
         current /= part
@@ -2418,10 +2440,8 @@ def _submission_artifact_target(
         raise GovernanceError("submission_artifact_kind_invalid")
     digest = content_hash.removeprefix("sha256:")
     target = (
-        root.resolve()
-        / "agent-invocations"
-        / "outputs"
-        / "content-addressed"
+        submission_outputs_dir(root.resolve())
+        / _SUBMISSION_SEALS_PART
         / artifact_kind
         / f"{digest}.md"
     )
@@ -4587,9 +4607,7 @@ def _submission_input_binding(
     """Portable byte-level caller binding for commit-pending recovery."""
     transcript_ref: str | None = None
     if transcript_artifact_ref:
-        transcript_path = Path(transcript_artifact_ref)
-        if not transcript_path.is_absolute():
-            transcript_path = Path(workspace_root).resolve() / transcript_path
+        transcript_path = _submission_source_path(transcript_artifact_ref, workspace_root)
         transcript_ref = _portable_submission_ref(
             root=root,
             workspace_root=workspace_root,
@@ -4979,6 +4997,12 @@ def _verify_prepared_submission_artifacts(
     result_row = prepared.get("result_row")
     if not isinstance(result_row, dict):
         raise GovernanceError("submit_claim_result_prepared_result_malformed")
+    if result_row.get("output_withheld") is not None:
+        # ARIA-HIGH-515 — a withheld row seals nothing, so there is nothing
+        # to verify. A seal that IS present is not refused here: that would
+        # wedge the replay that completes the row. Presence is the publish
+        # gate's to catch (`runtime_artifacts._verify_withheld_outputs`).
+        return
     _verify_prepared_artifact(
         root=root,
         artifact_ref=result_row.get("output_path"),
@@ -4998,7 +5022,7 @@ def _seal_pending_submission_artifacts(
     *,
     root: Path,
     prepared: dict[str, Any],
-    output_bytes: bytes,
+    output_bytes: bytes | None,
     output_content_hash: str,
     workspace_root: str | Path,
     transcript_hash: str | None,
@@ -5006,11 +5030,20 @@ def _seal_pending_submission_artifacts(
     transcript_effect_exists: bool,
     prepared_candidate: dict[str, Any] | None,
 ) -> None:
+    """Seal the prepared response (and an accepted row's transcript).
+
+    ``output_bytes`` is ``None`` only on the replay of a withheld row whose
+    sources are already gone (ARIA-HIGH-515); a withheld row seals nothing.
+    """
     result_row = prepared.get("result_row")
     if not isinstance(result_row, dict):
         raise GovernanceError("submit_claim_result_prepared_result_malformed")
     if result_row.get("output_hash") != output_content_hash:
         raise GovernanceError("submission_prepared_response_artifact_hash_drift")
+    if result_row.get("output_withheld") is not None:
+        return
+    if output_bytes is None:
+        raise GovernanceError("submission_prepared_response_artifact_missing")
     sealed_output = _seal_submission_artifact(
         root,
         artifact_kind="responses",
@@ -5044,9 +5077,7 @@ def _seal_pending_submission_artifacts(
             raise GovernanceError(
                 "submit_claim_result_transcript_artifact_binding_missing"
             )
-        raw_transcript = Path(transcript_artifact_ref)
-        if not raw_transcript.is_absolute():
-            raw_transcript = Path(workspace_root).resolve() / raw_transcript
+        raw_transcript = _submission_source_path(transcript_artifact_ref, workspace_root)
         try:
             raw_transcript_bytes = _read_optional_submission_artifact(
                 raw_transcript
@@ -5311,6 +5342,7 @@ def _prepared_claim_rejection(
     reasons: list[str],
     reason_codes: list[str],
     submitted_hash: str,
+    submission_sources: list[dict[str, str]],
     compliance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # One code per reason, always: the executor decides fault ownership from
@@ -5321,29 +5353,35 @@ def _prepared_claim_rejection(
             "submit_claim_result_rejection_codes_mismatch: "
             f"reasons={len(reasons)} codes={len(reason_codes)}"
         )
+    row = _build_rejection_row(
+        claim_id=claim_id,
+        request_id=request_id,
+        agent_id=agent_id,
+        output_path=output_path,
+        output_hash=output_content_hash,
+        reasons=reasons,
+        reason_codes=reason_codes,
+        envelope_evidence_hash=submitted_hash,
+        submission_sources=submission_sources,
+    )
+    details: dict[str, Any] = {
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "agent_id": agent_id,
+        "rejection_reasons_count": len(reasons),
+        "envelope_evidence_hash": submitted_hash,
+    }
+    if row.get("output_withheld") is not None:
+        # The operator learns THAT the output was withheld, never a value.
+        details["output_withheld"] = True
     return {
         "status": "rejected",
         "reasons": reasons,
         "rejection_codes": list(reason_codes),
-        "row": _build_rejection_row(
-            claim_id=claim_id,
-            request_id=request_id,
-            agent_id=agent_id,
-            output_path=output_path,
-            output_hash=output_content_hash,
-            reasons=reasons,
-            reason_codes=reason_codes,
-            envelope_evidence_hash=submitted_hash,
-        ),
+        "row": row,
         "governance_event": governance_event(
             kind="agent_result_rejected",
-            details={
-                "claim_id": claim_id,
-                "request_id": request_id,
-                "agent_id": agent_id,
-                "rejection_reasons_count": len(reasons),
-                "envelope_evidence_hash": submitted_hash,
-            },
+            details=details,
         ),
         "compliance": compliance,
     }
@@ -5359,9 +5397,7 @@ def _prepare_submission_transcript_artifact(
 ) -> tuple[Path, bytes]:
     if not is_sha256_digest(transcript_hash):
         raise GovernanceError("transcript_hash_must_be_sha256")
-    artifact = Path(artifact_ref)
-    if not artifact.is_absolute():
-        artifact = Path(workspace_root).resolve() / artifact
+    artifact = _submission_source_path(artifact_ref, workspace_root)
     try:
         transcript_bytes = _read_stable_submission_artifact(artifact)
     except OSError as exc:
@@ -5403,7 +5439,10 @@ class ClaimSubmissionJudgment:
     owned on a plan that stayed ``IMPLEMENTATION_REQUESTED``.
 
     ``reasons`` and ``rejection_codes`` are the rejection, one code per
-    reason (empty: admitted); ``revalidation`` is the evidence validator's
+    reason (empty: admitted); a verdict carrying a credential code keeps
+    only its own credential reason and reduces every other to its code
+    (``credential_refusal_reasons``, ARIA-HIGH-515), so no consumer can
+    render text derived from the refused bytes; ``revalidation`` is the evidence validator's
     answer (its ``errors`` feed the out-of-scope capture the submit
     writes, its ``checked_refs`` the accepted row); ``compliance`` is the
     prepared grade when the chain admitted the envelope (the compliance
@@ -5570,7 +5609,10 @@ def judge_claim_submission(
 
         verify_no_secret_in_envelope(envelope)
     except SecretLeakDetected as exc:
-        reject("secret_in_envelope", f"secret_in_envelope: {exc}")
+        # One of CREDENTIAL_REFUSAL_CODES: the submit withholds these bytes
+        # and every other reason is reduced to its code (ARIA-HIGH-515,
+        # `credential_refusal_reasons`, `_build_rejection_row`).
+        reject(SECRET_IN_ENVELOPE_CODE, f"{SECRET_IN_ENVELOPE_CODE}: {exc}")
     revalidation = validate_agent_response_evidence(
         response=envelope,
         workspace_root=workspace_root,
@@ -5596,8 +5638,12 @@ def judge_claim_submission(
                 f"route: {route_violation['code']} — {route_violation['reason']}",
             )
     if reasons:
+        # ARIA-HIGH-515 — the verdict makes its own reasons safe, so every
+        # consumer (the submit's row, the delivery's refusal text, its
+        # governance row and HUMAN_REQUIRED record) reads the same text.
         return ClaimSubmissionJudgment(
-            reasons=tuple(reasons), rejection_codes=tuple(reason_codes),
+            reasons=tuple(credential_refusal_reasons(reasons, reason_codes)),
+            rejection_codes=tuple(reason_codes),
             revalidation=revalidation, compliance=None,
         )
 
@@ -5618,7 +5664,8 @@ def judge_claim_submission(
             f"soft_fail={compliance_row.get('soft_fail_count', 0)})",
         )
     return ClaimSubmissionJudgment(
-        reasons=tuple(reasons), rejection_codes=tuple(reason_codes),
+        reasons=tuple(credential_refusal_reasons(reasons, reason_codes)),
+        rejection_codes=tuple(reason_codes),
         revalidation=revalidation, compliance=compliance,
     )
 
@@ -5640,6 +5687,7 @@ def _prepare_claim_submission(
     envelope_unreadable_error: str | None,
     submitted_hash: str,
     output: Path,
+    output_bytes: bytes,
     sealed_output: Path,
     output_content_hash: str,
     workspace_root: str | Path,
@@ -5649,7 +5697,11 @@ def _prepare_claim_submission(
     transcript_artifact_ref: str | None,
     evidence_target_sha: str | None = None,
 ) -> dict[str, Any]:
-    """Validate and construct every write payload before locking/mutating."""
+    """Validate and construct every write payload before locking/mutating.
+
+    ``output_bytes`` is the one stable snapshot ``output_content_hash`` was
+    taken from; an unreadable envelope is judged on exactly those bytes.
+    """
     from .runtime_profile import enforce_profile_for_write
     from .scope_discipline import extract_out_of_scope_observations
 
@@ -5658,16 +5710,45 @@ def _prepare_claim_submission(
     # any result/compliance/transcript mutation.
     enforce_profile_for_write("tool_governance", base_dir=root)
 
+    # ARIA-HIGH-515 — the raw files this submission came from, each bound to
+    # the digest it was read with. A credential refusal deletes exactly
+    # these before its journal; any other rejection discards the list
+    # (`_build_rejection_row` decides, from the codes).
+    submission_sources = _withholdable_submission_sources(
+        root,
+        output=output,
+        output_content_hash=output_content_hash,
+        transcript_artifact_ref=transcript_artifact_ref,
+        transcript_hash=transcript_hash,
+        workspace_root=workspace_root,
+    )
+
     if envelope_unreadable_error is not None or envelope is None:
+        reasons = [f"envelope_unreadable: {envelope_unreadable_error}"]
+        reason_codes = ["envelope_unreadable"]
+        # ARIA-HIGH-515 — bytes that are not JSON are still bytes the store
+        # would seal and publish: they are held to the same credential set
+        # (its one owner, `implementation_safety`) as a parsed envelope.
+        from .implementation_safety import SecretLeakDetected, verify_no_secret_in_diff
+
+        try:
+            verify_no_secret_in_diff(output_bytes.decode("utf-8", "replace"))
+        except SecretLeakDetected as exc:
+            reasons.append(f"{SECRET_IN_ENVELOPE_CODE}: {exc}")
+            reason_codes.append(SECRET_IN_ENVELOPE_CODE)
         return _prepared_claim_rejection(
             claim_id=claim_id,
             request_id=request_id,
             agent_id=agent_id,
             output_path=store_relative_artifact_path(root, sealed_output),
             output_content_hash=output_content_hash,
-            reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
-            reason_codes=["envelope_unreadable"],
+            # The unreadable-bytes verdict redacts its reasons the way
+            # `judge_claim_submission` does (its decode error describes the
+            # refused bytes).
+            reasons=credential_refusal_reasons(reasons, reason_codes),
+            reason_codes=reason_codes,
             submitted_hash=submitted_hash,
+            submission_sources=submission_sources,
         )
 
     # The decision itself is the ONE chain `judge_claim_submission` holds
@@ -5681,10 +5762,17 @@ def _prepare_claim_submission(
     revalidation = judgment.revalidation
     # Scope discipline (operator requirements 2026-08-29) — out-of-scope
     # sightings are CAPTURED for a separate plan, never lost: the one write
-    # the decision path makes, kept here where the submit writes.
-    out_of_scope = extract_out_of_scope_observations(
-        rejected_errors=revalidation.get("errors", []),
-        response=envelope,
+    # the decision path makes, kept here where the submit writes. Never from
+    # an envelope refused as a credential leak (ARIA-HIGH-515): an
+    # observation copies envelope strings (`declared_route`, the routes, the
+    # ref) onto a published pressure ledger.
+    out_of_scope = (
+        []
+        if CREDENTIAL_REFUSAL_CODES.intersection(judgment.rejection_codes)
+        else extract_out_of_scope_observations(
+            rejected_errors=revalidation.get("errors", []),
+            response=envelope,
+        )
     )
     if out_of_scope:
         append_declared_jsonl(
@@ -5718,6 +5806,7 @@ def _prepare_claim_submission(
             reason_codes=list(judgment.rejection_codes),
             submitted_hash=submitted_hash,
             compliance=compliance,
+            submission_sources=submission_sources,
         )
     assert compliance is not None
 
@@ -5918,14 +6007,22 @@ def submit_claim_result(
             raise GovernanceError(
                 "submit_claim_result_prepared_result_binding_mismatch"
             )
-        sealed_output_bytes, sealed_output_error = (
-            _recoverable_prepared_artifact(
-                root=root,
-                artifact_ref=prepared_result.get("output_path"),
-                expected_hash=output_content_hash,
-                artifact_kind="response",
+        # ARIA-HIGH-515 — a withheld row was never sealed and its sources
+        # are deleted before its journal: its replay needs no bytes, the
+        # journal's envelope_evidence_hash stands for the envelope. A raw
+        # file that IS present is still compared below (drift is drift).
+        output_withheld = prepared_result.get("output_withheld") is not None
+        sealed_output_bytes: bytes | None = None
+        sealed_output_error: GovernanceError | None = None
+        if not output_withheld:
+            sealed_output_bytes, sealed_output_error = (
+                _recoverable_prepared_artifact(
+                    root=root,
+                    artifact_ref=prepared_result.get("output_path"),
+                    expected_hash=output_content_hash,
+                    artifact_kind="response",
+                )
             )
-        )
         try:
             raw_output_bytes = _read_optional_submission_artifact(output)
         except OSError as exc:
@@ -5958,10 +6055,13 @@ def submit_claim_result(
                         "raw_output_hash": raw_output_hash,
                         "raw_submitted_hash": raw_submitted_hash,
                     }
+        output_bytes: bytes | None
         if sealed_output_bytes is not None:
             output_bytes = sealed_output_bytes
         elif raw_output_bytes is not None:
             output_bytes = raw_output_bytes
+        elif output_withheld:
+            output_bytes = None
         elif sealed_output_error is not None:
             raise sealed_output_error
         else:  # pragma: no cover - recoverable helper is exhaustive
@@ -5977,10 +6077,11 @@ def submit_claim_result(
 
     envelope_unreadable_error: str | None = None
     envelope: dict[str, Any] | None = None
-    try:
-        envelope = json.loads(output_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        envelope_unreadable_error = str(exc)
+    if output_bytes is not None:
+        try:
+            envelope = json.loads(output_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            envelope_unreadable_error = str(exc)
 
     if envelope is not None:
         observed_submitted_hash = envelope_hash(envelope)
@@ -5995,7 +6096,10 @@ def submit_claim_result(
         observed_submitted_hash = "sha256:envelope_unreadable"
 
     if journal_row is not None:
-        if observed_submitted_hash != submitted_hash:
+        # No bytes (a withheld row's replay, ARIA-HIGH-515) means nothing to
+        # re-hash: the journal's hash is the binding, checked against the
+        # journal itself under the lock.
+        if output_bytes is not None and observed_submitted_hash != submitted_hash:
             raise GovernanceError(
                 "submit_claim_result_prepared_operation_drift: "
                 "sealed response envelope hash changed"
@@ -6049,6 +6153,8 @@ def submit_claim_result(
                 envelope_unreadable_error=envelope_unreadable_error,
                 submitted_hash=submitted_hash,
                 output=output,
+                # No journal, so this is the fresh stable snapshot read above.
+                output_bytes=output_bytes,
                 sealed_output=sealed_output_target,
                 output_content_hash=output_content_hash,
                 workspace_root=workspace_root,
@@ -6243,6 +6349,10 @@ def submit_claim_result(
                         compliance_path=compliance_path,
                         governance_path=governance_path,
                     )
+                # ARIA-HIGH-515 — a replay that brings the refused bytes back
+                # (drift was refused above, so they are the same bytes)
+                # leaves none behind either.
+                _withhold_submission_sources(root, existing)
                 # Plan 025 §A.1 — byte-identical envelope replay (same
                 # canonical-JSON hash). This is the legitimate idempotent
                 # path: a worker retrying after a network blip submits
@@ -6327,6 +6437,13 @@ def submit_claim_result(
                     "submit_claim_result_prepared_candidate_missing"
                 )
             journal_candidate["lease_expires_at"] = _iso(locked_expiry)
+            # ARIA-HIGH-515 — after the authority recheck, BEFORE the
+            # journal: a crash after this line leaves no refusal and no
+            # bytes (the retry reads `output_path_unreadable` and the claim
+            # is released); a crash after the journal replays to the
+            # withheld row without bytes. A durable refusal never co-exists
+            # with the bytes it refused.
+            _withhold_submission_sources(root, journal_candidate["prepared"]["result_row"])
             transaction.append_declared_jsonl(
                 claims_path,
                 journal_candidate,
@@ -6334,6 +6451,11 @@ def submit_claim_result(
             )
             operation_prepared = journal_candidate["prepared"]
             fresh_operation = True
+        else:
+            # The replay of a journaled operation withholds again: a crash
+            # may have interrupted the first pass, and a retry may have
+            # brought the same bytes back.
+            _withhold_submission_sources(root, operation_prepared["result_row"])
 
         transcript_effect_exists = any(
             row.get("submission_operation_id") == operation_id
@@ -6518,6 +6640,157 @@ def _build_accepted_row(
     }
 
 
+# ARIA-HIGH-515 — the rejection codes whose verdict is "these bytes are a
+# credential leak". ONE closed set; nothing else spells it. A rejection that
+# carries any of them is built WITHHELD (`_build_rejection_row`): its row
+# names no output file, its raw sources are deleted before the journal
+# (`_withhold_submission_sources`), its bytes are never sealed
+# (`_seal_pending_submission_artifacts`), its reasons carry no text derived
+# from the refused bytes (`credential_refusal_reasons`), and the publish gate
+# refuses a store where they remain (`runtime_artifacts._verify_withheld_outputs`).
+# Until this set existed the verdict and "what the store keeps" were not
+# linked: a credential refusal persisted exactly what a schema rejection
+# persists — the sealed envelope on the published outputs surface, plus the
+# caller's raw files left in place.
+SECRET_IN_ENVELOPE_CODE = "secret_in_envelope"
+CREDENTIAL_REFUSAL_CODES: frozenset[str] = frozenset({SECRET_IN_ENVELOPE_CODE})
+OUTPUT_WITHHELD_CREDENTIAL_REFUSAL = "credential_refusal"
+
+
+def credential_refusal_reasons(reasons: Sequence[str], reason_codes: Sequence[str]) -> list[str]:
+    """The reasons a credential verdict may carry anywhere: the verdict's own
+    (kernel-authored, counts only) kept, every other reduced to its code.
+
+    ARIA-HIGH-515 — any other reason is text derived from the refused bytes
+    (an evidence error echoes the ref the envelope wrote, a schema error the
+    value it rejected). The verdict applies this ITSELF
+    (`judge_claim_submission`, and the submit's unreadable-bytes verdict), so
+    every consumer — the result row, the delivery's refusal, governance,
+    HUMAN_REQUIRED — reads the same safe text; `_build_rejection_row` refuses
+    reasons this has not been applied to. Idempotent; a no-op for a verdict
+    carrying no credential code.
+    """
+    if not CREDENTIAL_REFUSAL_CODES.intersection(reason_codes):
+        return list(reasons)
+    return [
+        reason if code in CREDENTIAL_REFUSAL_CODES else f"{code}: detail withheld with the refused output"
+        for reason, code in zip(reasons, reason_codes)
+    ]
+
+
+def _is_withholdable_relative(relative: Path) -> bool:
+    """A store-relative path the withholding may delete: a raw file on the
+    kernel's outputs surface, never one of its seals (a seal is an immutable
+    artifact other rows point at; a raw source is the caller's copy of what
+    it submitted)."""
+    parts = relative.parts
+    return (
+        not relative.is_absolute()
+        and len(parts) > len(_SUBMISSION_OUTPUTS_PARTS)
+        and parts[: len(_SUBMISSION_OUTPUTS_PARTS)] == _SUBMISSION_OUTPUTS_PARTS
+        and parts[len(_SUBMISSION_OUTPUTS_PARTS)] != _SUBMISSION_SEALS_PART
+        and not any(part in {"", ".", ".."} for part in parts)
+    )
+
+
+def _withholdable_submission_sources(
+    root: Path,
+    *,
+    output: Path,
+    output_content_hash: str,
+    transcript_artifact_ref: str | None,
+    transcript_hash: str | None,
+    workspace_root: str | Path,
+) -> list[dict[str, str]]:
+    """The submission's raw files inside the store's outputs surface, each
+    bound to the digest the submit read it with.
+
+    Each path is the one the caller NAMED, normalized lexically and never
+    resolved: a symlink is never followed to a file the submission did not
+    name (a link's target can be another request's raw output). A named path
+    with a symlinked component is refused when withheld
+    (`_withhold_submission_sources`). A path outside the store is never
+    listed: it is not published, and the kernel has no authority over the
+    caller's files elsewhere. A transcript is listed only with its declared
+    digest — bytes the kernel cannot bind to a digest are never deleted.
+    """
+    candidates: list[tuple[Path, str]] = [(output, output_content_hash)]
+    if transcript_artifact_ref and transcript_hash and is_sha256_digest(transcript_hash):
+        candidates.append((_submission_source_path(transcript_artifact_ref, workspace_root), transcript_hash))
+    resolved_root = root.resolve()
+    sources: list[dict[str, str]] = []
+    for path, digest in candidates:
+        try:
+            relative = Path(os.path.abspath(path)).relative_to(resolved_root)
+        except ValueError:
+            continue
+        if not _is_withholdable_relative(relative):
+            continue
+        if any(source["path"] == relative.as_posix() for source in sources):
+            continue
+        sources.append({"path": relative.as_posix(), "sha256": digest})
+    return sources
+
+
+def _withhold_submission_sources(root: Path, result_row: Mapping[str, Any]) -> None:
+    """Delete the raw sources of a credential-withheld row; a no-op otherwise.
+
+    ARIA-HIGH-515 — a refused byte never outlives the submit that refused it.
+    Called under the submit's state transaction (the ``agent_invocations``
+    lock group, which the outputs surface shares) BEFORE the journal append,
+    and again on every replay, so no durable refusal ever co-exists with the
+    refused bytes. Bounded on purpose, because this is the kernel deleting
+    files. Every listed source is checked first and only then is anything
+    deleted, so a refusal deletes nothing:
+
+    * only paths the row lists, each re-checked against the outputs surface
+      lexically, never a seal; a symlinked leaf or ancestor is refused
+      (``_assert_submission_artifact_path_safe``,
+      ``submission_artifact_path_symlink``), never followed;
+    * only when the file's bytes hash to the digest the verdict judged — a
+      mismatch is ``submission_withheld_source_drift``, because bytes the
+      verdict never saw are not its to remove;
+    * a missing path is fine, so a replay after a crash is idempotent.
+    """
+    if result_row.get("output_withheld") is None:
+        return
+    sources = result_row.get("withheld_sources")
+    if not isinstance(sources, list):
+        raise GovernanceError("submission_withheld_sources_malformed")
+    resolved_root = root.resolve()
+    judged: list[Path] = []
+    for source in sources:
+        relative = source.get("path") if isinstance(source, dict) else None
+        digest = source.get("sha256") if isinstance(source, dict) else None
+        if not isinstance(relative, str) or not isinstance(digest, str) or not is_sha256_digest(digest):
+            raise GovernanceError("submission_withheld_sources_malformed")
+        if not _is_withholdable_relative(Path(relative)):
+            raise GovernanceError(f"submission_withheld_source_outside_outputs: {relative}")
+        target = resolved_root / relative
+        _assert_submission_artifact_path_safe(root, target)
+        try:
+            content = _read_stable_submission_artifact(target)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise GovernanceError(
+                f"submission_withheld_source_unreadable: {relative}: {exc}"
+            ) from exc
+        if "sha256:" + hashlib.sha256(content).hexdigest() != digest:
+            raise GovernanceError(f"submission_withheld_source_drift: {relative}")
+        judged.append(target)
+    for target in judged:
+        target.unlink()
+        parent = os.open(
+            target.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0),
+        )
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+
+
 def _build_rejection_row(
     *,
     claim_id: str,
@@ -6528,6 +6801,7 @@ def _build_rejection_row(
     reasons: list[str],
     reason_codes: list[str],
     envelope_evidence_hash: str,
+    submission_sources: list[dict[str, str]],
     transcript_hash: str | None = None,
 ) -> dict[str, Any]:
     # Plan 025 §A.1 — envelope_evidence_hash is REQUIRED (no default).
@@ -6535,10 +6809,17 @@ def _build_rejection_row(
     # structural enforcement). Every persisted result row — accepted
     # or rejected — carries the hash so the §A.1 idempotency gate can
     # decide drift vs. byte-identical replay vs. legacy-undecidable on
-    # the next submit attempt.
+    # the next submit attempt. `submission_sources` is required the same
+    # way (ARIA-HIGH-515): a credential refusal built without its sources
+    # would delete nothing and leave the publish gate nothing to check.
     # The caller supplies path + hash from the one stable FD snapshot.
     # Re-reading here would let validation and the rejection row bind
     # different bytes.
+    if list(reasons) != credential_refusal_reasons(reasons, reason_codes):
+        # The verdict redacts its own reasons; a caller that did not is
+        # refused here, before a ledger can hold text derived from the
+        # refused bytes.
+        raise GovernanceError("submit_claim_result_credential_reasons_unredacted")
     row = {
         "$schema": "aria/agent-claim-result/v1",
         "schema_version": 1,
@@ -6561,6 +6842,14 @@ def _build_rejection_row(
         "transcript_hash": transcript_hash,
         "submitted_at": utc_now(),
     }
+    # ARIA-HIGH-515 — THE one place a rejection becomes withheld, decided by
+    # its codes alone. The row keeps every hash (the §A.1 idempotency key and
+    # the evidence of WHAT was refused) and names no file: there is none to
+    # name once `_withhold_submission_sources` ran.
+    if CREDENTIAL_REFUSAL_CODES.intersection(reason_codes):
+        row["output_path"] = None
+        row["output_withheld"] = OUTPUT_WITHHELD_CREDENTIAL_REFUSAL
+        row["withheld_sources"] = [dict(source) for source in submission_sources]
     return row
 
 

@@ -9,7 +9,7 @@ import './styles.css';
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
-import { chartChrome, colors } from '@aquaculture/shared-ui';
+import { chartChrome, colors, useI18n } from '@aquaculture/shared-ui';
 
 // PERF-HIGH-004: every page-level route is code-split with React.lazy so the
 // farm-module remote no longer ships all page code (the heavy 8-tab regulatory
@@ -64,10 +64,13 @@ const FinancePage = React.lazy(preloadFinancePage);
  * Map the farm-module's route segments (relative to the `/sites` mount the
  * shell gives this remote) to the chunk that renders them. Redirect source
  * segments (`cleaner-fish`, `feeding/records`, …) map to the chunk their
- * `<Navigate>` TARGET needs — preloading the source's own chunk would be
+ * Navigate TARGET needs — preloading the source's own chunk would be
  * pointless because no page ever renders there.
  */
-const ROUTE_PRELOADS: ReadonlyArray<readonly [prefix: string, preload: () => Promise<unknown>]> = [
+type PreloadResult = Promise<unknown>;
+type RoutePreloadFn = () => PreloadResult;
+
+const ROUTE_PRELOADS: ReadonlyArray<readonly [prefix: string, preload: RoutePreloadFn]> = [
   // Order matters only where one segment prefixes another; none here do.
   ['/environment', preloadEnvironmentPage],
   ['/setup', preloadSetupPage],
@@ -133,6 +136,7 @@ const FarmModule: React.FC = () => {
   //   FarmGateway → Socket.IO → this hook → queryClient.invalidateQueries
   //                                       → components re-fetch & re-render
   useFarmRealtimeStream();
+  const { t } = useI18n();
 
   return (
     <Suspense
@@ -146,7 +150,7 @@ const FarmModule: React.FC = () => {
             color: `var(--color-text-muted, ${colors.gray[400]})`,
           }}
         >
-          Laster…
+          {t('common.pageLoading')}
         </div>
       }
     >

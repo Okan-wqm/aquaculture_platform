@@ -296,7 +296,7 @@ const DELEGATABLE_TENANT_NAV: Record<string, string> = {
  * Module navigation configuration by module code
  *
  * Exported for the layout spec: it asserts every child points at its FINAL
- * destination (no farm-module `<Navigate>` source), because a redirect hop
+ * destination (no farm-module Navigate redirect source), because a redirect hop
  * costs the extra render/remount window in which E2E clicks time out
  * (E2E-FLAKE).
  */

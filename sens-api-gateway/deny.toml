@@ -86,6 +86,15 @@ ignore = [
     # dependency that never reaches the shipped binary.
     # -----------------------------------------------------------------
     "RUSTSEC-2024-0436",
+
+    # -----------------------------------------------------------------
+    # EDGE-CI-009 / RUST-MEDIUM-005: unsafe-libyaml 0.2.11 unmaintained
+    # (RUSTSEC-2024-0449). Owner: okan. Deadline: 2027-01-13.
+    # Transitive via serde_yaml 0.9 (suderra-agent directly; async-opcua-
+    # core non-optionally up to 0.19.0). No patched release; rationale and
+    # removal path in .cargo/audit.toml and RUST-MEDIUM-005.
+    # -----------------------------------------------------------------
+    "RUSTSEC-2024-0449",
 ]
 
 [licenses]

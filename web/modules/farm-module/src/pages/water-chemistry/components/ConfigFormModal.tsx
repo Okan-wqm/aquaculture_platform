@@ -371,7 +371,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
         {/* Actions */}
         <div className="flex justify-end space-x-3 pt-4 border-t">
           <Button variant="secondary" type="button" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Saving...' : 'Save'}

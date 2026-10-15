@@ -17,8 +17,8 @@ Invariants:
   I-V12-HOOK-06  the CLI `hook` verbs read stdin and print the protocol JSON
                  (the kernel-side entry; the sandbox runs the hook client).
   (cycle_and_turn_budget_cap — the per-turn cap the PreToolUse hook admits
-  against, and the pre-merge predicate that reads its rows, are pinned in
-  tests/test_turn_budget.py.)
+  against is pinned in tests/test_turn_budget.py, and the pre-merge
+  predicate that reads its rows in tests/test_pre_merge_budget_and_content.py.)
 
 NOT RUN at authoring time (operator instruction 2026-09-03).
 """
@@ -100,10 +100,11 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
             self.assertNotIn(forbidden, command)
         # cycle_and_turn_budget_cap: a write-scope profile's document records
         # the policy's turn cap for the store's bound workspace — the kernel
-        # default 60 here, since this context names a store with no override
-        # (operator decision 2026-09-12; the policy block is pinned in
-        # tests/test_turn_budget_policy.py, the full reader matrix in
-        # tests/test_turn_budget.py) — and the spawner hands that number to
+        # default 120 here, since this context names a store with no override
+        # (operator decision 2026-09-16; the policy block is pinned in
+        # tests/test_turn_budget_policy.py, the hook and settings readers in
+        # tests/test_turn_budget.py, the merge-time predicate in
+        # tests/test_pre_merge_budget_and_content.py) — and the spawner hands that number to
         # the broker (`claude_runtime.SpawnSettings.turn_budget`).
         self.assertEqual(settings["_aria"]["turn_budget"], 120)
         self.assertTrue(settings_hash(settings).startswith("sha256:"))

@@ -2,10 +2,12 @@
 
 Operator decision 2026-09-12: the cap the seventh pre-merge predicate
 (``cycle_and_turn_budget_cap``, policy §14) admits an implementer's
-Edit/Write/Bash turns against is a POLICY value with a kernel default of 120,
-not the literal 10 ``turn_budget.IMPLEMENTER_TURN_BUDGET`` carried. These
-tests pin the policy half; the readers (settings, hook, evidence, predicate)
-are pinned in ``tests/test_turn_budget.py``:
+Edit/Write/Bash turns against is a POLICY value, not the literal 10
+``turn_budget.IMPLEMENTER_TURN_BUDGET`` carried; that decision set the kernel
+default to 60. Operator decision 2026-09-16 raised the default to 120. These
+tests pin the policy half; the readers (settings, hook, evidence) are pinned
+in ``tests/test_turn_budget.py`` and the merge-time capture and predicate in
+``tests/test_pre_merge_budget_and_content.py``:
 
 * the block ships in the default file with ``budgeted_turns`` = 120, joins
   ``POLICY_KEYS`` (so an override merges instead of being dropped), and the
@@ -59,7 +61,7 @@ def write_override(workspace_root: Path, block: object) -> Path:
 
 
 class PolicyBlockAndDefault(unittest.TestCase):
-    def test_the_kernel_default_is_sixty_and_ships_in_the_default_file(self) -> None:
+    def test_the_kernel_default_ships_in_the_default_file(self) -> None:
         self.assertEqual(POLICY_BLOCK, "implementer_turn_budget")
         self.assertEqual(IMPLEMENTER_TURN_BUDGET_DEFAULTS, {"budgeted_turns": 120})
         # The default file is the operator-visible authority: a key absent

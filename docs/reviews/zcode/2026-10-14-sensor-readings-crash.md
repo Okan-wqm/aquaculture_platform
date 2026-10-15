@@ -103,3 +103,14 @@ a reviewed PR".
 
 Registered IDs: FE-HIGH-324, FE-HIGH-325, INFRA-MEDIUM-221, FE-MEDIUM-326,
 FE-MEDIUM-327, FE-MEDIUM-328, FE-MEDIUM-329.
+
+## Landing addendum (commit attribution)
+
+The pre-commit format hook's `git add -u` folded unstaged work into the
+restore commit (450a92914), so the physically-landing commit for several
+findings differs from the narrative order above. For the registry:
+
+- FE-HIGH-325 (root cause), FE-MEDIUM-326 (amplifier) and FE-MEDIUM-327
+  (ratchet repair) landed inside 450a92914; their `Closes:` trailers ride
+  the addendum commit so the closure evidence is explicit rather than
+  inferred.

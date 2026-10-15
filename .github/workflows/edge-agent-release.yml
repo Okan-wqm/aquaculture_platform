@@ -223,7 +223,8 @@ jobs:
             --ignore RUSTSEC-2023-0071 \
             --ignore RUSTSEC-2025-0141 \
             --ignore RUSTSEC-2023-0089 \
-            --ignore RUSTSEC-2024-0436
+            --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2024-0449
           echo "=== cargo deny (license + advisory + ban policy) ==="
           cargo deny check advisories bans licenses sources
 

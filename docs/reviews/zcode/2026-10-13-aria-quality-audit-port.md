@@ -39,6 +39,15 @@ A stub is a valid finding (or the remaining part of a fixed one) that wave 1 did
 Stubs are recorded for wave 2 and are not registered here. Code comments added by wave 1 cite
 registry IDs, never Z.ai IDs, which do not resolve in this repository.
 
+Wave 2 (2026-10-14) adjudicated the 33 stubs on this branch: 27 are real and open, 3 were already
+fixed in the tree by the repair stack, and 3 duplicate another stub (A4-7 and E2-3 of A20-2, E7-2
+of A15-8). The fixed three are A4-1, A4-2 and A4-4: the adapter room (`d188cad26`, `211895946`)
+and the genesis custody path (`fa29eea45`, `bcf211fcc`, `94501f67e`, `02e66c6b2`, `2d70a127e`).
+Those custody commits carry ARIA-HIGH-414's trailer, but ARIA-HIGH-414 stays open: its
+promotion-authority residual (a drafted adapter reaching ACTIVE without a verified operator act
+or panel) is not fixed. The index below records each disposition. An open stub's row names its
+registry ID once the change that fixes it registers one.
+
 ## Findings
 
 ### ARIA-LOW-449 — ledger restates its own bodies and owns no JSON writer or digest
@@ -293,6 +302,7 @@ registry IDs, never Z.ai IDs, which do not resolve in this repository.
   not-allowlisted. Merged with the repair stack's binding and dynamic-import checks (ARIA-HIGH-414).
 - **Tests:** `test_phase_v9_0_e_sandbox.py`
 - **Not done:** the import check is still not called by the drainer's materializer (A4-2 stub).
+  Wave 2 found it fixed in the tree by the repair stack (`fa29eea45`; index row A4-2).
 
 ### ARIA-HIGH-470 — skill genesis never runs its evidence-grounded gate
 
@@ -657,7 +667,7 @@ their owner is the repair stack, not this port.
 | Z.ai ID | Disposition           | Evidence or fix topic                                        |
 | ------- | --------------------- | ------------------------------------------------------------ |
 | A1-1    | ARIA-MEDIUM-452       | one ack mint body, encoder and field set                     |
-| A1-2    | RECORD_STUB (wave 2)  | `StateSurface.index_group` is a dead field                   |
+| A1-2    | open (wave 2)         | `StateSurface.index_group` is a dead field                   |
 | A1-3    | ARIA-MEDIUM-451       | one JSONL decode loop for both readers                       |
 | A1-4    | ARIA-LOW-449          | ledger owns JSON writes, digests, digest shape               |
 | A1-5    | ARIA-MEDIUM-452       | one ack mint body, encoder and field set                     |
@@ -667,7 +677,7 @@ their owner is the repair stack, not this port.
 | A1-9    | ARIA-LOW-449          | ledger owns JSON writes, digests, digest shape               |
 | A1-10   | ARIA-MEDIUM-452       | one ack mint body, encoder and field set                     |
 | A2-1    | ALREADY_FIXED_ON_MAIN | `maintenance_utility` is dispatchable (ARIA-HIGH-344)        |
-| A2-2    | RECORD_STUB (wave 2)  | request mint lets unpaired roles target any agent            |
+| A2-2    | open (wave 2)         | request mint lets unpaired roles target any agent            |
 | A2-3    | ARIA-MEDIUM-462       | cross reviewer whitelisted; dead state copies gone           |
 | A2-4    | ARIA-MEDIUM-464       | refusals graded by the producer's own inverse                |
 | A2-5    | ARIA-MEDIUM-465       | `agent_resolver` everywhere; `VALID_MODELS` derived          |
@@ -683,16 +693,16 @@ their owner is the repair stack, not this port.
 | A3-5    | ARIA-LOW-491          | binding fields, incident events, digest check once           |
 | A3-6    | ARIA-MEDIUM-474       | one tp/fp count per dial                                     |
 | A3-7    | ARIA-MEDIUM-468       | genesis policy from the bound workspace                      |
-| A3-8    | RECORD_STUB (wave 2)  | `agent_eval` `false_positive_rate` is always 0               |
+| A3-8    | open (wave 2)         | `agent_eval` `false_positive_rate` is always 0               |
 | A3-9    | ARIA-LOW-475          | merged own PRs: red, green or `not_green`                    |
 | A3-10   | ARIA-LOW-487          | target-path scan documented as whole-body                    |
-| A4-1    | RECORD_STUB (wave 2)  | phase-2 skill sandbox runs a drafter-supplied path           |
-| A4-2    | RECORD_STUB (wave 2)  | adapter import check and signature check not wired           |
+| A4-1    | fixed (wave 2)        | only the accepted bytes run, in the room (`fa29eea45`)       |
+| A4-2    | fixed (wave 2)        | import check on staged bytes; no signature API (`fa29eea45`) |
 | A4-3    | ARIA-HIGH-470         | grounded rule gate runs; corpora read strictly               |
-| A4-4    | RECORD_STUB (wave 2)  | `validate_generated_adapter` has no caller                   |
+| A4-4    | fixed (wave 2)        | materialize validates before custody (`bcf211fcc`)           |
 | A4-5    | ALREADY_FIXED_ON_MAIN | `narrative_prompt_validator` caps match its table            |
 | A4-6    | ARIA-HIGH-470         | grounded rule gate runs; corpora read strictly               |
-| A4-7    | RECORD_STUB (wave 2)  | `skill_genesis` surface table lacks request-status.jsonl     |
+| A4-7    | DUP of A20-2 (wave 2) | `skill_genesis` surface table lacks request-status.jsonl     |
 | A4-8    | ARIA-MEDIUM-485       | pedagogy allowlist matched once by relative path             |
 | A4-9    | ARIA-HIGH-470         | grounded rule gate runs; corpora read strictly               |
 | A4-10   | ARIA-MEDIUM-469       | sandbox refuses relative imports; deny first                 |
@@ -706,7 +716,7 @@ their owner is the repair stack, not this port.
 | A5-8    | ARIA-MEDIUM-473       | pressure resolves surfaces from the manifest                 |
 | A5-9    | ARIA-LOW-472          | gaps cite only in-service refs                               |
 | A5-10   | INVALID               | aria-tools untracked; the patches delete runtime lock files  |
-| A6-1    | RECORD_STUB (wave 2)  | readiness v3 predicate needs a contract nobody mints         |
+| A6-1    | open (wave 2)         | readiness v3 predicate needs a contract nobody mints         |
 | A6-2    | ARIA-MEDIUM-450       | tests read the production capability fold                    |
 | A6-3    | ALREADY_FIXED_ON_MAIN | `EVIDENCE_REF_RE` has no triplet (ARIA-HIGH-195)             |
 | A6-4    | ALREADY_FIXED_ON_MAIN | globs verified only when every match resolves at baseline    |
@@ -728,7 +738,7 @@ their owner is the repair stack, not this port.
 | A7-10   | ARIA-MEDIUM-461       | `HUMAN_REQUIRED` writes are governed and gated               |
 | A8-1    | ARIA-MEDIUM-467       | recording reads fail closed; one PR-field reader             |
 | A8-2    | ARIA-MEDIUM-467       | recording reads fail closed; one PR-field reader             |
-| A8-3    | RECORD_STUB (wave 2)  | PR identity key tuples spread across modules                 |
+| A8-3    | open (wave 2)         | PR identity key tuples spread across modules                 |
 | A8-4    | ARIA-LOW-491          | binding fields, incident events, digest check once           |
 | A8-5    | ARIA-LOW-491          | binding fields, incident events, digest check once           |
 | A8-6    | ARIA-MEDIUM-467       | recording reads fail closed; one PR-field reader             |
@@ -746,7 +756,7 @@ their owner is the repair stack, not this port.
 | A9-8    | ARIA-HIGH-492         | PoC README scoped; prior-audit scan complete                 |
 | A9-9    | ARIA-LOW-495          | contract proof names opus/max defaults                       |
 | A9-10   | ARIA-HIGH-492         | PoC README scoped; prior-audit scan complete                 |
-| A10-1   | RECORD_STUB (wave 2)  | worker-lane merge path blocked but documented as merging     |
+| A10-1   | open (wave 2)         | worker-lane merge path blocked but documented as merging     |
 | A10-2   | ARIA-HIGH-460         | worker killed inside its lease; one lease owner              |
 | A10-3   | ARIA-HIGH-460         | worker killed inside its lease; one lease owner              |
 | A10-5   | ARIA-HIGH-460         | worker killed inside its lease; one lease owner              |
@@ -757,7 +767,7 @@ their owner is the repair stack, not this port.
 | A10-10  | INVALID               | no tracked `.pyc/__pycache__`; .gitignore covers them        |
 | 10-A4   | ARIA-MEDIUM-459       | only cancelled or expired work is re-dispatched              |
 | A11-1   | ALREADY_FIXED_ON_MAIN | dormant waivers renewed to 2026-10-20 (ORPHAN-HIGH-573)      |
-| A11-2   | RECORD_STUB (wave 2)  | TS adapter `db_snapshot` check reads an unproduced snapshot  |
+| A11-2   | open (wave 2)         | TS adapter `db_snapshot` check reads an unproduced snapshot  |
 | A11-3   | ARIA-MEDIUM-453       | state surfaces refuse out-of-vocabulary values               |
 | A11-4   | ARIA-MEDIUM-490       | every JSON write and digest via ledger owners                |
 | A11-5   | INVALID               | aria-tools is untracked and ignored; patches hit lock files  |
@@ -765,11 +775,11 @@ their owner is the repair stack, not this port.
 | A11-7   | ALREADY_FIXED_ON_MAIN | `tool_registry` `TOOL_STATUSES` trimmed (ORPHAN-MEDIUM-839)  |
 | A11-8   | INVALID               | snapshot status passes no --ignored                          |
 | A11-9   | fixed, no finding     | stray test module moved (test commit)                        |
-| A12-1   | RECORD_STUB (wave 2)  | in-kernel LLM cost never reaches the cost ledger             |
+| A12-1   | open (wave 2)         | in-kernel LLM cost never reaches the cost ledger             |
 | A12-2   | CODE_GONE_ON_MAIN     | `external_outage_reaper.py` does not exist (ARIA-HIGH-366)   |
 | A12-3   | ARIA-MEDIUM-455       | per-cycle preflight runs through the profile gate            |
-| A12-4   | RECORD_STUB (wave 2)  | dispatch-rationale telemetry called only by tests            |
-| A12-5   | RECORD_STUB (wave 2)  | two USD budget systems with separate caps                    |
+| A12-4   | open (wave 2)         | dispatch-rationale telemetry called only by tests            |
+| A12-5   | open (wave 2)         | two USD budget systems with separate caps                    |
 | A12-6   | ARIA-MEDIUM-482       | `cost_budget` docstring matches derived usage                |
 | A12-7   | ARIA-LOW-496          | comments cite symbols, not line numbers                      |
 | A12-8   | fixed, no finding     | dead kernel code deleted (refactor commit)                   |
@@ -781,7 +791,7 @@ their owner is the repair stack, not this port.
 | A13-4   | ALREADY_FIXED_ON_MAIN | every .claude/allowlists yaml has a tracked consumer spec    |
 | A13-5   | CODE_GONE_ON_MAIN     | no aria-agent-outputs dump exists or is produced             |
 | A13-6   | ARIA-MEDIUM-451       | one JSONL decode loop for both readers                       |
-| A13-7   | RECORD_STUB (wave 2)  | ARIA-MIMARI-SEMALARI.md lacks a subordination notice         |
+| A13-7   | open (wave 2)         | ARIA-MIMARI-SEMALARI.md lacks a subordination notice         |
 | A13-8   | ALREADY_FIXED_ON_MAIN | patch-konsta.cjs removed (bb495c0ee) and its absence pinned  |
 | A14-1   | ARIA-HIGH-499         | CONTRACTS mirrors kernel vocabularies                        |
 | A14-2   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
@@ -795,12 +805,12 @@ their owner is the repair stack, not this port.
 | A14-10  | INVALID               | no tracked .mimosa/pycache files, on main or 43f0aa3bf       |
 | A15-1   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | A15-2   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
-| A15-3   | RECORD_STUB (wave 2)  | MISSION.md forbids self-merge; `MISSION_SPEC` defines one    |
+| A15-3   | open (wave 2)         | MISSION.md forbids self-merge; `MISSION_SPEC` defines one    |
 | A15-4   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | A15-5   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | A15-6   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
-| A15-7   | RECORD_STUB (wave 2)  | instruction-framing field list has three owners              |
-| A15-8   | RECORD_STUB (wave 2)  | ARIA doc length budgets stated but unenforced                |
+| A15-7   | open (wave 2)         | instruction-framing field list has three owners              |
+| A15-8   | open (wave 2)         | ARIA doc length budgets stated but unenforced                |
 | A15-9   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | A15-10  | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | A16-1   | ARIA-HIGH-501         | dated corrections in two ARIA reports                        |
@@ -812,13 +822,13 @@ their owner is the repair stack, not this port.
 | A16-7   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | A16-8   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | A16-9   | ARIA-HIGH-501         | dated corrections in two ARIA reports                        |
-| A16-10  | RECORD_STUB (wave 2)  | autonomy matrix rows expired; cite absent classes            |
+| A16-10  | open (wave 2)         | autonomy matrix rows expired; cite absent classes            |
 | A17-1   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
-| A17-2   | RECORD_STUB (wave 2)  | Claude preflight and lease checks duplicated per lane        |
+| A17-2   | open (wave 2)         | Claude preflight and lease checks duplicated per lane        |
 | A17-3   | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | A17-4   | ARIA-MEDIUM-485       | pedagogy allowlist matched once by relative path             |
 | A17-5   | ALREADY_FIXED_ON_MAIN | `ARIA_EXECUTOR_PR_VIA_KERNEL` only in tombstones; pinned     |
-| A17-6   | RECORD_STUB (wave 2)  | nine x-access-token mint sites across workflows              |
+| A17-6   | open (wave 2)         | nine x-access-token mint sites across workflows              |
 | A17-7   | INVALID               | no tracked .pyc; lanes set PYTHONDONTWRITEBYTECODE           |
 | A17-8   | CODE_GONE_ON_MAIN     | aria-kernel-fast/-full workflows gone (INFRA-HIGH-215)       |
 | A18-1   | ALREADY_FIXED_ON_MAIN | `KERNEL_STAMPED_DELIVERY_FIELDS` owns the delivery fields    |
@@ -829,22 +839,22 @@ their owner is the repair stack, not this port.
 | A18-6   | ARIA-MEDIUM-462       | cross reviewer whitelisted; dead state copies gone           |
 | A18-7   | ARIA-MEDIUM-498       | roster docs and gates follow the lanes                       |
 | A18-8   | ARIA-MEDIUM-498       | roster docs and gates follow the lanes                       |
-| A18-9   | RECORD_STUB (wave 2)  | Lane-A prompts keep hand lists of 'active findings'          |
-| A19-1   | RECORD_STUB (wave 2)  | autonomy-closure policy cites 17 missing tests               |
+| A18-9   | open (wave 2)         | Lane-A prompts keep hand lists of 'active findings'          |
+| A19-1   | open (wave 2)         | autonomy-closure policy cites 17 missing tests               |
 | A19-2   | fixed, no finding     | stray test module moved (test commit)                        |
 | A19-3   | fixed, no finding     | dead kernel code deleted (refactor commit)                   |
 | A19-4   | fixed, no finding     | direct unit tests added (test commit)                        |
-| A19-5   | RECORD_STUB (wave 2)  | orchestrator happy-path fakes duplicated in tests            |
+| A19-5   | open (wave 2)         | orchestrator happy-path fakes duplicated in tests            |
 | A19-6   | fixed, no finding     | stray test module moved (test commit)                        |
-| A19-7   | RECORD_STUB (wave 2)  | dormant `llm_bridge` amplification lane is test-only         |
+| A19-7   | open (wave 2)         | dormant `llm_bridge` amplification lane is test-only         |
 | A19-8   | INVALID               | `__pycache__` ignored and absent; bytecode writes disabled   |
 | A19-9   | INVALID               | .mimosa/ ignored and absent                                  |
 | A20-1   | ALREADY_FIXED_ON_MAIN | reachability waivers in date (2026-10-20, 2026-11-20)        |
-| A20-2   | RECORD_STUB (wave 2)  | twelve modules keep their own surface tables                 |
+| A20-2   | open (wave 2)         | twelve modules keep their own surface tables                 |
 | A20-3   | ARIA-MEDIUM-471       | undeclared JSONL paths refused                               |
 | A20-4   | ARIA-MEDIUM-486       | drafter banned phrases equal CLAUDE.md's                     |
-| A20-5   | RECORD_STUB (wave 2)  | overdue ARIA debts are not surfaced                          |
-| A20-6   | RECORD_STUB (wave 2)  | PoC README proto-debts overdue, outside the ledger           |
+| A20-5   | open (wave 2)         | overdue ARIA debts are not surfaced                          |
+| A20-6   | open (wave 2)         | PoC README proto-debts overdue, outside the ledger           |
 | A20-7   | ARIA-HIGH-499         | CONTRACTS mirrors kernel vocabularies                        |
 | A20-8   | INVALID               | `__pycache__` ignored; an orphan .pyc is not imported        |
 | A20-9   | ALREADY_FIXED_ON_MAIN | `tools_dir` has no CWD shadow root                           |
@@ -852,7 +862,7 @@ their owner is the repair stack, not this port.
 | E1-1    | ARIA-MEDIUM-452       | one ack mint body, encoder and field set                     |
 | E2-1    | ARIA-HIGH-470         | grounded rule gate runs; corpora read strictly               |
 | E2-2    | ARIA-MEDIUM-469       | sandbox refuses relative imports; deny first                 |
-| E2-3    | RECORD_STUB (wave 2)  | five copied `_declared_surface_name` functions (A20-2)       |
+| E2-3    | DUP of A20-2 (wave 2) | five copied `_declared_surface_name` functions (A20-2)       |
 | E2-4    | ARIA-HIGH-470         | grounded rule gate runs; corpora read strictly               |
 | E3-1    | ARIA-LOW-496          | comments cite symbols, not line numbers                      |
 | E3-2    | ARIA-LOW-480          | per-agent containment in the satisfaction scan               |
@@ -865,13 +875,13 @@ their owner is the repair stack, not this port.
 | E6-1    | ARIA-LOW-496          | comments cite symbols, not line numbers                      |
 | E6-2    | ARIA-MEDIUM-482       | `cost_budget` docstring matches derived usage                |
 | E7-1    | ARIA-HIGH-499         | CONTRACTS mirrors kernel vocabularies                        |
-| E7-2    | RECORD_STUB (wave 2)  | CONTRACTS/IDENTITY over budget (same as A15-8)               |
+| E7-2    | DUP of A15-8 (wave 2) | CONTRACTS/IDENTITY over budget (same as A15-8)               |
 | E8-1    | ARIA-HIGH-500         | live docs, CLI floor and lane clocks owned once              |
 | E10-1   | INVALID               | pycache ignored (.gitignore:82); none tracked                |
 | E10-2   | ALREADY_FIXED_ON_MAIN | aria-suite-run.sh keeps the repo path for invariants         |
 | E10-3   | ALREADY_FIXED_ON_MAIN | suite selection delegated to aria-import-graph.py            |
-| E11-1   | RECORD_STUB (wave 2)  | private UTC-now helpers remain (partial)                     |
-| E11-2   | RECORD_STUB (wave 2)  | canonical json.dumps still spelled at many sites (partial)   |
+| E11-1   | open (wave 2)         | private UTC-now helpers remain (partial)                     |
+| E11-2   | open (wave 2)         | canonical json.dumps still spelled at many sites (partial)   |
 | E11-3   | ARIA-MEDIUM-467       | recording reads fail closed; one PR-field reader             |
-| E11-4   | RECORD_STUB (wave 2)  | inline 'sha256:' + hashlib idiom at 129 sites                |
+| E11-4   | open (wave 2)         | inline 'sha256:' + hashlib idiom at 129 sites                |
 | E12-1   | ALREADY_FIXED_ON_MAIN | `maintenance_utility` dispatchable; arc checked at import    |

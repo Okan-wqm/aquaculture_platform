@@ -1331,7 +1331,10 @@ class PublicGraphQLClient {
  */
 let lastCorrelationId: string | null = null;
 function recordCorrelationId(response: Response): void {
-  const value = response.headers.get('x-correlation-id');
+  // Fetch mocks in specs may hand back a bare object; treat a missing
+  // headers bag as "no correlation id recorded" rather than crashing the
+  // response path for a purely observational field.
+  const value = response.headers?.get?.('x-correlation-id');
   if (value) lastCorrelationId = value;
 }
 export function getLastCorrelationId(): string | null {

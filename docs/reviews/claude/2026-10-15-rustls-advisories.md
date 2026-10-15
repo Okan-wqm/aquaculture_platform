@@ -71,4 +71,46 @@ added to the database on 2026-10-12. This document covers every finding that kee
   declares the same dependency requirements and features as 0.11.16, so each lockfile diff is
   the `quinn-proto` version and checksum only. No manifest changes and no audit ignore.
 - After the change both audit steps report no vulnerability. The gateway step still fails on
-  the `unsafe-libyaml` warning alone.
+  the `unsafe-libyaml` warning alone (RUST-MEDIUM-005 below).
+
+### RUST-MEDIUM-005 — unmaintained unsafe-libyaml ships in the edge agent
+
+- **Advisory:** RUSTSEC-2024-0449, informational `unmaintained`, no patched release. The
+  `unsafe-libyaml` repository was archived on 2024-03-25; 0.2.11 is the last release. RustSec
+  lists no open vulnerability for it (RUSTSEC-2023-0075 is fixed in 0.2.10). The gateway audit
+  runs with `--deny warnings`, which makes the warning fatal.
+- **Where:** `serde_yaml` 0.9.34+deprecated is its only dependent. `suderra-agent` uses
+  `serde_yaml` directly (the agent config loader and seven other modules), so the crate is in
+  the default binary; `async-opcua-core` requires `serde_yaml ^0.9` non-optionally in 0.17.1,
+  0.18.0 and 0.19.0. No dependency update removes it, and `serde_yaml_ng` still depends on
+  `unsafe-libyaml`.
+- **Real fix (tracked, deadline 2027-01-13):** move `suderra-agent` to a YAML parser without
+  `unsafe-libyaml` (the advisory names safe-Rust parsers such as `serde-saphyr`), with tests
+  that every committed config fixture parses unchanged; get `async-opcua-core` off `serde_yaml`
+  upstream or through a vendored `[patch.crates-io]` fork, as `crates/local-rumqttc` did for
+  rumqttc. Then remove the ignore everywhere and ban the crate in `deny.toml`.
+
+#### Ignore (RUST-MEDIUM-005)
+
+- Entry EDGE-CI-009 in `sens-api-gateway/.cargo/audit.toml`, with reason, finding, owner and a
+  review-by deadline equal to the finding's. `check-advisory-ignore-sync.ts` fails CI once that
+  date passes. Only this unmaintained advisory is ignored; no vulnerability advisory is.
+- cargo-audit reads that file from its working directory, so it alone covers every gateway and
+  fuzz audit step. The sync gate also requires the same set in `sens-api-gateway/deny.toml`
+  (read by `cargo deny`) and in the `--ignore` flags of `ci-affected.yml`,
+  `sens-api-gateway-ci.yml` and `edge-agent-release.yml`, so the entry is mirrored there.
+- Verified: every `cargo audit` command of the four Rust workflows exits 0 (cargo-audit 0.22.2,
+  database of 2026-10-14); `cargo deny check advisories bans licenses sources` (0.20.2) passes in
+  the gateway and at the root, and fails on RUSTSEC-2024-0449 without the `deny.toml` entry.
+
+### RUST-LOW-006 — the gateway audit exception list has five owners
+
+- **Problem:** `sens-api-gateway/.cargo/audit.toml` is the list cargo-audit applies. Run in
+  `sens-api-gateway` with no flags, `cargo audit --deny warnings` does not report the four
+  existing ignores although all four crates are locked. The three workflow steps still repeat
+  the list as `--ignore` flags, and `check-advisory-ignore-sync.ts` requires those copies to
+  match instead of rejecting them, so each exception is a five-place edit. `deny.toml` is a
+  real second reader (cargo-deny reads only it); the workflow flags have none.
+- **Fix (tracked, deadline 2027-04-13):** delete the flags, make the gate reject any `--ignore`
+  in a workflow audit step, and keep `deny.toml` held equal to `audit.toml`. The workflows are
+  left unchanged in this branch apart from the mirrored flag above.

@@ -93,4 +93,17 @@ ignore = [
     #   re-check on each wasmi bump. No active vulnerability — unmaintained
     #   signal only; the proc-macro never reaches the shipped binary.
     "RUSTSEC-2024-0436",
+
+    # Finding: EDGE-CI-009 / RUST-MEDIUM-005 — unsafe-libyaml 0.2.11
+    #   unmaintained (repository archived 2024-03-25, no patched release)
+    # Owner: okan; Deadline: 2027-01-13 (review by; equals RUST-MEDIUM-005)
+    # Why: Transitive via serde_yaml 0.9.34+deprecated, which suderra-agent
+    #   uses directly (agent config loader) and async-opcua-core requires
+    #   non-optionally up to 0.19.0, so no dependency update drops it.
+    #   Unmaintained signal only: RustSec lists no open vulnerability for
+    #   0.2.11. Removal path (RUST-MEDIUM-005): suderra-agent moves to a
+    #   YAML parser without unsafe-libyaml, async-opcua drops serde_yaml
+    #   (upstream or a vendored [patch.crates-io] fork); then this entry
+    #   goes from every audit surface and deny.toml [bans] blocks the crate.
+    "RUSTSEC-2024-0449",
 ]

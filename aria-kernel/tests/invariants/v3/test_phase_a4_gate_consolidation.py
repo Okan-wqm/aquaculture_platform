@@ -5,7 +5,8 @@ Closes GAP-1 + CRIT-V3-003 + MED-V3-010 + AUDITTRAIL-CRITICAL-003.
 Invariants locked (I-V3-14..17e):
 
   * I-V3-14 — gate honours policy flag + profile (parametrised).
-  * I-V3-15 — gate.consume_ack_token rejects unsigned token.
+  * I-V3-15 — gate.acquire_or_consume rejects a token never minted
+    (the gate's one consumption path; ARIA-MEDIUM-254 slice A).
   * I-V3-16a — ``acknowledge`` parameter REMOVED from materialize
     public APIs (inspect signature; ``acknowledge`` not in
     ``Parameter.empty`` parameter list).
@@ -126,7 +127,8 @@ class PhaseA4GateConsolidation(unittest.TestCase):
         self.assertTrue(g6.human_ack_required)
 
     def test_i_v3_15_gate_rejects_unknown_ack_token(self) -> None:
-        from aria_kernel.ack_ledger import init_ack_ledger, mint_operator_ack
+        from aria_kernel.ack_ledger import init_ack_ledger
+        from aria_kernel.ack_row import AckScope
         from aria_kernel.auto_action_gate import gate_from_test_fixture
         from aria_kernel.tool_registry import GovernanceError
 
@@ -140,9 +142,15 @@ class PhaseA4GateConsolidation(unittest.TestCase):
             gate = gate_from_test_fixture()
             # Token id never minted — consume should raise.
             with self.assertRaises(GovernanceError) as ctx:
-                gate.consume_ack_token(
+                gate.acquire_or_consume(
                     ack_id="not-a-real-uuid",
                     base_dir=base,
+                    scope=AckScope(
+                        draft_id="drf-15", intent_id="", target_path=".claude/agents/aria-15.md",
+                        kind="agent", body_sha256="0" * 64,
+                    ),
+                    commit_sha_at_mint="test-head",
+                    profile_state_at_mint="standard:v1",
                 )
             self.assertIn("ack_token_not_found", str(ctx.exception))
 
@@ -206,18 +214,6 @@ class PhaseA4GateConsolidation(unittest.TestCase):
             )
             worktree = Path(tmp) / "wt"
             worktree.mkdir()
-            ack = mint_operator_ack(
-                base_dir=base,
-                draft_id="drf-evt",
-                intent_id="intent-evt",
-                target_path=".claude/agents/aria-evt.md",
-                kind="agent",
-                operator_user_id="test-operator",
-                reason="explicit ack for materialize chain invariant",
-                profile_name="autonomous",
-                profile_state_at_mint="autonomous:v1",
-                commit_sha_at_mint="test-head",
-            )
             gate = gate_from_test_fixture(
                 profile="autonomous",
                 lane="L0-main",
@@ -246,6 +242,18 @@ class PhaseA4GateConsolidation(unittest.TestCase):
                 "aria_kernel.agent_genesis._find_dispatch",
                 return_value=dispatch,
             ):
+                # ARIA-MEDIUM-254 slice A — the mint derives its scope
+                # from the same draft row materialize writes.
+                ack = mint_operator_ack(
+                    base_dir=base,
+                    draft_id="drf-evt",
+                    kind="agent",
+                    operator_user_id="test-operator",
+                    reason="explicit ack for materialize chain invariant",
+                    profile_name="autonomous",
+                    profile_state_at_mint="autonomous:v1",
+                    commit_sha_at_mint="test-head",
+                )
                 result = materialize_agent_draft(
                     draft_id="drf-evt",
                     assignment_id="as-evt",

@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .ack_row import AckScope
 from .capability_gap import latest_capability_gaps
 from .capability_resolver import resolve_capability
 from .draft_intent import (
@@ -603,7 +604,9 @@ def materialize_agent_draft(
     ``AutoActionGate`` (Plan ARIA-V3 §A4) which encapsulates:
       * The runtime profile + lane + classifier decision.
       * The ack-token consumption (operator-minted via
-        ``aria-kernel ack mint``. Autonomous auto-mint has no live lane
+        ``aria-kernel ack mint`` for this draft's scope —
+        :func:`ack_scope_for_draft` — and refused for any other draft,
+        intent, target or body. Autonomous auto-mint has no live lane
         in current mainline authority).
       * The ``materialize_event_id`` UUID that links the
         three-event audit chain (draft_validated → ack_consumed
@@ -656,13 +659,7 @@ def materialize_agent_draft(
     # ``body`` field replaces the pre-V3 ``content`` field. A missing
     # body means the drafter has not (yet) run successfully for this
     # draft; materialize refuses fail-closed.
-    body = draft.get("body")
-    if not isinstance(body, str) or not body.strip():
-        raise GovernanceError(
-            f"materialize_requires_drafter_body: draft {draft_id!r} has "
-            f"no validated body yet (drafter run pending or failed; "
-            f"check agent-genesis/drafter-invocations.jsonl)"
-        )
+    body = _drafter_body(draft)
     # Defense-in-depth: re-run the grammar validator on the body
     # at materialize-time. Sandbox already validated, but persisted
     # body could be mutated between sandbox + materialize; locking
@@ -759,13 +756,12 @@ def materialize_agent_draft(
         )
     # Plan ARIA-V3 §2g event 2 — ack_consumed (via the gate's
     # unified path: operator-token consumed OR autonomous auto-mint).
+    # The scope is derived from THIS draft row — the body written below —
+    # by the function the mint derived it with (ARIA-MEDIUM-254 slice A).
     gate_outcome = gate.acquire_or_consume(
         ack_id=ack_id,
         base_dir=ensure_tools_dir(base_dir),
-        draft_id=draft_id,
-        intent_id=str(intent_dict.get("intent_id", "")) if isinstance(intent_dict, dict) else "",
-        target_path=target_path,
-        kind="agent",
+        scope=_ack_scope(draft),
         commit_sha_at_mint=_git_head(worktree),
         profile_state_at_mint=f"{gate.profile}:v1",
     )
@@ -1133,6 +1129,39 @@ def _find_draft(draft_id: str, base_dir: str | Path | None) -> dict[str, Any]:
         if draft.get("draft_id") == draft_id:
             return draft
     raise GovernanceError(f"agent draft not found: {draft_id}")
+
+
+def _drafter_body(draft: dict[str, Any]) -> str:
+    """The drafter-produced body of ``draft``; a draft without one cannot be materialized or acked.
+
+    Plan ARIA-V3 §A3 — the body comes from the drafter; the kernel never
+    synthesises markdown, so a missing body means the drafter has not (yet)
+    run successfully for this draft and every consumer refuses fail-closed.
+    """
+    body = draft.get("body")
+    if not isinstance(body, str) or not body.strip():
+        raise GovernanceError(
+            f"materialize_requires_drafter_body: draft {draft['draft_id']!r} has "
+            f"no validated body yet (drafter run pending or failed; "
+            f"check agent-genesis/drafter-invocations.jsonl)"
+        )
+    return body
+
+
+def _ack_scope(draft: dict[str, Any]) -> AckScope:
+    """The one scope an agent ack authorizes for ``draft`` — used by mint and by materialize."""
+    return AckScope.of_draft(draft, kind="agent", body=_drafter_body(draft))
+
+
+def ack_scope_for_draft(draft_id: str, base_dir: str | Path | None) -> AckScope:
+    """ARIA-MEDIUM-254 slice A — the scope ``ack_ledger.mint_operator_ack`` binds an agent ack to.
+
+    The latest row of ``draft_id`` in the drafts ledger, the row
+    :func:`materialize_agent_draft` writes; materialize derives its own scope
+    from that row through :func:`_ack_scope` too, so a body re-drafted after
+    the mint no longer matches the ack.
+    """
+    return _ack_scope(_find_draft(draft_id, base_dir))
 
 
 def _latest_sandbox(draft_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:

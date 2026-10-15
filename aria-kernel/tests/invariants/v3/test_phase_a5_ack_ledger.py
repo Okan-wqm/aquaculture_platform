@@ -5,7 +5,8 @@ Locked invariants (9 cases, I-V3-18..20):
   * I-V3-18 — ack ledger is append-only AND every row is signed.
   * I-V3-19 — one-time consumption (second consume raises).
   * I-V3-19a — a minted ack row carries exactly ACK_ROW_REQUIRED_FIELDS
-    (+ the ledger hash-chain envelope), on both mint paths.
+    (+ the ledger hash-chain envelope), on both mint paths (the operator
+    mint and the autonomous mint-and-consume, ARIA-MEDIUM-254 slice A).
   * I-V3-19b — ``actor_kind`` distinguishes operator vs autonomous_profile.
   * I-V3-19c — ``aria-tools/secrets/`` covered by .gitignore.
   * I-V3-19d — HMAC key not committed to git history.
@@ -42,13 +43,32 @@ def _seed_init(tools_dir: Path) -> None:
     )
 
 
+def _seed_draft(tools_dir: Path, draft_id: str) -> None:
+    """An agent draft with a drafter body: the ack's scope is derived from it (ARIA-MEDIUM-254 slice A)."""
+    from tests._helpers.declared_fixtures import append_declared_fixture
+    append_declared_fixture(
+        tools_dir / "agent-genesis" / "drafts.jsonl",
+        {
+            "draft_id": draft_id,
+            "intent": {"intent_id": f"intent-{draft_id}"},
+            "target_path": f".claude/agents/aria-{draft_id}.md",
+            "body": f"# {draft_id} body",
+        },
+        expected_surface="agent_genesis_drafts",
+    )
+
+
+def _scope(tools_dir: Path, draft_id: str):
+    from aria_kernel.agent_genesis import ack_scope_for_draft
+    return ack_scope_for_draft(draft_id, tools_dir)
+
+
 def _mint_row(tools_dir: Path, *, draft_suffix: str = "1"):
     from aria_kernel.ack_ledger import mint_operator_ack
+    _seed_draft(tools_dir, f"draft-{draft_suffix}")
     return mint_operator_ack(
         base_dir=tools_dir,
         draft_id=f"draft-{draft_suffix}",
-        intent_id=f"intent-{draft_suffix}",
-        target_path=f".claude/agents/aria-test-{draft_suffix}.md",
         kind="agent",
         reason="unit test ack mint",
         operator_user_id="tester",
@@ -58,20 +78,20 @@ def _mint_row(tools_dir: Path, *, draft_suffix: str = "1"):
     )
 
 
-def _mint_auto_row(tools_dir: Path):
-    from aria_kernel.ack_ledger import mint_auto_ack
-    return mint_auto_ack(
+def _record_auto(tools_dir: Path) -> dict:
+    from aria_kernel.ack_ledger import record_autonomous_ack
+    _seed_draft(tools_dir, "draft-auto")
+    return record_autonomous_ack(
         base_dir=tools_dir,
-        draft_id="draft-auto",
-        intent_id="intent-auto",
-        target_path=".claude/agents/aria-auto.md",
-        kind="agent",
+        scope=_scope(tools_dir, "draft-auto"),
+        materialize_event_id="mat-auto",
         profile_name="autonomous",
         lane="L0-main",
         classifier_decision_hash="hash-abc",
         auto_reason_code="classifier_pass",
         profile_state_at_mint="autonomous:v1",
         commit_sha_at_mint="cafef00d",
+        breaker_state_at_mint="ok",
     )
 
 
@@ -113,10 +133,12 @@ class PhaseA5AckLedger(unittest.TestCase):
             base = Path(tmp)
             _seed_init(base)
             row = _mint_row(base)
+            scope = _scope(base, row.draft_id)
             result_first = consume_token(
                 base_dir=base,
                 ack_id=row.ack_id,
                 materialize_event_id="mat-evt-1",
+                scope=scope,
             )
             self.assertEqual(result_first["status"], "ok")
             ledger_rows = [
@@ -133,6 +155,7 @@ class PhaseA5AckLedger(unittest.TestCase):
                     base_dir=base,
                     ack_id=row.ack_id,
                     materialize_event_id="mat-evt-2",
+                    scope=scope,
                 )
             self.assertIn("ack_token_already_consumed", str(ctx.exception))
 
@@ -145,11 +168,17 @@ class PhaseA5AckLedger(unittest.TestCase):
             base = Path(tmp)
             _seed_init(base)
             _mint_row(base)
-            _mint_auto_row(base)
+            _record_auto(base)
+            # Mint rows only: the autonomous path also appends its
+            # consumption transition in the same transaction.
             rows = [
-                json.loads(line)
-                for line in _ledger_path(base).read_text(encoding="utf-8").splitlines()
-                if line.strip()
+                row
+                for row in (
+                    json.loads(line)
+                    for line in _ledger_path(base).read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                )
+                if row.get("event") != "consumed"
             ]
             self.assertEqual(
                 [row["actor_kind"] for row in rows],
@@ -185,17 +214,17 @@ class PhaseA5AckLedger(unittest.TestCase):
             self.assertIsNotNone(op_row.actor_user_id)
             self.assertIsNone(op_row.auto_reason_code)
 
-            auto_row = _mint_auto_row(base)
-            self.assertEqual(auto_row.actor_kind, "autonomous_profile")
-            self.assertEqual(auto_row.lane, "L0-main")
-            self.assertIsNone(auto_row.actor_user_id)
-            self.assertIsNone(auto_row.reason)
-            self.assertEqual(auto_row.auto_reason_code, "classifier_pass")
-            self.assertEqual(auto_row.classifier_decision_hash, "hash-abc")
+            auto_row = _record_auto(base)["row"]
+            self.assertEqual(auto_row["actor_kind"], "autonomous_profile")
+            self.assertEqual(auto_row["lane"], "L0-main")
+            self.assertIsNone(auto_row["actor_user_id"])
+            self.assertIsNone(auto_row["reason"])
+            self.assertEqual(auto_row["auto_reason_code"], "classifier_pass")
+            self.assertEqual(auto_row["classifier_decision_hash"], "hash-abc")
 
             # Both actor_kinds are in the validated set.
             self.assertIn(op_row.actor_kind, ACK_ACTOR_KINDS)
-            self.assertIn(auto_row.actor_kind, ACK_ACTOR_KINDS)
+            self.assertIn(auto_row["actor_kind"], ACK_ACTOR_KINDS)
 
     def test_i_v3_19c_secrets_dir_gitignored(self) -> None:
         text = (_REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
@@ -299,16 +328,10 @@ class PhaseA5AckLedger(unittest.TestCase):
                 "mint",
                 "--draft-id",
                 "x",
-                "--intent-id",
-                "i",
-                "--target-path",
-                ".claude/agents/aria-y.md",
                 "--kind",
                 "agent",
                 "--reason",
                 "short",  # <10 chars → argparse rejects
-                "--operator-approval-ref",
-                "RFC-T",
                 "--operator-user-id",
                 "tester",
             ],

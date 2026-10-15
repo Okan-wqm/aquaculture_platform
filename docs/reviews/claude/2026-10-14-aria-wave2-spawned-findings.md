@@ -253,6 +253,14 @@ verb can record are listed at the end.
 - **Planned fix:** bucket `G023-254-sliceA` (landing L2): history parses require only
   `ENROL_NAMESPACE`; the tip check keeps the full tuple. Failing first: a namespace added by
   enrolment walks from the pinned genesis. Deadline: 2026-12-14.
+- **Landed (L2):** `operator_request_signature.py` has one parser body behind two questions:
+  `parse_namespace_registry` (the tip: every `OPERATOR_NAMESPACES` name, used by the anchor read and
+  by `record_enrolment` for the child that becomes the tip) and `_walked_registry` (history: the
+  enrol entry only, used by `_child` and the walk's parent parse).
+  `test_a_namespace_added_by_enrolment_walks_from_the_pinned_genesis` was red before
+  (`enrol_genesis_mismatch`) and is green after; the tip and new-child pins hold on both sides. The
+  public `verify_enrolment_chain` no longer applies the tip rule by itself (its one production
+  caller, `_anchor_at`, parses the tip first); that note goes to the slice-B owner.
 
 ### ARIA-MEDIUM-512 — operator authorizations are not bound to their subject
 
@@ -264,6 +272,16 @@ verb can record are listed at the end.
 - **Planned fix:** `G023-254-sliceA` (L2) binds the ack scope (Part of); `R10-ack-subject` (wave 17)
   makes `consume_token` take the subject, runs every refusal before consumption and requires
   `target_agent`, and closes it. Deadline: 2027-01-13.
+- **Part landed (L2, `G023-254-sliceA`):** an ack row carries `AckScope` (draft id, intent, target,
+  kind, `body_sha256` of the draft body, HMAC-signed), derived by the kernel from the draft
+  (`ack_scope_for_draft`), never from the caller. `consume_token` takes the materialization's scope
+  and refuses `ack_token_not_operator_signed`, `ack_token_scope_unbound` (a row minted before this
+  change) and `ack_token_scope_mismatch:<field>` before it spends anything; an autonomous ack is minted
+  and consumed in one transaction (`record_autonomous_ack`). `test_operator_ack_signature.py`: an ack
+  for draft A no longer materializes draft B (agent and skill), nor a body re-drafted after the
+  mint (red before, green after). Still open, for `R10-ack-subject`: consumption before the escape and
+  model-tier refusals, the unscoped C4-a approval, and the window between the operator's review and
+  `ack mint`, which binds the draft's latest body rather than the one the operator read.
 
 ### ARIA-LOW-513 — Plan 020 dispatch-rationale telemetry has no writer
 
@@ -516,6 +534,20 @@ verb can record are listed at the end.
   cools the provider fleet-wide and is requeued free.
 - **Planned fix:** bucket `G019-login-vendor-facts` (landing L7): vendor facts come only from the
   CLI's error channel. Deadline: 2026-12-14.
+
+### PROC-LOW-053 — the commit-msg gate has no Part-of form for a partial fix
+
+- **Raised by:** the C2-W1 landing (landing L2), whose plan lands two partial fixes.
+- **Problem:** `commit-msg-validator.ts:102` requires a `Closes:` trailer on every `fix`, `security`
+  and `feat` commit (`:615-626`), and no other trailer satisfies it. A commit that fixes part of a
+  registered finding must claim a false closure, take a type other than its own, or be allowlisted:
+  `d046483b` and `b977da29` (two `fix(aria)` halves of ARIA-HIGH-199 and -198) sit in
+  `PRE_PHASE6_SHAS` (`:363-381`, 4da6dfae7), and 068aa2703 was typed `refactor(web)`. Landing L2's
+  `G023-254-sliceA` (Part of ARIA-MEDIUM-254 and ARIA-MEDIUM-512) and `R7-t2-anchor-read` (Part of
+  ARIA-HIGH-281) commits are typed `refactor` for this reason.
+- **Planned fix:** the validator accepts `Part of: <review_file>#<ID>` as the traceability trailer of
+  a `fix`, `security` or `feat` commit, checked against the registry and the row's review file like
+  `Closes:`, and closure derivation never reads it as a closure. Deadline: 2027-04-13.
 
 ## Registry amendments recorded at the L1 registry step
 

@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .ack_row import AckScope
 from .capability_resolver import resolve_capability
 from .convergent_skill_authoring import MIN_CALIBRATION_FIXTURES
 from .draft_intent import (
@@ -771,11 +772,7 @@ def materialize_skill(
             f"materialize_skill requires gate: AutoActionGate "
             f"(Plan ARIA-V3 §A4); got {type(gate).__name__!r}"
         )
-    draft = _find_draft(draft_id, base_dir)
-    if draft is None:
-        raise GovernanceError(
-            f"skill_materialize_draft_not_found: draft_id={draft_id!r}"
-        )
+    draft = _require_draft(draft_id, base_dir)
     sandbox = _latest_sandbox(draft_id, base_dir)
     if not sandbox or sandbox.get("decision") != "pass":
         raise GovernanceError(
@@ -801,12 +798,7 @@ def materialize_skill(
     # Plan ARIA-V3 §A3 — body comes from the drafter; kernel does
     # not synthesise markdown. Materialize refuses fail-closed when
     # the drafter has not produced a validated body yet.
-    body = draft.get("body")
-    if not isinstance(body, str) or not body.strip():
-        raise GovernanceError(
-            f"skill_materialize_requires_drafter_body: draft_id={draft_id!r} "
-            f"has no validated body yet (drafter run pending or failed)"
-        )
+    body = _drafter_body(draft)
     intent_dict = draft.get("intent") or {}
     if isinstance(intent_dict, dict):
         from .draft_intent import AcceptanceTest as _AT, SkillDraftIntent as _SDI
@@ -857,14 +849,13 @@ def materialize_skill(
                 "kind": "skill",
             },
         )
-    # Plan ARIA-V3 §2g event 2 — ack_consumed (operator or auto).
+    # Plan ARIA-V3 §2g event 2 — ack_consumed (operator or auto). The
+    # scope is derived from THIS draft row — the body written below — by
+    # the function the mint derived it with (ARIA-MEDIUM-254 slice A).
     gate_outcome = gate.acquire_or_consume(
         ack_id=ack_id,
         base_dir=ensure_tools_dir(base_dir),
-        draft_id=draft_id,
-        intent_id=str(intent_dict.get("intent_id", "")),
-        target_path=target_path,
-        kind="skill",
+        scope=_ack_scope(draft),
         commit_sha_at_mint=_git_head(worktree),
         profile_state_at_mint=f"{gate.profile}:v1",
     )
@@ -1014,6 +1005,46 @@ def _find_draft(
         if row.get("draft_id") == draft_id:
             return row
     return None
+
+
+def _require_draft(draft_id: str, base_dir: str | Path | None) -> dict[str, Any]:
+    draft = _find_draft(draft_id, base_dir)
+    if draft is None:
+        raise GovernanceError(
+            f"skill_materialize_draft_not_found: draft_id={draft_id!r}"
+        )
+    return draft
+
+
+def _drafter_body(draft: dict[str, Any]) -> str:
+    """Plan ARIA-V3 §A3 — the drafter-produced body; the kernel never synthesises one.
+
+    A draft without a body cannot be materialized or acked: the drafter has
+    not produced a validated body yet, and every consumer refuses fail-closed.
+    """
+    body = draft.get("body")
+    if not isinstance(body, str) or not body.strip():
+        raise GovernanceError(
+            f"skill_materialize_requires_drafter_body: draft_id={draft['draft_id']!r} "
+            f"has no validated body yet (drafter run pending or failed)"
+        )
+    return body
+
+
+def _ack_scope(draft: dict[str, Any]) -> AckScope:
+    """The one scope a skill ack authorizes for ``draft`` — used by mint and by materialize."""
+    return AckScope.of_draft(draft, kind="skill", body=_drafter_body(draft))
+
+
+def ack_scope_for_draft(draft_id: str, base_dir: str | Path | None) -> AckScope:
+    """ARIA-MEDIUM-254 slice A — the scope ``ack_ledger.mint_operator_ack`` binds a skill ack to.
+
+    The latest row of ``draft_id`` in the skill drafts ledger, the row
+    :func:`materialize_skill` writes; materialize derives its own scope from
+    that row through :func:`_ack_scope` too, so a body re-drafted after the
+    mint no longer matches the ack.
+    """
+    return _ack_scope(_require_draft(draft_id, base_dir))
 
 
 def _latest_sandbox(

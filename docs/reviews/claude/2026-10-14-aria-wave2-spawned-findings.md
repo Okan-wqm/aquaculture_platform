@@ -193,6 +193,30 @@ verb can record are listed at the end.
   adapter in a workspace without `node_modules` and expects `environment_unavailable` and no
   `calibrate` decision; today it fails. Deadline: 2027-01-13.
 
+### ARIA-LOW-509 — the smoke runbook's mock switch is a name no code reads
+
+- **Raised by:** landing L1's completeness critic (ARIA-works check 4c). The defect is already on
+  origin/main 99689e46b. The wave-2 adjudication B01-R12 judged only the workflow copy and left
+  the runbook copy without an owner.
+- **Problem:** the v3.1 smoke runbook says `CLAUDE_CODE_MOCK=true` sends the LLM calls of its
+  dry-run `autonomy run` through the mock path (`aria-v3-1-smoke.md:84-89`). No code reads that
+  name. The mock switch is `CLAUDE_CLI_MOCK`, and it defaults to `'0'`
+  (`claude_runtime.py:42, 293-294`), so an unset switch means live mode. `autonomy run` drains
+  planner requests through `ci_executor.py` as a subprocess that inherits the environment
+  (`autonomy_orchestrator.py:1110-1113`, `planner_dispatch_hook.py:554-594`). The executor takes
+  its mock decision only from `is_mock_mode` (`ci_executor.py:1420-1421`). `ARIA_DRY_RUN` gates the
+  GitHub adapter and token minting, not a Claude spawn. So the documented smoke sends every claimed
+  planner request to the live `claude` binary. Only `unshare --net` keeps it offline. If that is
+  dropped, the smoke spends real quota, and the F-5 acceptance still reads the results as mocked
+  (`:129-130`). The wrong name also appears in two docstrings (`planner_dispatch_hook.py:374`,
+  `cost_budget.py:3`), in `aria-operational-proof.yml:100` (harmless there, because observe
+  burn-in makes no LLM calls; B01-R12 INVALID) and in a comment at `aria-auto-cycle.yml:999`.
+- **Planned fix:** the runbook, the operational-proof workflow (or the line is deleted), both
+  docstrings and the auto-cycle comment use `CLAUDE_CLI_MOCK`, so there is one spelling. An
+  invariant test collects every `*_MOCK` name assigned in a workflow `env:` block or a runbook
+  command line and fails unless code reads it or it is a shell local of the same step. The test is
+  red on `CLAUDE_CODE_MOCK` today. Deadline: 2027-04-13.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

@@ -226,11 +226,32 @@ def _namespace_entry(item: Any) -> NamespaceEntry | None:
 
 
 def parse_namespace_registry(content: bytes) -> dict[str, NamespaceEntry] | None:
-    """The committed registry by namespace, or None for anything that is not one.
+    """A registry the kernel can read acts against — a tip — by namespace, or None.
 
     Every operator namespace this kernel speaks must be an operator entry
-    (retired or not): a registry that drops one is no registry.
+    (retired or not): a tip that drops one is no registry. This is the
+    question the anchor read and a NEW enrolment child answer; a registry the
+    enrolment walk only passes through answers :func:`_walked_registry`'s.
     """
+    return _registry_entries(content, required=OPERATOR_NAMESPACES)
+
+
+def _walked_registry(content: bytes) -> dict[str, NamespaceEntry] | None:
+    """A historical registry of the enrolment walk, the pinned genesis included (ARIA-HIGH-511).
+
+    History is judged by what the walk needs from it — an operator entry that
+    can verify the next enrolment row — never by the namespaces the CURRENT
+    kernel speaks: ADR-0023 adds a namespace through an enrolment, so a
+    genesis or an older child that predates a namespace is still history the
+    walk must pass through. The tip the walk must reach is still judged by
+    :func:`parse_namespace_registry` (the anchor read parses it before the
+    walk runs, and the walk ends only on that exact pair).
+    """
+    return _registry_entries(content, required=(ENROL_NAMESPACE,))
+
+
+def _registry_entries(content: bytes, *, required: tuple[str, ...]) -> dict[str, NamespaceEntry] | None:
+    """The registry by namespace when every entry is well formed and each ``required`` name is an operator entry."""
     try:
         payload = json.loads(content.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
@@ -246,7 +267,7 @@ def parse_namespace_registry(content: bytes) -> dict[str, NamespaceEntry] | None
         if entry is None or entry.namespace in entries:
             return None
         entries[entry.namespace] = entry
-    if not all(name in entries and entries[name].operator for name in OPERATOR_NAMESPACES):
+    if not all(name in entries and entries[name].operator for name in required):
         return None
     return entries
 
@@ -303,12 +324,17 @@ def genesis_pinned(child: Any) -> bool:
 
 
 def _child(row: Any) -> tuple[bytes, bytes] | None:
-    """A row's child pair, when its bytes hash to its digests and the registry is one."""
+    """A row's child pair, when its bytes hash to its digests and the walk can carry on from its registry.
+
+    The registry is judged as history (:func:`_walked_registry`); a caller
+    whose child becomes the tip judges it again with
+    :func:`parse_namespace_registry`.
+    """
     texts = (row.get("child_allowed_signers"), row.get("child_registry")) if isinstance(row, dict) else (None,)
     if not all(isinstance(text, str) for text in texts) or row.get("schema") != ENROLMENT_SCHEMA:
         return None
     signers, registry = (text.encode("utf-8") for text in texts)
-    if row.get("child") != _pair(signers, registry) or parse_namespace_registry(registry) is None:
+    if row.get("child") != _pair(signers, registry) or _walked_registry(registry) is None:
         return None
     return signers, registry
 
@@ -327,6 +353,12 @@ def verify_enrolment_chain(
     ``runner_keys`` breaks the chain for good (ARIA-HIGH-281): T2 signing an
     enrolment is the compromise the chain exists to exclude, so no later row
     can launder it, and repairing it is a genesis amendment of ADR-0023.
+
+    Every registry the walk passes through — the genesis's and each parent's —
+    is history, judged by :func:`_walked_registry` (ARIA-HIGH-511): a
+    namespace an enrolment added after the genesis must not make the genesis
+    unreadable. The pair the walk must end on is the caller's tip, which the
+    anchor read already judged with :func:`parse_namespace_registry`.
     """
     try:
         rows = [json.loads(line) for line in (enrolments or b"").decode("utf-8").splitlines() if line.strip()]
@@ -339,7 +371,7 @@ def verify_enrolment_chain(
         child = _child(row)
         if child is None or row.get("kind") != "enrolment" or row.get("parent") != _pair(*state):
             return ENROL_CHAIN_BROKEN
-        namespaces = parse_namespace_registry(state[1])
+        namespaces = _walked_registry(state[1])
         entry = namespaces.get(ENROL_NAMESPACE) if namespaces else None
         if entry is None or any(field not in row for field in entry.signed_fields):
             return ENROL_SIGNATURE_INVALID
@@ -742,7 +774,8 @@ def record_enrolment(
         raise GovernanceError(f"operator_enrol_refused: {RUNNER_KEY_ENROLLED}")
     row = dict(enrolment_genesis_row(*child), kind="enrolment", parent=_pair(*parent), actor_class=actor_class,
                audience=anchor.audience)
-    if _child(row) is None:
+    # The child becomes the tip, so it must also register every namespace the kernel speaks.
+    if _child(row) is None or parse_namespace_registry(child[1]) is None:
         raise GovernanceError("operator_enrol_child_registry_invalid")
     entry = anchor.namespaces[ENROL_NAMESPACE]
     now = datetime.now(timezone.utc).replace(microsecond=0)

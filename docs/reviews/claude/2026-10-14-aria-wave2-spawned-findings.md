@@ -217,6 +217,32 @@ verb can record are listed at the end.
   command line and fails unless code reads it or it is a shell local of the same step. The test is
   red on `CLAUDE_CODE_MOCK` today. Deadline: 2027-04-13.
 
+### ARIA-LOW-510 — the kernel workflow reads a dispatch input it never declares
+
+- **Raised by:** landing L1's completeness critic (ARIA-works check 4d). The defect is already on
+  origin/main 99689e46b (`aria-kernel.yml` lines 16 and 406 are identical there).
+- **Problem:** the state-compaction gate in `aria-kernel.yml` sets
+  `RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}` and passes it to
+  `state compact --retain-days` (`:403-414`). The workflow's `workflow_dispatch` (`:16`) declares
+  no inputs, and `pull_request` and `push` carry none. The expression therefore always yields
+  `'7'`. The step looks as if it offers a retention window, but none exists. GitHub's dispatch API
+  also refuses a run that passes `retain_days`, because the input is unexpected. The gate copies
+  the step from `aria-state-maintenance.yml` (`:152`), which does declare `retain_days` with
+  default `'7'` (`:63-67`). The gate's verdict is not wrong today: it compacts at the maintenance
+  lane's default window. No test checks that a workflow declares the inputs it reads.
+  `aria-workflow-input-injection.spec.ts` checks only that inputs are not spliced into `run:`. A
+  scan of every workflow on the L1 tree finds no other undeclared read; the other matches are
+  comments.
+- **Planned fix:** `test_state_compaction_gate.py` pins the gate's steps to the maintenance
+  lane's, `env` included, byte for byte (`:15, 41, 68`). So the read stays, and `aria-kernel.yml`
+  declares `retain_days` under `workflow_dispatch` with the maintenance lane's description and
+  default. A tier-3 invariant next to the injection spec, using its expression matcher (not a
+  second copy), parses every workflow. It fails when an `inputs.X`, `inputs['X']` or
+  `github.event.inputs.X` read outside a comment names an input that the workflow's
+  `workflow_dispatch` or `workflow_call` does not declare. The invariant is red on `retain_days`
+  today. Later-stage buckets edit `aria-kernel.yml` and the injection spec, so the fix lands with
+  one of those stages or after them. Deadline: 2027-04-13.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

@@ -70,7 +70,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
       title={
         <span className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-          <span>AI Assistant</span>
+          <span>{t('header.aiAssistant')}</span>
         </span>
       }
       description={STATUS_LABEL[status]}

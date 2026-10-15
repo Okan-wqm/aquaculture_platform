@@ -81,6 +81,69 @@ verb can record are listed at the end.
   module in `AppModule` and adds a tier-3 invariant that every `apps/<svc>/src/**/*.module.ts` is
   reachable from its service's `AppModule`.
 
+### PROC-MEDIUM-051 — a closure rejection holds against one SHA, not a squash or rebase
+
+- **Raised by:** the security review of landing L1's closure commits, on the rejection of `3ff275a5f`.
+- **Problem:** `rejected_closing_commits` holds SHAs, and `shaMatches`
+  (`finding-traceability.ts:51-55`) compares nothing else. A squash or rebase of a rejected change
+  makes a new commit whose message still carries the rejected `Closes:` trailer, and `close` and
+  `reconcile` accept it. Reproduced on a scratch copy of the L1 tip: a merge of `3ff275a5f` leaves
+  ARIA-CRITICAL-215 OPEN; the same message under a new SHA resolves it.
+- **Planned fix:** bind a rejection to what a squash or rebase preserves (the finding plus the
+  change's patch-id or pull request), with a test that re-commits a rejected message under a new
+  SHA. Until then PR #1743 is closed at L1's push gate, not drafted. Deadline: 2027-01-13.
+
+### PROC-MEDIUM-052 — the commit-msg gate admits an ORPHAN trailer that cannot close its row
+
+- **Raised by:** the implementer of landing L1's closure commits.
+- **Problem:** for an `ORPHAN-` id the gate checks only that the id exists
+  (`commit-msg-validator.ts:704-712`); the anchor-to-`review_file` binding at `:720` runs only for
+  other ids. A trailer citing the wrong review file therefore passes the gate and never closes the
+  row: 8a86ee392 and 57067433c merged such trailers for ORPHAN-HIGH-556 and ORPHAN-MEDIUM-562.
+- **Planned fix:** every `ORPHAN-` id with a registry row goes through
+  `commitMessageClosesFindingExactly`, with a negative test. Deadline: 2027-01-13.
+
+### ARIA-LOW-503 — the pre-intent credential refusal of `pr create` is unpinned
+
+- **Raised by:** the implementer of landing L1's closure commits.
+- **Problem:** `pr_manager.py:812` refuses a create without an installation token before
+  `record_intent` writes the `pr_create` intent, and nothing pins that order: with the line removed
+  every test stays green, and a refused create leaves an unresolved intent (the write itself is
+  still refused by `run_gh_write`).
+- **Planned fix:** the refused-create test also asserts that no `pr_create` intent row exists.
+  Deadline: 2027-04-13.
+
+### ARIA-LOW-504 — `circuit_breaker.__all__` exports a deleted function
+
+- **Raised by:** the implementer of landing L1's closure commits.
+- **Problem:** `circuit_breaker.__all__` (`:697`) still lists `assert_within_breaker`, deleted on
+  2026-09-09 (`:673-684`), so `from aria_kernel.circuit_breaker import *` raises
+  `AttributeError`.
+- **Planned fix:** drop the name, and a kernel-wide test that every module's `__all__` resolves.
+  Deadline: 2027-04-13.
+
+### ARIA-HIGH-505 — the Bash gate verifies an argv bash never runs
+
+- **Wave-2 key:** NEW-bashexp-1 (minted at the L1 registry step: the L1 truth table names it as
+  the class ARIA-CRITICAL-446 does not cover).
+- **Problem:** `argv_of` (`command_policy.py:189-201`) lexes with `shlex.split`, which expands
+  nothing, and the one scanner (`:141-186`) treats braces, `$name`, globs and `~` as word
+  characters. So `git commit -m {x,--amend}` and `git commit -m x$IFS-n` pass the gate, and bash
+  runs `git commit -m x --amend` and `-m x -n`, options the gate refuses when spelled out.
+- **Planned fix:** the one scanner admits only lines whose shlex argv is bash's, proven by a
+  bash-truth differential test; it lands with ARIA-HIGH-443's fix. Deadline: 2026-10-21.
+
+### ARIA-LOW-506 — each watchdog freeze layer is pinned only together with the other
+
+- **Raised by:** the test review of landing L1's closure commits, on ORPHAN-MEDIUM-562's closure.
+- **Problem:** the freeze has two layers, the merge runner's in-loop check
+  (`auto_merge_runners.py:227-245`) and `merge_pr_if_ready`'s own refusal (`merge_authority.py:91`).
+  Removing either alone leaves `test_watchdog_freeze.py` green; only removing both turns it red. The
+  direct-call refusal is pinned by a source-text check (`:209-215`).
+- **Planned fix:** a test that calls `merge_pr_if_ready` with an open incident and expects
+  `merge_frozen_watchdog_incident_open` and no merge, and a runner test whose merge authority does
+  not refuse. Deadline: 2027-04-13.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects
@@ -97,3 +160,16 @@ verb can record are listed at the end.
 - **ARIA-HIGH-415:** its closing evidence must also cite
   `aria-kernel/tests/test_auto_cycle_observation_steps.py`, the only test that pins the workflow
   half. It closes from its repair-stack trailer; the L1 PR body carries this citation.
+
+## Closers rejected before the L1 merge
+
+The registry's override verb (`finding-registry reopen --reject-closure`) records each SHA
+below in the row's `rejected_closing_commits`, so the closure derivation does not resolve the
+row from that commit when this landing PR merges. Each row stays OPEN; its notes carry the
+reason. The rejection binds the SHA (PROC-MEDIUM-051).
+
+- **ARIA-CRITICAL-215:** `3ff275a5f`.
+- **ARIA-HIGH-414:** `fa29eea45`, `bcf211fcc`, `94501f67e`, `02e66c6b2`, `2d70a127e`.
+- **ARIA-MEDIUM-438:** `d62409e5a`, `721dc1cbf`.
+- **ARIA-HIGH-443:** `8c575da19`.
+- **ARIA-LOW-445:** `18071863c`.

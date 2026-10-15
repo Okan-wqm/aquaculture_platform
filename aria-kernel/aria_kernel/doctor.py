@@ -18,24 +18,62 @@ organ is a finding, not a crash.
 """
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
-from .tool_registry import ensure_tools_dir_readonly
+from .tool_registry import GovernanceError, ensure_tools_dir_readonly
 
-# The floor both live lanes' preflight steps enforce (aria-auto-cycle.yml /
-# aria-agent-executor.yml `REQUIRED_CLAUDE_VERSION`) and provision_runner.sh
-# names as CLAUDE_FLOOR. Pinned here so the doctor and the lanes cannot drift;
-# tests/test_doctor.py compares the three literals.
-CLAUDE_CLI_VERSION_FLOOR = "2.1.221"
+# ARIA-HIGH-500 — the Claude Code CLI floor has one owner, a manifest that both live
+# lanes' preflight steps (`REQUIRED_CLAUDE_VERSION`), provision_runner.sh and
+# this doctor all read. Read lazily, at check time: importing the doctor never
+# depends on the manifest being present.
+CLAUDE_FLOOR_MANIFEST_RELPATH = ".github/manifests/aria-claude-floor.json"
+# The kernel lives at <repo>/aria-kernel/aria_kernel, as for the other
+# repo-relative manifest readers (watchdog_freeze, risk_policy).
+_DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def claude_cli_version_floor(repo_root: str | Path | None = None) -> str:
+    """The Claude Code CLI version floor, read from its manifest.
+
+    Raises ``GovernanceError`` naming the path when the manifest is missing,
+    unreadable, or carries no non-empty string ``claude_code_floor``: a floor
+    nobody can read is not a floor of zero.
+    """
+    path = Path(repo_root or _DEFAULT_REPO_ROOT) / CLAUDE_FLOOR_MANIFEST_RELPATH
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise GovernanceError(f"claude_floor_manifest_unreadable: {path.as_posix()}: {exc}") from exc
+    floor = manifest.get("claude_code_floor") if isinstance(manifest, dict) else None
+    if not isinstance(floor, str) or not floor.strip():
+        raise GovernanceError(f"claude_floor_manifest_floor_missing: {path.as_posix()}")
+    return floor.strip()
 
 CHECK_STATUSES: tuple[str, ...] = ("ok", "warn", "fail")
 DOCTOR_EXIT_HEALTHY = 0
 DOCTOR_EXIT_UNHEALTHY = 3
+
+
+@dataclass(frozen=True)
+class DoctorCause:
+    """One thing a FAILING organ says is wrong: an identity and a sentence.
+
+    ARIA-MEDIUM-417. ``key`` is IDENTITY — the self-improvement opener mints
+    one mission per ``(organ, key)`` and a mission id is a hash of it — so it
+    is drawn from closed vocabularies only: no free text, no counts. A key
+    carrying ``:223`` or an exception message would mint a new mission every
+    night the number or the wording moved. ``summary`` is what the mission's
+    reader is told, and is never identity."""
+
+    key: str
+    summary: str = ""
 
 
 @dataclass(frozen=True)
@@ -44,6 +82,8 @@ class DoctorCheck:
     status: str
     reason: str = ""
     detail: dict[str, Any] = field(default_factory=dict)
+    # Empty: the organ's name alone identifies its failure.
+    causes: tuple[DoctorCause, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -171,7 +211,9 @@ def _check_sandbox() -> DoctorCheck:
     )
 
 
-def _check_claude_cli(*, floor: str = CLAUDE_CLI_VERSION_FLOOR) -> DoctorCheck:
+def _check_claude_cli(*, floor: str | None = None) -> DoctorCheck:
+    if floor is None:
+        floor = claude_cli_version_floor()
     binary = shutil.which("claude")
     if binary is None:
         return DoctorCheck("claude_cli", "fail", "claude_binary_missing", {"floor": floor})
@@ -350,17 +392,44 @@ def _check_control(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("control", "ok", "", state.to_dict())
 
 
-def _check_notifications(tools_dir: Path) -> DoctorCheck:
-    """Plan 032 Faz 032e — a channel that keeps failing means nobody hears."""
-    from .notify import configured_channels, read_outbox
+def _check_notifications(tools_dir: Path, *, environ: Mapping[str, str] | None = None) -> DoctorCheck:
+    """Plan 032 Faz 032e — a channel that keeps failing means nobody hears.
 
-    rows = read_outbox(tools_dir)
-    recent = rows[-50:]
+    ARIA-MEDIUM-417 — and a lane with NO channel means nobody hears either:
+    the bound store's outbox (2026-10-10) held 268 rows, every one
+    `unconfigured`, while this organ read ok. On a GitHub Actions lane
+    (``GITHUB_ACTIONS=true``) an empty `configured_channels()` is a FAIL. It
+    judges the CHANNEL, not the selector: the selector is optional and
+    `github_issue` exists only once ``ARIA_NOTIFY_GITHUB_REPO`` is set — env
+    names the workflow provides, so the answer is the lane's
+    (`self_improvement` routes this organ to `config_missing`, announced).
+    ``ARIA_NOTIFY_CHANNELS=none`` is an operator's explicit choice, never ill
+    health; ``none`` beside a channel is a selector no reader can honour, a
+    FAIL on any host. Off a lane, no channel stays information."""
+    from .notify import ChannelSelectorInvalid, configured_channels, notifications_disabled, read_outbox
+
+    env = os.environ if environ is None else environ
+    recent = read_outbox(tools_dir)[-50:]
     failed = [r for r in recent if r.get("status") == "failed"]
-    detail = {"configured_channels": list(configured_channels()), "recent_rows": len(recent), "recent_failed": len(failed)}
+    detail: dict[str, Any] = {"recent_rows": len(recent), "recent_failed": len(failed)}
+    try:
+        channels = configured_channels(env)
+        disabled = notifications_disabled(env)
+    except ChannelSelectorInvalid as exc:
+        return DoctorCheck("notifications", "fail", str(exc)[:200], detail)
+    detail["configured_channels"] = list(channels)
+    # `stdout` reaches a job log, never a person — notify never implies it for
+    # the same reason — so a lane whose only channel is stdout is still silent.
+    reaches_a_person = [channel for channel in channels if channel != "stdout"]
+    if not disabled and not reaches_a_person and env.get("GITHUB_ACTIONS") == "true":
+        return DoctorCheck("notifications", "fail", "no_notification_channel_in_ci", detail)
+    # Sends that already failed stay visible after an operator turns the
+    # channels off: `none` silences the future, not the record.
     if failed:
         return DoctorCheck("notifications", "warn", f"recent_failures:{len(failed)}", detail)
-    return DoctorCheck("notifications", "ok", "" if detail["configured_channels"] else "no_channel_configured", detail)
+    if disabled:
+        return DoctorCheck("notifications", "ok", "notifications_disabled_by_operator", detail)
+    return DoctorCheck("notifications", "ok", "" if reaches_a_person else "no_channel_configured", detail)
 
 
 def _check_gateway(tools_dir: Path) -> DoctorCheck:
@@ -440,13 +509,48 @@ def _check_gateway_heartbeat_fresh(tools_dir: Path, *, stale_after_beats: int = 
     return DoctorCheck("gateway_heartbeat_fresh", "ok", "", detail)
 
 
+# ARIA-MEDIUM-417 — the closed reason a failed cycle's cause is keyed on,
+# beside the phase it lost. A phase row carries `phase_failed`: its own text
+# (a refusal summary, an exception message) is free, so it goes to the
+# summary only. A cycle that names no phase failed as a whole, and its
+# runtime verdict (`cycle_runtime_status.RUNTIME_STATUSES`) is the reason —
+# `unrecorded` for a row without one. Not the verdict for a phase row: it read
+# `ok` on the payload-failed nights of 2026-10-09/10 (ARIA-MEDIUM-413).
+CAUSE_PHASE_FAILED = "phase_failed"
+CAUSE_WHOLE_CYCLE = "cycle"
+CAUSE_UNRECORDED = "unrecorded"
+
+
+def _failed_cycle_causes(failed_cycles: tuple[dict[str, Any], ...]) -> tuple[DoctorCause, ...]:
+    """One cause per distinct ``<phase>:<reason>`` among the streak's failed
+    cycles (newest first; the newest sighting writes the summary). A phase
+    name is closed by its writer: the cycle seal records only `CYCLE_PHASES`
+    names."""
+    from .cycle_runtime_status import RUNTIME_STATUSES
+
+    causes: dict[str, DoctorCause] = {}
+    for cycle in failed_cycles:
+        sightings = [(str(row["phase"]), CAUSE_PHASE_FAILED, row["error"]) for row in cycle["failed_phases"]]
+        if not sightings:
+            verdict = cycle["runtime_status"]
+            sightings = [(CAUSE_WHOLE_CYCLE, verdict if verdict in RUNTIME_STATUSES else CAUSE_UNRECORDED, cycle["error"])]
+        for phase, reason, error in sightings:
+            key = f"{phase}:{reason}"
+            if key not in causes:
+                causes[key] = DoctorCause(key, f"{phase} {reason}" + (f": {error}" if error else ""))
+    return tuple(causes.values())
+
+
 def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
     """A streak of ``cycle_failed`` exits is a FAULT, not a series of bad
     nights. The orchestrator fails closed on a failed cycle — nothing behind
     it (planner dispatch, the convergence drainer) runs — so a store whose
     last runs all died that way has not planned anything, whatever the other
     organs say. Four such runs in a row on the live store (2026-08-21 →
-    2026-09-04) read as healthy here before this organ existed."""
+    2026-09-04) read as healthy here before this organ existed.
+
+    A FAIL names its causes (`_failed_cycle_causes`), so a streak with a new
+    cause is a new repair mission and the same cause on later nights is not."""
     from .orchestrator_exit_history import read_orchestrator_exit_streak
 
     streak = read_orchestrator_exit_streak(tools_dir)
@@ -455,6 +559,7 @@ def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
         return DoctorCheck(
             "orchestrator", "fail",
             f"orchestrator_exits_all_cycle_failed:{len(streak.exits)}", detail,
+            _failed_cycle_causes(streak.failed_cycles),
         )
     if streak.last_failed:
         return DoctorCheck("orchestrator", "warn", "last_orchestrator_exit_cycle_failed", detail)
@@ -631,7 +736,7 @@ def run_doctor(
     *,
     base_dir: str | Path | None = None,
     workspace_root: str | Path | None = None,
-    claude_version_floor: str = CLAUDE_CLI_VERSION_FLOOR,
+    claude_version_floor: str | None = None,
 ) -> DoctorReport:
     """Run every organ probe and return the report. Read-only by construction:
     every probe is a reader, and the tools root is resolved read-only — an
@@ -691,12 +796,14 @@ def render_doctor_text(report: DoctorReport) -> str:
 
 
 __all__ = [
-    "CLAUDE_CLI_VERSION_FLOOR",
+    "CLAUDE_FLOOR_MANIFEST_RELPATH",
     "HEARTBEAT_STALE_AFTER_BEATS",
     "DOCTOR_EXIT_HEALTHY",
     "DOCTOR_EXIT_UNHEALTHY",
+    "DoctorCause",
     "DoctorCheck",
     "DoctorReport",
+    "claude_cli_version_floor",
     "render_doctor_text",
     "run_doctor",
 ]

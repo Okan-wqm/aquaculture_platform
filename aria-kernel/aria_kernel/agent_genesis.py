@@ -18,9 +18,7 @@ from .draft_intent import (
 from .draft_pii_filter import mask_pii_in_intent
 from .ledger import (
     append_declared_jsonl,
-    append_jsonl as _append_jsonl,
     load_declared_jsonl,
-    load_jsonl as _load_jsonl,
     rewrite_declared_json,
 )
 from .runtime_profile import enforce_profile_for_write
@@ -62,21 +60,20 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return append_declared_jsonl(path, record, expected_surface=surface)
-    return _append_jsonl(path, record)
+    raise GovernanceError(f"agent_genesis_append_unknown_surface:{Path(path).as_posix()}")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return load_declared_jsonl(path, expected_surface=surface)
-    return _load_jsonl(path)
+    raise GovernanceError(f"agent_genesis_load_unknown_surface:{Path(path).as_posix()}")
 
 
 def _gap_key_batch_count(capability_gap_key: str, base_dir: str | Path | None) -> int:
     """How many recorded gap batches carried this capability key — the
     honest `valid_cycles` count the CANDIDATE gate reads (derived from
     the ledger, never asserted)."""
-    from .capability_gap import latest_capability_gaps  # noqa: F401  (module anchor)
     from .ledger import load_jsonl as load_chained_jsonl
 
     path = ensure_tools_dir(base_dir) / "capability-gaps" / "gaps.jsonl"
@@ -894,9 +891,7 @@ def sweep_candidate_gaps_for_adjudication(
     exactly as it blocks direct genesis. Capped per cycle so the backlog
     drains without flooding the panel queue.
     """
-    import hashlib as _hashlib
-
-    from .capability_gap import GENESIS_ADJUDICATION_BLOCK_TOKEN, latest_capability_gaps
+    from .capability_gap import GENESIS_ADJUDICATION_BLOCK_TOKEN
     from .genesis_policy import genesis_panel_policy
     from .human_required import _human_required_path, record_human_required
 
@@ -919,7 +914,7 @@ def sweep_candidate_gaps_for_adjudication(
         if gap_key in already_requested:
             skipped.append({"gap_key": gap_key, "reason": "genesis_already_requested"})
             continue
-        digest = _hashlib.sha256(gap_key.encode()).hexdigest()[:16]
+        digest = hashlib.sha256(gap_key.encode()).hexdigest()[:16]
         # WHY dash, not colon: the id doubles as the human-required FILENAME
         # and GitHub's artifact uploader rejects ':' in paths — the first
         # live escalation turned the sealed cycle's forensic upload red
@@ -1007,7 +1002,7 @@ def execute_genesis_panel_approval(
     draft = draft_agent_from_gap(
         gap_id=gap_id, adjudication_ref=escalation_id, base_dir=root,
     )
-    return {"gap_key": gap_key, "draft": draft.get("row_id") or draft.get("name")}
+    return {"gap_key": gap_key, "draft": draft["draft_id"]}
 
 
 def request_agent_genesis(

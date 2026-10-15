@@ -18,7 +18,6 @@ import time
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Literal, Mapping
 
-from .autonomy_state import fold_autonomy_state_rows as _fold_autonomy_state_rows
 from .ledger import SEGMENT_OPENED_ROW_TYPE
 from .state_snapshot import (
     MAX_SNAPSHOT_JSON_BYTES,
@@ -611,7 +610,6 @@ _MAX_SNAPSHOT_SURFACE_BLOB_BYTES = SNAPSHOT_MAX_SURFACE_BLOB_BYTES
 _MAX_SNAPSHOT_INPUT_BYTES = SNAPSHOT_MAX_INPUT_BYTES
 _MAX_EVIDENCE_LEDGER_BLOB_BYTES = 64 * 1024 * 1024
 _MAX_EVIDENCE_INPUT_BYTES = 80 * 1024 * 1024
-_MAX_EVIDENCE_LEDGER_LINE_BYTES = 1024 * 1024
 _MAX_EVIDENCE_LEDGER_ROWS = 100_000
 # ARIA-HIGH-278 — a carried ledger's verified prefix carries its evidence
 # forward as one checkpoint row, so a publish consumes only the rows after
@@ -3700,142 +3698,6 @@ def _load_counted_rows(
 
 def _integer(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
-def _capability_safe_counts(
-    capability: str,
-    rows_by_surface: Mapping[str, tuple[Mapping[str, Any], ...]],
-) -> dict[str, int]:
-    """Return native, non-overlapping diagnostic counts for one capability."""
-    spec = CAPABILITY_SPECS[capability]
-    counts = {
-        name: len(rows_by_surface.get(name, ()))
-        for name in spec.count_surfaces
-    }
-    if capability == "cycle_runtime":
-        cycles: list[Mapping[str, Any]] = []
-        for raw in rows_by_surface.get("cycles", ()):
-            try:
-                cycles.append(_upcast_cycle_row(raw))
-            except Exception:  # noqa: BLE001 - diagnostics count the readable row
-                cycles.append(raw)
-        for status in ("started", "completed", "failed", "stopped", "aborted"):
-            counts[f"cycle_status_{status}"] = sum(
-                row.get("status") == status for row in cycles
-            )
-        state = _fold_autonomy_state_rows(
-            rows_by_surface.get("autonomy_state", ()),
-        )
-        counts.update({
-            "autonomy_state_transition_count": state.transition_count,
-            "autonomy_state_cycles_completed": state.cycles_completed,
-            "autonomy_state_planner_claims_dispatched": (
-                state.planner_claims_dispatched
-            ),
-            "autonomy_state_worker_assignments_dispatched": (
-                state.worker_assignments_dispatched
-            ),
-            "autonomy_state_auto_merges_completed": (
-                state.auto_merges_completed
-            ),
-        })
-    elif capability == "executor":
-        results = rows_by_surface.get("agent_invocation_results", ())
-        counts["executor_results_accepted"] = sum(
-            row.get("status") == "accepted" for row in results
-        )
-        counts["executor_results_rejected"] = sum(
-            row.get("status") == "rejected" for row in results
-        )
-        drains = tuple(
-            row
-            for row in rows_by_surface.get("tools_governance", ())
-            if row.get("kind") == "executor_drain_completed"
-        )
-        counts["executor_drain_completed"] = len(drains)
-        for field in ("attempted", "succeeded", "failed"):
-            counts[f"executor_drain_{field}"] = sum(
-                _integer((row.get("details") or {}).get(field))
-                if isinstance(row.get("details"), dict)
-                else 0
-                for row in drains
-            )
-    elif capability == "finding_funnel":
-        counts["ai_consensus_true_positive"] = sum(
-            row.get("source_type") == "ai_consensus"
-            and row.get("verdict") == "true_positive"
-            for row in rows_by_surface.get("operator_feedback", ())
-        )
-        counts["unique_promoted"] = len({
-            str(row.get("finding_fingerprint"))
-            for row in rows_by_surface.get("promotions", ())
-            if row.get("finding_fingerprint")
-        })
-    elif capability == "fixture_calibration":
-        suites = tuple(
-            row
-            for row in rows_by_surface.get("agent_eval_fixture_runs", ())
-            if row.get("row_type") == "fixture_run_suite"
-        )
-        passed = sum(
-            row.get("passed") is True and row.get("actual_status") == "pass"
-            for row in suites
-        )
-        counts["fixture_suites_passed"] = passed
-        counts["fixture_suites_failed"] = len(suites) - passed
-        counts["judge_rows"] = len(rows_by_surface.get("calibration_judge", ()))
-        counts["adapter_rows"] = len(
-            rows_by_surface.get("calibration_adapter_reports", ()),
-        )
-    elif capability == "pre_merge_perimeter":
-        decisions = rows_by_surface.get("auto_merge_decisions", ())
-        counts["premerge_decisions"] = len(decisions)
-        counts["premerge_stages"] = sum(bool(row.get("stage")) for row in decisions)
-        counts["premerge_merged"] = sum(
-            row.get("decision") == "merged" for row in decisions
-        )
-        for decision in ("eligible", "blocked", "failed", "merged"):
-            counts[f"premerge_decision_{decision}"] = sum(
-                row.get("decision") == decision for row in decisions
-            )
-    elif capability == "enterprise_readiness":
-        claims = rows_by_surface.get("enterprise_readiness_claims", ())
-        valid = sum(_enterprise_readiness_v2_terminal(row) for row in claims)
-        counts["readiness_valid"] = valid
-        counts["readiness_invalid"] = len(claims) - valid
-    elif capability == "autonomy_unlock":
-        from .autonomy_unlock import ACCEPTANCE_EVENT_TYPES
-
-        acceptance = rows_by_surface.get("enterprise_acceptance_events", ())
-        for event_type in ACCEPTANCE_EVENT_TYPES:
-            counts[f"acceptance_{event_type}"] = sum(
-                row.get("event_type") == event_type for row in acceptance
-            )
-        verdicts = rows_by_surface.get("enterprise_autonomy_unlock_events", ())
-        counts["unlock_verdict_valid"] = sum(
-            row.get("valid") is True for row in verdicts
-        )
-        counts["unlock_verdict_invalid"] = sum(
-            row.get("valid") is not True for row in verdicts
-        )
-    return counts
-
-
-def _capability_counts_with_blocker(
-    capability: str,
-    rows_by_surface: Mapping[str, tuple[Mapping[str, Any], ...]],
-) -> tuple[dict[str, int], str | None]:
-    """Keep malformed diagnostic payloads from authorizing or crashing status."""
-    try:
-        return _capability_safe_counts(capability, rows_by_surface), None
-    except Exception:  # noqa: BLE001 - diagnostic parsing is non-authorizing
-        spec = CAPABILITY_SPECS[capability]
-        counts = {
-            name: len(rows_by_surface.get(name, ()))
-            for name in spec.count_surfaces
-        }
-        counts["count_rejected"] = 1
-        return counts, f"count_rejected:{capability}"
 
 
 _UNLOCK_REQUIREMENT_FIELDS: Mapping[str, frozenset[str]] = MappingProxyType({

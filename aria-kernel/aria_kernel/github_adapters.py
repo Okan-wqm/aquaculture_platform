@@ -42,12 +42,12 @@ import os
 import re
 import subprocess
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
 from .auto_merge import GhCliGitHubAdapter
 from .github_writes import GitHubWriteRefused, run_gh_write
+from .hmac_keyring import utc_now_stamp
 
 __all__ = [
     "GhCliGitHubAdapter",
@@ -58,17 +58,8 @@ __all__ = [
 ]
 
 
-_REAL_ADAPTER_PROFILES: frozenset[str] = frozenset({"strict", "autonomous"})
-_RECORDING_ADAPTER_PROFILES: frozenset[str] = frozenset(
-    {"observe", "standard", "frozen"}
-)
-
 _AUDIT_LOG_RELATIVE_PATH = ("audit", "intended-gh-calls.jsonl")
 _AUDIT_WRITE_LOCK = threading.Lock()
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class RecordingGitHubAdapter:
@@ -80,6 +71,11 @@ class RecordingGitHubAdapter:
     deterministic stub payloads so downstream code (``merge_if_green``
     + ``evaluate_auto_merge``) sees structurally-valid input and
     fails closed on the "no real PR data" path rather than crashing.
+    Every READ stub returns ``readable: False`` (reason
+    ``recording_adapter_no_fetch``) in the snapshot's own shape: a
+    recording profile fetched nothing, so it can attest to no check,
+    review or conversation state (ARIA-MEDIUM-467 — empty lists without the flag
+    read as "nothing required, nothing unresolved" and passed the gates).
 
     Threading: the audit-append uses a module-level lock so
     multi-thread test fixtures cannot interleave row writes (the
@@ -107,7 +103,7 @@ class RecordingGitHubAdapter:
         # raise ``TypeError: got multiple values for argument 'method'``).
         row: dict[str, Any] = {
             "schema_version": 1,
-            "recorded_at": _utc_now_iso(),
+            "recorded_at": utc_now_stamp(),
             "method": _method_name,
             "args": call_args,
             "profile": self.profile,
@@ -143,24 +139,23 @@ class RecordingGitHubAdapter:
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:
         self._record("get_required_checks", base_branch=base_branch)
-        return {"contexts": [], "checks": []}
+        return {"readable": False, "reason": "recording_adapter_no_fetch", "required_checks": []}
 
     def get_checks(self, head_sha: str) -> dict[str, Any]:
         self._record("get_checks", head_sha=head_sha)
-        return {"check_runs": [], "statuses": []}
+        return {"readable": False, "reason": "recording_adapter_no_fetch", "runs": []}
 
     def get_reviews(self, number: int) -> dict[str, Any]:
         self._record("get_reviews", number=number)
-        return {"reviews": []}
+        return {"readable": False, "reason": "recording_adapter_no_fetch", "items": []}
 
     def get_unresolved_conversation_count(self, number: int) -> dict[str, Any]:
         self._record("get_unresolved_conversation_count", number=number)
-        return {"count": 0}
+        return {"readable": False, "reason": "recording_adapter_no_fetch", "unresolved_count": None}
 
     def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
         self._record("get_open_issues", labels=list(labels))
-        # Minimal-shape stub that fails CLOSED, matching this adapter's other
-        # stubs: a recording profile never fetched the issue list, so it cannot
+        # A recording profile never fetched the issue list, so it cannot
         # claim there is no incident.
         return {"readable": False, "reason": "recording_adapter_no_fetch", "issues": []}
 
@@ -259,14 +254,21 @@ class GhCliIssueWriter:
     creates nothing — creating then could open a second issue for the title.
     """
 
-    def __init__(self, cwd: str | Path = ".") -> None:
+    def __init__(self, cwd: str | Path = ".", *, repo: str | None = None,
+                 timeout_seconds: float = ISSUE_WRITE_TIMEOUT_SECONDS) -> None:
         self._cwd = Path(cwd)
+        # ARIA-HIGH-415 — the notifier names its repository
+        # (ARIA_NOTIFY_GITHUB_REPO) and prices its calls from its own wall
+        # clock; the freeze notice passes neither, so its argv and timeout
+        # are what they always were (`gh` resolves the repository from cwd).
+        self._repo_flags = ["--repo", repo] if repo else []
+        self._timeout = timeout_seconds
 
     def _gh(self, args: list[str]) -> tuple[bool, str]:
         try:
             done = subprocess.run(
-                ["gh", *args], cwd=self._cwd, capture_output=True, text=True, check=False,
-                timeout=ISSUE_WRITE_TIMEOUT_SECONDS,
+                ["gh", *args, *self._repo_flags], cwd=self._cwd, capture_output=True, text=True, check=False,
+                timeout=self._timeout,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             return False, f"{exc.__class__.__name__}: {str(exc)[:200]}"
@@ -276,7 +278,7 @@ class GhCliIssueWriter:
         # ARIA-CRITICAL-246 — a write runs on an installation token; a refusal
         # is this call's failed outcome, by name, like any transport failure.
         try:
-            done = run_gh_write(args, cwd=self._cwd, timeout=ISSUE_WRITE_TIMEOUT_SECONDS)
+            done = run_gh_write([*args, *self._repo_flags], cwd=self._cwd, timeout=self._timeout)
         except GitHubWriteRefused as exc:
             return False, str(exc)
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -334,6 +336,28 @@ class GhCliIssueWriter:
             if not ok:
                 return {"outcome": "failed", "reason": f"issue_edit_failed:{out}", "number": found["number"]}
             return {"outcome": "updated", "number": int(found["number"]), "url": found.get("url")}
+        return self._create(title=title, body=body, labels=labels)
+
+    def comment_or_create(self, *, title: str, body: str, labels: Sequence[str]) -> dict[str, Any]:
+        """Comment ``body`` on the open issue titled ``title``, else open it (ARIA-HIGH-415).
+
+        The notifier's write. A notice is history, so a found issue gains a
+        comment (which notifies its watchers; an edited body does not)
+        instead of having its body replaced as ``upsert_issue`` does.
+        Found the same way, through the issue list and never the search
+        index, so a second notice right after the first finds it.
+        """
+        found_ok, found, reason = self._find_open(title, labels)
+        if not found_ok:
+            return {"outcome": "failed", "reason": reason}
+        if found is not None:
+            ok, out = self._gh_write(["issue", "comment", str(found["number"]), "--body", body])
+            if not ok:
+                return {"outcome": "failed", "reason": f"issue_comment_failed:{out}", "number": found["number"]}
+            return {"outcome": "commented", "number": int(found["number"]), "url": found.get("url")}
+        return self._create(title=title, body=body, labels=labels)
+
+    def _create(self, *, title: str, body: str, labels: Sequence[str]) -> dict[str, Any]:
         refused = self._ensure_labels(labels)
         if refused is not None:
             return {"outcome": "failed", "reason": refused}
@@ -401,9 +425,11 @@ def select_github_adapter(
 ) -> Any:
     """Plan ARIA-V3 §A2 — profile-derived adapter factory.
 
-    Adding a new profile requires updating the two constants at the
-    top of this module AND a matching V3 invariant test. Unknown
-    profile raises ``ValueError`` — no silent default.
+    The profile classification lives in ``runtime_profile``
+    (``GITHUB_LIVE_PROFILES`` / ``GITHUB_RECORDING_PROFILES``, derived from
+    ``ACTION_PERMISSIONS``), so a new profile is classified where it is
+    declared. A string outside ``runtime_profile.PROFILES`` raises
+    ``ValueError`` — no silent default.
 
     Plan ARIA-V3.1-F2 fix: ARIA_DRY_RUN=true structurally prevents
     real GitHub adapter selection regardless of profile. Closes the
@@ -414,7 +440,7 @@ def select_github_adapter(
     operator hygiene. RecordingGitHubAdapter still writes every
     intended call to the audit log so the override is observable.
     """
-    from .runtime_profile import merge_authority_available
+    from .runtime_profile import GITHUB_LIVE_PROFILES, GITHUB_RECORDING_PROFILES, merge_authority_available
 
     # ARIA-MEDIUM-226 — the merge lane talks to GitHub whenever merge
     # authority exists (`runtime_profile.merge_authority_available`, the one
@@ -422,18 +448,18 @@ def select_github_adapter(
     # profile holding an operator's merge-lane grant must merge through the
     # real adapter, not record intended calls. Every other caller keeps the
     # profile table.
-    real = profile in _REAL_ADAPTER_PROFILES or (
+    real = profile in GITHUB_LIVE_PROFILES or (
         merge_lane and merge_authority_available(base_dir=base_dir)
     )
     if _aria_dry_run_active() and real:
         return RecordingGitHubAdapter(base_dir=base_dir, profile=profile)
     if real:
         return GhCliGitHubAdapter(cwd=cwd)
-    if profile in _RECORDING_ADAPTER_PROFILES:
+    if profile in GITHUB_RECORDING_PROFILES:
         return RecordingGitHubAdapter(base_dir=base_dir, profile=profile)
     raise ValueError(
         f"unknown profile for github_adapter selection: {profile!r}; "
-        f"known: {sorted(_REAL_ADAPTER_PROFILES | _RECORDING_ADAPTER_PROFILES)}"
+        f"known: {sorted(GITHUB_LIVE_PROFILES | GITHUB_RECORDING_PROFILES)}"
     )
 
 
@@ -445,11 +471,7 @@ def select_github_adapter(
 # standard nightly is exactly the profile that needs it: without it, ARIA
 # pushes a branch, CI goes red, and nothing ARIA runs ever learns.
 # `observe`/`frozen` stay on the recording side — those profiles promise no
-# network at all.
-
-_CHECKS_READER_REAL_PROFILES: frozenset[str] = frozenset(
-    {"strict", "autonomous", "standard"}
-)
+# network at all. The set is `runtime_profile.GITHUB_CHECKS_READ_PROFILES`.
 
 
 class RealChecksReader:
@@ -664,8 +686,10 @@ def select_checks_reader(
     profile: str,
     cwd: str | Path = ".",
 ) -> Any:
+    from .runtime_profile import GITHUB_CHECKS_READ_PROFILES
+
     if _aria_dry_run_active():
         return RecordingChecksReader(profile=f"{profile}_dry_run")
-    if profile in _CHECKS_READER_REAL_PROFILES:
+    if profile in GITHUB_CHECKS_READ_PROFILES:
         return RealChecksReader(cwd=cwd)
     return RecordingChecksReader(profile=profile)

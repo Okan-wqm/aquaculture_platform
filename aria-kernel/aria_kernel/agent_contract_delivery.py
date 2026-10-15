@@ -30,7 +30,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-AGENTS_DIR = Path(".claude") / "agents"
+from .agent_resolver import resolve_agent_md_path
+
 FRONTMATTER_RX = re.compile(r"\A---\r?\n.*?\r?\n---\r?\n", re.S)
 # `@.claude/knowledge/layer-2-aria-canonical-envelope.md`, with or without
 # backticks, as agent bodies spell their reader bookmarks.
@@ -60,24 +61,17 @@ class AgentContractDelivery:
         }
 
 
-def _find_agent_file(agent_name: str, repo_root: Path) -> Path | None:
-    base = repo_root / AGENTS_DIR
-    direct = base / f"{agent_name}.md"
-    if direct.is_file():
-        return direct
-    matches = sorted(base.glob(f"**/{agent_name}.md")) if base.is_dir() else []
-    return matches[0] if matches else None
-
-
 def render_agent_contract(
     agent_name: str, *, repo_root: str | Path, inline_budget_bytes: int = DEFAULT_INLINE_BUDGET_BYTES,
 ) -> AgentContractDelivery:
     root = Path(repo_root).resolve()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", agent_name or ""):
         raise AgentContractUnavailable(f"agent_name_invalid: {agent_name!r}")
-    path = _find_agent_file(agent_name, root)
+    path = resolve_agent_md_path(agent_name, root)
     if path is None:
-        raise AgentContractUnavailable(f"agent_file_unavailable: {agent_name!r} under {AGENTS_DIR}")
+        raise AgentContractUnavailable(
+            f"agent_file_unavailable: {agent_name!r} in no agent_resolver directory"
+        )
     try:
         body = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:

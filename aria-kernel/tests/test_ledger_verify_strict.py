@@ -15,9 +15,11 @@ from pathlib import Path
 
 from aria_kernel.ledger import (
     LedgerIntegrityError,
+    _load_jsonl_stored_verified,
     append_declared_jsonl,
     append_jsonl,
     load_jsonl_verified,
+    load_jsonl_verified_text,
     verify_jsonl,
 )
 from aria_kernel.state_manifest import surface_for_path
@@ -167,6 +169,54 @@ class LoadJsonlVerifiedTests(unittest.TestCase):
         self.assertEqual(rows[1]["event"], "b")
         # Missing file → empty list (matches load_jsonl semantics).
         self.assertEqual(load_jsonl_verified(self.tmp / "nope.jsonl"), [])
+
+
+class StrictLoaderRaiseParityTests(unittest.TestCase):
+    """ARIA-LOW-449 — the file loaders share one verify-and-raise body.
+
+    The public loader and the replay-only stored loader differ only in
+    transport unwrapping, so a defect must read the same through either.
+    The text loaders additionally refuse a torn tail; the file loaders do not.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-a19-parity-"))
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _raised(self, loader, path: Path, **kwargs) -> str:
+        with self.assertRaises(LedgerIntegrityError) as caught:
+            loader(path, **kwargs)
+        return str(caught.exception)
+
+    def test_chain_break_reads_the_same_through_both_file_loaders(self) -> None:
+        tools = self.tmp / "aria-tools"
+        ensure_tools_dir(tools)
+        path = tools / "governance.jsonl"
+        append_declared_jsonl(path, {"event": "first"}, expected_surface="tools_governance")
+        row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+        row["event"] = "tampered"
+        path.write_text(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+        public = self._raised(load_jsonl_verified, path, expected_surface="tools_governance")
+        stored = self._raised(_load_jsonl_stored_verified, path, expected_surface="tools_governance")
+        self.assertEqual(public, stored)
+        self.assertIn("reason=ledger_hash_mismatch line=1", public)
+
+    def test_io_error_is_named_by_both_file_loaders(self) -> None:
+        directory = self.tmp / "claims.jsonl"
+        directory.mkdir()
+        for loader in (load_jsonl_verified, _load_jsonl_stored_verified):
+            message = self._raised(loader, directory, expected_surface="tools_governance")
+            self.assertIn("reason_kind=io_error", message)
+
+    def test_text_loader_still_refuses_a_torn_tail(self) -> None:
+        path = self.tmp / "claims.jsonl"
+        append_jsonl(path, {"event": "a"})
+        content = path.read_text(encoding="utf-8") + '{"event": "b"'
+        with self.assertRaisesRegex(LedgerIntegrityError, "reason=immutable_torn_tail"):
+            load_jsonl_verified_text(content, source=path)
 
 
 if __name__ == "__main__":

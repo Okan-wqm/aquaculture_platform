@@ -36,7 +36,7 @@ on:
   # drain (cycle 37728223278, 2026-10-08) and the loop stalled until a
   # human dispatched it.
   schedule:
-    # 02:00 UTC daily (off-hours for most ARIA contributors)
+    # Daily (off-hours for most ARIA contributors)
     # 29 past, not :00 — same top-of-hour congestion as the cycle cron;
     # order vs the cycle is not load-bearing (the shared group serializes).
     - cron: '29 2 * * *'
@@ -78,15 +78,15 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write  # ARIA-AUDIT-016: attestation needs the Actions OIDC channel
+  id-token: write # ARIA-AUDIT-016: attestation needs the Actions OIDC channel
   # PLAN Wave 1 PR 2.6b — contents:write is what the cutover costs. The store
   # publishes by pushing `aria/state`; the branch ruleset bounds that on the
   # SERVER (no force-push, no deletion), so the widest thing this token can do
   # to the branch is append a commit descending from the tip.
   contents: write
   # ORPHAN-CRITICAL-420 S1 — actions:read remains for run/job introspection.
-  # The queue bridge between the 01:00 producer and this 02:00 consumer is the
-  # aria/state branch now, not an artifact.
+  # The queue bridge between the producer (aria-auto-cycle.yml) and this
+  # consumer is the aria/state branch now, not an artifact.
   actions: read
   # ARIA-CRITICAL-246 — the drain's one ambient gh read: the recovery
   # classifier asks whether a PR exists for an unresolved pr_create intent
@@ -181,13 +181,37 @@ jobs:
       # killed that install on 2026-09-03 and twice more, and each kill left
       # node_modules half-populated, so the NEXT run reinstalled from scratch
       # and was killed again. Same reset, one exclusion, loop gone.
+      # ARIA-HIGH-426 — git clean cannot remove what another account wrote
+      # here (a root-run rescue publish, 2026-10-08: every ARIA job failed at
+      # this step for 11 h with a bare exit 1). On failure the step names each
+      # path this account does not own and the remedy. The body is identical
+      # in aria-auto-cycle.yml and aria-agent-executor.yml (pinned by
+      # aria-kernel/tests/test_workspace_reset_names_foreign_owner.py); it runs
+      # before checkout, so no repository action or script can hold it.
       - name: Reset the persistent workspace, keeping installed dependencies
         shell: bash
         run: |
           set -euo pipefail
           if [ -d .git ]; then
-            git reset --hard
-            git clean -ffdx -e node_modules
+            if ! { git reset --hard && git clean -ffdx -e node_modules; }; then
+              me="$(id -un)"
+              foreign="${RUNNER_TEMP}/aria-workspace-foreign-owned.txt"
+              find . -xdev -name node_modules -prune -o ! -uid "$(id -u)" -printf '%u %p\n' > "$foreign" 2>/dev/null || true
+              count="$(wc -l < "$foreign")"
+              if [ "$count" -gt 0 ]; then
+                echo "::error title=Foreign-owned files in the persistent workspace::${count} path(s) under ${GITHUB_WORKSPACE} are not owned by ${me}, so git clean cannot remove them (ARIA-HIGH-426). As root on the runner host: chown -R ${me}:${me} each listed path, or move it aside. Run python and kernel commands on this tree only as ${me} (sudo -u ${me} ...)."
+                head -n 50 "$foreign"
+                {
+                  echo "### Foreign-owned paths in the persistent workspace (${count}, first 50)"
+                  echo '```'
+                  head -n 50 "$foreign"
+                  echo '```'
+                } >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "::error title=Persistent workspace reset failed::git reset or git clean failed and every path is owned by ${me}; the git output above names the cause."
+              fi
+              exit 1
+            fi
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -232,7 +256,8 @@ jobs:
         if: inputs.breaker_quarantine_reason == ''
         run: |
           set -euo pipefail
-          REQUIRED_CLAUDE_VERSION="2.1.221"
+          # The floor's one owner is .github/manifests/aria-claude-floor.json (ARIA-HIGH-500).
+          REQUIRED_CLAUDE_VERSION="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -c 'from aria_kernel.doctor import claude_cli_version_floor; print(claude_cli_version_floor())')"
           CLAUDE_VERSION="$(claude --version | awk '{print $1}')"
           python3 - "$REQUIRED_CLAUDE_VERSION" "$CLAUDE_VERSION" <<'PY'
           import sys
@@ -299,8 +324,8 @@ jobs:
           PY
 
       # ORPHAN-CRITICAL-420 S1 — bridge the agent-invocation queue.
-      # The 01:00 aria-auto-cycle mints requests into the state store; this
-      # 02:00 executor is the only consumer that claims them (agent
+      # The aria-auto-cycle producer mints requests into the state store; this
+      # executor is the only consumer that claims them (agent
       # next-pending filters on no role). Without this step the two lanes sat
       # either side of an unbridged boundary and next_pending_request always
       # returned None.

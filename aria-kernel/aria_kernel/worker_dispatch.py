@@ -16,6 +16,7 @@ from .ledger import (
     load_declared_jsonl,
     state_transaction,
 )
+from .agent_invocations import DEFAULT_LEASE_SECONDS
 from .agent_network import latest_agent_network_hash
 from .pressure import effective_workspace_pressures
 from .tool_registry import (
@@ -33,9 +34,8 @@ from .workspace import WorkspacePaths
 DEFAULT_WORKTREE_TTL_DAYS = 7
 DEFAULT_AUTO_BATCH_LIMIT = 10
 # Plan 025 §E — assignment claim primitives (mirror of agent_invocations
-# claim primitives). worker_dispatch operates on dispatch/requests.jsonl
-# rows; the claim ledger lives at dispatch/claims.jsonl.
-DEFAULT_LEASE_SECONDS = 1800
+# claim primitives, under its DEFAULT_LEASE_SECONDS). worker_dispatch operates
+# on dispatch/requests.jsonl rows; the claim ledger lives at dispatch/claims.jsonl.
 LEASE_TOKEN_BYTES = 24
 
 # PLAN Wave 2 PR 1.4 (ORPHAN-HIGH-487) — the assignment states in which work
@@ -56,6 +56,16 @@ ACTIVE_ASSIGNMENT_STATES: frozenset[str] = frozenset({
     "picked_up",
     "submitted",
 })
+
+# ARIA-MEDIUM-459 — the assignment states that free their pressure for a NEW dispatch.
+# Named as the complement on purpose: every other state means the pressure
+# still has work, or the state machine has already ruled on it (`verified`,
+# `stale`, `human_required`, `submit_rejected`, `verification_failed`,
+# `multiple_active_claims_corruption`), and re-dispatching would restart that
+# work with a fresh per-assignment retry budget. Only the legacy request-row
+# seeds `cancelled` / `expired` mean the work is gone; a state the reducer
+# learns later therefore blocks re-dispatch by default.
+REDISPATCHABLE_ASSIGNMENT_STATES: frozenset[str] = frozenset({"cancelled", "expired"})
 
 # How many times an expired lease returns its assignment to the queue before
 # the assignment is escalated instead. Mirrors
@@ -346,7 +356,7 @@ def auto_batch_dispatch(
         pe = str(row.get("pressure_event_id") or "")
         if not pe or pe in seen:
             continue
-        if states_by_pressure.get(pe, set()) & {"pending", "prepared", "picked_up", "submitted", "verified", "completed"}:
+        if states_by_pressure.get(pe, set()) - REDISPATCHABLE_ASSIGNMENT_STATES:
             continue
         seen.add(pe)
         candidates.append(row)
@@ -518,22 +528,25 @@ def _find_assignment(root: Path, assignment_id: str) -> dict[str, Any] | None:
 def _derive_assignment_state(root: Path, assignment_id: str) -> str:
     """Derive an assignment's current state by following its lifecycle.
 
-    Sources (in precedence order):
-      1. Latest ``dispatch_request_state_changed`` event for the
-         assignment's pressure_event_id in governance.jsonl.
-      2. The assignment row's own ``state`` field.
+    The state is the §G.2 fold in ``_latest_assignment_states``. It is
+    SEEDED from the request row's own ``state`` (``dispatch/requests.jsonl``
+    enters the fold at source priority 0, and ``prepared`` comes only from
+    there), then advanced by ``dispatch/claims.jsonl``,
+    ``dispatch/worker-results.jsonl`` and
+    ``dispatch/verification-results.jsonl``. ``governance.jsonl`` is
+    audit-only: its ``dispatch_request_state_changed`` rows never feed the
+    state. Returns ``missing`` when no request row has this assignment id.
 
-    States: pending / prepared / picked_up / completed / cancelled /
-    expired. The worker daemon writes ``picked_up`` (via the claim
-    primitive below); ``completed`` is set after verification.
+    States the fold produces: pending, prepared, picked_up, submitted,
+    submit_rejected, verified, verification_failed, stale, human_required,
+    multiple_active_claims_corruption. ``completed``, ``cancelled`` and
+    ``expired`` enter only as legacy request-row seeds: nothing in the fold
+    produces them, and ``cancel_dispatch_request`` writes governance only.
 
-    PLAN Wave 2 PR 1.4 — this docstring previously said "the reaper writes
-    ``expired`` when a lease times out". There was no reaper, and nothing
-    has ever produced ``expired``. `reap_expired_assignment_claims` is that
-    reaper now, and it writes into the claims vocabulary this fold already
-    understands (``released`` back to pending, or terminal
-    ``human_required``) rather than a state with no producer. ``expired``
-    survives only as a state `prune_worktrees` still recognises.
+    PLAN Wave 2 PR 1.4 — lease expiry is settled by
+    ``reap_expired_assignment_claims``, which writes the claims vocabulary
+    this fold already understands (``released`` back to pending, or terminal
+    ``human_required``) rather than a new ``expired`` state with no producer.
     """
     assignment = _find_assignment(root, assignment_id)
     if assignment is None:
@@ -570,6 +583,7 @@ def claim_assignment(
     *,
     assignment_id: str,
     agent_id: str,
+    provider: str,
     lease_seconds: int = DEFAULT_LEASE_SECONDS,
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
@@ -587,11 +601,19 @@ def claim_assignment(
     is what gets persisted to claims.jsonl. Caller MUST forward the
     raw token via env var (ARIA_LEASE_TOKEN) per the lease-token
     redaction discipline.
+
+    ARIA-MEDIUM-444 — ``provider`` is the rung the dispatch routed this
+    claim to (``runtime_profiles.worker_route``), recorded on the row so
+    the lease reaper judges an expiry by the provider the work ran on.
+    Required: a claim without its route is how the reaper came to blame
+    the ladder's head for a Z.ai run that hung.
     """
     if lease_seconds <= 0:
         raise GovernanceError("lease_seconds must be positive")
     if not agent_id or not agent_id.strip():
         raise GovernanceError("agent_id is required")
+    if not provider or not provider.strip():
+        raise GovernanceError("provider is required")
     root = ensure_tools_dir(base_dir)
     claims_path = _claims_path(root)
     with state_transaction([claims_path]) as transaction:
@@ -627,6 +649,7 @@ def claim_assignment(
             "assignment_id": assignment_id,
             "pressure_event_id": (assignment or {}).get("pressure_event_id"),
             "agent_id": agent_id,
+            "provider": provider,
             "lease_token_hash": _hash_lease_token(lease_token),
             "lease_seconds": lease_seconds,
             "recorded_at": _iso(now),
@@ -658,7 +681,7 @@ def claim_assignment(
         root, "dispatch_claim_created",
         {
             "claim_id": cid, "assignment_id": assignment_id,
-            "agent_id": agent_id, "lease_expires_at": _iso(expires),
+            "agent_id": agent_id, "provider": provider, "lease_expires_at": _iso(expires),
         },
     )
     return {**row, "lease_token": lease_token}
@@ -815,29 +838,13 @@ def pr_for_assignment(
     return pr_number
 
 
-def _latest_request_states(root: Path) -> dict[str, str]:
-    states: dict[str, str] = {}
-    for row in load_jsonl(root / "dispatch" / "requests.jsonl"):
-        pe = row.get("pressure_event_id")
-        if pe:
-            states[pe] = row.get("state", "pending")
-    for row in load_jsonl(root / "governance.jsonl"):
-        if row.get("kind") != "dispatch_request_state_changed":
-            continue
-        details = row.get("details") or {}
-        pe = details.get("pressure_event_id")
-        to_state = details.get("to_state")
-        if pe and to_state:
-            states[pe] = str(to_state)
-    return states
-
-
 def _latest_assignment_states(root: Path) -> dict[str, str]:
     """Plan 026R §G.1+§G.2 — assignment-id-keyed state derivation.
 
-    Pre-§G.1 ``_latest_request_states`` was pressure_event_id-keyed
-    so two assignments for the same pressure (e.g. a retry after a
-    rejected first attempt) clobbered each other in the state map.
+    Pre-§G.1 the (since-removed) ``_latest_request_states`` fold was
+    pressure_event_id-keyed, so two assignments for the same pressure
+    (e.g. a retry after a rejected first attempt) clobbered each other in
+    the state map.
     Multi-assignment-per-pe is a real flow; the legacy keying made
     list_dispatch_requests / mark_dispatch_picked_up ambiguous.
 
@@ -1020,6 +1027,7 @@ def active_dispatch_assignments(
                 "plan_id": row.get("plan_id"),
                 "pressure_event_id": row.get("pressure_event_id"),
                 "created_at": row.get("created_at"),
+                "target_agent": row.get("target_agent"),
             })
     return active
 
@@ -1052,15 +1060,48 @@ def _lease_expiry_count(root: Path, assignment_id: str) -> int:
     `assignment_retry_count` is: the dispatch row is append-only, and
     rewriting it for a counter would re-open the write-side defect
     Plan 024 §H-1 closed.
+
+    ARIA-MEDIUM-437 — a lease an outage of the worker's provider ate is not
+    the assignment's (``provider_clock.lease_expiry_reason``), so its row is
+    not counted. A row written before the reason was recorded is.
     """
+    from .release_reason import LEASE_EXPIRED_DURING_OUTAGE_PREFIX
+
     count = 0
     for row in load_jsonl(root / "governance.jsonl"):
         if row.get("kind") != "dispatch_claim_lease_expired":
             continue
         details = row.get("details") or {}
-        if details.get("assignment_id") == assignment_id:
+        if details.get("assignment_id") == assignment_id and not str(
+                details.get("reason") or "").startswith(LEASE_EXPIRED_DURING_OUTAGE_PREFIX):
             count += 1
     return count
+
+
+def _worker_lease_reason(
+    root: Path, assignment: dict[str, Any], claimed: dict[str, Any], expires: datetime,
+    clock: Any, heads: dict[str, frozenset[str]],
+) -> str:
+    """``lease_expired``, or the outage reason when the worker's provider was out (ARIA-MEDIUM-437).
+
+    ARIA-MEDIUM-444 — the provider is the one the claim was routed to, as its
+    writer recorded it (``claim_assignment``): since ARIA-HIGH-434 a worker
+    runs on Z.ai while Claude is cooled, and judging its lease by the head
+    waived a Z.ai run that hung for as long as Claude stayed out. A claim
+    written before the route was recorded keeps the rule it was written
+    under: the head of the ladder its target is routed over, read by the
+    hook's own resolver (``worker_ladder_for_target``).
+    """
+    from .provider_clock import lease_expiry_reason
+    from .worker_dispatch_hook import worker_ladder_for_target
+
+    routed = str(claimed.get("provider") or "")
+    if routed:
+        return lease_expiry_reason(clock, _parse_iso(claimed.get("claimed_at")), expires, frozenset({routed}))
+    target = str(assignment.get("target_agent") or "")
+    if target not in heads:
+        heads[target] = frozenset(worker_ladder_for_target(target, base_dir=root)[:1]) if target else frozenset()
+    return lease_expiry_reason(clock, _parse_iso(claimed.get("claimed_at")), expires, heads[target])
 
 
 def reap_expired_assignment_claims(
@@ -1104,7 +1145,10 @@ def reap_expired_assignment_claims(
     # on an assignment that has already died has nothing to release, and
     # writing it another terminal row would put noise in the audit trail where
     # the first row is the fact.
-    live = {row["assignment_id"] for row in active_dispatch_assignments(base_dir=root)}
+    live = {row["assignment_id"]: row for row in active_dispatch_assignments(base_dir=root)}
+    # ARIA-MEDIUM-437 — read only when some lease has actually expired.
+    lease_clock: Any = None
+    heads: dict[str, frozenset[str]] = {}
 
     reaped: dict[str, list[dict[str, Any]]] = {
         "expired": [],
@@ -1131,7 +1175,17 @@ def reap_expired_assignment_claims(
         assignment_id = str(claimed.get("assignment_id") or "")
         if not assignment_id or assignment_id not in live:
             continue
-        expiry_count = _lease_expiry_count(root, assignment_id) + 1
+        if lease_clock is None:
+            from .provider_clock import provider_clock
+
+            lease_clock = provider_clock(root)
+        # ARIA-MEDIUM-437 — a lease that ran out inside an open outage of the
+        # worker's provider (a runner killed in a network loss, a spawn that
+        # waited on a vendor that was not serving) is released harness-class
+        # and spends nothing of the lease budget: the agent-request lane's
+        # rule (ARIA-HIGH-367 M1), asked through its one owner.
+        reason = _worker_lease_reason(root, live[assignment_id], claimed, expires, lease_clock, heads)
+        expiry_count = _lease_expiry_count(root, assignment_id) + (1 if reason == "lease_expired" else 0)
         requeue = expiry_count <= max_requeues
         disposition = "requeued" if requeue else "human_required"
         recorded_at = _iso(moment)
@@ -1142,7 +1196,7 @@ def reap_expired_assignment_claims(
             "assignment_id": assignment_id,
             "pressure_event_id": claimed.get("pressure_event_id"),
             "agent_id": claimed.get("agent_id"),
-            "reason": "lease_expired",
+            "reason": reason,
             "lease_expires_at": claimed.get("lease_expires_at"),
             "expiry_count": expiry_count,
             "recorded_at": recorded_at,
@@ -1160,6 +1214,7 @@ def reap_expired_assignment_claims(
                 "lease_expires_at": claimed.get("lease_expires_at"),
                 "expiry_count": expiry_count,
                 "disposition": disposition,
+                "reason": reason,
             },
         )
         pressure_event_id = claimed.get("pressure_event_id")
@@ -1173,7 +1228,7 @@ def reap_expired_assignment_claims(
                     "from_state": "picked_up",
                     "to_state": "pending",
                     "claim_id": claim_id,
-                    "reason": "lease_expired",
+                    "reason": reason,
                 },
             )
         reaped["expired"].append(row)

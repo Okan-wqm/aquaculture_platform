@@ -105,7 +105,7 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 
 ## Auxiliary Maintenance Tooling
 
-These tools live at `.claude/agents/_maintenance/` and are intentionally OUTSIDE the runtime review roster. The `maintenance-isolation.spec.ts` invariant enforces their absence from this orchestrator's Runtime Review Roster table (making "maintenance agent silently dispatched in a runtime cycle" a tier-1 make-impossible violation, not tier-4 prose):
+The general maintenance tools and the ARIA drafter and prompt-writer live under `.claude/agents/_maintenance/`. The ARIA planners (`aria-primary-planner`, `aria-challenger-planner`) are ARIA-lane files at the `.claude/agents/` root. Every tool in this table is intentionally OUTSIDE the runtime review roster, and the `maintenance-isolation.spec.ts` invariant enforces the absence of every row of this table from the Runtime Review Roster (making "maintenance agent silently dispatched in a runtime cycle" a tier-1 make-impossible violation, not tier-4 prose):
 
 | Tool | Role |
 |------|------|
@@ -113,7 +113,7 @@ These tools live at `.claude/agents/_maintenance/` and are intentionally OUTSIDE
 | implementation-planner | Post-review planning only. Invoke in a separate, explicitly requested planning session after review is complete. Writes plans under `docs/plans/`; never touches source code. |
 | gdpr-erasure-executor | WRITER execution agent for GDPR Art 17 cascade. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Dispatched only via `implement:` token from compliance-expert or implementation-planner — never in an automatic review cycle. |
 | aria-primary-planner | ARIA convergent-gate primary planner. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
-| aria-challenger-planner | ARIA convergent-gate independent challenger and cross-review planner. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
+| aria-challenger-planner | ARIA convergent-gate independent challenger planner (cross-review is aria-cross-reviewer's). Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
 | aria-drafter | ARIA genesis draft materializer for agent/skill markdown bodies. Consumes kernel-issued DraftIntent envelopes only; never dispatched during runtime review cycles. |
 | aria-prompt-writer | ARIA-scoped prompt renderer for judges and maintenance agents. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
 

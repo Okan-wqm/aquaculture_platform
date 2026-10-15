@@ -123,6 +123,21 @@ def commit_files(repo: Path, files: dict[str, str], *, message: str = "fixture: 
     return _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
 
 
+def track_existing(directory: Path, *paths: str) -> Path:
+    """Make an existing ``directory`` a checkout that tracks ``paths``.
+
+    ARIA-MEDIUM-432 — an adapter's room shows what git tracks, so a fixture
+    workspace an adapter runs in is a checkout, as every production one is.
+    Only the named paths are committed: a store or tools root a test places
+    inside the workspace stays untracked, as on the runner.
+    """
+    directory = Path(directory)
+    make_local_git_repo(directory.parent, name=directory.name, initial_commit=False)
+    _git(["add", "--", *paths], cwd=directory)
+    _git(["commit", "-q", "--allow-empty", "-m", "fixture: track the workspace"], cwd=directory)
+    return directory
+
+
 def implementer_identity_args() -> list[str]:
     """``git -c`` args that commit as the kernel's implementer identity
     (ARIA-HIGH-387): a fixture standing in for the implementer's commit on a

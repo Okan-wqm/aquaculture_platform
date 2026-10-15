@@ -489,9 +489,13 @@ def mint_signing_key(
     ``implementation_safety.verify_commit_signature`` matches
     against ``git verify-commit --raw`` output.
 
-    Raises ValueError on malformed ``cycle_id``, RuntimeError on
-    ssh-keygen failure, FileExistsError when the key already exists
-    + ``overwrite=False``.
+    An existing key with ``overwrite=False`` is returned as an idempotent
+    re-mint: same fingerprint, ``git_signing=None``, no config written
+    (ARIA-HIGH-114). A caller that commits must refuse it, as
+    ``implementation_identity`` does with ``identity_already_held``.
+
+    Raises ValueError on malformed ``cycle_id`` and RuntimeError on
+    ssh-keygen failure.
     """
     _validate_cycle_id(cycle_id)
     workspace_root = _resolve_workspace_root(workspace_root)

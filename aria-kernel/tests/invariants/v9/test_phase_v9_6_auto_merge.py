@@ -6,8 +6,6 @@ ai HIGH-007, MED-016; perf MED-012.
 """
 from __future__ import annotations
 
-import json
-import subprocess
 import unittest
 from unittest import mock
 
@@ -71,148 +69,41 @@ class TestV9IdempotencyKey(unittest.TestCase):
         self.assertNotEqual(k1, k2)
 
 
-class TestV9PollPrChecks(unittest.TestCase):
-    """sec MED-004 — only SUCCESS advances; SKIPPED/NEUTRAL rejected."""
-
-    def _make_run(self, stdout: str, returncode: int = 0):
-        return mock.MagicMock(stdout=stdout, returncode=returncode, stderr="")
-
-    def test_all_success_returns_ok(self):
-        rows = [
-            {"name": "build", "state": "SUCCESS", "bucket": "pass"},
-            {"name": "test",  "state": "SUCCESS", "bucket": "pass"},
-        ]
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
-                        return_value=self._make_run(json.dumps(rows))):
-            status, summary = _am.poll_pr_checks(
-                pr_number=42, max_attempts=1, interval_seconds=0,
-                sleep_fn=lambda _: None,
-            )
-            self.assertEqual(status, "all_success")
-            self.assertEqual(len(summary), 2)
-
-    def test_red_check_rejected(self):
-        rows = [
-            {"name": "build", "state": "SUCCESS", "bucket": "pass"},
-            {"name": "test",  "state": "FAILURE", "bucket": "fail"},
-        ]
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
-                        return_value=self._make_run(json.dumps(rows))):
-            status, _ = _am.poll_pr_checks(
-                pr_number=42, max_attempts=1, interval_seconds=0,
-                sleep_fn=lambda _: None,
-            )
-            self.assertEqual(status, "ci_check_red")
-
-    def test_skipped_check_rejected(self):
-        """sec MED-004 — SKIPPED counted as failure (not pass)."""
-        rows = [
-            {"name": "build",  "state": "SUCCESS", "bucket": "pass"},
-            {"name": "secret", "state": "SKIPPED", "bucket": "skipping"},
-        ]
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
-                        return_value=self._make_run(json.dumps(rows))):
-            status, _ = _am.poll_pr_checks(
-                pr_number=42, max_attempts=1, interval_seconds=0,
-                sleep_fn=lambda _: None,
-            )
-            self.assertEqual(status, "ci_check_skipped_or_neutral")
-
-    def test_neutral_check_rejected(self):
-        rows = [
-            {"name": "build",  "state": "NEUTRAL", "bucket": "neutral"},
-            {"name": "test",   "state": "SUCCESS", "bucket": "pass"},
-        ]
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
-                        return_value=self._make_run(json.dumps(rows))):
-            status, _ = _am.poll_pr_checks(
-                pr_number=42, max_attempts=1, interval_seconds=0,
-                sleep_fn=lambda _: None,
-            )
-            self.assertEqual(status, "ci_check_skipped_or_neutral")
-
-    def test_timeout_when_gh_returns_pending_forever(self):
-        rows = [{"name": "build", "state": "IN_PROGRESS", "bucket": "pending"}]
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
-                        return_value=self._make_run(json.dumps(rows))):
-            status, _ = _am.poll_pr_checks(
-                pr_number=42, max_attempts=3, interval_seconds=0,
-                sleep_fn=lambda _: None,
-            )
-            self.assertEqual(status, "ci_check_timeout")
-
-    def test_gh_cli_unavailable(self):
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value=None):
-            status, _ = _am.poll_pr_checks(
-                pr_number=42, max_attempts=1, interval_seconds=0,
-                sleep_fn=lambda _: None,
-            )
-            self.assertEqual(status, "gh_cli_unavailable")
-
-
 class TestV9MergeOrchestration(unittest.TestCase):
-    """4-gate evaluation: profile, checks, branch_tip, evaluate_auto_merge."""
+    """ARIA-MEDIUM-467 — the V9 surface refuses every merge and never reaches ``gh``.
 
-    def test_strict_profile_rejected(self):
-        """Legacy V9 merge surface is disabled before profile gates."""
-        d = _am.evaluate_v9_implementation_merge(
-            plan_id="p", pr_number=42,
-            diff_hash="sha256:" + "0" * 64,
-            branch_tip_sha="abc", base_branch="main",
-            profile="strict",
-            sleep_fn=lambda _: None,
-        )
+    The global ``subprocess.run`` is patched so ANY process the surface
+    started — CI polling, a branch-tip recheck, a merge — would be seen.
+    """
+
+    def test_every_merge_is_refused_without_touching_github(self):
+        with mock.patch("subprocess.run") as run:
+            d = _am.evaluate_v9_implementation_merge(
+                plan_id="p", pr_number=42,
+                diff_hash="sha256:" + "0" * 64,
+                branch_tip_sha="EXPECTED_TIP", base_branch="main",
+            )
+        run.assert_not_called()
         self.assertFalse(d.eligible)
         self.assertEqual(d.rejection_class, "v9_merge_path_disabled_use_merge_if_green")
+        self.assertIsNone(d.merge_sha)
+        self.assertEqual(
+            d.idempotency_key_hash,
+            _am.compute_v9_idempotency_key(
+                plan_id="p", diff_hash="sha256:" + "0" * 64, pr_number=42,
+                base_branch="main", branch_tip_sha="EXPECTED_TIP",
+            ),
+        )
 
-    def test_ci_red_rejected(self):
-        """Legacy V9 merge surface is disabled before CI gates."""
-        rows = [{"name": "test", "state": "FAILURE", "bucket": "fail"}]
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
-                        return_value=mock.MagicMock(stdout=json.dumps(rows), returncode=0)):
-            d = _am.evaluate_v9_implementation_merge(
-                plan_id="p", pr_number=42,
-                diff_hash="sha256:" + "0" * 64,
-                branch_tip_sha="abc", base_branch="main",
-                profile="autonomous",
-                sleep_fn=lambda _: None,
-            )
-            self.assertFalse(d.eligible)
-            self.assertEqual(d.rejection_class, "v9_merge_path_disabled_use_merge_if_green")
+    def test_the_signature_carries_only_the_key_fields(self):
+        # ARIA-MEDIUM-467 — no dead profile/adapter/policy/gh/sleep parameters kept
+        # "so callers keep compiling": nothing in production calls this.
+        import inspect
 
-    def test_v9_merge_path_disabled_use_merge_if_green_rejected(self):
-        """Legacy V9 merge surface is disabled before branch-tip gates."""
-        green_rows = [{"name": "test", "state": "SUCCESS", "bucket": "pass"}]
-        drift_payload = {"headRefOid": "DIFFERENT_TIP"}
-
-        call_count = {"n": 0}
-        def _side_effect(*args, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                # First call = poll_pr_checks
-                return mock.MagicMock(stdout=json.dumps(green_rows), returncode=0)
-            else:
-                # Second call = the headRefOid recheck
-                return mock.MagicMock(stdout=json.dumps(drift_payload), returncode=0)
-
-        with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
-             mock.patch("aria_kernel.auto_merge_runners.subprocess.run", side_effect=_side_effect):
-            d = _am.evaluate_v9_implementation_merge(
-                plan_id="p", pr_number=42,
-                diff_hash="sha256:" + "0" * 64,
-                branch_tip_sha="EXPECTED_TIP",
-                base_branch="main",
-                profile="autonomous",
-                sleep_fn=lambda _: None,
-            )
-            self.assertFalse(d.eligible)
-            self.assertEqual(d.rejection_class, "v9_merge_path_disabled_use_merge_if_green")
+        self.assertEqual(
+            sorted(inspect.signature(_am.evaluate_v9_implementation_merge).parameters),
+            ["base_branch", "branch_tip_sha", "diff_hash", "plan_id", "pr_number"],
+        )
 
 
 class TestV9PublicApi(unittest.TestCase):
@@ -220,12 +111,16 @@ class TestV9PublicApi(unittest.TestCase):
     def test_v96_exports(self):
         canonical_additions = {
             "compute_v9_idempotency_key",
-            "poll_pr_checks", "evaluate_v9_implementation_merge",
-            "V9MergeDecision", "PR_CHECK_POLL_MAX_ATTEMPTS",
-            "PR_CHECK_POLL_INTERVAL_SECONDS",
+            "evaluate_v9_implementation_merge",
+            "V9MergeDecision",
         }
         for name in canonical_additions:
             self.assertIn(name, _am.__all__)
+        # ARIA-MEDIUM-467 — the poller the V9.6 banner described had no production
+        # caller; the surface it would feed refuses every merge.
+        for retired in ("poll_pr_checks", "PR_CHECK_POLL_MAX_ATTEMPTS", "PR_CHECK_POLL_INTERVAL_SECONDS"):
+            self.assertFalse(hasattr(_am, retired), retired)
+            self.assertNotIn(retired, _am.__all__)
 
 
 if __name__ == "__main__":

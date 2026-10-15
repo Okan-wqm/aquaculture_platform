@@ -11,7 +11,7 @@
 
 The action + validation-gate lookups are mocked because the §D.6
 check fires after both pass. Bridge-specific assertions live in
-test_validation_gate_runs.py (D.1) and pair-check tests.
+test_validation_runs_ledger.py (D.1) and pair-check tests.
 """
 from __future__ import annotations
 

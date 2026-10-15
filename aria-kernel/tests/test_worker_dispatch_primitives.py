@@ -108,6 +108,7 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
             assignment_id="A-CLAIM", pressure_event_id="P-CLAIM",
         )
         result = claim_assignment(
+            provider="anthropic",
             assignment_id="A-CLAIM",
             agent_id="daemon:test:1",
             lease_seconds=60,
@@ -133,6 +134,7 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
     def test_claim_assignment_missing_raises(self) -> None:
         with self.assertRaises(GovernanceError) as ctx:
             claim_assignment(
+                provider="anthropic",
                 assignment_id="A-NONE", agent_id="daemon:test:2",
                 base_dir=self.tools_root,
             )
@@ -143,6 +145,7 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
             assignment_id="A-REL", pressure_event_id="P-REL",
         )
         claim = claim_assignment(
+            provider="anthropic",
             assignment_id="A-REL",
             agent_id="daemon:test:3",
             base_dir=self.tools_root,
@@ -164,6 +167,7 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
         # Wrong-token release raises.
         # Re-claim first to get a fresh claim row.
         claim2 = claim_assignment(
+            provider="anthropic",
             assignment_id="A-REL", agent_id="daemon:test:3b",
             base_dir=self.tools_root,
         )

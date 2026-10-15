@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import errno
 import hashlib
-import json
 import re
 import stat as _stat
 from dataclasses import dataclass
@@ -11,6 +10,7 @@ from typing import Any
 
 from .canonical_path import matches_repo_glob, resolve_repo_relpath
 from .evidence_probe import BaselineResolution, GitProbeSession
+from .ledger import sha256_of_canonical_json
 from .tool_registry import GovernanceError
 
 
@@ -365,9 +365,7 @@ def classify_evidence_ref(
         "glob_match_count": glob_match_count,
         "validation_errors": list(validation_errors),
     }
-    envelope_hash = "sha256:" + hashlib.sha256(
-        json.dumps(envelope_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    ).hexdigest()
+    envelope_hash = "sha256:" + sha256_of_canonical_json(envelope_payload)
     return EvidenceEnvelope(
         canonical_ref=canonical_ref,
         line=line,

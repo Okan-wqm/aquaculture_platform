@@ -41,8 +41,14 @@ migration.
 
 ## 3. `snowball` branch as base for aria-implementer PRs (V9.1)
 
-**Decision:** Every aria-implementer PR opens with `--base snowball`. The `aria-impl-<hex16>`
-feature branch is created per cycle.
+> **SUPERSEDED.** ARIA targets `main` (ADR-031 status: the snowball branch was archived; ARIA
+> runs on main). `pr_manager.py::ARIA_PR_BASE` is `"main"` and every PR open path refuses any
+> other base; `lane_classifier.derive_lane_from_base_branch` treats `snowball` as historical
+> evidence only (`lane=None`); `aria-implementer.md` defers to `ARIA_PR_BASE`. This section
+> records the decision as it was made.
+
+**Decision (historical):** Every aria-implementer PR opened with `--base snowball`. The
+`aria-impl-<hex16>` feature branch was created per cycle.
 
 **Why one-way:** Once merged PRs accumulate, the snowball commit history carries every
 implementer-authored commit. Moving the base to a different branch (e.g. `aria-snowball`) would
@@ -51,9 +57,10 @@ require rebasing the entire ARIA history.
 **Reversibility cost:** A branch rename + remote ref rewrite + every downstream consumer (CI
 workflows, branch protection rules, GitHub App installation scope) must be updated.
 
-**Mitigation:** The `--base` value is a configuration constant on the `aria-implementer` agent file
-(V9.1) and the V9.0-D `ALLOWED_BASH_COMMANDS` regex `^gh\s+pr\s+create\s+--base\s+snowball`.
-Changing the base is a coordinated, multi-commit operation but possible.
+**Mitigation (as shipped):** The `--base` value was a configuration constant on the
+`aria-implementer` agent file (V9.1) and the V9.0-D `ALLOWED_BASH_COMMANDS` regex
+`^gh\s+pr\s+create\s+--base\s+snowball`. Changing the base was a coordinated, multi-commit
+operation — the ADR-031 transition to `main` was that operation.
 
 ## 4. `pattern_signature` hashing rule (V10.2)
 
@@ -253,6 +260,12 @@ and ledger is reported (`gateway_daemon_started.schedules_drift`), never rewritt
 carries `poll_interval_seconds`; the doctor organ `gateway_heartbeat_fresh` FAILS (not warns) when
 the beat is older than `HEARTBEAT_STALE_AFTER_BEATS` beats of that cadence, or absent while a
 schedule table exists.
+
+Amendment 2026-10-10 (ARIA-LOW-424): `pr_event` left `ROUTE_ACTIONS`. A PR delivery
+(`github.pr_opened|pr_synchronize|pr_closed`, still in `EVENT_KINDS`) is routed `ignored` with
+reason `pr_lifecycle_has_one_writer`: the route wrote `pr-events.jsonl`, a copy of the PR lifecycle
+whose one ledger is `pr-lifecycle.jsonl` (terminal rows by `merge_record` only, ARIA-HIGH-390). No
+inbox row ever carried the action (no gateway rows on aria/state f5c5c86a1).
 
 ## 15. MCP registry, strict per-spawn config, call ledger + quarantine (Plan 032 Faz 032g)
 
@@ -506,7 +519,7 @@ let the kernel replace reviewers it has not proven to match.
   append-only audit-chain semantics are the load-bearing safety guarantee that makes them irreversible
   without migration.
 - **1 of 5 is branch-anchored** (snowball as base). The cost is in coordinated infra updates, not
-  data migration.
+  data migration — SUPERSEDED (§3): ARIA targets `main` per ADR-031.
 - **1 of 5 is hash-anchored** (pattern_signature). Tier-2 mitigation via `schema_version` field.
 
 ## Invariants
@@ -517,6 +530,7 @@ let the kernel replace reviewers it has not proven to match.
 - I-V12-LEDGER-01/02 — ledger line budget binds at write time; readers import the writer's constant
 - I-V12-RELEASE-01/02/03, I-V12-STATE-03 — release-reason prefix ownership; surface-reset ceremony
 - I-V9-STATE-01 — `TERMINAL_STATES` contains both V9 terminal states
-- V9.1 frontmatter pin — agent file references `--base snowball`
+- V9.1 frontmatter pin — agent file referenced `--base snowball` (historical; the agent now
+  defers to `pr_manager.py::ARIA_PR_BASE`, which is `main`)
 
 Future ADRs touching any of these decisions MUST cite this doc + carry an explicit migration plan.

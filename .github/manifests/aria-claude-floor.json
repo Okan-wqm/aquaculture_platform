@@ -1,0 +1,11 @@
+{
+  "$comment": [
+    "The minimum Claude Code CLI version the ARIA lanes accept. One owner (ARIA-HIGH-500):",
+    "both live lanes' preflight steps (aria-auto-cycle.yml, aria-agent-executor.yml),",
+    "scripts/aria/provision_runner.sh and aria_kernel.doctor all read it through",
+    "doctor.claude_cli_version_floor, its one reader. The proven-contract",
+    "record (tools/aria-poc/ci_executor_contract_proven.md) names the same version and is",
+    "test-bound to this file. Raise it here, nowhere else."
+  ],
+  "claude_code_floor": "2.1.221"
+}

@@ -76,6 +76,20 @@ class WeightTests(unittest.TestCase):
         self.assertTrue(all(seconds >= 0 for seconds in weights.values()))
 
 
+class SuiteLayoutTests(unittest.TestCase):
+    def test_no_test_module_sits_at_the_kernel_root(self) -> None:
+        # Discovery walks KERNEL_ROOT itself, so a stray root-level module
+        # still runs — but outside the ``tests`` package, under a weight key
+        # and a module name no other test module shares. Every test module
+        # lives under tests/.
+        stray = sorted(
+            path.name
+            for path in shards.KERNEL_ROOT.glob(shards.DISCOVERY_PATTERN)
+            if path.is_file()
+        )
+        self.assertEqual(stray, [])
+
+
 class ShardSpecTests(unittest.TestCase):
     def test_k_of_n_parses(self) -> None:
         self.assertEqual(shards.parse_shard("3/8"), (3, 8))

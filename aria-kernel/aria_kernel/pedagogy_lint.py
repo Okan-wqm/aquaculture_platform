@@ -298,21 +298,18 @@ def _parse_tier_from_frontmatter(text: str) -> int | None:
     return int(tier_match.group(1))
 
 
-def lint_agent_file(
-    path: Path,
-    allowlist: set[str] | None = None,
-) -> tuple[list[Violation], bool]:
-    """Plan ARIA-V5 §3e v2 — lint one agent file.
+def lint_agent_file(path: Path) -> list[Violation]:
+    """Plan ARIA-V5 §3e v2 — lint one agent file and return its violations.
 
-    Returns (violations, was_allowlisted). When the agent file path
-    (relative to repo root) is in the allowlist, returns empty
-    violations + was_allowlisted=True.
+    Allowlist matching is not done here. The allowlist's keys are
+    repo-relative agent paths, and ``run_pedagogy_lint`` is the one
+    place that knows that path. A check here on ``str(path)`` could
+    match only when a library caller passed a relative ``agents_dir``;
+    the CLI resolves ``agents_dir`` to an absolute path, so for it such a
+    check never matched.
     """
     text = path.read_text(encoding="utf-8")
     tier = _parse_tier_from_frontmatter(text)
-
-    if allowlist is not None and str(path) in allowlist:
-        return [], True
 
     if tier is None:
         return [
@@ -324,11 +321,11 @@ def lint_agent_file(
                 tier=None,
                 reason="Plan ARIA-V5 §3e — agent file MUST declare `pedagogy-tier: N` (N ∈ {1,2,3}) in YAML frontmatter.",
             ),
-        ], False
+        ]
 
     if tier in TIER_IMPERATIVE_ONLY:
         # Tier-1 — bare imperatives allowed; no narrative required.
-        return [], False
+        return []
 
     body, fm_offset = _strip_frontmatter(text)
     body_lines = body.split("\n")
@@ -379,7 +376,7 @@ def lint_agent_file(
                     ),
                 ),
             )
-    return violations, False
+    return violations
 
 
 def load_allowlist(allowlist_path: Path) -> dict[str, dict[str, Any]]:
@@ -442,17 +439,13 @@ def run_pedagogy_lint(
     for path in agent_files:
         report.agents_scanned += 1
         rel_path = str(path.relative_to(agents_dir.parent.parent))
-        path_violations, was_allowlisted = lint_agent_file(
-            path,
-            allowlist=allowlist_set if not strict else None,
-        )
-        # Re-check with relative path for allowlist matching
+        # The one allowlist match site: the schema keys are repo-relative
+        # agent paths, and strict mode ignores the allowlist (C5 hard mode).
         if not strict and rel_path in allowlist_set:
-            was_allowlisted = True
-            path_violations = []
-        if was_allowlisted:
             report.agents_allowlisted += 1
-        elif not path_violations:
+            continue
+        path_violations = lint_agent_file(path)
+        if not path_violations:
             report.agents_compliant += 1
         else:
             report.violations.extend(path_violations)

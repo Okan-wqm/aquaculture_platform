@@ -14,13 +14,33 @@ interface WatchdogManifest {
 }
 
 interface WorkflowDocument {
-  on?: Record<string, unknown>;
+  on?: { schedule?: { cron: string }[] };
   permissions?: Record<string, string>;
   jobs?: Record<string, { steps?: { uses?: string; with?: Record<string, unknown> }[] }>;
 }
 
 function read(path: string): string {
   return readFileSync(path, 'utf-8');
+}
+
+/**
+ * The watchdog's one `schedule: - cron:` entry, as its minute and hour fields.
+ * Both schedule tests read the time from here, and the shape is asserted rather
+ * than assumed: a missing `on.schedule`, a second cron, or a line that does not
+ * open with numeric minute and hour fields fails with the value that broke it.
+ */
+function watchdogCronTime(document: WorkflowDocument): { minute: string; hour: string } {
+  const [entry, ...extra] = document.on?.schedule ?? [];
+  if (entry === undefined || extra.length > 0) {
+    throw new Error(
+      `${WATCHDOG_PATH} must declare exactly one schedule entry, got ${JSON.stringify(document.on)}`,
+    );
+  }
+  const [, minute, hour] = /^(\d{1,2}) (\d{1,2}) /.exec(entry.cron) ?? [];
+  if (minute === undefined || hour === undefined) {
+    throw new Error(`${WATCHDOG_PATH} cron '${entry.cron}' does not open with minute and hour`);
+  }
+  return { minute, hour };
 }
 
 describe('ARIA external watchdog contract', () => {
@@ -94,16 +114,28 @@ describe('ARIA external watchdog contract', () => {
   });
 
   it('runs on a schedule that follows both lanes it watches', () => {
-    const schedule = (workflow.on as { schedule?: { cron: string }[] })?.schedule;
-    expect(schedule).toHaveLength(1);
-    const [minute, hour] = schedule![0]!.cron.split(' ');
+    const { minute, hour } = watchdogCronTime(workflow);
     const watchdogHour = Number(hour);
     expect(Number.isInteger(watchdogHour)).toBe(true);
     expect(Number(minute)).toBeGreaterThanOrEqual(0);
-    // Both watched lanes run before 06:00 UTC; the watchdog must judge after
-    // them, or it grades a night that has not happened yet.
+    // The watchdog judges after the executor's nightly drain, or it grades a
+    // night that has not happened yet; the lanes' own crons hold their times.
     expect(watchdogHour).toBeGreaterThan(6);
     expect(watchdogHour).toBeLessThan(24);
+  });
+
+  it('describes the watched lanes without copying their clock times', () => {
+    // ARIA-HIGH-500 — each lane's `schedule: - cron:` line is the only owner of its
+    // clock time. Prose copies of those times went stale when the producer
+    // moved to the evening, so prose may describe the schedules, never name them.
+    const clockTime = /\b[0-2]\d:[0-5]\d\b/g;
+    const comment = (JSON.parse(read(MANIFEST_PATH)) as { $comment: string[] }).$comment.join('\n');
+    expect(comment.match(clockTime)).toBeNull();
+    const { minute, hour } = watchdogCronTime(workflow);
+    const own = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+    expect([...new Set(source.match(clockTime) ?? [])]).toEqual([own]);
+    const restore = read(join(REPO_ROOT, '.github', 'actions', 'restore-aria-state', 'action.yml'));
+    expect(restore.match(clockTime)).toBeNull();
   });
 
   it('checks out without credentials it does not need', () => {

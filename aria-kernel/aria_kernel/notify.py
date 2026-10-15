@@ -13,7 +13,6 @@ import hashlib
 import json
 import os
 import smtplib
-import subprocess
 import threading
 import urllib.error
 import urllib.parse
@@ -23,7 +22,6 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .github_writes import run_gh_write
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, state_transaction
 from .tool_registry import ensure_tools_dir, utc_now
 
@@ -44,22 +42,35 @@ CHANNEL_ENV_NAMES: dict[str, tuple[str, ...]] = {
     "telegram": ("ARIA_TELEGRAM_BOT_TOKEN", "ARIA_TELEGRAM_CHAT_ID"),
 }
 CHANNEL_SELECTOR_ENV = "ARIA_NOTIFY_CHANNELS"
+# ARIA-HIGH-415 — the operator's explicit "nobody": `ARIA_NOTIFY_CHANNELS=none`.
+# It is not a channel and never enters NOTIFY_CHANNELS, whose LENGTH prices
+# NOTIFY_WORST_CASE_SECONDS and through it the executor's 2280 s record wait.
+# It is a statement the doctor can tell apart from a configuration nobody
+# wrote (an empty selector with no channel env, which in CI is a fault).
+CHANNELS_DISABLED_SENTINEL = "none"
 DEFAULT_DEDUP_WINDOW = timedelta(hours=6)
-ISSUE_MARKER_PREFIX = "[aria-notify:"
+# The label every notice issue carries; the issue writer creates it when the
+# repository lacks it (`gh issue create` refuses an unknown label).
+NOTIFY_ISSUE_LABELS: tuple[str, ...] = ("aria",)
 Sender = Callable[[str, str, Mapping[str, str]], dict[str, Any]]
 
 # One transport call's bound — the number each sender hands its transport.
-_GH_CALL_TIMEOUT_SECONDS = 60
+# 30 s, so the GitHub sender's longest sequence still fits the 120 s wall
+# clock below (it was 60 s while that sequence was two calls).
+_GH_CALL_TIMEOUT_SECONDS = 30
 _SMTP_SOCKET_TIMEOUT_SECONDS = 30
 _HTTP_TIMEOUT_SECONDS = 30
 # The wall clock ONE sender gets, whatever its transport. WHY a wall clock
 # and not the transport bounds alone: a socket timeout (SMTP, HTTP) bounds
 # one operation and a session is many, so the transport bounds do not add
 # up to a bound on the sender. The sender runs on a worker joined for this
-# long — the GitHub sender's longest sequence (list, then comment or
-# create) at its per-call bound — and one that has not returned by then is
-# recorded `failed` and the next channel runs.
-SENDER_WALL_CLOCK_SECONDS: float = float(2 * _GH_CALL_TIMEOUT_SECONDS)
+# long — the GitHub sender's longest sequence (issue list, label list, label
+# create, issue create; a found issue is list + comment) at its per-call
+# bound — and one that has not returned by then is recorded `failed` and the
+# next channel runs. 4 x 30 s = 120 s: the same wall clock as before the
+# issue writer took over, so NOTIFY_WORST_CASE_SECONDS (4 x 120 + 900 = 1380)
+# and HUMAN_REQUIRED_RECORD_WAIT_SECONDS (900 + 1380 = 2280) do not move.
+SENDER_WALL_CLOCK_SECONDS: float = float(4 * _GH_CALL_TIMEOUT_SECONDS)
 # The longest one `notify()` can legitimately take: every channel the
 # vocabulary knows at its sender's wall clock, then ONE state transaction
 # for all of the call's outbox rows (`ledger.STATE_LOCK_LIVENESS_SECONDS`
@@ -86,9 +97,30 @@ def read_outbox(base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_declared_jsonl(path, expected_surface=OUTBOX_SURFACE)
 
 
+class ChannelSelectorInvalid(ValueError):
+    """`none` combined with a channel: the selector says both "nobody" and "somebody"."""
+
+
+def _selected_channels(env: Mapping[str, str]) -> list[str]:
+    selected = [c.strip() for c in str(env.get(CHANNEL_SELECTOR_ENV) or "").split(",") if c.strip()]
+    if CHANNELS_DISABLED_SENTINEL in selected and set(selected) != {CHANNELS_DISABLED_SENTINEL}:
+        raise ChannelSelectorInvalid(
+            f"notify_channel_selector_invalid:none_combined:{str(env.get(CHANNEL_SELECTOR_ENV))[:100]}"
+        )
+    return selected
+
+
+def notifications_disabled(environ: Mapping[str, str] | None = None) -> bool:
+    """True only when the operator selected `none`; raises ChannelSelectorInvalid on `none,<channel>`."""
+    env = os.environ if environ is None else environ
+    return set(_selected_channels(env)) == {CHANNELS_DISABLED_SENTINEL}
+
+
 def configured_channels(environ: Mapping[str, str] | None = None) -> tuple[str, ...]:
     env = os.environ if environ is None else environ
-    selected = [c.strip() for c in str(env.get(CHANNEL_SELECTOR_ENV) or "").split(",") if c.strip()]
+    selected = _selected_channels(env)
+    if set(selected) == {CHANNELS_DISABLED_SENTINEL}:
+        return ()
     # `stdout` is never implied: a daemon's journal is not a person's inbox, and an
     # event that only reached stdout must show as `unconfigured` in the outbox.
     candidates = selected or [c for c in NOTIFY_CHANNELS if c != "stdout"]
@@ -106,42 +138,31 @@ def _send_stdout(title: str, body: str, environ: Mapping[str, str]) -> dict[str,
     return {"transport": "stdout"}
 
 
-def _issue_marker(title: str) -> str:
-    return f"{ISSUE_MARKER_PREFIX}{hashlib.sha256(title.encode('utf-8')).hexdigest()[:10]}]"
-
-
 def _send_github_issue(title: str, body: str, environ: Mapping[str, str]) -> dict[str, Any]:
-    """Upsert: comment on the open issue carrying this title's marker, else create."""
-    repo = environ["ARIA_NOTIFY_GITHUB_REPO"]
-    marker = _issue_marker(title)
-    env = {**os.environ, **{k: v for k, v in environ.items() if k in {"GH_TOKEN", "GITHUB_TOKEN"}}}
-    listed = subprocess.run(
-        ["gh", "issue", "list", "--repo", repo, "--state", "open", "--search", f'"{marker}" in:body',
-         "--json", "number", "--limit", "1"],
-        capture_output=True, text=True, timeout=_GH_CALL_TIMEOUT_SECONDS, check=False, env=env,
-    )
-    number: int | None = None
-    if listed.returncode == 0:
-        try:
-            rows = json.loads(listed.stdout or "[]")
-            number = int(rows[0]["number"]) if rows else None
-        except (ValueError, KeyError, IndexError, TypeError):
-            number = None
-    text = f"{body}\n\n{marker}"
-    # ARIA-CRITICAL-246 — the notice is a write, so it runs on an installation
-    # token or raises GitHubWriteRefused, which the dispatcher records as this
-    # channel's failed row.
-    if number is not None:
-        done = run_gh_write(["issue", "comment", str(number), "--repo", repo, "--body", text],
-                            env=env, timeout=_GH_CALL_TIMEOUT_SECONDS)
-        action = "commented"
-    else:
-        done = run_gh_write(["issue", "create", "--repo", repo, "--title", title, "--body", text, "--label", "aria"],
-                            env=env, timeout=_GH_CALL_TIMEOUT_SECONDS)
-        action = "created"
-    if done.returncode != 0:
-        raise RuntimeError(f"gh issue {action} failed rc={done.returncode}: {(done.stderr or '')[:200]}")
-    return {"transport": "github_issue", "action": action, "issue": number, "ref": (done.stdout or "").strip()[:200]}
+    """One issue per TITLE: a comment on the open issue with this exact title, else a new one.
+
+    ARIA-HIGH-415. The kernel's one issue writer (`GhCliIssueWriter`, also
+    the self-merge freeze notice's) finds the issue through the issue LIST
+    filtered by label. This sender used to search the issue index for a
+    marker; the index lags a just-created issue, so a second notice seconds
+    later opened a second issue. Identity is the exact title, which is why
+    every producer's title is FIXED and what varies rides the body. The
+    credential is this process's (`run_gh_write` refuses anything but an
+    installation token); `environ` only says which repository.
+    """
+    from .github_adapters import GhCliIssueWriter
+    from .github_writes import require_installation_credential
+
+    # ARIA-CRITICAL-246 — the notice is a write: a credential that is not an
+    # installation token is refused by name before any gh call, and the
+    # dispatcher records the GitHubWriteRefused as this channel's failed row.
+    require_installation_credential(os.environ)
+    writer = GhCliIssueWriter(repo=environ["ARIA_NOTIFY_GITHUB_REPO"], timeout_seconds=_GH_CALL_TIMEOUT_SECONDS)
+    outcome = writer.comment_or_create(title=title, body=body, labels=NOTIFY_ISSUE_LABELS)
+    if outcome["outcome"] == "failed":
+        raise RuntimeError(f"github issue {outcome['reason']}"[:300])
+    return {"transport": "github_issue", "action": outcome["outcome"], "issue": outcome["number"],
+            "ref": str(outcome.get("url") or "")[:200]}
 
 
 def _send_email(title: str, body: str, environ: Mapping[str, str]) -> dict[str, Any]:
@@ -252,7 +273,16 @@ def notify(
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = load_declared_jsonl(path, expected_surface=OUTBOX_SURFACE) if path.exists() else []
     signature = signature_for(kind, key, title)
-    targets = tuple(channels) if channels else configured_channels(env)
+    # A malformed selector is this call's ONE failed row, by name: raised
+    # out of here it would be swallowed by `notify_best_effort`, and silence
+    # is what the outbox exists to make auditable.
+    selector_error: str | None = None
+    disabled = False
+    try:
+        targets = tuple(channels) if channels else configured_channels(env)
+        disabled = not channels and notifications_disabled(env)
+    except ChannelSelectorInvalid as exc:
+        targets, selector_error = (), str(exc)
     if not targets:
         targets = ("unconfigured",)
     table = dict(SENDERS)
@@ -264,7 +294,11 @@ def notify(
             "schema_version": 1, "recorded_at": stamp.replace(microsecond=0).isoformat(), "kind": kind, "signature": signature,
             "channel": channel, "title": title[:200], "status": "failed", "detail": {},
         }
-        if channel == "unconfigured":
+        if channel == "unconfigured" and selector_error is not None:
+            row.update({"status": "failed", "detail": {"error": selector_error}})
+        elif channel == "unconfigured" and disabled:
+            row.update({"status": "unconfigured", "detail": {"disabled_by": f"{CHANNEL_SELECTOR_ENV}={CHANNELS_DISABLED_SENTINEL}"}})
+        elif channel == "unconfigured":
             row.update({"status": "unconfigured", "detail": {"hint": f"set {CHANNEL_SELECTOR_ENV} or a channel's env names"}})
         elif channel not in NOTIFY_CHANNELS:
             row.update({"status": "failed", "detail": {"error": f"unknown channel {channel}"}})
@@ -300,19 +334,23 @@ def notify_best_effort(**kwargs: Any) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "CHANNELS_DISABLED_SENTINEL",
     "CHANNEL_ENV_NAMES",
     "CHANNEL_SELECTOR_ENV",
     "DEFAULT_DEDUP_WINDOW",
     "NOTIFY_CHANNELS",
     "NOTIFY_EVENT_KINDS",
+    "NOTIFY_ISSUE_LABELS",
     "NOTIFY_STATUSES",
     "NOTIFY_WORST_CASE_SECONDS",
     "OUTBOX_RELPATH",
     "OUTBOX_SURFACE",
     "SENDERS",
     "SENDER_WALL_CLOCK_SECONDS",
+    "ChannelSelectorInvalid",
     "SenderWallClockExceeded",
     "configured_channels",
+    "notifications_disabled",
     "notify",
     "notify_best_effort",
     "outbox_path",

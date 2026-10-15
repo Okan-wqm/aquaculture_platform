@@ -83,26 +83,20 @@ def calibrated_multiplier(
 def source_feedback_counts(feedback_rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     """tp/fp per pressure source, from the operator-feedback ledger.
 
-    The row reading is ``calibration_dials.feedback_dial``, the one the
+    Both the row reading (``calibration_dials.feedback_dial``) and the tp/fp
+    count (``calibration_dials.feedback_counts_by_dial``) are the ones the
     recommendation pass uses, so the two views of the same ledger cannot
-    disagree about attribution. A row labelling an adapter's finding
-    measures that tool's dial, not a pressure source (ARIA-HIGH-370), and is
-    not counted here.
+    disagree about attribution or about how many labels a source has. A row
+    labelling an adapter's finding measures that tool's dial, not a pressure
+    source (ARIA-HIGH-370), and is not counted here.
     """
-    from .calibration_dials import SOURCE_DIAL, feedback_dial
+    from .calibration_dials import SOURCE_DIAL, feedback_counts_by_dial
 
-    by_source: dict[str, dict[str, int]] = {}
-    for row in feedback_rows:
-        dial = feedback_dial(row)
-        if dial is None or dial[0] != SOURCE_DIAL:
-            continue
-        verdict = str(row.get("verdict") or row.get("kind") or "")
-        bucket = by_source.setdefault(dial[1], {"tp": 0, "fp": 0})
-        if verdict == "true_positive":
-            bucket["tp"] += 1
-        elif verdict == "false_positive":
-            bucket["fp"] += 1
-    return by_source
+    return {
+        name: counts
+        for (kind, name), counts in feedback_counts_by_dial(feedback_rows).items()
+        if kind == SOURCE_DIAL
+    }
 
 
 def calibrate_source_weights(
@@ -178,20 +172,6 @@ def thompson_rank(
         })
     ranked.sort(key=lambda r: (-r["draw"], r["key"]))
     return ranked
-
-
-__all__ = [
-    "MULTIPLIER_CEIL",
-    "MULTIPLIER_FLOOR",
-    "PRIOR_A",
-    "PRIOR_B",
-    "beta_posterior",
-    "calibrate_source_weights",
-    "calibrated_multiplier",
-    "deterministic_seed",
-    "source_feedback_counts",
-    "thompson_rank",
-]
 
 
 def conformal_threshold(
@@ -328,3 +308,21 @@ def bradley_terry(
         total = sum(updated.values()) or 1.0
         strength = {p: max(epsilon, v / total) for p, v in updated.items()}
     return strength
+
+
+__all__ = [
+    "MULTIPLIER_CEIL",
+    "MULTIPLIER_FLOOR",
+    "PRIOR_A",
+    "PRIOR_B",
+    "beta_posterior",
+    "bradley_terry",
+    "calibrate_source_weights",
+    "calibrated_multiplier",
+    "conformal_threshold",
+    "deterministic_seed",
+    "judge_weights_from_calibration",
+    "pagerank",
+    "source_feedback_counts",
+    "thompson_rank",
+]

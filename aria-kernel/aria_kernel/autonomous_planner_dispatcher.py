@@ -64,6 +64,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .agent_invocations import DEFAULT_LEASE_SECONDS
+
 
 __all__ = [
     "DEFAULT_POLL_INTERVAL_SECONDS",
@@ -101,7 +103,7 @@ def run_planner_dispatch_daemon(
     invoke_planner: Callable[..., dict[str, Any]] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     aria_stop_filename: str = "ARIA_STOP",
-    lease_seconds: int = 1800,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
 ) -> dict[str, Any]:
     """Run the autonomous planner-dispatch daemon.
 
@@ -160,7 +162,7 @@ def run_planner_dispatch_daemon(
             while True:
                 # ARIA_STOP precedes the profile gate so a frozen
                 # profile under ARIA_STOP exits with the more
-                # specific aria_stop reason (matches cycle.py:244
+                # specific aria_stop reason (matches cycle.run_enterprise_cycle
                 # ordering: STOP overrides every other terminal
                 # path).
                 if aria_stop_path.exists():

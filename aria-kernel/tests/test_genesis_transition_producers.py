@@ -10,6 +10,7 @@ artifacts.
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,9 +18,10 @@ from pathlib import Path
 from aria_kernel.agent_genesis import record_draft_lifecycle_chain
 from aria_kernel.genesis_lifecycle import (
     current_lifecycle_state,
+    record_transition,
     validate_transition,
 )
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 _GAP = {
     "gap_id": "gap-c4c-1",
@@ -60,6 +62,60 @@ class GateVocabularyTests(unittest.TestCase):
             },
         )
         self.assertFalse(verdict.valid)
+
+
+class PolicyOverrideTests(unittest.TestCase):
+    """ARIA-MEDIUM-468 — the CANDIDATE maturity gate reads the BOUND workspace's policy.
+
+    The production producer (agent_genesis) calls record_transition with no
+    repo_root, and validate_transition read only the package defaults, so an
+    operator's aria-config/genesis_policy.json never reached this gate.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name)
+        self.tools = ensure_tools_dir(self.ws / "aria-tools")
+        record_transition(
+            entity_id="agent-policy", entity_kind="agent", to_state="PRESSURE",
+            evidence={}, base_dir=self.tools,
+        )
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _override_min_cycles(self, value: int) -> None:
+        override = self.ws / "aria-config" / "genesis_policy.json"
+        override.parent.mkdir(parents=True, exist_ok=True)
+        override.write_text(
+            json.dumps({"genesis_lifecycle": {"shadow_min_clean_cycles": value}}),
+            encoding="utf-8",
+        )
+
+    def _propose(self) -> dict:
+        return record_transition(
+            entity_id="agent-policy", entity_kind="agent", to_state="CANDIDATE_PROPOSED",
+            evidence={"valid_cycles": 2, "source_types": ["coverage_gap"]},
+            base_dir=self.tools,
+        )
+
+    def test_bound_workspace_override_is_honoured_without_repo_root(self) -> None:
+        self._override_min_cycles(2)
+        self.assertEqual(self._propose()["to_state"], "CANDIDATE_PROPOSED")
+
+    def test_package_default_holds_without_an_override(self) -> None:
+        with self.assertRaisesRegex(GovernanceError, "candidate_requires_5_valid_cycles"):
+            self._propose()
+
+    def test_validate_transition_reads_the_given_repo_root(self) -> None:
+        self._override_min_cycles(2)
+        verdict = validate_transition(
+            from_state="PRESSURE",
+            to_state="CANDIDATE_PROPOSED",
+            evidence={"valid_cycles": 2, "source_types": ["coverage_gap"]},
+            repo_root=self.ws,
+        )
+        self.assertTrue(verdict.valid, verdict.reasons)
 
 
 class DraftChainProducerTests(unittest.TestCase):

@@ -81,10 +81,16 @@ def _panel_member(request: Mapping[str, Any], panel_ids: frozenset[str]) -> bool
 
 
 def _fanout_judge(request: Mapping[str, Any], _panel_ids: frozenset[str]) -> bool:
-    # `judge_fanout._group_id`: judge:<tool>:<fingerprint or finding id>.
+    # ARIA-HIGH-418 — the fan-out keys a judgment group `judge:<tool>:` and
+    # the finding (`judge_fanout._group_id`). Before Y2 (ORPHAN-704) the
+    # finding part was `<run id>:<finding id>`, and until ORPHAN-HIGH-765 the
+    # request did not carry the fingerprint its key held. Rebuilding the key
+    # from the request's own fields matched neither, so 466 August fan-out
+    # judges (aria/state f5c5c86a1: 414 and 52) went to the operator as
+    # unverified. The prefix is the proof: the operator CLI sets neither
+    # `tool_id` nor `judgment_group_id`, and the goldset replay keys `replay:`.
     tool_id = str(request.get("tool_id") or "")
-    keys = {str(request.get("finding_fingerprint") or ""), str(request.get("finding_id") or "")} - {""}
-    return bool(tool_id) and str(request.get("judgment_group_id") or "") in {f"judge:{tool_id}:{k}" for k in keys}
+    return bool(tool_id) and str(request.get("judgment_group_id") or "").startswith(f"judge:{tool_id}:")
 
 
 def queue_item_id_of(request: Mapping[str, Any]) -> str | None:
@@ -116,6 +122,7 @@ _DRAINER = Ownership(
 )
 _NOBODY = "no producer re-asks a dead request of this role"
 _FANOUT_DEDUPE = ("judge_fanout.py::_existing_judge_dispatches",)
+_FANOUT_JUDGE = (*_FANOUT_DEDUPE, "judge_fanout.py::_group_id", "judge_replay.py::_replay_group")
 
 ROLE_OWNERSHIP: Mapping[str, Ownership] = {
     **{role: _DRAINER for role in sorted(PLANNING_ROUND_ROLES)},
@@ -137,11 +144,11 @@ ROLE_OWNERSHIP: Mapping[str, Ownership] = {
     ),
     "evidence_judgment": Ownership(
         OWNER_KERNEL_REMINT, "anchor_stale", "the fan-out counts dead rows as dispatched", _fanout_judge,
-        _FANOUT_DEDUPE,
+        _FANOUT_JUDGE,
     ),
     "adversarial_judgment": Ownership(
         OWNER_KERNEL_REMINT, "anchor_stale", "the fan-out counts dead rows as dispatched", _fanout_judge,
-        _FANOUT_DEDUPE,
+        _FANOUT_JUDGE,
     ),
     "maintenance_utility": Ownership(
         OWNER_REOFFER, "autonomy_orchestrator",
@@ -180,10 +187,18 @@ ROLE_OWNERSHIP: Mapping[str, Ownership] = {
     ),
 }
 
-# Why an expired request of a role the table assigns elsewhere goes to the
-# operator: its claimed producer's signature is absent (an operator-CLI or
-# foreign mint).
+# Why an expired request goes to the operator by ownership: a role the
+# table does not name, a role no producer recovers, or a request whose
+# claimed producer's signature is absent (an operator-CLI or foreign mint).
+ROLE_UNOWNED = "role_unowned"
+NO_RECOVERING_PRODUCER = "no_recovering_producer"
 UNVERIFIED_PRODUCER = "producer_unverified"
+OWNERSHIP_VERDICTS = frozenset({ROLE_UNOWNED, NO_RECOVERING_PRODUCER, UNVERIFIED_PRODUCER})
+
+
+def is_ownership_verdict(reason: str) -> bool:
+    """True when ``reason`` is an operator hand-off ``owner_of`` made: one a later table or signature can reverse."""
+    return reason.partition(":")[0] in OWNERSHIP_VERDICTS
 
 
 def owner_of(request: Mapping[str, Any], panel_ids: frozenset[str]) -> tuple[str, str]:
@@ -191,22 +206,26 @@ def owner_of(request: Mapping[str, Any], panel_ids: frozenset[str]) -> tuple[str
     role = str(request.get("role") or "")
     ownership = ROLE_OWNERSHIP.get(role)
     if ownership is None:
-        return OWNER_OPERATOR, f"role_unowned:{role}"
+        return OWNER_OPERATOR, f"{ROLE_UNOWNED}:{role}"
     if ownership.owner == OWNER_OPERATOR:
-        return OWNER_OPERATOR, f"no_recovering_producer:{role}"
+        return OWNER_OPERATOR, f"{NO_RECOVERING_PRODUCER}:{role}"
     if not ownership.signature(request, panel_ids):
         return OWNER_OPERATOR, f"{UNVERIFIED_PRODUCER}:{ownership.producer}"
     return ownership.owner, ownership.producer
 
 
 __all__ = [
+    "NO_RECOVERING_PRODUCER",
+    "OWNERSHIP_VERDICTS",
     "OWNER_KERNEL_REMINT",
     "OWNER_OPERATOR",
     "OWNER_PRODUCER",
     "OWNER_REOFFER",
     "ROLE_OWNERSHIP",
+    "ROLE_UNOWNED",
     "UNVERIFIED_PRODUCER",
     "Ownership",
+    "is_ownership_verdict",
     "owner_of",
     "queue_item_id_of",
 ]

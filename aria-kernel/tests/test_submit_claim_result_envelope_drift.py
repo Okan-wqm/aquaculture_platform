@@ -305,17 +305,16 @@ class ConcurrentSubmitRaceTests(_SubmitFixture):
               the invariants (no submit_claim_result_duplicate_with_drift,
               no submit_claim_result_legacy_row_drift_undecidable).
 
-        ORPHAN-062 (also tracked): tool_registry._atomic_write_json uses a
-        single shared `<file>.tmp` path for the integrity_index.json
-        rename, so concurrent writers (anywhere in the kernel — not
-        Plan 025 specific) can FileNotFoundError on the rename of the
-        SECOND-rename-loser's tmp file. This is a pre-existing
-        tool_registry race surface that Plan 025 §A.1 does not address;
-        the test tolerates that specific 'unexpected' outcome (assertion
-        is on Plan 025 §A.1 invariants, not on tool_registry index
-        atomicity). Fixing the index race is outside Plan 025 §A.1's
-        scope per architectural-arbiter (the §A.1 lock is on
-        results.jsonl; the index race lives one ledger over).
+        ORPHAN-062: tool_registry once wrote JSON through a private
+        writer with a single shared `<file>.tmp` path, so concurrent
+        writers could FileNotFoundError on the rename of the
+        SECOND-rename-loser's tmp file, and this test counted such a
+        child as consistent. tool_registry now writes through
+        ledger.atomic_write_json, whose tmp side-car is unique per call
+        (PID + monotonic_ns + random suffix) and fsynced before the
+        rename, so the race is closed and pinned here: every child lands
+        accepted or idempotent, and a FileNotFoundError child — a return
+        of a shared side-car — fails the test.
         """
         envelope = self._envelope()
         out = self._write_envelope(envelope)
@@ -399,13 +398,9 @@ class ConcurrentSubmitRaceTests(_SubmitFixture):
         # Plan 025 §A.1 invariants:
         self.assertEqual(len(accepted), 1, outcomes)
         self.assertEqual(plan_025_errors, [], outcomes)
-        # Every child either landed accepted, idempotent, or hit the
-        # ORPHAN-062 index race (pre-existing tool_registry surface).
-        plan_025_consistent = (
-            len(accepted) + len(idempotent)
-            + sum(1 for o in outcomes if o[0] == "unexpected" and "FileNotFoundError" in o[1])
-        )
-        self.assertEqual(plan_025_consistent, 5, outcomes)
+        # Every child landed accepted or idempotent (ORPHAN-062 closed; see
+        # the docstring).
+        self.assertEqual(len(accepted) + len(idempotent), 5, outcomes)
         # Single persisted row for the claim — Plan 025 §A.1's main
         # mutual-exclusion invariant.
         rows = self._results_rows_for_claim()

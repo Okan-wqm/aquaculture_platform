@@ -224,7 +224,18 @@ def record_provider_restored(
 
     Cheap on the success path: the ledger is read only when the file exists,
     and nothing is written unless an outage of the provider is open.
+
+    All or nothing: the close and the resolution of its open items are one
+    decision. The ``provider_restored`` row is a ``tool_governance`` write
+    and the items are ``human_required`` writes, and a profile can permit the
+    first and refuse the second (``observe``). Committing the row first then
+    left the items open with nothing to close them — the next restore finds
+    no open outage. So the items' profile is asked BEFORE the row: a refusal
+    writes neither, the outage stays open (the clock stays paused, the safe
+    side), and the next restore under a permitting profile closes both.
     """
+    from .runtime_profile import enforce_profile_for_write
+
     path = _governance(base_dir)
     if not path.is_file():
         return None
@@ -236,37 +247,55 @@ def record_provider_restored(
                    and (kinds is None or i.kind in kinds)]
         if not closing:
             return None
+        signals = _open_signals(root, closing)
+        if signals:
+            enforce_profile_for_write("human_required", base_dir=root)
         row = append_tools_governance(root, PROVIDER_RESTORED_KIND, {
             "schema_version": OUTAGE_SCHEMA_VERSION, "provider": provider, "restored_at": _iso(moment),
             "closed_kinds": sorted(i.kind for i in closing), "seam": seam, "request_id": request_id,
             "outages": [{"outage_kind": i.kind, "opened_at": _iso(i.opened_at), "signal_id": i.signal_id,
                          "duration_seconds": int((moment - i.opened_at).total_seconds())} for i in closing],
         }, transaction=transaction)
-    _resolve_signals(root, closing, moment)
+    _resolve_signals(root, signals, moment)
     return row
 
 
-def _resolve_signals(root: Path, closing: list[OutageInterval], moment: datetime) -> None:
+def _open_signals(
+    root: Path, closing: list[OutageInterval],
+) -> list[tuple[OutageInterval, str, dict[str, Any]]]:
+    """Each closing outage's OPEN items (its signal and its prolonged signal) with their records."""
+    from .human_required import open_human_required_record
+
+    found: list[tuple[OutageInterval, str, dict[str, Any]]] = []
+    for interval in closing:
+        for signal in (interval.signal_id, _prolonged_id(interval)):
+            record = open_human_required_record(signal, base_dir=root)
+            if record is not None:
+                found.append((interval, signal, record))
+    return found
+
+
+def _resolve_signals(
+    root: Path, signals: list[tuple[OutageInterval, str, dict[str, Any]]], moment: datetime,
+) -> None:
     """Close each closed outage's items through the kernel's one resolver.
 
     ``write_kernel_disposition`` (ARIA-HIGH-360) is the only way the kernel
     closes a record, and it states the rule it applied: here, that the
     provider served again. A kernel record never proves a panel approval.
+    An item resolved by someone else in between is skipped by the resolver
+    itself (it returns None for a resolved record).
     """
-    from .human_required import open_human_required_record, write_kernel_disposition
+    from .human_required import write_kernel_disposition
 
-    for interval in closing:
-        for signal in (interval.signal_id, _prolonged_id(interval)):
-            record = open_human_required_record(signal, base_dir=root)
-            if record is None:
-                continue
-            write_kernel_disposition(base_dir=root, now=moment, item={
-                "request_id": signal, "severity": record.get("severity"), "reason": record.get("reason"),
-                "context": record.get("context") or {}, "status": "resolved",
-                "disposition": {"disposition": "provider_restored",
-                                "reason": (f"{interval.provider} {interval.kind} outage "
-                                           f"{_iso(interval.opened_at)} -> {_iso(moment)}")},
-            })
+    for interval, signal, record in signals:
+        write_kernel_disposition(base_dir=root, now=moment, item={
+            "request_id": signal, "severity": record.get("severity"), "reason": record.get("reason"),
+            "context": record.get("context") or {}, "status": "resolved",
+            "disposition": {"disposition": "provider_restored",
+                            "reason": (f"{interval.provider} {interval.kind} outage "
+                                       f"{_iso(interval.opened_at)} -> {_iso(moment)}")},
+        })
 
 
 def outage_opened_by_claim(base_dir: str | Path | None, *, provider: str, claim_id: str) -> bool:
@@ -280,6 +309,23 @@ def outage_opened_by_claim(base_dir: str | Path | None, *, provider: str, claim_
     opened = [row["details"] for row in rows if row.get("kind") == OUTAGE_OPENED_KIND
               and isinstance(row.get("details"), dict) and row["details"].get("provider") == provider]
     return bool(opened) and opened[-1].get("claim_id") == claim_id
+
+
+def standing_outage(
+    base_dir: str | Path | None, *, provider: str, kinds: Iterable[str], before: datetime,
+) -> OutageInterval | None:
+    """The provider's open outage of one of ``kinds`` that was already open at ``before``, or None.
+
+    ARIA-MEDIUM-438 — a probe launched at ``before`` that then meets such an
+    outage observed nothing new: the outage was counted once, at its
+    transition (``open_provider_outage``). ``opened_at`` is stamped to the
+    second, so ``before`` is compared at that resolution: an outage opened in
+    the second the probe started is the probe's own.
+    """
+    cutoff = before.astimezone(timezone.utc).replace(microsecond=0)
+    wanted = frozenset(kinds)
+    return next((interval for interval in open_outages(base_dir) if interval.provider == provider
+                 and interval.kind in wanted and interval.opened_at < cutoff), None)
 
 
 def _prolonged_id(interval: OutageInterval) -> str:
@@ -331,5 +377,5 @@ __all__ = [
     "ADMISSION_RESTORABLE_KINDS", "OUTAGE_ESCALATION_AFTER", "OUTAGE_KINDS", "OUTAGE_OPENED_KIND",
     "PROVIDER_RESTORED_KIND", "OutageInterval", "escalate_prolonged_outages", "open_outages",
     "open_provider_outage", "outage_intervals", "outage_opened_by_claim", "outage_remedy",
-    "record_provider_restored", "render_outage_section",
+    "record_provider_restored", "render_outage_section", "standing_outage",
 ]

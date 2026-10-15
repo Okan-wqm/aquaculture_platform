@@ -26,10 +26,14 @@ from aria_kernel.agent_invocations import (
     create_agent_invocation_request,
     record_transcript,
 )
-from aria_kernel.genesis_lifecycle import current_lifecycle_state
+from aria_kernel.genesis_lifecycle import ALLOWED_TRANSITIONS, current_lifecycle_state
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.operator_provenance import record_operator_approval
-from aria_kernel.shadow_eval_bridge import bridge_shadow_eval_from_invocation
+from aria_kernel.shadow_eval_bridge import (
+    _BRIDGE_ENTRY_STATES,
+    _BRIDGE_TRANSITIONS,
+    bridge_shadow_eval_from_invocation,
+)
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.request_admission import admit_request
 from tests._helpers.operator_acts import operator_set_profile
@@ -66,6 +70,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
         *,
         mint_operator: bool = True,
         tamper_result_hash: bool = False,
+        record_chain: bool = True,
     ) -> None:
         if mint_operator:
             record_operator_approval(
@@ -74,20 +79,23 @@ class ShadowEvalBridgeTests(unittest.TestCase):
                 target_agent=AGENT,
                 base_dir=self.tools,
             )
-        # C4-c prefix chain: PRESSURE → … → DRAFT.
-        record_draft_lifecycle_chain(
-            entity_id=AGENT,
-            gap={
-                "gap_id": "gap-bridge-1",
-                "capability_gap_key": "svc:bridge:candidate",
-                "primary_source": "coverage_gap",
-                "source_types": ["coverage_gap", "shadow_summary"],
-            },
-            capability_resolution={"decision": "request"},
-            operator_approval_ref=OPERATOR_REF,
-            draft_ref="sha256:" + "e" * 64,
-            base_dir=self.tools,
-        )
+        # C4-c prefix chain: PRESSURE → … → DRAFT. `record_chain=False`
+        # seeds every invocation/eval row but leaves the target with no
+        # lifecycle chain at all (ARIA-HIGH-502).
+        if record_chain:
+            record_draft_lifecycle_chain(
+                entity_id=AGENT,
+                gap={
+                    "gap_id": "gap-bridge-1",
+                    "capability_gap_key": "svc:bridge:candidate",
+                    "primary_source": "coverage_gap",
+                    "source_types": ["coverage_gap", "shadow_summary"],
+                },
+                capability_resolution={"decision": "request"},
+                operator_approval_ref=OPERATOR_REF,
+                draft_ref="sha256:" + "e" * 64,
+                base_dir=self.tools,
+            )
         add_fixture(
             fixture={
                 "fixture_id": FIXTURE_ID,
@@ -206,6 +214,15 @@ class ShadowEvalBridgeTests(unittest.TestCase):
             artifact_ref=transcript_artifact.resolve().as_posix(),
             base_dir=self.tools,
         )
+
+    def _ledger_snapshot(self) -> dict[str, bytes]:
+        # Every append-only ledger under the tools dir, byte for byte: a
+        # refusal "before any write" must leave all of them untouched, not
+        # just the two the test happens to name.
+        return {
+            path.relative_to(self.tools).as_posix(): path.read_bytes()
+            for path in sorted(self.tools.rglob("*.jsonl"))
+        }
 
     def _bridge(self) -> dict:
         return bridge_shadow_eval_from_invocation(
@@ -336,6 +353,58 @@ class ShadowEvalBridgeTests(unittest.TestCase):
             current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "DRAFT"
         )
         self.assertFalse(_target_is_shadow(self.tools, AGENT))
+
+    # -- ARIA-HIGH-502: the lifecycle precondition precedes every write --
+
+    def test_rerun_from_shadow_refuses_before_any_write(self) -> None:
+        # The docstring promised "refuses before any write"; the lifecycle
+        # check lived only inside record_transition, AFTER run_agent_eval
+        # had appended an eval run row and its governance row. A second
+        # bridge of an agent already at SHADOW minted both, then failed on
+        # SHADOW->REAL_SANDBOX.
+        self._seed_chain()
+        self._bridge()
+        self.assertEqual(
+            current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "SHADOW"
+        )
+        before = self._ledger_snapshot()
+
+        with self.assertRaisesRegex(GovernanceError, "genesis_lifecycle_state_required"):
+            self._bridge()
+
+        self.assertEqual(self._ledger_snapshot(), before)
+        self.assertEqual(
+            current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "SHADOW"
+        )
+
+    def test_target_without_lifecycle_chain_refuses_before_any_eval_write(self) -> None:
+        # A target with no genesis chain cannot enter REAL_SANDBOX; before
+        # the fix the refusal (genesis_initial_state_must_be_PRESSURE) came
+        # from record_transition after the eval row was already on disk.
+        self._seed_chain(record_chain=False)
+        self.assertIsNone(current_lifecycle_state(entity_id=AGENT, base_dir=self.tools))
+        before = self._ledger_snapshot()
+
+        with self.assertRaisesRegex(GovernanceError, "genesis_lifecycle_state_required"):
+            self._bridge()
+
+        self.assertFalse((self.tools / "agent-evals" / "runs.jsonl").exists())
+        self.assertEqual(self._ledger_snapshot(), before)
+        self.assertIsNone(current_lifecycle_state(entity_id=AGENT, base_dir=self.tools))
+
+    def test_bridge_entry_states_are_derived_from_the_transition_table(self) -> None:
+        # Guard, not fail-first: the bridge's entry set and its transition
+        # chain are read from ALLOWED_TRANSITIONS, the one owner of legal
+        # moves, so a table edit cannot leave the bridge checking a stale
+        # restatement.
+        first = _BRIDGE_TRANSITIONS[0]
+        self.assertEqual(
+            _BRIDGE_ENTRY_STATES,
+            frozenset(s for s, nxt in ALLOWED_TRANSITIONS.items() if first in nxt),
+        )
+        self.assertTrue(_BRIDGE_ENTRY_STATES)
+        for from_state, to_state in zip(_BRIDGE_TRANSITIONS, _BRIDGE_TRANSITIONS[1:]):
+            self.assertIn(to_state, ALLOWED_TRANSITIONS[from_state])
 
 
 if __name__ == "__main__":

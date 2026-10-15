@@ -25,7 +25,6 @@ from typing import Any, Mapping
 
 from .debt import debts_dir
 from .finding import BACKLOG_STATUSES, findings_dir
-from .ledger import load_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, parse_utc_stamp
 
 

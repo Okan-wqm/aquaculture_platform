@@ -4,20 +4,20 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from .ledger import load_jsonl, read_jsonl
+from .ledger import atomic_write_json, load_jsonl, read_jsonl
 from .batch_containment import guard_item, with_item_failures
-from .phase2_utils import atomic_write_json, record_workspace_governance_once, utc_now_iso
+from .phase2_utils import record_workspace_governance_once, utc_now_iso
 from .pressure import append_pressure_state_event, effective_workspace_pressures
 from .workspace import WorkspacePaths
 
 
 def agent_satisfaction_scan(paths: WorkspacePaths, *, cycle_id: str, tools_root: str | Path | None = None) -> dict[str, Any]:
-    agents = _scan_agents(paths.repo_root)
+    item_failures: list[dict[str, Any]] = []
+    agents, unreadable = _scan_agents(paths.repo_root, item_failures)
     previous = _read_agent_index(paths)
     first_index = not (paths.state_dir / "agent_index.json").exists()
-    removals = _removed_agents(previous, agents) if not first_index else []
+    removals = _removed_agents(previous, agents, unreadable=unreadable) if not first_index else []
     satisfied = _satisfy_pressures(paths, cycle_id, agents, tools_root=tools_root)
-    item_failures: list[dict[str, Any]] = []
     for row in removals:
         # One unrecordable removal must not hide the removals after it: the
         # agent index is rewritten below either way, so a lost row means an
@@ -36,37 +36,62 @@ def agent_satisfaction_scan(paths: WorkspacePaths, *, cycle_id: str, tools_root:
                 },
             ),
         )
-    _write_agent_index(paths, agents)
+    # ARIA-LOW-480 — an agent whose file still exists but could not be read this
+    # cycle keeps its previous index row: dropping it would make the index
+    # claim a removal the governance ledger (rightly) never recorded.
+    indexed = sorted(
+        [*agents, *(row for row in previous if str(row.get("path")) in unreadable)],
+        key=lambda row: str(row.get("path")),
+    )
+    _write_agent_index(paths, indexed)
     return with_item_failures({
         "schema_version": 1,
         "cycle_id": cycle_id,
-        "indexed_count": len(agents),
+        "indexed_count": len(indexed),
         "removed_count": len(removals),
         "satisfied_count": len(satisfied),
         "first_index": first_index,
     }, item_failures)
 
 
-def _scan_agents(repo_root: Path) -> list[dict[str, Any]]:
+def _scan_one_agent(path: Path, rel: str) -> dict[str, Any]:
+    content = path.read_text(encoding="utf-8")
+    return {
+        "path": rel,
+        "addresses_pressure": _parse_addresses_pressure(content),
+        "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "indexed_at": utc_now_iso(),
+    }
+
+
+def _scan_agents(
+    repo_root: Path, item_failures: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Index rows of the readable agents, and the rel paths that failed.
+
+    One unreadable or malformed agent file (e.g. unclosed frontmatter) costs
+    its own row, named in ``item_failures``, never the whole hook. The
+    failed paths are returned because the file still EXISTS: callers must
+    not read its absence from the rows as a removal.
+    """
     candidates: list[Path] = []
     for pattern in (".claude/agents/*.md", ".claude/agents/product-audit/*.md", "agents/aria-*.md"):
         candidates.extend(sorted(repo_root.glob(pattern)))
     rows: list[dict[str, Any]] = []
+    unreadable: set[str] = set()
     for path in sorted({item.resolve() for item in candidates if item.is_file()}):
         rel = path.relative_to(repo_root.resolve()).as_posix()
-        if rel.startswith(".claude/agents.legacy/"):
-            continue
-        content = path.read_text(encoding="utf-8")
-        addressed = _parse_addresses_pressure(content)
-        rows.append(
-            {
-                "path": rel,
-                "addresses_pressure": addressed,
-                "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                "indexed_at": utc_now_iso(),
-            },
+        ok, row = guard_item(
+            item_failures,
+            item_kind="agent_scan",
+            item_id=rel,
+            work=lambda path=path, rel=rel: _scan_one_agent(path, rel),
         )
-    return rows
+        if ok:
+            rows.append(row)
+        else:
+            unreadable.add(rel)
+    return rows, unreadable
 
 
 def _parse_addresses_pressure(content: str) -> list[str]:
@@ -211,6 +236,11 @@ def _write_agent_index(paths: WorkspacePaths, agents: list[dict[str, Any]]) -> N
     )
 
 
-def _removed_agents(previous: list[dict[str, Any]], current: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    current_paths = {str(row.get("path")) for row in current}
-    return [row for row in previous if str(row.get("path")) not in current_paths]
+def _removed_agents(
+    previous: list[dict[str, Any]],
+    current: list[dict[str, Any]],
+    *,
+    unreadable: set[str],
+) -> list[dict[str, Any]]:
+    present = {str(row.get("path")) for row in current} | unreadable
+    return [row for row in previous if str(row.get("path")) not in present]

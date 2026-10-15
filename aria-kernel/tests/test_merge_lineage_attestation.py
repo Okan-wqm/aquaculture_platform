@@ -195,12 +195,14 @@ class TheLiveShape(_LegacyMerge):
         from aria_kernel.change_outcome import _merge_index
 
         self.assertTrue(merged_row_is_arias(_merge_index(ensure_tools_dir(self.tools))["chg-r"]))
-        # pr_tracking: ingested once, attributed, keyed on the merged row's own head.
-        from aria_kernel.pr_tracking import ingest_merged_pr_lifecycle
+        # pr_tracking: the merge is planned once, keyed on the merged row's own
+        # head — the attestation is no second merge (ARIA-LOW-424).
+        from aria_kernel.pr_tracking import plan_new_merge_impact
 
-        [ingested] = ingest_merged_pr_lifecycle(base_dir=self.tools)["ingested"]
-        self.assertEqual((ingested["head_sha"], ingested["attributed_to_aria"]), (self.delivered, True))
-        self.assertEqual(ingest_merged_pr_lifecycle(base_dir=self.tools)["ingested"], [])
+        impact = plan_new_merge_impact(cycle_id="cyc-impact", base_dir=self.tools)
+        self.assertEqual(impact["pr_event"]["head_sha"], self.delivered)
+        self.assertEqual(plan_new_merge_impact(cycle_id="cyc-impact-2", base_dir=self.tools),
+                         {"status": "no_new_merge"})
 
     def test_one_attestation_per_merge(self) -> None:
         self.reconcile(self.reader)
@@ -236,10 +238,6 @@ class ADivergedOrUnreadableHead(_LegacyMerge):
         self.assertEqual(result["promotions"],
                          [{"plan_id": "plan-r", "status": "not_credited", "head_lineage": LINEAGE_DIVERGED}])
         self.assertEqual(_merged_episodes(self.tools), [])
-        from aria_kernel.pr_tracking import ingest_merged_pr_lifecycle
-
-        [ingested] = ingest_merged_pr_lifecycle(base_dir=self.tools)["ingested"]
-        self.assertFalse(ingested["attributed_to_aria"])
 
     def test_an_unreadable_head_is_retried_then_disclosed_at_the_bound(self) -> None:
         # N2 — the workspace is no checkout, so the head cannot be read: asked

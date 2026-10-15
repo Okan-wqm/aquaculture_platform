@@ -10,12 +10,10 @@ from .agent_network import latest_agent_network_hash
 from .batch_containment import guard_item, with_item_failures
 from .ledger import (
     append_declared_jsonl,
-    append_jsonl as _append_jsonl,
     load_declared_jsonl,
-    load_jsonl as _load_jsonl,
 )
 from .pressure import effective_workspace_pressures
-from .tool_registry import append_tools_governance, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, update_tools_index
 from .workspace import WorkspacePaths
 
 
@@ -30,13 +28,13 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
             record,
             expected_surface="triage_decisions",
         )
-    return _append_jsonl(path, record)
+    raise GovernanceError(f"triage_append_unknown_surface:{Path(path).as_posix()}")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if Path(path).name == "decisions.jsonl" and Path(path).parent.name == "triage":
         return load_declared_jsonl(path, expected_surface="triage_decisions")
-    return _load_jsonl(path)
+    raise GovernanceError(f"triage_load_unknown_surface:{Path(path).as_posix()}")
 
 
 # Plan 022 §H-6 — strictness order from most permissive (low rank) to

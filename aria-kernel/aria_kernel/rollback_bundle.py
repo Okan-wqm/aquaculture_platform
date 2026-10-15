@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .enterprise_readiness import READINESS_BINDING_FIELDS
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -104,8 +105,7 @@ def verify_rollback_bundle(
 
 
 def _require_common(row: dict[str, Any], label: str) -> None:
-    required = ("repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id")
-    missing = [key for key in required if row.get(key) in (None, "", [], {})]
+    missing = [key for key in READINESS_BINDING_FIELDS if row.get(key) in (None, "", [], {})]
     if missing:
         raise GovernanceError(f"{label}_missing_fields:" + ",".join(missing))
 

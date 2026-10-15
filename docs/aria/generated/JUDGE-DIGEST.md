@@ -6,7 +6,7 @@
 
 # ARIA Judge Contract Digest
 
-source_hash: sha256:147994445f8ea7bfcee769219b1317eaf11be739732a607f411575e7ee246adc
+source_hash: sha256:409e98cf644db83abe0d8e43b62978b557e4a5b4254d6a022d51f794cae21b3e
 
 Preamble digest for the four runtime-dispatched judge/worker agents. Every
 passage below is extracted VERBATIM from the `judge-digest` marked sections
@@ -90,9 +90,14 @@ ARIA's own PR descriptions, finding texts, and proposal bodies are scanned for C
 
 > Source: `docs/aria/CONTRACTS.md#5--evidence-chain-schema`
 
-**source_type allowlist:** `code_reference`, `external_authoritative_source`, `test_demand`,
+**source_type categories:** `code_reference`, `external_authoritative_source`, `test_demand`,
 `git_history`, `trusted_config_file`, `trusted_prior_doc` (CLAUDE.md, ADRs, knowledge layers per
-SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
+SPEC §5.1) classify evidence by origin. They are descriptive: the evidence envelope carries no
+`source_type` field and no gate reads one. The L1 gate is the trust grade at the target SHA —
+`finding.emit_finding` rejects a ref that `evidence_trust.classify_evidence_ref` does not grade
+`repo_verified`, and agent evidence must pass
+`evidence_trust.EvidencePolicy.require_repo_verified` (claim rejected). Runtime signals enter only
+as `runtime_unverified` leads that point the repo evidence at an area; they are never evidence.
 
 > Source: `docs/aria/CONTRACTS.md#6--finding--recommendation-schema`
 
@@ -112,6 +117,7 @@ The kernel rejects any finding emitted with a claim_type outside this list. New 
 |`contradiction`|Two evidences disagree (test asserts X, code does Y).|MEDIUM|2|
 |`test_disagreement`|Test name suggests behavior, test body asserts different behavior.|MEDIUM|1 (test ref)|
 |`regression`|ARIA's own action's baseline comparison failed — emergency.|HIGH|baseline + comparison artifact|
+|`operational_anomaly`|Runtime state-machine anomaly seen by ARIA-Watchdog (stall, bridge_warning_repeat, rejection_repeat, phase_asymmetry); ADR-0002.|LOW|3|
 
 > Source: `docs/aria/CONTRACTS.md#86--typed-judgment-choice--score--noul-and-the-confidence-contract`
 

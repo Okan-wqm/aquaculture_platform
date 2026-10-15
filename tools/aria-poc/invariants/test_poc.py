@@ -8,6 +8,7 @@ Node/Python dependency graph is healthy.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import tempfile
 import unittest
@@ -376,6 +377,84 @@ enum TicketPriority {
         self.assertEqual(zod_enums[0]["values"], ["high", "low", "medium"])
         self.assertEqual(graphql_enums[0]["kind"], "graphql_enum")
         self.assertEqual(graphql_enums[0]["values"], ["HIGH", "LOW", "MEDIUM"])
+
+    def _frontend_dropdown_drift(self) -> dict:
+        ts_sets = [{
+            "name": "FarmStatus",
+            "values": ["active", "inactive", "archived", "maintenance"],
+            "graphql_name": "FarmStatus",
+            "wire_values": ["active", "inactive", "archived", "maintenance"],
+            "ref": "apps/farm-service/src/farm/farm.entity.ts:1",
+            "kind": "enum",
+            "surface": "backend_app",
+        }]
+        ui_groups = [{
+            "name": "farmStatus",
+            "component": "FarmStatusSelect",
+            "values": ["active", "inactive", "archived"],
+            "ref": "web/modules/farm-module/src/FarmStatusSelect.tsx:2",
+            "kind": "ui_option_group",
+            "source": "select",
+        }]
+        wire = aria_poc.drift_wire.Wire(
+            "ok", module_backends={"web/modules/farm-module": {"apps/farm-service"}},
+        )
+        drifts = aria_poc.find_frontend_dropdown_drifts(ts_sets, [], ui_groups, wire=wire)
+        self.assertEqual(len(drifts), 1)
+        return drifts[0]
+
+    def test_prior_audit_scan_covers_frontend_dropdown_drifts(self) -> None:
+        # The novelty counts span every candidate class, so a UI drift an
+        # audit already recorded must be matched too, under the same key
+        # build_summary looks it up by.
+        drift = self._frontend_dropdown_drift()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            review = root / "docs" / "reviews" / "farm.md"
+            review.parent.mkdir(parents=True)
+            review.write_text("# Farm\n\nFarmStatusSelect drops FarmStatus.maintenance.\n",
+                              encoding="utf-8")
+
+            mentions = aria_poc.scan_prior_audits(root, [drift])
+
+        key = aria_poc.drift_key(drift)
+        self.assertEqual(key, f"{drift['concept']}:{drift['ui']['ref']}")
+        self.assertEqual(mentions, {key: ["docs/reviews/farm.md:3 (FarmStatus)"]})
+        summary = aria_poc.build_summary([], [], [], [drift], mentions)
+        self.assertEqual(summary["novelty_counts"]["prior_audit_mentioned"], 1)
+
+    def test_unknown_ui_symbol_is_not_grepped(self) -> None:
+        # The fallback names no symbol, so an audit that merely says
+        # "unknown" is no evidence the drift was recorded before.
+        self.assertEqual(aria_poc.surrounding_symbol("<select>", 0), aria_poc.UNKNOWN_SYMBOL)
+        drift = self._frontend_dropdown_drift()
+        drift["ui"] = {**drift["ui"], "name": aria_poc.UNKNOWN_SYMBOL}
+        drift["source"] = {**drift["source"], "name": "FarmLifecycle"}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            review = root / "docs" / "audits" / "misc.md"
+            review.parent.mkdir(parents=True)
+            review.write_text(f"Root cause {aria_poc.UNKNOWN_SYMBOL}.\n", encoding="utf-8")
+
+            mentions = aria_poc.scan_prior_audits(root, [drift])
+
+        self.assertEqual(mentions, {})
+
+    def test_readme_names_every_module_in_the_directory(self) -> None:
+        # The README is where a reader learns which modules here run an LLM
+        # or touch the network; a module it does not name is invisible there.
+        readme = (POC_PATH.parent / "README.md").read_text(encoding="utf-8")
+        unnamed = [p.name for p in sorted(POC_PATH.parent.glob("*.py")) if p.name not in readme]
+        self.assertEqual(unnamed, [])
+
+    def test_readme_outputs_table_lists_every_artifact(self) -> None:
+        source = POC_PATH.read_text(encoding="utf-8")
+        artifacts = sorted(set(re.findall(r'out_dir / "([^"]+)"', source)))
+        self.assertGreater(len(artifacts), 0)
+        readme = (POC_PATH.parent / "README.md").read_text(encoding="utf-8")
+        outputs = readme.split("## Outputs", 1)[1].split("\n## ", 1)[0]
+        missing = [name for name in artifacts if f"`{name}`" not in outputs]
+        self.assertEqual(missing, [])
 
     def test_git_blame_gracefully_degrades_outside_git(self) -> None:
         with tempfile.TemporaryDirectory() as td:

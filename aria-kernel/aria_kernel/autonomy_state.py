@@ -80,7 +80,7 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     # round; ``..._resolved`` on terminal verdict; ``..._blocked``
     # when verdict != "converged" and worker_drainer is therefore
     # skipped. All four are discoverability-only — the reducer
-    # accepts any phase string (autonomy_state.py:146 docstring).
+    # accepts any phase string (see AutonomyStateReducer.transition).
     "convergence_started",
     "convergence_round_completed",
     "convergence_resolved",

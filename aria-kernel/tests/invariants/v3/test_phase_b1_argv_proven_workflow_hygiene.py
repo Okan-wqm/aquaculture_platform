@@ -133,6 +133,23 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         }
         self.assertEqual(flag_set_doc, _EXPECTED_CLAUDE_FLAGS)
 
+    def test_proven_doc_fail_safe_values_match_the_runtime_profile_defaults(self) -> None:
+        """The argv the doc names as the fail-safe IS the resolver's
+        fail-safe (operator decision 2026-09-12: opus, never fable)."""
+        import yaml  # type: ignore[import-untyped]
+        from aria_kernel.agent_runtime_profile import DEFAULT_EFFORT, DEFAULT_MODEL
+
+        data = yaml.safe_load(_extract_yaml_block(self.proven_text, "ci_executor:"))
+        for executor in ("ci_executor", "worker_executor"):
+            with self.subTest(executor=executor):
+                argv = data[executor]["argv"]
+                self.assertEqual(argv[argv.index("--model") + 1], DEFAULT_MODEL)
+                self.assertEqual(argv[argv.index("--effort") + 1], DEFAULT_EFFORT)
+        self.assertIn(
+            f"The `{DEFAULT_MODEL}`/`{DEFAULT_EFFORT}` values above are the fail-safe defaults",
+            " ".join(self.proven_text.split()),
+        )
+
     # I-V3-22 — workflow_dispatch input mock default flipped to false.
     def test_i_v3_22_mock_dispatch_input_default_false(self) -> None:
         # The default appears under inputs.mock.default in YAML.

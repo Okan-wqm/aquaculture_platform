@@ -96,6 +96,16 @@ def dependency_mounts(workspace: Path) -> list[DependencyMount]:
     checkout = installed_checkout(workspace)
     if checkout is None:
         return []
+    return tree_mounts(checkout, workspace)
+
+
+def tree_mounts(checkout: Path, workspace: Path) -> list[DependencyMount]:
+    """``checkout``'s installed trees at the paths ``workspace`` sees them at:
+    the root tree and each npm workspace's nested tree. ``checkout`` may be
+    the workspace itself — a read-only view that hides untracked paths binds
+    the workspace's own trees back where they stand (ARIA-MEDIUM-432)."""
+    checkout = Path(checkout).resolve()
+    workspace = Path(workspace).resolve()
     mounts = [DependencyMount(checkout / DEPENDENCY_TREE_DIRNAME, workspace / DEPENDENCY_TREE_DIRNAME)]
     seen: set[Path] = set()
     for pattern in _workspace_patterns(checkout):

@@ -271,6 +271,12 @@ def service_of(ref: str) -> str:
     return "unknown"
 
 
+# What surrounding_symbol returns when no enclosing component or function is
+# in its lookback. It can become a UI group's name (a `<select>` with neither
+# name nor id), but it names nothing, so scan_prior_audits never greps it.
+UNKNOWN_SYMBOL = "unknown"
+
+
 def surrounding_symbol(text: str, index: int) -> str:
     """Best-effort component/function name for UI option groups."""
     window = text[max(0, index - 3000):index]
@@ -279,9 +285,9 @@ def surrounding_symbol(text: str, index: int) -> str:
         window,
     ))
     if not matches:
-        return "unknown"
+        return UNKNOWN_SYMBOL
     last = matches[-1]
-    return (last.group(1) or last.group(2) or "unknown").strip()
+    return (last.group(1) or last.group(2) or UNKNOWN_SYMBOL).strip()
 
 
 def attr_value(attrs: str, name: str) -> str:
@@ -1074,13 +1080,6 @@ def relationship_reason(ui: dict, source: dict) -> str | None:
     return None
 
 
-def related_by_name_or_overlap(ui: dict, source: dict, threshold: float) -> bool:
-    reason = relationship_reason(ui, source)
-    if reason in {"normalized_name_match", "same_file"} or (reason or "").startswith("shared_concept_tokens:"):
-        return True
-    return False
-
-
 def nearest_value_sets(ui: dict, sources: list[dict], limit: int = 3) -> list[dict]:
     rows: list[dict] = []
     ui_vals = folded_values(ui["values"])
@@ -1332,14 +1331,17 @@ def write_git_reconciliation(out_dir: Path, fates: list[FileFate],
 
 
 # ─── scan_prior_audits ───────────────────────────────────────────────────
-# Her drift adayı için, drift'in TS+SQL enum adlarını
-# docs/audits/, docs/reviews/, docs/product-audits/ altında grep'ler.
+# Her drift adayı için (TS↔SQL ve frontend dropdown), drift'in iki
+# tarafındaki değer-kümesi adlarını docs/audits/, docs/reviews/,
+# docs/product-audits/ altında grep'ler.
 # Eşleşme varsa: bu drift zaten geçmiş audit'lerde kayıt — operatör
 # biliyor olabilir. Tekrar gürültüyü filtrelemek için. PoC %100
 # mekanik (keyword-only); full ARIA bunu structural compare yapacak.
 def scan_prior_audits(repo_root: Path, drifts: list[dict]) -> dict[str, list[str]]:
     """For each drift, scan docs/{audits,reviews,product-audits}/ for mention
-    of the enum names. Mechanical grep — no LLM. Returns {drift_concept: [audit_refs]}.
+    of the value-set names on its two sides. Mechanical grep — no LLM.
+    Returns {drift_key(drift): [audit_refs]}, the key build_summary and the
+    report look mentions up by.
     """
     audit_roots = [
         repo_root / "docs" / "audits",
@@ -1353,7 +1355,10 @@ def scan_prior_audits(repo_root: Path, drifts: list[dict]) -> dict[str, list[str
 
     mentions: dict[str, list[str]] = {}
     for drift in drifts:
-        names = {drift["ts"]["name"], drift["sql"]["name"]}
+        names = [
+            name for name in dict.fromkeys(side["name"] for side in drift_sides(drift))
+            if name != UNKNOWN_SYMBOL
+        ]
         hits: list[str] = []
         for af in audit_files:
             try:
@@ -1367,14 +1372,21 @@ def scan_prior_audits(repo_root: Path, drifts: list[dict]) -> dict[str, list[str
                     hits.append(f"{rel}:{line_num} ({name})")
                     break  # one hit per audit file is enough signal
         if hits:
-            mentions[drift["concept"] + ":" + drift["ts"]["ref"]] = hits[:5]
+            mentions[drift_key(drift)] = hits[:5]
     return mentions
 
 
-def drift_key(drift: dict) -> str:
+def drift_sides(drift: dict) -> tuple[dict, dict]:
+    """The two value sets a drift compares, the one it is anchored on first:
+    a frontend dropdown drift's UI group and its source, otherwise the TS
+    value set and its SQL enum."""
     if drift.get("claim_type") == "frontend_dropdown_drift":
-        return drift["concept"] + ":" + drift["ui"]["ref"]
-    return drift["concept"] + ":" + drift["ts"]["ref"]
+        return drift["ui"], drift["source"]
+    return drift["ts"], drift["sql"]
+
+
+def drift_key(drift: dict) -> str:
+    return drift["concept"] + ":" + drift_sides(drift)[0]["ref"]
 
 
 def parse_ref(ref: str) -> tuple[str, int] | None:
@@ -1449,18 +1461,7 @@ def scan_existing_gate_refs(repo_root: Path, drifts: list[dict]) -> dict[str, li
 
     refs: dict[str, list[str]] = {}
     for drift in drifts:
-        if drift.get("claim_type") == "frontend_dropdown_drift":
-            names = {
-                drift["concept"],
-                drift["ui"]["name"],
-                drift["source"]["name"],
-            }
-        else:
-            names = {
-                drift["concept"],
-                drift["ts"]["name"],
-                drift["sql"]["name"],
-            }
+        names = {drift["concept"], *(side["name"] for side in drift_sides(drift))}
         needles = set()
         for name in names:
             normalized = normalize_concept_name(name)
@@ -1608,7 +1609,7 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
                 r.append(f"- Missing in TS: `{d['missing_in_ts']}`\n")
             if d["missing_in_sql"]:
                 r.append(f"- Missing in SQL: `{d['missing_in_sql']}`\n")
-            mention_key = d["concept"] + ":" + d["ts"]["ref"]
+            mention_key = drift_key(d)
             if mention_key in audit_mentions:
                 r.append("- Prior audit mentions:\n")
                 for ref in audit_mentions[mention_key]:
@@ -1788,7 +1789,7 @@ def main() -> int:
 
     print("[aria-poc] phase 6.5: scanning prior audit findings...")
     all_candidate_drifts = [*drifts_above, *frontend_dropdown_drifts]
-    audit_mentions = scan_prior_audits(repo_root, drifts_above)
+    audit_mentions = scan_prior_audits(repo_root, all_candidate_drifts)
     existing_gate_refs = scan_existing_gate_refs(repo_root, all_candidate_drifts)
     attach_git_blame(repo_root, all_candidate_drifts)
     summary = build_summary(ts_value_sets, ui_option_groups, drifts_above,

@@ -57,7 +57,13 @@ from .failure_attribution import (
     attribute_self_revert,
 )
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
-from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
+from .ledger import (
+    LedgerIntegrityError,
+    append_declared_jsonl,
+    atomic_write_json,
+    is_sha256_digest,
+    load_declared_jsonl,
+)
 from .ledger_refs import find_row_by_source_ledger_ref
 from .merge_record import attested_plan_lineages, fold_lineage, lineage_credits_aria
 from .runtime_profile import enforce_profile_for_write
@@ -199,9 +205,7 @@ def add_fixture(
             f"content hash; refusing accidental fixture mutation"
         )
 
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(fixture, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_json(path, fixture)
     return _append_fixture_ledger_row(root, fixture)
 
 
@@ -311,7 +315,7 @@ def run_agent_eval(
             "real_eval_missing_provenance_fields: a fixture run requires "
             "invocation_id and transcript_hash"
         )
-    if not _is_sha256_digest(str(transcript_hash)):
+    if not is_sha256_digest(str(transcript_hash)):
         raise GovernanceError("real_eval_transcript_hash_must_be_sha256")
     _validate_real_eval_provenance(
         root,
@@ -567,14 +571,6 @@ def _require_transcript_artifact_hash(
             raise GovernanceError("transcript_artifact_hash_mismatch")
         return
     raise GovernanceError("transcript_artifact_ref_invalid")
-
-
-def _is_sha256_digest(value: str) -> bool:
-    return (
-        value.startswith("sha256:")
-        and len(value) == len("sha256:") + 64
-        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
-    )
 
 
 def list_eval_runs(
@@ -1181,7 +1177,7 @@ def sample_shadow_raw_findings(
     """Plan 022 §H-5 — surface SHADOW raw_findings to operator review.
 
     Pre-Plan-022 SHADOW tools emitted empty operator-facing
-    observations/findings (tool_runner.py:139-141 gates emission on
+    observations/findings (``tool_runner.run_tool`` gates emission on
     can_emit_operator_facing). raw_findings landed in the ledger but
     operators never saw them; the dashboard's shadow_raw_delta pressure
     only triggered when the count was abnormal — base-rate buried.

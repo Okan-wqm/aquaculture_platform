@@ -318,8 +318,8 @@ runs:
           # identity and stops. It still delegates to the migration when one is
           # genuinely required, and records that it did.
           #
-          # No `--acknowledge`: nobody is present at 01:00, and a flag the
-          # automation always sets acknowledges nothing. The delegated
+          # No `--acknowledge`: no operator answers a prompt inside a lane
+          # step, and a flag the automation always sets acknowledges nothing. The delegated
           # migration still requires one, where a tree is actually rewritten.
           #
           # HERE rather than in each lane, because only one lane had it. The

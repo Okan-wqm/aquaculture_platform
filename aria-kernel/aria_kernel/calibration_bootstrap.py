@@ -11,13 +11,13 @@ sandbox_systematic_failure.
 This module bootstraps the corpus BEFORE V6.3 seeds fire:
 
   1. Operator runs each existing SHADOW adapter LIVE on snowball repo
-  2. ``record_seeding_findings(tool_id, raw_findings)`` persists the
-     raw findings to
+  2. ``record_seeding_findings(tool_id=..., findings=...)`` persists one
+     LIVE run's raw findings to
      ``aria-tools/operator-feedback-seeding/<tool_id>/raw-findings.jsonl``
   3. Operator walks each raw finding via the CLI helper +
-     ``label_finding(tool_id, finding_fingerprint, label, severity,
-     evidence)`` for ≥10 entries per adapter
-  4. ``finalize_corpus(tool_id)`` migrates labeled rows from the
+     ``label_finding(tool_id=..., finding_fingerprint=..., label=...,
+     severity=..., evidence=...)`` for ≥10 entries per adapter
+  4. ``finalize_corpus(tool_id=...)`` migrates labeled rows from the
      seeding ledger to ``aria-tools/operator-feedback.jsonl`` (the
      SSoT corpus consumed by V6.2's sandbox)
 

@@ -15,6 +15,9 @@ ROUTING_TABLE_REL = ".claude/shared/orchestrator-routing-table.md"
 # Agent names are kebab-case; this also rejects table placeholders like
 # ``{respective domain expert}`` and italic notes like ``*all consumers*``.
 _AGENT_RE = re.compile(r"^[a-z][a-z0-9-]+$")
+# A path glob in the pattern cell is a markdown code span; the cell's prose
+# (``(handler implementations)``, cross-cutting rows) is not a path.
+_CODE_SPAN_RE = re.compile(r"`([^`]+)`")
 
 
 def _clean_agents(cell: str) -> list[str]:
@@ -28,9 +31,11 @@ def _clean_agents(cell: str) -> list[str]:
 
 
 def _pattern_prefix(glob: str) -> str:
-    """The literal path prefix of a routing glob, up to the first wildcard/brace
-    (``apps/farm-service/**`` → ``apps/farm-service``; ``apps/*/src/...`` → ``apps``)."""
-    cleaned = glob.strip().strip("`").strip()
+    """The literal path prefix of one code-span routing glob, up to the first
+    wildcard/brace (``apps/farm-service/**`` → ``apps/farm-service``;
+    ``apps/*/src/...`` → ``apps``). A brace group ``{a,b}`` is cut at ``{``,
+    so its comma-separated alternatives never yield a sibling-branch fragment."""
+    cleaned = glob.strip()
     cut = len(cleaned)
     for i, ch in enumerate(cleaned):
         if ch in "*{":
@@ -41,7 +46,12 @@ def _pattern_prefix(glob: str) -> str:
 
 def load_routing_table(repo_root: str | Path) -> list[dict[str, Any]]:
     """Parse the orchestrator routing table into rows of
-    ``{prefixes, primary, also_notify}``. Returns ``[]`` when the file is absent."""
+    ``{prefixes, primary, also_notify}``. Returns ``[]`` when the file is absent.
+
+    Prefixes come only from the code-span globs of the pattern cell. A prose
+    row (no code span, e.g. the cross-cutting supply-chain row) is an
+    instruction to the LLM orchestrator and owns no path prefix, so it is
+    not a routing row here."""
     path = Path(repo_root) / ROUTING_TABLE_REL
     if not path.exists():
         return []
@@ -55,7 +65,8 @@ def load_routing_table(repo_root: str | Path) -> list[dict[str, Any]]:
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) < 2:
             continue
-        prefixes = [p for p in (_pattern_prefix(g) for g in cells[0].split(",")) if p]
+        globs = _CODE_SPAN_RE.findall(cells[0])
+        prefixes = [p for p in (_pattern_prefix(g) for g in globs) if p]
         primary = _clean_agents(cells[1])
         also_notify = _clean_agents(cells[2]) if len(cells) > 2 else []
         if prefixes and (primary or also_notify):

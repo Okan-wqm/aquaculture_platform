@@ -30,9 +30,9 @@ from aria_kernel.agent_invocations import (
     _is_harness_fault_reason,
     claim_request,
     derive_request_state,
+    executor_timeout_seconds,
 )
 from aria_kernel.planner_dispatch_hook import (
-    _executor_timeout_seconds,
     _release_abandoned_claim,
     dispatch_one_pending_planner_request,
 )
@@ -103,11 +103,11 @@ class ExecutorTimeoutBudgetTests(unittest.TestCase):
     def test_timeout_sits_strictly_inside_the_lease(self) -> None:
         # The shipped value was lease+60: the lease died before the timeout
         # could ever fire. The budget must leave the release a live lease.
-        self.assertEqual(_executor_timeout_seconds(1800), 1680)
-        self.assertLess(_executor_timeout_seconds(1800), 1800)
+        self.assertEqual(executor_timeout_seconds(1800), 1680)
+        self.assertLess(executor_timeout_seconds(1800), 1800)
 
     def test_floor_keeps_test_scale_leases_usable(self) -> None:
-        self.assertEqual(_executor_timeout_seconds(60), 300)
+        self.assertEqual(executor_timeout_seconds(60), 300)
 
     def test_new_release_reasons_are_harness_class(self) -> None:
         # Harness-class = the requeue does NOT burn the request's budget.

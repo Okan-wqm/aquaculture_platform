@@ -27,7 +27,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import Any, Collection, Literal, Mapping
 
 _POC_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _POC_DIR.parents[1]
@@ -241,7 +241,7 @@ def classify_dispatch_failure(
 
 
 def resolve_dispatch_route(
-    *, request: Mapping[str, Any], repo_root: str | Path,
+    *, request: Mapping[str, Any], repo_root: str | Path, cooled: Collection[str] = (),
 ) -> DispatchRoute:
     """The route a dispatch on ``request`` will take, resolved pre-claim.
 
@@ -253,6 +253,13 @@ def resolve_dispatch_route(
     assignment carries no role — keeps the frontmatter model
     (``resolve_claude_model``) under the provider the fleet binds it to.
     Never touches the spawn environment beyond the model override names.
+
+    ARIA-HIGH-425 — ``cooled`` (the providers under an active cooldown, the
+    drain's pre-claim reading) is passed over the way the native admission
+    refuses it, without a probe: when the declared head is cooled the route
+    is the first live (unsuspended) rung that is not, so a request whose
+    declared vendor is out keys the circuit, and the batch, of the vendor
+    that will serve it. With every rung cooled the declared head stands.
     """
     from aria_kernel.model_fleet import _FLEET, dispatching_provider_for_model, route_model
     from aria_kernel.runtime_profiles import load_provider_routing
@@ -264,7 +271,11 @@ def resolve_dispatch_route(
     model = resolve_claude_model(target_agent, repo_root=repo_root)
     provider = dispatching_provider_for_model(model)
     if role:
-        provider = load_provider_routing().ladder_for(role, target_agent, include_suspended=True)[0]
+        routing = load_provider_routing()
+        provider = routing.ladder_for(role, target_agent, include_suspended=True)[0]
+        if provider in cooled:
+            provider = next((rung for rung in routing.ladder_for(role, target_agent) if rung not in cooled),
+                            provider)
         model = route_model(next(row for row in _FLEET if row.key == provider), model, os.environ)
     return DispatchRoute(
         provider=provider, model=model, role=role, target_agent=target_agent,

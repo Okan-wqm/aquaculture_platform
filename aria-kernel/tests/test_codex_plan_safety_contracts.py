@@ -22,7 +22,6 @@ class V9MergeDemotionTests(unittest.TestCase):
             diff_hash="sha256:diff",
             branch_tip_sha="abc123",
             base_branch="main",
-            profile="autonomous",
         )
         self.assertFalse(decision.eligible)
         self.assertEqual(

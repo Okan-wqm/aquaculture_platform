@@ -46,7 +46,7 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
@@ -798,4 +798,28 @@ void test('validateCommit: a bare (un-anchored) trailer stays admissible', () =>
     undefined,
     `a bare trailer must stay admissible, got: ${JSON.stringify(violations)}`,
   );
+});
+
+// ARIA-HIGH-499 — the debt-closure trailer the docs teach must be one the gate
+// accepts. Both documented forms read `Closes: docs/aria/debts/DEBT-XXX`,
+// which CLOSES_TRAILER_REGEX rejects (no `#<id>` anchor, not under
+// aria-debts/), so a commit written from the docs failed the gate.
+void test('documented ARIA debt Closes trailers satisfy CLOSES_TRAILER_REGEX', () => {
+  for (const rel of ['docs/aria/CONTRACTS.md', '.claude/knowledge/layer-1-aria.md']) {
+    const body = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
+    // The lookarounds keep the backticks outside the match, so each hit is the
+    // documented trailer itself and no capture group has to be indexed.
+    const trailers = body.match(/(?<=`)Closes:[^`]*DEBT-[^`]*(?=`)/g) ?? [];
+    assert.ok(trailers.length > 0, `${rel} documents no debt Closes trailer`);
+    for (const trailer of trailers) {
+      // Group 1 (the closed path) is mandatory in CLOSES_TRAILER_REGEX, so it is
+      // undefined exactly when the trailer does not match: one assertion covers both.
+      const [, closedPath] = CLOSES_TRAILER_REGEX.exec(trailer) ?? [];
+      assert.ok(closedPath !== undefined, `${rel}: ${trailer} does not match CLOSES_TRAILER_REGEX`);
+      assert.ok(
+        isAriaArtifactPath(closedPath),
+        `${rel}: ${trailer} does not point under aria-debts/`,
+      );
+    }
+  }
 });

@@ -221,5 +221,43 @@ class M1ALeaseAnOutageAteIsNotCharged(_Store):
         self.assertEqual((followup["reason"], followup["requeue_count"]), ("lease_expired", 1))
 
 
+class M444TheLeaseIsJudgedByTheProviderTheClaimRanOn(M1ALeaseAnOutageAteIsNotCharged):
+    """ARIA-MEDIUM-444 — since ARIA-HIGH-434 a Claude-headed seat runs on Z.ai while Claude is
+    cooled. The head's outage waived a Z.ai run that hung, so it was re-run uncharged for as long
+    as Claude stayed out. The route is the claim's newest native attempt row, as
+    `budget._reserve_native_runtime_attempt` writes it."""
+
+    def attempt(self, provider: str, *, attempt_id: str = "ATT-1") -> None:
+        from aria_kernel.independence_check import RUNTIME_ATTEMPT_STARTED_KIND
+        from aria_kernel.tool_registry import append_tools_governance
+
+        append_tools_governance(self.tools, RUNTIME_ATTEMPT_STARTED_KIND, {
+            "schema_version": 1, "attempt_id": attempt_id, "request_id": "AIR-1", "claim_id": "CL-1",
+            "provider": provider, "runtime": provider, "model": f"{provider}-model"})
+
+    def test_a_zai_run_that_hung_while_claude_was_out_is_charged(self) -> None:
+        self.outage(_T0 + timedelta(minutes=10), None)
+        self.attempt("zai")
+        followup = self._reap()["requeued"][0]
+        self.assertEqual((followup["reason"], followup["requeue_count"]), ("lease_expired", 1))
+
+    def test_a_run_the_outage_did_hit_is_still_waived(self) -> None:
+        self.outage(_T0 + timedelta(minutes=10), None)
+        self.attempt("zai")
+        self.attempt("anthropic", attempt_id="ATT-2")  # the newest attempt is the route the lease held
+        followup = self._reap()["requeued"][0]
+        self.assertEqual((followup["reason"], followup["requeue_count"]),
+                         ("lease_expired_during_provider_outage:anthropic", 0))
+
+    def test_the_fixture_row_is_the_writers_shape(self) -> None:
+        import inspect
+
+        from aria_kernel import budget
+
+        source = inspect.getsource(budget._reserve_native_runtime_attempt)
+        for field in ('"claim_id": claim_id', '"provider": provider', 'kind="runtime_attempt_started"'):
+            self.assertIn(field, source)
+
+
 if __name__ == "__main__":
     unittest.main()

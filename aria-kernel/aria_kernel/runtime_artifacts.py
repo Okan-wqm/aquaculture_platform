@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_safety import scrub_json
-from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl, verify_jsonl
+from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, is_sha256_digest, load_declared_jsonl, load_jsonl, verify_jsonl
 from .ledger import (
     LEDGER_ROW_MAX_BYTES as _LEDGER_ROW_MAX_BYTES,
     LedgerReadLimitError as _LedgerReadLimitError,
@@ -2032,18 +2032,10 @@ def _validate_artifact_ref_v2_shape(ref: dict[str, Any]) -> None:
         raise GovernanceError("artifact_ref_v2_produced_by_workflow_run_id_required")
     if produced == "local-runtime":
         raise GovernanceError("artifact_ref_v2_local_runtime_producer_forbidden")
-    if not _is_sha256_digest(str(ref.get("sha256") or "")):
+    if not is_sha256_digest(str(ref.get("sha256") or "")):
         raise GovernanceError("artifact_ref_v2_sha256_required")
     if isinstance(ref.get("source_surface"), list):
         raise GovernanceError("artifact_ref_v2_source_surface_must_be_single_string")
-
-
-def _is_sha256_digest(value: str) -> bool:
-    return (
-        value.startswith("sha256:")
-        and len(value) == len("sha256:") + 64
-        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
-    )
 
 
 def _resolve_artifact_path(raw_path: str, *, root: Path, workspace_root: Path | None) -> Path:
@@ -2154,10 +2146,10 @@ def _compacted_raw_pointer_issue(row: dict[str, Any], ref: dict[str, Any]) -> di
         reasons.append("finding_summary_missing")
     elif not isinstance(summary.get("rule"), str) or not isinstance(summary.get("id"), str):
         reasons.append("finding_summary_incomplete")
-    if not _is_sha256_digest(str(row.get("evidence_hash") or "")):
+    if not is_sha256_digest(str(row.get("evidence_hash") or "")):
         reasons.append("evidence_hash_missing")
     artifact_hash = str(row.get("artifact_hash") or "")
-    if not _is_sha256_digest(artifact_hash):
+    if not is_sha256_digest(artifact_hash):
         reasons.append("artifact_hash_missing")
     elif artifact_hash != artifact.sha256:
         reasons.append("artifact_hash_mismatch")
@@ -2663,6 +2655,10 @@ def _runner_summary(runner: Any) -> dict[str, Any]:
         "scoped_mutations": runner.get("scoped_mutations", []),
         "scope_out_mutations": runner.get("scope_out_mutations", []),
         "parse_error": runner.get("parse_error"),
+        # ARIA-CRITICAL-399 — the published row says each run was contained:
+        # the backend's short name (`bwrap`), None when the adapter never
+        # started. A name, never a path; the env report stays in runs.jsonl.
+        "sandbox_backend": runner.get("sandbox_backend"),
     }
 
 

@@ -1,11 +1,12 @@
-"""Plan 020 Phase 1 — runtime profile (4-mode safety boundary, scoped no-write).
+"""Plan 020 Phase 1 — runtime profile (the operator's safety boundary).
 
 WHY this module exists
 ----------------------
 ARIA's prior layout had no operator-controlled gate between "we observe the
 repo" and "we mutate the ledger / open PRs / claim agents". Plan 020 formalises
-the gate as a 4-mode runtime profile. The profile is the single SAFETY BOUNDARY
-that decides whether dispatch sites + ledger writers are allowed to fire.
+the gate as a runtime profile, one of ``PROFILES``. The profile is the single
+SAFETY BOUNDARY that decides whether dispatch sites + ledger writers are
+allowed to fire.
 
 Profiles
 --------
@@ -21,14 +22,18 @@ Profiles
     Strict is an OPERATOR GRANT. A scheduled lane may resolve itself into
     strict only when an operator has already raised the scheduler ceiling
     to it; see "Scheduler ceiling" below.
-- frozen (Plan 020 SCOPED no-write — incident response):
-    every PLAN_020_WRITE_SURFACES write blocked, every action blocked.
-    Legacy mutators (finding emit, debt emit, change_planned, human_required,
-    review_record, agent_release/requeue/reap_stale, low-level
-    append_tools_governance) are NOT covered — Plan 021 hardening scope. The
-    plan-020 frozen invariant is intentionally narrow; making it global without
-    a coordinated legacy-writer refactor would break observation-class flows
-    that incident response itself depends on.
+- autonomous (operator grant — merge authority):
+    everything strict may do, plus ``pr_merge`` (``ACTION_PERMISSIONS``);
+    ``assert_merge_authority_available`` checks for it before any merge work.
+    No scheduled lane may propose it (``SCHEDULER_MAX_PROPOSABLE_PROFILE``);
+    an operator sets it with an ``operator_approval_ref``.
+- frozen (incident response):
+    every write to a surface in PLAN_020_WRITE_SURFACES is blocked, and every
+    action. Plan 026R §A.4 routed the former legacy mutators (finding, debt,
+    observation, human_required, tool_governance, governance) through the
+    gate, so they are in that set; only DIAGNOSTIC_ALLOWLIST writes (the
+    corruption sink and its fallback) stay open, so incident response keeps
+    its evidence.
 
 Non-bypassable invariants — fire in EVERY profile (saf validator level,
 DECOUPLED from the profile gate; profile cannot disable them):
@@ -230,6 +235,17 @@ PROFILES_WITH_ACTION_AUTHORITY: frozenset[str] = frozenset().union(
     *ACTION_PERMISSIONS.values()
 )
 
+# ARIA-MEDIUM-467 — the GitHub adapter/runner classification, derived from the table
+# above for the same reason (github_adapters and auto_merge_runners each kept
+# literal copies). A profile allowed to open PRs is one whose GitHub calls are
+# real; every other profile records the intended call instead, so a new
+# profile lands on the recording side until it is granted `pr_open`.
+GITHUB_LIVE_PROFILES: frozenset[str] = ACTION_PERMISSIONS["pr_open"]
+GITHUB_RECORDING_PROFILES: frozenset[str] = frozenset(PROFILES) - GITHUB_LIVE_PROFILES
+# A profile that can act observes the CI of what it produced (the own-PR
+# checks reader); observe/frozen hold no action and promise no network.
+GITHUB_CHECKS_READ_PROFILES: frozenset[str] = PROFILES_WITH_ACTION_AUTHORITY
+
 # ---------------------------------------------------------------------
 # ORPHAN-HIGH-728 — the SCHEDULER CEILING: the operator gesture a machine
 # can read and lower but never raise.
@@ -333,10 +349,11 @@ def bound_profile_to_ceiling(profile: str, ceiling: str) -> str:
 #   observe permits only OBSERVE_PERMITTED_SURFACES (a strict subset of the
 #   union of legacy + Plan 020 surfaces).
 #
-# Surfaces NOT in this set (legacy mutators: finding/debt/observation emit,
-# human_required, review_record, change_planned, agent_release/requeue/
-# reap_stale_claims, append_tools_governance low-level) are PLAN 021 SCOPE —
-# Plan 020's frozen invariant intentionally does not cover them.
+# Derived from the state manifest's profile surfaces plus the non-file action
+# surfaces below, so it includes the former legacy mutators §A.4 routed
+# through the gate (finding, debt, observation, human_required,
+# tool_governance). Its size is pinned by SurfaceCountInvariantTests
+# (tests/test_frozen_profile_global_no_write.py), never restated here.
 _NON_FILE_PROFILE_SURFACES: frozenset[str] = frozenset({
     # Action authority surfaces that are not a direct file path in the
     # manifest but remain first-class profile gates.
@@ -486,8 +503,8 @@ def get_profile_with_diagnostic(
     Returns (profile_name, diagnostic) where diagnostic is non-None when
     the resolution had to fall back to FROZEN_PROFILE. Pure read; never
     emits governance events itself (the write-boundary callers consume
-    the diagnostic and emit at the boundary, preserving the read-only
-    invariant of the file at line 174-176 docstring).
+    the diagnostic and emit at the boundary, preserving the module
+    docstring's read-path init/write protection).
 
     Resolution semantics:
     - tools dir absent / not bound → ('standard', None) — documented
@@ -996,7 +1013,7 @@ def list_profile_history(*, base_dir: str | Path | None = None) -> list[dict[str
     Plan 026R §A.3 forward-fix (caught by reviewer-A.3): this is the 11th
     JSONL ledger reader in the kernel, missed by the original §A.3 sweep
     because the file-level allowlist entry for ``runtime_profile.py`` was
-    written for the SINGLE-ROW state-file parser at lines 215-222. The
+    written for the SINGLE-ROW state-file parser (``_read_profile_state``). The
     ledger here is a multi-row append-only audit trail of profile
     transitions — silent-skip on a corrupt history row would understate
     the audit count operator dashboards depend on. Strict-by-default via
@@ -1099,10 +1116,10 @@ def enforce_profile_for_write(
     """Reject ledger write to surface_kind if active profile does not permit it.
 
     Plan 020 SCOPED:
-    - frozen blocks every surface in PLAN_020_WRITE_SURFACES (no-write
-      invariant for the 14-surface scope).
+    - frozen blocks every surface in PLAN_020_WRITE_SURFACES (the frozen
+      no-write invariant).
     - observe blocks any surface NOT in OBSERVE_PERMITTED_SURFACES.
-    - standard|strict permit all known surfaces.
+    - standard, strict and autonomous permit all known surfaces.
 
     Surfaces NOT in either set raise GovernanceError as a typo guard. Legacy
     writers that have not yet been routed through this gate (Plan 021 scope)
@@ -1132,8 +1149,8 @@ def enforce_profile_for_write(
     if diagnostic is not None:
         _emit_runtime_profile_diagnostic(diagnostic, base_dir=base_dir)
     if profile == "frozen":
-        # Plan 020 frozen scope (extended by §A.4 to 22 surfaces, was 14):
-        # every PLAN_020_WRITE_SURFACES write blocked. Surfaces in
+        # Plan 020 frozen scope, as extended by §A.4: every surface in
+        # PLAN_020_WRITE_SURFACES is blocked. Surfaces in
         # OBSERVE_PERMITTED_SURFACES that are NOT also in
         # PLAN_020_WRITE_SURFACES fall through — they are observation-
         # class and not blocked by frozen.
@@ -1171,6 +1188,9 @@ __all__ = [
     "SCHEDULER_MAX_PROPOSABLE_PROFILE",
     "ACTION_PERMISSIONS",
     "PROFILES_WITH_ACTION_AUTHORITY",
+    "GITHUB_LIVE_PROFILES",
+    "GITHUB_RECORDING_PROFILES",
+    "GITHUB_CHECKS_READ_PROFILES",
     "permitted_actions",
     "profile_within_ceiling",
     "bound_profile_to_ceiling",

@@ -155,6 +155,35 @@ class StateCompactTests(unittest.TestCase):
         # New run untouched
         self.assertEqual(len(new["evidence_validation"]["evidence_envelopes"]), 5)
 
+    def test_a_naive_recorded_at_is_read_as_utc(self) -> None:
+        # A stamp without an offset is UTC, the ledgers' declared timezone
+        # (tool_registry.parse_utc_stamp). Compared as naive against the
+        # aware cutoff it raised TypeError and stopped the whole compaction.
+        naive = (datetime.now(timezone.utc) - timedelta(days=30)).replace(tzinfo=None)
+        self._write_ledger(self.tools / "runs.jsonl", [{
+            "recorded_at": naive.isoformat(),
+            "run_id": "run-naive",
+            "tool_id": "tool-a",
+            "cycle_id": "cyc-naive",
+            "status": "ok",
+            "evidence_validation": {
+                "valid": True,
+                "evidence_envelopes": [
+                    {"canonical_ref": f"src/naive{i}.ts", "trust_grade": "repo_verified"}
+                    for i in range(100)
+                ],
+            },
+            "read_paths": [f"src/naive{i}.ts" for i in range(100)],
+        }])
+
+        compact_state(base_dir=self.tools, retain_days=7)
+
+        rows = load_declared_jsonl(self.tools / "runs.jsonl", expected_surface="runs")
+        slimmed = next(r for r in rows if r["run_id"] == "run-naive")
+        self.assertEqual(slimmed["read_paths_count"], 100)
+        self.assertEqual(len(slimmed["read_paths"]), 5)
+        self.assertNotIn("evidence_envelopes", slimmed["evidence_validation"])
+
     def test_old_raw_findings_lose_inline_finding(self) -> None:
         compact_state(base_dir=self.tools, retain_days=7)
         rows = load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings")

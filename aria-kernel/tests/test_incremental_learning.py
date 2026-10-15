@@ -19,8 +19,10 @@ from aria_kernel.feedback_store import (
 from aria_kernel.fixture_runner import fixture_status_report, latest_fixture_status, refresh_fixture_suite, run_fixture_suite
 from aria_kernel.goldset import propose_goldset
 from aria_kernel.memory import list_memory
-from aria_kernel.pr_tracking import observe_pr_event, plan_pr_impact
+from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
+from aria_kernel.pr_tracking import plan_pr_impact
 from aria_kernel.tool_health import evaluate_health
+from tests._helpers.git_fixtures import track_existing
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -95,6 +97,8 @@ class IncrementalLearningTests(unittest.TestCase):
         (self.root / "src/app.ts").write_text("export const app = true;\n", encoding="utf-8")
         (self.root / "package.json").write_text('{"name":"fixture"}\n', encoding="utf-8")
         (self.root / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
+        # A checkout: the adapter room shows what git tracks (ARIA-MEDIUM-432).
+        track_existing(self.root, "src", "package.json", "nx.json")
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
 
     def tearDown(self):
@@ -179,17 +183,18 @@ class IncrementalLearningTests(unittest.TestCase):
         run_cycle_diff(cycle_id="cycle-1", base_dir=self.tools_dir)
         update_memory(cycle_id="cycle-1", base_dir=self.tools_dir)
 
-        observe_pr_event(
-            payload={"pr_number": 1, "event": "opened", "changed_files": ["src/app.ts"], "head_sha": "h1", "base_sha": "b1"},
-            base_dir=self.tools_dir,
+        # A merge is read where its one writer records it (ARIA-LOW-424).
+        record_merge(
+            pr={"number": 1, "head_sha": "1" * 40, "base_branch": "main", "changed_files": ["src/app.ts"]},
+            merged_by=MERGED_BY_MERGE_LANE, base_dir=self.tools_dir, head_lineage="delivered",
         )
         unrelated = plan_pr_impact(cycle_id="cycle-pr-1", base_dir=self.tools_dir)
         carried_ids = {item["belief_id"] for item in unrelated["carried_forward_beliefs"]}
         self.assertIn("repo-has-node-package-manifest", carried_ids)
 
-        observe_pr_event(
-            payload={"pr_number": 1, "event": "synchronize", "changed_files": ["package.json"], "head_sha": "h2", "base_sha": "b1"},
-            base_dir=self.tools_dir,
+        record_merge(
+            pr={"number": 2, "head_sha": "2" * 40, "base_branch": "main", "changed_files": ["package.json"]},
+            merged_by=MERGED_BY_MERGE_LANE, base_dir=self.tools_dir, head_lineage="delivered",
         )
         impacted = plan_pr_impact(cycle_id="cycle-pr-2", base_dir=self.tools_dir)
         impacted_ids = {item["belief_id"] for item in impacted["impacted_beliefs"]}

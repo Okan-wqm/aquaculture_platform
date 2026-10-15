@@ -33,7 +33,6 @@ from aria_kernel.autonomy_evidence import (
     _capability_semantic_authority,
     _apply_operator_prerequisites,
     _ancestry_blocker,
-    _capability_safe_counts,
     _derive_capability_evidence,
     _evaluate_native_rows,
     _mode_a_signed_readiness_live_proven,
@@ -323,6 +322,28 @@ def _capability(
         blockers=(blocker,) if blocker else (),
         evidence_refs=(),
     )
+
+
+def _folded_counts(
+    rows_by_surface: dict[str, tuple[dict[str, Any], ...]],
+) -> tuple[dict[str, dict[str, int]], dict[str, tuple[str, ...]]]:
+    """Capability counts and blockers from the production streaming fold.
+
+    The unlock-verdict ledger read needs a real state store, so it is
+    isolated exactly as the semantic-equivalence invariant's ``_view`` does.
+    """
+    accumulator = autonomy_evidence_module._StreamingEvidenceAccumulator()
+    for surface, rows in rows_by_surface.items():
+        for row in rows:
+            accumulator.consume(surface, row)
+    with mock.patch.object(
+        autonomy_evidence_module,
+        "_stream_unlock_verdict_counts",
+        return_value=({}, None),
+    ):
+        return accumulator.capability_counts(
+            repo_root=Path("."), target_sha="0" * 40,
+        )
 
 
 def _python_function_scopes(tree: ast.Module) -> tuple[ast.AST, ...]:
@@ -2755,26 +2776,25 @@ class NativeProofContractTests(unittest.TestCase):
         )
 
     def test_malformed_readiness_count_is_invalid_not_an_exception(self) -> None:
-        counts = _capability_safe_counts(
-            "enterprise_readiness",
+        all_counts, _blockers = _folded_counts(
             {"enterprise_readiness_claims": ({"$schema": []},)},
         )
+        counts = all_counts["enterprise_readiness"]
         self.assertEqual(counts["readiness_valid"], 0)
         self.assertEqual(counts["readiness_invalid"], 1)
 
     def test_malformed_autonomy_state_count_is_named_and_fail_closed(
         self,
     ) -> None:
-        counts, blocker = (
-            autonomy_evidence_module._capability_counts_with_blocker(
-                "cycle_runtime",
-                {"autonomy_state": ({
-                    "planner_claims_delta": [1],
-                },)},
-            )
+        all_counts, blockers = _folded_counts(
+            {"autonomy_state": ({
+                "planner_claims_delta": [1],
+            },)},
         )
-        self.assertEqual(blocker, "count_rejected:cycle_runtime")
-        self.assertEqual(counts["count_rejected"], 1)
+        self.assertEqual(
+            blockers["cycle_runtime"], ("count_rejected:cycle_runtime",),
+        )
+        self.assertEqual(all_counts["cycle_runtime"]["count_rejected"], 1)
 
     def test_unlock_policy_counting_rejects_bool_versions_and_bad_thresholds(
         self,
@@ -3065,10 +3085,9 @@ class NativeProofContractTests(unittest.TestCase):
             "_enterprise_readiness_v2_terminal",
             side_effect=lambda row: row.get("valid_for_test") is True,
         ):
-            counts = {
-                capability: _capability_safe_counts(capability, rows)
-                for capability in EXPECTED_CAPABILITIES
-            }
+            # consume() runs the readiness predicate, so the fold happens
+            # inside the patch.
+            counts, _blockers = _folded_counts(rows)
 
         self.assertEqual(counts["cycle_runtime"]["cycle_status_completed"], 1)
         self.assertEqual(counts["cycle_runtime"]["cycle_status_failed"], 1)

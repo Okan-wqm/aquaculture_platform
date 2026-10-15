@@ -287,3 +287,105 @@ Owner okan, deadline 2026-10-31.
 
 Rule: Every operator approval is proven by the operator's own GitHub act; a ref no one verifies is
 not an approval.
+
+## ARIA-HIGH-234 — closed (2026-10-10, wave 2)
+
+The push leg was fixed by #1676: `git_containment._publish_environment` stripped the ambient
+triple. Two seams still handed the ambient set to a child.
+
+- **`gh pr create`.** `pr_manager.py` built
+  `create_env = {**os.environ, **command_environment}`. The named test,
+  `test_implementation_delivery::test_a_lane_that_cannot_mint_at_the_push_is_refused_at_the_credential_stage`,
+  run with the triple set, failed at its `gh` assertion
+  (`docs/reviews/claude/2026-10-10-aria-adapter-sandbox.md`). This is also the create that
+  `self_revert` opens its PR through.
+- **The self-revert push and its PR lookup.** `self_revert.py` built
+  `{**os.environ, **credential_env}`. The credential's own `GIT_CONFIG_COUNT=1` hid
+  `KEY_n`/`VALUE_n` for n ≥ 1, but an ambient `GIT_CONFIG_PARAMETERS` (git's `-c` export, which
+  git honours) still reached a kernel push.
+
+Four modules each named these variables themselves:
+
+| Module                    | What it named                                             |
+| ------------------------- | --------------------------------------------------------- |
+| `git_containment`         | `COUNT`, `PARAMETERS`, `KEY_*`, `VALUE_*`                 |
+| `self_revert`             | `COUNT`, `PARAMETERS`, `KEY_*`, `VALUE_*` (and identity)  |
+| `implementation_identity` | the same plus plain `GIT_CONFIG` (and location, identity) |
+| `delivery_credentials`    | spelled its own triple by hand                            |
+
+`validation_env` holds no copy: it builds the child's environment from an allowlist that admits
+only git's config-file redirects (`GIT_CONFIG_GLOBAL/SYSTEM/NOSYSTEM`).
+
+### Fix (tier 1 by construction, tier 3 for a second list)
+
+`git_containment` owns env-borne git configuration in both directions:
+
+- `without_ambient_git_config(environ)` strips `GIT_CONFIG`, `GIT_CONFIG_COUNT`,
+  `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_KEY_*` and `GIT_CONFIG_VALUE_*`.
+- `git_config_environment(entries)` spells the kernel's own configuration.
+
+The consumers:
+
+- `_publish_environment`, `pr_manager`'s `create_env`, and `self_revert`'s push and lookup
+  environment and revert-commit environment build on `without_ambient_git_config`. The caller's
+  chosen credential and helper configuration are laid over it.
+- `implementation_identity.commit_identity_environment` builds on it too. Its location and
+  identity lists stay its own: they are not configuration.
+- `delivery_credentials.GIT_CREDENTIAL_HELPER_ENV` is spelled through `git_config_environment`.
+  Its value is unchanged (pinned).
+
+The one semantic difference between the copies was plain `GIT_CONFIG` (only
+`implementation_identity` stripped it). It is kept, in the one list. git 2.43 honours it only in
+`git config`: `git var GIT_AUTHOR_IDENT` ignored a `GIT_CONFIG` file naming a user, and
+`git config user.name` read it. So stripping it is inert for every other call and closes the
+redirect for that one.
+
+`tests/invariants/test_git_config_env_single_owner.py` fails any production module (`aria_kernel`,
+`tools/aria-poc`, `tools/aria`) except `git_containment` that has a string literal naming one of
+these variables, including the literal part of an f-string.
+
+### Evidence
+
+Every consumer is tested with the full ambient set (`tests/_helpers/ambient_git_config.py`: the
+triple with a header and a url rewrite, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG`):
+
+- **`gh pr create`**: the named test, its second leg run under the ambient set. The fake `gh`
+  records every `GIT_CONFIG*` name except the three file redirects. Red before: `gh` saw 7
+  injected names. Green after: exactly `["GH_TOKEN"]`.
+- **self-revert**: `test_self_revert::test_the_revert_push_lookup_and_pr_carry_no_ambient_git_config`.
+  Red before: the push carried `GIT_CONFIG_PARAMETERS`, `KEY_1`/`VALUE_1` and `GIT_CONFIG`.
+  Green after: the push, `gh pr list` and `gh pr create` carry exactly
+  `GIT_CREDENTIAL_HELPER_ENV`, and the revert commit carries none.
+- **publication and push**: `test_git_containment::PublishEnvironmentTests`. Red before on
+  `GIT_CONFIG`.
+- **identity check**: `test_implementer_commit_identity::test_no_ambient_git_config_reaches_the_check`.
+  Green before too; it characterises the move.
+- **validation child**: `test_validation_env::test_no_injected_git_config_reaches_the_child`. Green
+  before too; it proves the allowlist holds no copy.
+- **single owner**: `test_git_config_env_single_owner`. Red before: 12 offenders, starting at
+  `delivery_credentials.py:108`.
+
+Runs on `21e4b80e8` + this change:
+
+- Snapshot (owner files): `test_git_containment`, `test_implementation_delivery`,
+  `test_implementation_identity_hold`, `test_implementer_commit_identity`,
+  `test_pr_manager_provenance`, `test_self_revert`, `test_validation_env` and the new invariant
+  all pass. `test_executor_implementation_identity`: 24 passed.
+- Worktree (needs `node_modules`): the targeted tests above, `test_implementer_commit_identity`,
+  `test_validation_env` and `test_pr_manager_e2e`: 82 passed.
+
+### Not changed here (recorded for the registry decision)
+
+Other `gh` writes still build their child's environment from the ambient one:
+
+- `github_writes.run_gh_write` with `env=None`, used by the merge adapter, the issue writer and the
+  scheduler;
+- `pr_branch_update.py` (`{**os.environ, **credential.env}`);
+- `merge_lane_merge_state.py` (`dict(os.environ)`);
+- `gh_token_factory.py`'s token revoke.
+
+None of them is a push or a `gh pr create`. In CI the triple is ambient only inside the
+publish/restore/release steps' own `env`. The state publish's push deliberately uses that ambient
+header as its credential, so a blanket strip of every kernel child would be wrong.
+`pr_manager.push_prepared_branch` (the operator CLI's `pr push`, which no workflow invokes) pushes
+under the operator's own shell configuration.

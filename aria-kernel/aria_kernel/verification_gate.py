@@ -10,9 +10,7 @@ from typing import Any
 from .artifact_safety import write_sanitized_json
 from .ledger import (
     append_declared_jsonl,
-    append_jsonl as _append_jsonl,
     load_declared_jsonl,
-    load_jsonl as _load_jsonl,
     state_transaction,
 )
 from .implementation_safety import verify_bash_command_allowed
@@ -125,14 +123,14 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return append_declared_jsonl(path, record, expected_surface=surface)
-    return _append_jsonl(path, record)
+    raise GovernanceError(f"verification_gate_append_unknown_surface:{Path(path).as_posix()}")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return load_declared_jsonl(path, expected_surface=surface)
-    return _load_jsonl(path)
+    raise GovernanceError(f"verification_gate_load_unknown_surface:{Path(path).as_posix()}")
 
 
 def submit_worker_result(

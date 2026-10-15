@@ -203,6 +203,71 @@ class PhaseV5_3PedagogyLint(unittest.TestCase):
         self.assertTrue(EXAMPLE_EQUIVALENT_RX.search("  **Example:** see batch.handler.ts"))
         self.assertTrue(EXAMPLE_EQUIVALENT_RX.search("  **Example**: see batch.handler.ts"))
 
+    # I-V5.3-05 — one allowlist match site, keyed by the schema's
+    # repo-relative path.
+    def test_i_v5_3_05_allowlist_matches_once_by_repo_relative_path(self) -> None:
+        """Plan ARIA-V5 §3e v2 R-P4 — the allowlist's keys are
+        repo-relative agent paths, and ``run_pedagogy_lint`` is the one
+        place that knows that path. ``lint_agent_file`` lints and
+        returns the violations, nothing else; strict mode ignores the
+        allowlist.
+        """
+        import tempfile
+        from datetime import datetime, timezone
+
+        from aria_kernel.pedagogy_lint import lint_agent_file, run_pedagogy_lint
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            agents_dir = root / ".claude" / "agents"
+            agents_dir.mkdir(parents=True)
+            agent = agents_dir / "untiered.md"
+            agent.write_text("---\nname: untiered\n---\nBody.\n", encoding="utf-8")
+            allowlist = root / "allowlist.json"
+            allowlist.write_text(json.dumps({"entries": {
+                ".claude/agents/untiered.md": {
+                    "reason": "fixture",
+                    "added_at": datetime.now(timezone.utc).isoformat(),
+                },
+            }}), encoding="utf-8")
+
+            violations = lint_agent_file(agent)
+            warn = run_pedagogy_lint(agents_dir=agents_dir, allowlist_path=allowlist)
+            strict = run_pedagogy_lint(
+                agents_dir=agents_dir, allowlist_path=allowlist, strict=True,
+            )
+
+        self.assertIsInstance(violations, list)
+        self.assertEqual([v.imperative_kind for v in violations], ["missing_tier"])
+        self.assertEqual(
+            (warn.agents_allowlisted, warn.violation_count), (1, 0),
+        )
+        self.assertEqual(strict.agents_allowlisted, 0)
+        self.assertEqual(
+            [v.imperative_kind for v in strict.violations], ["missing_tier"],
+        )
+
+    # The allowlist's comment is the first thing a reader of an empty
+    # allowlist sees; it must name the CI step that enforces the lint and
+    # carry no agent count that silently goes stale.
+    def test_allowlist_comment_names_live_ci_and_no_count(self) -> None:
+        import re
+
+        comment = json.loads(_ALLOWLIST.read_text(encoding="utf-8"))["comment"]
+        workflows = _REPO_ROOT / ".github" / "workflows"
+        named = re.findall(r"[\w{},.-]+\.ya?ml", comment)
+        self.assertGreater(len(named), 0)
+        for name in named:
+            workflow = workflows / name
+            self.assertTrue(workflow.is_file(), msg=f"{name} is not a workflow file")
+            text = workflow.read_text(encoding="utf-8")
+            self.assertIn("aria_kernel.pedagogy_lint", text, msg=name)
+            self.assertIn("--strict", text, msg=name)
+        self.assertIsNone(
+            re.search(r"\b\d+\s+agents\b", comment),
+            msg="the allowlist comment carries an agent count",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

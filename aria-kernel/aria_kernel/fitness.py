@@ -263,19 +263,6 @@ def _last_computed_at(rows: list[dict[str, Any]]) -> datetime | None:
     return max(values) if values else None
 
 
-def _load_fitness_row_timestamp(row: dict[str, Any]) -> str | None:
-    """Plan 022 §H-3 helper — canonical recorded_at first, legacy
-    computed_at fallback. Returned to callers as a string so the
-    historical caller pattern (datetime.fromisoformat(...)) still
-    works."""
-    if not isinstance(row, dict):
-        return None
-    value = row.get("recorded_at") or row.get("computed_at")
-    if isinstance(value, str) and value.strip():
-        return value
-    return None
-
-
 def _format_dt(value: datetime) -> str:
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 

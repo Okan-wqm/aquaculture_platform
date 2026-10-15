@@ -1,4 +1,4 @@
-"""cycle_and_turn_budget_cap — the seventh pre-merge predicate, built.
+"""cycle_and_turn_budget_cap — the seventh pre-merge predicate's counter, cap and evidence.
 
 Policy §14 named a per-cycle USD reservation cap and a per-implementer-turn
 cap of N Edit+Write+Bash turns; the registry bound the predicate to
@@ -24,11 +24,15 @@ in ``tests/test_turn_budget_policy.py``). These tests pin:
   unbudgeted profile never reads the policy — and the CLI verb threads the
   compiled number into the hook;
 * the evidence reduction compares the recorded cap against the policy cap
-  the caller resolved for the merged store, and the predicate passes on
-  evidence showing both caps respected and fails, by name, on a refusal, on
-  more admitted turns than the cap, on a recorded cap other than the
-  policy's, on absent or malformed evidence, and on an unbound
-  implementation.
+  the caller resolved for the merged store.
+
+The merge gate's capture of that evidence (the cap resolved from the merged
+store's policy, not from the rows) and the predicate that reads it (passes on
+evidence showing both caps respected; fails, by name, on a refusal, on more
+admitted turns than the cap, on a recorded cap other than the policy's, on
+absent or malformed evidence, and on an unbound implementation) are pinned with
+the plan content binding in ``tests/test_pre_merge_budget_and_content.py``
+(ARIA-HIGH-008), the one owner of "the merge gate reads the budget".
 """
 from __future__ import annotations
 
@@ -46,12 +50,6 @@ from unittest import mock
 
 from aria_kernel import cycle, hooks, turn_budget
 from aria_kernel.claude_settings import _PRE_TOOL_MATCHER, build_settings, settings_hash
-from aria_kernel.implementation_safety import (
-    GATE_PRE_MERGE,
-    HardFailContext,
-    _PreMergeEvidence,
-    run_hard_fail_checks,
-)
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.runtime_profiles import load_runtime_profiles, profile_by_id
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
@@ -381,86 +379,6 @@ class SettingsCompileTheCap(unittest.TestCase):
         with self.assertRaises(GovernanceError):
             build_settings(profile_by_id("implementer"), hook_context=self.ctx)
         self.assertIsNone(build_settings(profile_by_id("judge_opus"), hook_context=self.ctx)["_aria"]["turn_budget"])
-
-
-def _bound_evidence(**budget) -> _PreMergeEvidence:
-    """Every native binding field the predicates require, plus the budget view."""
-    sha = "b" * 40
-    return _PreMergeEvidence(
-        unavailable_reasons=(), repo_identity="repo", snapshot_hash="sha256:snap",
-        pr_row_hash="sha256:pr", planned_row_hash="sha256:planned", committed_row_hash="sha256:committed",
-        request_id="AIR-1", claim_id="claim-1", request_row_hash="sha256:req", claim_row_hash="sha256:claim",
-        result_row_hash="sha256:res", implementation_event_hash="sha256:evt",
-        implementation_base_sha="a" * 40, implementation_head_sha=sha, base_sha="a" * 40, head_sha=sha,
-        **budget,
-    )
-
-
-class PredicateReadsCapturedEvidence(unittest.TestCase):
-    def _verdict(self, evidence: _PreMergeEvidence | None):
-        report = run_hard_fail_checks(HardFailContext(pre_merge_evidence=evidence), gate=GATE_PRE_MERGE)
-        return next(result for result in report.results if result.name == "cycle_and_turn_budget_cap")
-
-    def test_passes_when_both_caps_were_respected_under_the_policys_cap(self) -> None:
-        # Whatever the policy says is the cap the evidence is judged against:
-        # the default, and an override the merged store's workspace carries.
-        for cap in (_CAP, 25):
-            verdict = self._verdict(_bound_evidence(
-                turn_budget_cap=cap, turn_budget_policy_cap=cap, turn_budget_used=cap,
-                turn_budget_refusal_reason=None, turn_budget_ledger_tip="sha256:tip",
-            ))
-            self.assertTrue(verdict.passed, verdict.reason)
-            self.assertEqual(verdict.reason, "native_cycle_and_turn_budget_respected")
-
-    def test_fails_by_name_on_either_refusal(self) -> None:
-        for reason in (f"implementer_turn_budget_exhausted:used={_CAP}:cap={_CAP}",
-                       "cycle_budget_exhausted:remaining=90s:margin=120s"):
-            verdict = self._verdict(_bound_evidence(
-                turn_budget_cap=_CAP, turn_budget_policy_cap=_CAP, turn_budget_used=3,
-                turn_budget_refusal_reason=reason, turn_budget_ledger_tip="sha256:tip",
-            ))
-            self.assertFalse(verdict.passed)
-            self.assertEqual(verdict.reason, reason.split(":", 1)[0])
-
-    def test_fails_when_more_turns_were_admitted_than_the_cap(self) -> None:
-        verdict = self._verdict(_bound_evidence(
-            turn_budget_cap=_CAP, turn_budget_policy_cap=_CAP, turn_budget_used=_CAP + 1,
-            turn_budget_ledger_tip="sha256:tip",
-        ))
-        self.assertEqual((verdict.passed, verdict.reason), (False, "implementer_turn_budget_exceeded_unrefused"))
-
-    def test_fails_by_name_when_the_recorded_cap_is_not_the_policys(self) -> None:
-        # The spawn ran under 10 (the former literal, or another workspace's
-        # policy) and the merged store's policy says the default: refused by name,
-        # even though 3 admitted turns respect both numbers.
-        verdict = self._verdict(_bound_evidence(
-            turn_budget_cap=10, turn_budget_policy_cap=_CAP, turn_budget_used=3,
-            turn_budget_ledger_tip="sha256:tip",
-        ))
-        self.assertEqual((verdict.passed, verdict.reason), (False, "native_turn_budget_cap_mismatch"))
-
-    def test_fails_on_absent_malformed_or_unbound_evidence(self) -> None:
-        for budget, expected in (
-            ({"turn_budget_unavailable_reason": "native_turn_budget_evidence_unavailable"},
-             "native_turn_budget_evidence_unavailable"),
-            ({"turn_budget_unavailable_reason": "native_turn_budget_cap_mismatch"}, "native_turn_budget_cap_mismatch"),
-            ({"turn_budget_unavailable_reason": "native_turn_budget_policy_invalid"}, "native_turn_budget_policy_invalid"),
-            ({}, "native_turn_budget_binding_unavailable"),
-            # A recorded cap with no policy cap is unbound: nobody resolved
-            # the merged store's policy, so there is nothing to compare.
-            ({"turn_budget_cap": _CAP, "turn_budget_used": 1, "turn_budget_ledger_tip": "sha256:tip"},
-             "native_turn_budget_binding_unavailable"),
-            ({"turn_budget_policy_cap": _CAP, "turn_budget_used": 1, "turn_budget_ledger_tip": "sha256:tip"},
-             "native_turn_budget_binding_unavailable"),
-            ({"turn_budget_cap": _CAP, "turn_budget_policy_cap": _CAP, "turn_budget_used": 1},
-             "native_turn_budget_binding_unavailable"),
-        ):
-            verdict = self._verdict(_bound_evidence(**budget))
-            self.assertEqual((verdict.passed, verdict.reason), (False, expected), budget)
-        unbound = replace(_bound_evidence(turn_budget_cap=_CAP, turn_budget_policy_cap=_CAP, turn_budget_used=0,
-                                          turn_budget_ledger_tip="sha256:tip"), result_row_hash=None)
-        self.assertEqual(self._verdict(unbound).reason, "native_implementation_binding_unavailable")
-        self.assertEqual(self._verdict(None).reason, "native_implementation_binding_unavailable")
 
 
 if __name__ == "__main__":

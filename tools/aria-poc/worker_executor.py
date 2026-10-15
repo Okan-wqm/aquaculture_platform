@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Any
 
 from claude_runtime import (
-    CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthFailure,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
@@ -49,6 +48,7 @@ from claude_runtime import (
     ClaudeRunResult,
     ClaudeUsageUnavailable,
     UsageRecording,
+    is_mock_mode,
     run_claude_exec,
     run_with_model_fallback,
 )
@@ -65,7 +65,6 @@ from kernel_cli import kernel_cli_argv
 
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
-MOCK_MODE_ENV_VAR = CLAUDE_MOCK_ENV_VAR
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -75,7 +74,9 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 def _is_mock_mode() -> bool:
-    return os.environ.get(MOCK_MODE_ENV_VAR, "0").strip().lower() in {"1", "true", "yes", "on"}
+    # ARIA-MEDIUM-463 — the one CLAUDE_CLI_MOCK parser (claude_runtime): an unknown
+    # value raises ClaudePolicyViolation instead of silently reading as off.
+    return is_mock_mode()
 
 
 def _resolve_assignment(
@@ -204,6 +205,11 @@ def main(argv: list[str] | None = None) -> int:
     # it, and a cooldown that names no claim could not be told apart from
     # a crash by the hook that owns the claim.
     parser.add_argument("--claim-id", required=True, dest="claim_id")
+    # ARIA-HIGH-434 — the model the dispatch hook routed this assignment to
+    # (`runtime_profiles.worker_route`): the profile's own tier, or the
+    # writer ladder's next vendor while the first is cooled. Re-checked
+    # below against the same ladder; absent = the profile's model.
+    parser.add_argument("--model", dest="model", default=None)
     parsed = parser.parse_args(args)
 
     assignment_id = parsed.assignment_id
@@ -256,6 +262,17 @@ def main(argv: list[str] | None = None) -> int:
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
 
     profile = read_agent_runtime_profile(parsed.target_agent, repo_root=repo)
+    from aria_kernel.model_fleet import _FLEET, dispatching_provider_for_model, route_model
+    from aria_kernel.runtime_profiles import worker_ladder
+
+    _rows = {row.key: row for row in _FLEET}
+    _admitted_models = {route_model(_rows[key], profile.model, os.environ) for key in worker_ladder(profile)}
+    model = parsed.model or profile.model
+    if model not in _admitted_models:
+        # A tier no rung of this target's ladder runs is not this lane's to
+        # spawn, whoever asked: refused before any spawn, no cooldown.
+        sys.stderr.write(f"worker_model_not_on_ladder: {model!r} for {parsed.target_agent}\n")
+        return 1
     # ARIA-HIGH-002 — resolve the dispatch route and the once-only summary
     # emitter before any spawn. The assignment row carries no role field by
     # SSoT (see worker_dispatch.create_dispatch_request), so the route's
@@ -289,12 +306,36 @@ def main(argv: list[str] | None = None) -> int:
     try:
         # Model dispatch through the claude_runtime SSoT helper — identical
         # policy to ci_executor, stderr as this path's audit channel. The
-        # worker is a WRITE-scope profile, so the helper has no rung for it
-        # at all: a credit exhaustion or an auth failure is terminal for the
-        # attempt and this process exits non-zero, which is the whole release
-        # protocol here (see the except arms below). A credit exhaustion
-        # additionally cools the provider under this claim before exiting.
+        # rung is the one the hook routed (`--model`), and the helper is
+        # given no second one: a credit exhaustion or an auth failure is
+        # terminal for the attempt and this process exits non-zero, which is
+        # the whole release protocol here (see the except arms below). A
+        # credit exhaustion additionally cools the provider under this claim
+        # before exiting, so the hook's next tick routes past it.
         def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
+            # E17-d — per-spawn usage accounting. role="unknown" is
+            # deliberate, not a placeholder: the aria/dispatch-request
+            # lane's assignment row carries NO role field (see
+            # worker_dispatch.create_dispatch_request), and synthesizing
+            # one from the agent name is exactly the fabricated-identity
+            # defect Plan 025 §B closed in ci_executor. When the dispatch
+            # row grows a role SSoT field, thread it here.
+            usage_recording = UsageRecording(
+                request_id=assignment_id, role="unknown", target_agent=parsed.target_agent, base_dir=tools_dir,
+            )
+            if dispatching_provider_for_model(model) == "zai":
+                # ARIA-HIGH-434 — the writer ladder's Z.ai rung: the kernel's
+                # tool loop under the gate, room and write scope the claude
+                # spawn below gets, in the same worktree with the same
+                # read-only git binds (no commit containment is held here).
+                from zai_tool_loop import ROOM_SYSTEM_PROMPT, RoomSeat, run_zai_writer
+
+                return run_zai_writer(
+                    seat=RoomSeat(agent_profile=profile, workspace_root=worktree_path, tools_dir=tools_dir,
+                                  request_id=assignment_id, role="unknown", target_agent=parsed.target_agent),
+                    model=model, effort=effort, system=ROOM_SYSTEM_PROMPT, user=prompt_text,
+                    timeout_seconds=int(assignment.get("timeout_seconds") or 1800), usage_recording=usage_recording,
+                )
             return run_claude_exec(
                 prompt_text=prompt_text,
                 timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
@@ -302,19 +343,7 @@ def main(argv: list[str] | None = None) -> int:
                 effort=effort,
                 cwd=worktree_path,
                 agent_profile=profile,
-                # E17-d — per-spawn usage accounting. role="unknown" is
-                # deliberate, not a placeholder: the aria/dispatch-request
-                # lane's assignment row carries NO role field (see
-                # worker_dispatch.create_dispatch_request), and synthesizing
-                # one from the agent name is exactly the fabricated-identity
-                # defect Plan 025 §B closed in ci_executor. When the dispatch
-                # row grows a role SSoT field, thread it here.
-                usage_recording=UsageRecording(
-                    request_id=assignment_id,
-                    role="unknown",
-                    target_agent=parsed.target_agent,
-                    base_dir=tools_dir,
-                ),
+                usage_recording=usage_recording,
             )
 
         # ORPHAN-HIGH-478 — the audit line states what happened and names no
@@ -329,9 +358,10 @@ def main(argv: list[str] | None = None) -> int:
 
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
-            model=profile.model,
-            # A worker writes, and only the managed Claude route can host a
-            # write-scope profile (Provider.admits_writes): no failover rung.
+            model=model,
+            # The hook chose the rung (`runtime_profiles.worker_route`); an
+            # auth failure is a provider fact the cooldown answers on the
+            # next tick, never a second rung inside this claim.
             failover=None,
             effort=profile.effort,
             write_capable=profile.write_capable,
@@ -356,12 +386,12 @@ def main(argv: list[str] | None = None) -> int:
         # and no timer knew the provider was gone.
         #
         # Operator decision 2026-09-12 — a quota exhaustion is a PROVIDER
-        # fact, answered by the queue, never by a weaker tier. The worker is
-        # a write-scope role that only the managed Claude route can run, so
-        # the exhausted provider is COOLED here, under the claim the hook
-        # minted (`--claim-id`), through the same owner the planner lane
-        # uses (aria_kernel.provider_cooldown): the hook's next tick refuses
-        # to claim any worker assignment for that provider until `until`
+        # fact, answered by the queue, never by a weaker tier. The exhausted
+        # provider is COOLED here, under the claim the hook minted
+        # (`--claim-id`), through the same owner the planner lane uses
+        # (aria_kernel.provider_cooldown): the hook's next tick routes the
+        # assignment past it (ARIA-HIGH-434: to the writer ladder's next
+        # vendor) or, with every rung out, refuses to claim it until `until`
         # and the scheduler backs off, instead of re-claiming and re-spawning
         # the same exhausted provider every iteration. The hook reads the
         # row this claim wrote (`provider_cooldown_for_claim`) and releases
@@ -429,6 +459,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1
+    provider = dispatching_provider_for_model(completed.model or model)
+    if completed.returncode == 0:
+        # ARIA-HIGH-366 — the vendor served this spawn: its open outages end
+        # and their HUMAN_REQUIRED items resolve themselves.
+        from aria_kernel.provider_outage_ledger import record_provider_restored
+
+        record_provider_restored(tools_dir, provider=provider, seam="spawn", request_id=assignment_id)
+    if completed.quota_window is not None:
+        # ARIA-HIGH-425 — whatever the exit, the run's own quota reading says
+        # a window is spent: the provider is cooled until that window's reset
+        # under this claim (after the restore, so the quota outage this opens
+        # is not the one it closes), and the hook's next tick skips worker
+        # assignments by name instead of spawning into the hard stop.
+        from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+        record_provider_cooldown(
+            tools_dir, provider=provider, model=str(completed.model or model),
+            cooldown_seconds=provider_cooldown_seconds(repo), request_id=assignment_id,
+            claim_id=parsed.claim_id, detection=completed.quota_window,
+        )
     if completed.returncode != 0:
         _emit_summary(
             outcome="failed",
@@ -439,13 +489,6 @@ def main(argv: list[str] | None = None) -> int:
             _redact_lease_in_message(completed.stderr, lease_token) + "\n"
         )
         return completed.returncode
-    # ARIA-HIGH-366 — the vendor served this spawn: its open outages end and
-    # their HUMAN_REQUIRED items resolve themselves.
-    from aria_kernel.model_fleet import dispatching_provider_for_model
-    from aria_kernel.provider_outage_ledger import record_provider_restored
-
-    record_provider_restored(tools_dir, provider=dispatching_provider_for_model(completed.model or profile.model),
-                             seam="spawn", request_id=assignment_id)
     submit_rc = _submit_worker_result(
         assignment_id=assignment_id,
         worktree_path=worktree_path,

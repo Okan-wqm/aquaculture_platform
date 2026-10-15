@@ -48,13 +48,23 @@ function writeExecutable(path: string, body: string): void {
   chmodSync(path, 0o755);
 }
 
-const LIVE_DOCS = [
-  'docs/aria/SPEC.md',
-  'docs/aria/CONTRACTS.md',
-  'docs/aria/IDENTITY.md',
-  'docs/aria/ROADMAP.md',
-  'docs/adr/033-aria-autonomous-profile.md',
-];
+// ARIA-HIGH-500 — the live ARIA docs are DERIVED, not hand-kept: every tracked
+// docs/aria/**/*.md outside reviews/ (dated history) and plans/ (gated by
+// planDocs below), except CURRENT_STATE itself (the authority the rule defers
+// to), plus the autonomous-profile ADR. A hand-kept list of five missed
+// runtime-artifact-contract.md, so its stale runtime claim was never checked.
+function liveDocs(): string[] {
+  const tracked = git(['ls-files', 'docs/aria'])
+    .split(/\r?\n/)
+    .filter(
+      (rel) =>
+        rel.endsWith('.md') &&
+        !rel.startsWith('docs/aria/reviews/') &&
+        !rel.startsWith('docs/aria/plans/') &&
+        rel !== 'docs/aria/CURRENT_STATE.md',
+    );
+  return [...tracked, 'docs/adr/033-aria-autonomous-profile.md'];
+}
 
 const ARCHITECTURE_DOC = 'docs/aria/ARCHITECTURE.md';
 const ENTERPRISE_AUTONOMY_DOC = 'docs/aria/ENTERPRISE_AUTONOMY_SSOT.md';
@@ -277,13 +287,86 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'only implemented ARIA code',
       'does not implement the kernel',
       'never auto-merge pull requests',
+      'Codex runtime',
     ];
-    for (const rel of LIVE_DOCS) {
+    for (const rel of liveDocs()) {
       const body = read(rel);
       const containsStaleTerm = staleRuntimeTerms.some((term) => body.includes(term));
       if (!containsStaleTerm) continue;
       expect(body).toMatch(/ARIA-LIVE-AUTHORITY|ARIA-CURRENT-STATE-NOTICE/);
     }
+  });
+
+  it('IDENTITY names the executable merge base and merge-authority gate, never the archived snowball lane', () => {
+    // ARIA-HIGH-500 — IDENTITY taught a Level 3 lane on a `snowball` base branch and an
+    // "enable with one policy flag" switch; the lane merges into main, gated by
+    // runtime merge authority, and the snowball branch exists only as a tag.
+    // The base is asserted on the constant's own line, so a moved, renamed or
+    // re-pointed ARIA_PR_BASE fails here instead of reaching the prose checks.
+    const prBase = 'main';
+    expect(read('aria-kernel/aria_kernel/pr_manager.py')).toMatch(
+      new RegExp(`^ARIA_PR_BASE = "${prBase}"$`, 'm'),
+    );
+    expect(read('aria-kernel/aria_kernel/runtime_profile.py')).toMatch(
+      /^def assert_merge_authority_available\(/m,
+    );
+    const identity = read('docs/aria/IDENTITY.md').replace(/\s+/g, ' ');
+    expect(identity).not.toMatch(
+      /base branch is `snowball`|low-risk `snowball` lane|ARIA-owned `snowball` PRs|\| `snowball` \||disabled with one policy flag/,
+    );
+    expect(identity).toContain('ARIA-owned PRs whose base branch is `' + prBase + '`');
+    expect(identity).toContain('assert_merge_authority_available');
+  });
+
+  it('the .claude/agents population is counted once, in the dated SPEC §0 measurement', () => {
+    // ARIA-HIGH-500 — SPEC and IDENTITY carried 38 and 107 as the agent population in
+    // eight places; the population changes with every agent added. It is
+    // stated once, as a dated measurement, and referenced elsewhere.
+    const count =
+      /\b\d+\+?\s+(?:[a-z]+\s+){0,2}agents?\b|\bthe \d+ in `\.claude\/agents\/`|has_specialized_agents:[^\n]*\bcount:\s*\d/i;
+    const undated: string[] = [];
+    for (const rel of ['docs/aria/SPEC.md', 'docs/aria/IDENTITY.md']) {
+      read(rel)
+        .split('\n')
+        .forEach((line, index) => {
+          if (count.test(line) && !/\(measured \d{4}-\d{2}-\d{2}\)/.test(line)) {
+            undated.push(`${rel}:${index + 1}`);
+          }
+        });
+    }
+    expect(undated).toEqual([]);
+  });
+
+  it('ARIA-NASIL-CALISIR anchors code by symbol or section, never by line number', () => {
+    // ARIA-HIGH-500 — 25 `file.md:N` / `:N` anchors had drifted off their targets.
+    const lineAnchor =
+      /[A-Za-z0-9_./-]+\.(?:md|py|ts|tsx|js|mjs|json|ya?ml|sh|toml|rs):\d+|`:\d+(?:-\d+)?`/;
+    const anchored = read('docs/aria/ARIA-NASIL-CALISIR.md')
+      .split('\n')
+      .flatMap((line, index) => (lineAnchor.test(line) ? [index + 1] : []));
+    expect(anchored).toEqual([]);
+  });
+
+  it('CONTRACTS leaves implementation status to CURRENT_STATE', () => {
+    // ARIA-HIGH-500 — CONTRACTS kept saying no contract was implemented ("contracts
+    // for code that has not been written", "None of these contracts are
+    // implemented") long after the kernel implemented them. Implementation
+    // status has one owner, CURRENT_STATE; CONTRACTS points at it.
+    const raw = read('docs/aria/CONTRACTS.md');
+    const flat = raw.replace(/\s+/g, ' ');
+    for (const stale of [
+      'contracts for code that has not been written',
+      'None of these contracts are implemented',
+      'remains unimplemented contracts',
+      'The PoC is the only ARIA-related code allowed',
+      'The next legitimate step is still the Phase-1 PoC',
+    ]) {
+      expect(flat).not.toContain(stale);
+    }
+    expect(markdownSection(raw, '0 — Why this document exists')).toContain(
+      'docs/aria/CURRENT_STATE.md',
+    );
+    expect(markdownSection(raw, '14 — Closing')).toContain('docs/aria/CURRENT_STATE.md');
   });
 
   it('ARCHITECTURE is a bilingual diagram-heavy explanatory map subordinate to CURRENT_STATE', () => {
@@ -471,7 +554,11 @@ describe('ARIA live runtime/documentation SSoT', () => {
   it('Claude Code executor contract is mainline, version-bound, and has no pending verification placeholders', () => {
     const contract = read('tools/aria-poc/ci_executor_contract_proven.md');
     expect(contract).toContain('checkout the `main` target ref');
-    expect(contract).toContain('claude_cli_version_minimum: claude-code 2.1.221');
+    // ARIA-HIGH-500 — the floor's one owner is the manifest; the proof record names it.
+    const floor = (
+      JSON.parse(read('.github/manifests/aria-claude-floor.json')) as { claude_code_floor: string }
+    ).claude_code_floor;
+    expect(contract).toContain(`claude_cli_version_minimum: claude-code ${floor}`);
     expect(contract).toContain('verification_mode: runtime-preflight');
     expect(contract).toContain('managed Claude Code login');
     expect(contract).not.toMatch(
@@ -503,7 +590,8 @@ describe('ARIA live runtime/documentation SSoT', () => {
     }
     const executor = read('.github/workflows/aria-agent-executor.yml');
     expect(executor).toContain('ref: main');
-    expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.221"');
+    expect(executor).toContain('claude_cli_version_floor');
+    expect(executor).not.toMatch(/REQUIRED_CLAUDE_VERSION="\d/);
     expect(executor).toContain('claude --version');
     // ORPHAN-MEDIUM-769 — aria-kernel-full.yml was deleted (a strict subset
     // of aria-kernel.yml, never a required context); ARIA-MEDIUM-135 retired

@@ -9,19 +9,26 @@ operator's budget silently between daily reviews.
 
 V3 §B0 lands a co-equal **cost** circuit breaker:
 
-  * Persisted daily + monthly USD ledgers at
-    ``aria-tools/budget/daily.json`` + ``aria-tools/budget/monthly.json``
-    (gitignored per Phase A2 + A5 .gitignore sweep).
-  * Per-run cap enforced AT THE EXECUTOR BOUNDARY
-    (``tools/aria-poc/{ci,worker}_executor.py``) before spawning
-    ``claude``. The kernel-side ``assert_within_budget`` raises
-    ``GovernanceError`` when any cap is exceeded.
-  * Tripped state ⇒ runtime profile auto-downgrades to ``strict``
-    (no more autonomous loops) and emits
-    ``cost_budget_breaker_tripped`` governance event with the
-    exceeded cap name + amounts.
-  * State survives kernel restart (cold-start reads the on-disk
-    JSON files; I-V3-B0e invariant locks this).
+  * No persisted cost aggregates of its own: the former
+    ``budget/daily.json`` + ``budget/monthly.json`` were removed
+    (ORPHAN-HIGH-466, see the note beside ``_BUDGET_DIR_RELATIVE``).
+    Daily and monthly USD totals are DERIVED from the cost-attribution
+    rows by ``derived_usage()``.
+  * ``assert_within_budget`` runs before every live ``claude`` spawn,
+    called from ``tools/aria-poc/claude_runtime._assert_budget_before_spawn``
+    when ``ARIA_TOOLS_DIR`` names the durable store. Under
+    ``monetary_admission == "managed_subscription"`` it returns
+    ``status: telemetry_only`` and never raises; only under metered
+    admission does an exceeded per-run / daily / monthly cap raise
+    ``GovernanceError``.
+  * A metered cap breach trips the breaker and emits a
+    ``cost_budget_breaker_tripped`` governance event with the exceeded
+    cap name + amounts. The runtime profile is NOT changed here
+    (``set_profile`` requires an ``operator_approval_ref``); the
+    tripped breaker refuses further autonomous cycles until reset.
+  * State survives kernel restart: cold-start reads
+    ``budget/breaker_state.json``, and usage is re-derived from the
+    cost-attribution rows (I-V3-B0e invariant locks this).
 
 Caps live in ``genesis_policy_default.json`` under
 ``cost_caps_usd: {daily, monthly, per_run}`` (defaults: 5 / 100 /
@@ -41,6 +48,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .ledger import atomic_write_json
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _BUDGET_DIR_RELATIVE = ("budget",)
@@ -77,16 +85,6 @@ def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return dict(default)
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp.{id(payload)}")
-    tmp.write_text(
-        json.dumps(payload, sort_keys=True, indent=2),
-        encoding="utf-8",
-    )
-    tmp.replace(path)
 
 
 def _load_caps(base_dir: str | Path) -> dict[str, float]:
@@ -239,7 +237,7 @@ def _trip_breaker(
     refuses further autonomous spawns until reset.
     """
     root = Path(base_dir)
-    _atomic_write_json(
+    atomic_write_json(
         _state_path(root),
         {
             "state": "tripped",
@@ -280,7 +278,7 @@ def reset_breaker(
     the reset.
     """
     root = ensure_tools_dir(base_dir)
-    _atomic_write_json(_state_path(root), {"state": "ok"})
+    atomic_write_json(_state_path(root), {"state": "ok"})
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,

@@ -44,7 +44,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from collections.abc import Mapping, Sequence
 
 from . import command_policy as _command_policy
@@ -56,12 +56,14 @@ from .dependency_tree import (
     dependency_mounts,
     installed_checkout,
     prepare_dependency_mountpoints,
+    tree_mounts,
 )
 from .gh_token_factory import GitCommitIdentity
 from .git_containment import GitContainment
 from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
 from .mcp_broker import MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET
 from .text_safety import contains_bidi_or_control
+from .workspace_view import WorkspaceView
 from .validation_suite import (
     CANONICAL_VALIDATION_COMMANDS,
     CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
@@ -178,16 +180,22 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = _command_policy.allowed_rege
 # CLI (`kernel_authority`) inside by name.
 
 
+# Trusted repo code: a Python program whose path RELATIVE TO ITS CHECKOUT'S
+# ROOT starts with one of these. Each lies under READONLY_PATHS, so a spawn
+# with a write scope cannot create or change a file under one of them in its
+# own checkout (ro-bind + the Edit/Write hook). The checkout root is the
+# caller's fact, never a path the command spells (ARIA-HIGH-431:
+# `/tmp/x/tools/aria-poc/evil.py` and `<checkout>/apps/x/tools/aria-poc/e.py`
+# passed a substring test).
 TRUSTED_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
     "tools/aria-adapters/",
     "tools/aria-poc/",
     "aria-kernel/tests/_helpers/",
 )
-FORBIDDEN_ABSOLUTE_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
-    "/tmp/",
-    "/var/tmp/",
-    "/dev/shm/",
-)
+# The checkout this kernel runs from (aria-kernel/aria_kernel/<this file>):
+# the anchor for an adapter's absolute program, which is trusted only as the
+# running kernel's own code.
+KERNEL_CHECKOUT_ROOT: Path = Path(__file__).resolve().parents[2]
 
 # Plan ARIA-V9.0-D — DENIED_BASH_COMMANDS regex denylist. Even if a
 # command somehow passed the allowlist, the deny pattern set fires
@@ -418,8 +426,8 @@ def mint_unpredictable_feature_branch_name(plan_id: str) -> str:
 
 
 def verify_no_path_escape(path: str | Path, workspace_root: str | Path) -> Path:
-    """Hard-fail check 9 — path-escape guard (mirror of
-    agent_compliance.py:168-178 pattern). Resolves ``..`` and
+    """Hard-fail check 9 — path-escape guard (mirror of the
+    ``agent_compliance._check_evidence_schema_valid`` pattern). Resolves ``..`` and
     symlinks, asserts the result is inside workspace_root.
 
     Relative paths are interpreted relative to workspace_root (NOT
@@ -451,8 +459,10 @@ _SHELL_OPERATOR_TOKENS: frozenset[str] = frozenset({
     "&&", "||", ";", ";;", "|", "|&", "&", "\n", "(", ")", "<", ">", ">>", "<<",
 })
 # Command substitution survives shlex tokenization glued to its neighbours, so
-# it is matched as a substring rather than as a token.
-_SHELL_SUBSTITUTION_MARKERS: tuple[str, ...] = ("`", "$(", "${", "$[")
+# it is matched as a substring rather than as a token. ANSI-C quoting
+# (ARIA-HIGH-443) is matched alike: it closes its quote where no lexer here
+# would, so an operator it hides is invisible to the token check.
+_SHELL_SUBSTITUTION_MARKERS: tuple[str, ...] = ("`", "$(", "${", "$[", _command_policy.ANSI_C_QUOTE)
 
 
 def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
@@ -496,19 +506,22 @@ def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
     for marker in _SHELL_SUBSTITUTION_MARKERS:
         if marker in line:
             return marker
-    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
+    # ARIA-CRITICAL-446 — the policy's one quote-aware scanner decides what
+    # bash runs as an operator: glued (`-s;id`, `HEAD|nc`), spaced, or a line
+    # break (ARIA-HIGH-443); a `;` inside a quoted commit message stays data.
+    operator = _command_policy.unquoted_control_operator(line)
+    if operator is not None:
+        return operator
     try:
-        tokens = list(lexer)
+        shlex.split(line)
     except ValueError:
         return "unlexable_command"
-    for token in tokens:
-        if token in _SHELL_OPERATOR_TOKENS:
-            return token
     return None
 
 
-def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = None) -> None:
+def verify_bash_command_allowed(
+    argv: list[str], *, cwd: str | Path = ".", checkout_root: str | Path | None = None,
+) -> None:
     """Hard-fail check 8 — Bash allowlist (NOT blocklist).
 
     Joins argv with spaces, tests against:
@@ -521,6 +534,13 @@ def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = Non
     because both lists reason about a SINGLE command, and a chained argv is
     several — see :func:`shell_control_operator` (ORPHAN-CRITICAL-460).
     A command matching both deny and allow is rejected (deny wins).
+
+    ``cwd`` is where the command runs, relative to its checkout's root;
+    ``checkout_root`` is that root, absolute — the caller's own fact (the
+    hook broker's workspace, a runner's kernel checkout), never a path the
+    command spells. A Python program must be trusted repo code of that
+    checkout (:func:`trusted_python_script`); without a root, an absolute
+    program path is refused (ARIA-HIGH-431).
     """
     if not isinstance(argv, (list, tuple)) or not argv:
         raise BashAllowlistMiss(f"argv must be a non-empty list, got {argv!r}")
@@ -545,7 +565,7 @@ def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = Non
     if refused is not None:
         rule, detail = refused
         raise BashDenylistHit(f"DENY rule hit: {rule.family}:{rule.name} {detail} argv0={argv[0]!r}")
-    _verify_python_script_target(argv, cwd=cwd)
+    _verify_python_script_target(argv, cwd=cwd, checkout_root=checkout_root)
     for allowed in ALLOWED_BASH_COMMANDS:
         if allowed.match(line):
             return
@@ -555,7 +575,9 @@ def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = Non
     )
 
 
-def _verify_python_script_target(argv: list[str] | tuple[str, ...], *, cwd: str | Path | None) -> None:
+def _verify_python_script_target(
+    argv: list[str] | tuple[str, ...], *, cwd: str | Path, checkout_root: str | Path | None,
+) -> None:
     if len(argv) < 2:
         return
     executable = Path(str(argv[0])).name
@@ -566,21 +588,55 @@ def _verify_python_script_target(argv: list[str] | tuple[str, ...], *, cwd: str 
         return
     if not script.endswith(".py"):
         return
+    trusted_python_script(script, cwd=cwd, checkout_root=checkout_root)
+
+
+def trusted_python_script(
+    script: str | Path, *, cwd: str | Path = ".", checkout_root: str | Path | None,
+) -> str:
+    """The checkout-relative path of ``script`` when it is trusted repo code,
+    else :class:`BashAllowlistMiss` naming why. The one owner of the rule:
+    the argv policy and the adapter room's program bind both ask it.
+
+    Trusted repo code is a file under ``checkout_root`` whose path relative to
+    that root STARTS with a ``TRUSTED_PYTHON_SCRIPT_PREFIXES`` entry. A
+    relative ``script`` is read from ``cwd`` (checkout-relative); an absolute
+    one must lie under ``checkout_root``, and with no root it cannot be
+    anchored, so it is refused. Lexical first (no ``..``), then — given a
+    root — the resolved path must answer the same, so a symlink cannot carry
+    a trusted spelling to an untrusted file.
+    """
     script_path = Path(script)
     if script_path.is_absolute():
-        effective_absolute = script_path.as_posix()
-        if not any(f"/{prefix}" in effective_absolute for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES):
-            if any(effective_absolute.startswith(prefix) for prefix in FORBIDDEN_ABSOLUTE_PYTHON_SCRIPT_PREFIXES):
-                raise BashAllowlistMiss("python script path must not come from tmp")
-            raise BashAllowlistMiss("python script path must be trusted repo code")
-        return
-    raw_cwd = "." if cwd is None else str(cwd)
-    cwd_path = Path(raw_cwd)
-    if cwd_path.is_absolute() or ".." in cwd_path.parts:
-        raise BashAllowlistMiss("python runner cwd must be workspace-relative")
-    effective = _normalize_policy_path((cwd_path / script_path).as_posix())
-    if not any(effective.startswith(prefix) for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES):
-        raise BashAllowlistMiss(f"python script path is not trusted: {effective}")
+        if checkout_root is None:
+            raise BashAllowlistMiss("python script path is absolute and no checkout root anchors it")
+        root = Path(checkout_root)
+        if not root.is_absolute():
+            raise BashAllowlistMiss("python script checkout root must be absolute")
+        lexical = PurePosixPath("/" + _normalize_policy_path(script_path.as_posix()))
+        try:
+            relative = lexical.relative_to(PurePosixPath("/" + _normalize_policy_path(root.as_posix()))).as_posix()
+        except ValueError:
+            raise BashAllowlistMiss("python script path is outside the checkout root") from None
+    else:
+        cwd_path = Path(cwd)
+        if cwd_path.is_absolute() or ".." in cwd_path.parts:
+            raise BashAllowlistMiss("python runner cwd must be checkout-relative")
+        relative = _normalize_policy_path((cwd_path / script_path).as_posix())
+    if not _has_trusted_prefix(relative):
+        raise BashAllowlistMiss(f"python script path is not trusted repo code: {relative}")
+    if checkout_root is not None:
+        resolved_root = Path(checkout_root).resolve()
+        resolved = (resolved_root / relative).resolve()
+        if not resolved.is_relative_to(resolved_root) or not _has_trusted_prefix(
+            resolved.relative_to(resolved_root).as_posix()
+        ):
+            raise BashAllowlistMiss(f"python script path resolves outside the trusted prefixes: {relative}")
+    return relative
+
+
+def _has_trusted_prefix(relative: str) -> bool:
+    return any(relative.startswith(prefix) for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES)
 
 
 def _normalize_policy_path(path: str) -> str:
@@ -743,6 +799,31 @@ def _interpreter_ro_binds(base_prefix: str | None = None) -> list[str]:
     return ["--ro-bind", str(prefix), str(prefix)]
 
 
+def _bwrap_executable() -> str | None:
+    """The bwrap binary every sandbox execs, by absolute path, or ``None``.
+
+    Resolved on the KERNEL's PATH, and only through its absolute entries.
+    The probe and every room exec this path. A bare ``bwrap`` in the argv
+    was resolved again at exec time on the CHILD's PATH: ``subprocess`` with
+    ``env=`` searches that environment, so the probe could verify one binary
+    while a room ran another (ARIA-MEDIUM-432). A relative PATH entry depends
+    on the cwd, so it never names the sandbox.
+    """
+    search = os.pathsep.join(
+        entry for entry in os.environ.get("PATH", os.defpath).split(os.pathsep) if os.path.isabs(entry)
+    )
+    found = shutil.which("bwrap", path=search)
+    return None if found is None else os.path.realpath(found)
+
+
+def _verified_bwrap() -> str:
+    """:func:`_bwrap_executable`, or :class:`SandboxUnavailable` by name."""
+    executable = _bwrap_executable()
+    if executable is None:
+        raise SandboxUnavailable("sandbox_backend_unavailable: bwrap is not on PATH")
+    return executable
+
+
 def _bwrap_probe_argv() -> list[str]:
     # The probe mirrors the wrapper, and is as strict as the STRICTEST of
     # them: the validation sandbox needs its own PID namespace and a
@@ -750,7 +831,7 @@ def _bwrap_probe_argv() -> list[str]:
     # host that cannot build those is refused HERE — before a claim — and
     # not at the delivery's gate, hours into a child.
     return [
-        "bwrap",
+        _verified_bwrap(),
         *_system_ro_binds(),
         "--proc", "/proc",
         "--dev", "/dev",
@@ -835,7 +916,7 @@ def _bwrap_available() -> bool:
     (``sandbox_unavailable``; the request stays PENDING) instead of
     spending a turn on a commit the sandbox cannot make.
     """
-    if shutil.which("bwrap") is None:
+    if _bwrap_executable() is None:
         return False
     if not _sandbox_probe_succeeds(_bwrap_probe_argv()):
         return False
@@ -911,7 +992,7 @@ def sandbox_unavailable_detail() -> str:
     """Why ``sandbox_backend()`` answers None on this host, for the refusal
     record: the git containment probe's reason when it refused
     (ARIA-HIGH-123), else the namespace probe's shape."""
-    if shutil.which("bwrap") is None:
+    if _bwrap_executable() is None:
         return "bwrap is not on PATH"
     reason = _LAST_CONTAINMENT_PROBE_REASON[0]
     if reason is not None:
@@ -1049,6 +1130,26 @@ def _dependency_tree_binds(workspace: Path) -> list[str]:
     return flags
 
 
+def _view_dependency_binds(workspace: Path) -> list[str]:
+    """The installed trees a tracked view of ``workspace`` shows (ARIA-MEDIUM-432).
+
+    The view hides every untracked path, and ``node_modules`` is one. A
+    workspace whose tree is installed in place (the runner's checkout) gets
+    its own trees bound back where they stand. The source is resolved, so a
+    symlinked tree is mounted AT the workspace's path and its relative
+    workspace links resolve against this checkout, not the one the link
+    points into. Nothing is created in the trees. A workspace nested in an
+    installed checkout gets the checkout's tree, exactly as every other room
+    binds it.
+    """
+    if not (workspace / DEPENDENCY_TREE_DIRNAME).is_dir():
+        return _dependency_tree_binds(workspace)
+    flags: list[str] = []
+    for mount in tree_mounts(workspace, workspace):
+        flags.extend(["--ro-bind", str(mount.source.resolve()), str(mount.mountpoint)])
+    return flags
+
+
 def _workspace_binds(workspace: Path, write_scope: Sequence[str] | None) -> list[str]:
     if write_scope is None:
         return ["--bind", str(workspace), str(workspace)]
@@ -1071,6 +1172,8 @@ def wrap_bash_in_sandbox(
     git: GitContainment | None = None,
     hook_broker_socket: str | Path | None = None,
     mcp_broker_socket: str | Path | None = None,
+    chdir: str | Path | None = None,
+    workspace_view: WorkspaceView | None = None,
 ) -> list[str]:
     """Hard-fail check 8c — Bash sandbox wrapper.
 
@@ -1123,7 +1226,7 @@ def wrap_bash_in_sandbox(
         return _sandbox_argv(
             argv, workspace_root=workspace_root, allow_network=allow_network, write_scope=write_scope,
             extra_ro_binds=extra_ro_binds, git=git, hook_broker_socket=hook_broker_socket,
-            mcp_broker_socket=mcp_broker_socket,
+            mcp_broker_socket=mcp_broker_socket, chdir=chdir, workspace_view=workspace_view,
         )
     probe_reason = _LAST_CONTAINMENT_PROBE_REASON[0]
     raise SandboxUnavailable(
@@ -1146,12 +1249,29 @@ def _sandbox_argv(
     git: GitContainment | None = None,
     hook_broker_socket: str | Path | None = None,
     mcp_broker_socket: str | Path | None = None,
+    chdir: str | Path | None = None,
+    workspace_view: WorkspaceView | None = None,
 ) -> list[str]:
     """The bwrap argv, built without consulting availability — the one
     builder the wrapper AND the containment probe use, so the probe proves
     the argv a spawn gets (ORPHAN-MEDIUM-452 for the system binds; the
-    same rule for the git binds, ARIA-HIGH-123)."""
+    same rule for the git binds, ARIA-HIGH-123).
+
+    ``workspace_view`` (ARIA-MEDIUM-432, the adapter room) replaces the
+    workspace bind with the tracked view of it. The whole view is read-only,
+    so ``write_scope`` must be ``()``. The READONLY_PATHS overlays, which
+    narrow a writable workspace, are not applied: each re-binds its host
+    path whole, and ``.env`` is one of them. The view's root is remounted
+    read-only after the last mount inside it.
+    """
     workspace = Path(workspace_root).resolve()
+    if workspace_view is not None and (workspace_view.root != workspace or write_scope is None or tuple(write_scope)):
+        raise SandboxUnavailable(
+            f"workspace_view_mismatch: a view of {workspace_view.root} is read-only and only for {workspace}"
+        )
+    start_dir = workspace if chdir is None else Path(chdir).resolve()
+    if not start_dir.is_relative_to(workspace):
+        raise SandboxUnavailable(f"sandbox_chdir_outside_workspace:{start_dir}")
     if git is not None and git.workspace_root != workspace:
         raise SandboxUnavailable(
             f"git_containment_workspace_mismatch: derived for {git.workspace_root}, spawning in {workspace}"
@@ -1159,14 +1279,17 @@ def _sandbox_argv(
     # The system ro-binds come from the same helper the probe uses, so
     # the two argvs cannot drift (ORPHAN-MEDIUM-452).
     wrap = [
-        "bwrap",
+        _verified_bwrap(),
         *_system_ro_binds(),
         "--proc", "/proc",
         "--dev", "/dev",
         *SANDBOX_TMP_MOUNT,
-        *_workspace_binds(workspace, write_scope),
-        *_dependency_tree_binds(workspace),
-        "--chdir", str(workspace),
+        *(
+            [*_workspace_binds(workspace, write_scope), *_dependency_tree_binds(workspace)]
+            if workspace_view is None
+            else [*workspace_view.flags, *_view_dependency_binds(workspace)]
+        ),
+        "--chdir", str(start_dir),
         # The agent runtime needs a HOME it can WRITE.
         #
         # Without this the sandbox left $HOME resolvable but read-only — it
@@ -1233,7 +1356,7 @@ def _sandbox_argv(
         ])
     # READONLY_PATHS mounted ro-bind on top of the writable
     # workspace — ANY mutation under these paths gets EROFS.
-    for ro in READONLY_PATHS:
+    for ro in READONLY_PATHS if workspace_view is None else ():
         full = workspace / ro
         if full.exists():
             wrap.extend(["--ro-bind", str(full), str(full)])
@@ -1247,6 +1370,8 @@ def _sandbox_argv(
         # signers file, existing refs) shadow anything bound above them,
         # and the keys-dir mask sits on top of the `aria-debts/` ro-bind.
         wrap.extend(git.bwrap_flags())
+    if workspace_view is not None:
+        wrap.extend(["--remount-ro", str(workspace)])
     if allow_network:
         # Existence-guarded for the same reason _system_ro_binds is: bwrap
         # aborts on a bind source it cannot find, so an unconditional bind
@@ -2382,9 +2507,11 @@ def _check_bash_command_allowlist(context: HardFailContext) -> HardFailResult:
     if not context.bash_argv:
         return _passed(name, "no_bash_command_in_action")
     try:
+        # The workspace is the checkout the action runs at the root of —
+        # the anchor of a Python program's trust, not its cwd (ARIA-HIGH-431).
         verify_bash_command_allowed(
             list(context.bash_argv),
-            cwd=context.workspace_root,
+            checkout_root=context.workspace_root,
         )
     except (BashAllowlistMiss, BashDenylistHit) as exc:
         return _failed(name, f"bash_refused:{exc}")

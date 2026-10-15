@@ -6,7 +6,9 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
+from aria_kernel import trust
 from aria_kernel.agent_satisfaction import agent_satisfaction_scan
 from aria_kernel.feedback import add_feedback, build_feedback_event
 from aria_kernel.ledger import append_declared_jsonl, read_jsonl
@@ -123,6 +125,33 @@ class Phase2RemainingTests(unittest.TestCase):
         self.assertEqual(result["escalated_count"], 1)
         pressure = effective_workspace_pressures(self.paths)[0]
         self.assertTrue(pressure["trusted_effective"])
+
+    def test_escalation_and_trusted_keys_share_one_threshold(self):
+        # The escalation writer and the trusted-key reader must agree on how
+        # many distinct sources make a gap trusted; one definition, read by
+        # both, is what keeps them from drifting apart.
+        for source, ref in (("operator", "src/a.ts:1"), ("external_scanner", "src/a.ts:2")):
+            args = argparse.Namespace(
+                kind="unknown_capability",
+                summary=f"{source} saw gap",
+                ref=ref,
+                concept="gap",
+                source=source,
+                surface="backend",
+                failure_mode="evidence_gap",
+                parser_kind="ts",
+                capability_gap_key="backend:evidence_gap:ts",
+                cycle_id=None,
+                evidence_ref=[],
+                evidence_chain=['{"source_type":"operator","reference":"review","trust_level":"medium"}'],
+            )
+            add_feedback(self.paths, build_feedback_event(args, paths=self.paths))
+
+        self.assertNotIn("backend:evidence_gap:ts", trust.trusted_gap_keys(self.paths))
+        with mock.patch.object(trust, "TRUSTED_GAP_MIN_SOURCES", 2):
+            self.assertIn("backend:evidence_gap:ts", trust.trusted_gap_keys(self.paths))
+            result = trust.trust_escalation_derive(self.paths, cycle_id="cyc-two")
+        self.assertEqual(result["escalated_count"], 1)
 
     def test_reverify_and_telemetry_export(self):
         old = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat().replace("+00:00", "Z")

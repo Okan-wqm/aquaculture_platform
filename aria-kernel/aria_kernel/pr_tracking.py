@@ -13,15 +13,11 @@ from .feedback_store import load_jsonl as load_findings_rows
 from .feedback_store import rewrite_jsonl as rewrite_findings_rows
 from .ledger import (
     append_declared_jsonl,
-    append_jsonl as _append_jsonl,
     load_declared_jsonl,
-    load_jsonl as _load_jsonl,
 )
 from .memory import latest_beliefs
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 
-
-PR_EVENTS = {"opened", "synchronize", "reopened", "closed", "merged"}
 
 # E14 — the change-intelligence agent the `change_intelligence` role always
 # named and nothing ever minted. The mechanical impact map below matches
@@ -43,8 +39,6 @@ DEFAULT_MAX_CHANGE_INTELLIGENCE_REQUESTS = 3
 
 
 _DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
-    "pr-events.jsonl": "pr_events",
-    "merge-events.jsonl": "merge_events",
     "evidence-impact.jsonl": "evidence_impact",
     "cycle-state/incremental-plans.jsonl": "cycle_incremental_plans",
     "memory/beliefs.jsonl": "memory_beliefs",
@@ -65,109 +59,29 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return append_declared_jsonl(path, record, expected_surface=surface)
-    return _append_jsonl(path, record)
+    raise GovernanceError(f"pr_tracking_append_unknown_surface:{Path(path).as_posix()}")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     surface = _declared_surface_name(path)
     if surface is not None:
         return load_declared_jsonl(path, expected_surface=surface)
-    return _load_jsonl(path)
+    raise GovernanceError(f"pr_tracking_load_unknown_surface:{Path(path).as_posix()}")
 
 
-def observe_pr_event(
-    *,
-    payload: dict[str, Any],
-    base_dir: str | Path | None = None,
-) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        raise GovernanceError("PR event payload must be a JSON object")
-    event = str(payload.get("event") or "").strip()
-    if event not in PR_EVENTS:
-        raise GovernanceError(f"unknown PR event: {event}")
-    row = {
-        "schema_version": 1,
-        "recorded_at": utc_now(),
-        "pr_number": payload.get("pr_number"),
-        "event": event,
-        "base_sha": payload.get("base_sha"),
-        "head_sha": payload.get("head_sha"),
-        "merge_commit_sha": payload.get("merge_commit_sha"),
-        "changed_files": _string_list(payload.get("changed_files")),
-        "author": payload.get("author"),
-        "labels": _string_list(payload.get("labels")),
-        "merged_at": payload.get("merged_at"),
-        "source": payload.get("source", "operator_pr"),
-        "proposal_id": payload.get("proposal_id"),
-        "apply_ref": payload.get("apply_ref"),
-        "validation_refs": _string_list(payload.get("validation_refs")),
-    }
-    if isinstance(payload.get("attributed_to_aria"), bool):
-        row["attributed_to_aria"] = payload["attributed_to_aria"]
-    root = ensure_tools_dir(base_dir)
-    append_jsonl(root / "pr-events.jsonl", row)
-    if event == "merged" or row.get("merge_commit_sha"):
-        append_jsonl(root / "merge-events.jsonl", row)
-    return row
+def _merges(root: Path) -> list[dict[str, Any]]:
+    """Every merged ARIA PR, in ledger order, read where its one writer records it.
 
-
-def ingest_merged_pr_lifecycle(
-    *,
-    base_dir: str | Path | None = None,
-) -> dict[str, Any]:
-    """Feed the LIVE merge signal into this module's merge ledger.
-
-    ``observe_pr_event`` is an operator/webhook entry point and no production
-    caller ever reached it, so ``merge-events.jsonl`` stayed empty and every
-    reader below it (impact map, incremental plan, change intelligence) had
-    nothing to read. The merges ARIA performs are recorded by
-    ``auto_merge.record_pr_lifecycle`` in ``pr-lifecycle.jsonl`` — this is the
-    producer that carries them across, keyed on (pr_number, head_sha) so a
-    re-run ingests nothing twice.
+    ARIA-LOW-424 — ``merge_record.record_merge`` is the only writer of a
+    ``merged`` row (ARIA-HIGH-390), in ``pr-lifecycle.jsonl``. This module
+    used to copy those rows into two ledgers of its own and read the copy: a
+    second record of the same fact, which only lags or disagrees with its
+    owner. The readers below take the owner's rows, each with its lineage
+    attestation folded (ARIA-HIGH-409), and nothing is copied.
     """
-    from .merge_record import fold_merged_rows, merged_row_instant, merged_row_is_arias
+    from .merge_record import fold_merged_rows, lifecycle_rows
 
-    root = ensure_tools_dir(base_dir)
-    seen = {
-        (row.get("pr_number"), row.get("head_sha"))
-        for row in load_jsonl(root / "merge-events.jsonl")
-    }
-    lifecycle_path = root / "pr-lifecycle.jsonl"
-    if not lifecycle_path.exists():
-        return {"ingested": [], "already_known": 0}
-    ingested: list[dict[str, Any]] = []
-    already_known = 0
-    # ARIA-HIGH-409 — merged rows with their lineage attestation folded; the
-    # key stays the merged row's own head, so an attestation ingests nothing.
-    for row in fold_merged_rows(load_declared_jsonl(lifecycle_path, expected_surface="pr_lifecycle")):
-        key = (row.get("pr_number"), row.get("head_sha"))
-        if key in seen:
-            already_known += 1
-            continue
-        seen.add(key)
-        ingested.append(
-            observe_pr_event(
-                payload={
-                    "event": "merged",
-                    "pr_number": row.get("pr_number"),
-                    "head_sha": row.get("head_sha"),
-                    # The merge commit GitHub reported, when the row carries
-                    # it (ARIA-HIGH-390); the merged head SHA is the anchor.
-                    "merge_commit_sha": row.get("merge_sha"),
-                    "changed_files": _string_list(row.get("changed_files")),
-                    "merged_at": merged_row_instant(row),
-                    "source": "pr_lifecycle",
-                    "proposal_id": row.get("proposal_id"),
-                    # Review of #1910, L4 — impact analysis sees every merge
-                    # of an ARIA PR; one whose head is not ARIA's change (a
-                    # person's commits, an unread head) is carried
-                    # unattributed, so nothing downstream credits ARIA for it.
-                    "attributed_to_aria": merged_row_is_arias(row),
-                },
-                base_dir=root,
-            )
-        )
-    return {"ingested": ingested, "already_known": already_known}
+    return fold_merged_rows(lifecycle_rows(root))
 
 
 def change_intelligence_subject_ref(*, pr_number: Any, head_sha: Any) -> str:
@@ -210,9 +124,12 @@ def dispatch_change_intelligence(
     )
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    for event in reversed(load_jsonl(root / "merge-events.jsonl")):
-        pr_number = event.get("pr_number")
-        head_sha = event.get("head_sha")
+    # The subject is the merged row's own (PR, head): the same name a request
+    # minted from the retired merge-events copy carries, so a merge already
+    # asked about is never asked again (ARIA-LOW-424).
+    for merge in reversed(_merges(root)):
+        pr_number = merge.get("pr_number")
+        head_sha = merge.get("head_sha")
         if pr_number is None or not head_sha:
             skipped.append({"pr_number": pr_number, "reason": "merge_event_not_anchored"})
             continue
@@ -233,7 +150,7 @@ def dispatch_change_intelligence(
             skipped.append({"pr_number": pr_number, "reason": admission.refusal})
             break
         already_asked.add(subject)
-        changed_files = _string_list(event.get("changed_files"))
+        changed_files = _string_list(merge.get("changed_files"))
         prompt = (
             "Plan the revalidation impact of this merge. The kernel's glob "
             "match over changed paths is already recorded in "
@@ -275,9 +192,43 @@ def plan_pr_impact(
     cycle_id: str,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Plan the impact of the newest merge (a ``no_pr_event`` row when none exists)."""
     root = ensure_tools_dir(base_dir)
-    event = _latest_pr_or_merge_event(root)
-    if event is None:
+    merges = _merges(root)
+    return _plan_merge_impact(root, cycle_id, merges[-1] if merges else None)
+
+
+def plan_new_merge_impact(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Plan the newest merge's impact once; ``{"status": "no_new_merge"}`` otherwise.
+
+    The impact ledger names the merge each plan was for (``pr_event``: PR and
+    head), so it is its own cursor: the newest merge it does not name is new.
+    An idle night writes nothing (a ``no_pr_event`` row per cycle would bury
+    the real transitions under identical repeats), and a plan that failed is
+    planned again next cycle instead of being lost with the copy that used to
+    say "new" (ARIA-LOW-424).
+    """
+    root = ensure_tools_dir(base_dir)
+    merges = _merges(root)
+    if not merges:
+        return {"status": "no_new_merge"}
+    newest = merges[-1]
+    planned = {
+        (row["pr_event"].get("pr_number"), row["pr_event"].get("head_sha"))
+        for row in load_jsonl(root / "evidence-impact.jsonl")
+        if isinstance(row.get("pr_event"), dict)
+    }
+    if (newest.get("pr_number"), newest.get("head_sha")) in planned:
+        return {"status": "no_new_merge"}
+    return _plan_merge_impact(root, cycle_id, newest)
+
+
+def _plan_merge_impact(root: Path, cycle_id: str, merge: dict[str, Any] | None) -> dict[str, Any]:
+    if merge is None:
         row = {
             "schema_version": 1,
             "recorded_at": utc_now(),
@@ -291,7 +242,7 @@ def plan_pr_impact(
             "actions": [],
         }
         return append_jsonl(root / "evidence-impact.jsonl", row)
-    changed_files = _string_list(event.get("changed_files"))
+    changed_files = _string_list(merge.get("changed_files"))
     beliefs = latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl"))
     impacted_beliefs = []
     carried_forward_beliefs = []
@@ -319,12 +270,13 @@ def plan_pr_impact(
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "status": "planned",
+        # The merge as its owner recorded it. `base_sha` is gone with the
+        # copy: no merged row carries one, and every copied row held None.
         "pr_event": {
-            "pr_number": event.get("pr_number"),
-            "event": event.get("event"),
-            "base_sha": event.get("base_sha"),
-            "head_sha": event.get("head_sha"),
-            "merge_commit_sha": event.get("merge_commit_sha"),
+            "pr_number": merge.get("pr_number"),
+            "event": "merged",
+            "head_sha": merge.get("head_sha"),
+            "merge_commit_sha": merge.get("merge_sha"),
         },
         "changed_files": changed_files,
         "impacted_beliefs": impacted_beliefs,
@@ -359,11 +311,6 @@ def plan_incremental_cycle(
         "actions": actions,
     }
     return append_jsonl(root / "cycle-state" / "incremental-plans.jsonl", row)
-
-
-def _latest_pr_or_merge_event(root: Path) -> dict[str, Any] | None:
-    rows = load_jsonl(root / "merge-events.jsonl") + load_jsonl(root / "pr-events.jsonl")
-    return rows[-1] if rows else None
 
 
 def _mark_beliefs_for_revalidation(root: Path, cycle_id: str, impacted: list[dict[str, Any]]) -> None:

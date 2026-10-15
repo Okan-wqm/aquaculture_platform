@@ -53,6 +53,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { runtimeRosterAgentNames } from './helpers/orchestrator-roster';
+
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const ORCHESTRATOR_MD = path.join(
   REPO_ROOT,
@@ -172,7 +174,7 @@ function readOrchestrator(): string {
  * _shared/orchestrator-phases.md carries Phase 2-6 details. Surface-
  * coverage + routing-primary-agent checks scan BOTH orchestrator.md and
  * the routing-table companion; roster checks remain orchestrator.md-only
- * (the table structure that extractRosterAgentNames parses lives there).
+ * (the table structure that helpers/orchestrator-roster.ts parses lives there).
  */
 function readOrchestratorFamily(): string {
   const primary = fs.readFileSync(ORCHESTRATOR_MD, 'utf8');
@@ -180,25 +182,6 @@ function readOrchestratorFamily(): string {
     ? fs.readFileSync(ROUTING_TABLE_MD, 'utf8')
     : '';
   return primary + '\n' + routing;
-}
-
-function extractRosterAgentNames(content: string): Set<string> {
-  const rosterStart = content.indexOf('## Runtime Review Roster');
-  if (rosterStart === -1) {
-    throw new Error('Runtime Review Roster section not found in orchestrator.md');
-  }
-  const rosterSection = content.slice(rosterStart);
-  const agentRowRe = /^\|\s*([a-z][a-z-]+)\s*\|/gm;
-  const names = new Set<string>();
-  for (const match of rosterSection.matchAll(agentRowRe)) {
-    const [, captured] = match;
-    if (!captured) continue;
-    const name = captured.trim();
-    if (name && name !== 'Agent' && name !== '-------') {
-      names.add(name);
-    }
-  }
-  return names;
 }
 
 function extractRoutingAgentNames(content: string): Set<string> {
@@ -246,8 +229,9 @@ function extractRoutingAgentNames(content: string): Set<string> {
 describe('orchestrator routing coverage invariant', () => {
   // Surface + routing checks read BOTH orchestrator.md AND the routing-table
   // companion (post-split shape). Roster check reads orchestrator.md ONLY —
-  // the runtime roster table structure that extractRosterAgentNames parses
-  // lives there.
+  // the runtime roster table that helpers/orchestrator-roster.ts parses lives
+  // there, bounded at Auxiliary Maintenance Tooling (a slice to the end of the
+  // file counted the auxiliary tools as roster members).
   const orchestratorOnly = readOrchestrator();
   const family = readOrchestratorFamily();
 
@@ -264,7 +248,7 @@ describe('orchestrator routing coverage invariant', () => {
   );
 
   it('every primary agent referenced in routing table exists in the runtime roster', () => {
-    const rosterAgents = extractRosterAgentNames(orchestratorOnly);
+    const rosterAgents = new Set(runtimeRosterAgentNames(orchestratorOnly));
     const routingAgents = extractRoutingAgentNames(family);
 
     // Filter to ones likely to be real agent names (contain hyphen, not "legacy" or bare words)
@@ -342,7 +326,7 @@ describe('orchestrator routing coverage invariant', () => {
    */
   it('every roster agent is reachable from at least one glob (primary OR also-notify)', () => {
     // Build combined roster (Lane-A + Lane-B specialists).
-    const laneARoster = extractRosterAgentNames(orchestratorOnly);
+    const laneARoster = new Set(runtimeRosterAgentNames(orchestratorOnly));
     const productAuditOrchestratorPath = path.join(
       REPO_ROOT,
       '.claude',

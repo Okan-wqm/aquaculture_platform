@@ -43,6 +43,7 @@ from aria_kernel.agent_genesis import (
     prepare_agent_pr_lane,
 )
 from aria_kernel.agent_network import agent_network_index
+from aria_kernel.agent_question import QUESTION_KINDS, REFUSAL_REASON_CLASSES, RESPONSE_VERDICTS
 from aria_kernel.burn_in import run_observe_burn_in
 from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.discovery import run_discovery
@@ -102,6 +103,7 @@ from aria_kernel.skill_genesis import (
     request_skill_genesis,
     sandbox_skill,
 )
+from aria_kernel.snapshot import SNAPSHOT_MODES
 from aria_kernel.operator_approval import AUTHORITY_RAISING_SURFACES
 from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
@@ -983,7 +985,7 @@ def build_parser() -> argparse.ArgumentParser:
     discovery_run = add_subparser(discovery_sub, "run")
     add_workspace_args(discovery_run)
     discovery_run.add_argument("--cycle-id", required=True)
-    discovery_run.add_argument("--snapshot-mode", default="committed", choices=["committed", "working_tree", "working-tree"])
+    discovery_run.add_argument("--snapshot-mode", default="committed", choices=SNAPSHOT_MODES)
 
     # Wave 1 §2.2 — state snapshots: the tree-level continuity root.
     # Under `integrity` rather than a new top-level command because a
@@ -1758,7 +1760,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Plan 025 §D — autonomous scheduler family. ``planner-dispatch``
     # runs the in-kernel daemon that polls next_pending_request and
     # routes claimed requests to ci_executor.py. The subparser shape
-    # mirrors ``worker`` (line 548) and inherits --tools-dir via the
+    # mirrors ``worker`` and inherits --tools-dir via the
     # add_subparser factory.
     scheduler_parser = add_subparser(sub, "scheduler")
     scheduler_sub = scheduler_parser.add_subparsers(
@@ -1779,7 +1781,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--roles", default="primary_plan,challenger_plan",
         help="Comma-separated planner roles to poll, in priority order.",
     )
-    pd_run.add_argument("--lease-seconds", type=int, default=1800)
+    pd_run.add_argument("--lease-seconds", type=int, default=DEFAULT_LEASE_SECONDS)
 
     # Plan 025 §E — autonomous worker scheduler daemon. Mirror of
     # planner-dispatch shape (lock, ARIA_STOP, profile gate,
@@ -1797,7 +1799,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     wd_run.add_argument("--daemon-id", default="worker-scheduler")
     wd_run.add_argument("--max-workers", type=int, default=1)
-    wd_run.add_argument("--lease-seconds", type=int, default=1800)
+    wd_run.add_argument("--lease-seconds", type=int, default=DEFAULT_LEASE_SECONDS)
 
     # V10.5 Phase 1 (per ADR-0002) — ARIA-Watchdog read-only observer daemon.
     # Mirror of planner-dispatch/worker-dispatch shape (fcntl lock, ARIA_STOP,
@@ -2251,7 +2253,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     # Plan 024 §B-1 — legacy `agent-invocations submit-result` subparser
     # removed. The strict, lease-bound submission path is the only public
-    # surface now (`agent submit-result`, line ~656). The underlying
+    # surface now (`agent submit-result`). The underlying
     # legacy function is renamed to
     # `_submit_legacy_invocation_result_internal` and gated behind an
     # operator_migration_approval_ref. `request` and `list` subparsers
@@ -3121,7 +3123,7 @@ def build_parser() -> argparse.ArgumentParser:
     q_ask.add_argument("--target-agent-id", required=True)
     q_ask.add_argument(
         "--question-kind", required=True,
-        choices=["tier_classification", "extrapolation_check", "invariant_grounding"],
+        choices=sorted(QUESTION_KINDS),
     )
     q_ask.add_argument("--rule-text", required=True, type=_validate_reason)
     q_ask.add_argument(
@@ -3139,7 +3141,7 @@ def build_parser() -> argparse.ArgumentParser:
     q_answer.add_argument("--answerer-agent-id", required=True)
     q_answer.add_argument(
         "--verdict", required=True,
-        choices=["agreed", "disagreed", "refused"],
+        choices=sorted(RESPONSE_VERDICTS),
     )
     q_answer.add_argument(
         "--answered-tier", type=int, choices=[1, 2, 3], default=None,
@@ -3154,7 +3156,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     q_answer.add_argument(
         "--refusal-reason", default=None,
-        choices=["scope", "evidence", "envelope", "operator_required"],
+        choices=sorted(REFUSAL_REASON_CLASSES),
     )
     q_answer.add_argument("--cycle-id", required=True)
     q_list = add_subparser(question_sub, "list",
@@ -5070,10 +5072,10 @@ def _main(argv: list[str] | None = None) -> int:
         from .autonomous_worker_scheduler import run_worker_scheduler_daemon
         from .github_adapters import select_github_adapter
         # Plan ARIA-V3.1 §2a — ``get_profile`` is imported at module
-        # level (line 105). A nested re-import here previously made
+        # level. A nested re-import here previously made
         # ``get_profile`` LOCAL to ``_main`` for the WHOLE function
         # body (Python scoping rule), which silently broke earlier
-        # callsites at line 1841/1850/1853 with UnboundLocalError.
+        # callsites with UnboundLocalError.
         workspace = (
             paths.repo_root if paths is not None
             else Path(args.workspace_root).resolve()
@@ -6405,12 +6407,12 @@ def _main(argv: list[str] | None = None) -> int:
             # the operator-minted ack token via the gate's unified
             # path.
             #
-            # Plan ARIA-V3.1 §2a — ``get_profile`` is module-level
-            # imported at line 105; the previous nested re-import
+            # Plan ARIA-V3.1 §2a — ``get_profile`` is imported at
+            # module level; the previous nested re-import
             # of ``get_profile`` was redundant AND shadowed the
             # module-level binding for the entire ``_main`` body,
-            # silently breaking earlier callsites at lines 1841 /
-            # 1850 / 1853 with UnboundLocalError.
+            # silently breaking earlier callsites with
+            # UnboundLocalError.
             from .auto_action_gate import (
                 ClassifierDecision,
                 gate_from_policy,
@@ -6571,8 +6573,8 @@ def _main(argv: list[str] | None = None) -> int:
             # Plan ARIA-V3 §A4 — gate-driven materialize. Same factory
             # path as agent-genesis materialize.
             #
-            # Plan ARIA-V3.1 §2a — ``get_profile`` is module-level
-            # imported at line 105; nested re-import removed.
+            # Plan ARIA-V3.1 §2a — ``get_profile`` is imported at
+            # module level; nested re-import removed.
             from .auto_action_gate import (
                 ClassifierDecision,
                 gate_from_policy,
@@ -6683,7 +6685,7 @@ def _main(argv: list[str] | None = None) -> int:
         # 6-validator audit C-2). argparse already validated
         # --operator-approval-ref is present when --profile=autonomous.
         # `set_profile` + `get_profile` come from the module-level
-        # import at line 104 — no nested re-import (closes the v3_1
+        # import — no nested re-import (closes the v3_1
         # nested-reimport-shadowing invariant).
         _persisted_profile = get_profile(base_dir=args.tools_dir)
         if args.profile == "autonomous" and not (args.operator_approval_ref or "").strip():
@@ -6761,7 +6763,7 @@ def _main(argv: list[str] | None = None) -> int:
         skill_genesis_drainer = select_skill_genesis_drainer(profile=profile)
         # ORPHAN-HIGH-082 fix: CLI flag --max-rounds is plumbed all the
         # way to the orchestrator (and from there to convergence_runner). Previously the
-        # arguments were parsed + validated above (line 3422-3434) but
+        # arguments were parsed + validated by the parser but
         # never passed downstream, so the drainer silently fell back to
         # its 1800s + 4-rounds defaults regardless of operator input.
         # This was the root cause of cycle 1 polling for 30 min instead

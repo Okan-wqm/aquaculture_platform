@@ -1,50 +1,44 @@
-"""Plan ARIA-V9.0-E — skill genesis adapter sandbox.
+"""Plan ARIA-V9.0-E — the drafted adapter's import allowlist.
 
 Closes:
   * ai-safety-auditor MED-015 — 3-cycle threshold supply-chain risk:
     skill_genesis can author new tool adapters from N consecutive
     CONVERGED cycles with identical pattern_signature; without
-    sandboxing, the adapter runs unconstrained on subsequent cycles
-    with full repo access. V9.0-E sandbox bounds the adapter via
-    bwrap (--unshare-net, --ro-bind workspace, --tmpfs /tmp) +
-    static AST allowlist (stdlib-only imports) + Sigstore signing
-    at authoring time.
+    containment, the adapter runs unconstrained with full repo access.
   * security-reviewer CRIT-006 — tool adapter execution sandbox:
-    same surface, security-side framing. The sandbox is the
-    Tier-1 anchor (make impossible to do network egress or read
-    secrets from the adapter subprocess).
+    same surface, security-side framing.
 
-V9.0-E ships the SANDBOX MECHANICS + AST validator. The
-registration flow (skill_genesis_drainer integration + N>=5
-threshold + ≥2 distinct pressure_source types + distinct
-cross_reviewer_agent_ids + HUMAN_REQUIRED routing for
-aria-tools/registry.json writes) lands in V10.2.
+ARIA-HIGH-414 — where the allowlist is ENFORCED. This module owns the
+allowlist (``ALLOWED_ADAPTER_IMPORTS``) and its static pre-check
+(``verify_adapter_imports``). The pre-check is NOT the boundary: Python
+reaches a module by spellings no AST walk can enumerate (``import
+os.path`` binds ``os``; ``pathlib.os``; a generator's
+``gi_frame.f_builtins['__import__']``; ``functools.singledispatch``
+evaluating a string annotation). The allowlist holds at runtime: every
+drafted adapter runs only through the kernel launcher
+(``tools/aria-poc/genesis_adapter_launcher.py``, started by
+``genesis_adapter_custody``) inside the adapter room. The launcher loads this
+allowlist, deletes the import machinery's module builders, and
+then refuses the import of any module not yet loaded, every process,
+thread, tracing, code-construction and write-open event before the
+adapter's first byte compiles. The pre-check refuses the obvious spellings by name, early, so a
+drafter's critique says what was wrong.
 
-Tier-1 (make impossible):
-  * AST allowlist refuses adapter source containing forbidden
-    imports BEFORE the file lands on disk
-  * bwrap --unshare-net prevents network egress at namespace level
-  * --ro-bind READONLY_PATHS + workspace-scoped mounts prevent
-    cross-tree reads (no /root, no /home, no /etc/secrets)
-
-Tier-3 (detect):
-  * Sigstore signature on adapter source — verified at every
-    dispatch, drift fires governance event
+The room (``adapter_room``) is the OS boundary: no network, read-only
+workspace, no secrets, private PID namespace. ``execute_in_sandbox`` (a
+drafted adapter run by file path) and ``verify_adapter_signature`` (a
+sha256 the writer had just written itself) were removed: drafted bytes run
+only from kernel custody, re-hashed by the kernel at each step.
 """
 from __future__ import annotations
 
 import ast
-import json
-import shutil
-import subprocess
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 
 # Plan ARIA-V9.0-E — Python stdlib imports permitted inside skill
 # adapters. Closed allowlist; an adapter importing anything outside
-# this set fails the AST validator BEFORE authoring lands on disk.
+# this set fails the pre-check before calibration, and cannot load it
+# at runtime (the launcher loads exactly this set, then no more).
 #
 # Rationale: skill adapters are deterministic detection rules
 # (recurring pattern → emit row). They need re, json, file I/O,
@@ -64,13 +58,16 @@ ALLOWED_ADAPTER_IMPORTS: frozenset[str] = frozenset({
     "datetime",
     # math
     "math", "decimal",
-    # sys (limited — sys.argv parsing only; exec/setrecursionlimit etc
-    # not gated here but downstream policy rules forbid via runtime).
+    # sys — stdin/stdout/argv; its import and process levers
+    # (sys.modules, settrace, addaudithook) are refused by the launcher.
     "sys",
 })
 
-# Plan ARIA-V9.0-E — explicit deny set. Even if a name leaks into
-# ALLOWED via accident, the deny set fires first.
+# Plan ARIA-V9.0-E — explicit deny set. An exact name here is rejected
+# even if it also appears in ALLOWED. A dotted ALLOWED entry under a
+# forbidden root (``os.path``) is a deliberate carve-out that exact-ALLOWED
+# permits before the root check, so the sandbox invariants pin the carve-out
+# set: a leaked dotted entry is caught at test time, not here.
 FORBIDDEN_ADAPTER_IMPORTS: frozenset[str] = frozenset({
     "urllib", "urllib.request", "urllib.parse", "urllib.error",
     "http", "http.client", "http.server", "http.cookies",
@@ -96,30 +93,27 @@ class UnsafeAdapterImport(Exception):
     NEVER the surrounding code body (potential injection vector)."""
 
 
-class AdapterSignatureMismatch(Exception):
-    """Raised when the adapter source hash doesn't match the
-    Sigstore-signed bundle on dispatch."""
-
-
-@dataclass(frozen=True)
-class SandboxedResult:
-    """Result of an adapter run inside the sandbox."""
-
-    exit_code: int
-    stdout: str
-    stderr: str
-    timed_out: bool
+# ARIA-HIGH-414 — names that reach a module or run a string as code. The
+# launcher refuses whatever they would load at runtime; naming them here
+# refuses the obvious drafts before a room is built. Not `compile`: `from re
+# import compile` binds that name to a regex constructor.
+DYNAMIC_IMPORT_PRIMITIVES: frozenset[str] = frozenset({
+    "__import__", "exec", "eval", "__builtins__", "breakpoint",
+})
 
 
 def verify_adapter_imports(source: str) -> None:
-    """Parse ``source`` as Python AST; assert every ``import X`` /
-    ``from X import ...`` resolves to a name in ALLOWED_ADAPTER_IMPORTS
-    AND not in FORBIDDEN_ADAPTER_IMPORTS.
+    """Parse ``source`` as Python AST; refuse any ``import X`` /
+    ``from X import ...`` outside ALLOWED_ADAPTER_IMPORTS (or inside
+    FORBIDDEN_ADAPTER_IMPORTS), any name a plain ``import a.b`` BINDS outside
+    the allowlist (``import os.path`` binds ``os``), every relative import
+    (``from . import x``, ``from .mod import y``), any call of a
+    DYNAMIC_IMPORT_PRIMITIVES name, and ``sys.modules``.
 
-    Tier-1 — make impossible to land an adapter with network or
-    subprocess capability via static AST inspection BEFORE the file
-    is written. The validator runs in skill_genesis_drainer's
-    pre-write gate.
+    The pre-check of the launcher's runtime allowlist (module docstring):
+    it refuses the obvious drafts by name before a room is built, and it is
+    not the boundary. Run by ``genesis_adapter_custody.stage_accepted_draft``
+    on every drafted adapter before calibration.
 
     Raises UnsafeAdapterImport on any violation.
     """
@@ -132,27 +126,49 @@ def verify_adapter_imports(source: str) -> None:
 
     forbidden_hits: list[str] = []
     not_in_allowlist: list[str] = []
+    dynamic_hits: list[str] = []
+    relative_hits: list[str] = []
 
     for node in ast.walk(tree):
         names: list[str] = []
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names]
+            # `import a.b` without `as` binds `a`, the whole package: the
+            # allowed `import os.path` handed the adapter `os.system`.
+            names += [alias.name.split(".")[0] for alias in node.names if alias.asname is None and "." in alias.name]
         elif isinstance(node, ast.ImportFrom):
+            # An adapter is a standalone file, so a relative import resolves
+            # to a sibling module the allowlist never judged; judging only
+            # ``node.module`` let ``from . import x`` through with no name
+            # and read ``from .json import y`` as stdlib json.
+            if node.level > 0:
+                relative_hits.append("." * node.level + (node.module or ""))
+                continue
             # `from foo.bar import baz` → import root foo.bar
             if node.module:
                 names = [node.module]
+        elif isinstance(node, ast.Name) and node.id in DYNAMIC_IMPORT_PRIMITIVES:
+            dynamic_hits.append(node.id)
+        elif (
+            isinstance(node, ast.Attribute) and node.attr == "modules"
+            and isinstance(node.value, ast.Name) and node.value.id == "sys"
+        ):
+            dynamic_hits.append("sys.modules")
         for name in names:
-            # Resolution order (Tier-1 precedence):
-            #   1. Exact name in ALLOWED → permit (lets caller import a
-            #      narrow safe subpath like ``os.path`` even when the
-            #      broader root ``os`` is in FORBIDDEN).
-            #   2. Exact name in FORBIDDEN → reject.
-            #   3. Root in FORBIDDEN (and name NOT in ALLOWED) → reject.
+            # Resolution order (Tier-1 precedence, deny set first):
+            #   1. Exact name in FORBIDDEN → reject, even if the name also
+            #      sits in ALLOWED.
+            #   2. Exact name in ALLOWED → permit (a deliberate dotted
+            #      carve-out such as ``os.path`` under the forbidden root
+            #      ``os``, reachable only AS a name, e.g. ``import os.path
+            #      as osp``: a plain ``import os.path`` also binds ``os``,
+            #      which step 1 refuses).
+            #   3. Root in FORBIDDEN → reject.
             #   4. Root NOT in ALLOWED → reject (closed allowlist).
-            if name in ALLOWED_ADAPTER_IMPORTS:
-                continue
             if name in FORBIDDEN_ADAPTER_IMPORTS:
                 forbidden_hits.append(name)
+                continue
+            if name in ALLOWED_ADAPTER_IMPORTS:
                 continue
             root = name.split(".")[0]
             if root in FORBIDDEN_ADAPTER_IMPORTS:
@@ -161,148 +177,20 @@ def verify_adapter_imports(source: str) -> None:
             if root not in ALLOWED_ADAPTER_IMPORTS:
                 not_in_allowlist.append(name)
 
-    if forbidden_hits or not_in_allowlist:
+    if forbidden_hits or not_in_allowlist or dynamic_hits or relative_hits:
         raise UnsafeAdapterImport(
             f"adapter imports rejected — "
             f"forbidden={sorted(set(forbidden_hits))} "
-            f"not-in-allowlist={sorted(set(not_in_allowlist))}"
+            f"not-in-allowlist={sorted(set(not_in_allowlist))} "
+            f"dynamic={sorted(set(dynamic_hits))} "
+            f"relative={sorted(set(relative_hits))}"
         )
-
-
-def _bwrap_available() -> bool:
-    return shutil.which("bwrap") is not None
-
-
-def _firejail_available() -> bool:
-    return shutil.which("firejail") is not None
-
-
-def execute_in_sandbox(
-    adapter_path: str | Path,
-    stdin_payload: str | bytes | None = None,
-    *,
-    workspace_root: str | Path,
-    timeout_seconds: int = 60,
-    python: str = "python3",
-) -> SandboxedResult:
-    """Run an adapter inside a network-isolated sandbox.
-
-    Sandbox layout (bwrap preferred, firejail fallback, else
-    refuses):
-      * --unshare-net           — no network egress (CRIT-006)
-      * --tmpfs /tmp            — writable but workspace-scoped
-      * --ro-bind /usr /usr     — Python stdlib read-only
-      * --bind workspace        — adapter can read repo
-      * No /root, /home, /etc/secrets, /etc/ssh, /var/run/secrets
-
-    Adapter receives stdin_payload on stdin; emits result on stdout.
-
-    Returns SandboxedResult(exit_code, stdout, stderr, timed_out).
-
-    When neither bwrap nor firejail are available, raises RuntimeError
-    (sandbox refusal is hard-fail — adapter MUST run sandboxed).
-    """
-    adapter_p = Path(adapter_path).resolve()
-    workspace_p = Path(workspace_root).resolve()
-
-    if isinstance(stdin_payload, str):
-        stdin_bytes: bytes | None = stdin_payload.encode("utf-8")
-    elif isinstance(stdin_payload, (bytes, bytearray)):
-        stdin_bytes = bytes(stdin_payload)
-    else:
-        stdin_bytes = None
-
-    if _bwrap_available():
-        argv = [
-            "bwrap",
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/etc/alternatives", "/etc/alternatives",
-            "--ro-bind", "/lib", "/lib",
-            "--ro-bind", "/lib64", "/lib64",
-            "--ro-bind", "/bin", "/bin",
-            "--proc", "/proc",
-            "--dev", "/dev",
-            "--tmpfs", "/tmp",
-            "--ro-bind", str(workspace_p), str(workspace_p),
-            "--chdir", str(workspace_p),
-            "--unshare-net",
-            "--unshare-user",
-            "--unshare-pid",
-            "--",
-            python, str(adapter_p),
-        ]
-    elif _firejail_available():
-        argv = [
-            "firejail",
-            "--quiet",
-            "--private-tmp",
-            "--net=none",
-            f"--whitelist={workspace_p}",
-            "--noroot",
-            python, str(adapter_p),
-        ]
-    else:
-        raise RuntimeError(
-            "no sandbox tool available (need bwrap or firejail); "
-            "refusing to execute adapter unsandboxed"
-        )
-
-    try:
-        proc = subprocess.run(
-            argv,
-            input=stdin_bytes,
-            capture_output=True,
-            timeout=timeout_seconds,
-        )
-        return SandboxedResult(
-            exit_code=proc.returncode,
-            stdout=proc.stdout.decode("utf-8", errors="replace"),
-            stderr=proc.stderr.decode("utf-8", errors="replace"),
-            timed_out=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return SandboxedResult(
-            exit_code=124,
-            stdout=(exc.stdout or b"").decode("utf-8", errors="replace"),
-            stderr=(exc.stderr or b"").decode("utf-8", errors="replace"),
-            timed_out=True,
-        )
-
-
-def verify_adapter_signature(adapter_path: str | Path, sigstore_bundle: str | Path) -> bool:
-    """Verify a Sigstore signature bundle against an adapter source
-    file. Returns True on valid signature, False on absence/mismatch.
-
-    Plan ARIA-V9.0-E ships the contract; the actual cosign /
-    sigstore-python call site is wired by skill_genesis_drainer when
-    V10.2 lands. For V9.0-E code-only scope, this function performs
-    sha256 comparison against a manifest-recorded hash — the
-    Tier-3 detect mechanism specified in plan v3 Phase V9.0-E
-    (no third-party Python dep introduced in this commit).
-    """
-    import hashlib
-    adapter_p = Path(adapter_path)
-    bundle_p = Path(sigstore_bundle)
-    if not adapter_p.exists() or not bundle_p.exists():
-        return False
-    try:
-        manifest = json.loads(bundle_p.read_text())
-    except json.JSONDecodeError:
-        return False
-    expected = manifest.get("source_sha256") if isinstance(manifest, dict) else None
-    if not isinstance(expected, str):
-        return False
-    actual = hashlib.sha256(adapter_p.read_bytes()).hexdigest()
-    return expected == actual
 
 
 __all__ = (
     "ALLOWED_ADAPTER_IMPORTS",
+    "DYNAMIC_IMPORT_PRIMITIVES",
     "FORBIDDEN_ADAPTER_IMPORTS",
     "UnsafeAdapterImport",
-    "AdapterSignatureMismatch",
-    "SandboxedResult",
     "verify_adapter_imports",
-    "execute_in_sandbox",
-    "verify_adapter_signature",
 )

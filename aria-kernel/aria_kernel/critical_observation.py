@@ -32,7 +32,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .ledger import atomic_write_json
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from .tool_registry import utc_now_datetime as _utc_now
 
 
 CRITICAL_SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM")
@@ -45,8 +47,10 @@ CRITICAL_CATEGORIES = (
 )
 CRITICAL_STATUSES = ("open", "acknowledged", "resolved")
 
-# SLA windows per severity. (acknowledge_within, resolve_within).
-SLA_WINDOWS = {
+# SLA windows per severity. (acknowledge_within, resolve_within). Named for
+# its surface: human_required keeps a different single-window table,
+# HUMAN_REQUIRED_SLA_WINDOWS (Plan 016).
+CRITICAL_OBSERVATION_SLA_WINDOWS = {
     "CRITICAL": (timedelta(hours=24), timedelta(days=7)),
     "HIGH": (timedelta(hours=72), timedelta(days=30)),
     "MEDIUM": (timedelta(days=7), timedelta(days=90)),
@@ -58,10 +62,6 @@ SCHEMA_VERSION = 1
 
 def _co_dir(tools_root: Path) -> Path:
     return tools_root / "critical-observations"
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _iso(dt: datetime) -> str:
@@ -81,33 +81,6 @@ def _allocate_co_id(tools_root: Path, *, when: datetime) -> str:
         return f"{prefix}001"
     last_num = max(int(stem.rsplit("-", 1)[1]) for stem in existing)
     return f"{prefix}{last_num + 1:03d}"
-
-
-def _atomic_fsync_write(path: Path, payload: dict[str, Any]) -> None:
-    """Write JSON + fsync the file AND its parent dir.
-
-    Plan 016 §Critical Observation hard invariant: persisted_before_next_
-    tool_call. This helper makes the persistence durable on POSIX —
-    fsync the file descriptor and the containing directory so the
-    record survives a crash that happens between this call and the
-    caller's next tool invocation.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    data = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-    try:
-        os.write(fd, data.encode("utf-8"))
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    tmp.replace(path)
-    # fsync the directory so the rename is durable.
-    dir_fd = os.open(str(path.parent), os.O_RDONLY)
-    try:
-        os.fsync(dir_fd)
-    finally:
-        os.close(dir_fd)
 
 
 def record_critical_observation(
@@ -149,7 +122,7 @@ def record_critical_observation(
 
     tools_root = ensure_tools_dir(base_dir)
     ts = now or _utc_now()
-    ack_window, resolve_window = SLA_WINDOWS[severity]
+    ack_window, resolve_window = CRITICAL_OBSERVATION_SLA_WINDOWS[severity]
 
     co_id = _allocate_co_id(tools_root, when=ts)
     record = {
@@ -177,7 +150,7 @@ def record_critical_observation(
     out_path = _co_dir(tools_root) / f"{co_id}.json"
     if out_path.exists():
         raise GovernanceError(f"critical observation {co_id} already exists at {out_path}")
-    _atomic_fsync_write(out_path, record)
+    atomic_write_json(out_path, record)
 
     append_tools_governance(
         tools_root,
@@ -237,7 +210,7 @@ def acknowledge_critical_observation(
     record["status"] = "acknowledged"
     record["acknowledged_at"] = _iso(ts)
     record["acknowledged_by"] = acknowledged_by
-    _atomic_fsync_write(path, record)
+    atomic_write_json(path, record)
     append_tools_governance(
         tools_root,
         "critical_observation_acknowledged",
@@ -270,7 +243,7 @@ def resolve_critical_observation(
     record["resolved_at"] = _iso(ts)
     record["resolved_by"] = resolved_by
     record["resolution_note"] = resolution_note
-    _atomic_fsync_write(path, record)
+    atomic_write_json(path, record)
     append_tools_governance(
         tools_root,
         "critical_observation_resolved",
@@ -291,7 +264,9 @@ def compute_escalation_tier(record: dict[str, Any], *, now: datetime | None = No
     if record.get("status") in {"acknowledged", "resolved"}:
         return "within_sla"
     severity = record.get("severity", "MEDIUM")
-    ack_window, _ = SLA_WINDOWS.get(severity, SLA_WINDOWS["MEDIUM"])
+    ack_window, _ = CRITICAL_OBSERVATION_SLA_WINDOWS.get(
+        severity, CRITICAL_OBSERVATION_SLA_WINDOWS["MEDIUM"],
+    )
     try:
         recorded = datetime.fromisoformat(str(record.get("recorded_at", "")).replace("Z", "+00:00"))
     except ValueError:

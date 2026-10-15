@@ -56,9 +56,10 @@ class NotifyIsBounded(unittest.TestCase):
             notify.NOTIFY_WORST_CASE_SECONDS,
             len(notify.NOTIFY_CHANNELS) * notify.SENDER_WALL_CLOCK_SECONDS + STATE_LOCK_LIVENESS_SECONDS,
         )
-        # The wall clock is the GitHub sender's longest sequence: list, then
-        # comment or create, two calls at the per-call bound.
-        self.assertEqual(notify.SENDER_WALL_CLOCK_SECONDS, 2 * notify._GH_CALL_TIMEOUT_SECONDS)
+        # The wall clock is the GitHub sender's longest sequence: issue list,
+        # label list, label create, issue create — four calls at the per-call
+        # bound (ARIA-HIGH-415; a found issue is list + comment).
+        self.assertEqual(notify.SENDER_WALL_CLOCK_SECONDS, 4 * notify._GH_CALL_TIMEOUT_SECONDS)
         self.assertEqual(
             HUMAN_REQUIRED_RECORD_WAIT_SECONDS,
             STATE_LOCK_LIVENESS_SECONDS + notify.NOTIFY_WORST_CASE_SECONDS,

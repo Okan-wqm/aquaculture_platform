@@ -188,6 +188,28 @@ class IndividualCheckTests(unittest.TestCase):
         )
         self.assertFalse(grade["check_results"]["refusal_trigger_valid"]["passed"])
 
+    def test_contract_refusal_envelope_passes_the_trigger_check(self) -> None:
+        # ARIA-MEDIUM-464 — the envelope the contract owner renders must pass the
+        # grader. It used to read a `reason` field render_refusal never
+        # writes, so every well-formed refusal soft-failed.
+        from aria_kernel.agent_contract import render_refusal
+
+        response = _well_formed_response()
+        response["status"] = "rejected"
+        response["refusal"] = render_refusal(
+            request_id="req-refusal-1",
+            cycle_id="aria-20260507T000000Z",
+            refused_by="aria-primary-planner",
+            reason_class="evidence",
+            reason_text="cited file absent at target_sha",
+        )
+        grade = grade_response(
+            request=_well_formed_request(),
+            response=response,
+            response_path=Path("/tmp/out.md"),
+        )
+        self.assertTrue(grade["check_results"]["refusal_trigger_valid"]["passed"])
+
 
 class HardRejectionTests(unittest.TestCase):
     def setUp(self) -> None:

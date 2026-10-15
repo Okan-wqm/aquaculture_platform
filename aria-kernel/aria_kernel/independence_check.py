@@ -127,6 +127,24 @@ def response_principal(response: dict[str, Any]) -> str | None:
 RUNTIME_ATTEMPT_STARTED_KIND = "runtime_attempt_started"
 
 
+def attempt_providers_by_claim(attempt_rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """The provider each claim's NEWEST native attempt was sent to, by claim id.
+
+    ARIA-MEDIUM-444 — the route a claim actually ran on, read from the one
+    record of it: ``budget._reserve_native_runtime_attempt`` writes a
+    ``runtime_attempt_started`` row naming the claim and the provider before
+    every native dispatch, and a claim can carry more than one attempt (a
+    failover inside one dispatch), so the newest row is the route the claim
+    held when its lease ran out. A claim with no row never reached a route.
+    """
+    routed: dict[str, str] = {}
+    for row in attempt_rows:
+        details = row.get("details") if row.get("kind") == RUNTIME_ATTEMPT_STARTED_KIND else None
+        if isinstance(details, Mapping) and details.get("claim_id") and details.get("provider"):
+            routed[str(details["claim_id"])] = str(details["provider"])
+    return routed
+
+
 @dataclass(frozen=True)
 class Principal:
     """ARIA-MEDIUM-225 — who answered a seat: the agent AND the route.
@@ -492,7 +510,7 @@ def verify_route_distinctness(
 # It was a pure ADAPTER: it built three `RoundDispatch` rows from three request
 # ids and returned `verify_principal_disjointness(...)` unchanged. Same question,
 # same answer, different argument shape — and no production caller, while
-# `verify_principal_disjointness` is live from `human_required_adjudication.py:519`
+# `verify_principal_disjointness` is live from `human_required_adjudication.fold_adjudication`
 # and from two callsites in this module.
 #
 # Its ORPHAN-HIGH-421 docstring is preserved in the surviving function, which is
@@ -626,10 +644,3 @@ def verify_independence(
         if reason not in ordered:
             ordered.append(reason)
     return (len(ordered) == 0), ordered
-
-
-def compute_agent_text_hash(text: str) -> str:
-    """Helper for governance event payloads — never include the raw
-    text in the event, only the hash (operator forensics + redaction
-    discipline)."""
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()

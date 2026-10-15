@@ -204,7 +204,8 @@ class SelfImprovement(_Store):
         for signal in signals:
             self.assertIn(signal.kind, si.SIGNAL_KINDS)
         opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
-        self.assertLessEqual(len(opened), 2)
+        # ARIA-MEDIUM-417: the budget bounds what a call OPENS; re-sightings are reported, free.
+        self.assertLessEqual(sum(1 for o in opened if not o["idempotent"]), 2)
         again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
         self.assertTrue(all(o["idempotent"] for o in again), "the same signals reopen nothing")
         from aria_kernel.mission import list_open_missions, open_mission

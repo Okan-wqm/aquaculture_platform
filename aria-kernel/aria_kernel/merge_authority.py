@@ -27,7 +27,7 @@ from .merge_lane_merge_state import route_unmergeable_merge_state
 from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, record_merge
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
-from .risk_policy import record_risk_decision_for_pr
+from .risk_policy import first_present_string, record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
 from .runtime_profile import (
     assert_merge_authority_available,
@@ -212,7 +212,7 @@ def merge_pr_if_ready(
             # ARIA-HIGH-374 — an updated head is judged by the shared
             # lineage verifier against the live base, in this checkout.
             workspace_root=workspace_root,
-            live_base_sha=_first_string(live_pr, "base_sha", "baseRefOid") or None,
+            live_base_sha=first_present_string(live_pr, "base_sha", "baseRefOid"),
         )
         if not triple["passed"]:
             result = dict(decision)
@@ -706,9 +706,9 @@ def _acquire_merge_lease(
     """
     return produce_remote_cas_proof(
         pr_number=pr_number,
-        repo=_first_string(pr, "repository", "repo", "repo_full_name"),
+        repo=first_present_string(pr, "repository", "repo", "repo_full_name") or "",
         target_ref=_base_branch(pr) or "",
-        head_ref=_first_string(pr, "head_ref", "headRefName"),
+        head_ref=first_present_string(pr, "head_ref", "headRefName") or "",
         head_sha=head_sha,
         readiness_claim_id=readiness_claim_id,
         base_dir=base_dir,
@@ -719,28 +719,12 @@ def _lease_summary(lease: dict[str, Any]) -> dict[str, Any]:
     return {"lease_id": lease["lease_id"], "epoch": lease["epoch"]}
 
 
-def _first_string(pr: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = pr.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return ""
-
-
 def _head_sha(pr: dict[str, Any]) -> str:
-    for key in ("head_sha", "headRefOid", "head"):
-        value = pr.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return ""
+    return first_present_string(pr, "head_sha", "headRefOid", "head") or ""
 
 
 def _base_branch(pr: dict[str, Any]) -> str | None:
-    for key in ("base_branch", "baseRefName", "base"):
-        value = pr.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return None
+    return first_present_string(pr, "base_branch", "baseRefName", "base")
 
 
 def _evaluate_pre_merge_perimeter(

@@ -44,10 +44,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
-
-if TYPE_CHECKING:  # pragma: no cover
-    pass
+from typing import ClassVar, Literal, Protocol
 
 
 # Plan ARIA-V3.1-B — terminal state Literal. Adding a new terminal

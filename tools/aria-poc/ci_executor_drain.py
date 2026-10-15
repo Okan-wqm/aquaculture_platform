@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Mapping
 import sys
 import time
@@ -33,12 +34,16 @@ import dispatch_failure as _dispatch_failure
 try:
     sys.path.insert(0, str(_POC_DIR.parents[1] / "aria-kernel"))
     from aria_kernel.circuit_breaker import evaluate_breaker, record_failure
+    from aria_kernel.provider_cooldown import active_provider_cooldowns
+    from aria_kernel.provider_outage_ledger import standing_outage
     from aria_kernel.agent_surface import JUDGE_ROLES as _JUDGE_ROLES
     from aria_kernel.agent_surface import PLANNER_BRIDGE_ROLES as _PLANNER_BRIDGE_ROLES
     from aria_kernel.cross_review_bridge import COMPLETENESS_CRITIC_ROLE as _COMPLETENESS_CRITIC_ROLE
 except ImportError:  # pragma: no cover — kernel-less standalone import
     evaluate_breaker = None  # type: ignore[assignment]
     record_failure = None  # type: ignore[assignment]
+    active_provider_cooldowns = None  # type: ignore[assignment]
+    standing_outage = None  # type: ignore[assignment]
     _JUDGE_ROLES = ()  # type: ignore[assignment]
     _PLANNER_BRIDGE_ROLES = frozenset()  # type: ignore[assignment]
     _COMPLETENESS_CRITIC_ROLE = ()  # type: ignore[assignment]
@@ -64,9 +69,16 @@ ENVIRONMENT_FAILURE_CLASSES: frozenset[str] = frozenset(
 # response-schema rejections are request-scoped outcomes, not outages, and
 # deliberately have NO row here; process_exit/unknown stay visible in the
 # aggregate but cannot trip a provider-wide circuit.
+# ARIA-HIGH-425 — a quota exhaustion has no row either: it is answered by the
+# provider cooldown (the next admission routes every seat it can to the next
+# vendor until the window's reset), not by stopping ARIA. Counted as an
+# environment failure, three exhausted windows inside the breaker's window
+# (five-hour windows can do that in a day) tripped the breaker every
+# self-acting profile consults. It still opens the same-run circuit above.
+QUOTA_FAILURE_CLASS = "credit_exhausted"
 PERSISTENT_BREAKER_KIND_BY_CLASS: dict[str, str] = {
     "timeout": "subprocess_timeout",
-    **{cls: "executor_environment_failure" for cls in ENVIRONMENT_FAILURE_CLASSES},
+    **{cls: "executor_environment_failure" for cls in ENVIRONMENT_FAILURE_CLASSES - {QUOTA_FAILURE_CLASS}},
 }
 
 SELECTION_FAILURE_KIND = "executor_selection_failure"
@@ -98,6 +110,41 @@ CHILD_WITHOUT_SUMMARY_FAILURE_CLASS = "child_without_summary"
 # that share is the floor of red, not the ceiling of green.
 REQUEST_FAULT_FAILURE_CLASSES: frozenset[str] = frozenset({"policy_violation", "response_schema_rejected"})
 REQUEST_FAULT_RED_SHARE = 0.5
+
+# ARIA-MEDIUM-438 — the outage kinds (`provider_outage_ledger.OUTAGE_KINDS`)
+# each provider-fact failure class reports: the child's ClaudeCreditExhausted,
+# ClaudeAuthFailure and ClaudeProviderUnreachable arms, each of which cools the
+# provider and so opens (or meets) that outage. A child failing so on an
+# outage that was ALREADY open when it was launched re-probed a standing
+# outage: the back-off ran out and the vendor still refused. That says nothing
+# new about the host, so it is neither a harness failure (the run's red) nor
+# a persistent breaker event. Counted per re-probe, a credential outage
+# tripped the failure breaker on its second day (two drains a day, threshold
+# 3), and the tripped breaker blocked every strict/autonomous cycle's
+# preflight — every kernel-only phase — until the 96 h window passed AFTER
+# the provider came back. The outage is one failure, at its transition, as
+# its `::error::` already was (ARIA-HIGH-366).
+OUTAGE_KINDS_BY_FAILURE_CLASS: dict[str, frozenset[str]] = {
+    "credit_exhausted": frozenset({"quota"}),
+    "auth_failed": frozenset({"auth", "logged_out"}),
+    "provider_unreachable": frozenset({"unreachable"}),
+}
+
+
+def _standing_outage(tools_dir: Path, *, provider: str, failure_class: str, launched_at: datetime) -> Any:
+    """The open outage a failed child re-probed (open before it was launched), or None.
+
+    An unreadable outage ledger answers None: the failure is then counted
+    as the harness's, the conservative side of the count, and said once.
+    """
+    kinds = OUTAGE_KINDS_BY_FAILURE_CLASS.get(failure_class)
+    if kinds is None or standing_outage is None:
+        return None
+    try:
+        return standing_outage(tools_dir, provider=provider, kinds=kinds, before=launched_at)
+    except Exception as exc:  # noqa: BLE001 — a ledger fault must not mask the drain result.
+        sys.stderr.write(f"standing_outage_unreadable: {type(exc).__name__}: {exc}\n")
+        return None
 
 
 def drain_exit_code(*, attempted: int, succeeded: int, harness_failed: int, request_failed: int) -> int:
@@ -187,6 +234,7 @@ def build_drain_governance_payload(
     target_sha: str = "",
     harness_failed: int = 0,
     request_failed: int = 0,
+    standing_outage: list[dict] | None = None,
 ) -> dict:
     """ARIA-HIGH-003 — the schema-v2 ``executor_drain_completed`` aggregate.
 
@@ -220,6 +268,8 @@ def build_drain_governance_payload(
         "circuit_breakers": sorted(_circuit_label(key) for key in open_circuits),
         "breaker_state": breaker_state,
         "target_sha": target_sha,
+        # ARIA-MEDIUM-438 — the children that re-probed an outage already open.
+        "standing_outage": list(standing_outage or []),
     }
 
 
@@ -724,6 +774,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     # ARIA-MEDIUM-177 — the two halves of `failed`, for the exit code.
     harness_failed = 0
     request_failed = 0
+    # ARIA-MEDIUM-438 — re-probes of a standing outage: attempted, not failed.
+    standing_reprobes: list[dict] = []
     by_provider_model_role: dict[str, dict] = {}
     failure_details: list[dict] = []
     # ARIA-HIGH-003 — the joined evidence target: the set of trusted
@@ -833,6 +885,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             f"concurrency={len(inflight) + 1}/{max_concurrent} worktree={'yes' if worktree else 'no'}"
             + (f" batch={child_key} k={len(batch)}" if batch else "")
         )
+        launched_at = datetime.now(timezone.utc)
         if max_concurrent <= 1:
             # Serial lane (the default): the same blocking `subprocess.run` the
             # lane always used, so its contract — and every test that fakes the
@@ -841,7 +894,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         else:
             proc = subprocess.Popen(child_argv, env=child_env, cwd=str(cwd))
         inflight.append({"request": request, "request_id": request_id, "output": child_output, "proc": proc,
-                         "worktree": worktree, "requests": list(batch) if batch else [request], "child_key": child_key})
+                         "worktree": worktree, "requests": list(batch) if batch else [request], "child_key": child_key,
+                         "launched_at": launched_at})
 
     def _settle(entry: dict) -> None:
         """Wait for one child and account for it (the pre-032h loop body, verbatim)."""
@@ -897,10 +951,11 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         breaker_recorded: set[str] = set()
         for member in entry.get("requests") or [request]:
             member_id = str(member.get("request_id") or request_id)
-            _account_request(member, member_id, summaries.get(member_id), child, breaker_recorded)
+            _account_request(member, member_id, summaries.get(member_id), child, breaker_recorded,
+                             launched_at=entry["launched_at"])
 
     def _account_request(request: dict, request_id: str, summary: dict | None, child: Any,
-                         breaker_recorded: set[str]) -> None:
+                         breaker_recorded: set[str], *, launched_at: datetime) -> None:
         """Fold ONE request's terminal outcome (the pre-4b `_settle` tail, verbatim);
         the persistent breaker is told once per child per kind."""
         nonlocal succeeded, failed, harness_failed, request_failed, planning_succeeded
@@ -940,6 +995,23 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             # instead of waiting a cycle (a plan round measured ~18 h).
             _advance_plan(request)
         else:
+            standing = (None if summary is None else _standing_outage(
+                tools_dir, provider=provider, failure_class=str(failure_class or ""), launched_at=launched_at))
+            if standing is not None:
+                # ARIA-MEDIUM-438 — a re-probe of an outage already counted at
+                # its transition: attempted, neither failed nor a breaker
+                # event. The route's same-run circuit still opens, so the
+                # drain does not re-probe the same outage twice in one run.
+                standing_reprobes.append({
+                    "request_id": request_id, "provider": provider, "model": model,
+                    "failure_class": str(failure_class), "outage_kind": standing.kind,
+                    "outage_opened_at": standing.opened_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                })
+                _engine._stage(f"drain_child_met_standing_outage request_id={request_id} "
+                               f"provider={provider} kind={standing.kind}")
+                if failure_class in ENVIRONMENT_FAILURE_CLASSES:
+                    open_circuits.add((provider, model, str(failure_class)))
+                return
             failed += 1
             bucket["failed"] += 1
             if summary is None:
@@ -1102,10 +1174,15 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         # the identity); an open circuit on that (provider, model) skips the
         # request WITHOUT claiming it. Burning the quota slot on a skip is
         # accepted: the request stays pending and the next healthy drain
-        # re-quotas it.
+        # re-quotas it. ARIA-HIGH-425 — the route passes over a cooled
+        # vendor as the child's admission will, so a request the next rung
+        # serves is not skipped on the circuit of the vendor that is out.
+        # Read outside the try: a malformed cooldown row is a refusal by
+        # name that stops the drain, never a route quietly left unresolved.
+        cooled = active_provider_cooldowns(tools_dir) if active_provider_cooldowns is not None else {}
         try:
             route = _dispatch_failure.resolve_dispatch_route(
-                request=request, repo_root=repo_root,
+                request=request, repo_root=repo_root, cooled=cooled,
             )
         except ValueError:
             route = None
@@ -1268,6 +1345,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                     open_circuits=open_circuits,
                     breaker_state=_breaker_state(tools_dir),
                     target_sha=_joined_target_sha(dispatched_target_shas),
+                    standing_outage=standing_reprobes,
                 ),
             )
         except Exception as exc:  # noqa: BLE001 — governance-write failure

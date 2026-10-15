@@ -30,7 +30,7 @@ from aria_kernel import agent_invocations as invocations
 from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.ledger import load_declared_jsonl, load_jsonl
 from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
-from aria_kernel.pr_tracking import dispatch_change_intelligence, ingest_merged_pr_lifecycle
+from aria_kernel.pr_tracking import dispatch_change_intelligence
 from aria_kernel.request_admission import (
     GOVERNANCE_KIND,
     RequestAdmissionThrottled,
@@ -305,7 +305,6 @@ class AThrottledProducerIsAdmittedOnceTheDrainCatchesUp(_Store):
                 "changed_files": ["aria-kernel/aria_kernel/cycle.py"]},
             merged_by=MERGED_BY_MERGE_LANE, base_dir=self.tools, head_lineage="delivered",
         )
-        ingest_merged_pr_lifecycle(base_dir=self.tools)
         behind = _ledgers(40, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))
         with self.queue(behind):
             first = dispatch_change_intelligence(cycle_id="cyc-1", base_dir=self.tools)

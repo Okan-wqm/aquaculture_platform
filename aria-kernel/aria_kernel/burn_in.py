@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -9,7 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from .cycle import _failed_event, run_enterprise_cycle
-from .ledger import append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    atomic_write_json,
+    file_hash,
+    load_declared_jsonl,
+    load_jsonl,
+    sha256_of_canonical_json,
+)
 from .runtime_profile import set_profile
 from .state_manifest import iter_surfaces, observe_disallowed_tool_surfaces
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, utc_now
@@ -207,7 +213,14 @@ def run_observe_burn_in(
     after_disallowed = _disallowed_snapshot(tools_root)
     after_manifest = _manifest_snapshot(tools_root)
     disallowed = _diff_snapshots(before_disallowed, after_disallowed)
-    summaries = _summaries(tools_root, cycle_results)
+    # One read of the pressure log feeds both the pressure summary and the
+    # candidate detection. Two reads could straddle an append, and the report
+    # would then describe two different states of one ledger.
+    pressure_rows = load_declared_jsonl(
+        tools_root / "pressure" / "pressure-log.jsonl",
+        expected_surface="pressure_log",
+    )
+    summaries = _summaries(tools_root, cycle_results, pressure_rows)
     cycle_ledger_summary = _cycle_ledger_summary(tools_root, cycle_results)
     cycle_validity = {
         str(row.get("cycle_id")): _cycle_validity(row, cycle_ledger_summary=cycle_ledger_summary)
@@ -229,7 +242,7 @@ def run_observe_burn_in(
         for cycle_id, validity in cycle_validity.items()
         if not validity["valid"]
     ]
-    candidate_detection = _candidate_detection(tools_root)
+    candidate_detection = _candidate_detection(pressure_rows)
     disallowed_report = {
         "schema_version": "aria/disallowed-actions/v1",
         "generated_at": utc_now(),
@@ -257,17 +270,17 @@ def run_observe_burn_in(
         else "failed"
     )
     cycle_artifact_path = output_root / "cycles.json"
-    _write_json(
+    atomic_write_json(
         cycle_artifact_path,
         {
             "schema_version": "aria/autonomy-burn-in-cycles/v1",
             "cycles": cycle_results,
         },
     )
-    _write_json(output_root / CYCLE_LEDGER_SUMMARY_ARTIFACT, cycle_ledger_summary)
-    _write_json(output_root / DISALLOWED_ACTIONS_ARTIFACT, disallowed_report)
-    _write_json(output_root / MANIFEST_TAIL_HASHES_ARTIFACT, manifest_tail_hashes)
-    _write_json(output_root / CANDIDATE_DETECTION_ARTIFACT, candidate_detection)
+    atomic_write_json(output_root / CYCLE_LEDGER_SUMMARY_ARTIFACT, cycle_ledger_summary)
+    atomic_write_json(output_root / DISALLOWED_ACTIONS_ARTIFACT, disallowed_report)
+    atomic_write_json(output_root / MANIFEST_TAIL_HASHES_ARTIFACT, manifest_tail_hashes)
+    atomic_write_json(output_root / CANDIDATE_DETECTION_ARTIFACT, candidate_detection)
     report = {
         "schema_version": BURN_IN_SCHEMA_VERSION,
         "generated_at": utc_now(),
@@ -326,9 +339,9 @@ def run_observe_burn_in(
         exclude={report_path.resolve(), bundle_path.resolve()},
     )
     validate_burn_in_report(report)
-    _write_json(report_path, report)
+    atomic_write_json(report_path, report)
     evidence_bundle["burn_in_report_hash"] = "sha256:" + file_hash(report_path)
-    _write_json(bundle_path, evidence_bundle)
+    atomic_write_json(bundle_path, evidence_bundle)
     verify_burn_in_artifact_bundle(output_root)
     append_tools_governance(
         tools_root,
@@ -565,11 +578,11 @@ def _diff_manifest_snapshots(before: dict[str, dict[str, Any]], after: dict[str,
     return deltas
 
 
-def _summaries(root: Path, cycles: list[dict[str, Any]]) -> dict[str, Any]:
-    pressure_rows = load_declared_jsonl(
-        root / "pressure" / "pressure-log.jsonl",
-        expected_surface="pressure_log",
-    )
+def _summaries(
+    root: Path,
+    cycles: list[dict[str, Any]],
+    pressure_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
     observations = load_declared_jsonl(
         root / "memory" / "observations.jsonl",
         expected_surface="memory_observations",
@@ -810,11 +823,7 @@ def _cycle_validity(
     return {"valid": not reasons, "reasons": reasons}
 
 
-def _candidate_detection(root: Path) -> dict[str, Any]:
-    pressure_rows = load_declared_jsonl(
-        root / "pressure" / "pressure-log.jsonl",
-        expected_surface="pressure_log",
-    )
+def _candidate_detection(pressure_rows: list[dict[str, Any]]) -> dict[str, Any]:
     skill_candidates: list[dict[str, Any]] = []
     agent_candidates: list[dict[str, Any]] = []
     for row in pressure_rows[-10:]:
@@ -870,7 +879,7 @@ def _write_failure_report(
         "current_head": _safe_git(repo, "rev-parse", "HEAD"),
         "worktree_status": _safe_git(repo, "status", "--porcelain"),
     }
-    _write_json(path, payload)
+    atomic_write_json(path, payload)
 
 
 def _evidence_bundle(output_root: Path, *, target_ref: str, base_commit_sha: str) -> dict[str, Any]:
@@ -914,8 +923,7 @@ def _is_sha256(value: str, *, git_sha: bool = False, allow_bare: bool = False) -
 
 
 def _stable_hash(payload: Any) -> str:
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return "sha256:" + sha256_of_canonical_json(payload)
 
 
 def _safe_git(repo: Path, *args: str) -> str | None:
@@ -923,27 +931,6 @@ def _safe_git(repo: Path, *args: str) -> str | None:
         return _git(repo, *args)
     except Exception:
         return None
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
-    encoded = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-    try:
-        os.write(fd, encoded.encode("utf-8"))
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    tmp.replace(path)
-    try:
-        dir_fd = os.open(str(path.parent), os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-    except OSError:
-        pass
 
 
 __all__ = [

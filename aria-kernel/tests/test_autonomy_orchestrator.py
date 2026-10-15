@@ -362,7 +362,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         cycle_id = native["cycle_id"]
         memory_call.assert_called_once_with(cycle_id=cycle_id, base_dir=self.base, workspace_root=repo)
         self.assertEqual(native["status"], "failed")
-        self.assertEqual(native["runtime_status"], "ok")
+        # ARIA-MEDIUM-413 — a phase that declared itself failed is the
+        # cycle's runtime verdict too (cycle_runtime_status: "failed — a phase
+        # raised or declared itself failed"); it used to read `ok` beside a
+        # FAILED terminal row.
+        self.assertEqual(native["runtime_status"], "failed")
         self.assertEqual(native["phase_failures"], ["architecture_postcheck"])
         self.assertTrue(native["artifact_integrity"]["valid"])
         self.assertEqual(native["non_ok_tools"], [])
@@ -414,7 +418,10 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(summary["overall_status"], "failed")
         self.assertEqual(summary["exit_code"], 1)
         self.assertEqual(summary["cycles_completed"], 0)
-        self.assertEqual(summary["failed_phases"], [{"phase": "architecture_postcheck", "status": "failed"}])
+        self.assertEqual(summary["failed_phases"], [{
+            "phase": "architecture_postcheck", "status": "failed",
+            "error": "1 architecture regression(s) against the cycle baseline",
+        }])
 
     def test_native_clean_postcheck_preserves_outer_progression_and_summary(self) -> None:
         from unittest.mock import Mock
@@ -1802,6 +1809,37 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(result["exit_reason"], "profile_frozen")
         self.assertEqual(result["cycles_completed"], 0)
 
+    def test_injected_profile_gate_refusal_stops_the_loop(self) -> None:
+        # ARIA-MEDIUM-455 — the profile_gate seam is the per-cycle preflight. A gate
+        # that refuses must stop the loop before any cycle starts, with its
+        # exit reason and its reasons recorded on the refusal row.
+        from aria_kernel.cycle_phases.profile_gate import ProfileGateVerdict
+
+        class _RefusingGate:
+            def evaluate(self, *, profile, base_dir, workspace_root):
+                return ProfileGateVerdict(
+                    permitted=False,
+                    exit_reason="cost_breaker_tripped",
+                    reasons=("daily cap",),
+                )
+
+        result = self._run(max_cycles=2, profile_gate=_RefusingGate())
+        self.assertEqual(result["exit_reason"], "cost_breaker_tripped")
+        self.assertEqual(result["cycles_completed"], 0)
+        rows = load_jsonl(autonomy_state_path(self.base))
+        refusals = [row for row in rows if row.get("phase") == "cost_breaker_tripped"]
+        self.assertEqual(len(refusals), 1)
+        self.assertEqual(refusals[0]["details"]["preflight_detail"], "daily cap")
+        self.assertEqual([row for row in rows if row.get("phase") == "cycle_started"], [])
+
+    def test_default_gate_is_the_cycle_preflight(self) -> None:
+        # ARIA-MEDIUM-455 — with no gate injected, the failure breaker still stops a
+        # profile holding action authority.
+        with patch("aria_kernel.circuit_breaker.current_state", return_value="tripped"):
+            result = self._run(max_cycles=2, profile="standard")
+        self.assertEqual(result["exit_reason"], "failure_breaker_tripped")
+        self.assertEqual(result["cycles_completed"], 0)
+
     def test_max_cycles_cap_honored(self) -> None:
         result = self._run(max_cycles=1)
         self.assertEqual(result["cycles_completed"], 1)
@@ -2231,7 +2269,7 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
 
         Sparing it was the defect: the earlier note claimed
         `resume_candidate_plan_id` would eventually abandon such a plan, and
-        it cannot — it `continue`s past `_IMPLEMENTATION_PHASE_STATES`, the
+        it cannot — it `continue`s past `IMPLEMENTATION_PHASE_STATES`, the
         only states this scanner returns, so nothing in the kernel would ever
         have collected it. A machine with no clock cannot honestly choose
         between "abandoned" and "in flight", so it stops choosing: the plan is

@@ -19,7 +19,6 @@ from unittest.mock import patch
 from pathlib import Path
 
 from aria_kernel.discovery import (
-    _MFE_NAME_ALLOWLIST,
     _project_rows,
     _service_map,
     is_leaf_project,
@@ -71,11 +70,17 @@ class IsLeafProjectPredicateTests(unittest.TestCase):
         (child / "Cargo.toml").write_text("", encoding="utf-8")
         self.assertTrue(is_leaf_project(child))
 
-    def test_mfe_allowlist_returns_true(self) -> None:
-        for name in _MFE_NAME_ALLOWLIST:
-            child = self.tmp / name
-            child.mkdir()
-            self.assertTrue(is_leaf_project(child), f"allowlist {name} not recognised")
+    def test_every_web_modules_child_is_a_leaf_without_project_json(self) -> None:
+        # ARIA-LOW-478 — the fallback is the layout, not a name list: a remote added
+        # under web/modules (messaging-module, then any later one) is a leaf
+        # with no code edit, and the same name elsewhere is not.
+        for name in ("messaging-module", "a-remote-added-tomorrow"):
+            child = self.tmp / "web" / "modules" / name
+            child.mkdir(parents=True)
+            self.assertTrue(is_leaf_project(child), f"web/modules/{name} not recognised")
+            elsewhere = self.tmp / "apps" / name
+            elsewhere.mkdir(parents=True)
+            self.assertFalse(is_leaf_project(elsewhere), f"apps/{name} recognised as an MFE")
 
     def test_unmarked_dir_returns_false(self) -> None:
         child = self.tmp / "random-dir"

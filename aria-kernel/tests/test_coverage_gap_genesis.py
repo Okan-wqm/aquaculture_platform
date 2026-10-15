@@ -78,6 +78,40 @@ class CoverageGapSourceTests(unittest.TestCase):
         self.assertEqual(gaps[0]["recommended_action"], "extend_existing_agent")
         self.assertEqual(gaps[0]["related_existing_agents"], ["data-expert"])
 
+    def test_a_gap_cites_only_the_refs_inside_its_own_service(self) -> None:
+        # One pressure spanning two unowned services, an owned service and a
+        # non-service path, plus a second pressure repeating a ref in another
+        # spelling: each gap cites its own service's ref, once.
+        gaps = self._run(
+            unowned={"svc": "apps/svc", "other": "apps/other"},
+            pressures=[
+                {"event_id": "p1", "effective_state": "active",
+                 "evidence_refs": ["apps/svc/a.ts", "apps/other/b.ts",
+                                   "apps/owned/c.ts", "aria-tools/x.json"]},
+                {"event_id": "p2", "effective_state": "active",
+                 "evidence_refs": ["./apps/svc/a.ts"]},
+            ],
+            related=[],
+        )
+        by_key = {gap["capability_gap_key"]: gap for gap in gaps}
+        self.assertEqual(
+            by_key["coverage:svc"]["evidence_refs"],
+            [ROUTING_TABLE_REL, "apps/svc", "apps/svc/a.ts"],
+        )
+        self.assertEqual(
+            by_key["coverage:other"]["evidence_refs"],
+            [ROUTING_TABLE_REL, "apps/other", "apps/other/b.ts"],
+        )
+        # The consequence that made the foreign refs a defect: a genesis
+        # draft's scope_globs come from these refs, so another service's
+        # path would widen the drafted agent's scope to that service.
+        from aria_kernel.agent_genesis import _scope_from_evidence
+
+        self.assertEqual(
+            _scope_from_evidence(by_key["coverage:svc"]["evidence_refs"]),
+            ["apps/svc/**"],
+        )
+
     def test_no_unowned_projects_is_safe(self) -> None:
         self.assertEqual(self._run(unowned={}, pressures=[], related=[]), [])
 

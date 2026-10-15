@@ -111,7 +111,7 @@ _VERDICT_MARKER_RE = re.compile(
 )
 
 # An overturn buys a MEDIUM escalation (7-day SLA window, see
-# ``human_required.SLA_WINDOWS``). Not CRITICAL/HIGH: the decision's
+# ``human_required.HUMAN_REQUIRED_SLA_WINDOWS``). Not CRITICAL/HIGH: the decision's
 # terminal state stands until a person reopens it, so the cost of a slow
 # response is a wrong plan surviving longer, not a security boundary.
 OVERTURN_ESCALATION_SEVERITY: str = "MEDIUM"

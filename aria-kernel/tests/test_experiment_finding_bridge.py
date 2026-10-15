@@ -415,7 +415,11 @@ class ExperimentFindingBridgeTests(unittest.TestCase):
         self.assertIn("reproduces deterministically", target[0]["claim"])
         self.assertGreaterEqual(float(target[0]["confidence"]), 0.7)
 
-    def test_memory_leg_ignores_other_cycles_and_green_runs(self) -> None:
+    def test_memory_leg_takes_an_earlier_cycles_unremembered_reproduction(self) -> None:
+        # ARIA-MEDIUM-421 — this test used to pin the defect: a red run
+        # recorded in cycle-1 was ignored by cycle-2's call, and cycle-1's
+        # own call had run before the bench recorded it, so the reproduction
+        # was never remembered. A green run is still not a reproduction.
         from aria_kernel.memory import _record_experiment_reproduction_beliefs
 
         self._observe(run_id="run-red-1", cycle_id="cycle-1")
@@ -423,7 +427,69 @@ class ExperimentFindingBridgeTests(unittest.TestCase):
         written = _record_experiment_reproduction_beliefs(
             self.tools, "cycle-2", workspace_root=self.repo, base_dir=self.tools,
         )
-        self.assertEqual(written, 0)
+        self.assertEqual(written, 1)
+        [belief] = self._beliefs()
+        self.assertEqual(belief["source_validation_run_id"], "run-red-1")
+        self.assertEqual(belief["last_seen_cycle"], "cycle-2")
+
+    def test_memory_leg_remembers_each_reproduction_exactly_once(self) -> None:
+        from aria_kernel.memory import _record_experiment_reproduction_beliefs
+
+        self._observe(run_id="run-red-1", cycle_id="cycle-1")
+        first = _record_experiment_reproduction_beliefs(
+            self.tools, "cycle-1", workspace_root=self.repo, base_dir=self.tools,
+        )
+        again = _record_experiment_reproduction_beliefs(
+            self.tools, "cycle-2", workspace_root=self.repo, base_dir=self.tools,
+        )
+        self.assertEqual((first, again), (1, 0))
+        # A NEW reproduction of the same finding re-supports the belief.
+        self._observe(run_id="run-red-2", cycle_id="cycle-3")
+        third = _record_experiment_reproduction_beliefs(
+            self.tools, "cycle-3", workspace_root=self.repo, base_dir=self.tools,
+        )
+        self.assertEqual(third, 1)
+        self.assertEqual(
+            [row["source_validation_run_id"] for row in self._beliefs()], ["run-red-1", "run-red-2"],
+        )
+
+    def test_a_refused_reproduction_is_answered_once_not_every_night(self) -> None:
+        # The finding's scope files leave HEAD: the repo-evidence policy
+        # refuses the belief. Before ARIA-MEDIUM-421 the refusal escaped and
+        # failed the phase. With a backlog reader it would do so every night.
+        from aria_kernel.memory import _record_experiment_reproduction_beliefs
+
+        subprocess.run(
+            ["git", "rm", "-q", "apps/farm-service/src/module1.ts", "apps/farm-service/src/module2.ts"],
+            cwd=self.repo, check=True,
+        )
+        subprocess.run(["git", "commit", "-q", "-m", "drop the scope files"], cwd=self.repo, check=True)
+        self._observe(run_id="run-red-1", cycle_id="cycle-1")
+        for cycle_id in ("cycle-1", "cycle-2"):
+            written = _record_experiment_reproduction_beliefs(
+                self.tools, cycle_id, workspace_root=self.repo, base_dir=self.tools,
+            )
+            self.assertEqual(written, 0)
+        self.assertEqual(self._beliefs(), [])
+        uncertainties = [
+            row for row in self._memory_rows("uncertainties.jsonl")
+            if row.get("belief_id") == f"finding-reproduced-{self.fid.lower()}"
+        ]
+        self.assertEqual(len(uncertainties), 1)
+        self.assertEqual(uncertainties[0]["source_validation_run_id"], "run-red-1")
+        self.assertIn("experiment reproduction belief refused", uncertainties[0]["reason"])
+
+    def _memory_rows(self, name: str) -> list[dict[str, object]]:
+        path = self.tools / "memory" / name
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def _beliefs(self) -> list[dict[str, object]]:
+        return [
+            row for row in self._memory_rows("beliefs.jsonl")
+            if row.get("belief_id") == f"finding-reproduced-{self.fid.lower()}"
+        ]
 
 
 if __name__ == "__main__":

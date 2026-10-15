@@ -110,8 +110,8 @@ class JudgeSubjectLiveness:
     def closure_reason(self, request: Mapping[str, Any]) -> str | None:
         """Why the finding no longer needs this judge, or None when it does."""
         tool_id = str(request.get("tool_id") or "")
-        fingerprint = str(request.get("finding_fingerprint") or "")
         finding_id = str(request.get("finding_id") or "")
+        fingerprint = self.fingerprint(request)
         if fingerprint and fingerprint in self._settled():
             return CLOSED_FINDING_SETTLED
         newest = self._report_index().newest(request)
@@ -130,6 +130,26 @@ class JudgeSubjectLiveness:
         if group_key in self._groups(tool_id):
             return CLOSED_GROUP_SETTLED
         return None
+
+    def fingerprint(self, request: Mapping[str, Any]) -> str:
+        """The finding's fingerprint: the request's own, else the one the sampler offers its newest report under.
+
+        ARIA-HIGH-418 — the 466 fan-out judges minted before ORPHAN-HIGH-765
+        carry none. On the 2026-10-10 runner store 118 of the live ones
+        resolve only to a compact ``{id, rule}`` summary, whose fingerprint is
+        not the one the sampler, the settled set and the judged pairs key by.
+        '' when no run ever reported the finding.
+        """
+        own = str(request.get("finding_fingerprint") or "")
+        if own:
+            return own
+        newest = self._report_index().newest(request)
+        if newest is None:
+            return ""
+        from .feedback_store import raw_row_fingerprint
+
+        return raw_row_fingerprint(str(request.get("tool_id") or ""), newest[1],
+                                   lambda: self.reported_finding(request))
 
     def reported_finding(self, request: Mapping[str, Any]) -> dict[str, Any]:
         """The finding the newest report holds, resolved as the sampler resolves it ({} when none)."""

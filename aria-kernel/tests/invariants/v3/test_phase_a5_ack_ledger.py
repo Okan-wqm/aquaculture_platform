@@ -4,7 +4,8 @@ Locked invariants (9 cases, I-V3-18..20):
 
   * I-V3-18 — ack ledger is append-only AND every row is signed.
   * I-V3-19 — one-time consumption (second consume raises).
-  * I-V3-19a — 17 mandatory ack-row fields present.
+  * I-V3-19a — a minted ack row carries exactly ACK_ROW_REQUIRED_FIELDS
+    (+ the ledger hash-chain envelope), on both mint paths.
   * I-V3-19b — ``actor_kind`` distinguishes operator vs autonomous_profile.
   * I-V3-19c — ``aria-tools/secrets/`` covered by .gitignore.
   * I-V3-19d — HMAC key not committed to git history.
@@ -15,6 +16,7 @@ Locked invariants (9 cases, I-V3-18..20):
 
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import sys
@@ -27,6 +29,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
+
+_ACK_LEDGER_SOURCE = _KERNEL_ROOT / "aria_kernel" / "ack_ledger.py"
 
 
 def _seed_init(tools_dir: Path) -> None:
@@ -51,6 +55,23 @@ def _mint_row(tools_dir: Path, *, draft_suffix: str = "1"):
         profile_name="standard",
         profile_state_at_mint="standard:v1",
         commit_sha_at_mint="deadbeef",
+    )
+
+
+def _mint_auto_row(tools_dir: Path):
+    from aria_kernel.ack_ledger import mint_auto_ack
+    return mint_auto_ack(
+        base_dir=tools_dir,
+        draft_id="draft-auto",
+        intent_id="intent-auto",
+        target_path=".claude/agents/aria-auto.md",
+        kind="agent",
+        profile_name="autonomous",
+        lane="L0-main",
+        classifier_decision_hash="hash-abc",
+        auto_reason_code="classifier_pass",
+        profile_state_at_mint="autonomous:v1",
+        commit_sha_at_mint="cafef00d",
     )
 
 
@@ -116,28 +137,43 @@ class PhaseA5AckLedger(unittest.TestCase):
             self.assertIn("ack_token_already_consumed", str(ctx.exception))
 
     def test_i_v3_19a_ack_row_carries_all_required_fields(self) -> None:
-        from aria_kernel.ack_ledger import _ledger_path
+        from aria_kernel.ack_ledger import _ledger_path, verify_row
         from aria_kernel.ack_row import ACK_ROW_REQUIRED_FIELDS
+        from aria_kernel.ledger import _CHAIN_FIELDS
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-19a-") as tmp:
             base = Path(tmp)
             _seed_init(base)
             _mint_row(base)
-            line = (
-                _ledger_path(base)
-                .read_text(encoding="utf-8")
-                .splitlines()[0]
-            )
-            row = json.loads(line)
-            missing = ACK_ROW_REQUIRED_FIELDS - set(row.keys())
+            _mint_auto_row(base)
+            rows = [
+                json.loads(line)
+                for line in _ledger_path(base).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
             self.assertEqual(
-                missing,
-                set(),
-                msg=f"required fields missing from ack row: {sorted(missing)}",
+                [row["actor_kind"] for row in rows],
+                ["operator", "autonomous_profile"],
             )
+            # SET-EQUALITY, not a subset check: a subset check stayed green
+            # while every mint wrote ``schema_version`` outside the declared
+            # set. The chain envelope is the ledger's own addition at append
+            # time (ledger._CHAIN_FIELDS owns those names).
+            expected = set(ACK_ROW_REQUIRED_FIELDS) | set(_CHAIN_FIELDS)
+            for row in rows:
+                with self.subTest(actor_kind=row["actor_kind"]):
+                    keys = set(row.keys())
+                    self.assertEqual(
+                        keys,
+                        expected,
+                        msg=(
+                            f"missing={sorted(expected - keys)} "
+                            f"extra={sorted(keys - expected)}"
+                        ),
+                    )
+                    self.assertTrue(verify_row(row, base_dir=base)["valid"])
 
     def test_i_v3_19b_actor_kind_distinguishes_operator_vs_autonomous(self) -> None:
-        from aria_kernel.ack_ledger import mint_auto_ack
         from aria_kernel.ack_row import ACK_ACTOR_KINDS
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-19b-") as tmp:
@@ -149,19 +185,7 @@ class PhaseA5AckLedger(unittest.TestCase):
             self.assertIsNotNone(op_row.actor_user_id)
             self.assertIsNone(op_row.auto_reason_code)
 
-            auto_row = mint_auto_ack(
-                base_dir=base,
-                draft_id="draft-auto",
-                intent_id="intent-auto",
-                target_path=".claude/agents/aria-auto.md",
-                kind="agent",
-                profile_name="autonomous",
-                lane="L0-main",
-                classifier_decision_hash="hash-abc",
-                auto_reason_code="classifier_pass",
-                profile_state_at_mint="autonomous:v1",
-                commit_sha_at_mint="cafef00d",
-            )
+            auto_row = _mint_auto_row(base)
             self.assertEqual(auto_row.actor_kind, "autonomous_profile")
             self.assertEqual(auto_row.lane, "L0-main")
             self.assertIsNone(auto_row.actor_user_id)
@@ -307,6 +331,153 @@ class PhaseA5AckLedger(unittest.TestCase):
             or "invalid" in (result.stderr or "").lower(),
             msg=f"Expected reason-validation error in stderr: {result.stderr!r}",
         )
+
+
+class AckLedgerSingleOwnerContracts(unittest.TestCase):
+    """Structural pins: each ack-ledger concept has exactly one owner."""
+
+    def _tree(self) -> ast.Module:
+        return ast.parse(_ACK_LEDGER_SOURCE.read_text(encoding="utf-8"))
+
+    def test_ack_ledger_has_no_private_json_encoder(self) -> None:
+        # The HMAC subject must go through ledger.canonical_json, the
+        # kernel's one canonicalizer; a private json.dumps copy can drift
+        # from it (ensure_ascii, separators) without any test noticing.
+        tree = self._tree()
+        json_aliases = {
+            alias.asname or alias.name
+            for node in ast.walk(tree) if isinstance(node, ast.Import)
+            for alias in node.names if alias.name == "json"
+        }
+        dumps_aliases = {
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "json"
+            for alias in node.names if alias.name == "dumps"
+        }
+        private_encoders = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and (
+                (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "dumps"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in json_aliases
+                )
+                or (isinstance(node.func, ast.Name) and node.func.id in dumps_aliases)
+            )
+        ]
+        self.assertEqual(
+            private_encoders,
+            [],
+            msg=f"ack_ledger.py encodes JSON privately at lines {private_encoders}",
+        )
+
+    def test_signature_subject_bytes_are_pinned(self) -> None:
+        # Persisted signatures were computed over these exact bytes; any
+        # encoder change (non-ASCII escaping, key order, separators) would
+        # invalidate every historical ack row.
+        from aria_kernel.ack_ledger import _canonical_row_bytes
+        from aria_kernel.ledger import canonical_json
+
+        mint_row = {
+            "ack_id": "a-1",
+            "reason": "çalış ✓",
+            "nested": {"b": 1, "a": [2, 1]},
+            "signature": "sig",
+            "ledger_hash": "h",
+            "previous_ledger_hash": "p",
+            "consumed_at": "t",
+            "consumed_by_event_id": "e",
+        }
+        mint_subject = {
+            k: v for k, v in mint_row.items()
+            if k not in {
+                "signature", "ledger_hash", "previous_ledger_hash",
+                "consumed_at", "consumed_by_event_id",
+            }
+        }
+        self.assertEqual(
+            _canonical_row_bytes(mint_row),
+            b'{"ack_id":"a-1","nested":{"a":[2,1],"b":1},'
+            b'"reason":"\\u00e7al\\u0131\\u015f \\u2713"}',
+        )
+        self.assertEqual(
+            _canonical_row_bytes(mint_row),
+            canonical_json(mint_subject).encode("utf-8"),
+        )
+        consumed_row = {
+            "event": "consumed",
+            "ack_id": "a-1",
+            "consumed_at": "t",
+            "consumed_by_event_id": "e",
+            "signature": "sig",
+        }
+        self.assertEqual(
+            _canonical_row_bytes(consumed_row),
+            b'{"ack_id":"a-1","consumed_at":"t","consumed_by_event_id":"e",'
+            b'"event":"consumed"}',
+        )
+
+    def test_ack_mint_row_is_built_in_one_place(self) -> None:
+        # Two hand-written mint-row literals can drift apart field by
+        # field; one shared builder makes operator and autonomous rows
+        # structurally identical.
+        row_literals = [
+            node.lineno
+            for node in ast.walk(self._tree())
+            if isinstance(node, ast.Dict) and any(
+                isinstance(key, ast.Constant) and key.value == "commit_sha_at_mint"
+                for key in node.keys
+            )
+        ]
+        self.assertEqual(
+            len(row_literals),
+            1,
+            msg=f"ack mint row literals at lines {row_literals}",
+        )
+
+    def test_a_row_key_the_dataclass_does_not_declare_refuses_before_any_write(self) -> None:
+        # The dataclass is the row schema's owner. A drift between the row
+        # dict and it must refuse the mint with nothing persisted: a signed
+        # row already on acks.jsonl is a consumable token the caller never
+        # received.
+        import dataclasses
+        from unittest import mock
+
+        from aria_kernel import ack_ledger
+        from aria_kernel.ack_row import AckLedgerRow
+        from aria_kernel.ledger import load_jsonl
+
+        narrowed = dataclasses.make_dataclass(
+            "NarrowedAckLedgerRow",
+            [
+                (field.name, field.type, field)
+                for field in dataclasses.fields(AckLedgerRow)
+                if field.name != "parent_observation_id"
+            ],
+            frozen=True,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            tools.mkdir()
+            _seed_init(tools)
+            ledger_path = ack_ledger._ledger_path(tools)
+            rows_before = load_jsonl(ledger_path) if ledger_path.exists() else []
+            governance = tools / "governance.jsonl"
+            with mock.patch.object(ack_ledger, "AckLedgerRow", narrowed):
+                with self.assertRaises(TypeError):
+                    _mint_row(tools)
+            rows_after = load_jsonl(ledger_path) if ledger_path.exists() else []
+            self.assertEqual(rows_after, rows_before)
+            self.assertEqual(
+                [
+                    row for row in load_jsonl(governance)
+                    if row.get("kind") == "ack_token_minted"
+                ],
+                [],
+            )
 
 
 if __name__ == "__main__":

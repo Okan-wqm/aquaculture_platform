@@ -1,11 +1,12 @@
 """Plan 029 §D5 — runtime-signal bridge.
 
-ARIA's evidence allowlist is closed to repo-resident sources (code_reference,
-external_authoritative_source, test_demand, git_history, trusted_config,
-trusted_prior_doc). That is load-bearing: the whole hallucination-resistance
-comes from "trust evidence, not assertions". The cost is that a class of bugs
-visible ONLY at runtime — a Sentry error, a prod incident, a telemetry anomaly —
-was structurally invisible: it cannot be repo-verified, so it had no way in.
+ARIA's evidence allowlist is closed to repo-resident sources (the CONTRACTS.md
+§5 source_type categories; enforced as the ``repo_verified`` trust grade by
+evidence_trust.EvidencePolicy.require_repo_verified). That is load-bearing: the
+whole hallucination-resistance comes from "trust evidence, not assertions". The
+cost is that a class of bugs visible ONLY at runtime — a Sentry error, a prod
+incident, a telemetry anomaly — was structurally invisible: it cannot be
+repo-verified, so it had no way in.
 
 This bridge lets runtime signals in WITHOUT corrupting the trust foundation. A
 runtime signal is ingested as a distinct, explicitly UNVERIFIED lead
@@ -25,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .ledger import atomic_write_json
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -234,13 +236,6 @@ def _record_path(root: Path, signal_id: Any) -> Path:
     return _signal_path(root, signal_id)
 
 
-def _write_record_atomic(path: Path, record: dict[str, Any]) -> None:
-    """Replace a signal record whole: a reader sees the old file or the new one, never a torn one."""
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
-
 def _ref_law_refusal(doc: dict[str, Any]) -> tuple[list[str], str | None]:
     """``(canonical_refs, None)`` when every stored ref passes the current ref law, else ``([], reason)``."""
     refs = doc.get("code_refs")
@@ -358,7 +353,7 @@ def quarantine_refused_runtime_signals(
                 "runtime_signal_quarantined",
                 {"signal_id": candidate["signal_id"], "reason": reason[:200]},
             )
-            _write_record_atomic(path, {
+            atomic_write_json(path, {
                 **doc, "status": "quarantined", "quarantine_reason": reason, "quarantined_at": stamp,
             })
             quarantined.append({"signal_id": candidate["signal_id"], "reason": reason})
@@ -395,5 +390,5 @@ def resolve_runtime_signal(
         record["resolved_at"] = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
         record["resolution_note"] = resolution_note
         append_tools_governance(root, "runtime_signal_resolved", {"signal_id": signal_id})
-        _write_record_atomic(path, record)
+        atomic_write_json(path, record)
     return record

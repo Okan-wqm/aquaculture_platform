@@ -442,6 +442,12 @@ class TheReleaseReasonIsRegisteredEverywhere(unittest.TestCase):
             parsed = parse_release_reason(reason)
             self.assertIn(parsed.reason_code, RELEASE_REASON_CODES)
             self.assertEqual(parsed.fault_domain, "harness")
+        # ARIA-MEDIUM-427 — a task-binding refusal releases under its own name,
+        # never the fleet's: the 70 releases of 2026-09-18/19 were
+        # target_revision_mismatch and were read as logged-out sessions.
+        self.assertEqual(ci_executor.TASK_BINDING_REFUSAL.release_reason, "native_runtime_task_binding_unavailable")
+        self.assertNotEqual(ci_executor.TASK_BINDING_REFUSAL.release_reason,
+                            table["no_eligible_provider"].release_reason)
         self.assertEqual(parse_release_reason(NATIVE_RUNTIME_PROVIDER_UNDECIDED).reason_code,
                          "NATIVE_RUNTIME_PROVIDER_UNDECIDED")
         self.assertEqual(parse_release_reason(NATIVE_RUNTIME_CONTROL_UNAVAILABLE).reason_code,

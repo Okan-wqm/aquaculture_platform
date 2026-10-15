@@ -62,9 +62,6 @@ class RequestValidationTests(unittest.TestCase):
         validate_request(_good_request())
 
     def test_plan_contract_block_is_an_optional_non_empty_object(self) -> None:
-        from aria_kernel.agent_contract import REQUEST_OPTIONAL_FIELDS
-
-        self.assertIn("plan_contract", REQUEST_OPTIONAL_FIELDS)
         request = _good_request()
         request["plan_contract"] = {"schema_version": 1, "architectural_tier": {"allowed": [1, 2, 3, 4]}}
         validate_request(request)
@@ -240,6 +237,26 @@ class RefusalTests(unittest.TestCase):
                 reason_class="law",
                 reason_text="Refusing for now until later.",
             )
+
+    def test_refusal_envelope_defects_is_the_inverse_of_render(self) -> None:
+        # ARIA-MEDIUM-464 — the producer owns the validator of what it renders.
+        from aria_kernel.agent_contract import refusal_envelope_defects
+
+        row = render_refusal(
+            request_id="req-x",
+            cycle_id="cycle-x",
+            refused_by="x",
+            reason_class="scope",
+            reason_text="the change is outside allowed_scope",
+        )
+        self.assertEqual(refusal_envelope_defects(row), ())
+        renamed = {key: value for key, value in row.items() if key != "reason_text"}
+        renamed["reason"] = row["reason_text"]
+        self.assertEqual(refusal_envelope_defects(renamed), ("reason_text",))
+        self.assertEqual(refusal_envelope_defects({**row, "reason_class": "envelope"}), ("reason_class",))
+        self.assertEqual(
+            refusal_envelope_defects("refused"), ("$schema", "reason_class", "reason_text"),
+        )
 
 
 class EnvelopeHashTests(unittest.TestCase):

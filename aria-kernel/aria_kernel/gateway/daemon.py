@@ -51,7 +51,7 @@ def run_gateway_daemon(
             from ..autonomous_host_lease import acquire_lease
 
             try:
-                acquire_lease(base_dir=root, allow_same_host_refresh=True)
+                acquire_lease(base_dir=root)
             except Exception as exc:  # noqa: BLE001 — GovernanceError family; the lease is another host's
                 append_tools_governance(root, "gateway_daemon_refused", {"reason": "host_lease_blocked", "error": str(exc)[:200]})
                 return {"exits_clean": False, "exit_reason": "host_lease_blocked", "iterations": 0}
@@ -86,7 +86,7 @@ def run_gateway_daemon(
                          poll_interval_seconds=poll_interval_seconds)
                     iterations += 1
                     try:
-                        acquire_lease(base_dir=root, allow_same_host_refresh=True)
+                        acquire_lease(base_dir=root)
                     except Exception:  # noqa: BLE001 — lost the lease mid-run: stop, another host owns the loop
                         reason = "host_lease_lost"
                         break

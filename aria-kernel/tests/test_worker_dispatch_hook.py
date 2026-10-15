@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -215,12 +217,9 @@ class WorkerDispatchHookTests(unittest.TestCase):
             self._capturing_subprocess_run(returncode=0),
         ), patch(
             "aria_kernel.verification_gate.verify_worker_result"
-        ) as mock_verify, patch(
-            "aria_kernel.merge_authority.merge_pr_if_ready"
-        ) as mock_merge:
+        ) as mock_verify:
             operator_set_profile("autonomous", base_dir=self.tools_root)
             mock_verify.return_value = {"status": "passed", "failures": []}
-            mock_merge.return_value = {"decision": "merged", "eligible": True}
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:5",
@@ -232,7 +231,58 @@ class WorkerDispatchHookTests(unittest.TestCase):
             "enterprise_readiness_claim_id_required",
             result["merge_result"]["reasons"],
         )
-        mock_merge.assert_not_called()
+        # ARIA-HIGH-460 — no merge through either boundary the hook has: the injected
+        # adapter is never called, and no `gh ... merge` process is started.
+        # (Patching merge_authority.merge_pr_if_ready proved nothing: the hook
+        # never imports it.)
+        self.assertEqual(adapter.method_calls, [])
+        self.assertFalse([argv for argv in self.captured_argvs if "merge" in argv and argv[:1] == ["gh"]])
+
+    def test_executor_timeout_fires_inside_the_lease_and_the_lease_ladder_still_escalates(self) -> None:
+        # ARIA-HIGH-460 — the child must be dead before its lease expires, and a
+        # timed-out claim is settled by the counted lease-expiry ladder, never
+        # by a free release that would requeue a deterministic hang forever.
+        from aria_kernel.worker_dispatch import reap_expired_assignment_claims
+
+        self._seed_dispatch_row(assignment_id="A-TO")
+        captured_timeouts: list[int] = []
+
+        def hanging_run(argv, *args, **kwargs):
+            captured_timeouts.append(kwargs["timeout"])
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+        # The claim clock advances past each lease before the next round, as
+        # wall time would: the fold orders claims rows by their timestamps.
+        clock = [datetime.now(timezone.utc).replace(microsecond=0)]
+        dispositions: list[str] = []
+        for _attempt in range(3):
+            with patch("aria_kernel.worker_dispatch_hook.subprocess.run", hanging_run), patch(
+                "aria_kernel.worker_dispatch._utc_now_dt", lambda: clock[0],
+            ):
+                result = dispatch_one_pending_worker_assignment(
+                    base_dir=self.tools_root,
+                    agent_id="daemon:test:timeout",
+                    github_adapter=MagicMock(),
+                    lease_seconds=1800,
+                )
+            self.assertEqual(result["status"], "executor_failed")
+            self.assertEqual(result["stderr_redacted"], "executor_timeout")
+            clock[0] += timedelta(seconds=1801)
+            reaped = reap_expired_assignment_claims(base_dir=self.tools_root, now=clock[0])
+            clock[0] += timedelta(seconds=1)
+            claim_id = result["claim_id"]
+            for disposition in ("requeued", "human_required"):
+                if any(row["claim_id"] == claim_id for row in reaped[disposition]):
+                    dispositions.append(disposition)
+        self.assertTrue(all(timeout < 1800 for timeout in captured_timeouts), captured_timeouts)
+        from aria_kernel.agent_invocations import executor_timeout_seconds
+
+        self.assertEqual(captured_timeouts, [executor_timeout_seconds(1800)] * 3)
+        self.assertEqual(executor_timeout_seconds(1800), 1680)
+        self.assertEqual(dispositions, ["requeued", "requeued", "human_required"])
+        claims = (self.tools_root / "dispatch" / "claims.jsonl").read_text(encoding="utf-8")
+        reasons = {json.loads(line).get("reason") for line in claims.splitlines() if line.strip()}
+        self.assertNotIn("worker_executor_timeout", reasons)
 
     def test_verification_failed_retry_scheduled_releases_claim(self) -> None:
         self._seed_dispatch_row(assignment_id="A-FAIL")

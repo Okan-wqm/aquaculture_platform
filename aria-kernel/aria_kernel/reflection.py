@@ -49,7 +49,7 @@ def run_reflection(
     # tool_registry.tools_dir()'s CWD-relative fallback.
     #
     # The V3.2 first-attempt RAISED on relative paths, but the
-    # CLI's normal path (`cycle.py:397` → ``base_dir=root`` where
+    # CLI's normal path (``cycle._phase_reflection`` → ``base_dir=root`` where
     # ``root`` traces back to ``Path('aria-tools')``) passes a
     # relative literal — the strict raise broke every cycle in
     # the operator-replay path. The hotfix converts the strict

@@ -34,7 +34,7 @@
  * dependency.
  */
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = execSync('git rev-parse --show-toplevel', {
@@ -43,6 +43,16 @@ const REPO_ROOT = execSync('git rev-parse --show-toplevel', {
 
 function read(relPath: string): string {
   return readFileSync(resolve(REPO_ROOT, relPath), 'utf8');
+}
+
+/** The first capture group of `pattern` in `text`; a missing match fails the test by name. */
+function captured(text: string, pattern: RegExp, what: string): string {
+  const match = pattern.exec(text);
+  const group = match === null ? undefined : match[1];
+  if (group === undefined) {
+    throw new Error(`no match for ${what}`);
+  }
+  return group;
 }
 
 describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
@@ -71,6 +81,29 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
       expect(body).toMatch(
         /<!--\s*cardinality:lane-b-specialists\s*-->\d+<!--\s*\/cardinality\s*-->\s*UI\/product specialists/,
       );
+    });
+
+    it('the lane-B-specialists line names no agent: the README roster is the only enumeration', () => {
+      // ARIA-MEDIUM-498 — the line used to spell all 22 Lane-B names inline beside the
+      // marker, a second roster beside product-audit/README.md § Runtime
+      // Roster that only the count was checked against.
+      const names = readdirSync(resolve(REPO_ROOT, '.claude/agents/product-audit'))
+        .filter((file) => file.endsWith('.md') && file !== 'README.md')
+        .map((file) =>
+          captured(
+            read(`.claude/agents/product-audit/${file}`),
+            /^name:\s*(\S+)\s*$/m,
+            `name: frontmatter in ${file}`,
+          ),
+        );
+      expect(names.length).toBeGreaterThan(0);
+      const line = captured(
+        read('.claude/shared/orchestrator-phases.md'),
+        /^(.*cardinality:lane-b-specialists.*)$/m,
+        'the lane-b-specialists line',
+      );
+      const named = names.filter((name) => new RegExp(`(?<![\\w-])${name}(?![\\w-])`).test(line));
+      expect(named).toEqual([]);
     });
 
     it('wraps the lane-B-active-agents count in product-audit/README.md', () => {
@@ -263,6 +296,49 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
         activePromptHits = [];
       }
       expect(activePromptHits).toEqual([]);
+    });
+
+    it('the README output paths are the ones the Lane-B orchestrator writes', () => {
+      // ARIA-MEDIUM-498 — README pointed unified output at a product-audit-orchestrator/
+      // directory while orchestrator.md, context-manager and the arbiter all
+      // use orchestrator/, so a reader following the README found nothing.
+      const backticked = (relPath: string, label: string): string =>
+        captured(
+          read(relPath),
+          new RegExp(`^- ${label}: \`([^\`]+)\``, 'm'),
+          `${label} in ${relPath}`,
+        );
+      const readme = '.claude/agents/product-audit/README.md';
+      const orchestrator = '.claude/agents/product-audit/orchestrator.md';
+      const reviews = backticked(readme, 'Unified reviews');
+      expect(reviews).toBe(backticked(orchestrator, 'Unified reviews'));
+      expect(backticked(readme, 'Unified recommendations')).toBe(
+        backticked(orchestrator, 'Recommendations'),
+      );
+      // Both copies agreeing on a directory nothing was ever written to
+      // would still be wrong: the reviews directory must hold tracked files.
+      const reviewsDir = reviews.slice(0, reviews.lastIndexOf('/') + 1);
+      const tracked = execSync(`git ls-files -- ${reviewsDir}`, {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      }).trim();
+      expect(tracked.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('ARIA-MEDIUM-498 — .claude/agents/README.md lists every lane directory', () => {
+    it('each non-underscore subdirectory of .claude/agents has an Active Lanes row', () => {
+      // db-audit/ (Lane-D) was absent from the lane table, so the dispatch
+      // surface README described three lanes while four were discoverable.
+      const body = read('.claude/agents/README.md');
+      const laneDirs = readdirSync(resolve(REPO_ROOT, '.claude/agents'), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('_'))
+        .map((entry) => entry.name);
+      expect(laneDirs.length).toBeGreaterThan(0);
+      const missing = laneDirs.filter(
+        (dir) => !body.includes(`\`.claude/agents/${dir}/*.md\``),
+      );
+      expect(missing).toEqual([]);
     });
   });
 

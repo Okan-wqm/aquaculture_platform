@@ -46,13 +46,16 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_agent_network_index_is_cached_and_marks_dispatchable_agents(self):
+    def test_agent_network_index_is_cached_and_partitions_maintenance_agents(self):
         first = agent_network_index(workspace_root=self.repo, base_dir=self.tools_dir, cycle_id="cyc-1")
         second = agent_network_index(workspace_root=self.repo, base_dir=self.tools_dir, cycle_id="cyc-2")
         self.assertEqual(first["status"], "rebuilt")
         self.assertEqual(second["status"], "cached")
-        self.assertIn("farm-expert", second["dispatchable_agents"])
-        self.assertNotIn("prompt-writer", second["dispatchable_agents"])
+        self.assertEqual(second["maintenance_agents"], ["prompt-writer"])
+        self.assertIn("farm-expert", [agent["name"] for agent in second["agents"]])
+        # The index names no dispatch surface: what can be dispatched is the
+        # kernel's agent_surface whitelist, not "every non-maintenance agent".
+        self.assertNotIn("dispatchable_agents", second)
         self.assertEqual(latest_agent_network_hash(base_dir=self.tools_dir), first["index_hash"])
 
     def test_agent_invocation_result_hash_and_path_mismatch(self):

@@ -1,11 +1,11 @@
 """Plan 026R §A.3 — generic strict JSONL reader contract.
 
-2 tests:
-
 * Strict mode raises GovernanceError on the first corrupt row AND
   emits a ledger_row_corrupt diagnostic.
 * Tolerant mode skips corrupt rows from the iterator AND still emits
   the diagnostic.
+* A non-object row is corruption in both modes, on a plain undeclared
+  path and on text that names the replay transport.
 """
 from __future__ import annotations
 
@@ -67,6 +67,57 @@ class StrictJsonlReaderTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0], {"event": "a"})
         self.assertEqual(rows[1], {"event": "c"})
+
+    def _sink_rows(self) -> list[dict]:
+        sink = self.tmp / "diagnostics" / "ledger-corruption.jsonl"
+        self.assertTrue(sink.exists())
+        return [
+            json.loads(line)
+            for line in sink.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def test_non_object_row_is_corruption_on_an_undeclared_path(self) -> None:
+        # The reader promises Iterator[dict]; a bare JSON scalar decodes
+        # cleanly but is still a corrupt ledger row in both modes.
+        path = self.tmp / "x.jsonl"
+        path.write_text("42\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            GovernanceError, r"strict_jsonl_row_corrupt: .*:1: row_not_object",
+        ):
+            list(read_strict_jsonl(path))
+        self.assertEqual(
+            [row["error"] for row in self._sink_rows()], ["row_not_object"],
+        )
+
+        self.assertEqual(list(read_strict_jsonl(path, on_corruption="tolerant")), [])
+        self.assertEqual(
+            [row["error"] for row in self._sink_rows()],
+            ["row_not_object", "row_not_object"],
+        )
+
+    def test_non_object_row_is_corruption_when_the_text_names_the_transport(self) -> None:
+        # Text carrying the replay-transport prefix used to be handed to
+        # `ledger.read_jsonl`, which returns legacy rows as stored — a bare
+        # list or scalar reached the caller with no diagnostic and no raise.
+        from aria_kernel.ledger import REPLAY_TRANSPORT_SCHEMA_PREFIX
+
+        path = self.tmp / "x.jsonl"
+        marker = {"note": REPLAY_TRANSPORT_SCHEMA_PREFIX}
+        path.write_text(json.dumps(marker) + "\n[1, 2]\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            GovernanceError, r"strict_jsonl_row_corrupt: .*:2: row_not_object",
+        ):
+            list(read_strict_jsonl(path))
+        self.assertEqual(
+            [row["error"] for row in self._sink_rows()], ["row_not_object"],
+        )
+
+        self.assertEqual(list(read_strict_jsonl(path, on_corruption="tolerant")), [marker])
+        self.assertEqual(
+            [row["error"] for row in self._sink_rows()],
+            ["row_not_object", "row_not_object"],
+        )
 
 
 if __name__ == "__main__":

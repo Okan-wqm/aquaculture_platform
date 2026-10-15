@@ -6,9 +6,9 @@ from typing import Any, Literal
 
 from .agent_eval import _require_operator_approval_future, _validate_real_eval_provenance
 from .genesis_policy import genesis_lifecycle_policy
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import append_declared_jsonl, is_sha256_digest, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir, utc_now
 
 
 GenesisState = Literal[
@@ -85,9 +85,10 @@ def validate_transition(
     from_state: GenesisState | None,
     to_state: GenesisState,
     evidence: dict[str, Any],
+    repo_root: str | Path | None = None,
 ) -> GenesisLifecycleVerdict:
     reasons: list[str] = []
-    policy = genesis_lifecycle_policy()
+    policy = genesis_lifecycle_policy(repo_root)
     if from_state is None:
         if to_state != "PRESSURE":
             reasons.append("genesis_initial_state_must_be_PRESSURE")
@@ -97,7 +98,7 @@ def validate_transition(
     if to_state == "CANDIDATE_PROPOSED":
         repeated_cycles = int(evidence.get("valid_cycles") or evidence.get("repeated_observations") or 0)
         source_types = {str(item) for item in evidence.get("source_types") or [] if str(item).strip()}
-        min_cycles = int(policy.get("shadow_min_clean_cycles") or 5)
+        min_cycles = int(policy["shadow_min_clean_cycles"])
         if repeated_cycles < min_cycles and len(source_types) < 2:
             reasons.append(f"candidate_requires_{min_cycles}_valid_cycles_or_2_source_types")
     if to_state == "HUMAN_REQUIRED":
@@ -177,7 +178,7 @@ def verify_shadow_eval_proof(
     missing = [key for key, value in proof.items() if not value]
     if missing:
         raise GovernanceError("shadow_eval_requires_harness_proof:" + ",".join(missing))
-    if not _is_sha256_digest(proof["transcript_hash"]):
+    if not is_sha256_digest(proof["transcript_hash"]):
         raise GovernanceError("shadow_eval_transcript_hash_must_be_sha256")
 
     root = ensure_tools_dir(base_dir)
@@ -294,14 +295,6 @@ def _find_ledger_row(
     raise GovernanceError(f"shadow_eval_proof_unbound:{expected}")
 
 
-def _is_sha256_digest(value: str) -> bool:
-    return (
-        value.startswith("sha256:")
-        and len(value) == len("sha256:") + 64
-        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
-    )
-
-
 def _resolve_panel_adjudication_proof(
     *,
     adjudication_ref: str,
@@ -351,6 +344,10 @@ def record_transition(
     if to_state not in GENESIS_LIFECYCLE_STATES:
         raise GovernanceError(f"genesis_lifecycle_unknown_state:{to_state!r}")
     from_state = current_lifecycle_state(entity_id=entity_id, base_dir=base_dir)
+    # ARIA-MEDIUM-468 — the production producer passes no repo_root. Operator policy
+    # then comes from the workspace this tools store is bound to, the same
+    # owner the cost and drain-capacity gates read.
+    policy_root = repo_root if repo_root is not None else bound_workspace_root(base_dir)
     if to_state == "ACTIVE":
         # Z3d — compute the superiority proof BEFORE validation and OVERWRITE
         # whatever the caller put under this key: the promotion gate reads
@@ -364,7 +361,7 @@ def record_transition(
         evidence = {
             **evidence,
             "resolved_eval_window_superiority": compute_eval_window_superiority(
-                entity_id=entity_id, base_dir=base_dir, repo_root=repo_root
+                entity_id=entity_id, base_dir=base_dir, repo_root=policy_root
             ),
         }
     if to_state == "REQUEST" and str(evidence.get("approval_mode") or "") == "panel":
@@ -372,7 +369,7 @@ def record_transition(
         # and OVERWRITE whatever the caller put under the resolved key. The
         # policy switch lets an operator force operator-mode globally.
         policy_mode = str(
-            genesis_lifecycle_policy(repo_root).get("request_approval_mode")
+            genesis_lifecycle_policy(policy_root).get("request_approval_mode")
             or "operator"
         )
         if policy_mode != "panel":
@@ -385,7 +382,9 @@ def record_transition(
                 base_dir=base_dir,
             ),
         }
-    verdict = validate_transition(from_state=from_state, to_state=to_state, evidence=evidence)
+    verdict = validate_transition(
+        from_state=from_state, to_state=to_state, evidence=evidence, repo_root=policy_root,
+    )
     if not verdict.valid:
         raise GovernanceError("genesis_lifecycle_transition_rejected:" + ";".join(verdict.reasons))
     if to_state in {"REAL_SANDBOX", "SHADOW", "EVAL_WINDOW"}:

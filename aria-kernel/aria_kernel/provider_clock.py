@@ -184,6 +184,37 @@ class ProviderClock:
         return any(start <= now < end for start, end in self._down(providers, now + timedelta(seconds=1), every=True))
 
 
+# The share of a lease an outage must have covered to own its expiry when the
+# outage had already ended by then (review MEDIUM-3): half — more of the
+# lease was the provider's than the work's.
+LEASE_OUTAGE_MIN_SHARE = 0.5
+
+
+def lease_expiry_reason(
+    clock: ProviderClock, claimed_at: datetime | None, expires: datetime, providers: frozenset[str],
+) -> str:
+    """``lease_expired``, or the harness-class reason when an outage of ``providers`` ate the lease.
+
+    ARIA-HIGH-367 (M1). An expired lease is charged to the work (``lease_expired``
+    is request-class: "the agent hung"), and a lane's lease budget escalates it.
+    A lease that ran out while the provider the work is routed to (the head of
+    its ladder, ``providers``) was in an open outage — a job killed in a
+    network loss, a spawn that waited on a vendor that was not serving — says
+    nothing about the work. ARIA-MEDIUM-437: the one rule for every lane's
+    lease reaper; the worker lane's charged every expiry until then.
+    """
+    if claimed_at is None or not providers or expires <= claimed_at:
+        return "lease_expired"
+    # PR #1835 review MEDIUM-3 — ANY overlap used to waive the charge, so a
+    # 2-minute blip made a genuinely hung request un-chargeable forever. The
+    # outage must be standing when the lease ran out, or have eaten at least
+    # LEASE_OUTAGE_MIN_SHARE of the lease.
+    share = clock.covered(claimed_at, expires, providers) / (expires - claimed_at)
+    if not (clock.outage_active(providers, expires) or share >= LEASE_OUTAGE_MIN_SHARE):
+        return "lease_expired"
+    return f"lease_expired_during_provider_outage:{'+'.join(sorted(providers))}"
+
+
 def provider_clock(base_dir: str | Path | None) -> ProviderClock:
     return ProviderClock(base_dir=base_dir)
 
@@ -203,6 +234,6 @@ def provider_available_age(
 
 
 __all__ = [
-    "ProviderClock", "planning_heads", "provider_available_age", "provider_clock",
-    "role_head_providers", "routed_providers",
+    "LEASE_OUTAGE_MIN_SHARE", "ProviderClock", "lease_expiry_reason", "planning_heads", "provider_available_age",
+    "provider_clock", "role_head_providers", "routed_providers",
 ]

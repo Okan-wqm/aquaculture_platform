@@ -20,7 +20,9 @@
  *
  * # Canonical keys
  *
- *   lane-a-agents        — .claude/agents/*.md minus NON_AGENT_FILES
+ *   lane-a-agents        — .claude/agents/*.md minus NON_AGENT_FILES minus
+ *                          aria-*.md (the Lane-A row of .claude/agents/README.md);
+ *                          pinned to `orchestrator` + its Runtime Review Roster
  *   lane-b-active-agents — .claude/agents/product-audit/*.md minus NON_AGENT_FILES
  *   total-active         — lane-a-agents + lane-b-active-agents
  *
@@ -41,8 +43,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { NON_AGENT_FILES } from './_constants';
+import { runtimeRosterAgentNames } from './helpers/orchestrator-roster';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const ORCHESTRATOR_MD = path.join(REPO_ROOT, '.claude', 'agents', 'orchestrator.md');
 
 const MARKER_RE = /<!--\s*cardinality:([a-z][a-z0-9-]*)\s*-->(\d+)<!--\s*\/cardinality\s*-->/g;
 
@@ -57,6 +61,20 @@ function countMdFiles(relDir: string): number {
         f.endsWith('.md') &&
         !(NON_AGENT_FILES as readonly string[]).includes(f),
     ).length;
+}
+
+// Lane-A is `.claude/agents/*.md` except the ARIA lane's `aria-*.md`
+// (.claude/agents/README.md, Active Lanes). Counting every root file folded
+// the ARIA agents into the Lane-A claim.
+function laneAAgentFiles(): string[] {
+  return fs
+    .readdirSync(path.join(REPO_ROOT, '.claude', 'agents'))
+    .filter(
+      (f) =>
+        f.endsWith('.md') &&
+        !(NON_AGENT_FILES as readonly string[]).includes(f) &&
+        !/^aria-.*\.md$/.test(f),
+    );
 }
 
 function countDirs(relDir: string): number {
@@ -100,12 +118,12 @@ function scanMarkers(relFile: string): MarkerHit[] {
 }
 
 const COUNT_SOURCES: Record<string, () => number> = {
-  // `lane-a-agents` counts agents in the runtime dispatch surface. Post-
-  // Phase-4 of plan mutable-frolicking-yao.md, maintenance agents live
-  // under .claude/agents/_maintenance/ and are intentionally non-runtime;
-  // they are counted separately via `lane-a-maintenance` so the runtime
-  // roster cardinality reflects dispatch reality.
-  'lane-a-agents': () => countMdFiles('.claude/agents'),
+  // `lane-a-agents` counts the Lane-A runtime dispatch surface: the
+  // orchestrator plus every agent in its Runtime Review Roster (pinned as a
+  // set below). ARIA's root `aria-*.md` agents are a separate lane, and
+  // maintenance agents under .claude/agents/_maintenance/ are non-runtime and
+  // counted separately via `lane-a-maintenance`.
+  'lane-a-agents': () => laneAAgentFiles().length,
   'lane-a-maintenance': () => countMdFiles('.claude/agents/_maintenance'),
   'lane-b-active-agents': () => countMdFiles('.claude/agents/product-audit'),
   // 3 Lane-B meta agents (product-audit-orchestrator, -context-manager,
@@ -115,7 +133,7 @@ const COUNT_SOURCES: Record<string, () => number> = {
   'lane-b-specialists': () =>
     countMdFiles('.claude/agents/product-audit') - 3,
   'total-active': () =>
-    countMdFiles('.claude/agents') + countMdFiles('.claude/agents/product-audit'),
+    laneAAgentFiles().length + countMdFiles('.claude/agents/product-audit'),
   // Module Federation remotes under web/modules/. This count drifted twice
   // unguarded: messaging-module landed in #904 (2026-07-06) and both the root
   // CLAUDE.md and web/CLAUDE.md kept claiming 7 for a month. Directory count
@@ -141,6 +159,14 @@ describe('doc-cardinality invariant', () => {
 
   it('at least one cardinality marker exists (regression guard)', () => {
     expect(allHits.length).toBeGreaterThan(0);
+  });
+
+  it('lane-a agent files are exactly the orchestrator plus its Runtime Review Roster', () => {
+    // A set, not a count: an added agent plus a removed one keeps any count.
+    const stems = laneAAgentFiles().map((f) => f.replace(/\.md$/, ''));
+    expect(stems).toContain('orchestrator');
+    const roster = runtimeRosterAgentNames(fs.readFileSync(ORCHESTRATOR_MD, 'utf8'));
+    expect([...roster].sort()).toEqual(stems.filter((s) => s !== 'orchestrator').sort());
   });
 
   it('every marker key maps to a known count source', () => {

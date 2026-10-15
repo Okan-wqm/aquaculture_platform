@@ -154,9 +154,11 @@ def _probe_codex_auth_status(
 class CodexRunResult:
     """The Codex sibling of claude_runtime.ClaudeRunResult.
 
-    Field names deliberately mirror the Claude result so the shared auth
-    failover (``claude_runtime.run_with_model_fallback``) and downstream
-    auditors read both runtimes through one vocabulary.
+    Field names deliberately mirror the Claude result so auditors read both
+    runtimes through one vocabulary. Codex is dispatched on the fleet's
+    native-runtime route (ci_executor imports ``_run_managed_codex_exec``);
+    ``claude_runtime.run_with_model_fallback`` never receives this type,
+    because its failover serves the Anthropic and Z.ai tiers only.
     """
 
     returncode: int
@@ -242,7 +244,10 @@ def run_codex_exec(
     env: dict[str, str] | None = None,
     effort: str | None = None,
 ) -> CodexRunResult:
-    """One bounded production Codex dispatch. No mock path exists here.
+    """One bounded unmanaged Codex spawn. No mock path exists here.
+
+    The fleet's production route is ``_run_managed_codex_exec``
+    (ci_executor); this function has no production caller.
 
     The shared environment owner admits process plumbing, caller-selected
     managed-state locations and explicit noncredential data. This name policy
@@ -435,7 +440,11 @@ def codex_dispatch(
     effort: str | None = None,
     **run_kwargs: Any,
 ) -> CodexRunResult:
-    """Dispatch seam: production callers go through here; tests inject `run`."""
+    """Injectable seam over ``run_codex_exec``; tests inject `run`.
+
+    It has no production caller: the fleet dispatches through
+    ``_run_managed_codex_exec``.
+    """
     if effort is not None:
         run_kwargs["effort"] = effort
     return run(prompt, model=model, sandbox=sandbox, cwd=cwd, **run_kwargs)

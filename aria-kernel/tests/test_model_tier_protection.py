@@ -47,6 +47,13 @@ class TierOrderTests(unittest.TestCase):
         self.assertLess(model_tier_rank("glm-5.3"), model_tier_rank("opus"))
         self.assertLess(model_tier_rank("opus"), model_tier_rank("sonnet"))
 
+    def test_the_dispatchable_vocabulary_is_the_ranked_order(self) -> None:
+        # ARIA-MEDIUM-465 — admission IS ranking: VALID_MODELS is derived from
+        # MODEL_TIER_ORDER, never a second literal of the same five names.
+        from aria_kernel.agent_runtime_profile import VALID_MODELS
+
+        self.assertEqual(VALID_MODELS, frozenset(MODEL_TIER_ORDER))
+
     def test_unknown_target_author_ranks_strongest(self) -> None:
         # A stamp this kernel does not know is most plausibly a FUTURE,
         # stronger model — it must be protected, not modifiable.

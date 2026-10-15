@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import append_declared_jsonl, is_sha256_digest, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref, ledger_ref_for_row
 from .runtime_artifacts import ArtifactRefV2
 from .tool_registry import GovernanceError
@@ -13,6 +13,12 @@ from .tool_registry import ensure_tools_dir, utc_now
 
 
 READINESS_SCHEMA = "aria/enterprise-readiness-claim/v2"
+# ARIA-LOW-491 — the fields that bind every merge-proof row (incident, rollback,
+# runner attestation) to the readiness claim it serves. One owner: the
+# readiness-claim module; the proof writers and the claim matcher read it.
+READINESS_BINDING_FIELDS: tuple[str, ...] = (
+    "repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id",
+)
 BRANCH_PROTECTION_SCHEMA = "aria/branch-protection-proof/v3"
 # Mirrors .github/manifests/main-required-status-checks.json (the governed
 # SSOT, findings EDGE-CRITICAL-001 / INFRA-CRITICAL-044 / INFRA-HIGH-084).
@@ -72,12 +78,7 @@ SOURCE_LEDGER_REF_FIELDS: tuple[str, ...] = (
     "schema_version",
 )
 DLP_TOKEN_BINDING_FIELDS: tuple[str, ...] = (
-    "repo",
-    "pr_number",
-    "target_ref",
-    "head_ref",
-    "head_sha",
-    "readiness_claim_id",
+    *READINESS_BINDING_FIELDS,
     "workflow_run_id",
     "artifact_id",
     "artifact_sha256",
@@ -377,7 +378,7 @@ def consume_waiver(
         raise GovernanceError("waiver_id_required")
     if not readiness_claim_id.strip():
         raise GovernanceError("readiness_claim_id_required")
-    if not _is_sha256_digest(previous_open_waiver_ledger_hash):
+    if not is_sha256_digest(previous_open_waiver_ledger_hash):
         raise GovernanceError("previous_open_waiver_ledger_hash_required")
     rows = load_declared_jsonl(
         root / "enterprise" / "waivers.jsonl",
@@ -584,7 +585,7 @@ def branch_protection_policy_reasons(proof: dict[str, Any]) -> list[str]:
         reasons.append("branch_protection_proof_schema_must_be_v3")
     if proof.get("valid") is not True:
         reasons.append("branch_protection_proof_invalid")
-    if not _is_sha256_digest(str(proof.get("snapshot_hash") or "")):
+    if not is_sha256_digest(str(proof.get("snapshot_hash") or "")):
         reasons.append("branch_protection_snapshot_hash_required")
     checks = proof.get("required_checks")
     exact_checks = proof.get("exact_required_checks")
@@ -673,7 +674,7 @@ def _evaluate_retention_or_rollback(
         reasons.append(f"{proof_name}_uri_not_published")
         failures.append(f"{proof_name}_required")
     for field_name in ("source_sha256", "archive_sha256"):
-        if not _is_sha256_digest(str(proof.get(field_name) or "")):
+        if not is_sha256_digest(str(proof.get(field_name) or "")):
             reasons.append(f"{proof_name}_{field_name}_required")
             failures.append(f"{proof_name}_required")
     if proof_name == "retention_proof":
@@ -721,7 +722,7 @@ def _evaluate_dlp_token(claim: dict[str, Any], proof_name: str, reasons: list[st
                 reasons.append(f"{proof_name}_runtime_write_paths_required")
                 failures.append(failure)
         elif field_name.endswith("hash") or field_name.endswith("sha256"):
-            if not _is_sha256_digest(str(value or "")):
+            if not is_sha256_digest(str(value or "")):
                 reasons.append(f"{proof_name}_{field_name}_required")
                 failures.append(failure)
         elif not isinstance(value, str) or not value.strip():
@@ -740,7 +741,7 @@ def _evaluate_dlp_token(claim: dict[str, Any], proof_name: str, reasons: list[st
         for ref in (claim.get("artifact_refs") or [])
         if isinstance(ref, dict)
     }
-    if artifact_id and _is_sha256_digest(artifact_sha) and (artifact_id, artifact_sha) not in artifact_matches:
+    if artifact_id and is_sha256_digest(artifact_sha) and (artifact_id, artifact_sha) not in artifact_matches:
         reasons.append(f"{proof_name}_artifact_ref_unbound")
         failures.append(failure)
     if proof_name == "dlp_proof":
@@ -762,7 +763,7 @@ def _evaluate_dlp_token(claim: dict[str, Any], proof_name: str, reasons: list[st
                 if missing:
                     reasons.append("dlp_proof_scanned_surfaces_missing:" + ",".join(missing))
                     failures.append(failure)
-            if not _is_sha256_digest(str(scanner_results.get("scanner_output_sha256") or "")):
+            if not is_sha256_digest(str(scanner_results.get("scanner_output_sha256") or "")):
                 reasons.append("dlp_proof_scanner_output_sha256_required")
                 failures.append(failure)
     if proof_name == "token_proof":
@@ -1050,14 +1051,14 @@ def _require_common_binding(
     reasons: list[str],
     failures: list[str],
 ) -> None:
-    for key in ("repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id"):
+    for key in READINESS_BINDING_FIELDS:
         if proof.get(key) != claim.get(key):
             reasons.append(f"{prefix}_{key}_mismatch")
             failures.append(f"{prefix}_binding_required")
 
 
 def _row_common_matches(row: dict[str, Any], claim: dict[str, Any]) -> bool:
-    return all(row.get(key) == claim.get(key) for key in ("repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id"))
+    return all(row.get(key) == claim.get(key) for key in READINESS_BINDING_FIELDS)
 
 
 def _validate_claim_source_refs(root: Path, claim: dict[str, Any]) -> None:
@@ -1114,7 +1115,7 @@ def _source_ref_valid(ref: Any) -> bool:
             return False
     if not all(isinstance(ref.get(key), str) and ref.get(key, "").strip() for key in ("surface", "ledger_path", "row_id", "row_type", "row_hash")):
         return False
-    if not _is_sha256_digest(str(ref.get("row_hash") or "")):
+    if not is_sha256_digest(str(ref.get("row_hash") or "")):
         return False
     return isinstance(ref.get("schema_version"), int) and ref.get("schema_version") > 0
 
@@ -1174,14 +1175,6 @@ def _is_full_sha(value: str) -> bool:
     return len(value) == 40 and all(ch in "0123456789abcdef" for ch in value)
 
 
-def _is_sha256_digest(value: str) -> bool:
-    return (
-        value.startswith("sha256:")
-        and len(value) == len("sha256:") + 64
-        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
-    )
-
-
 def _expiry_is_future(value: str) -> bool:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -1195,6 +1188,7 @@ def _expiry_is_future(value: str) -> bool:
 __all__ = [
     "EnterpriseReadinessVerdict",
     "PrReadinessVerdict",
+    "READINESS_BINDING_FIELDS",
     "READINESS_SCHEMA",
     "REQUIRED_READINESS_FIELDS",
     "SOURCE_LEDGER_REF_FIELDS",

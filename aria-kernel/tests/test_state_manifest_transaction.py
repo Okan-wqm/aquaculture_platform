@@ -71,6 +71,23 @@ class StateManifestTransactionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "state_surface_pattern_invalid"):
             state_manifest.validate_state_surface_patterns((invalid,))
 
+    def test_closed_vocabulary_fields_are_enforced_at_construction(self) -> None:
+        # The Literal aliases are the vocabulary; a value outside one is
+        # refused when the surface is built, so STATE_SURFACES itself is
+        # proven valid by importing this module.
+        runs = surface_by_name("runs")
+        for field, bogus in (
+            ("durability", "fsync"),
+            ("state_class", "bogus"),
+            ("root_kind", "bogus"),
+            ("observe_class", "bogus"),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(
+                    ValueError, f"state_surface_{field}_invalid:runs",
+                ):
+                    replace(runs, **{field: bogus})
+
     def test_state_group_lock_shape_is_one_declaration_and_round_trips(self) -> None:
         """`locks/state-groups/<group>.lock` is declared once, derived from
         file_lock's side-car naming, and decodes back to exactly the declared

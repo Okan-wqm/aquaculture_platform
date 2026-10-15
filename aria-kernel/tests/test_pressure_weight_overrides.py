@@ -8,6 +8,7 @@ the ceremony refusals and the SSoT unification.
 """
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 import tempfile
@@ -76,6 +77,52 @@ class WeightOverrideLoop(unittest.TestCase):
         for kw in cases:
             with self.assertRaises(GovernanceError):
                 record_weight_override(base_dir=self.root, **kw)
+
+    def _append_raw(self, row: dict) -> None:
+        # A row that bypassed the ceremony (hand edit, older writer): the
+        # reader must apply the same weight rule the writer enforces.
+        path = self.root / "calibration" / "weight-overrides.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + "\n")
+
+    def test_boolean_ledger_rows_are_not_weights(self) -> None:
+        record_weight_override(
+            source="evidence_gone", weight=40,
+            reason="precision follow-up test",
+            operator_approval_ref="ref#1", base_dir=self.root,
+        )
+        self._append_raw({"source": "evidence_gone", "weight": True})
+        self.assertEqual(load_weight_overrides(self.root)["evidence_gone"], 40)
+
+    def test_out_of_range_ledger_rows_are_not_weights(self) -> None:
+        record_weight_override(
+            source="evidence_gone", weight=40,
+            reason="precision follow-up test",
+            operator_approval_ref="ref#1", base_dir=self.root,
+        )
+        for weight in (0, 101):
+            self._append_raw({"source": "evidence_gone", "weight": weight})
+        self.assertEqual(load_weight_overrides(self.root)["evidence_gone"], 40)
+
+    def test_ceremony_refuses_boolean_weight(self) -> None:
+        for weight in (True, False):
+            with self.subTest(weight=weight), self.assertRaises(GovernanceError):
+                record_weight_override(
+                    source="evidence_gone", weight=weight,
+                    reason="long enough reason", operator_approval_ref="r",
+                    base_dir=self.root,
+                )
+        self.assertEqual(load_weight_overrides(self.root), {})
+
+    def test_every_live_weight_is_an_override_legal_int(self) -> None:
+        # calibration recommends current ± step from this table and the
+        # ceremony refuses a non-int, so a float base weight produces a
+        # recommendation that can never be applied verbatim.
+        for source, weight in SOURCE_WEIGHTS.items():
+            with self.subTest(source=source):
+                self.assertIs(type(weight), int, source)
+                self.assertTrue(1 <= weight <= 100, source)
 
     def test_calibration_reads_the_live_table_not_a_copy(self) -> None:
         # SSoT unification regression: the drifted private default (65) must

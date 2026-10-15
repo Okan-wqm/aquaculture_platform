@@ -52,8 +52,11 @@ class EscalationProducerTests(unittest.TestCase):
         second = escalate_stuck_contradictions(cycle_id="cyc-4", base_dir=self.root)
         self.assertEqual(second["escalated_belief_ids"], ["B-stuck"])
         hr_dir = self.root / "human-required"
-        records = list(hr_dir.glob("HR-belief-B-stuck*")) if hr_dir.exists() else []
-        self.assertEqual(len(records), 1, records)
+        entries = sorted(p.name for p in hr_dir.glob("HR-belief-B-stuck*")) if hr_dir.exists() else []
+        # One record, plus the per-file lock side-car every declared state
+        # file carries once the governed writer (`state_transaction`) has
+        # written it — the record readers glob `*.json`, so it is no record.
+        self.assertEqual(entries, ["HR-belief-B-stuck.json", "HR-belief-B-stuck.json.lock"])
 
 
 class VerdictMovesBeliefConfidenceTests(unittest.TestCase):

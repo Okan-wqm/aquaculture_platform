@@ -1,23 +1,20 @@
 """Plan S3 (ORPHAN-MEDIUM-297) — seed_drift_findings pure-function tests.
 
 The scan itself is exercised by the operator invocation (subprocess of
-poc.py); these tests pin the selection ordering, finding shape, index
-shape (the exact contract aria_kernel.cycle_guard reads), determinism,
-and the honest-zero path.
+poc.py); these tests pin the selection ordering and that the retired
+file writer stays gone. Minting — the finding shape, the index
+cycle_guard reads and dedupe — is pinned through the kernel's one mint
+path in test_seed_mint_migration.py.
 """
 from __future__ import annotations
 
-import json
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "aria-poc"))
 
 import seed_drift_findings as seeder  # noqa: E402
-
-from aria_kernel.cycle_guard import _open_finding_count  # noqa: E402
 
 
 def _drift(concept: str, *, cross: bool, gates: list[str], jaccard: float) -> dict:
@@ -56,36 +53,14 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(len(seeder.select_candidates(doc, limit=1)), 1)
 
 
-class RenderTests(unittest.TestCase):
-    def test_finding_shape_and_determinism(self) -> None:
-        drift = {"drift_class": "enum_drift", "candidate_tool": "typeorm-entity-schema-adapter",
-                 **_drift("equipment", cross=True, gates=[], jaccard=0.875)}
-        one = seeder.render_finding(drift, finding_id="F-101", head_sha="abc123")
-        two = seeder.render_finding(drift, finding_id="F-101", head_sha="abc123")
-        self.assertEqual(one, two)
-        self.assertEqual(one["status"], "OPEN")
-        self.assertEqual(one["candidate_tools"], ["typeorm-entity-schema-adapter"])
-        self.assertEqual(one["seeded_from_commit"], "abc123")
-        self.assertEqual(len(one["evidence_chain"]), 2)
-        for ref in one["evidence_chain"]:
-            self.assertIn(":", ref["reference"])
-
-    def test_index_is_cycle_guard_readable(self) -> None:
-        drift = {"drift_class": "enum_drift", "candidate_tool": "t",
-                 **_drift("goal", cross=True, gates=[], jaccard=0.8)}
-        finding = seeder.render_finding(drift, finding_id="F-101", head_sha="abc")
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            seeder.write_findings(repo / "aria-findings", [finding])
-            self.assertEqual(_open_finding_count(repo), 1)
-            payload = json.loads((repo / "aria-findings" / "_index.json").read_text())
-            self.assertEqual(payload["findings"][0]["file"], "F-101.json")
-
-    def test_honest_zero_writes_empty_index(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            seeder.write_findings(repo / "aria-findings", [])
-            self.assertEqual(_open_finding_count(repo), 0)
+class RetiredFileWriterTests(unittest.TestCase):
+    def test_the_retired_file_writer_is_gone(self) -> None:
+        # ARIA-MEDIUM-493 — ORPHAN-702 moved minting to emit_finding; the old
+        # writer that rendered F-NNN.json and _index.json by hand had no
+        # caller left, and a second finding writer is how two formats return.
+        for name in ("FINDING_ID_BASE", "render_finding", "render_index", "write_findings", "findings_out_dir"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(seeder, name))
 
 
 if __name__ == "__main__":

@@ -76,10 +76,10 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     "implementation",
     "human_required_adjudication",
     # E14 — the three roles that gained a producer. A minted envelope whose
-    # role the executor refuses to claim (`ci_executor.claim_and_dispatch_one`
-    # validates against this set) is a request that waits forever: the mint
-    # would look alive in the ledger and be dead on the lane. Minting and
-    # draining are one contract, so a role joins both sides together.
+    # role the drain may not reach (`ci_executor_drain.require_dispatchable_arc`
+    # checks the drain arc against this set) is a request that waits forever:
+    # the mint would look alive in the ledger and be dead on the lane. Minting
+    # and draining are one contract, so a role joins both sides together.
     "consensus_arbitration",
     "change_intelligence",
     "goldset_curation",
@@ -93,10 +93,10 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     # autonomy_orchestrator next-cycle queue projection and
     # self_change_bridge) and drained by the executor's quota round since
     # Y4 (ORPHAN-705), it was never named here because the drain spawns
-    # `ci_executor.py <request_id>` and never passes the
-    # `claim_and_dispatch_one` gate this set guards. The provider routing
-    # table (ARIA-HIGH-290) is validated against THIS set, so the role was
-    # left unrouted and every drained request died in admission
+    # `ci_executor.py <request_id>` and nothing compared the drain arc with
+    # this set. The provider routing table (ARIA-HIGH-290) is validated
+    # against THIS set, so the role was left unrouted and every drained
+    # request died in admission
     # (`provider_routing_role_unrouted:maintenance_utility`, executor runs
     # 37192561282 and 37205463513). `ci_executor_drain` now refuses to load
     # an arc naming a role outside this set.
@@ -136,6 +136,12 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     "aria-prompt-writer",
     "aria-primary-planner",
     "aria-challenger-planner",
+    # ARIA-MEDIUM-462 — the kernel mints this target itself
+    # (`cross_review_bridge.CROSS_REVIEW_ROLE` and
+    # `plan_round_controller.DEFAULT_PLANNER_AGENTS["cross_review"]`), so it
+    # belongs here like every other kernel-minted target; without it the
+    # surface validator never checks that its prompt file exists.
+    "aria-cross-reviewer",
     "aria-completeness-critic",
     "aria-primary-drafter",
     "aria-challenger-drafter",
@@ -239,20 +245,9 @@ REMINT_ELIGIBLE_DEAD_STATES: FrozenSet[str] = frozenset({
     "ANCHOR_STALE",
     "STALE",
     "CANCELLED",
-    "EXPIRED",
+    # No EXPIRED (ARIA-MEDIUM-462): derive_request_state never returns it — a lease
+    # expiry derives STALE — so naming it here matched nothing.
 })
-
-GENESIS_LIFECYCLE_STATES: tuple[str, ...] = (
-    "PRESSURE",
-    "CANDIDATE_PROPOSED",
-    "HUMAN_REQUIRED",
-    "REQUEST",
-    "DRAFT",
-    "REAL_SANDBOX",
-    "SHADOW",
-    "EVAL_WINDOW",
-    "ACTIVE",
-)
 
 
 def role_requires_bridge(role: str | None) -> bool:
@@ -269,7 +264,6 @@ __all__ = [
     "DERIVED_REQUEST_STATES",
     "DISPATCHABLE_ROLES",
     "DRAFTER_ROLES",
-    "GENESIS_LIFECYCLE_STATES",
     "INVOCATION_ROLES",
     "JUDGE_ROLES",
     "PLANNER_BRIDGE_ROLES",

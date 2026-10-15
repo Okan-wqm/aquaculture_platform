@@ -1,47 +1,50 @@
-"""Plan ARIA-V3 §A4 + §2a — single ``AutoActionGate`` SSoT.
+"""Plan ARIA-V3 §A4 + §2a — single ``AutoActionGate`` SSoT for materialization.
 
-GAP-1 closure (Tier-1: Make impossible). Pre-V3:
-  * ``materialize_agent_draft`` / ``materialize_skill`` hard-coded
-    ``if not acknowledge: raise GovernanceError``. The
-    ``genesis_policy.materialization_requires_acknowledge`` flag
-    existed but the gate code ignored it (dead config).
-  * Auto-merge had its OWN gate logic inside
-    ``auto_merge.evaluate_auto_merge`` — two independent
-    classifiers with no shared SSoT. Materialise could pass while
-    merge failed for the same diff (and vice versa).
+GAP-1 closure (Tier-1: Make impossible). Pre-V3,
+``materialize_agent_draft`` / ``materialize_skill`` hard-coded
+``if not acknowledge: raise GovernanceError``. The
+``genesis_policy.materialization_requires_acknowledge`` flag existed
+but the gate code ignored it (dead config).
 
-V3 collapses both into ``AutoActionGate`` (CRIT-V3-003 + GAP-1
+V3 collapses that check into ``AutoActionGate`` (CRIT-V3-003 + GAP-1
 + MED-V3-010 single consolidation):
 
-  * One ``AutoActionGate.from_policy(policy, profile, lane,
-    classifier_decision)`` produces ONE decision object consumed
-    by both ``materialize_*`` (via ``Gate.consume_ack_token``)
-    and ``merge_if_green`` (via ``Gate.permit_merge``).
-  * Acknowledge tokens are produced by ``ack_ledger.mint_*``
-    (Phase A5) — the gate never mints them itself; it only
-    verifies + consumes.
+  * ``gate_from_policy(base_dir=..., profile=..., lane=...,
+    classifier=...)`` produces ONE decision object that both
+    ``materialize_agent_draft`` and ``materialize_skill`` consume
+    through ``AutoActionGate.acquire_or_consume``.
+  * Operator ack tokens are minted by ``ack_ledger.mint_operator_ack``
+    (Phase A5); the gate verifies + consumes them.
   * The ``materialize_event_id`` UUID is generated AT GATE entry
     so the three-event chain (draft_validated → ack_consumed →
     materialize_committed) shares a single linkage key
     (AUDITTRAIL-CRITICAL-003 closure).
+
+Merge is a separate authority: ``merge_authority.merge_pr_if_ready`` is
+the single real-merge authority (its docstring owns the gate list, and
+ADR-041 records the merge lane it enforces); ``auto_merge.merge_if_green``
+only evaluates. Neither reads this gate or an ack token, so a materialize
+ack never authorizes a merge. This module owns materialization only.
 
 Gate decision shape:
 
   * ``human_ack_required: bool`` — derived from policy flag +
     profile. Current mainline authority keeps this ``True`` for every
     live lane; historical snowball lanes cannot auto-mint ack tokens.
-  * ``consume_ack_token(token_id)`` — verifies HMAC + one-time
-    consumption against ``ack_ledger``. Auto-ack tokens are
-    minted by ``ack_ledger.mint_auto_ack`` from this module's
-    own ``acquire_token`` path when the profile permits.
+  * ``consume_ack_token(ack_id=..., base_dir=...)`` — verifies HMAC +
+    one-time consumption against ``ack_ledger``. Auto-ack tokens would
+    be minted by ``ack_ledger.mint_auto_ack`` inside
+    ``AutoActionGate.acquire_or_consume``; AUTONOMOUS_AUTO_ACK_LANES is
+    empty, so no current lane reaches that branch.
   * ``materialize_event_id`` — chain linkage key persisted in
     every audit row.
 
-Plan-026R discipline: invariant tests I-V3-14..17d lock the
+Plan-026R discipline: invariant tests I-V3-14..17e lock the
 contract (gate honours policy flag; rejects unsigned tokens;
 acknowledge parameter removed from materialize public API;
-single Gate consumed by materialize + merge; 3-event chain
-linked by id; 25+ test callsite migration complete).
+single Gate consumed by both materializers; 3-event chain
+linked by id; 25+ test callsite migration complete; these
+docstrings name only existing API).
 """
 
 from __future__ import annotations
@@ -71,11 +74,13 @@ class ClassifierDecision:
 
 @dataclass(frozen=True)
 class AutoActionGate:
-    """Plan ARIA-V3 §2a — single source-of-truth gate.
+    """Plan ARIA-V3 §2a — single source-of-truth materialization gate.
 
-    Consumed by BOTH ``materialize_*`` and ``merge_if_green`` so
-    a future change to the gate logic propagates atomically. The
-    Gate is immutable; ``from_policy`` is the only constructor.
+    Consumed by BOTH ``materialize_agent_draft`` and
+    ``materialize_skill`` so a change to the gate logic propagates
+    to every materializer atomically. The Gate is immutable;
+    ``gate_from_policy`` is the production constructor and
+    ``gate_from_test_fixture`` the test constructor.
     """
 
     materialize_event_id: str

@@ -1,14 +1,15 @@
 """Plan 020 Phase 1 — runtime profile gate tests.
 
 What this suite pins (≥18 tests):
-- 4-mode lifecycle (observe / standard / strict / frozen).
+- the profile lifecycle over PROFILES (observe / standard / strict /
+  autonomous / frozen).
 - set_profile control-plane exception (operator_approval_ref required on
   every transition; bypasses enforce_profile_for_write so frozen can THAW).
 - enforce_profile_for_action policy table (agent_claim, change_committed,
   change_validated, pr_open).
 - enforce_profile_for_write Plan 020 scoped no-write semantic.
 - Observe allowlist enforcement.
-- Frozen no-write invariant for the 14-surface Plan 020 scope.
+- Frozen no-write invariant over PLAN_020_WRITE_SURFACES.
 - Read-path safety: get_profile / list_profile_history use
   ensure_tools_dir_readonly so a frozen sandbox does not silently
   bootstrap-init the tools directory.
@@ -771,6 +772,48 @@ class TheSchedulerCeilingIsAnOperatorGesture(unittest.TestCase):
                 scheduler_ceiling="strictt",
             )
         self.assertIn("unknown scheduler ceiling", str(raised.exception))
+
+
+class ProfileDocsMatchTheTables(unittest.TestCase):
+    """ARIA-MEDIUM-467 — the module's prose describes the tables, never a stale copy.
+
+    The docstring said "4-mode" over five profiles, had no autonomous
+    entry, called finding/debt/human_required "NOT covered" by frozen while
+    PLAN_020_WRITE_SURFACES contains them, and carried surface counts
+    ("14-surface", "22 surfaces") long after the set grew.
+    """
+
+    def test_module_docstring_names_every_profile(self) -> None:
+        import re
+
+        import aria_kernel.runtime_profile as runtime_profile
+
+        doc = runtime_profile.__doc__ or ""
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                self.assertTrue(re.search(rf"(?m)^- {profile}\b", doc), f"no '- {profile}' entry")
+        self.assertFalse("4-mode" in doc, "the docstring still counts the profiles as 4-mode")
+
+    def test_frozen_covers_the_writers_the_docs_once_excluded(self) -> None:
+        import aria_kernel.runtime_profile as runtime_profile
+
+        self.assertLessEqual(
+            {"finding", "debt", "observation", "human_required", "tool_governance", "governance"},
+            set(PLAN_020_WRITE_SURFACES),
+        )
+        self.assertFalse(
+            "NOT covered" in (runtime_profile.__doc__ or ""),
+            "the docstring still says frozen does NOT cover surfaces it blocks",
+        )
+
+    def test_profile_docs_carry_no_surface_count(self) -> None:
+        import inspect
+        import re
+
+        import aria_kernel.runtime_profile as runtime_profile
+
+        source = inspect.getsource(runtime_profile)
+        self.assertEqual(re.findall(r"\b\d+-surface\b|to \d+ surfaces", source), [])
 
 
 if __name__ == "__main__":

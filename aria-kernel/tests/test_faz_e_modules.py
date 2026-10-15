@@ -14,7 +14,7 @@ from aria_kernel.architecture import (
 from aria_kernel.critical_observation import (
     CRITICAL_CATEGORIES,
     CRITICAL_SEVERITIES,
-    SLA_WINDOWS,
+    CRITICAL_OBSERVATION_SLA_WINDOWS,
     acknowledge_critical_observation,
     compute_escalation_tier,
     list_critical_observations,

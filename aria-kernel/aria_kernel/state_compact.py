@@ -75,7 +75,7 @@ from .runtime_artifacts import COLD_POINTERS_SURFACE, cold_pointers
 from .state_manifest import (memory_surfaces, resolve_surface_path, surface_by_name,
                              surface_for_relative_path)
 from .state_snapshot import SNAPSHOT_MAX_SURFACE_BLOB_BYTES
-from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
+from .tool_registry import append_tools_governance, ensure_tools_dir, parse_utc_stamp, utc_now
 
 # The governance event compaction records.
 COMPACTED_EVENT = "state_compacted"
@@ -637,7 +637,7 @@ def _retention_removed(row: dict[str, Any], *, cutoff: datetime) -> bool:
     """Was this artifact retention's to remove — is it older than the window?"""
     stamp = _cycle_timestamp(str(row.get("cycle_uid") or row.get("cycle_id") or ""))
     if stamp is None:
-        stamp = _parse_ts(row.get("created_at"))
+        stamp = parse_utc_stamp(row.get("created_at"))
     return stamp is not None and stamp < cutoff
 
 
@@ -685,7 +685,7 @@ def _archive_windows(root: Path, archives: list[Path]) -> dict[str, int]:
             if isinstance(archive, str) and archive:
                 named.setdefault(archive, window)
             continue
-        stamp = _parse_ts(row.get("ts"))
+        stamp = parse_utc_stamp(row.get("ts"))
         if stamp is not None:
             by_clock.append((stamp, window))
     by_clock.sort(key=lambda item: item[0])
@@ -734,7 +734,7 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
     stripped_rows: list[dict[str, Any]] = []
     stripped = 0
     for row in rows:
-        recorded = _parse_ts(row.get("recorded_at"))
+        recorded = parse_utc_stamp(row.get("recorded_at"))
         if recorded is not None and recorded < cutoff:
             will_strip = False
             ev = row.get("evidence_validation")
@@ -776,7 +776,7 @@ def _compact_raw_findings(path: Path, root: Path, cutoff: datetime, dry_run: boo
             archived_rows.append(copy.deepcopy(row))
             removed += 1
             continue
-        recorded = _parse_ts(row.get("recorded_at"))
+        recorded = parse_utc_stamp(row.get("recorded_at"))
         if recorded is not None and recorded < cutoff and "finding" in row:
             archived_rows.append(copy.deepcopy(row))
             finding = row.pop("finding")
@@ -855,7 +855,7 @@ def _raw_finding_key(row: dict[str, Any]) -> tuple[str, str] | None:
 def _raw_finding_recorded(row: dict[str, Any]) -> datetime:
     """Recording time for the newest-row choice; an unparseable time sorts
     oldest so a dated row always wins over an undated one."""
-    return _parse_ts(row.get("recorded_at")) or datetime.min.replace(tzinfo=timezone.utc)
+    return parse_utc_stamp(row.get("recorded_at")) or datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _archive_stripped(root: Path, surface: str, stripped_rows: list[dict[str, Any]]) -> str:
@@ -880,15 +880,6 @@ def _archive_stripped(root: Path, surface: str, stripped_rows: list[dict[str, An
         for row in stripped_rows:
             fh.write(json.dumps(row, sort_keys=True) + "\n")
     return archive_path.relative_to(root).as_posix()
-
-
-def _parse_ts(value: Any) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 __all__ = (

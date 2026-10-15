@@ -16,6 +16,9 @@ config primitive (`gh_token_factory._git_config_at`) recorded:
 * a linked worktree holds the identity — key wired in `--worktree` scope,
   public half on `kg_signers` — and the body's exit revokes it and restores
   the worktree's config, however the body exits;
+* a second hold for a cycle whose identity is already held is refused
+  `identity_already_held` (the mint's idempotent re-mint wires nothing) and
+  leaves the holder's key and wiring in place;
 * the executor's refusal record (`IMPLEMENTATION_IDENTITY_REFUSAL`) spells
   the kernel's release reason, harness-classified, and summarises as a
   retryable `harness_unavailable` — the same fact in every vocabulary;
@@ -137,6 +140,22 @@ class IdentityHoldTests(unittest.TestCase):
         self.assertTrue(writes)
         for _root, scope, key, _value in writes:
             self.assertEqual(scope, "--local" if key == "extensions.worktreeConfig" else "--worktree", key)
+
+    def test_a_held_identity_cannot_be_held_again_for_the_same_cycle(self) -> None:
+        worktree = make_git_worktree(self.main, self.tmp / "worktrees" / "req-1", branch="req-1")
+        key_path = worktree / "aria-debts" / "keys" / CYCLE_ID
+        with self._hold(worktree):
+            with self.assertRaises(ImplementationIdentityRefusal) as refused:
+                with self._hold(worktree):
+                    self.fail("one cycle's identity has one holder")
+            self.assertEqual(refused.exception.reason, "identity_already_held")
+            # The refused re-mint created nothing, so it unwinds nothing: the
+            # holder still signs with its key in its own worktree scope.
+            self.assertTrue(key_path.is_file())
+            self.assertEqual(self._config(worktree, "commit.gpgsign", "--worktree"), "true")
+            self.assertEqual(Path(self._config(worktree, "user.signingkey", "--worktree")), key_path)
+        self.assertFalse(key_path.exists())
+        self.assertIsNone(self._config(worktree, "user.signingkey", "--worktree"))
 
     def test_the_held_identity_carries_its_sandbox_shape(self) -> None:
         import os

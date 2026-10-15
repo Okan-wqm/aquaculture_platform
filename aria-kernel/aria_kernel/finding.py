@@ -26,7 +26,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,8 @@ from .agent_genesis import BANNED_PHRASES
 from .diagnostics import emit_ledger_corruption_diagnostic
 from .evidence_probe import GitProbeSession
 from .evidence_trust import classify_evidence_ref
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import append_declared_jsonl, atomic_write_json, load_declared_jsonl
+from .phase2_utils import utc_now_iso as _utc_now
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -185,10 +186,6 @@ def _index_path(repo_root: Path) -> Path:
 
 def _events_path(repo_root: Path) -> Path:
     return _findings_dir(repo_root) / "finding-events.jsonl"
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _evidence_chain_id(evidences: list[dict[str, Any]]) -> str:
@@ -405,13 +402,6 @@ def _claim_finding_file(path: Path, finding_id: str) -> None:
         ) from exc
 
 
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
-
 def _refresh_index(
     repo_root: Path,
     *,
@@ -455,7 +445,7 @@ def _refresh_index(
         "source_ledger_tip_hash": source_tip,
         "findings": rows,
     }
-    _atomic_write_json(_index_path(repo_root), index)
+    atomic_write_json(_index_path(repo_root), index)
     return index
 
 
@@ -591,7 +581,7 @@ def emit_finding(
             raise
         record["source_event_id"] = event.get("event_id")
         record["source_ledger_hash"] = event.get("ledger_hash")
-        _atomic_write_json(output_path, record)
+        atomic_write_json(output_path, record)
         _refresh_index(repo_path)
 
     append_tools_governance(

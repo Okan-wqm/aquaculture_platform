@@ -1319,115 +1319,12 @@ class CostCapExceeded(Exception):
     """The request would exceed the configured cost cap; skip + log."""
 
 
-# Plan ARIA-V7 §2g v2 Phase 7.3 — closed enum of dispatchable roles.
-# Mirrors aria_kernel/dispatcher_factory.SUPPORTED_ROLES. Adding a
-# role requires updating BOTH the consumer (this file) AND the
-# kernel factory module. Closed enum prevents typo'd roles from
-# silently flowing into the queue.
+# Plan ARIA-V7 §2g v2 Phase 7.3 — closed enum of dispatchable roles: the
+# kernel's `agent_surface.DISPATCHABLE_ROLES` (or the standalone mirror
+# above). Its live consumer is `ci_executor_drain.require_dispatchable_arc`,
+# which refuses at import a drain arc naming a role outside this set, so a
+# typo'd or unroutable role cannot reach the queue round.
 SUPPORTED_ROLES: frozenset[str] = frozenset(_DISPATCHABLE_ROLES)
-
-
-
-def claim_and_dispatch_one(
-    *,
-    role: str,
-    tools_dir: Path,
-    repo_root: Path,
-) -> dict[str, Any]:
-    """Plan ARIA-V7 §2g v2 Phase 7.3 — single-role claim + dispatch.
-
-    Workflow:
-      1. Validate role is in SUPPORTED_ROLES.
-      2. Check Claude Code CLI auth/session preflight. Unavailable → return
-         ``{"status": "dispatchers_unavailable"}``.
-      3. Find next pending request of the given role via
-         ``aria-kernel agent-invocations list --role <role>
-         --pending-only``.
-      4. If no pending → return ``{"status": "no_pending"}``.
-      5. Spawn this script as subprocess with ``request_id`` to
-         exercise the existing claim → invoke → release flow.
-      6. Capture subprocess result + return.
-
-    Returns a dict with keys: ``status``, ``request_id``,
-    ``role``, ``stdout_tail``, ``stderr_tail``, ``exit_code``.
-
-    Used by the operator-runnable consumer loop:
-      python tools/aria-poc/ci_executor.py --consume specialist_domain_review
-    """
-    if role not in SUPPORTED_ROLES:
-        raise ValueError(
-            f"claim_and_dispatch_one_unknown_role: {role!r} "
-            f"(must be one of {sorted(SUPPORTED_ROLES)})"
-        )
-
-    try:
-        preflight_claude_auth()
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
-        return {
-            "status": "dispatchers_unavailable",
-            "role": role,
-            "reason": f"claude_preflight_failed: {exc}",
-        }
-
-    # Find next pending request for this role.
-    list_proc = subprocess.run(
-        _kernel_cli_argv(
-            "agent-invocations", "list",
-            "--role", role,
-            "--pending-only",
-            "--limit", "1",
-            "--tools-dir", str(tools_dir),
-        ),
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
-    )
-    if list_proc.returncode != 0:
-        return {
-            "status": "list_failed",
-            "role": role,
-            "stderr_tail": list_proc.stderr[-1000:],
-            "exit_code": list_proc.returncode,
-        }
-
-    try:
-        pending = json.loads(list_proc.stdout)
-    except json.JSONDecodeError:
-        return {
-            "status": "list_output_not_json",
-            "role": role,
-            "stdout_tail": list_proc.stdout[-500:],
-        }
-
-    if not pending:
-        return {"status": "no_pending", "role": role}
-
-    request = pending[0] if isinstance(pending, list) else pending
-    request_id = request.get("request_id") or request.get("id")
-    if not request_id:
-        return {
-            "status": "request_missing_id",
-            "role": role,
-            "raw": request,
-        }
-
-    target_agent = request.get("target_agent", "")
-    dispatch_proc = subprocess.run(
-        ["python3", str(Path(__file__).resolve()), request_id, target_agent],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
-        cwd=str(repo_root),
-    )
-    return {
-        "status": "dispatched" if dispatch_proc.returncode == 0 else "dispatch_failed",
-        "request_id": request_id,
-        "role": role,
-        "target_agent": target_agent,
-        "exit_code": dispatch_proc.returncode,
-        "stdout_tail": dispatch_proc.stdout[-2000:],
-        "stderr_tail": dispatch_proc.stderr[-2000:],
-    }
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -1518,38 +1415,6 @@ def _request_delivery_seconds(*, tools_dir: Path, request_id: str) -> int:
 # for billing control"), and after the dispatch gate moved to wall clock they
 # had no readers at all. A tunable that gates nothing is worse than no
 # tunable: an operator who lowers it believes they have tightened something.
-
-
-_TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
-_FALSY_BOOL_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off", ""})
-
-
-def _parse_bool_env(name: str, default: str = "0") -> bool:
-    """Plan 026R §B.2 — case-insensitive multi-token bool env var parser.
-
-    Pre-§B.2 ``_is_mock_mode`` did ``os.environ.get(...) == "1"`` only,
-    so a workflow that exported ``CLAUDE_CLI_MOCK=true`` (the common
-    shell convention) silently fell to mock=OFF → ``ClaudeCliUnavailable``
-    raise → CI exit code 1. The bug is REAL in today's CI.
-
-    Accepts the canonical truthy/falsy set:
-
-    * Truthy: ``1``, ``true``, ``yes``, ``on`` (any case).
-    * Falsy:  ``0``, ``false``, ``no``, ``off``, empty string.
-
-    Any other value raises ``ValueError`` (no silent fallback to either
-    side — typo in a workflow should fail loud).
-    """
-    raw = os.environ.get(name, default).strip().lower()
-    if raw in _TRUTHY_BOOL_VALUES:
-        return True
-    if raw in _FALSY_BOOL_VALUES:
-        return False
-    raise ValueError(
-        f"{name}={raw!r} is not a recognised boolean "
-        f"(truthy={sorted(_TRUTHY_BOOL_VALUES)}, "
-        f"falsy={sorted(_FALSY_BOOL_VALUES)})"
-    )
 
 
 def _is_mock_mode() -> bool:
@@ -2197,11 +2062,15 @@ def invoke_claude_cli(
         if route_model is not None:
             _models: tuple[str, ...] = (route_model,)
         else:
+            from aria_kernel.provider_cooldown import active_provider_cooldowns
             from aria_kernel.runtime_profiles import routed_models
 
+            # ARIA-HIGH-425 — a cooled provider's rungs go last, as the
+            # native admission orders them.
             _models = routed_models(role, subagent_type, profile_model=agent_profile.model,
                                     write_capable=agent_profile.write_capable, environ=os.environ,
-                                    runtimes=_SPAWN_LANE_RUNTIMES)
+                                    runtimes=_SPAWN_LANE_RUNTIMES,
+                                    cooled=active_provider_cooldowns(tools_dir) if tools_dir is not None else ())
         if not _models:
             # Every rung of the role's ladder is suspended or cannot host
             # this profile: nothing may run, and the summary says so.
@@ -2225,13 +2094,26 @@ def invoke_claude_cli(
             # transport since the 2026-09-11 policy) never reaches the claude
             # binary — run_claude_exec refuses it by name if asked.
             if _provider_for_model(model) == "zai":
+                # ARIA-HIGH-434 — a write-capable profile runs the kernel's
+                # tool loop on this rung, under the same gate, room and git
+                # containment the claude spawn below would get; it needs the
+                # store its hooks journal into, as that spawn does
+                # (`claude_write_spawn_without_hook_context`).
+                if agent_profile.write_capable and tools_dir is None:
+                    raise ClaudePolicyViolation("zai_write_spawn_without_hook_context")
+                from zai_tool_loop import RoomSeat
+
                 return _run_zai_as_claude_result(
-                    prompt_text=prompt_text, model=model, timeout_seconds=timeout_seconds,
+                    prompt_text=prompt_text, model=model, timeout_seconds=timeout_seconds, effort=effort,
                     usage_recording=(
                         UsageRecording(request_id=request_id, role=role,
                                        target_agent=subagent_type, base_dir=tools_dir)
                         if tools_dir is not None else None
                     ),
+                    room=(RoomSeat(agent_profile=agent_profile, workspace_root=_REPO_ROOT, tools_dir=tools_dir,
+                                   request_id=request_id, role=role, target_agent=subagent_type,
+                                   git_containment=git_containment, spawn_control=spawn_control)
+                          if agent_profile.write_capable and tools_dir is not None else None),
                 )
             return run_claude_exec(
                 prompt_text=prompt_text,
@@ -2462,6 +2344,21 @@ def invoke_claude_cli(
 
         record_provider_restored(tools_dir, provider=_provider_for_model(completed.model), seam="spawn",
                                  request_id=request_id)
+    if completed.quota_window is not None and tools_dir is not None and claim_id is not None:
+        # ARIA-HIGH-425 — whatever the exit, the run's own quota reading says
+        # a window is spent (a served answer stands): the provider is cooled
+        # until that window's reset, so the NEXT admission routes every role
+        # Z.ai can serve to Z.ai instead of starting it into the hard stop.
+        # After the restore above, so the quota outage this opens is not the
+        # one it closes. A claimless dispatch (the legacy mock-only shape,
+        # see the parameter) holds no claim to cool under.
+        from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+        record_provider_cooldown(
+            tools_dir, provider=_provider_for_model(completed.model), model=str(completed.model),
+            cooldown_seconds=provider_cooldown_seconds(_REPO_ROOT), request_id=request_id,
+            claim_id=claim_id, detection=completed.quota_window,
+        )
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events
@@ -3252,23 +3149,34 @@ def _provider_for_model(model: str | None) -> str:
 
 def _run_zai_as_claude_result(
     *, prompt_text: str, model: str, timeout_seconds: int,
-    usage_recording: UsageRecording | None,
+    usage_recording: UsageRecording | None, effort: str | None = None, room: Any | None = None,
 ) -> ClaudeRunResult:
-    """One Z.ai call, reported in the shape the shared auth failover reads.
+    """One Z.ai rung, reported in the shape the shared auth failover reads.
 
     The helper (claude_runtime.run_with_model_fallback) decides on
     ``auth_failure`` / ``credit_exhaustion`` / ``refusal`` and the executor
     reads ``stdout`` and ``usage``; those are filled from the transport's own
-    classification. The vendor's response id stands in for a stream event
-    so the transcript keeps a session reference; the auth remedy names the
-    credential BOUNDARY, never a value.
+    classification (``zai_tool_loop.claude_run_result``). The vendor's
+    response id stands in for a stream event so the transcript keeps a
+    session reference; the auth remedy names the credential BOUNDARY, never
+    a value.
+
+    ARIA-HIGH-434 — ``room`` (a ``zai_tool_loop.RoomSeat``) is given for a
+    write-capable profile: the rung is then the kernel's tool loop under the
+    Claude writer's gate and room, not one completion.
     """
     from claude_runtime import _record_usage_best_effort
     from zai_runtime import (
         ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, resolve_zai_max_tokens,
         run_zai_chat,
     )
+    from zai_tool_loop import ROOM_SYSTEM_PROMPT, claude_run_result, run_zai_writer
 
+    if room is not None:
+        # The contract already leads `prompt_text` on this lane.
+        return run_zai_writer(seat=room, model=model, effort=effort, user=prompt_text,
+                              system=ROOM_SYSTEM_PROMPT + "\n\n" + _ZAI_SYSTEM_PROMPT,
+                              timeout_seconds=timeout_seconds, usage_recording=usage_recording)
     try:
         context = prepare_zai_context(dict(os.environ), default_model=model)
     except ZaiCredentialUnavailable as exc:
@@ -3285,40 +3193,13 @@ def _run_zai_as_claude_result(
             f"zai_transport_unavailable: {exc}", provider=_provider_for_model(model), model=model,
             detail={"signature": "zai_unreachable", "marker": str(exc)},
         ) from exc
-    auth_failure = None
-    credit_exhaustion = None
-    failure_class = None
-    if completed.auth_failure is not None:
-        auth_failure = {
-            "signature": completed.exhaustion_signature,
-            "marker": completed.auth_failure, "matched_marker": completed.auth_failure,
-            "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
-            "remedy": f"re-provision the Z.ai subscription key at its boundary ({context.credential.location})",
-        }
-        failure_class = "auth_failed"
-    elif completed.credit_exhaustion is not None:
-        credit_exhaustion = {
-            "signature": completed.exhaustion_signature,
-            "marker": completed.credit_exhaustion, "matched_marker": completed.credit_exhaustion,
-            "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
-        }
-        failure_class = "credit_exhausted"
-    elif completed.returncode != 0:
-        failure_class = "process_exit"
     if usage_recording is not None and completed.usage is not None:
         _record_usage_best_effort(recording=usage_recording, model=model, usage=completed.usage)
-    return ClaudeRunResult(
-        returncode=completed.returncode, stdout=completed.final_message,
-        stderr="" if completed.error_message is None else f"{completed.error_code}: {completed.error_message}",
-        final_message=completed.final_message, usage=completed.usage,
+    return claude_run_result(
+        completed, model=model, credential_location=context.credential.location, stdout=completed.final_message,
         events=(({"type": "zai.response", "id": completed.response_id, "model": completed.model,
                   "finish_reason": completed.finish_reason, "http_status": completed.http_status},)
                 if completed.response_id else ()),
-        auth_failure=auth_failure, credit_exhaustion=credit_exhaustion,
-        failure_class=failure_class, retryable=False if failure_class else None,
-        failure_detail_code=(completed.auth_failure or completed.credit_exhaustion
-                             or (None if completed.returncode == 0 else f"http_{completed.http_status}")),
-        model=model,
     )
 
 
@@ -3486,7 +3367,7 @@ def _invoke_native_zai(
     lease_token: str,
     target_agent: str, session_id: str, prompt: str, output_path: Path,
     transcript_path: Path, timeout_seconds: int, spawn_control: Any,
-    signer_key_fp: str | None = None,
+    signer_key_fp: str | None = None, git_containment: Any | None = None,
 ) -> int:
     """The same CI claim/result lane, with the Z.ai HTTP transport as the callback.
 
@@ -3494,10 +3375,19 @@ def _invoke_native_zai(
     envelope, usage and ``runtime_attempt_finished`` evidence read the same
     for every provider. Differences are the transport's: there is no process
     exit code (the HTTP status stands in), no CLI thread ids (the vendor's
-    response id stands in), and no usage-events stream (the vendor's usage
+    response ids stand in), and no usage-events stream (the vendor's usage
     block is the one measurement). A completion whose usage the vendor did
     not report is ``usage_unavailable`` — never priced as zero.
+
+    ARIA-HIGH-434 — a WRITE-capable profile (the implementer) runs the
+    kernel's tool loop (``zai_tool_loop``) instead of one completion: every
+    tool call through the Claude writer's own gate, inside its room, with
+    ``git_containment`` — the commit-capable containment the executor holds
+    for the implementation — so the agent's commit lands in the quarantine
+    the publication after this call reads. Everything this function records
+    reads the same for both: the loop's result is a ``ZaiRunResult``.
     """
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     from aria_kernel.budget import _reserve_native_runtime_attempt, price_tokens, record_cost_attribution
     from aria_kernel.tool_registry import GovernanceError, append_tools_governance
     from zai_runtime import ZaiTransportUnavailable, resolve_zai_json_object, resolve_zai_max_tokens, run_zai_chat
@@ -3505,6 +3395,7 @@ def _invoke_native_zai(
     route = native_runtime.route
     context = native_runtime.context
     contract = _deliver_agent_contract(target_agent, repo)
+    agent_profile = read_agent_runtime_profile(target_agent, repo_root=_kernel_checkout_root())
     try:
         attempt = _reserve_native_runtime_attempt(
             repo_root=repo, base_dir=tools_dir, request_id=request_id,
@@ -3527,12 +3418,25 @@ def _invoke_native_zai(
         if spawn_control is not None and spawn_control.should_cancel():
             result_admission = "operator_cancelled_before_call"
             return 1
-        completed = run_zai_chat(
-            context.credential, base_url=context.base_url, model=route["model"],
-            system=_ZAI_SYSTEM_PROMPT + "\n\n" + contract.text, user=prompt, timeout_seconds=timeout_seconds,
-            max_tokens=resolve_zai_max_tokens(dict(os.environ)), reasoning_effort=route["effort"],
-            json_object=resolve_zai_json_object(dict(os.environ)),
-        )
+        if agent_profile.write_capable:
+            from zai_tool_loop import ROOM_SYSTEM_PROMPT, RoomSeat, run_zai_tool_loop
+
+            completed = run_zai_tool_loop(
+                context, seat=RoomSeat(
+                    agent_profile=agent_profile, workspace_root=_REPO_ROOT, tools_dir=tools_dir,
+                    request_id=request_id, role=request["role"], target_agent=target_agent,
+                    git_containment=git_containment, spawn_control=spawn_control,
+                ),
+                model=route["model"], effort=route["effort"], user=prompt, timeout_seconds=timeout_seconds,
+                system=ROOM_SYSTEM_PROMPT + "\n\n" + _ZAI_SYSTEM_PROMPT + "\n\n" + contract.text,
+            )
+        else:
+            completed = run_zai_chat(
+                context.credential, base_url=context.base_url, model=route["model"],
+                system=_ZAI_SYSTEM_PROMPT + "\n\n" + contract.text, user=prompt, timeout_seconds=timeout_seconds,
+                max_tokens=resolve_zai_max_tokens(dict(os.environ)), reasoning_effort=route["effort"],
+                json_object=resolve_zai_json_object(dict(os.environ)),
+            )
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
         transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
         if completed.auth_failure is not None:
@@ -3594,7 +3498,11 @@ def _invoke_native_zai(
             "zai_native_execution_unavailable:" + str(exc), provider=route["provider"], model=route["model"],
             detail={"signature": "zai_unreachable", "marker": str(exc)},
         ) from exc
-    except (OSError, GovernanceError) as exc:
+    except (OSError, GovernanceError, ClaudePolicyViolation) as exc:
+        # ClaudePolicyViolation — the tool loop's room refused to stand (no
+        # containment, a credential name in its env, the job's window):
+        # the same perimeter refusal `invoke_claude_cli` translates for the
+        # Claude writer, released by `_main`'s ClaudeCliUnavailable arm.
         result_admission = "control_or_transport_unavailable"
         # The kernel's own refusal text is a named reason, never vendor or
         # credential material; carry it so the operator sees the cause.
@@ -3603,8 +3511,7 @@ def _invoke_native_zai(
         append_tools_governance(tools_dir, "runtime_attempt_finished", {
             "schema_version": 1, "attempt_ledger_hash": attempt["ledger_hash"],
             "request_id": request_id, "claim_id": claim_id, "session_id": session_id,
-            "provider_session_ids": ([] if completed is None or completed.response_id is None
-                                     else [completed.response_id]),
+            "provider_session_ids": [] if completed is None else list(completed.provider_session_ids),
             "provider_session_provenance": "http_response_id",
             "exit_code": completed.http_status if completed is not None else None,
             "observed_effort": None,
@@ -3943,10 +3850,12 @@ ADMISSION_REFUSALS: dict[str, _AdmissionRefusalKind] = {
     ),
 }
 # A task-binding refusal (`_native_task_binding_refusal`) is not a fleet
-# outcome; it releases under the admission's general reason as before and
-# summarises as the executor's own policy.
+# outcome; it summarises as the executor's own policy and releases under its
+# own harness-class name, the one the hash-changed binding path uses.
+# ARIA-MEDIUM-427: it released under the fleet's reason, so the 70 releases
+# of 2026-09-18/19 (all `target_revision_mismatch`) read as logged-out sessions.
 TASK_BINDING_REFUSAL = _AdmissionRefusalKind(
-    release_reason="native_runtime_admission_unavailable",
+    release_reason="native_runtime_task_binding_unavailable",
     failure_class="policy_violation", retryable=False,
 )
 # ARIA-HIGH-115 — the implementer's signing identity could not be held in
@@ -4187,11 +4096,22 @@ def _admit_native_route(
                                                  auth_method=_ZAI_AUTH_METHOD,
                                                  credential_source=context.credential.source,
                                                  decision=StatusDecision.UNDECIDED)
+            # ARIA-HIGH-434 — a WRITE-capable profile runs on this route in
+            # the kernel's tool loop, whose every call needs the same room
+            # the Claude writer's spawn does. The vendor said yes; a host
+            # that cannot build the room halts the ladder by that name
+            # (`provider_control_unavailable`), exactly as the claude arm
+            # does — never a claim, an identity and a refusal at the room.
+            from aria_kernel.implementation_safety import sandbox_backend as _zai_room_backend
+
+            room_unavailable = (observed.decision is StatusDecision.AVAILABLE and profile.write_capable
+                                and _zai_room_backend() is None)
             contexts[provider.key] = context
             return _RuntimeStatusObservation(
                 observed.auth_observation, quota_observation=observed.quota_observation,
                 reason=observed.reason, command=(), exit_code=observed.http_status,
-                control_status="available", control_reason="native_http_transport_prepared",
+                control_status="unavailable" if room_unavailable else "available",
+                control_reason="sandbox_unavailable" if room_unavailable else "native_http_transport_prepared",
                 auth_method=_ZAI_AUTH_METHOD, credential_source=context.credential.source,
                 decision=observed.decision,
             )
@@ -5215,8 +5135,9 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     _signer_key_fp = implementation_identity.fingerprint if implementation_identity is not None else None
     # ARIA-HIGH-123 — the same holder's sandbox shape: the request worktree's
     # git dirs bound the way a commit needs, the key masked, the agent socket
-    # bound. Only the Claude route can carry it (the native Codex and Z.ai
-    # routes prepare read-only runtimes and never host an implementation).
+    # bound. The Claude route and (ARIA-HIGH-434) the Z.ai tool loop carry
+    # it; the native Codex route prepares a read-only runtime and never
+    # hosts an implementation (`Provider.admits_writes`).
     _git_containment = _seeded_containment if implementation_identity is not None else None
     _spawn_control = SpawnControl(
         should_cancel=lambda: is_cancelled(request_id, tools_dir),
@@ -5235,12 +5156,15 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         try:
             # Plan 024 v3 §B-8 — pass real lease identity + role from
             # request row into the mock envelope writer. claim_id +
-            # agent_id come from the kernel CLI's claim output (line 209-
-            # 211); role + must_satisfy come from the request_envelope
+            # agent_id come from the kernel CLI's claim output; role +
+            # must_satisfy come from the request_envelope
             # we already loaded for cost-cap evaluation.
             if native_runtime is not None:
                 _invoke_native = {
-                    "codex": _invoke_native_codex, "zai": _invoke_native_zai,
+                    "codex": _invoke_native_codex,
+                    # ARIA-HIGH-434 — the Z.ai route hosts the implementer
+                    # too (its tool loop), in the same containment.
+                    "zai": _functools.partial(_invoke_native_zai, git_containment=_git_containment),
                     "claude": _functools.partial(_invoke_native_claude, prompt_file=prompt_file, resume=_resume,
                                                  git_containment=_git_containment),
                 }[native_runtime.route["runtime"]]
@@ -5510,8 +5434,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # `aria_kernel human-required record` immediately, releases the
     # claim with `reason=agent_refused:<class>`, and returns 0 so the
     # consumer does NOT retry. The kernel state machine recognizes
-    # the human_required event as terminal (line 596 of
-    # agent_invocations.py). The drainer's poll observes no state
+    # the human_required event as terminal
+    # (``agent_invocations.derive_request_state``). The drainer's poll observes no state
     # transition and times out as usual — verdict=challenger_unavailable
     # — but Opus cost stays at 1× per refusal instead of N×.
     try:

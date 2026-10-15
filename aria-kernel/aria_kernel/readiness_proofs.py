@@ -34,7 +34,7 @@ from .enterprise_readiness import (
     record_token_proof,
     record_workflow_run_proof,
 )
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl, sha256_of_canonical_json
 from .ledger_refs import ledger_ref_for_row
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -233,14 +233,10 @@ __all__ = [
 
 def _canonical_sha256(payload: dict[str, Any]) -> str:
     """"sha256:"-prefixed canonical digest — the claim gate's
-    `_is_sha256_digest` REQUIRES the prefix; a raw hex here would mint
-    proofs the gate structurally rejects."""
-    import hashlib
-    import json
-
-    return "sha256:" + hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    `ledger.is_sha256_digest` REQUIRES the prefix; a raw hex here would mint
+    proofs the gate structurally rejects. The digest itself is
+    `ledger.sha256_of_canonical_json`."""
+    return "sha256:" + sha256_of_canonical_json(payload)
 
 
 def record_branch_protection_snapshot(

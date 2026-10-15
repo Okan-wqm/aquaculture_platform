@@ -10,17 +10,31 @@ from .phase2_utils import record_workspace_governance_once
 from .workspace import WorkspacePaths
 
 
-def trust_escalation_derive(paths: WorkspacePaths, *, cycle_id: str) -> dict[str, Any]:
+# How many distinct feedback sources make a capability gap trusted. The
+# sources are counted across the unknowns, missed_signals and
+# external_feedback ledgers as list_feedback_without_integrity reads them,
+# without hash-chain verification. The escalation writer
+# (trust_escalation_derive) and the trusted-key reader (trusted_gap_keys)
+# share this one definition, so they cannot disagree about which gap is trusted.
+TRUSTED_GAP_MIN_SOURCES = 3
+
+
+def _gap_source_groups(paths: WorkspacePaths) -> dict[str, set[str]]:
     grouped: dict[str, set[str]] = {}
     for row in list_feedback_without_integrity(paths):
         gap = row.get("capability_gap_key")
         source = row.get("source")
         if isinstance(gap, str) and isinstance(source, str):
             grouped.setdefault(gap, set()).add(source)
+    return grouped
+
+
+def trust_escalation_derive(paths: WorkspacePaths, *, cycle_id: str) -> dict[str, Any]:
+    grouped = _gap_source_groups(paths)
     escalated = 0
     item_failures: list[dict[str, Any]] = []
     for gap, sources in sorted(grouped.items()):
-        if len(sources) < 3:
+        if len(sources) < TRUSTED_GAP_MIN_SOURCES:
             continue
         if any(row.get("details", {}).get("capability_gap_key") == gap for row in _governance(paths, "feedback_escalated_to_trusted")):
             continue
@@ -97,13 +111,10 @@ def trusted_gap_keys(paths: WorkspacePaths) -> set[str]:
         for row in _governance(paths, "feedback_escalated_to_trusted")
         if row.get("details", {}).get("capability_gap_key")
     }
-    grouped: dict[str, set[str]] = {}
-    for row in list_feedback_without_integrity(paths):
-        gap = row.get("capability_gap_key")
-        source = row.get("source")
-        if isinstance(gap, str) and isinstance(source, str):
-            grouped.setdefault(gap, set()).add(source)
-    direct.update(gap for gap, sources in grouped.items() if len(sources) >= 3)
+    direct.update(
+        gap for gap, sources in _gap_source_groups(paths).items()
+        if len(sources) >= TRUSTED_GAP_MIN_SOURCES
+    )
     return direct
 
 

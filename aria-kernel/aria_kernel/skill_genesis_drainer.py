@@ -39,15 +39,16 @@ Operator vision principle "yama yok, kor birakma yok" honored:
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any, Callable, Literal, Protocol, TypedDict
 
 from .convergent_skill_authoring import run_convergent_authoring
+from .genesis_adapter_custody import materialize_drafted_adapter
+from .genesis_policy import skill_genesis_drainer_policy
 from .ledger import append_declared_jsonl, load_jsonl
 from .request_admission import admit_request
 from .strict_jsonl_reader import read_strict_jsonl
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir, utc_now
 
 
 __all__ = [
@@ -182,7 +183,7 @@ def run_skill_genesis_drainer(
     }
 
     # Policy gate.
-    if not _drainer_enabled(base_dir):
+    if not _drainer_enabled(root):
         result["aggregate_verdict"] = "drainer_disabled"
         return result
 
@@ -255,6 +256,7 @@ def run_skill_genesis_drainer(
             from .skill_genesis import validate_calibration_corpus_sanity
             sanity = validate_calibration_corpus_sanity(
                 corpus_path=corpus_path_str,
+                base_dir=root,
             )
             if sanity.get("status") != "ok":
                 # Corpus missing or malformed; try evidence-pack fallback.
@@ -306,6 +308,13 @@ def run_skill_genesis_drainer(
                 evidence_judge=evidence_judge,
                 adversarial_judge=adversarial_judge,
                 sandbox_runner=sandbox_runner,
+                # ARIA-HIGH-414 — the kernel-side materializer: it registers
+                # only the drafter's accepted bytes, only when they are the
+                # bytes the passing calibration ran, as a SHADOW tool whose
+                # scope, timeout and runner the seed and the kernel bind, and
+                # it takes custody of the bytes so every later run re-hashes
+                # them. Without it an authored adapter was never registered.
+                materialize_fn=materialize_drafted_adapter,
             )
         except Exception as _v7_exc:
             _persist_status(
@@ -436,23 +445,19 @@ def _latest_status(
     return ""
 
 
-def _drainer_enabled(base_dir: str | Path | None) -> bool:
+def _drainer_enabled(root: Path) -> bool:
     """Plan ARIA-V7 §2h v2 (U-2 resolution) — policy gate.
 
-    Reads ``genesis_policy.skill_genesis_drainer.enabled`` (default
-    True if missing — fail-OPEN so existing installs continue to
-    drain). Operator opts out by setting enabled=false in the
-    aria-config override.
+    Reads ``genesis_policy.skill_genesis_drainer.enabled`` (default True
+    when the key is absent, so existing installs keep draining). The
+    operator override is read from the workspace the tools store ``root``
+    is BOUND to (``tool_registry.bound_workspace_root``, the owner the cost
+    and drain-capacity gates read too) — not from the store itself (ARIA-HIGH-470).
+    A missing or unreadable override already falls back to the package
+    defaults inside ``load_policy``.
     """
-    try:
-        from .genesis_policy import skill_genesis_drainer_policy
-        policy = skill_genesis_drainer_policy(repo_root=base_dir)
-        return bool(policy.get("enabled", True))
-    except Exception:
-        # Fail-OPEN so missing policy doesn't silently disable the
-        # drainer (operator visibility via reflection telemetry
-        # surfaces the policy gap).
-        return True
+    policy = skill_genesis_drainer_policy(repo_root=bound_workspace_root(root))
+    return bool(policy.get("enabled", True))
 
 
 # =============================================================================

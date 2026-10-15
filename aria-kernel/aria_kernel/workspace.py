@@ -9,7 +9,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, file_hash, read_jsonl, write_index
+from .ledger import append_declared_jsonl, atomic_write_json, file_hash, read_jsonl, sha256_of_canonical_json, write_index
 
 
 @dataclass(frozen=True)
@@ -336,7 +336,7 @@ def ensure_workspace(paths: WorkspacePaths) -> None:
                 },
             )
         _prepare_workspace_dirs(paths)
-        _atomic_write_json(paths.identity_file, identity)
+        atomic_write_json(paths.identity_file, identity)
         record_workspace_governance(
             paths,
             "workspace_bootstrapped",
@@ -391,7 +391,7 @@ def governance_event(kind: str, details: dict[str, Any]) -> dict[str, Any]:
         "kind": kind,
         "ts": ts,
     }
-    digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    digest = sha256_of_canonical_json(canonical)
     slug_prefix = kind.replace("_", "-")[:32] or "event"
     return {
         "$schema": "aria/governance-event/v2",
@@ -434,13 +434,6 @@ def _workspace_has_covered_state(paths: WorkspacePaths) -> bool:
     if paths.feedback_index.exists():
         return True
     return any(path.exists() and path.stat().st_size > 0 for path in paths.ledgers.values())
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
 
 
 def _index_state(paths: WorkspacePaths) -> dict[str, Any]:

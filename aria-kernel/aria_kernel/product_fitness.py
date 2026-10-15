@@ -82,7 +82,12 @@ def load_charter(workspace_root: str | Path) -> dict[str, Any]:
 def _verdict_for_workflows(
     wanted: list[str], runs: list[dict[str, Any]],
 ) -> tuple[str, str]:
-    """green only when every named lane ran and none failed."""
+    """green only when every named lane ran and none failed.
+
+    A lane whose newest run has not completed is still running: it has
+    concluded nothing, so it is unknown, never red. A lane that already
+    failed stays red whatever the others are still doing.
+    """
     by_name: dict[str, str] = {}
     for row in runs:
         name = str(row.get("name") or "")
@@ -99,12 +104,15 @@ def _verdict_for_workflows(
     missing = [name for name in wanted if name not in by_name]
     if missing:
         return "unknown", f"lane did not report: {', '.join(sorted(missing))}"
+    running = [name for name, conclusion in by_name.items() if conclusion == "running"]
     failed = [
         name for name, conclusion in by_name.items()
-        if conclusion not in _PASSING_CONCLUSIONS
+        if conclusion != "running" and conclusion not in _PASSING_CONCLUSIONS
     ]
     if failed:
         return "red", f"failing: {', '.join(sorted(failed))}"
+    if running:
+        return "unknown", f"lane still running: {', '.join(sorted(running))}"
     return "green", f"all {len(wanted)} lane(s) passed"
 
 

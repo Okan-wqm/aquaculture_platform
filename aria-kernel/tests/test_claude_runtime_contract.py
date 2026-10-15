@@ -457,7 +457,8 @@ class WriteContainmentTests(unittest.TestCase):
                 permission_mode=None,
                 workspace_root=_REPO_ROOT,
             )
-        self.assertEqual(wrapped[0], "bwrap")
+        # By the absolute path the kernel resolved (ARIA-MEDIUM-432).
+        self.assertEqual((os.path.isabs(wrapped[0]), os.path.basename(wrapped[0])), (True, "bwrap"))
         self.assertEqual(wrapped[-len(self._ARGV):], self._ARGV)
         # The agent must reach the Claude API, so the network is NOT unshared —
         # the property bought here is filesystem containment.

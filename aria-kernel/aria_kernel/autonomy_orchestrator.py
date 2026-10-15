@@ -62,8 +62,9 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, NamedTuple
+from typing import TYPE_CHECKING, Any, Callable
 
+from .artifact_safety import published_text, scrub_text
 from .autonomy_state import (
     FUNNEL_RECORDED_DETAIL,
     PLAN_MINTED_PHASE,
@@ -72,6 +73,7 @@ from .autonomy_state import (
 )
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
+from .ledger import LedgerIntegrityError
 from .next_cycle_queue import defer_projection, mark_consumed, read_pending
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
@@ -137,18 +139,51 @@ _DAEMON_LOCK_TIMEOUT_SECONDS: float = 2.0
 _ORCHESTRATOR_ACTION_KIND: str = "agent_claim"
 
 
-def _notify_cycle_failed(root: Any, cycle_id: str, exc: BaseException) -> None:
-    """Plan 032 Faz 032e — best-effort notification; never masks the failure."""
-    try:
-        from .notify import notify_best_effort
+# ARIA-HIGH-415 — FIXED: the GitHub-issue channel finds its issue by the exact
+# title, so the cycle id it used to carry opened one issue per failed night.
+# Every failing cycle is now one comment on one issue; the cycle and why ride
+# the body.
+CYCLE_FAILED_TITLE = "ARIA cycle failing"
+_CYCLE_FAILURE_REASON_MAX_CHARS = 1000
+_CYCLE_FAILURE_REASON_MAX_PHASES = 5
 
-        notify_best_effort(
-            kind="cycle_failed", key=cycle_id, base_dir=root,
-            title=f"ARIA cycle failed: {cycle_id}",
-            body=f"{type(exc).__name__}: {str(exc)[:500]}",
-        )
-    except Exception:  # noqa: BLE001
-        pass
+
+def _cycle_failure_reason(summary: dict[str, Any]) -> str:
+    """Why a cycle failed, read from the summary BOTH failure outcomes write.
+
+    A cycle that raised carries ``error`` (the except branch); one that
+    returned ``failed`` carries ``failed_phases`` rows whose ``error`` the
+    cycle seal now fills (ARIA-MEDIUM-413). A row without ``error`` is a
+    phase that declared failure and gave no reason; its status says so.
+    """
+    if summary.get("error"):
+        return str(summary["error"])
+    phases = [row for row in summary.get("failed_phases") or [] if isinstance(row, dict)]
+    if phases:
+        return "; ".join(f"{row.get('phase')}: {row.get('error') or row.get('status')}"
+                         for row in phases[:_CYCLE_FAILURE_REASON_MAX_PHASES])
+    return f"status={summary.get('status')} runtime_status={summary.get('runtime_status')}"
+
+
+def _notify_cycle_failed(root: Path, *, cycle_id: str, exit_reason: str, reason: str) -> None:
+    """Plan 032 Faz 032e — a failed cycle is an operator event.
+
+    ARIA-HIGH-415 — called once per failed cycle: after the
+    ``cycle_completed`` transition, whichever way the cycle failed (it
+    returned ``failed`` or raised), and on the ``bridge_replay_required``
+    exit. Before this it ran only in the except branch, so the nights that
+    returned ``failed`` (5/5 on 2026-10-09..10) told nobody. The key carries
+    the exit so a continuing run's failed cycle that then also needs a
+    bridge replay is two notices, not a dedup of the second.
+    ``notify_best_effort`` never raises into the run it reports on.
+    """
+    from .notify import notify_best_effort
+
+    notify_best_effort(
+        kind="cycle_failed", key=f"{cycle_id}:{exit_reason}", base_dir=root,
+        title=CYCLE_FAILED_TITLE,
+        body=f"cycle: {cycle_id}\nexit: {exit_reason}\nreason: {published_text(reason, store_root=root, limit=_CYCLE_FAILURE_REASON_MAX_CHARS)}",
+    )
 
 
 def _iso_now() -> str:
@@ -587,6 +622,88 @@ def _outer_cycle_status(projected: str) -> str:
     return "failed"
 
 
+# The refusal text is published on aria/state, and the repository is public:
+# it goes through the one publish sanitizer (artifact_safety.published_text).
+# The verified reader names a ledger by its absolute path, and a ledger can
+# live outside the store (the committed findings resolve through the workspace
+# or ARIA_REPO_STATE_ROOT), so the sanitizer reduces any other path to its name.
+_REFUSED_REFLECTION_ERROR_MAX_CHARS = 300
+
+
+def _reflect_on_failed_cycle(
+    *,
+    root: Path,
+    cycle_id: str,
+    profile: str,
+    workspace_root: str | Path | None,
+    cycle_summary: dict[str, Any],
+    cycle_result: dict[str, Any] | None,
+    pedagogy_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-420 — the reflection of a night that ended on a failed exit.
+
+    WHY: the cycle runs with ``defer_reflection=True``, so the orchestrator
+    is the only writer of the reflection row. Before this, the two failed
+    exits (fail-closed ``cycle_failed`` and ``bridge_replay_required``) wrote
+    none: aria/state f5c5c86a1 has a reflection for each of the 22 completed
+    cycles since 2026-10-01 and for none of the 5 failed ones. Those were the
+    nights with neither a daily report nor a next-cycle plan.
+
+    WHAT: the post-drain shape the no-pressure exit already uses. The work
+    lanes did not run, so there is no Gate A/B verdict, and ``None`` is the
+    legitimately-skipped sentinel the report renders. Reflection is not a
+    pure observer. It writes the daily report and queues the cycle's
+    schedulable pressures for the next cycle. On a failed night that queueing
+    is the intended self-repair entry (tests/test_failed_cycle_reflection.py).
+
+    The one exception: a ledger that refuses strict verification. The
+    verified reader raises ``LedgerIntegrityError``, and that reader is the
+    single owner of "this ledger cannot be trusted". Before this reflection
+    existed, such a night still exited cleanly as ``cycle_failed`` with its
+    exit row, and a failed night must not exit worse than that. So the
+    refusal is recorded as a second fact about the night, then the exit
+    proceeds. The record has two places:
+    - an autonomy-state row, by the same writer, on the same ledger, as the
+      ``cycle_completed`` row written moments earlier (reflection never
+      reads that ledger);
+    - the summary.
+    The same holds for any other fault in the reflection (review of the
+    2026-10-10 repair stack: a torn ``pressure/<cycle>.json`` raises
+    ``JSONDecodeError``, and the night lost its exit row — the one row the
+    doctor's streak reads). On these two exits the reflection is an addition
+    to a night that already failed, so whatever it raises is recorded the
+    same way under its class name and the exit proceeds exactly as the parent
+    did; it is never swallowed silently. The ok/degraded exits' reflection is
+    unchanged and still raises. The refusal can also come from the
+    reflection's own writes after its row exists: the queue append reads the
+    queue and governance strictly. Either way the error names what refused.
+    """
+    try:
+        return run_reflection(
+            cycle_id=cycle_id,
+            base_dir=root,
+            repo_root=workspace_root,
+            convergence_result=None,
+            review_result=None,
+            **producer_reflection_kwargs(
+                cycle_summary=cycle_summary,
+                cycle_result=cycle_result,
+                pedagogy_lint_result=pedagogy_snapshot,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — recorded below; the failed exit must not get worse
+        refusal = {
+            "status": "refused",
+            "reason": "ledger_integrity" if isinstance(exc, LedgerIntegrityError) else f"reflection_fault:{type(exc).__name__}",
+            "error": published_text(str(exc), store_root=root, limit=_REFUSED_REFLECTION_ERROR_MAX_CHARS),
+        }
+        AutonomyStateReducer.transition(
+            root, cycle_id=cycle_id, phase="failed_cycle_reflection_refused",
+            status="refused", profile=profile, details=refusal,
+        )
+        return refusal
+
+
 def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
     artifact_refs = [
@@ -656,134 +773,6 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
         if marker in cycle_result:
             summary[marker] = cycle_result[marker]
     return summary
-
-
-class PreflightVerdict(NamedTuple):
-    """RC-5 — a preflight outcome that can carry WHY without a positional tuple.
-
-    ``detail`` exists because a refused policy is only actionable if the
-    operator is told which key in which file is wrong. The reason code is for
-    the state machine; the detail is for the human, carried verbatim from the
-    GovernanceError rather than re-worded, so the message the operator reads is
-    the message the code raised.
-    """
-
-    status: str
-    reason: str | None = None
-    detail: str | None = None
-
-
-def _cycle_preflight(
-    *,
-    base_dir: Path,
-    profile_snapshot: str,
-) -> PreflightVerdict:
-    """Plan ARIA-V3 §B2 — cost + failure + lease preflight.
-
-    Returns ``PreflightVerdict("ok")`` when the cycle is permitted to proceed;
-    ``PreflightVerdict("blocked", reason_code, detail)`` when refused.
-
-    ORPHAN-CRITICAL-420 S2 — renamed from ``_autonomous_preflight``. The old
-    name described the old behaviour: the whole body short-circuited OK unless
-    profile was ``autonomous``, on the stated rationale that "strict/standard/
-    observe/frozen have their own gates". They do not. `strict` holds pr_open
-    authority and `standard` holds change_committed authority, and neither
-    consulted the failure breaker anywhere — so a tripped breaker stopped
-    nothing on the profile the scheduled lane actually runs.
-
-    The checks now have three DIFFERENT scopes, which is why they can no
-    longer share one profile test:
-
-      * failure breaker — every profile in PROFILES_WITH_ACTION_AUTHORITY.
-        It exists to stop the system from acting after repeated rejections,
-        so it must cover everything that can act. observe/frozen are exempt
-        by construction (they hold no authority), which also preserves the
-        operator's ability to run a read-only diagnostic cycle while tripped.
-      * cost breaker — autonomous only, unchanged. Cost accrues through the
-        autonomous agent-invocation lane; extending it needs the B0 producer
-        and window analysis that ORPHAN-HIGH-466 tracks, and widening the
-        scope without that would gate profiles against a counter nothing
-        currently increments.
-      * host lease — autonomous only, unchanged, and correctly so: it is a
-        cross-host mutual exclusion for the autonomous daemon. A standard
-        operator-driven cycle has no daemon to race.
-
-    Autonomous evaluation ORDER is preserved exactly (cost, failure, lease)
-    so the reason code an autonomous run reports does not change.
-
-    Reason codes (exit_reason values):
-      * ``cost_breaker_tripped`` — B0 cost circuit breaker tripped
-      * ``failure_breaker_tripped`` — B2 failure circuit breaker tripped
-      * ``autonomous_host_lease_blocked`` — §2n cross-host lease held
-        by a different host
-      * ``policy_refused`` — RC-5. The genesis policy itself is invalid, so no
-        breaker verdict can be computed. Named for the class rather than for
-        one cause: ``circuit_breaker_policy`` refuses BOTH a renamed key
-        (``threshold_24h``) and a ``failure_window_hours`` below the derived
-        floor, and calling the reason ``policy_migration_required`` — as the
-        plan specified — would mislabel the second as a migration when it is a
-        range violation. The specific GovernanceError message is carried in
-        ``detail`` and lands in the governance row, so nothing is lost by
-        having one code.
-    """
-    is_autonomous = profile_snapshot == "autonomous"
-    # Lazy imports — keep run_autonomy_orchestrator importable when
-    # the new B2 modules are absent (e.g. cold downgrade scenarios).
-    if is_autonomous:
-        try:
-            from .cost_budget import current_state as _cost_state
-            if _cost_state(base_dir) == "tripped":
-                return PreflightVerdict("blocked", "cost_breaker_tripped")
-        except ImportError:
-            pass
-    # current_state() is safe to gate on: evaluate_breaker returns
-    # BREAKER_STATE_TRIPPED for dropped/unreadable evidence as well as for a
-    # genuine threshold breach, so damaged evidence blocks rather than reading
-    # as "ok". Operators separate the two causes with `aria-kernel breaker
-    # status`, which prints the verdict reason.
-    from .runtime_profile import PROFILES_WITH_ACTION_AUTHORITY
-
-    if profile_snapshot in PROFILES_WITH_ACTION_AUTHORITY:
-        from .tool_registry import GovernanceError as _PolicyError
-
-        try:
-            from .circuit_breaker import current_state as _failure_state
-            if _failure_state(base_dir) == "tripped":
-                return PreflightVerdict("blocked", "failure_breaker_tripped")
-        except ImportError:
-            pass
-        except _PolicyError as exc:
-            # RC-5. This guard used to catch ImportError ONLY, while the call it
-            # wraps reads the genesis policy: `current_state` -> evaluate_breaker
-            # -> circuit_breaker_policy, which raises GovernanceError by design
-            # when an override carries a renamed key. So an operator with an
-            # untracked aria-config/genesis_policy.json got a traceback out of
-            # run_autonomy_orchestrator, on a path whose whole purpose is to exit
-            # cleanly with a reason code.
-            #
-            # RC-4 widened the trigger rather than leaving it latent: a
-            # failure_window_hours below the derived floor now raises here too.
-            # That is why the two land in one commit — shipping RC-4 alone would
-            # have turned a documented misconfiguration into a crash.
-            #
-            # A misconfiguration is an operator-actionable BLOCKED cycle: not a
-            # crash, and not a swallowed exception that runs the breaker on
-            # defaults the operator never chose.
-            return PreflightVerdict("blocked", "policy_refused", str(exc))
-    if not is_autonomous:
-        return PreflightVerdict("ok")
-    try:
-        from .autonomous_host_lease import acquire_lease
-        from .tool_registry import GovernanceError as _GE
-        try:
-            acquire_lease(base_dir=base_dir)
-        except _GE as exc:
-            if "autonomous_host_lease_blocked" in str(exc):
-                return PreflightVerdict("blocked", "autonomous_host_lease_blocked")
-            raise
-    except ImportError:
-        pass
-    return PreflightVerdict("ok")
 
 
 def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
@@ -1129,12 +1118,13 @@ def run_autonomy_orchestrator(
         worker_drainer = run_worker_scheduler_daemon
     if bridge_drainer is None:
         bridge_drainer = _default_bridge_drainer
-    # Plan ARIA-V3.1-0 — lazy-resolve NoOp defaults for the 5 phase
-    # hooks. Cold-start discipline: each `from .cycle_phases.X import
-    # NoOp*` happens ONLY when the caller did not inject a concrete
-    # runner, so a hermetic `import aria_kernel.autonomy_orchestrator`
-    # never touches the phase modules' transitive dependencies
-    # (closes I-V31-0-05).
+    # Plan ARIA-V3.1-0 — lazy-resolve defaults for the 5 phase hooks.
+    # Cold-start discipline: each `from .cycle_phases.X import ...` happens
+    # ONLY when the caller did not inject a concrete hook, so a hermetic
+    # `import aria_kernel.autonomy_orchestrator` never touches the phase
+    # modules' transitive dependencies (closes I-V31-0-05). Four default to
+    # their NoOp; the profile gate defaults to the per-cycle preflight
+    # (ARIA-MEDIUM-455), since its NoOp would disarm the breakers.
     if plan_content_provider is None:
         from .cycle_phases.plan_source import NoOpPlanContentProvider
         plan_content_provider = NoOpPlanContentProvider()
@@ -1148,8 +1138,8 @@ def run_autonomy_orchestrator(
         from .cycle_phases.cost_telemetry import NoOpCostTelemetryHook
         cost_telemetry_hook = NoOpCostTelemetryHook()
     if profile_gate is None:
-        from .cycle_phases.profile_gate import NoOpProfileGate
-        profile_gate = NoOpProfileGate()
+        from .cycle_phases.profile_gate import PreflightProfileGate
+        profile_gate = PreflightProfileGate()
 
     root = ensure_tools_dir(base_dir)
     daemons_dir = root / "daemons"
@@ -1340,7 +1330,7 @@ def run_autonomy_orchestrator(
                 # means the ledger was corrupted or hand-written. Sparing that
                 # made it IMMORTAL — the earlier note here claimed
                 # `resume_candidate_plan_id` was the backstop, and it is not:
-                # it `continue`s past `_IMPLEMENTATION_PHASE_STATES`, the only
+                # it `continue`s past `IMPLEMENTATION_PHASE_STATES`, the only
                 # states this scanner ever returns, so no mechanism would ever
                 # have collected it. A machine cannot honestly decide between
                 # "abandoned" and "in flight" without a clock, so it stops
@@ -1602,7 +1592,7 @@ def run_autonomy_orchestrator(
                 # Hard-bound by I-V7.7-04 source-substring invariant.
                 _cycle_started_at = time.monotonic()
                 # ARIA_STOP precedes the profile gate (matches
-                # daemons + cycle.py:244 ordering).
+                # daemons + cycle.run_enterprise_cycle ordering).
                 if aria_stop_path.exists():
                     AutonomyStateReducer.transition(
                         root,
@@ -1635,12 +1625,16 @@ def run_autonomy_orchestrator(
                 #   2. circuit_breaker (B2) — failure overrun    [any actor]
                 #   3. autonomous_host_lease (§2n) — cross-host  [autonomous]
                 # On any breaker tripped, exit cleanly with the matching
-                # reason code (no error, no retry storm).
-                preflight_status, preflight_reason, preflight_detail = _cycle_preflight(
+                # reason code (no error, no retry storm). ARIA-MEDIUM-455 — the checks
+                # run through the injectable profile_gate; the default,
+                # `cycle_phases.profile_gate.PreflightProfileGate`, owns them.
+                gate_verdict = profile_gate.evaluate(
+                    profile=profile_snapshot,
                     base_dir=root,
-                    profile_snapshot=profile_snapshot,
+                    workspace_root=Path(workspace_root) if workspace_root else None,
                 )
-                if preflight_status == "blocked":
+                if not gate_verdict.permitted:
+                    preflight_reason = gate_verdict.exit_reason
                     AutonomyStateReducer.transition(
                         root,
                         cycle_id=None,
@@ -1655,7 +1649,7 @@ def run_autonomy_orchestrator(
                             # breaker/lease reasons, which are self-describing;
                             # present for policy_refused, where the reason code
                             # alone would not say which key in which file.
-                            "preflight_detail": preflight_detail,
+                            "preflight_detail": "; ".join(gate_verdict.reasons) or None,
                         },
                     )
                     exit_reason = preflight_reason or "autonomous_preflight_blocked"
@@ -1742,8 +1736,6 @@ def run_autonomy_orchestrator(
                         _cycle_result_status(cycle_result, default="failed"),
                     )
                 except Exception as exc:
-                    # Plan 032 Faz 032e — a failed cycle is an operator event.
-                    _notify_cycle_failed(root, cycle_id, exc)
                     # ORPHAN-HIGH-456 — the lifecycle counter is dropped here
                     # precisely when it matters most: a cycle that crashed is
                     # the one likely to have left a started-without-terminal
@@ -1755,7 +1747,9 @@ def run_autonomy_orchestrator(
                         "cycle_id": cycle_id,
                         "status": "failed",
                         "runtime_status": "failed",
-                        "error": str(exc),
+                        # Published on aria/state (and quoted by the failure
+                        # notice and the failed night's reflection).
+                        "error": published_text(str(exc), store_root=root, limit=_CYCLE_FAILURE_REASON_MAX_CHARS),
                         "cycle_lifecycle": {
                             "valid": False,
                             "incomplete_count": 0,
@@ -1777,18 +1771,36 @@ def run_autonomy_orchestrator(
                         "summary": cycle_summary.get("cycle"),
                     },
                 )
+                # ARIA-HIGH-415 — the ONE notice for a failed cycle, whichever
+                # way it failed (it returned `failed` or raised; both wrote
+                # `cycle_summary["cycle"]` above) and whether or not the run
+                # fails closed. Before the reflection, so a reflection that
+                # raises cannot cost the operator the notice.
+                if cycle_status == "failed":
+                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason="cycle_failed",
+                                         reason=_cycle_failure_reason(cycle_summary["cycle"]))
+                # C5/E8 — one warn-mode pedagogy snapshot per cycle,
+                # taken ONCE here (not inside the kwargs builder) so
+                # every reflection exit reports the same scan instead of
+                # divergent re-scans. It is taken before the fail-closed
+                # branch because the failed exits reflect too
+                # (ARIA-HIGH-420).
+                pedagogy_snapshot = pedagogy_lint_snapshot(workspace_root)
                 if cycle_status in {"ok", "degraded"}:
                     cycles_completed += 1
                 elif fail_closed_on_cycle_failure:
+                    # ARIA-HIGH-420 — the work lanes are skipped and the
+                    # reflection still runs, so a failed night writes its
+                    # report and queues the next cycle's work.
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
                     per_cycle_results.append(cycle_summary)
                     exit_reason = "cycle_failed"
                     break
-
-                # C5/E8 — one warn-mode pedagogy snapshot per cycle,
-                # taken ONCE here (not inside the kwargs builder) so
-                # the five post-drain reflection exits all report the
-                # same scan instead of five divergent re-scans.
-                pedagogy_snapshot = pedagogy_lint_snapshot(workspace_root)
 
                 # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
                 # sentinel. V10.3-B endurance showed cycle 1 challenger
@@ -1893,6 +1905,16 @@ def run_autonomy_orchestrator(
                             "pending_after": pending_after,
                         },
                     ]
+                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason="bridge_replay_required",
+                                         reason=f"bridge_status={bridge_status} pending_after={pending_after}")
+                    # ARIA-HIGH-420 — the second failed exit reflects like
+                    # the first one does.
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
                     per_cycle_results.append(cycle_summary)
                     exit_reason = "bridge_replay_required"
                     break
@@ -2526,7 +2548,7 @@ def run_autonomy_orchestrator(
                     # implementation phase between CONVERGED and
                     # specialist_review." Pre-F-027 the runner was plumbed
                     # via the v9_implementation_runner parameter (defaulted
-                    # to NoOpV9ImplementationRunner at line 368-370) but
+                    # to NoOpV9ImplementationRunner) but
                     # .run() was never invoked — F-024+F-025+F-026 trinity
                     # delivered CONVERGED cycles in production
                     # (v10-5-f-026-validation cycle 3 at 21:24:46) but the
@@ -2889,7 +2911,7 @@ def run_autonomy_orchestrator(
                 # auto_merge so the operator-facing daily report covers
                 # the FULL cycle including Gate A + Gate B verdicts.
                 # V3.3 closes F-010-D2-POSTMORTEM by relocating
-                # reflection from cycle.py:397 to here; V5.4 bumps the
+                # reflection out of the cycle body to here; V5.4 bumps the
                 # schema to v2 and injects the Gate A + Gate B + V5.3
                 # pedagogy snapshots so the daily report's
                 # ``## Convergence`` + ``## Pedagogy`` sections render

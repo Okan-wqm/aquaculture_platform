@@ -12,6 +12,7 @@ from .ledger import (
     StateTransaction,
     append_declared_jsonl,
     append_jsonl,
+    atomic_write_json,
     file_hash,
     load_jsonl,
     rewrite_declared_json,
@@ -19,7 +20,8 @@ from .ledger import (
     write_index,
 )
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
-from .implementation_safety import verify_bash_command_allowed
+from .implementation_safety import KERNEL_CHECKOUT_ROOT, verify_bash_command_allowed
+from .write_root_owner import refuse_foreign_owned_root
 
 
 # Plan ARIA-V2 §3.2 — contract v3 introduces canonical-identity-bound
@@ -103,6 +105,16 @@ class GovernanceError(ValueError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def utc_now_datetime() -> datetime:
+    """The current instant as a tz-aware UTC ``datetime``.
+
+    The datetime counterpart of ``utc_now``: modules that compute windows
+    and deadlines read the instant here instead of each keeping a private
+    ``datetime.now(timezone.utc)`` helper.
+    """
+    return datetime.now(timezone.utc)
 
 
 def parse_utc_stamp(raw: str) -> datetime | None:
@@ -201,24 +213,30 @@ def tools_dir(path: str | os.PathLike[str] | None = None) -> Path:
     --tools-dir aria-tools --acknowledge --reason "<text>"`` once.
     Subsequent invocations from any cwd inside the worktree find the
     canonical aria-tools via walk-up.
+
+    ARIA-HIGH-426 — every resolution is also refused when the root lies in
+    a tree another account owns (``write_root_owner``): a root process
+    writing the runner's store stopped every self-hosted lane.
     """
     if path is not None:
-        return Path(path).resolve()
-    env = os.environ.get("ARIA_TOOLS_DIR")
-    if env:
-        return Path(env).resolve()
-    discovered = _walk_up_to_bound_identity(Path.cwd())
-    if discovered is not None:
-        return discovered
-    raise GovernanceError(
-        "tools_root_unresolvable: no --tools-dir argument, no "
-        "ARIA_TOOLS_DIR env var, and no parent directory contains an "
-        "initialized aria-tools/ with repo_identity.json. Run "
-        "`aria-kernel integrity migrate-tools-bootstrap "
-        "--workspace-root . --tools-dir aria-tools --acknowledge "
-        "--reason \"<text>\"` to initialize a tools root, OR set "
-        "ARIA_TOOLS_DIR=<absolute-path>, OR pass --tools-dir explicitly."
-    )
+        root = Path(path).resolve()
+    elif os.environ.get("ARIA_TOOLS_DIR"):
+        root = Path(os.environ["ARIA_TOOLS_DIR"]).resolve()
+    else:
+        discovered = _walk_up_to_bound_identity(Path.cwd())
+        if discovered is None:
+            raise GovernanceError(
+                "tools_root_unresolvable: no --tools-dir argument, no "
+                "ARIA_TOOLS_DIR env var, and no parent directory contains an "
+                "initialized aria-tools/ with repo_identity.json. Run "
+                "`aria-kernel integrity migrate-tools-bootstrap "
+                "--workspace-root . --tools-dir aria-tools --acknowledge "
+                "--reason \"<text>\"` to initialize a tools root, OR set "
+                "ARIA_TOOLS_DIR=<absolute-path>, OR pass --tools-dir explicitly."
+            )
+        root = discovered
+    refuse_foreign_owned_root(root, role="tools root")
+    return root
 
 
 def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:
@@ -258,7 +276,7 @@ def sync_tools_contract(root: Path) -> dict[str, Any]:
         for field in PUBLISHABLE_IDENTITY_FIELDS
         if identity.get(field) is not None
     }
-    _atomic_write_json(root / TOOLS_CONTRACT_FILENAME, contract)
+    atomic_write_json(root / TOOLS_CONTRACT_FILENAME, contract)
     return contract
 
 
@@ -285,10 +303,10 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
             "schema_version": 2,
         }
         _prepare_tools_dirs(root)
-        _atomic_write_json(identity_file, identity)
+        atomic_write_json(identity_file, identity)
         sync_tools_contract(root)
         if not registry_path(root).exists():
-            _atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
+            atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
         append_tools_governance(
             root,
             "tools_root_bootstrapped",
@@ -406,7 +424,7 @@ def ensure_tools_binding(
         identity["bound_repo_root"] = str(repo_root)
         identity["aria_tools_contract_version"] = SCHEMA_VERSION
         identity["schema_version"] = SCHEMA_VERSION
-        _atomic_write_json(identity_file, identity)
+        atomic_write_json(identity_file, identity)
         sync_tools_contract(root)
         append_tools_governance(
             root,
@@ -439,7 +457,7 @@ def ensure_tools_binding(
             identity["bound_canonical_identity"] = legacy_bound
             identity["aria_tools_contract_version"] = SCHEMA_VERSION
             identity["schema_version"] = SCHEMA_VERSION
-            _atomic_write_json(identity_file, identity)
+            atomic_write_json(identity_file, identity)
             sync_tools_contract(root)
             append_tools_governance(
                 root,
@@ -725,13 +743,6 @@ def _tools_has_covered_state(root: Path) -> bool:
     return any(path.exists() and path.stat().st_size > 0 for path in covered_tool_ledgers(root).values())
 
 
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
-
 def _guard_tools_lock(root: Path) -> None:
     lock_path = root / "tools.lock"
     if not lock_path.exists():
@@ -958,7 +969,9 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     if cwd_path.is_absolute() or ".." in cwd_path.parts:
         raise GovernanceError("runner.cwd must be relative to the workspace root and must not escape it")
     try:
-        verify_bash_command_allowed(list(candidate["argv"]), cwd=cwd)
+        # ARIA-HIGH-431 — an absolute program is trusted only as the running
+        # kernel's own code: the checkout this kernel runs from anchors it.
+        verify_bash_command_allowed(list(candidate["argv"]), cwd=cwd, checkout_root=KERNEL_CHECKOUT_ROOT)
     except Exception as exc:
         raise GovernanceError(f"runner.argv_rejected_by_command_policy:{exc}") from exc
     timeout_ms = candidate.get("timeout_ms")
@@ -1463,6 +1476,19 @@ def transition_tool(
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
             if critical_false_positives > 0:
                 raise GovernanceError("SHADOW -> ACTIVE requires zero critical false positives")
+            # ARIA-HIGH-414 — a skill-genesis drafted adapter: its custody
+            # bytes must still verify, and the authority must be an operator
+            # act or the panel; the auto-promote token alone is refused.
+            # Structural, so a refusal spends no operator act. Late import:
+            # genesis_adapter_custody imports this module.
+            from .genesis_adapter_custody import verify_genesis_promotion
+
+            verify_genesis_promotion(
+                tool,
+                operator_approval_ref=operator_approval_ref,
+                panel_approval_token=panel_approval_token,
+                base_dir=base_dir,
+            )
     leaving_quarantine = (
         current == "QUARANTINED" and target_status not in _QUARANTINE_EXITS_WITHOUT_APPROVAL
     )

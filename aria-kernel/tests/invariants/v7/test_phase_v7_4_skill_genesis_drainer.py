@@ -1,6 +1,6 @@
 """Plan ARIA-V7 §2h v2 V7.4 — skill_genesis_drainer invariants.
 
-Nine invariants pin the Tier-1 contract:
+Ten invariants pin the Tier-1 contract:
 
   * I-V7-01    — skill_genesis_drainer REQUIRED kwarg signature
                  (no default, non-Optional, keyword-only)
@@ -18,6 +18,8 @@ Nine invariants pin the Tier-1 contract:
                  run_convergent_authoring
   * I-V7.4-09  — crash mid-authoring -> status=authoring_error
                  persisted BEFORE re-raise (no infinite retry)
+  * I-V7.4-10  — the enabled switch is read from the BOUND workspace's
+                 aria-config override (ARIA-HIGH-470)
 """
 
 from __future__ import annotations
@@ -196,6 +198,35 @@ class PhaseV7_4SkillGenesisDrainer(unittest.TestCase):
                 ),
             )
 
+    # I-V7.4-10 — the policy override is read from the bound workspace.
+    def test_i_v7_4_10_policy_override_read_from_bound_workspace(self) -> None:
+        """ARIA-HIGH-470 — a store bound to a workspace reads that workspace's policy.
+
+        The gate used to read ``<base_dir>/aria-config``, i.e. the tools
+        store itself, so an operator's ``enabled: false`` in the bound
+        workspace never reached it.
+        """
+        from aria_kernel.skill_genesis_drainer import run_skill_genesis_drainer
+        from aria_kernel.tool_registry import ensure_tools_binding
+
+        ensure_tools_binding(self.base, workspace_root=self.workspace)
+        self._mint_request("req-policy")
+        override = self.workspace / "aria-config" / "genesis_policy.json"
+        override.parent.mkdir(parents=True, exist_ok=True)
+        override.write_text(
+            json.dumps({"skill_genesis_drainer": {"enabled": False}}), encoding="utf-8",
+        )
+        result = run_skill_genesis_drainer(
+            cycle_id="cyc-v7-4-10",
+            base_dir=self.base, workspace_root=self.workspace,
+            profile="standard",
+            primary_drafter=_drafter_ok, challenger_drafter=_drafter_ok,
+            evidence_judge=_judge_ok, adversarial_judge=_judge_ok,
+            sandbox_runner=_sandbox_ok,
+        )
+        self.assertEqual(result["aggregate_verdict"], "drainer_disabled")
+        self.assertEqual(result["requests_dispatched"], 0)
+
     # I-V7.4-04 — non-convergent rows skipped.
     def test_i_v7_4_04_non_convergent_rows_skipped(self) -> None:
         """Plan ARIA-V7 §2h v2 — drainer only dispatches convergent=True."""
@@ -319,6 +350,32 @@ class PhaseV7_4SkillGenesisDrainer(unittest.TestCase):
                 f"Got latest status: {status!r}"
             ),
         )
+
+    # I-V7.4-10 — ARIA-HIGH-414: the drainer hands the custody materializer
+    # to the authoring. Without it an accepted adapter is never registered.
+    def test_i_v7_4_10_dispatch_hands_the_custody_materializer(self) -> None:
+        from unittest import mock
+
+        from aria_kernel.genesis_adapter_custody import materialize_drafted_adapter
+        from aria_kernel.skill_genesis_drainer import run_skill_genesis_drainer
+        self._mint_request("req-materialize")
+        with mock.patch(
+            "aria_kernel.skill_genesis_drainer.run_convergent_authoring",
+            return_value={"authoring_verdict": "shadow_registered"},
+        ) as authoring:
+            result = run_skill_genesis_drainer(
+                cycle_id="cyc-v7-4-10",
+                base_dir=self.base, workspace_root=self.workspace,
+                profile="standard",
+                primary_drafter=_drafter_ok,
+                challenger_drafter=_drafter_ok,
+                evidence_judge=_judge_ok,
+                adversarial_judge=_judge_ok,
+                sandbox_runner=_sandbox_ok,
+            )
+        self.assertEqual(result["requests_dispatched"], 1, msg=result)
+        authoring.assert_called_once()
+        self.assertIs(authoring.call_args.kwargs["materialize_fn"], materialize_drafted_adapter)
 
     # I-V7.4-02 — drainer phase ordering.
     def test_i_v7_4_02_phase_ordering_after_bridge_before_synthesizer(self) -> None:

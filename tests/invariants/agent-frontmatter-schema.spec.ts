@@ -39,6 +39,7 @@
  *   Maintenance : Read, Grep, Glob, Edit, Write
  */
 
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -147,8 +148,8 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
   // Writers (Edit/Write/Bash) + governance-artifact authors run the
   // IMPLEMENTATION tier: opus at effort max, with sonnet as its credit
   // fallback (MODEL_FALLBACK_TIER = {fable: opus, opus: sonnet}). Planning
-  // agents stay on fable, the most capable pool. Mirrors python
-  // WRITE_TIER_AGENTS — the two sets must never diverge (ORPHAN-HIGH-285).
+  // agents stay on fable, the most capable pool. The write tier is read from
+  // python WRITE_TIER_AGENTS below, never restated (ORPHAN-HIGH-285).
   // Plan tranquil-sniffing-pancake Faz 2.1 — the acceptance lane's four
   // agents are pinned explicitly so a silent tier downgrade fails here
   // rather than only changing behaviour. Lead is the decision node (fable);
@@ -164,22 +165,33 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
     ['aria-acceptance-gap-fixer', ['opus', 'max']],
   ]);
 
-  const ARIA_WRITE_TIER = new Set<string>([
-    'aria-implementer',
-    'aria-drafter',
-    'aria-prompt-writer',
-    // Plan 030 — the acceptance lane's fixer holds Edit/Write/Bash and opens PRs;
-    // pin it to opus/max so a write-capable auditor can never be downgraded.
-    'aria-acceptance-gap-fixer',
-    // K3 (ORPHAN-HIGH-285) — the promoted-plan assignment executor holds the
-    // full write toolset; mirrored in python WRITE_TIER_AGENTS.
-    'aria-worker',
-  ]);
+  // ARIA-MEDIUM-466 — python WRITE_TIER_AGENTS (aria-kernel/aria_kernel/agent_runtime_profile.py)
+  // is the only owner of the write tier. A hand-kept copy here diverged once
+  // already (ORPHAN-HIGH-285); reading the set makes a second list impossible.
+  const ARIA_WRITE_TIER = new Set<string>(
+    JSON.parse(
+      execFileSync(
+        'python3',
+        [
+          '-c',
+          'import json; from aria_kernel.agent_runtime_profile import WRITE_TIER_AGENTS; ' +
+            'print(json.dumps(sorted(WRITE_TIER_AGENTS)))',
+        ],
+        {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          env: { ...process.env, PYTHONPATH: 'aria-kernel', PYTHONDONTWRITEBYTECODE: '1' },
+        },
+      ),
+    ) as string[],
+  );
   const isAriaAgent = (file: AgentFile): boolean => file.filenameStem.startsWith('aria-');
 
   it.each(files.map((f) => [f.relPath, f] as const))(
     '%s — model/effort honor the tiering policy',
     (_label, file) => {
+      // An empty read would silently disarm the write-tier pin below.
+      expect(ARIA_WRITE_TIER.size).toBeGreaterThan(0);
       const model = file.frontmatter.get('model');
       const effort = file.frontmatter.get('effort');
       if (!isAriaAgent(file)) {

@@ -14,6 +14,8 @@ from .ledger import append_declared_jsonl, load_jsonl
 from .runs_reader import read_runs_rows
 from .memory import list_memory
 from .observation_coverage import (
+    ADAPTER_DIR,
+    POLICY_RELATIVE_PATH,
     evaluate_observation_coverage,
     unobserved_nights_before_gap,
 )
@@ -116,11 +118,11 @@ def list_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[str
 # clears the token — so the producer and the refusal reader cannot drift.
 GENESIS_ADJUDICATION_BLOCK_TOKEN = GENESIS_ADJUDICATION_REQUIRED
 
-# H-3 — evidence paths an unobserved_surface gap cites, and how many file
-# types it names before the payload stops being readable. The cap bounds the
-# ledger row; the full list stays on the RootCoverage the gap was minted from.
-ADAPTER_MANIFEST_DIR = "tools/aria-adapters"
-OBSERVATION_POLICY_REL = "aria-config/observation_map.json"
+# H-3 — how many file types an unobserved_surface gap names before the
+# payload stops being readable. The cap bounds the ledger row; the full list
+# stays on the RootCoverage the gap was minted from. The adapter directory and
+# observation policy the gap cites are observation_coverage's own paths
+# (ADAPTER_DIR, POLICY_RELATIVE_PATH), the ones its measurement read.
 UNPARSED_TYPES_IN_PAYLOAD = 12
 
 
@@ -165,7 +167,7 @@ def _gaps_from_adapter_registry(
     manifests = {}
     if paths is not None:
         repo_root = Path(getattr(paths, "repo_root")).resolve()
-        manifest_dir = repo_root / "tools" / "aria-adapters"
+        manifest_dir = repo_root.joinpath(*ADAPTER_DIR)
         if manifest_dir.exists():
             for manifest in manifest_dir.glob("*.tool.json"):
                 try:
@@ -345,7 +347,11 @@ def _gaps_from_coverage_gaps(
             normalized = normalized.lstrip("/")
             for name, proot in roots:
                 if normalized == proot or normalized.startswith(proot + "/"):
-                    active.setdefault(name, []).extend(refs)
+                    # Only the ref inside this service is its evidence: a
+                    # foreign ref would widen a genesis draft's scope_globs.
+                    cited = active.setdefault(name, [])
+                    if normalized not in cited:
+                        cited.append(normalized)
                     break
     gaps = []
     for service in sorted(active):
@@ -429,7 +435,7 @@ def _gaps_from_unobserved_surface(
                     f"No adapter can read {row.root}/ — {row.files} files "
                     f"blind for {streak} consecutive nights ({unreadable})"
                 ),
-                evidence_refs=[row.root, ADAPTER_MANIFEST_DIR, OBSERVATION_POLICY_REL],
+                evidence_refs=[row.root, "/".join(ADAPTER_DIR), "/".join(POLICY_RELATIVE_PATH)],
                 # Deliberately empty: relating this to an existing review
                 # agent would recommend extending it, and extending a
                 # reviewer does not give anything a parser for these files.

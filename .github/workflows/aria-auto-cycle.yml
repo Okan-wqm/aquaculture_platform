@@ -2,9 +2,9 @@ name: aria-auto-cycle
 
 # ARIA Operationalization S1+S2 (operator-approved plan 2026-07-02,
 # ORPHAN-MEDIUM-296) — the scheduled PRODUCER lane. aria-agent-executor
-# (02:00 UTC) only drains an already-minted queue; this workflow runs the
+# only drains an already-minted queue; this workflow runs the
 # full `aria-kernel autonomy run` orchestration (discovery → pressure →
-# triage → planner/bridge/worker drains) nightly.
+# triage → planner/bridge/worker drains) on its schedule.
 #
 # ORPHAN-HIGH-728 — the profile is RESOLVED, not fixed, and the resolution
 # is BOUNDED. The `profile_gate` step calls
@@ -53,6 +53,16 @@ name: aria-auto-cycle
 #     so there is no per-run charge for a dollar cap to bound, and the two
 #     figures ($20.00/run, $3.00/cycle) contradicted each other anyway.
 #   - concurrency group, cancel-in-progress: false
+#
+# ARIA-HIGH-415 — the post-cycle observation steps (doctor, self_improve,
+# deliver) carry NO ARIA_STOP guard, deliberately. They spawn no agent and
+# write only the store's own ledgers (notifications outbox, governance,
+# missions), and the ARIA_STOP a night writes by itself is the
+# orchestrator's own, on a deadline overrun (autonomy_orchestrator,
+# phase `cycle_deadline_exceeded`): that is the night that most needs a
+# doctor reading. They run under always(), even on a cancelled run, like the
+# publish they feed; each is bounded by its own timeout-minutes, and the
+# close-out margin of the cycle step prices them.
 
 on:
   schedule:
@@ -97,6 +107,14 @@ on:
         options:
           - 'true'
           - 'false'
+      channel_check:
+        description: 'Send two test notices before the cycle; the second must comment on the issue the first opened'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 # Z1 (ORPHAN-712) — shared self-hosted workspace group; see
 # dataflow-integrity-watchdog.yml for the measured wipe this prevents.
@@ -105,7 +123,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write  # ARIA-AUDIT-016: attestation needs the Actions OIDC channel
+  id-token: write # ARIA-AUDIT-016: attestation needs the Actions OIDC channel
   # PLAN Wave 1 PR 2.6b — contents:write is what the cutover costs. The store
   # publishes by pushing `aria/state`, so the lane needs write on this
   # repository's refs. The blast radius is bounded on the SERVER, not here: the
@@ -195,13 +213,37 @@ jobs:
       # killed that install on 2026-09-03 and twice more, and each kill left
       # node_modules half-populated, so the NEXT run reinstalled from scratch
       # and was killed again. Same reset, one exclusion, loop gone.
+      # ARIA-HIGH-426 — git clean cannot remove what another account wrote
+      # here (a root-run rescue publish, 2026-10-08: every ARIA job failed at
+      # this step for 11 h with a bare exit 1). On failure the step names each
+      # path this account does not own and the remedy. The body is identical
+      # in aria-auto-cycle.yml and aria-agent-executor.yml (pinned by
+      # aria-kernel/tests/test_workspace_reset_names_foreign_owner.py); it runs
+      # before checkout, so no repository action or script can hold it.
       - name: Reset the persistent workspace, keeping installed dependencies
         shell: bash
         run: |
           set -euo pipefail
           if [ -d .git ]; then
-            git reset --hard
-            git clean -ffdx -e node_modules
+            if ! { git reset --hard && git clean -ffdx -e node_modules; }; then
+              me="$(id -un)"
+              foreign="${RUNNER_TEMP}/aria-workspace-foreign-owned.txt"
+              find . -xdev -name node_modules -prune -o ! -uid "$(id -u)" -printf '%u %p\n' > "$foreign" 2>/dev/null || true
+              count="$(wc -l < "$foreign")"
+              if [ "$count" -gt 0 ]; then
+                echo "::error title=Foreign-owned files in the persistent workspace::${count} path(s) under ${GITHUB_WORKSPACE} are not owned by ${me}, so git clean cannot remove them (ARIA-HIGH-426). As root on the runner host: chown -R ${me}:${me} each listed path, or move it aside. Run python and kernel commands on this tree only as ${me} (sudo -u ${me} ...)."
+                head -n 50 "$foreign"
+                {
+                  echo "### Foreign-owned paths in the persistent workspace (${count}, first 50)"
+                  echo '```'
+                  head -n 50 "$foreign"
+                  echo '```'
+                } >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "::error title=Persistent workspace reset failed::git reset or git clean failed and every path is owned by ${me}; the git output above names the cause."
+              fi
+              exit 1
+            fi
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -264,7 +306,8 @@ jobs:
       - name: Pre-flight - Claude Code CLI present
         run: |
           set -euo pipefail
-          REQUIRED_CLAUDE_VERSION="2.1.221"
+          # The floor's one owner is .github/manifests/aria-claude-floor.json (ARIA-HIGH-500).
+          REQUIRED_CLAUDE_VERSION="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -c 'from aria_kernel.doctor import claude_cli_version_floor; print(claude_cli_version_floor())')"
           CLAUDE_VERSION="$(claude --version | awk '{print $1}')"
           python3 - "$REQUIRED_CLAUDE_VERSION" "$CLAUDE_VERSION" <<'PY'
           import sys
@@ -481,6 +524,39 @@ jobs:
             --tools-dir "$ARIA_TOOLS_DIR" \
             --trigger session_start
 
+      # ARIA-HIGH-415 — the operator's proof that the channel reaches a person
+      # (gate f). Two notices with one fixed title: the first opens the issue,
+      # the second must COMMENT on it, which proves the lookup finds a
+      # just-created issue (the old search-index lookup did not, and opened a
+      # second one). Before the cycle, so the answer is minutes away, not hours;
+      # the outbox rows ride the night's publish.
+      - name: Notification channel check (dispatch-gated)
+        if: steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && github.event.inputs.channel_check == 'true'
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARIA_NOTIFY_CHANNELS: github_issue
+          ARIA_NOTIFY_GITHUB_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for n in 1 2; do
+            PYTHONPATH=aria-kernel python3 -m aria_kernel notify send --kind test \
+              --title "ARIA notification channel check" \
+              --body "channel check ${n}/2 from run ${GITHUB_RUN_ID}" \
+              --key "channel-check:${GITHUB_RUN_ID}:${n}" \
+              --tools-dir "$ARIA_TOOLS_DIR" > "${RUNNER_TEMP}/aria-channel-check-${n}.json"
+          done
+          python3 - "${RUNNER_TEMP}/aria-channel-check-1.json" "${RUNNER_TEMP}/aria-channel-check-2.json" <<'PY'
+          import json
+          import sys
+
+          first, second = (json.load(open(path, encoding="utf-8")) for path in sys.argv[1:3])
+          actions = [rows[0]["detail"].get("action") for rows in (first, second)]
+          print(f"channel check: {actions}")
+          if [r["status"] for r in (*first, *second)] != ["sent", "sent"] or actions[1] != "commented":
+              raise SystemExit(f"::error title=ARIA channel check::expected sent+sent with the second commented, got {actions}")
+          PY
+
       - name: Fetch the composed supergraph for the drift scan
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:
@@ -531,17 +607,17 @@ jobs:
       # not do real agent work at all. These two steps are copied from
       # aria-agent-executor.yml so the two lanes cannot drift.
       #
-      # Gated on effective_mock == 'false', not run unconditionally: a mock
-      # cycle spawns no agent and needs no backend, and a hard verify on a
-      # host without unprivileged user namespaces would turn a working mock
-      # nightly red for a capability it never uses.
+      # Not gated on effective_mock: a mock cycle still runs every adapter,
+      # and adapters run only inside the bwrap room (ARIA-CRITICAL-399,
+      # aria_kernel/adapter_room.py), so the backend is verified on every
+      # cycle run, mock or real.
       # RC-9 — one definition, called by both lanes. The pair of steps that
       # used to sit here was duplicated between aria-agent-executor and
       # aria-auto-cycle, with a comment saying they were copied so the lanes
       # could not drift; copying is how they drift. The action also probes
       # BEFORE installing, so an already-provisioned runner needs no apt call.
       - name: Ensure a verified sandbox backend
-        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        if: steps.lease_check.outputs.blocked != 'true'
         uses: ./.github/actions/ensure-sandbox-backend
 
       # ARIA-HIGH-383 — self-revert and branch-update validate in the same
@@ -823,6 +899,15 @@ jobs:
           # names the gate that granted it and the run that recorded it.
           ARIA_PROFILE_APPROVAL_REF: >-
             aria-auto-cycle:ceiling=${{ steps.profile_gate.outputs.ceiling }}:l1-unlock=${{ steps.profile_gate.outputs.l1_valid }}:run=${{ github.run_id }}
+          # ARIA-HIGH-415 — where the kernel's notices go: one issue per fixed
+          # title on this repository, written with the job token above (an
+          # installation token; `issues: write` at the top of this file).
+          # Without the repository name `github_issue` is not configured, and
+          # every notice was an `unconfigured` outbox row (268 of 268 on
+          # aria/state f5c5c86a1). `github_issue` is named so `stdout` is never
+          # selected: a journal is not an inbox.
+          ARIA_NOTIFY_CHANNELS: github_issue
+          ARIA_NOTIFY_GITHUB_REPO: ${{ github.repository }}
         run: |
           # ARIA-HIGH-208 (was ORPHAN-722) — PR identity. A PR opened with
           # the job token is authored by github-actions[bot] and GitHub parks
@@ -856,11 +941,17 @@ jobs:
           fi
           # Smoke-run 31645296013 — a spawn that cannot finish before the
           # job dies must not start. Export the ABSOLUTE deadline this job
-          # runs under (its own timeout-minutes, minus 10 minutes for the
-          # post-steps: handoff snapshot, state verify, publish) so
-          # claude_runtime clamps every spawn's timeout to the remaining
-          # wall-clock instead of letting the last spawn be cut mid-flight
-          # and the whole night quarantine.
+          # runs under: its own timeout-minutes minus a 100-minute close-out
+          # margin for every step after this one, so claude_runtime clamps
+          # every spawn's timeout to the remaining wall-clock instead of
+          # letting the last spawn be cut mid-flight and the whole night
+          # quarantine. The margin's arithmetic: the unbounded close-out
+          # steps measured at most 57 minutes on 842 MB of state (#1371:
+          # handoff 5 + integrity verify 40 + mint 2 + publish 10), and the
+          # observation steps are bounded by their timeout-minutes (doctor
+          # 10 + self_improve 12 + deliver 5; measured 229 s / 245 s / 5 s on
+          # the 2026-10-10 store): 84 of 100 minutes.
+          # aria-kernel/tests/test_auto_cycle_observation_steps.py pins it.
           # ARIA-HIGH-019 — the epoch is anchored at the job-launch step
           # near the top of this job ($ARIA_JOB_LAUNCH_EPOCH), NOT here: a
           # fresh-store restore measured 17m41s before this step (run
@@ -974,6 +1065,77 @@ jobs:
             cat "$BURN_IN_DIR/autonomy-burn-in-report.json" | head -40
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ARIA-HIGH-415 — the doctor, self-improvement and the daily summary run
+      # in the live lane. The gateway daemon that was meant to schedule them is
+      # not deployed on production, so until this the doctor's organs were read
+      # by nobody and no self_improvement mission had ever opened. They run
+      # after the cycle whatever its outcome (always(): a failed night is the
+      # one to read), only on a cycle run, only when the lease check positively
+      # cleared (`blocked == 'false'`: a run whose restore failed bound no
+      # store to read), and before the integrity verify and the publish, so
+      # their rows (outbox, governance, missions) are verified and published
+      # with the night. Each one's exit is 0 on an unhealthy reading: the
+      # reading is the output, and a red step would only hide the publish.
+      - name: Doctor - record the failing organs
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARIA_NOTIFY_CHANNELS: github_issue
+          ARIA_NOTIFY_GITHUB_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel schedule run --action doctor \
+            --tools-dir "$ARIA_TOOLS_DIR" \
+            --workspace-root "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/aria-doctor.json"
+          python3 - "$RUNNER_TEMP/aria-doctor.json" <<'PY'
+          import json, os, sys
+          detail = json.load(open(sys.argv[1], encoding="utf-8"))["detail"]
+          counts = detail["summary"]
+          lines = [f"### ARIA doctor — {'healthy' if detail['healthy'] else 'UNHEALTHY'}", "",
+                   f"ok {counts['ok']} · warn {counts['warn']} · fail {counts['fail']}", ""]
+          lines += [f"- `{organ['name']}` — {organ['reason']}" for organ in detail["failing"]]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("\n".join(lines) + "\n")
+          if not detail["healthy"]:
+              names = ", ".join(organ["name"] for organ in detail["failing"])
+              print(f"::error title=ARIA doctor unhealthy::failing organs: {names}")
+          PY
+
+      # Runs the doctor again inside (`scan_signals`), so it carries the same
+      # notify env: without it the notifications organ would read a CI lane
+      # with no channel.
+      - name: Self-improve - open missions for failing organs
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        timeout-minutes: 12
+        # No GH_TOKEN: the opener writes missions and a HIGH adjudication
+        # record, never a GitHub issue. The channel names stay, because the
+        # doctor it runs judges the lane's channel.
+        env:
+          ARIA_NOTIFY_CHANNELS: github_issue
+          ARIA_NOTIFY_GITHUB_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel schedule run --action self_improve \
+            --tools-dir "$ARIA_TOOLS_DIR" \
+            --workspace-root "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/aria-self-improve.json"
+
+      # One comment a day on one issue: the delivery SLO and the
+      # HUMAN_REQUIRED backlog counts (a record notifies on its own only when
+      # CRITICAL).
+      - name: Deliver - the daily summary with the human-required backlog
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARIA_NOTIFY_CHANNELS: github_issue
+          ARIA_NOTIFY_GITHUB_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel schedule run --action deliver \
+            --tools-dir "$ARIA_TOOLS_DIR" \
+            --workspace-root "$GITHUB_WORKSPACE"
 
       - name: Handoff snapshot - session_stop
         if: always() && steps.lease_check.outputs.blocked != 'true'

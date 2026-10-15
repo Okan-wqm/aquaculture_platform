@@ -198,6 +198,13 @@ class LegacyConvergedPlan(_ReviewedCase):
         self.assertEqual(report["independence_failed"], ["plan-1"])
         self.assertEqual(self.state(), "HUMAN_REQUIRED")
         self.assertEqual(self.operator_items(), [parked_plan_request_id("plan-1")])
+        # The kernel moved it, so the row names the kernel caller, as the
+        # exhaustion and the scope moves do; it is still never the drafter's.
+        from aria_kernel.failure_attribution import attribute_evaluation
+
+        moved = self.last_evaluation()
+        self.assertEqual(moved["forced_by"], "kernel:converged_delivery")
+        self.assertIsNone(attribute_evaluation(moved, plan_id="plan-1", drafter="agent:drafter", ledgers=None))
         again = self.sweep(runner, _ECHO)
         self.assertEqual(again["independence_failed"], [])
         self.assertEqual(self.governance_kinds().count(INDEPENDENCE_MIGRATED_KIND), 1)

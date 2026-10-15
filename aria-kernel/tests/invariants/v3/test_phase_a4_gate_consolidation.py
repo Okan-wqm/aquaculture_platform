@@ -2,7 +2,7 @@
 
 Closes GAP-1 + CRIT-V3-003 + MED-V3-010 + AUDITTRAIL-CRITICAL-003.
 
-Invariants locked (10 cases, I-V3-14..17d):
+Invariants locked (I-V3-14..17e):
 
   * I-V3-14 — gate honours policy flag + profile (parametrised).
   * I-V3-15 — gate.consume_ack_token rejects unsigned token.
@@ -25,6 +25,8 @@ Invariants locked (10 cases, I-V3-14..17d):
     in cli.py for migrate-tools / rollback are unaffected).
   * I-V3-17d — single AutoActionGate type consumed by both
     materialize surfaces (same import path; not duplicated).
+  * I-V3-17e — the gate's module and class docstrings name only
+    gate methods, kernel functions and constructors that exist.
 """
 
 from __future__ import annotations
@@ -311,11 +313,12 @@ class PhaseA4GateConsolidation(unittest.TestCase):
                     )
         self.assertEqual(violations, [], msg="\n".join(violations))
 
-    def test_i_v3_17d_single_gate_type_consumed_by_materialize_and_merge(self) -> None:
+    def test_i_v3_17d_single_gate_type_consumed_by_both_materializers(self) -> None:
         """Both ``materialize_agent_draft`` and ``materialize_skill``
-        AND a future ``merge_if_green`` (Phase B2) MUST consume the
-        SAME ``AutoActionGate`` type. Verify the import path is
-        identical (single source).
+        MUST consume the SAME ``AutoActionGate`` type. Verify the
+        import path is identical (single source). Merge does not
+        consume this gate: ``merge_authority.merge_pr_if_ready`` is
+        the separate real-merge authority.
         """
         from aria_kernel import agent_genesis, skill_genesis
         from aria_kernel.auto_action_gate import AutoActionGate
@@ -332,6 +335,36 @@ class PhaseA4GateConsolidation(unittest.TestCase):
             ann = param.annotation
             ann_str = ann if isinstance(ann, str) else repr(ann)
             self.assertIn("AutoActionGate", ann_str)
+
+    def test_i_v3_17e_gate_docstrings_name_only_existing_api(self) -> None:
+        """The gate's docstrings are where a reader learns how to build
+        and consume it. They once named ``AutoActionGate.from_policy``
+        and ``Gate.permit_merge``, neither of which exists, and so
+        claimed a merge consumer the gate never had. Every gate method,
+        kernel function and constructor they name MUST exist.
+        """
+        import importlib
+
+        from aria_kernel import auto_action_gate
+        from aria_kernel.auto_action_gate import AutoActionGate
+
+        doc = (auto_action_gate.__doc__ or "") + (AutoActionGate.__doc__ or "")
+        missing: list[str] = []
+        for name in re.findall(r"``(?:AutoActionGate|Gate)\.(\w+)", doc):
+            if not hasattr(AutoActionGate, name):
+                missing.append(f"AutoActionGate.{name}")
+        for module_name, name in re.findall(
+            r"``(ack_ledger|merge_authority|auto_merge)\.(\w+)``", doc,
+        ):
+            module = importlib.import_module(f"aria_kernel.{module_name}")
+            if not hasattr(module, name):
+                missing.append(f"{module_name}.{name}")
+        for name in re.findall(
+            r"``(\w+)`` is the (?:only|production|test) constructor", doc,
+        ):
+            if not hasattr(auto_action_gate, name):
+                missing.append(f"auto_action_gate.{name}")
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":

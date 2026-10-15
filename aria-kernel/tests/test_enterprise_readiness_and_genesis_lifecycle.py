@@ -693,5 +693,73 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
         self.assertIn("branch_protection_required", verdict.failure_classes)
 
 
+_KERNEL_DIR = Path(__file__).resolve().parents[1] / "aria_kernel"
+
+
+class Sha256DigestShapeOwnerTests(unittest.TestCase):
+    """ARIA-LOW-491 — the ``sha256:<64 lowercase hex>`` shape has one owner.
+
+    Five modules carried AST-identical private copies of the check; the
+    shape is the one the ledger mints and verifies, so ledger owns it.
+    """
+
+    def test_sha256_digest_shape_has_one_owner(self) -> None:
+        import ast
+
+        definitions = sorted(
+            (path.relative_to(_KERNEL_DIR).as_posix(), node.name)
+            for path in _KERNEL_DIR.rglob("*.py")
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in {"_is_sha256_digest", "is_sha256_digest"}
+        )
+        self.assertEqual(definitions, [("ledger.py", "is_sha256_digest")])
+
+    def test_sha256_digest_semantics(self) -> None:
+        from aria_kernel.ledger import is_sha256_digest
+
+        self.assertTrue(is_sha256_digest("sha256:" + "a" * 64))
+        for rejected in (
+            "sha256:" + "A" * 64,
+            "sha256:" + "a" * 63,
+            "sha256:" + "a" * 65,
+            "sha256:" + "a" * 64 + "\n",
+            "a" * 64,
+            "",
+        ):
+            with self.subTest(value=rejected):
+                self.assertFalse(is_sha256_digest(rejected))
+
+
+class ReadinessBindingFieldsOwnerTests(unittest.TestCase):
+    """ARIA-LOW-491 — the six fields binding a merge proof to its readiness claim
+    are spelled once, in enterprise_readiness; the proof writers read them.
+    """
+
+    _FIELDS = ("repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id")
+
+    def test_the_binding_fields_are_spelled_once(self) -> None:
+        import ast
+
+        width = len(self._FIELDS)
+        hits: list[str] = []
+        for path in sorted(_KERNEL_DIR.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Tuple):
+                    continue
+                values = [elt.value if isinstance(elt, ast.Constant) else None for elt in node.elts]
+                if any(
+                    tuple(values[start:start + width]) == self._FIELDS
+                    for start in range(len(values) - width + 1)
+                ):
+                    hits.append(f"{path.relative_to(_KERNEL_DIR).as_posix()}:{node.lineno}")
+        self.assertEqual(len(hits), 1, hits)
+        self.assertTrue(hits[0].startswith("enterprise_readiness.py:"), hits)
+
+        from aria_kernel.enterprise_readiness import READINESS_BINDING_FIELDS
+
+        self.assertEqual(READINESS_BINDING_FIELDS, self._FIELDS)
+
+
 if __name__ == "__main__":
     unittest.main()

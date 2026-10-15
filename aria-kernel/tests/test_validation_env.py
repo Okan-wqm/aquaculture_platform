@@ -36,6 +36,7 @@ from aria_kernel.validation_env import (
     build_validation_env,
 )
 from aria_kernel.validation_runs_ledger import _validated_spawn_environment
+from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG, injected_git_config
 
 # A runner-job-shaped environment: what a cycle step actually carries after
 # restore-aria-state, the publish credential, a git hook and the operator's
@@ -93,6 +94,13 @@ class BuildValidationEnvTests(unittest.TestCase):
                      "npm_config_//registry.npmjs.org/:_authToken", "GITHUB_ACTIONS", "RUNNER_TEMP", "OPERATOR_NOTE"):
             self.assertNotIn(name, built.env, name)
         self.assertFalse(any("LEAKVALUE" in value for value in built.env.values()), built.env)
+
+    def test_no_injected_git_config_reaches_the_child(self) -> None:
+        # ARIA-HIGH-234 — the allowlist admits only git's config FILE
+        # redirects; no injected header, url rewrite, `-c` export or
+        # `git config` file crosses, so this builder holds no denylist.
+        built = build_validation_env({"PATH": "/usr/bin", **AMBIENT_GIT_CONFIG})
+        self.assertEqual(injected_git_config(built.env), {})
 
     def test_plumbing_toolchain_knobs_and_the_declared_variable_reach_the_child(self) -> None:
         built = build_validation_env(_RUNNER_ENV, declared={"PYTHONPATH": "/recipe/declared"})

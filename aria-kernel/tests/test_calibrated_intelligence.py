@@ -70,6 +70,66 @@ class ClosedFormTest(unittest.TestCase):
             self.assertEqual(detail["multiplier"], 1.0)
 
 
+class FeedbackCountingOwnerTest(unittest.TestCase):
+    """ARIA-MEDIUM-474 — the recommendation pass and the Beta-Binomial calibration read
+    the same feedback ledger. Sharing ``feedback_dial`` made them agree on
+    attribution; the tp/fp counting must have one owner too, or the two
+    views can still disagree about how many labels a dial has."""
+
+    _ROWS = [
+        {"metadata": {"pressure_source": "own_pr_ci"}, "verdict": "true_positive"},
+        {"metadata": {"pressure_source": "own_pr_ci"}, "kind": "false_positive"},
+        {"metadata": {"pressure_source": "own_pr_ci"}, "verdict": "needs_review"},
+        {"tool_id": "tenant-scoping-adapter", "verdict": "false_positive"},
+        {"tool_id": "tenant-scoping-adapter", "kind": "true_positive"},
+        {"metadata": {"pressure_source": "not-a-source"}, "verdict": "true_positive"},
+    ]
+
+    def test_counts_by_dial_cover_both_dial_kinds(self) -> None:
+        from aria_kernel.calibration_dials import (
+            SOURCE_DIAL,
+            TOOL_DIAL,
+            feedback_counts_by_dial,
+        )
+
+        self.assertEqual(
+            feedback_counts_by_dial(self._ROWS),
+            {
+                (SOURCE_DIAL, "own_pr_ci"): {"tp": 1, "fp": 1},
+                (TOOL_DIAL, "tenant-scoping-adapter"): {"tp": 1, "fp": 1},
+            },
+        )
+
+    def test_source_counts_are_the_source_dial_slice(self) -> None:
+        from aria_kernel.calibrated_intelligence import source_feedback_counts
+        from aria_kernel.calibration_dials import SOURCE_DIAL, feedback_counts_by_dial
+
+        self.assertEqual(
+            source_feedback_counts(self._ROWS),
+            {
+                name: counts
+                for (kind, name), counts in feedback_counts_by_dial(self._ROWS).items()
+                if kind == SOURCE_DIAL
+            },
+        )
+
+    def test_both_feedback_views_count_through_one_owner(self) -> None:
+        from unittest import mock
+
+        from aria_kernel import calibration, calibration_dials
+        from aria_kernel.calibrated_intelligence import source_feedback_counts
+
+        with TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            with mock.patch.object(
+                calibration_dials, "feedback_counts_by_dial",
+                wraps=calibration_dials.feedback_counts_by_dial,
+            ) as spy:
+                source_feedback_counts(self._ROWS)
+                calibration._pressure_weight_recommendations(self._ROWS, base_dir=root)
+        self.assertEqual(spy.call_args_list, [mock.call(self._ROWS), mock.call(self._ROWS)])
+
+
 class ThompsonTest(unittest.TestCase):
     _CANDS = [
         {"key": "a", "successes": 8, "trials": 10},

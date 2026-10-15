@@ -26,6 +26,10 @@ import io
 import json
 import os
 import pwd
+import re
+import shlex
+import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -54,6 +58,25 @@ _HABITAT = _REPO_ROOT / "scripts" / "aria" / "runner-habitat" / "systemd"
 _RULES = _REPO_ROOT / "infrastructure" / "monitoring" / "droplet" / "rules" / "80-aria-t2-boundary.yml"
 # ADR-0023 names the runner account; the habitat drop-in pins it.
 _T2_ACCOUNT = "gharunner"
+_NOBODY = 65534
+
+
+def _unit_settings(name: str, section: str) -> dict[str, str]:
+    """One section of a habitat unit, read as systemd reads it: a trailing backslash joins the next line."""
+    import configparser
+
+    parser = configparser.ConfigParser(strict=False, interpolation=None)
+    parser.optionxform = str  # systemd keys are case-sensitive
+    parser.read_string(re.sub(r"\\\n", " ", (_HABITAT / name).read_text(encoding="utf-8")))
+    return dict(parser[section])
+
+
+def _root_step(key: str) -> list[str]:
+    """A root (``+``) step of the probe unit as the argv systemd runs, the ``+`` taken off."""
+    argv = shlex.split(_unit_settings("aria-t2-probe.service", "Service")[key])
+    if not argv[0].startswith("+"):
+        raise AssertionError(f"{key} is not a root step: {argv[0]}")
+    return [argv[0][1:], *argv[1:]]
 
 
 def _clean_env() -> mock._patch:
@@ -300,12 +323,7 @@ class HourlyProbeHabitatTests(unittest.TestCase):
     """The hourly timer runs the probe as gharunner, with nothing in the unit answering for the account."""
 
     def _settings(self, name: str, section: str) -> dict[str, str]:
-        import configparser
-
-        parser = configparser.ConfigParser(strict=False, interpolation=None)
-        parser.optionxform = str  # systemd keys are case-sensitive
-        parser.read_string((_HABITAT / name).read_text(encoding="utf-8"))
-        return dict(parser[section])
+        return _unit_settings(name, section)
 
     def test_the_service_runs_the_root_owned_probe_as_gharunner_and_masks_nothing(self) -> None:
         service = self._settings("aria-t2-probe.service", "Service")
@@ -320,6 +338,29 @@ class HourlyProbeHabitatTests(unittest.TestCase):
         script = (_REPO_ROOT / "scripts" / "aria" / "aria-t2-probe.sh").read_text(encoding="utf-8")
         self.assertIn("habitat t2-probe", script)
         self.assertIn('--key-dir "$HOME/.ssh"', script)
+
+    def test_the_service_fetches_main_as_root_before_probing(self) -> None:
+        """ARIA-HIGH-281: the anchor the probe judges is origin/main as of this run, not a frozen checkout."""
+        service = self._settings("aria-t2-probe.service", "Service")
+        pre = service["ExecStartPre"].split()
+        # `+` runs it as root; `env -i HOME=/root` keeps gharunner's environment and ~/.gitconfig out of a root git.
+        self.assertEqual(pre[:4], ["+/usr/bin/env", "-i", "HOME=/root", "GIT_TERMINAL_PROMPT=0"])
+        git = pre[4:]
+        self.assertEqual(git[:3], ["/usr/bin/git", "-C", "/var/lib/aria/code"])
+        # https only; no hook the checkout carries (core.hooksPath=.husky is relative to the work tree) and no
+        # credential helper (the operator's gh token) runs in a root process: RootFetchTests runs them.
+        self.assertEqual([git[i + 1] for i, arg in enumerate(git[:-1]) if arg == "-c"],
+                         ["protocol.allow=never", "protocol.https.allow=always", "core.hooksPath=/dev/null",
+                          "credential.helper="])
+        self.assertIn("fetch", git)
+        self.assertEqual(git[-2:], ["origin", "+refs/heads/main:refs/remotes/origin/main"])
+        for verb in ("checkout", "switch", "reset", "pull", "merge", "worktree"):
+            self.assertNotIn(verb, git, "the probe moves the remote-tracking ref only, never the code the units run")
+        self.assertFalse(service["ExecStart"].startswith(("+", "!")), "the probe itself runs as gharunner")
+        self.assertEqual(service["User"], "gharunner")
+        # A oneshot has no start timeout by default: a stalled fetch would hold the unit active and the
+        # timer would never fire again. Bounded, the run fails, nothing is published, the next hour retries.
+        self.assertEqual(service.get("TimeoutStartSec"), "10min")
 
     def test_the_provisioner_installs_the_probe_with_the_habitat_and_enables_it(self) -> None:
         script = (_REPO_ROOT / "scripts" / "aria" / "provision_runner.sh").read_text(encoding="utf-8")
@@ -340,6 +381,168 @@ class HourlyProbeHabitatTests(unittest.TestCase):
         self.assertIn("aria_t2_boundary_probe_timestamp_seconds", silent["expr"])
         for series in ("aria_t2_boundary_held", "aria_t2_boundary_probe_timestamp_seconds"):
             self.assertIn(f"\n{series} ", "\n" + published)
+
+
+class RootFetchTests(unittest.TestCase):
+    """The unit's root fetch runs nothing the checkout or a credential store selects.
+
+    The repository config sets ``core.hooksPath=.husky``, relative to the work
+    tree, so a hook that lands on ``main`` would run as root on every fetch;
+    the config git reads as root names ``gh auth git-credential``, so a 401
+    would hand the operator's token to an unattended job. Each test runs the
+    unit's own argv: the file transport stands in for https (the one flag the
+    test adds), and a control without the unit's guard shows the hook or helper
+    would have run.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-t2-fetch-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.marker = self.tmp / "ran"
+        self.upstream, self.code = self.tmp / "upstream", self.tmp / "code"
+        git(self.tmp, "init", "-q", "-b", "main", str(self.upstream))
+        self._commit("one")
+        git(self.tmp, "clone", "-q", str(self.upstream), str(self.code))
+        git(self.code, "config", "core.hooksPath", ".husky")
+        hooks = self.code / ".husky"
+        hooks.mkdir()
+        hook = hooks / "reference-transaction"
+        hook.write_text(f'#!/bin/sh\necho "hook $1" >> {self.marker}\n', encoding="utf-8")
+        hook.chmod(0o755)
+        self.tip = self._commit("two")
+
+    def _commit(self, message: str) -> str:
+        git(self.upstream, "-c", "user.email=t@aria.test", "-c", "user.name=t", "commit", "-q", "--allow-empty",
+            "-m", message)
+        return git(self.upstream, "rev-parse", "HEAD").strip()
+
+    def _argv(self, *, drop: str = "", verb: tuple[str, ...] = ()) -> list[str]:
+        """The unit's ExecStartPre against the scratch checkout, minus the ``-c`` pair ``drop`` names."""
+        argv = [f"HOME={self.home}" if arg == "HOME=/root" else str(self.code) if arg == "/var/lib/aria/code" else arg
+                for arg in _root_step("ExecStartPre")]
+        if drop:
+            at = argv.index(drop)
+            del argv[at - 1:at + 1]
+        at = argv.index("fetch")
+        if verb:
+            return [*argv[:at], *verb]
+        return [*argv[:at], "-c", "protocol.file.allow=always", *argv[at:]]
+
+    def test_the_root_fetch_runs_no_hook_the_checkout_carries(self) -> None:
+        subprocess.run(self._argv(), check=True, capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(git(self.code, "rev-parse", "refs/remotes/origin/main").strip(), self.tip)
+        self.assertFalse(self.marker.exists(), "a hook the checkout carries ran in the root fetch")
+        self._commit("three")
+        subprocess.run(self._argv(drop="core.hooksPath=/dev/null"), check=True, capture_output=True,
+                       stdin=subprocess.DEVNULL)
+        self.assertIn("hook committed", self.marker.read_text(encoding="utf-8"), "control: the hook is reachable")
+
+    def test_the_root_fetch_asks_no_credential_helper(self) -> None:
+        (self.home / ".gitconfig").write_text(
+            f'[credential "https://github.com"]\n\thelper = "!f() {{ echo url >> {self.marker}; }}; f"\n'
+            f'[credential]\n\thelper = "!f() {{ echo global >> {self.marker}; }}; f"\n', encoding="utf-8")
+        git(self.code, "config", "credential.helper", f"!f() {{ echo repo >> {self.marker}; }}; f")
+        ask = "protocol=https\nhost=github.com\npath=org/repo.git\n\n"
+        unit = subprocess.run(self._argv(verb=("credential", "fill")), input=ask, capture_output=True, text=True)
+        self.assertNotEqual(unit.returncode, 0, "no helper and no prompt: there is no credential to give")
+        self.assertFalse(self.marker.exists(), "a credential helper ran in the root fetch")
+        subprocess.run(self._argv(drop="credential.helper=", verb=("credential", "fill")), input=ask,
+                       capture_output=True, text=True)
+        self.assertEqual(sorted(self.marker.read_text(encoding="utf-8").split()), ["global", "repo", "url"],
+                         "control: every helper is reachable without the unit's reset")
+
+
+def _reachable_by_any_uid(path: Path) -> bool:
+    """Every ancestor root-owned and traversable by any uid."""
+    return all(os.lstat(parent).st_uid == 0 and os.lstat(parent).st_mode & stat.S_IXOTH
+               for parent in Path(os.path.realpath(path)).parents)
+
+
+@unittest.skipUnless(os.geteuid() == 0, "the root publish step needs root to run as root and to drop to the probe "
+                                        "account; the unit text tests above pin it everywhere else")
+class RootPublishTests(unittest.TestCase):
+    """The unit's root ExecStopPost publishes only this run's verdict, read with the probe account's rights.
+
+    The staging directory belongs to the account under test (StateDirectory=
+    with User=gharunner). A root step that follows a path there would let that
+    account aim root at any file (``chmod`` through a symlink), and a published
+    file it still owns would let it rewrite the verdict whenever it likes. Each
+    test runs the unit's own script with the published directory and the probe
+    account moved to scratch.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-t2-publish-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        os.chmod(self.tmp, 0o755)
+        if not _reachable_by_any_uid(self.tmp):
+            self.skipTest(f"{tempfile.gettempdir()} is not traversable by another uid")
+        staging, self.textfile, secret = self.tmp / "staging", self.tmp / "textfile", self.tmp / "secret"
+        for directory in (staging, self.textfile, secret):
+            directory.mkdir(mode=0o755)
+        os.chown(staging, _NOBODY, _NOBODY)
+        self.key = secret / "key"
+        self.key.write_text("root only\n", encoding="utf-8")
+        self.key.chmod(0o600)
+        self.staged = staging / "aria_t2_boundary.prom"
+        self.published = self.textfile / "aria_t2_boundary.prom"
+        argv = _root_step("ExecStopPost")
+        self.assertEqual(argv[:2], ["/bin/sh", "-c"])
+        self.script = (argv[2].replace("/var/lib/node_exporter/textfile", str(self.textfile))
+                       .replace("--reuid=gharunner --regid=gharunner", f"--reuid={_NOBODY} --regid={_NOBODY}"))
+        self.assertNotIn("gharunner", self.script, "the probe account is moved to scratch, every mention of it")
+        # The staging path has one owner, Environment=ARIA_T2_PROBE_TEXTFILE, the path the probe writes to.
+        self.assertNotIn("/var/lib/aria-t2-probe", self.script)
+
+    def _stage(self, content: str) -> None:
+        self.staged.write_text(content, encoding="utf-8")
+        os.chown(self.staged, _NOBODY, _NOBODY)
+
+    def _plant_link(self, target: Path) -> None:
+        self.staged.symlink_to(target)
+        os.lchown(self.staged, _NOBODY, _NOBODY)
+
+    def _publish(self, **exit_env: str) -> None:
+        env = {"PATH": "/usr/bin:/bin", "ARIA_T2_PROBE_TEXTFILE": str(self.staged), **exit_env}
+        subprocess.run(["/bin/sh", "-c", self.script], env=env, capture_output=True, stdin=subprocess.DEVNULL,
+                       timeout=60)
+
+    def test_a_verdict_the_probe_returned_is_published_root_owned(self) -> None:
+        for status in ("0", "3"):
+            with self.subTest(exit_status=status):
+                verdict = f"aria_t2_boundary_held {int(status == '0')}\n"
+                self._stage(verdict)
+                self._publish(EXIT_CODE="exited", EXIT_STATUS=status)
+                seen = os.lstat(self.published)
+                self.assertEqual((seen.st_uid, stat.S_IMODE(seen.st_mode)), (0, 0o644),
+                                 "the account under test must not own, so cannot rewrite, the published verdict")
+                self.assertEqual(self.published.read_text(encoding="utf-8"), verdict)
+                self.assertFalse(os.path.lexists(self.staged), "the verdict is taken out of staging once")
+                self.assertEqual(os.listdir(self.textfile), [self.published.name])
+
+    def test_a_link_the_probe_account_planted_changes_no_root_file(self) -> None:
+        self._plant_link(self.key)
+        self._publish(EXIT_CODE="exited", EXIT_STATUS="0")
+        seen = os.stat(self.key)
+        self.assertEqual((seen.st_uid, stat.S_IMODE(seen.st_mode)), (0, 0o600), "root followed the planted link")
+        self.assertEqual(os.listdir(self.textfile), [], "nothing the probe account cannot read is published")
+
+    def test_an_unbounded_staging_file_publishes_nothing(self) -> None:
+        self._plant_link(Path("/dev/zero"))
+        self._publish(EXIT_CODE="exited", EXIT_STATUS="0")
+        self.assertEqual(os.listdir(self.textfile), [], "root copies a bounded verdict, never an endless stream")
+
+    def test_a_run_the_probe_did_not_finish_publishes_nothing(self) -> None:
+        # systemd sets EXIT_CODE/EXIT_STATUS only once the main process (the probe) ran: an ExecStartPre
+        # failure (the fetch) leaves both unset (systemd.exec(5), "$EXIT_CODE, $EXIT_STATUS").
+        for exit_env in ({}, {"EXIT_CODE": "exited", "EXIT_STATUS": "1"},
+                         {"EXIT_CODE": "killed", "EXIT_STATUS": "TERM"}):
+            with self.subTest(exit_env=exit_env):
+                self._stage("aria_t2_boundary_held 1\n")
+                self._publish(**exit_env)
+                self.assertEqual(os.listdir(self.textfile), [], "a verdict no probe returned is never published")
 
 
 @unittest.skipUnless(pwd.getpwuid(os.geteuid()).pw_name == _T2_ACCOUNT,

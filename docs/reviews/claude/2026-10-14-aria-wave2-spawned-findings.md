@@ -168,6 +168,31 @@ verb can record are listed at the end.
   request, or stop emitting them. A test shows that a request the router emits reaches a consumer.
   Deadline: 2027-01-13.
 
+### ARIA-MEDIUM-508 — a missing repo-local ts-node is priced as a banned-phrase-adapter crash
+
+- **Raised by:** landing L1's completeness critic (ARIA-works check 3c). The defect is already on
+  origin/main 99689e46b. No bucket or registry row covered it.
+- **Problem:** `banned-phrase-adapter` runs as `python3 banned_phrase_adapter.py` and spawns
+  `./node_modules/.bin/ts-node` (`banned_phrase_adapter.py:38`). When that file is absent, the
+  adapter writes status `unavailable` and exits 127 (`:64-65, 185-202`). The runner's
+  missing-dependency guard, `_runner_missing_node_deps` (`tool_runner.py:741-744`), matches only
+  the argv `node ./node_modules/ts-node/dist/bin.js`, which the registry builds from `npx ts-node`
+  (`tool_registry.py:963-964`). Any other non-zero exit becomes status `crash` (`:181-182`), and
+  the runner does not parse stdout, so the adapter's own `unavailable` is lost. A crash rate above
+  0.2 over 10 runs moves the tool to CALIBRATE (`tool_health.py:268-299, 395-396`). The tool
+  returns to SHADOW only after a fixture suite passes (`promotion.py:35`). The fixture-contract skip
+  (`test_adapter_fixture_evidence_contract.py:66-78`) uses the same predicate. This is the class
+  of fault that quarantined six adapters on 2026-08-10, and it is still open for this runner.
+  Reproduced on the L1 tree: in a workspace without `node_modules`, ten bwrap runs of the shipped
+  manifest each ended `crash` with exit 127 and empty stderr, and the tenth health decision was
+  `calibrate` (crash rate 1.0). The nightly lane provisions `node_modules`, so the fault does not
+  fire there. It fires wherever `run_tool` reaches a workspace without repo-local ts-node.
+- **Planned fix:** the manifest's runner declares its repo-local node dependency. `tool_registry`
+  validates that field and derives it for normalised `npx ts-node` runners. `tool_runner` and the
+  fixture-contract skip read that one field, and the argv match is deleted. A test runs this
+  adapter in a workspace without `node_modules` and expects `environment_unavailable` and no
+  `calibrate` decision; today it fails. Deadline: 2027-01-13.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

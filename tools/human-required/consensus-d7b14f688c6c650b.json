@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "lint-rules:sonarjs/cognitive-complexity:libs/backend-common/src/database/schema-manager.service.ts:1445:17",
+    "judgment_group_id": "judge:lint-rules-adapter:finding:5d329ed7e46e9fb00fc02872a52e9d67f4a648c1f750102c76ffde609d591321",
+    "kind": "consensus_escalation",
+    "run_id": "e4a3cc60-640f-4499-a27a-26da8acb0f39",
+    "tool_id": "lint-rules-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'lint-rules:sonarjs/cognitive-complexity:libs/backend-common/src/database/schema-manager.service.ts:1445:17' (tool 'lint-rules-adapter', run 'e4a3cc60-640f-4499-a27a-26da8acb0f39'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-15T00:18:49Z",
+  "request_id": "consensus-d7b14f688c6c650b",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-18T00:18:49Z",
+  "status": "open"
+}

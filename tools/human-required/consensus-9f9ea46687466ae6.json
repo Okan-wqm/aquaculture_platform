@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "lint-rules:security/detect-unsafe-regex:apps/sensor-service/src/automation/compiler/analyzer/ast-adapter.ts:472:30",
+    "judgment_group_id": "judge:lint-rules-adapter:finding:0f4d7c184e2ebca6a1c1caf189e8dc795f25ac27e9711fcdf1f007aedb98c7ef",
+    "kind": "consensus_escalation",
+    "run_id": "a528fb55-6688-4498-a709-fd60a069e900",
+    "tool_id": "lint-rules-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'lint-rules:security/detect-unsafe-regex:apps/sensor-service/src/automation/compiler/analyzer/ast-adapter.ts:472:30' (tool 'lint-rules-adapter', run 'a528fb55-6688-4498-a709-fd60a069e900'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-15T00:18:46Z",
+  "request_id": "consensus-9f9ea46687466ae6",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-18T00:18:46Z",
+  "status": "open"
+}

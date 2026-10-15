@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "migration-without-test:apps/hydroponics-service/src/database/migrations/1800000000000-Baseline.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:64f5f2bd132beab067ee76fb7ee26e8e01724455139b0beae9bdc6bcf32de3e5",
+    "kind": "consensus_escalation",
+    "run_id": "66741a41-38e5-4e82-a79a-8095039a07d5",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'migration-without-test:apps/hydroponics-service/src/database/migrations/1800000000000-Baseline.ts' (tool 'test-gap-adapter', run '66741a41-38e5-4e82-a79a-8095039a07d5'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-15T00:18:22Z",
+  "request_id": "consensus-799bab4c7a68fd04",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-22T00:18:22Z",
+  "status": "open"
+}

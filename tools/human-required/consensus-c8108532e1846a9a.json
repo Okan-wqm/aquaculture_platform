@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "kernel-dead-wire:policy:aria-kernel/aria_kernel/data/runtime_profiles.json:planner",
+    "judgment_group_id": "judge:kernel-dead-wire-adapter:finding:8101f5ef9947e79590748031fd829c3d4f747c53710f56e249d3243ee66bbb62",
+    "kind": "consensus_escalation",
+    "run_id": "35c0f7d6-cd18-442a-9c88-231a76cad643",
+    "tool_id": "kernel-dead-wire-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'kernel-dead-wire:policy:aria-kernel/aria_kernel/data/runtime_profiles.json:planner' (tool 'kernel-dead-wire-adapter', run '35c0f7d6-cd18-442a-9c88-231a76cad643'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-15T00:18:43Z",
+  "request_id": "consensus-c8108532e1846a9a",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-22T00:18:43Z",
+  "status": "open"
+}

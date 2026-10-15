@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/runbooks/sensor-payload-v2-migration.md:72:apps/sensor-ingestion/config.toml",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:545e2caea9b1d735e7d8ad7cdd54c2ffbffb0c292f7d8b4113110639f71d8227",
+    "kind": "consensus_escalation",
+    "run_id": "3b066884-888d-43e8-9d7e-e12a6377cef0",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'doc-staleness:missing:docs/runbooks/sensor-payload-v2-migration.md:72:apps/sensor-ingestion/config.toml' (tool 'doc-staleness-adapter', run '3b066884-888d-43e8-9d7e-e12a6377cef0'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-15T00:18:37Z",
+  "request_id": "consensus-6d08676d7be0e0b7",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-18T00:18:37Z",
+  "status": "open"
+}

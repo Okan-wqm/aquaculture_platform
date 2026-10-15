@@ -23,6 +23,10 @@ WHAT.
   rewritten loose object is caught rather than trusted.
 * :func:`tracked_files_at` answers "is this a tracked file" from the commit's
   tree (``git ls-tree``), not from the index a process can edit.
+* a checkout whose directories, pointers and config only root can change is
+  read by a non-root caller (the T2 probe as ``gharunner``) through a
+  command-line ``safe.directory`` naming exactly that checkout
+  (:func:`_root_owned_trusted`); any other owner stays refused.
 
 The merge lane's check 12 runs on a fresh GitHub-hosted clone; that is the
 backstop for a process that could rewrite ``.git`` wholesale, including
@@ -34,6 +38,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,13 +89,121 @@ def _git_binary() -> str | None:
     return shutil.which("git")
 
 
+_GROUP_OR_OTHER_WRITE = stat.S_IWGRP | stat.S_IWOTH
+
+
+def _root_only(path: str, file_type: int, *, may_be_absent: bool = False) -> bool:
+    """``path`` itself (never followed) is a ``file_type`` root owns that no other account can write."""
+    if may_be_absent and not os.path.lexists(path):
+        return True
+    seen = os.lstat(path)
+    return (stat.S_IFMT(seen.st_mode) == file_type and seen.st_uid == 0
+            and not seen.st_mode & _GROUP_OR_OTHER_WRITE)
+
+
+def _root_only_dir(path: str) -> bool:
+    """A root-only directory no other account can swap out: every ancestor is root's and either
+    writable by root alone or sticky (only an entry's owner or root may move it)."""
+    if not _root_only(path, stat.S_IFDIR):
+        return False
+    for parent in Path(path).parents:
+        seen = os.lstat(parent)
+        if (not stat.S_ISDIR(seen.st_mode) or seen.st_uid != 0
+                or (seen.st_mode & _GROUP_OR_OTHER_WRITE and not seen.st_mode & stat.S_ISVTX)):
+            return False
+    return True
+
+
+def _pointed_dir(pointer: str, *, base: str, prefix: str) -> str | None:
+    """The directory a root-only pointer file (gitfile, ``commondir``) names, parsed as git parses
+    it, or None: a wrong prefix, or a path git would resolve through a symlink to somewhere other
+    than its lexical reading (``link/..``), which the lstat walk over that reading cannot judge.
+
+    git strips only trailing CR and LF off both pointers (``read_gitfile_gently``,
+    ``get_common_dir_noenv``); any other trailing whitespace is part of the path it opens."""
+    text = Path(pointer).read_text(encoding="utf-8").rstrip("\r\n")
+    if not text.startswith(prefix) or len(text) == len(prefix):
+        return None
+    named = os.path.join(base, text[len(prefix):])
+    # git resolves the path physically; a lexical reading differs exactly when a symlink is on the way.
+    target = os.path.normpath(named)
+    return target if os.path.realpath(named) == target else None
+
+
+def _root_owned_trusted(repo_root: str | Path) -> str | None:
+    """The checkout's real path when it passes the trust question below for root and the caller is not root.
+
+    WHY (ARIA-HIGH-281). The hourly T2 probe runs as ``gharunner`` and reads
+    its anchor from ``/var/lib/aria/code``, a checkout root owns so the account
+    under test cannot edit it. git's dubious-ownership guard refuses every
+    repository the caller does not own, and :func:`scrubbed_git_env` drops the
+    system config, so that read always failed. The guard asks one question:
+    could an account the caller does not trust have planted the configuration
+    git would act on? For a repository only root administers the answer is no,
+    because root can already act as any caller. Every other owner stays refused.
+
+    WHAT. This answers that same question, and no other, with pure stat
+    checks and no git call: the work tree, its ``.git`` (a directory, or a
+    gitfile naming the gitdir), the gitdir's ``commondir`` pointer, the common
+    dir, ``config`` and ``config.worktree`` are root's with no group/other
+    write bit, and so is every ancestor of each directory (or it is sticky).
+    git's own guard never looks at the common dir, so this check does. A
+    pointer through a symlink is refused. Entries inside those directories
+    (refs, objects, ``info/``) are not judged, as git's guard does not judge
+    them for a repository the caller owns: who may write them is root's
+    choice. A rewritten ``.git`` is the merge lane's check 12 backstop
+    (module docstring).
+    """
+    if os.geteuid() == 0:
+        return None
+    worktree = os.path.realpath(repo_root)
+    try:
+        if not _root_only_dir(worktree):
+            return None
+        dot_git = os.path.join(worktree, ".git")
+        if stat.S_ISDIR(os.lstat(dot_git).st_mode):
+            gitdir: str | None = dot_git
+        elif _root_only(dot_git, stat.S_IFREG):
+            gitdir = _pointed_dir(dot_git, base=worktree, prefix="gitdir: ")
+        else:
+            return None
+        if gitdir is None or not _root_only_dir(gitdir):
+            return None
+        pointer = os.path.join(gitdir, "commondir")
+        if not os.path.lexists(pointer):
+            common: str | None = gitdir
+        elif _root_only(pointer, stat.S_IFREG):
+            common = _pointed_dir(pointer, base=gitdir, prefix="")
+        else:
+            return None
+        if common is None or not _root_only_dir(common):
+            return None
+        configs = (os.path.join(common, "config"), os.path.join(gitdir, "config.worktree"))
+        if not all(_root_only(path, stat.S_IFREG, may_be_absent=True) for path in configs):
+            return None
+    except (OSError, ValueError):
+        return None
+    return worktree
+
+
 def _git(repo_root: str | Path, *args: str) -> subprocess.CompletedProcess[bytes] | None:
+    """git in ``repo_root`` through the scrubbed environment.
+
+    A checkout whose configuration only root can change, read by a non-root
+    caller, is named in a command-line ``safe.directory``
+    (:func:`_root_owned_trusted`): the system and repository scopes cannot
+    carry that key here, and the caller's global config is the caller's to
+    write, so the command line is the one place this module states the trust
+    rule itself.
+    """
     git = _git_binary()
     if git is None:
         return None
+    trusted = _root_owned_trusted(repo_root)
+    scope = ("-c", f"safe.directory={trusted}") if trusted is not None else ()
     try:
         return subprocess.run(
-            [git, "--literal-pathspecs", "-C", str(repo_root), *args],
+            [git, *scope, "--literal-pathspecs", "-C", str(repo_root), *args],
             stdin=subprocess.DEVNULL, capture_output=True, check=False,
             env=scrubbed_git_env(), timeout=_GIT_TIMEOUT_SECONDS,
         )

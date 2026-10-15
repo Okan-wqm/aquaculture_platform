@@ -268,6 +268,7 @@ def produced_rows() -> list[tuple[str, str, dict[str, Any]]]:
             )),
             ("agent_invocations.rejected", "agent_invocation_results", agent_invocations._build_rejection_row(
                 **result, reasons=["evidence ref unresolved"], reason_codes=["evidence_ref_unresolved"],
+                submission_sources=[],
             )),
             ("readiness_proofs.claim", "enterprise_readiness_claims", enterprise_readiness.readiness_claim_row(
                 readiness_proofs.build_readiness_claim(**_readiness_inputs()),

@@ -550,7 +550,6 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("agent_compliance", "agent-compliance.jsonl", "ledger", "agent_compliance", "runtime", True, "append_fsync", True, profile_surface="agent_compliance", observe_class="action"),
     StateSurface("surface_validations", "surface-validations.jsonl", "ledger", "surface_validations", "runtime", True, "append_fsync", True, profile_surface="surface_validations", observe_class="observation"),
     StateSurface("instinct_candidates", "instinct-candidates.jsonl", "ledger", "instinct_candidates", "runtime", True, "append_fsync", True, profile_surface="instinct_candidates", observe_class="observation"),
-    StateSurface("cost_telemetry", "cost-telemetry.jsonl", "ledger", "cost_telemetry", "runtime", True, "append_fsync", True, profile_surface="cost_telemetry", observe_class="mutation"),
     StateSurface("cost_attribution", "cost-attribution/*.jsonl", "ledger", "budget", "runtime", True, "append_fsync", True, profile_surface="cost_telemetry", observe_class="mutation"),
     StateSurface("validation_plans", "validation/validation-plans.jsonl", "ledger", "validation", "runtime", True, "append_fsync", True, profile_surface="validation_matrix", observe_class="mutation"),
     StateSurface("validation_runs", "validation/validation-runs.jsonl", "ledger", "validation", "runtime", True, "append_fsync", True, profile_surface="validation_matrix", observe_class="mutation"),

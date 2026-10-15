@@ -31,11 +31,14 @@ Gate decision shape:
   * ``human_ack_required: bool`` — derived from policy flag +
     profile. Current mainline authority keeps this ``True`` for every
     live lane; historical snowball lanes cannot auto-mint ack tokens.
-  * ``consume_ack_token(ack_id=..., base_dir=...)`` — verifies HMAC +
-    one-time consumption against ``ack_ledger``. Auto-ack tokens would
-    be minted by ``ack_ledger.mint_auto_ack`` inside
-    ``AutoActionGate.acquire_or_consume``; AUTONOMOUS_AUTO_ACK_LANES is
-    empty, so no current lane reaches that branch.
+  * ``AutoActionGate.acquire_or_consume`` — the ONE consumption path:
+    it verifies an operator ack's HMAC, its scope (the draft, intent,
+    target path, kind and body digest the materializer is about to write)
+    and its one-time use through ``ack_ledger.consume_token``. Autonomous
+    acks would be recorded by ``ack_ledger.record_autonomous_ack`` (minted
+    and consumed in one transaction, never consumable by id);
+    AUTONOMOUS_AUTO_ACK_LANES is empty, so no current lane reaches that
+    branch.
   * ``materialize_event_id`` — chain linkage key persisted in
     every audit row.
 
@@ -56,6 +59,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .ack_row import AckScope
 from .tool_registry import GovernanceError
 
 
@@ -113,51 +117,33 @@ class AutoActionGate:
         # AUTONOMOUS_AUTO_ACK_LANES set makes this branch unreachable today.
         return bool(self.policy_requires_acknowledge)
 
-    def consume_ack_token(
-        self,
-        *,
-        ack_id: str,
-        base_dir: str | Path,
-    ) -> dict[str, Any]:
-        """Plan ARIA-V3 §A4 — verify + consume an ack token.
-
-        Routes through ``ack_ledger.consume_token`` (Phase A5)
-        which is one-time-use (I-V3-19) + HMAC-verified
-        (I-V3-19a..f). The materialize_event_id is the linkage
-        key for the three-event chain.
-        """
-        from .ack_ledger import consume_token
-
-        return consume_token(
-            base_dir=base_dir,
-            ack_id=ack_id,
-            materialize_event_id=self.materialize_event_id,
-        )
-
     def acquire_or_consume(
         self,
         *,
         ack_id: str | None,
         base_dir: str | Path,
-        draft_id: str,
-        intent_id: str,
-        target_path: str,
-        kind: str,
+        scope: AckScope,
         commit_sha_at_mint: str,
         profile_state_at_mint: str,
     ) -> dict[str, Any]:
-        """Plan ARIA-V3 §A4 + §B2 — unified token-resolution path.
+        """Plan ARIA-V3 §A4 + §B2 — unified token-resolution path for one ``scope``.
+
+        ``scope`` is the materializer's ``AckScope`` of the draft row it is
+        about to write (``agent_genesis.ack_scope_for_draft`` /
+        ``skill_genesis.ack_scope_for_draft``).
 
         When ``human_ack_required`` is True: caller MUST pass
-        ``ack_id``; we verify + consume.
+        ``ack_id``; ``ack_ledger.consume_token`` verifies it is an operator
+        ack minted for exactly this scope and consumes it once.
 
-        When ``human_ack_required`` is False, a future live lane contract may
-        auto-mint a fresh token via ``ack_ledger.mint_auto_ack`` and consume it.
-        No current lane reaches that branch.
+        When ``human_ack_required`` is False, a future live lane contract
+        records an autonomous ack for this scope through
+        ``ack_ledger.record_autonomous_ack``, which mints and consumes it in
+        one transaction. No current lane reaches that branch.
         The same materialize_event_id links the mint + consumption
         events through the audit chain.
         """
-        from .ack_ledger import consume_token, mint_auto_ack
+        from .ack_ledger import consume_token, record_autonomous_ack
 
         if self.human_ack_required:
             if not ack_id:
@@ -171,14 +157,13 @@ class AutoActionGate:
                 base_dir=base_dir,
                 ack_id=ack_id,
                 materialize_event_id=self.materialize_event_id,
+                scope=scope,
             )
-        # Autonomous auto-mint path.
-        auto_row = mint_auto_ack(
+        # Autonomous path: minted and consumed by this materialization only.
+        return record_autonomous_ack(
             base_dir=base_dir,
-            draft_id=draft_id,
-            intent_id=intent_id,
-            target_path=target_path,
-            kind=kind,
+            scope=scope,
+            materialize_event_id=self.materialize_event_id,
             profile_name=self.profile,
             lane=self.lane or "",
             classifier_decision_hash=self.classifier.decision_hash,
@@ -186,11 +171,6 @@ class AutoActionGate:
             profile_state_at_mint=profile_state_at_mint,
             commit_sha_at_mint=commit_sha_at_mint,
             breaker_state_at_mint=self.breaker_state,
-        )
-        return consume_token(
-            base_dir=base_dir,
-            ack_id=auto_row.ack_id,
-            materialize_event_id=self.materialize_event_id,
         )
 
 

@@ -66,20 +66,6 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
         from aria_kernel.ack_ledger import mint_operator_ack
         from aria_kernel.auto_action_gate import gate_from_test_fixture
 
-        # Plan ARIA-V3 §A4 + §2l — pre-V3 ``acknowledge=True`` is
-        # gone; construct a Gate and consume an explicit operator ack.
-        ack = mint_operator_ack(
-            base_dir=self.base,
-            draft_id="drf-e6",
-            intent_id="intent-e6",
-            target_path=".claude/agents/aria-test-agent.md",
-            kind="agent",
-            operator_user_id="test-operator",
-            reason="materialize gate test ack",
-            profile_name="autonomous",
-            profile_state_at_mint="autonomous:v1",
-            commit_sha_at_mint="test-head",
-        )
         gate = gate_from_test_fixture(
             profile="autonomous",
             lane="L0-main",
@@ -96,6 +82,20 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
             "aria_kernel.agent_genesis._find_dispatch",
             return_value=self._dispatch(),
         ):
+            # Plan ARIA-V3 §A4 + §2l — pre-V3 ``acknowledge=True`` is
+            # gone; construct a Gate and consume an explicit operator ack.
+            # ARIA-MEDIUM-254 slice A — the mint derives its scope from
+            # the same draft row materialize writes.
+            ack = mint_operator_ack(
+                base_dir=self.base,
+                draft_id="drf-e6",
+                kind="agent",
+                operator_user_id="test-operator",
+                reason="materialize gate test ack",
+                profile_name="autonomous",
+                profile_state_at_mint="autonomous:v1",
+                commit_sha_at_mint="test-head",
+            )
             return materialize_agent_draft(
                 draft_id="drf-e6",
                 assignment_id="as-e6",

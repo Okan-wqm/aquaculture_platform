@@ -3086,17 +3086,21 @@ def build_parser() -> argparse.ArgumentParser:
     ack_init.add_argument("--operator-approval-ref", required=True)
     ack_init.add_argument("--force", action="store_true",
         help="DR-regenerate over an existing key (see runbook §4).")
+    # ARIA-MEDIUM-254 slice A — the ack's scope (intent, target path,
+    # body digest) is derived from the draft, never typed: the former
+    # --intent-id/--target-path let a mint name a subject the draft does
+    # not have, and --operator-approval-ref was required then discarded.
     ack_mint = add_subparser(ack_sub, "mint",
-        help="Operator-mint an ack token for a materialize.")
+        help="Operator-mint an ack token for the draft's current body.")
     ack_mint.add_argument("--draft-id", required=True)
-    ack_mint.add_argument("--intent-id", required=True)
-    ack_mint.add_argument("--target-path", required=True)
     ack_mint.add_argument("--kind", required=True, choices=["agent", "skill"])
     ack_mint.add_argument("--reason", required=True, type=_validate_reason)
-    ack_mint.add_argument("--operator-approval-ref", required=True)
     ack_mint.add_argument("--operator-user-id", required=True)
     ack_mint.add_argument("--profile-state", default="standard")
-    ack_mint.add_argument("--commit-sha", default="HEAD")
+    ack_mint.add_argument("--workspace-root", default=".",
+        help="Checkout whose --commit-sha revision is recorded.")
+    ack_mint.add_argument("--commit-sha", default="HEAD",
+        help="Revision resolved to the full commit SHA recorded on the row.")
     ack_mint.add_argument("--parent-observation-id", default=None)
     ack_rotate = add_subparser(ack_sub, "rotate-key",
         help="Append a new HMAC key, retire the previous head.")
@@ -6271,17 +6275,26 @@ def _main(argv: list[str] | None = None) -> int:
                 force=args.force,
             )
         elif args.ack_command == "mint":
+            # The row records a commit, not the revision name the operator
+            # typed (it stored the literal "HEAD"); resolved through the
+            # hardened reader (scrubbed git env, no option-shaped revision).
+            from .main_anchor import _resolve_commit
+            commit_sha = _resolve_commit(args.workspace_root, args.commit_sha)
+            if commit_sha is None:
+                parser.error(
+                    f"--commit-sha {args.commit_sha!r} does not resolve to a commit "
+                    f"in --workspace-root {args.workspace_root!r}"
+                )
+                return 2
             row = mint_operator_ack(
                 base_dir=args.tools_dir,
                 draft_id=args.draft_id,
-                intent_id=args.intent_id,
-                target_path=args.target_path,
                 kind=args.kind,
                 reason=args.reason,
                 operator_user_id=args.operator_user_id,
                 profile_name=args.profile_state,
                 profile_state_at_mint=args.profile_state,
-                commit_sha_at_mint=args.commit_sha,
+                commit_sha_at_mint=commit_sha,
                 parent_observation_id=args.parent_observation_id,
             )
             result = row.to_dict()

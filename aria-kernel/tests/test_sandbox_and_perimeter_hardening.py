@@ -375,13 +375,74 @@ class ShellChainingDefeatsEveryBashCheck(unittest.TestCase):
     def test_what_bash_runs_as_one_word_stays_one_word(self) -> None:
         """Quoted, escaped and commented operators are data; so is a Unicode line separator,
         which bash does not split on (measured: `bash -c` runs `echo a<U+2028>id` as one word)."""
-        from aria_kernel.command_policy import unquoted_control_operator
+        from aria_kernel.command_policy import unmodelled_shell_syntax
 
         for line in ('git commit -m "a;b"', "git commit -m 'a|b && c'", "git status # a;b|c",
                      "git status -s\u2028id", "git status -s\u2029id"):
             with self.subTest(line=line):
-                self.assertIsNone(unquoted_control_operator(line))
+                self.assertIsNone(unmodelled_shell_syntax(line))
                 verify_bash_command_allowed(argv_of(line), cwd=_REPO_ROOT)
+
+    # ARIA-HIGH-443 (residual) — Python's whitespace class is wider than
+    # bash's blanks (space, tab). `str.rstrip()` removed a trailing line
+    # break together with any such character after it, so `git status\n<VT>`
+    # lexed as one command whose third word is <VT>, while bash ran <VT> as
+    # a second command. Generated, not listed: every character Python calls
+    # whitespace and bash does not ignore at the end of a script.
+    NON_BASH_TRAILING_WHITESPACE: tuple[str, ...] = tuple(sorted(
+        {chr(code) for code in range(0x110000) if chr(code).isspace()} - set(" \t\n")
+    ))
+
+    def test_a_line_break_hidden_by_non_bash_whitespace_is_still_a_break(self) -> None:
+        """Each case through every enforcer: the lexer the hook uses, the kernel's
+        operator detector (tool_runner, verification_gate, fixture_runner) and the
+        PreToolUse verdict itself."""
+        from aria_kernel import command_policy
+        from aria_kernel.hooks import decide_pre_tool
+
+        self.assertIn("\x0b", self.NON_BASH_TRAILING_WHITESPACE)
+        self.assertIn("\r", self.NON_BASH_TRAILING_WHITESPACE)
+        for char in self.NON_BASH_TRAILING_WHITESPACE:
+            line = "git status\n" + char
+            with self.subTest(char=hex(ord(char))):
+                self.assertEqual(argv_of(line), [line])
+                self.assertEqual(shell_control_operator([line]), "\n")
+                verdict = decide_pre_tool({"tool_name": "Bash", "tool_input": {"command": line}},
+                                          workspace_root=_REPO_ROOT)
+                self.assertEqual(verdict.decision, "deny", verdict.reason)
+                self.assertTrue(verdict.reason.startswith("command_policy_deny:BashDenylistHit"), verdict.reason)
+                self.assertEqual(command_policy.unmodelled_shell_syntax(line), "\n")
+
+    def test_only_what_bash_ignores_at_the_end_is_trimmed(self) -> None:
+        """Blanks and line breaks after the last word end the script, not a command."""
+        from aria_kernel.hooks import decide_pre_tool
+
+        for line in ("git status\n", "git status \n \n", "git status \t", "git status\n\t \n"):
+            with self.subTest(line=line):
+                self.assertEqual(argv_of(line), ["git", "status"])
+                verdict = decide_pre_tool({"tool_name": "Bash", "tool_input": {"command": line}},
+                                          workspace_root=_REPO_ROOT)
+                self.assertEqual(verdict.decision, "allow", verdict.reason)
+
+    def test_bash_runs_the_word_after_a_line_break_whatever_whitespace_it_is(self) -> None:
+        """Bash truth: why the gate must refuse. A program named after one of
+        these characters on PATH runs as the second command of `true\\n<char>`."""
+        import shutil
+        import subprocess
+
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is not installed")
+        for char in ("\x0b", "\x0c", "\x1c", "\u00a0", "\u3000"):
+            with self.subTest(char=hex(ord(char))), tempfile.TemporaryDirectory() as tmp:
+                marker = Path(tmp) / "SECOND_COMMAND_RAN"
+                program = Path(tmp) / char
+                program.write_text(f"#!{bash}\n: > '{marker}'\n", encoding="utf-8")
+                program.chmod(0o700)
+                subprocess.run([bash, "--norc", "--noprofile", "-c", "true\n" + char],
+                               env={"PATH": tmp, "LC_ALL": "C"}, check=False, capture_output=True,
+                               timeout=30)
+                self.assertTrue(marker.exists(), f"bash did not run {char!r} as a command")
 
     def test_operators_as_separate_argv_tokens_are_caught_too(self) -> None:
         """A list argv is the shape `subprocess` gets, so an operator that is
@@ -447,6 +508,192 @@ class ShellChainingDefeatsEveryBashCheck(unittest.TestCase):
         self.assertEqual(shell_control_operator(argv_of("git status\rprintenv")), "\r")
         self.assertEqual(shell_control_operator(argv_of("git status $'x'")), "$'")
         self.assertIsNone(shell_control_operator(argv_of("git commit -m 'a\nb'")))
+        # ARIA-HIGH-505 — a word bash would expand is named by its class.
+        self.assertEqual(shell_control_operator(argv_of("git commit -m {x,-n}")), "{,}")
+        self.assertEqual(shell_control_operator(argv_of("git commit -m x$IFS-n")), "$")
+        self.assertEqual(shell_control_operator(argv_of("git commit -m *")), "*")
+        self.assertEqual(shell_control_operator(argv_of("git commit -m ~")), "~")
+        self.assertEqual(shell_control_operator(argv_of("git diff --no-index /dev/null .e\\\nnv")), "\\\n")
+        self.assertEqual(shell_control_operator(argv_of('git commit -m "a\\$b"')), "\\$")
+
+
+class TheGateVerifiesTheArgvBashRuns(unittest.TestCase):
+    """ARIA-HIGH-505 — the Bash gate verified an argv bash never runs.
+
+    `shlex.split` performs no expansion, and the one scanner modelled only
+    operators, line breaks and `$'`. So `git commit -m {x,--amend}` lexed as a
+    commit whose message is `{x,--amend}`, while bash brace-expanded it into
+    `-m x --amend`; `x$IFS-n` word-split into `-n`; `??` globbed into the
+    files of the working directory; `~` became $HOME; a backslash-newline
+    joined `.e` and `nv` into `.env` past the `dotenv_access` rule. The
+    spelled-out forms were refused (`commit_identity`), the expanded forms
+    admitted. Same invariant as ARIA-CRITICAL-446 and ARIA-HIGH-443: a line
+    is admitted only when the argv the gate verifies is the argv bash runs
+    (the bash-truth contract is `test_bash_expansion_differential.py`).
+    """
+
+    EXPANDED = (
+        "git commit -m {x,--amend}",
+        "git commit -m {x,-n}",
+        "git commit -m {x,--author=evil}",
+        "git commit -m {x,--gpg-sign=/tmp/k}",
+        "git commit -m {rewritten,--amend,-n}",
+        "git commit -m x -m {y,--amend}",
+        "git commit -m {x,--no-v{erify,}}",
+        "git commit -m {x..z}",
+        "git commit -m {a},--amend}",                 # bash skips a `}` that closes no expression
+        "git commit -m a{,}",
+        "git commit -m x$IFS-n",
+        "git commit -m $IFS--amend",
+        'git commit -m "x$y"',
+        'git commit -m "a\\$b"',
+        "git commit -m *",
+        "git commit -m ??",
+        "git commit -m [,-]?",
+        "git commit -m ~",
+        "git diff --no-index /dev/null .e{nv,x}",
+        "git diff --no-index /dev/null .en?",
+        "git diff --no-index /dev/null .e\\\nnv",
+    )
+    SPELLED_OUT = ("git commit -m x --amend", "git commit -n -m x")
+
+    def _verdict(self, line: str):
+        from aria_kernel.hooks import decide_pre_tool
+
+        return decide_pre_tool({"tool_name": "Bash", "tool_input": {"command": line}}, workspace_root=_REPO_ROOT)
+
+    def test_every_expansion_is_refused_by_name_through_the_hook(self) -> None:
+        for line in self.EXPANDED:
+            with self.subTest(line=line):
+                self.assertEqual(argv_of(line), [line])
+                verdict = self._verdict(line)
+                self.assertEqual(verdict.decision, "deny", verdict.reason)
+                self.assertTrue(
+                    verdict.reason.startswith("command_policy_deny:BashDenylistHit:shell_expansion_in_command"),
+                    verdict.reason,
+                )
+                with self.assertRaises(BashDenylistHit):
+                    verify_bash_command_allowed(argv_of(line), cwd=_REPO_ROOT, checkout_root=_REPO_ROOT)
+        for line in self.SPELLED_OUT:
+            with self.subTest(line=line):
+                verdict = self._verdict(line)
+                self.assertEqual(verdict.decision, "deny", verdict.reason)
+                self.assertIn("commit_identity:git_commit_foreign_option", verdict.reason)
+
+    def test_quoted_and_git_revision_braces_stay_admitted_with_their_argv(self) -> None:
+        """What bash leaves literal stays admitted, lexed exactly as bash runs it
+        (each expected argv measured with a program that prints its arguments)."""
+        admitted = {
+            "git commit -m '{x,--amend}'": ["git", "commit", "-m", "{x,--amend}"],
+            'git commit -m "{x,--amend}"': ["git", "commit", "-m", "{x,--amend}"],
+            "git commit -m 'a * b'": ["git", "commit", "-m", "a * b"],
+            "git commit -m 'cost $5'": ["git", "commit", "-m", "cost $5"],
+            "git commit -m '~'": ["git", "commit", "-m", "~"],
+            'git commit -m "~"': ["git", "commit", "-m", "~"],
+            "git rev-parse HEAD^{tree}": ["git", "rev-parse", "HEAD^{tree}"],
+            "git log @{u}..HEAD": ["git", "log", "@{u}..HEAD"],
+            "git diff HEAD@{1}..HEAD@{2}": ["git", "diff", "HEAD@{1}..HEAD@{2}"],
+            "git log stash@{0}": ["git", "log", "stash@{0}"],
+            "git diff HEAD~1": ["git", "diff", "HEAD~1"],
+            "git log --format=%H{x}": ["git", "log", "--format=%H{x}"],
+            "git commit -m 'subject\n\nbody'": ["git", "commit", "-m", "subject\n\nbody"],
+            # A word's braces end with the word: the next word's `,` and `}` are literal.
+            "git diff HEAD@{1} a,b}": ["git", "diff", "HEAD@{1}", "a,b}"],
+            "git commit -m 'x$IFS-n'": ["git", "commit", "-m", "x$IFS-n"],
+        }
+        for line, argv in admitted.items():
+            with self.subTest(line=line):
+                self.assertEqual(argv_of(line), argv)
+                verdict = self._verdict(line)
+                self.assertEqual(verdict.decision, "allow", verdict.reason)
+
+    def test_a_substitution_marker_is_refused_inside_quotes_and_the_refusal_says_so(self) -> None:
+        """Two detectors, two refusals. The quote-blind check refuses a
+        backtick, `$(`, `${`, `$[` and `$'` wherever they stand, single quotes
+        included, so its refusal must not advise the single quotes it refuses
+        alike (a backticked name in a commit message got exactly that advice).
+        An expansion the quote-aware scanner reports is lifted by single
+        quotes, and only that refusal says so."""
+        substituted = (
+            "git commit -m 'use `x` here'",
+            'git commit -m "use `x` here"',
+            "git commit -m use`x`",
+            "git commit -m 'a $(b)'",
+            "git status $(x)",
+            "git commit -m '${a}'",
+        )
+        for line in substituted:
+            with self.subTest(line=line):
+                verdict = self._verdict(line)
+                self.assertEqual(verdict.decision, "deny", verdict.reason)
+                self.assertTrue(
+                    verdict.reason.startswith("command_policy_deny:BashDenylistHit:shell_substitution_in_command"),
+                    verdict.reason,
+                )
+                self.assertIn("inside quotes too", verdict.reason)
+                self.assertNotIn("single quotes", verdict.reason)
+        with self.assertRaisesRegex(BashDenylistHit, "^shell_substitution_in_command: '`'"):
+            verify_bash_command_allowed(["git", "commit", "-m", "use `x`"], cwd=_REPO_ROOT)
+        verdict = self._verdict("git commit -m x$IFS-n")
+        self.assertTrue(
+            verdict.reason.startswith("command_policy_deny:BashDenylistHit:shell_expansion_in_command: '$'"),
+            verdict.reason,
+        )
+        self.assertIn("single quotes", verdict.reason)
+        self.assertEqual(self._verdict("git commit -m 'x$IFS-n'").decision, "allow")
+
+    # What bash consumes at command position instead of running it as argv0:
+    # an assignment word, and the reserved words that need no operator.
+    COMMAND_POSITION_WORDS = ("X=a", "X+=a", "GIT_DIR=/tmp/x", "time", "!", "coproc", "[[")
+
+    def test_a_word_bash_consumes_at_command_position_is_never_admitted(self) -> None:
+        """The scanner's contract covers argument positions only: `X=a git
+        status` lexes with argv0 `X=a` while bash runs `git status`. What keeps
+        the command word safe is that every allow rule anchors argv0 to a
+        literal program name; pinned for every allow example, so a rule that
+        ever admits a free first word fails here."""
+        from aria_kernel import command_policy
+
+        for rule in command_policy.ALLOW_RULES:
+            for example in rule.allow_examples:
+                for word in self.COMMAND_POSITION_WORDS:
+                    line = f"{word} {example}"
+                    with self.subTest(rule=rule.name, line=line):
+                        self.assertFalse(any(allowed.match(line) for allowed in impl.ALLOWED_BASH_COMMANDS))
+                        self.assertEqual(self._verdict(line).decision, "deny")
+
+    def test_the_scanner_is_linear_in_the_line(self) -> None:
+        """Review of ARIA-HIGH-505: one candidate per `{`, each walked on every
+        `{`, separator and `}`, made the scan quadratic; a 32 KB brace word held
+        the hook for 75 s and was then admitted, and the hook runs the scanner
+        on every Bash call of model-authored text. Scanned in a child with a
+        deadline, so a regression fails in seconds rather than hanging the
+        suite for the hours a quadratic scan of these lines takes. Verdicts as
+        bash gives them: braces without a separator stay literal."""
+        import subprocess
+
+        braces = 100_000
+        program = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(_KERNEL_ROOT)!r})\n"
+            "from aria_kernel.command_policy import unmodelled_shell_syntax as scan\n"
+            f"n = {braces}\n"
+            "cases = (\n"
+            "    ('git status ' + '{' * n + 'a' + '}' * n, None),\n"
+            "    ('git commit -m ' + '{' * n + '}' * n, None),\n"
+            "    ('git commit -m ' + '{' * n + 'a,b' + '}' * n, '{,}'),\n"
+            "    ('git log ' + '{a}' * n + ',}', '{,}'),\n"
+            ")\n"
+            "for line, expected in cases:\n"
+            "    assert scan(line) == expected, (line[:40], scan(line), expected)\n"
+            "print('scanned')\n"
+        )
+        try:
+            done = subprocess.run([sys.executable, "-B", "-c", program], capture_output=True, text=True,
+                                  check=False, timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail(f"scanning four lines of {braces} braces took over 30 s")
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "scanned"), done.stderr[-2000:])
 
 
 class BroaderScopeClaimsAndSubstringGates(unittest.TestCase):

@@ -68,6 +68,13 @@ in the arbiter ruling).
 Rule: Signing material that a later job must verify against lives where that job can read it, and
 no runner-readable location holds operator signing authority.
 
+Slice A landed on `fix/aria-zai-quality-port` (landing L2, bucket `G023-254-sliceA`) and does not
+close this finding: the operator ack is bound to the draft it authorizes (`AckScope`, with the body
+digest, inside the HMAC subject), autonomous acks are minted and consumed in one transaction, and the
+enrolment walk accepts a namespace added after the genesis (ARIA-HIGH-511). The key custody above is
+unchanged until slice B (`OP-signing-session`, wave-2 operator question Q10) makes an operator ack an
+ADR-0023 signature in the `aria-operator-ack` namespace.
+
 ## ARIA-LOW-318
 
 Recorded 2026-10-03, the core half of ARIA-LOW-252 under the rev3.1 design (Jev as System One, a

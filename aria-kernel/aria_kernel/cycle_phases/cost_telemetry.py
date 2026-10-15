@@ -78,8 +78,8 @@ class NoOpCostTelemetryHook:
     V8 behavior (no per-LLM cost attribution row) is preserved when
     injection is absent.
 
-    Existing cost ledger surfaces (`cost_budget`, `cost_telemetry`
-    legacy) are unaffected; this hook is additive.
+    The existing cost ledger surface (`cost_budget`) is unaffected; this
+    hook is additive.
     """
 
     def record(

@@ -1037,6 +1037,7 @@ def verify_runtime_artifacts(
     _verify_artifact_indexes(root=root, artifact_refs_seen=artifact_refs_seen, issues=issues, compacted=compacted)
     _verify_manifests_and_inventory(root=root, cycle_id=cycle_id, artifact_refs_seen=artifact_refs_seen, issues=issues)
     _verify_retention_events(root=root, issues=issues)
+    _verify_withheld_outputs(root=root, issues=issues)
     return {
         "schema_version": 1,
         "status": "ok" if not issues else "failed",
@@ -2446,6 +2447,85 @@ def _source_is_native_republication(
                     and newer.get("kind") == original.get("kind")):
                 return True
     return False
+
+
+def _regular_file_digest(path: Path) -> str | None:
+    """sha256 of a regular file's bytes, or None when the path holds none
+    (absent, a directory, a symlink — a link publishes its target's name,
+    never the target's bytes). Read in chunks: a raw transcript can be large."""
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return None
+    if not _stat.S_ISREG(metadata.st_mode):
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def _verify_withheld_outputs(*, root: Path, issues: list[dict[str, Any]]) -> None:
+    """ARIA-HIGH-515 — refuse a store where bytes the kernel refused as a
+    credential leak remain.
+
+    Tier 3 behind the submit's tier-1 withholding
+    (``agent_invocations._withhold_submission_sources``): it catches rows
+    written before that existed and any path that ever leaves such bytes
+    behind, before they reach aria/state history or the cache artifact.
+    A refused row is one built withheld or one carrying any of
+    ``agent_invocations.CREDENTIAL_REFUSAL_CODES`` (the one owner of the
+    set); its refused digests are the response it judged (``output_hash``)
+    and every source it listed (``withheld_sources``).
+
+    The check is content-keyed over the WHOLE outputs directory
+    (``agent_invocations.submission_outputs_dir``, the layout's one owner):
+    any regular file there whose bytes hash to a refused digest is an issue,
+    wherever it sits — the seal a pre-fix row points at, the raw file a
+    pre-fix submit left at the request's ``expected_output_path`` (which no
+    row names), or a copy. No path is guessed from a row, so no layout is
+    spelled twice, and a later legitimate file at a refused path is not
+    flagged. Nothing is hashed when no refused row exists.
+    """
+    from .agent_invocations import CREDENTIAL_REFUSAL_CODES, submission_outputs_dir
+
+    results = _safe_load_jsonl(
+        resolve_surface_path(root, surface_by_name("agent_invocation_results")), issues, "agent_invocation_results",
+        expected_surface="agent_invocation_results",
+    )
+    refused: dict[str, dict[str, Any]] = {}
+    for row in results:
+        codes = row.get("rejection_codes")
+        if row.get("output_withheld") is None and not (
+            isinstance(codes, list) and CREDENTIAL_REFUSAL_CODES.intersection(codes)
+        ):
+            continue
+        sources = row.get("withheld_sources")
+        digests = [row.get("output_hash")] + [
+            source.get("sha256") for source in (sources if isinstance(sources, list) else []) if isinstance(source, dict)
+        ]
+        for digest in digests:
+            if isinstance(digest, str) and is_sha256_digest(digest):
+                refused.setdefault(digest, row)
+    if not refused:
+        return
+    present: list[tuple[str, dict[str, Any]]] = []
+    # `os.walk` never descends a symlinked directory; `_regular_file_digest`
+    # never reads through a symlinked file.
+    for directory, _subdirectories, names in os.walk(submission_outputs_dir(root)):
+        for name in names:
+            path = Path(directory) / name
+            digest = _regular_file_digest(path)
+            if digest is not None and digest in refused:
+                present.append((path.relative_to(root).as_posix(), refused[digest]))
+    for relative, row in sorted(present, key=lambda item: item[0]):
+        issues.append({
+            "code": "refused_output_present",
+            "request_id": row.get("request_id"),
+            "claim_id": row.get("claim_id"),
+            "path": relative,
+        })
 
 
 def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> None:

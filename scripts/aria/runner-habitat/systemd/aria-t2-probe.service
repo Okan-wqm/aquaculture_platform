@@ -12,18 +12,50 @@
 #
 # WHY the code comes from /var/lib/aria/code. That checkout is root-owned, so
 # the account under test cannot edit the probe; the runner's own checkout is
-# written by the runner. The probe only reads: its verdict goes to a staging
-# file in its StateDirectory, and systemd publishes it as root (`+`) with an
-# atomic rename into node-exporter's textfile directory, the aria-telemetry
-# pattern. ExecStopPost publishes after a breach too: exit 3 fails the unit
-# (visible in `systemctl --failed`) and the textfile still carries the verdict
-# that infrastructure/monitoring/droplet/rules/80-aria-t2-boundary.yml alerts on.
+# written by the runner. gharunner reads the anchor there through the kernel's
+# root-owned trust rule (aria_kernel/main_anchor.py `_root_owned_trusted`: a
+# checkout whose configuration only root can change is named in a command-line
+# safe.directory; git's dubious-ownership guard refused it before,
+# ARIA-HIGH-281).
+#
+# WHY ExecStartPre fetches as root. The probe judges the allowed-signers file
+# on origin/main, so origin/main must be today's, not the day the checkout was
+# made. Root (`+`) fetches main into refs/remotes/origin/main only: no checkout,
+# so the code the gateway, telemetry and egress units run stays the operator's
+# deploy act. Root runs nothing the account under test or the checkout selects:
+# `env -i HOME=/root` keeps gharunner's environment and its ~/.gitconfig
+# (systemd sets HOME from User=) out; core.hooksPath=/dev/null keeps every hook
+# out (the repository sets core.hooksPath=.husky, relative to the work tree, so
+# a hook that lands on main would otherwise run as root on each fetch); the
+# empty credential.helper resets every helper the config names, so the fetch is
+# anonymous and never hands the operator's gh token to an unattended job; https
+# is the only protocol. TimeoutStartSec bounds the run (a oneshot has no start
+# timeout by default): a stalled fetch would otherwise keep the unit active and
+# the timer would never start another probe.
+#
+# WHY ExecStopPost publishes this way. The probe only reads: its verdict goes
+# to the staging file $ARIA_T2_PROBE_TEXTFILE in its StateDirectory, which the
+# account under test owns, so root follows no path there.
+# * Only a verdict the probe returned (exit 0 held, 3 breached) is published.
+#   systemd sets EXIT_CODE/EXIT_STATUS only once the main process ran, so a
+#   failed fetch publishes nothing and AriaT2BoundaryProbeSilent fires:
+#   unmeasured is visible, never `held`.
+# * The staging file is read, at most 64 KiB, and removed as gharunner
+#   (setpriv), so a link planted there reaches only what that account can read.
+# * Root writes the copy to its own mktemp in node-exporter's textfile
+#   directory, makes it 0644 and renames it into place (atomic, the
+#   aria-telemetry pattern), so the account under test owns no published file.
+# A breach still publishes: exit 3 fails the unit (visible in `systemctl
+# --failed`) and the textfile carries the verdict that
+# infrastructure/monitoring/droplet/rules/80-aria-t2-boundary.yml alerts on.
 [Unit]
 Description=ARIA T2 boundary probe (ADR-0023)
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=10min
 User=gharunner
 Group=gharunner
 WorkingDirectory=/var/lib/aria/code
@@ -32,8 +64,18 @@ Environment=ARIA_REPO_ROOT=/var/lib/aria/code
 Environment=ARIA_RUNNER_ROOT=/home/gharunner/actions-runner
 StateDirectory=aria-t2-probe
 Environment=ARIA_T2_PROBE_TEXTFILE=/var/lib/aria-t2-probe/aria_t2_boundary.prom
+ExecStartPre=+/usr/bin/env -i HOME=/root GIT_TERMINAL_PROMPT=0 /usr/bin/git -C /var/lib/aria/code \
+    -c protocol.allow=never -c protocol.https.allow=always -c core.hooksPath=/dev/null -c credential.helper= \
+    fetch --no-tags --no-auto-maintenance --quiet origin +refs/heads/main:refs/remotes/origin/main
 ExecStart=/var/lib/aria/code/scripts/aria/aria-t2-probe.sh
-ExecStopPost=+/bin/sh -c 'f=/var/lib/aria-t2-probe/aria_t2_boundary.prom; if [ -f "$f" ]; then chmod 0644 "$f" && mv -f "$f" /var/lib/node_exporter/textfile/aria_t2_boundary.prom; fi'
+ExecStopPost=+/bin/sh -c 'case "$EXIT_CODE:$EXIT_STATUS" in exited:0|exited:3) ;; *) exit 0 ;; esac; \
+    as_probe() { /usr/bin/setpriv --reuid=gharunner --regid=gharunner --clear-groups "$@"; }; \
+    published=/var/lib/node_exporter/textfile/aria_t2_boundary.prom; \
+    tmp=$(mktemp "$published.XXXXXX") || exit 1; \
+    as_probe /usr/bin/head -c 65537 -- "$ARIA_T2_PROBE_TEXTFILE" > "$tmp"; copied=$?; \
+    as_probe /usr/bin/rm -f -- "$ARIA_T2_PROBE_TEXTFILE"; \
+    if [ "$copied" -eq 0 ] && [ "$(wc -c < "$tmp")" -le 65536 ] && chmod 0644 "$tmp" && mv -f "$tmp" "$published"; then exit 0; fi; \
+    rm -f "$tmp"; exit 1'
 PrivateTmp=true
 ProtectSystem=full
 MemoryMax=256M

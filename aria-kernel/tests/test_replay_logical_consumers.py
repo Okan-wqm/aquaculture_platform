@@ -12,7 +12,6 @@ import pytest
 
 from aria_kernel.contention_replay import replay_append_only_suffixes
 from aria_kernel.aria_watchdog import _load_jsonl as load_watchdog_rows
-from aria_kernel.cost_telemetry import list_dispatch_rationales
 from aria_kernel.governance_reader import (
     read_governance_rows,
     read_governance_rows_reverse,
@@ -255,8 +254,8 @@ def test_generic_strict_reader_exposes_replayed_producer_rows(tmp_path: Path) ->
     root, path = _replay_one(
         tmp_path,
         case="strict-reader",
-        surface="cost_telemetry",
-        relative_path="cost-telemetry.jsonl",
+        surface="surface_validations",
+        relative_path="surface-validations.jsonl",
         payload={"schema_version": 1, "request_id": "req-strict"},
     )
 
@@ -266,13 +265,6 @@ def test_generic_strict_reader_exposes_replayed_producer_rows(tmp_path: Path) ->
 
 
 def test_direct_declared_consumers_expose_replayed_rows(tmp_path: Path) -> None:
-    cost_root, _ = _replay_one(
-        tmp_path,
-        case="cost",
-        surface="cost_telemetry",
-        relative_path="cost-telemetry.jsonl",
-        payload={"schema_version": 1, "request_id": "req-cost"},
-    )
     validation_root, _ = _replay_one(
         tmp_path,
         case="validation",
@@ -311,9 +303,6 @@ def test_direct_declared_consumers_expose_replayed_rows(tmp_path: Path) -> None:
         },
     )
 
-    assert [row.get("request_id") for row in list_dispatch_rationales(base_dir=cost_root)] == [
-        "req-cost",
-    ]
     assert [row.get("status") for row in list_surface_validations(base_dir=validation_root)] == [
         "loser-validation",
     ]
@@ -575,8 +564,8 @@ def test_reserved_transport_shape_without_schema_fails_closed(
     tmp_path: Path,
     reader: str,
 ) -> None:
-    surface = "cost_telemetry" if reader == "strict" else "tools_governance"
-    relative_path = "cost-telemetry.jsonl" if reader == "strict" else "governance.jsonl"
+    surface = "surface_validations" if reader == "strict" else "tools_governance"
+    relative_path = "surface-validations.jsonl" if reader == "strict" else "governance.jsonl"
     root = init_test_tools_root(tmp_path / f"reserved-{reader}")
     path = root / relative_path
     append_declared_fixture(

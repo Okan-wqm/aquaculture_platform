@@ -24,6 +24,11 @@ Field semantics:
   ``intent_id`` — kernel-emitted intent id (Plan ARIA-V3 §A3).
   ``target_path`` — repo-relative path the materialize will write.
   ``kind`` — ``"agent"`` or ``"skill"``.
+  ``body_sha256`` — bare hex sha256 of the draft ``body`` the ack
+    authorizes (the value ``draft_validated`` records). Together with
+    ``draft_id``, ``intent_id``, ``target_path`` and ``kind`` it is the
+    ack's :class:`AckScope`: derived from the draft at mint, compared field
+    by field at consumption (ARIA-MEDIUM-254 slice A).
   ``reason`` — operator-supplied --reason text (or auto-reason code).
   ``auto_reason_code`` — enum value for autonomous mints
     (``classifier_pass``, etc.); ``None`` for operator.
@@ -43,10 +48,16 @@ Field semantics:
 I-V3-19 (one-time consumption) is enforced by the ack_ledger
 append-only reducer: ``consume_token`` rejects if either a legacy
 ``consumed_at`` value or a newer ``event=consumed`` transition exists.
+It also refuses a row whose scope differs from the materialization's, a
+row minted before scope binding (no ``body_sha256``), and any row that is
+not an operator's: an autonomous row is minted and consumed in one
+transaction (``record_autonomous_ack``) and is never consumable by id.
 """
 
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
@@ -75,6 +86,7 @@ class AckLedgerRow:
     intent_id: str
     target_path: str
     kind: str  # "agent" | "skill"
+    body_sha256: str
     signature: str
     signed_key_id: str
     breaker_state_at_mint: str
@@ -107,8 +119,52 @@ ACK_ROW_REQUIRED_FIELDS: frozenset[str] = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class AckScope:
+    """ARIA-MEDIUM-254 slice A / ARIA-MEDIUM-512 — what one ack authorizes.
+
+    One body (by digest) of one draft, under its intent, written to one
+    target path, for one materializer kind. Mint derives it from the draft
+    (``mint_operator_ack``) and materialize derives it from the draft row it
+    writes, through the same per-kind function
+    (``agent_genesis.ack_scope_for_draft`` / ``skill_genesis.ack_scope_for_draft``),
+    so the two cannot name different subjects; consumption refuses the first
+    field the minted row binds differently.
+    """
+
+    draft_id: str
+    intent_id: str
+    target_path: str
+    kind: str  # "agent" | "skill"
+    body_sha256: str
+
+    @classmethod
+    def of_draft(cls, draft: Mapping[str, Any], *, kind: str, body: str) -> AckScope:
+        """The scope of ``draft`` whose validated drafter ``body`` the caller passes."""
+        intent = draft.get("intent")
+        return cls(
+            draft_id=str(draft["draft_id"]),
+            intent_id=str(intent.get("intent_id", "")) if isinstance(intent, dict) else "",
+            target_path=str(draft.get("target_path") or ""),
+            kind=kind,
+            body_sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        )
+
+    def mismatched_field(self, row: Mapping[str, Any]) -> str | None:
+        """The first scope field ``row`` binds to another value, or None when it binds this scope."""
+        return next((name for name in ACK_SCOPE_FIELDS if row.get(name) != getattr(self, name)), None)
+
+
+# The scope's field names, derived from the dataclass: every one is also a
+# mint-row field (``AckLedgerRow``), so a scope field the row cannot carry is
+# a test failure, not a silent skip (I-V3-19a).
+ACK_SCOPE_FIELDS: tuple[str, ...] = tuple(f.name for f in fields(AckScope))
+
+
 __all__ = [
     "AckLedgerRow",
+    "AckScope",
     "ACK_ROW_REQUIRED_FIELDS",
+    "ACK_SCOPE_FIELDS",
     "ACK_ACTOR_KINDS",
 ]

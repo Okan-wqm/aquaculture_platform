@@ -1785,6 +1785,16 @@ def alias_factory(root):
                     f"{KERNEL}state_store.py",
                     "consumer",
                 ),
+                # ARIA-HIGH-515 — the same gate reads the result rows to find
+                # outputs a credential refusal withheld and refuses a store
+                # where those bytes remain; it accepts no result and
+                # authorizes no executor proof.
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}runtime_artifacts.py",
+                    "consumer",
+                ),
             },
         }
 

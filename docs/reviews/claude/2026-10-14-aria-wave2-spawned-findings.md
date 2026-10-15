@@ -132,6 +132,15 @@ verb can record are listed at the end.
   runs `git commit -m x --amend` and `-m x -n`, options the gate refuses when spelled out.
 - **Planned fix:** the one scanner admits only lines whose shlex argv is bash's, proven by a
   bash-truth differential test; it lands with ARIA-HIGH-443's fix. Deadline: 2026-10-21.
+- **Landed (L2, `G026-443-A12-4`):** the one scanner, renamed `unmodelled_shell_syntax`, refuses by
+  name `$` and backtick outside single quotes, `\$`, `` \` `` and backslash-newline inside double
+  quotes, unquoted `*`, `?` and `[`, tilde prefixes, brace expressions and unquoted backslash-newline;
+  the gate names them `shell_expansion_in_command`. It tracks braces as bash's `brace_gobbler` does
+  (a `}` before any separator does not close the word's `{`), in one linear pass.
+  `test_bash_expansion_differential.py` runs every admitted line through bash in two locales: 1815
+  admitted lines ran a different argv before, 0 after; `test_sandbox_and_perimeter_hardening.py`
+  holds the bypass lines (allow before, deny after) and the linearity pin. The lexer after the
+  scanner, stdlib `shlex.split`, is superlinear: ARIA-MEDIUM-538.
 
 ### ARIA-LOW-506 — each watchdog freeze layer is pinned only together with the other
 
@@ -261,6 +270,371 @@ verb can record are listed at the end.
   fakes an account that differs from the real one and asserts that `os.geteuid`, `pwd.getpwuid`
   and `write_root_owner._effective_uid` stay real; it fails on any host before the fix.
 
+### ARIA-HIGH-511 — the enrolment walk judges history by today's namespace tuple
+
+- **Wave-2 key:** R7-015 (register row; design R-G023-enrolment-walk).
+- **Problem:** `parse_namespace_registry` (`operator_request_signature.py:228-250`) refuses any
+  registry that lacks one of today's `OPERATOR_NAMESPACES`, and `_child` (`:305-313`) applies it to
+  every historical row, the pinned genesis included. Once a namespace is added, the genesis no
+  longer parses and every operator act fails closed for good.
+- **Planned fix:** bucket `G023-254-sliceA` (landing L2): history parses require only
+  `ENROL_NAMESPACE`; the tip check keeps the full tuple. Failing first: a namespace added by
+  enrolment walks from the pinned genesis. Deadline: 2026-12-14.
+- **Landed (L2):** `operator_request_signature.py` has one parser body behind two questions:
+  `parse_namespace_registry` (the tip: every `OPERATOR_NAMESPACES` name, used by the anchor read and
+  by `record_enrolment` for the child that becomes the tip) and `_walked_registry` (history: the
+  enrol entry only, used by `_child` and the walk's parent parse).
+  `test_a_namespace_added_by_enrolment_walks_from_the_pinned_genesis` was red before
+  (`enrol_genesis_mismatch`) and is green after; the tip and new-child pins hold on both sides. The
+  public `verify_enrolment_chain` no longer applies the tip rule by itself (its one production
+  caller, `_anchor_at`, parses the tip first); that note goes to the slice-B owner.
+
+### ARIA-MEDIUM-512 — operator authorizations are not bound to their subject
+
+- **Wave-2 key:** NEW-ACKBIND-1 (remediation remed-10).
+- **Problem:** `consume_token` (`ack_ledger.py:404-474`) never compares the minted draft, intent or
+  target with the materialization, `agent_genesis` consumes the token before its escape and
+  model-tier refusals (`:762-784`), and a C4-a approval without `target_agent` matches any agent
+  (`shadow_eval_bridge.py:254-255`).
+- **Planned fix:** `G023-254-sliceA` (L2) binds the ack scope (Part of); `R10-ack-subject` (wave 17)
+  makes `consume_token` take the subject, runs every refusal before consumption and requires
+  `target_agent`, and closes it. Deadline: 2027-01-13.
+- **Part landed (L2, `G023-254-sliceA`):** an ack row carries `AckScope` (draft id, intent, target,
+  kind, `body_sha256` of the draft body, HMAC-signed), derived by the kernel from the draft
+  (`ack_scope_for_draft`), never from the caller. `consume_token` takes the materialization's scope
+  and refuses `ack_token_not_operator_signed`, `ack_token_scope_unbound` (a row minted before this
+  change) and `ack_token_scope_mismatch:<field>` before it spends anything; an autonomous ack is minted
+  and consumed in one transaction (`record_autonomous_ack`). `test_operator_ack_signature.py`: an ack
+  for draft A no longer materializes draft B (agent and skill), nor a body re-drafted after the
+  mint (red before, green after). Still open, for `R10-ack-subject`: consumption before the escape and
+  model-tier refusals, the unscoped C4-a approval, and the window between the operator's review and
+  `ack mint`, which binds the draft's latest body rather than the one the operator read.
+
+### ARIA-LOW-513 — Plan 020 dispatch-rationale telemetry has no writer
+
+- **Wave-2 key:** A12-4 (Z.ai ID; a wave-2 stub of the wave-1 review).
+- **Problem:** `compose_dispatch_rationale` and `record_dispatch_rationale` (`cost_telemetry.py:62`,
+  `:99`) are called only by tests, so `aria_dispatch_rationale_total` (`plan_016_metrics.py:197`) is
+  always 0 and the `cost_telemetry` surface is never written. The native admission row already
+  records why a route was taken.
+- **Planned fix:** bucket `G026-443-A12-4` (landing L2) retires the module, the metric and the
+  surface row and points Plan 020 Phase 13 at the admission row. Deadline: 2027-04-13.
+- **Landed (L2):** `cost_telemetry.py` and its test are deleted, `plan_016_metrics` exposes 12
+  metrics, the `cost_telemetry` ledger row is gone from `state_manifest` (the `cost_telemetry`
+  profile surface stays: `cost_attribution` uses it; `origin/aria/state` holds no
+  `cost-telemetry.jsonl`), and Plan 020 marks Phase 13 retired in favour of the admission row.
+  `test_plan_016_metrics.py` (metric set, module gone, manifest row gone) was red before and is
+  green after; the replay fixtures and the `test_agent_eval.py` metric count follow. The dead
+  cost hook in `cycle_phases/cost_telemetry.py` and plan 032's ARIA-032-D1 belong to
+  `G026-A12-1-cost-booking`.
+
+### ARIA-LOW-514 — the Plan 016 reflection section swallows every exception
+
+- **Wave-2 key:** R7-061 (register row; named by design G026 as not covered).
+- **Problem:** `_render_plan016_section` (`reflection.py:1118-1123`) returns an empty section on any
+  `Exception` from `compute_plan_016_metrics`, so a broken metric reads as no metric.
+- **Planned fix:** tracked deferral (no wave-2 bucket): catch only the documented unreadable-store
+  error and report it by name. Deadline: 2027-04-13.
+
+### ARIA-HIGH-515 — a refused credential stays on the published outputs surface
+
+- **Wave-2 key:** R7-005, the register key of NEW-SECRETPUB-1 (remediation remed-6).
+- **Problem:** When the kernel refuses an envelope as `secret_in_envelope`
+  (`agent_invocations.py:5566-5573`), it has already sealed the response (`:5014-5024`), and the
+  executor's raw file stays at `expected_output_path` (`ci_executor.py:4408-4445`). Unreadable
+  envelopes are never scanned (`:5661-5671`).
+- **Planned fix:** bucket `R6-refused-output` (landing L2) withholds refused and unscannable output
+  from every published surface. Deadline: 2026-10-31.
+- **Landed (L2):** a rejection carrying any of `agent_invocations.CREDENTIAL_REFUSAL_CODES` is never
+  sealed. Its row has `output_path: null`, `output_withheld: "credential_refusal"` and
+  `withheld_sources` (each raw file under `outputs/` with the digest it was judged at). The kernel
+  deletes those files before the journal append, on journal replay and on idempotent replay, only
+  when their bytes still hash to the judged digest and no path component is a symlink. Unreadable
+  envelope bytes are scanned, the verdict reduces every other reason to its code, and no
+  out-of-scope observation is copied from a refused envelope. `integrity verify` and every publish
+  refuse `refused_output_present`: any file under `outputs/` whose bytes hash to a refused digest,
+  rows from before the fix included. `test_submit_withholds_refused_output.py` (22 tests) was red
+  before and is green after. The submit path is the one this row names; the delivery path that
+  never submits is ARIA-HIGH-540, and refused validation logs are ARIA-MEDIUM-539.
+
+### ARIA-MEDIUM-516 — spine refresh runs adapters without their declared input
+
+- **Wave-2 key:** R7-041 (register row; ARIA-HIGH-045 design, N2).
+- **Problem:** `spine_orchestrator._run_one` (`:221-230`), the gateway scheduler and `tool run` omit
+  the manifest `default_input` that only the cycle merges (`cycle.py:1368`), so tenant-scoping and
+  security-boundary exit 1 in `requireScanRoots`. The refresh also trusts a pre-record status and
+  names `schema-drift-adapter`, which has no manifest.
+- **Planned fix:** bucket `G002-045-runs` (landing L3): one `default_input` merge in `run_tool`, the
+  refresh judged by the recorded status, the adapter list derived from manifests. Deadline:
+  2027-01-13.
+
+### ARIA-LOW-517 — the prefixed sha256 digest has no single owner
+
+- **Wave-2 key:** E11-4 (Z.ai ID; a wave-2 stub of the wave-1 review).
+- **Problem:** 163 sites in 90 kernel modules compose `"sha256:" + ...` inline, about 15 private
+  helpers re-implement it (four identical lease-token hashers, e.g. `agent_invocations.py:2497`,
+  `worker_dispatch.py:500`), and 13 sites restate the validator `ledger.is_sha256_digest`
+  (`ledger.py:248`) owns.
+- **Planned fix:** `G006-digest-owner` (L3) adds `digest.py` as the one owner (Part of);
+  `G006-digest-sites` and `G006-digest-codemod` (late chain) move every site and close it. Deadline:
+  2027-04-13.
+
+### ARIA-LOW-518 — the git object-id validator has 15 copies
+
+- **Wave-2 key:** R7-002 (register row; named by design G006).
+- **Problem:** 15 modules define their own git object-id pattern with different policies (40 hex
+  only, 40 or 64, 40 plus an optional 24), e.g. `system_one.py:75`, `main_anchor.py:42`,
+  `git_containment.py:255`. Under a SHA-256 object format a writer and a reader can disagree about
+  the same id.
+- **Planned fix:** tracked deferral to the first wave after the late codemods: one leaf module
+  `git_object_id.py` with one format policy, called by every site. Deadline: 2027-04-13.
+
+### ORPHAN-LOW-841 — two standalone Rust packages fail every cargo command
+
+- **Wave-2 key:** R7-059 (register row; named by design G018 as not covered).
+- **Problem:** `crates/protocol-codec/fuzz` and `sensorprotocols/wasm-decoder-template` carry no
+  `[workspace]` table, so cargo attaches them to the root workspace, which does not list them, and
+  refuses to load either. Reproduced with cargo 1.88 on HEAD.
+- **Planned fix:** tracked deferral (product lane): an empty `[workspace]` table in each manifest.
+  Deadline: 2027-04-13.
+
+### ARIA-HIGH-519 — credential shapes have five owners and the boundary misses five families
+
+- **Wave-2 key:** NEW-SECRETPUB-4 (remediation remed-6).
+- **Problem:** The executor's publication boundary uses `secret_scrub._SECRET_PATTERNS` (`:36-52`)
+  only, which misses five families the kernel's refusal set (`implementation_safety.py:273-290`)
+  refuses; that set's header-only rows cannot redact. Three more tables restate credential shapes.
+- **Planned fix:** bucket `R6-credential-shapes` (landing L3): one `CREDENTIAL_SHAPES` table with a
+  detect and a redact pattern per family; every consumer derives its view. Deadline: 2026-10-31.
+
+### ARIA-HIGH-520 — the closure policy's missing refs hide the Mode-A blocker
+
+- **Wave-2 key:** A19-1 (Z.ai ID; a wave-2 stub of the wave-1 review).
+- **Problem:** `_valid_operator_policy_shape` returns False for any absent regression ref
+  (`autonomy_evidence.py:4111-4112`), and `_apply_operator_prerequisites` then returns early
+  (`:4203-4212`) before the Mode-A check (`:4272-4277`). 17 refs are absent, so the operator is
+  always shown `operator_prerequisite_policy_invalid`.
+- **Planned fix:** `G003-A19-1-AB` (L4, Part of) reports unresolved refs as an engineering blocker
+  and composes every blocker; `G003-A19-1-CD` (late) remaps the deleted ref and closes it. Deadline:
+  2026-12-14.
+
+### ARIA-HIGH-521 — the merge lane's own observed row blocks every perimeter
+
+- **Wave-2 key:** merge-delivery-1 (blind-spot audit).
+- **Problem:** `merge_pr_if_ready` appends an `observed` pr-lifecycle row with `change_id` None
+  (`auto_merge.py:775`, `:579`), and the perimeter capture then reads that last row and refuses
+  `pr_change_join_unavailable` (`merge_authority.py:1002-1005`). Every ARIA PR stops at
+  `pre_merge_perimeter`.
+- **Planned fix:** bucket `G003-md1-binding` (landing L4) binds the change from the row that carries
+  it, with a test through the real capture after an observed row. Deadline: 2026-12-14.
+
+### ARIA-MEDIUM-522 — pr_for_assignment reads pr-lifecycle unverified
+
+- **Wave-2 key:** R7-043 (register row; named by design G003 as not covered).
+- **Problem:** `worker_dispatch.pr_for_assignment` reads `pr-lifecycle.jsonl` with the unverified
+  `load_jsonl` (`worker_dispatch.py:832`); its only caller is `worker_dispatch_hook.py:499`.
+- **Planned fix:** tracked deferral: read through the verified ledger reader, or delete the reader
+  if `G039-A10-1` removes its merge-path caller. Deadline: 2027-01-13.
+
+### ARIA-HIGH-523 — runs.jsonl outgrows the publish cap and cycle publishes are refused
+
+- **Wave-2 key:** NEW-remed3-runs-1 (remediation remed-3).
+- **Problem:** Each run row inlines its full `read_paths` (`tool_runner.py:246`), which the run
+  artifact already holds. Compaction strips it only after 7 days (`state_compact.py:110`,
+  `:735-759`), and 7 days of rows exceed the 64 MiB cap, so `_bound_publish_surfaces` refuses the
+  publish (live since 2026-10-13 20:34Z).
+- **Planned fix:** bucket `R-NEW-runs-bound` (landing L4, or a standalone PR off main per operator
+  Q1): rows keep a count, digest and sample; a lossless backfill slims old rows. Deadline:
+  2026-12-14.
+
+### ARIA-HIGH-524 — agent transcripts are published unscanned
+
+- **Wave-2 key:** NEW-SECRETPUB-3 (remediation remed-6).
+- **Problem:** The executor writes every transcript raw (`ci_executor.py:2402`, `:3294`, `:3441`,
+  `ci_executor_judge_batch.py:505`), and the kernel checks only its hash before sealing it onto the
+  published outputs surface (`agent_invocations.py:5352`, `:5112`). Tool output, file contents
+  included, is published verbatim.
+- **Planned fix:** bucket `R6-transcripts` (landing L4): `write_sanitized_text` at the executor
+  boundary and the kernel's credential scan at submission. Deadline: 2026-10-31.
+
+### ARIA-HIGH-525 — the spine's adapter invariants never measure production
+
+- **Wave-2 key:** R7-040 (register row; ARIA-HIGH-045 design, N1).
+- **Problem:** `_check_auth_security` and `_check_harness_security` read
+  `workspace_root/aria-tools/runs.jsonl` (`architecture_spine_gate.py:269`, `:322`), a gitignored
+  file production never writes, take the latest row of any status and ignore the run the refresh
+  just produced (`:474-481`).
+- **Planned fix:** bucket `G002-045-gate` (landing L5): the invariants read the refreshed run
+  through the tools dir and compare location-free identities. Deadline: 2026-12-14.
+
+### ARIA-MEDIUM-526 — the spine's event-contract producer reports every event missing
+
+- **Wave-2 key:** R7-042 (register row; ARIA-HIGH-045 design, N3).
+- **Problem:** `_check_event_contracts` (`architecture_spine_gate.py:167-206`) looks for
+  `schemas/**/*.json` stems where the catalogs are `.schema.ts`, so 243 of 243 events are missing,
+  and `detect_drift` (`:592-669`) treats totals as violations.
+- **Planned fix:** bucket `G002-045-gate` (landing L5) deletes the wrong-set producers and compares
+  identities only. Deadline: 2027-01-13.
+
+### ARIA-HIGH-527 — quarantine publication follows agent-planted symlinks
+
+- **Wave-2 key:** security-1 (blind-spot audit).
+- **Problem:** After a managed spawn, `publish_quarantine` walks the agent-writable replica with
+  link-following calls (`git_containment.py:758-764`, `:840`) and unlinks what it finds (`:729-731`,
+  `:786-787`, `:871`). A link planted in the replica turns that into deleting the shared
+  repository's objects, packs and branch refs.
+- **Planned fix:** bucket `G008-security-1-2` (landing L5): a no-follow walk confined to the
+  replica, objects imported through git, and a containment-probe case with a planted link. Deadline:
+  2026-12-14.
+
+### ARIA-HIGH-528 — the Codex sandbox shares the host network namespace
+
+- **Wave-2 key:** R7-003 (register row; design G008, step 6).
+- **Problem:** `_wrap_runtime_state_in_sandbox` (`implementation_safety.py:1413`) runs the Codex CLI
+  with the host network files bound and no `--unshare-net` (`:1375-1385`). Both provider ladders end
+  in `openai`, so any read-only role whose first rungs are cooled runs it.
+- **Planned fix:** bucket `R7-codex-netns` (landing L6): the Codex spawn joins the managed
+  egress-proxy netns and `"host"` leaves `SandboxNetwork`. Deadline: 2026-10-28.
+
+### ARIA-HIGH-529 — unbound plans fail only at merge
+
+- **Wave-2 key:** R7-007 (register row; design R-G015-unbound-start).
+- **Problem:** Plans started by `plan start`, skill authoring or the V7 fallback carry no
+  `synthesis_bound` row, and only the merge gate (`implementation_safety.py:2402-2428`) asks for it.
+  The implementation mint (`cross_review_bridge.py:1004`) does not, so planning, implementation and
+  the panel are spent on a plan that cannot merge.
+- **Planned fix:** bucket `R7-unbound-start` (wave 15): the merge-class implementation mint refuses
+  an unbound plan by name before it spends anything. Deadline: 2026-12-14.
+
+### ORPHAN-MEDIUM-842 — Rust unsafe-block lint is not denied and CI relaxes two denials
+
+- **Wave-2 key:** R7-060 (register row; named by design G018 as not covered).
+- **Problem:** `sens-api-gateway/Cargo.toml:561-571` and the wasm decoder template do not deny
+  `clippy::undocumented_unsafe_blocks`, and `sens-api-gateway-ci.yml:221-222` passes
+  `-A clippy::expect_used` and `-A clippy::indexing_slicing`, which the manifest denies.
+- **Planned fix:** tracked deferral (product lane): deny the lint in both manifests and remove the
+  two CI overrides. Deadline: 2027-01-13.
+
+### ARIA-HIGH-530 — the required aria-kernel check passes on inputs it does not watch
+
+- **Wave-2 key:** ci-surface-1 (blind-spot audit).
+- **Problem:** `KERNEL_SURFACE` (`aria-kernel.yml:84-92`) omits paths its suite and lane steps read,
+  so such a PR sets `kernel=false` (`:108`) and the verdict accepts the skipped jobs (`:494`); the
+  pre-push selector keeps a different list (`aria-suite-changed.mjs:58-66`).
+- **Planned fix:** `G001-surface-manifest` (L6, Part of) makes one surface manifest every reader
+  uses; `G001-surface-gates` (L7) proves each read path is covered and closes it. Deadline:
+  2026-12-14.
+
+### ARIA-HIGH-531 — a type-less scope glob makes the whole tree look observed
+
+- **Wave-2 key:** R7-051 (register row; design G010, step A).
+- **Problem:** `observation_coverage` counts any declared-scope hit as observation and derives
+  parsable types from it (`:248-268`), so banned-phrase's `**` scope (added by cb2dedf27) turns a
+  0.781 red verdict green and `capability_gap` (`:409-416`) never routes an unobserved surface to
+  skill genesis.
+- **Planned fix:** bucket `G010-014-stepA` (landing L6): only typed globs of dispatchable adapter
+  rows observe, read from the live registry. Deadline: 2026-12-14.
+
+### ARIA-LOW-532 — helm templates are unrendered for infrastructure-policy observation
+
+- **Wave-2 key:** R7-057 (register row; named by design G017).
+- **Problem:** 17 committed helm template files (for example
+  `infrastructure/helm/aquaculture/templates/backend-services.yaml`) are Go templates; without a
+  helm binary the infrastructure-policy readers can only exclude them by name.
+- **Planned fix:** tracked deferral: provision a pinned helm binary and observe the rendered
+  manifests. Deadline: 2026-10-28.
+
+### ARIA-LOW-533 — SECURITY_TOOLS is a hand-kept list
+
+- **Wave-2 key:** R7-058 (register row; named by designs G017 and G044).
+- **Problem:** `calibration_dials.SECURITY_TOOLS` (`:49-52`) lists security adapters by hand beside
+  their manifests, and its pin (`test_calibration_actuator.py:195-201`) matches ids by name, so a
+  security adapter whose id does not name its class is missed.
+- **Planned fix:** tracked deferral: a manifest field declares the class, and `SECURITY_TOOLS` is
+  derived from the manifests. Deadline: 2026-10-28.
+
+### ARIA-HIGH-534 — the finding sweep's output never lands
+
+- **Wave-2 key:** R7-009 (register row; design G020, N1).
+- **Problem:** `planSweep` moves past-deadline rows to BLOCKED (`finding-registry.ts:1212-1231`),
+  but `debt-plan-truth` counts only OPEN and IN-PROGRESS as active (`:91-93`) and throws when a
+  CRITICAL leaves that set without a closer (`:202-225`), so the sweep PR cannot merge.
+- **Planned fix:** bucket `R7-unresolved-states` (landing L7): one `isUnresolved` in the registry
+  store, imported by `debt-plan-truth`. Deadline: 2026-12-14.
+
+### ARIA-MEDIUM-535 — owner_user has no canonical identity
+
+- **Wave-2 key:** R7-010 (register row; design G020, N2).
+- **Problem:** The registry holds `okan`, `@okan-wqm`, `Okan-Wqm` and an email as `owner_user`,
+  while the BLOCKED override is tied to the CODEOWNERS handle (`README.md:158`); `add` stores the
+  value as given (`finding-registry.ts:469`).
+- **Planned fix:** tracked deferral: one canonicaliser applied at `add` and `assign`, plus
+  append-only `assign` rows for the existing spellings. Deadline: 2027-01-13.
+
+### ARIA-HIGH-536 — vendor-fact classifiers read model-authored content
+
+- **Wave-2 key:** poc-1 (blind-spot audit).
+- **Problem:** `extract_auth_failure` and `extract_credit_exhaustion` match markers in the whole
+  stream, assistant text and tool results included (`claude_runtime.py:1903`, `:2183-2190`), and
+  Codex matches every event (`codex_runtime.py:215`). An agent that writes 'billing' and times out
+  cools the provider fleet-wide and is requeued free.
+- **Planned fix:** bucket `G019-login-vendor-facts` (landing L7): vendor facts come only from the
+  CLI's error channel. Deadline: 2026-12-14.
+
+### PROC-LOW-053 — the commit-msg gate has no Part-of form for a partial fix
+
+- **Raised by:** the C2-W1 landing (landing L2), whose plan lands two partial fixes.
+- **Problem:** `commit-msg-validator.ts:102` requires a `Closes:` trailer on every `fix`, `security`
+  and `feat` commit (`:615-626`), and no other trailer satisfies it. A commit that fixes part of a
+  registered finding must claim a false closure, take a type other than its own, or be allowlisted:
+  `d046483b` and `b977da29` (two `fix(aria)` halves of ARIA-HIGH-199 and -198) sit in
+  `PRE_PHASE6_SHAS` (`:363-381`, 4da6dfae7), and 068aa2703 was typed `refactor(web)`. Landing L2's
+  `G023-254-sliceA` (Part of ARIA-MEDIUM-254 and ARIA-MEDIUM-512) and `R7-t2-anchor-read` (Part of
+  ARIA-HIGH-281) commits are typed `refactor` for this reason.
+- **Planned fix:** the validator accepts `Part of: <review_file>#<ID>` as the traceability trailer of
+  a `fix`, `security` or `feat` commit, checked against the registry and the row's review file like
+  `Closes:`, and closure derivation never reads it as a closure. Deadline: 2027-04-13.
+
+### ARIA-MEDIUM-538 — the Bash gate's argv lexer is superlinear in the line
+
+- **Raised by:** the `G026-443-A12-4` fix round (landing L2).
+- **Problem:** `argv_of` (`command_policy.py:304-307`) hands every line the scanner admits to stdlib
+  `shlex.split`, whose token builder appends one character at a time. One admitted word of 200k
+  characters takes 1.48 s, 400k 3.25 s and 800k 12.25 s; `decide_pre_tool` on an 800k-character
+  line took 12.4 s, all in shlex. The PreToolUse hook (`hooks.py:114`) runs it on every Bash call,
+  and the only bound is the broker's 8 MiB request cap (`hook_broker.py:69`). Pre-existing: the
+  same lines are shlex-split at 013f20324.
+- **Planned fix:** a fail-closed command-length bound in the hook, or the one scanner producing the
+  argv in its own linear pass, checked against bash by `test_bash_expansion_differential.py`. No
+  wave-2 bucket owns it. Deadline: 2027-01-13.
+
+### ARIA-MEDIUM-539 — refused secret-shaped validation logs stay published
+
+- **Raised by:** the `R6-refused-output` reviewers, accepted by its fix round (landing L2).
+- **Problem:** the implementation delivery refuses a run whose recorded validation output is
+  secret-shaped (`gate_output_secret_shaped`, `implementation_delivery.py:893-900`), reading that
+  output back from the store's validation logs (`:437-465`). Nothing withholds those log files, and
+  no publish gate checks them, so they stay on the published `validation_run_logs` surface
+  (`state_manifest.py:562`). Same rule as ARIA-HIGH-515.
+- **Planned fix:** the refusal withholds the refused log files, and the publish gate refuses a log
+  whose digest a refusal recorded, both through the one `CREDENTIAL_REFUSAL_CODES` owner. No wave-2
+  bucket owns it. Deadline: 2026-10-31.
+
+### ARIA-HIGH-540 — a delivery-path credential refusal leaves the refused bytes published
+
+- **Raised by:** the `R6-refused-output` reviewers, accepted by its fix round (landing L2).
+- **Problem:** on the implementation-delivery path the kernel judges the envelope
+  (`implementation_delivery.py:855-873`) and a rejection raises `ImplementationDeliveryRefusal`. The
+  executor then records governance and HUMAN_REQUIRED and releases the claim
+  (`ci_executor.py:5632-5690`) without `submit_claim_result`, the only caller of
+  `_withhold_submission_sources` (`agent_invocations.py:6355-6458`). The refused envelope and
+  transcript stay under `outputs/`, and the publish gate has no row to read. A reviewer probe showed
+  the raw envelope still in place with `integrity verify` valid. The verdict text is already
+  redacted (ARIA-HIGH-515's fix); the bytes are not.
+- **Planned fix:** bucket `R6-transcripts` (holds `ci_executor.py`): on a `result_admissible` refusal
+  whose codes meet `CREDENTIAL_REFUSAL_CODES`, the executor submits (the kernel records the withheld
+  row and deletes the sources), then escalates as today. Deadline: 2026-10-31.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects
@@ -290,3 +664,24 @@ reason. The rejection binds the SHA (PROC-MEDIUM-051).
 - **ARIA-MEDIUM-438:** `d62409e5a`, `721dc1cbf`.
 - **ARIA-HIGH-443:** `8c575da19`.
 - **ARIA-LOW-445:** `18071863c`.
+
+## Registry amendments recorded at the C2 registry step
+
+- **ARIA-HIGH-143** (wave-2 key security-2): reopened by `finding-registry reopen`, which rejects
+  closer e6cbd8dd4. The blind-spot audit measured that the managed spawn still shares the host
+  network namespace (`MANAGED_SPAWN_ALLOW_NETWORK = True`, no `--unshare-net`, `resolv.conf` bound)
+  and that a direct connect to a public address succeeds inside it. `HTTPS_PROXY` is advisory, so
+  the row's own rule, egress confined by construction, was never met. The plan listed security-2 as
+  a new row; the G008 design reopens ARIA-HIGH-143 instead, so one defect keeps one ID. Its review
+  file stays `docs/reviews/claude/2026-09-12-aria-live-chain-blockers.md`, which the fix commit's
+  `Closes:` trailer cites. No governed verb sets a deadline, so the row keeps 2026-09-22 and the
+  daily sweep will mark it BLOCKED once this landing merges, until the operator re-dates it (wave-2
+  operator question Q12). Fix: bucket `G008-security-1-2` (landing L5).
+- **ORPHAN-MEDIUM-432:** the plan marks it a duplicate of ARIA-HIGH-045. It keeps its own row and
+  closes with its own trailer, citing its own review file, in bucket `G002-045-gate`.
+- **ARIA-CRITICAL-009, ARIA-CRITICAL-015:** the G020 design dates both 2026-10-31 through
+  `finding-registry assign`, a verb that bucket `G020-044-accountability` adds (landing L6). The
+  verb does not exist at this registry step, so those rows, and ARIA-HIGH-281's plan date
+  2026-10-28, are re-dated after that bucket lands, with the dates the operator confirms (Q12).
+- Rows this step does not mint: no verify-first register row belongs to a C2 bucket. R7-006, R7-012,
+  R7-013 and R7-014 are refs of later buckets and are minted at their chunks' registry steps.

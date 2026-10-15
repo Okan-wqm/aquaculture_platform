@@ -462,11 +462,14 @@ _SHELL_OPERATOR_TOKENS: frozenset[str] = frozenset({
 # it is matched as a substring rather than as a token. ANSI-C quoting
 # (ARIA-HIGH-443) is matched alike: it closes its quote where no lexer here
 # would, so an operator it hides is invisible to the token check.
-_SHELL_SUBSTITUTION_MARKERS: tuple[str, ...] = ("`", "$(", "${", "$[", _command_policy.ANSI_C_QUOTE)
+_SHELL_SUBSTITUTION_MARKERS: tuple[str, ...] = (
+    _command_policy.BACKTICK_SUBSTITUTION, "$(", "${", "$[", _command_policy.ANSI_C_QUOTE,
+)
 
 
 def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
-    """The shell operator that makes this argv more than one command, if any.
+    """The shell operator that makes this argv more than one command, or the
+    expansion that makes bash run another argv than this one, if any.
 
     ORPHAN-CRITICAL-460 — the hole every other bash check sat on top of.
     `verify_bash_command_allowed` joins argv with spaces and matches patterns
@@ -488,9 +491,12 @@ def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
 
     A multi-element argv is checked token-by-token: it is passed to
     `subprocess` as a list, so an operator only has effect if the caller made
-    it its own token. A single-element argv IS a command line and is
-    tokenized. An argv that cannot be lexed at all (unbalanced quotes) is
-    rejected: an unparseable command is not a verified one.
+    it its own token. A single-element argv IS a command line: the policy's
+    one scanner (`command_policy.unmodelled_shell_syntax`) names what bash
+    would run as an operator or expand into other words (ARIA-HIGH-505:
+    `{x,--amend}`, `x$IFS-n`, `??`, `~`, a backslash-newline), by the
+    scanner's own marker. An argv that cannot be lexed at all (unbalanced
+    quotes) is rejected: an unparseable command is not a verified one.
     """
     if len(argv) > 1:
         for raw in argv:
@@ -509,7 +515,8 @@ def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
     # ARIA-CRITICAL-446 — the policy's one quote-aware scanner decides what
     # bash runs as an operator: glued (`-s;id`, `HEAD|nc`), spaced, or a line
     # break (ARIA-HIGH-443); a `;` inside a quoted commit message stays data.
-    operator = _command_policy.unquoted_control_operator(line)
+    # ARIA-HIGH-505 — and what bash expands into an argv the gate never saw.
+    operator = _command_policy.unmodelled_shell_syntax(line)
     if operator is not None:
         return operator
     try:
@@ -525,7 +532,8 @@ def verify_bash_command_allowed(
     """Hard-fail check 8 — Bash allowlist (NOT blocklist).
 
     Joins argv with spaces, tests against:
-      0. shell control operators — any hit → BashDenylistHit
+      0. shell control operators, substitutions and expansions — any hit →
+         BashDenylistHit, named by class
       1. DENIED_BASH_COMMANDS — any hit → BashDenylistHit
       2. ALLOWED_BASH_COMMANDS — at least one MUST match → otherwise
          BashAllowlistMiss
@@ -545,6 +553,26 @@ def verify_bash_command_allowed(
     if not isinstance(argv, (list, tuple)) or not argv:
         raise BashAllowlistMiss(f"argv must be a non-empty list, got {argv!r}")
     operator = shell_control_operator(argv)
+    if operator in _SHELL_SUBSTITUTION_MARKERS:
+        # The quote-blind substring check. `shell_control_operator` runs it
+        # before the quote-aware scanner, so each of these markers it returns
+        # came from that check, and quoting does not lift it: the refusal says
+        # so rather than advise the single quotes it would refuse alike (a
+        # backticked name in a commit message).
+        raise BashDenylistHit(
+            f"shell_substitution_in_command: {operator!r} — "
+            f"{' '.join(_SHELL_SUBSTITUTION_MARKERS)} are refused anywhere in the "
+            f"command, inside quotes too; spell the text without them. argv0={argv[0]!r}"
+        )
+    if operator in _command_policy.EXPANSION_MARKERS:
+        # ARIA-HIGH-505 — named apart from an operator, with the rewrite that
+        # keeps the command: single quotes make bash leave the word as written
+        # (every expansion the quote-aware scanner reports here is lifted by them).
+        raise BashDenylistHit(
+            f"shell_expansion_in_command: {operator!r} — bash would run an argv the "
+            f"gate never saw; quote the word (single quotes) or spell it out. "
+            f"argv0={argv[0]!r}"
+        )
     if operator is not None:
         raise BashDenylistHit(
             f"shell_control_operator_in_command: {operator!r} — argv must be one "

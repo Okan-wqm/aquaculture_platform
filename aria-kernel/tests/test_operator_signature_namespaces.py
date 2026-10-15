@@ -9,7 +9,8 @@ kernel exports, the verifier taking namespace, domain tag and principal
 classes from the entry, and a request signed before the registry keeping
 its exact bytes; and the enrolment chain: the two files change only through
 a row signed in ``aria-operator-enrol`` by a key the PARENT version enrols,
-walked from the pinned genesis on every anchor read.
+walked from the pinned genesis on every anchor read — history judged by what
+the walk needs, the tip by every namespace the kernel speaks (ARIA-HIGH-511).
 """
 from __future__ import annotations
 
@@ -216,8 +217,16 @@ class CommittedChainTests(unittest.TestCase):
             self.assertIsNone(ors.verify_enrolment_chain(
                 blobs[ors.ENROLMENTS_PATH], allowed_signers=blobs[ors.ALLOWED_SIGNERS_PATH],
                 registry=blobs[ors.NAMESPACE_REGISTRY_PATH], runner_keys=frozenset()))
+        # The genesis enrols the four S1 namespaces; a namespace added later
+        # arrives by enrolment (ARIA-HIGH-511), so it is the TIP that must
+        # register and enrol every namespace the kernel speaks.
+        s1 = (ors.SIGNATURE_NAMESPACE, ors.LABEL_NAMESPACE, ors.JOURNEY_NAMESPACE, ors.ENROL_NAMESPACE)
+        for name in s1:
+            self.assertIn(name, genesis["child_allowed_signers"], "the genesis enrols the operator for every S1 act")
+        self.assertIsNotNone(ors.parse_namespace_registry(blobs[ors.NAMESPACE_REGISTRY_PATH]))
         for name in ors.OPERATOR_NAMESPACES:
-            self.assertIn(name, genesis["child_allowed_signers"], "the genesis enrols the operator for every act")
+            self.assertIn(name, blobs[ors.ALLOWED_SIGNERS_PATH].decode("utf-8"),
+                          "the tip enrols the operator for every operator act")
 
     def test_an_enrolment_this_change_appends_has_not_expired(self) -> None:
         # Runs in the required aria-merge-authority job: on a pull request
@@ -418,6 +427,11 @@ class EnrolmentChainTests(unittest.TestCase):
         self.assertEqual([a["id"] for a in ingest_operator_feedback(
             base_dir=self.fx.tools, cycle_id="c2", repo_root=self.fx.repo).admitted], ["OP-chain"])
 
+    def test_record_enrolment_refuses_a_child_that_drops_a_spoken_namespace(self) -> None:
+        # A new child becomes the tip, and a tip must register every namespace the kernel speaks.
+        with self.assertRaisesRegex(GovernanceError, "operator_enrol_child_registry_invalid"):
+            self.fx.enrol({ors.NAMESPACE_REGISTRY_PATH: _registry(aria_operator_journey=None).decode()})
+
     def test_the_cli_verb_appends_a_row_the_walk_accepts(self) -> None:
         from aria_kernel.cli import main as cli_main
 
@@ -433,3 +447,89 @@ class EnrolmentChainTests(unittest.TestCase):
                               for path in (ors.ALLOWED_SIGNERS_PATH, ors.ENROLMENTS_PATH)})
         self.assertIsNone(self._reason())
         self.assertTrue(self._newcomer_request_verifies())
+
+
+_FIFTH = "aria-operator-fifth"
+
+
+def _registry_with_fifth() -> bytes:
+    payload = json.loads(REGISTRY_BYTES)
+    payload["namespaces"].append({
+        "namespace": _FIFTH, "domain_tag": f"{_FIFTH}/v1",
+        "signed_fields": sorted(ors.OPERATOR_SUBJECT_FIELDS | {"draft_id"}), "signer_classes": ["T0"],
+        "expiry_hours": 24, "verifier": "aria_kernel.operator_request_signature.verify_operator_signature",
+        "status": "active",
+    })
+    return (json.dumps(payload, indent=2) + "\n").encode()
+
+
+class NamespaceAddedByEnrolmentTests(unittest.TestCase):
+    """ARIA-HIGH-511 — the walk judges history by what the walk needs; the tip by what the kernel speaks.
+
+    ADR-0023 adds a namespace as a registry entry through an enrolment. The
+    walk used to parse every historical child, the pinned genesis included,
+    against the CURRENT kernel's namespace tuple, so the first kernel that
+    spoke a namespace the genesis did not list read ``enrol_genesis_mismatch``
+    and every operator act failed closed for good.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-ns-add-")
+        self.addCleanup(self.tmp.cleanup)
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.fx = OperatorRequestFixture(Path(self.tmp.name) / "fixture")
+        self.five = (*ors.OPERATOR_NAMESPACES, _FIFTH)
+
+    def _anchor(self):
+        return ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)
+
+    def test_a_namespace_added_by_enrolment_walks_from_the_pinned_genesis(self) -> None:
+        # The enrolment is signed by the kernel on main, which speaks four
+        # namespaces and so admits a child registry that lists a fifth.
+        widened = allowed_signers_line(self.fx.principal, self.fx.key, namespace=",".join(self.five))
+        self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: widened,
+                       ors.NAMESPACE_REGISTRY_PATH: _registry_with_fifth().decode()})
+        self.assertIsNone(self._anchor()[1])
+        # The next kernel speaks the fifth namespace; the genesis it walks from does not list it.
+        with mock.patch.object(ors, "OPERATOR_NAMESPACES", self.five):
+            anchor, reason = self._anchor()
+            self.assertIsNone(reason)
+            self.assertIn(_FIFTH, anchor.namespaces)
+            entry = anchor.namespaces[_FIFTH]
+            signed = ors.sign_operator_subject({"actor_class": "T0", "draft_id": "d-1"}, namespace=_FIFTH,
+                                               domain_tag=entry.domain_tag, signing_key=self.fx.key,
+                                               signer_principal=self.fx.principal)
+            self.assertTrue(ors.verify_operator_signature(signed, namespace=_FIFTH, allowed_signers=anchor.content,
+                                                          namespaces=anchor.namespaces).valid)
+
+    def test_the_tip_must_register_every_kernel_namespace(self) -> None:
+        # The direction that must not weaken: a tip registry without a namespace
+        # the kernel speaks is no registry, however the history walks.
+        with mock.patch.object(ors, "OPERATOR_NAMESPACES", self.five):
+            self.assertEqual(self._anchor(), (None, ors.NAMESPACE_REGISTRY_INVALID))
+            self.assertIsNone(ors.parse_namespace_registry(REGISTRY_BYTES))
+            self.assertIsNotNone(ors.parse_namespace_registry(_registry_with_fifth()))
+
+    def test_a_historical_child_without_the_enrol_entry_breaks_the_walk(self) -> None:
+        # History must still be able to enrol the next row: a child registry
+        # without the enrol entry ends the chain at the row that introduces it.
+        signers = (self.fx.repo / ors.ALLOWED_SIGNERS_PATH).read_bytes()
+        no_enrol = _registry(aria_operator_enrol=None)
+
+        def row(parent: tuple[bytes, bytes], child_registry: bytes) -> dict:
+            pair = {"allowed_signers": "sha256:" + hashlib.sha256(parent[0]).hexdigest(),
+                    "registry": "sha256:" + hashlib.sha256(parent[1]).hexdigest()}
+            subject = dict(ors.enrolment_genesis_row(signers, child_registry), kind="enrolment", parent=pair,
+                           actor_class="T0", audience=AUDIENCE,
+                           expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
+            return ors.sign_operator_subject(subject, namespace=ors.ENROL_NAMESPACE,
+                                             domain_tag="aria-operator-enrol/v1", signing_key=self.fx.key,
+                                             signer_principal=self.fx.principal)
+
+        chain = (genesis_line(signers) + json.dumps(row((signers, REGISTRY_BYTES), no_enrol)) + "\n"
+                 + json.dumps(row((signers, no_enrol), REGISTRY_BYTES)) + "\n").encode()
+        self.assertEqual(ors.verify_enrolment_chain(chain, allowed_signers=signers, registry=REGISTRY_BYTES,
+                                                    runner_keys=frozenset()), ors.ENROL_CHAIN_BROKEN)

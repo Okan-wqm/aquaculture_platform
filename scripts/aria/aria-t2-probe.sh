@@ -5,7 +5,12 @@
 # 3 = breached; the JSON verdict names every violation, never a secret).
 #
 #   ARIA_REPO_ROOT            root-owned checkout the kernel and the anchor are
-#                             read from (default: /var/lib/aria/code)
+#                             read from (default: /var/lib/aria/code). This
+#                             account reads it through the kernel's root-owned
+#                             trust rule (main_anchor._root_owned_trusted: only
+#                             root can change its configuration, so git is told
+#                             it is safe); the unit's root ExecStartPre fetched
+#                             origin/main into it first (ARIA-HIGH-281).
 #   ARIA_RUNNER_ROOT          runner root (default: /home/gharunner/actions-runner)
 #   ARIA_RUNNER_WORKSPACE     the runner's checkout, where cycle keys are minted
 #   ARIA_T2_PROBE_TOOLS_DIR   the runner's store, whose signer registry names

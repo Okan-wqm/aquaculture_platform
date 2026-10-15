@@ -32,9 +32,9 @@ from .ledger import load_declared_jsonl, load_segments
 from .tool_registry import ensure_tools_dir, utc_now
 
 
-# Plan 016 baseline counters (9). Plan 020 adds 4 (Phase 6 ×2 + Phase 9
-# + Phase 13); the union is exposed as PLAN_016_METRIC_NAMES so the
-# dashboard renderer + invariant test cover the full surface.
+# Plan 016 baseline counters (9). Plan 020 adds 3 (Phase 6 ×2 + Phase 9);
+# the union is exposed as PLAN_016_METRIC_NAMES so the dashboard renderer +
+# invariant test cover the full surface.
 PLAN_016_BASELINE_METRIC_NAMES = (
     "aria_agent_request_total",
     "aria_agent_claim_active",
@@ -58,15 +58,13 @@ PLAN_020_PHASE_6_METRIC_NAMES = (
 PLAN_020_PHASE_9_METRIC_NAMES = (
     "aria_change_chain_validation_pct",
 )
-# Plan 020 Phase 13 — dispatch rationale telemetry counter.
-PLAN_020_PHASE_13_METRIC_NAMES = (
-    "aria_dispatch_rationale_total",
-)
+# Plan 020 Phase 13's dispatch-rationale counter is retired (ARIA-LOW-513):
+# no production code ever wrote its ledger, so it could only read 0, and
+# "why this route" is owned by the native admission row on the attempt.
 PLAN_016_METRIC_NAMES = (
     PLAN_016_BASELINE_METRIC_NAMES
     + PLAN_020_PHASE_6_METRIC_NAMES
     + PLAN_020_PHASE_9_METRIC_NAMES
-    + PLAN_020_PHASE_13_METRIC_NAMES
 )
 
 
@@ -148,7 +146,8 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
       so historical mock data does not retroactively pollute real-mode
       averages).
     - Plan 020 Phase 9: aria_change_chain_validation_pct (added there).
-    - Plan 020 Phase 13: aria_dispatch_rationale_total (added there).
+    - Plan 020 Phase 13 retired (ARIA-LOW-513): the native admission row
+      owns dispatch rationale; its counter had no writer to count.
     """
     from .agent_eval import count_eval_runs_by_mode
 
@@ -163,10 +162,8 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
         expected_surface="agent_invocation_claims",
     )
     kinds = _governance_kinds(tools_root)
-    from .cost_telemetry import count_dispatch_rationales
     eval_counts = count_eval_runs_by_mode(base_dir=tools_root)
     chain_pct = _change_chain_validation_pct(tools_root)
-    dispatch_total = count_dispatch_rationales(base_dir=tools_root)
 
     return {
         "aria_agent_request_total": len(requests),
@@ -193,8 +190,6 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
         # enforced rows / committed rows). historical_attestation rows
         # excluded from numerator (audit trail only).
         "aria_change_chain_validation_pct": chain_pct,
-        # Plan 020 Phase 13 — total dispatch_rationale rows recorded.
-        "aria_dispatch_rationale_total": dispatch_total,
     }
 
 

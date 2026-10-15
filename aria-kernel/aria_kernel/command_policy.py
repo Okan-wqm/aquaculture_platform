@@ -125,9 +125,14 @@ class CommandRule:
 # one only ever hides what follows it from a reader, and is refused alike.
 # Unicode separators (U+2028/U+2029/U+0085), vertical tab and form feed are NOT
 # bash metacharacters (measured: `bash -c` runs `echo a<U+2028>id` as one word),
-# so they stay data.
+# so they stay data. Only what bash itself ignores at the END of a script is
+# trimmed before the scan: blanks (space, tab) and line breaks. Python's
+# `str.rstrip()` trimmed every Unicode space, so `git status\n<VT>` hid its
+# line break and bash ran <VT> as a second command (ARIA-HIGH-443).
 CONTROL_OPERATOR_CHARS: frozenset[str] = frozenset("|&;()<>\n")
 LINE_BREAKS: tuple[str, ...] = ("\n", "\r")
+_IGNORED_AT_SCRIPT_END = " \t\n"
+_BLANKS: tuple[str, ...] = (" ", "\t")
 # The two-character operators bash's lexer reads (named whole in a refusal).
 _TWO_CHARACTER_OPERATORS: frozenset[str] = frozenset({
     "&&", "||", ";;", "|&", "<<", ">>", "&>", "<(", ">(", "<&", ">&", "<>", ">|",
@@ -137,23 +142,94 @@ _TWO_CHARACTER_OPERATORS: frozenset[str] = frozenset({
 # carrying it cannot be lexed the way bash runs it: it is never one argv.
 ANSI_C_QUOTE = "$'"
 
+# ARIA-HIGH-505 — what bash EXPANDS, so the argv it runs is not the one
+# `shlex` lexed (measured with a program that prints its argv):
+# `git commit -m {x,--amend}` runs `-m x --amend`, `-m x$IFS-n` runs
+# `-m x -n`, `-m ??` runs `-m` plus the file names of the working directory,
+# `-m ~` runs `-m $HOME`. The gate admits only lines whose words bash leaves
+# as written, so each is refused by name, like an operator. Outside single
+# quotes: parameter, arithmetic and command substitution (`$`, a backtick).
+# Unquoted only: brace expansion, pathname expansion (`* ? [`) and a tilde
+# prefix (`~` starting a word, or after `=` / `:`). A brace expression is an
+# unquoted `{` and a later unquoted `}` at the same nesting depth with a `,`
+# or `..` between them; as in bash's `brace_gobbler`, a `}` reached before
+# any separator does NOT end the search (`{a},--amend}` expands to `a}` and
+# `--amend`). git's `HEAD^{tree}`, `@{u}..HEAD` and `HEAD@{1}..HEAD@{2}`
+# have no such `}` and stay admitted. And the two places the lexers remove
+# quoting differently: a backslash before `$`, a backtick or a line break
+# inside double quotes (bash drops the backslash, `shlex` keeps it), and a
+# backslash-newline outside quotes (bash joins the lines, `shlex` keeps the
+# line break).
+DOLLAR_EXPANSION = "$"
+BACKTICK_SUBSTITUTION = "`"
+BRACE_EXPANSION = "{,}"
+TILDE_PREFIX = "~"
+GLOB_CHARS: frozenset[str] = frozenset("*?[")
+LINE_CONTINUATION = "\\\n"
+DOUBLE_QUOTED_ESCAPES: frozenset[str] = frozenset({DOLLAR_EXPANSION, BACKTICK_SUBSTITUTION, "\n"})
+# What `unmodelled_shell_syntax` returns for an expansion (as opposed to an
+# operator), so an enforcer can name the class in its refusal.
+EXPANSION_MARKERS: frozenset[str] = frozenset({
+    DOLLAR_EXPANSION, BACKTICK_SUBSTITUTION, BRACE_EXPANSION, TILDE_PREFIX, *GLOB_CHARS,
+    LINE_CONTINUATION, *("\\" + escaped for escaped in DOUBLE_QUOTED_ESCAPES),
+})
+# The characters after which bash still reads a tilde prefix inside a word
+# (`a=~`, `PATH=a:~/b`); a superset of where it does, which only refuses more.
+_TILDE_PREFIX_AFTER: tuple[str, ...] = ("=", ":")
 
-def unquoted_control_operator(line: str) -> str | None:
-    """The first thing in ``line`` bash would run as an operator, not a word, or None.
+
+def unmodelled_shell_syntax(line: str) -> str | None:
+    """The first thing in ``line`` that makes bash run something other than
+    the one argv ``shlex.split`` lexes from it, or None.
 
     THE one scanner of a command line (ARIA-CRITICAL-446 folded ARIA-HIGH-443's
-    line-break scan into it). POSIX quoting, as bash applies it: a
-    single-quoted span is literal; in a double-quoted span and outside quotes
-    a backslash takes the next character (`\\;` is a `;` argument, a
-    backslash-newline a continuation); an unquoted ``#`` at the start of a word
-    comments out the rest of its line, quotes and operators included, and the
-    break that ends the comment is still a break. Returns the operator as bash
-    reads it (``;``, ``&&``, ``|``, ``<(``, ``\\n``, …), or ``$'`` for ANSI-C
-    quoting. Trailing whitespace ends the line, not a command.
+    line-break scan into it; ARIA-HIGH-505 added expansions). The contract:
+    it returns None only for a line whose ``shlex.split`` argv is the argv bash
+    runs in every argument position, comments aside (bash drops an unquoted
+    ``#``-word and the rest of its line, ``shlex`` keeps them, so the gate
+    judges MORE words, never others).
+    ``tests/test_bash_expansion_differential.py`` measures that contract
+    against bash itself. The command word is not part of it: bash consumes a
+    leading ``NAME=value`` assignment or a reserved word (``time``, ``!``,
+    ``coproc``, ``[[``) there, so ``X=a git status`` lexes with argv0
+    ``X=a``. What keeps that safe is the allow rules, each anchored to a
+    literal program name (``^git\\s+status``, ``^pytest``, …), so no such
+    argv0 is ever admitted; ``TheGateVerifiesTheArgvBashRuns`` in
+    ``tests/test_sandbox_and_perimeter_hardening.py`` pins it for every allow
+    example.
+
+    Linear in the length of ``line``: the hook runs it on every Bash call of
+    model-authored text, so its cost must not grow faster than the text.
+
+    POSIX quoting, as bash applies it: a single-quoted span is literal; in a
+    double-quoted span and outside quotes a backslash takes the next
+    character (`\\;` is a `;` argument); an unquoted ``#`` at the start of a
+    word comments out the rest of its line, quotes and operators included,
+    and the break that ends the comment is still a break. Only what bash
+    ignores at the end of a script is trimmed: blanks and line breaks; any
+    other character after a line break is a word bash runs as a command.
+
+    Returns the operator as bash reads it (``;``, ``&&``, ``|``, ``<(``,
+    ``\\n``, …), ``$'`` for ANSI-C quoting, or the expansion's marker (one
+    of :data:`EXPANSION_MARKERS`: ``$``, a backtick, ``{,}``, ``~``, ``*``,
+    ``?``, ``[``, a backslash-newline, or a backslash before ``$`` / a
+    backtick / a line break inside double quotes).
     """
-    text = line.rstrip()
+    text = line.rstrip(_IGNORED_AT_SCRIPT_END)
     quote: str | None = None
     word_start = True
+    previous: str | None = None
+    # Brace expansion is per word, and bash tries every unquoted `{` of it:
+    # a `{` opens an expression when a later `}` at its depth (the `{`s
+    # opened after it and not yet closed) follows a separator. Two facts
+    # decide that for all of them at once, in constant time per character.
+    # The newest `{` is always at depth 0 and an older one is never shallower,
+    # while a separator marks every `{` before it, so the marked `{`s are the
+    # oldest and the newest of them is the shallowest: a `}` closes an
+    # expression exactly when that one is at depth 0.
+    brace_in_word = False
+    # Depth of the newest `{` a separator has followed; None while none has.
+    separated_depth: int | None = None
     index = 0
     while index < len(text):
         char = text[index]
@@ -161,12 +237,22 @@ def unquoted_control_operator(line: str) -> str | None:
             quote = None if char == "'" else quote
         elif quote == '"':
             if char == "\\":
+                # `line`, not `text`: what follows may be the trimmed break.
+                following = line[index + 1:index + 2]
+                if following in DOUBLE_QUOTED_ESCAPES:
+                    return "\\" + following
                 index += 1
+            elif char in (DOLLAR_EXPANSION, BACKTICK_SUBSTITUTION):
+                return char
             elif char == '"':
                 quote = None
+            previous = None
         elif char == "\\":
+            # `line`, not `text`: a continuation at the very end is what the trim removed.
+            if line[index + 1:index + 2] == "\n":
+                return LINE_CONTINUATION
             index += 1
-            word_start = False
+            word_start, previous = False, None
         elif char in CONTROL_OPERATOR_CHARS or char == "\r":
             pair = text[index:index + 2]
             return pair if pair in _TWO_CHARACTER_OPERATORS else char
@@ -176,12 +262,33 @@ def unquoted_control_operator(line: str) -> str | None:
                 return None
             index = min(ends)
             continue
-        elif char == "$" and text[index + 1:index + 2] == "'":
-            return ANSI_C_QUOTE
+        elif char == DOLLAR_EXPANSION:
+            return ANSI_C_QUOTE if text[index + 1:index + 2] == "'" else DOLLAR_EXPANSION
+        elif char == BACKTICK_SUBSTITUTION or char in GLOB_CHARS:
+            return char
+        elif char == TILDE_PREFIX and (word_start or previous in _TILDE_PREFIX_AFTER):
+            return TILDE_PREFIX
         elif char in ("'", '"'):
-            quote, word_start = char, False
+            quote, word_start, previous = char, False, None
+        elif char in _BLANKS:
+            word_start, previous = True, None
+            brace_in_word, separated_depth = False, None
         else:
-            word_start = char in (" ", "\t")
+            if char == "{":
+                brace_in_word = True
+                if separated_depth is not None:
+                    separated_depth += 1
+            elif char == "," or (char == "." and text[index + 1:index + 2] == "."):
+                # A separator at any depth marks the newest `{` (depth 0);
+                # counting nested separators too only refuses more.
+                if brace_in_word:
+                    separated_depth = 0
+            elif char == "}":
+                if separated_depth == 0:
+                    return BRACE_EXPANSION
+                if separated_depth is not None:
+                    separated_depth -= 1
+            word_start, previous = False, char
         index += 1
     return None
 
@@ -191,9 +298,10 @@ def argv_of(line: str) -> list[str]:
     tool's command the same way). A line that is not exactly one argv stays
     one token, which every enforcer's operator detector refuses by name: a
     line bash would run as more than one command or redirect (any unquoted
-    operator, ARIA-CRITICAL-446; a line break, ARIA-HIGH-443), one whose
-    quoting the lexer cannot follow, and an unlexable one."""
-    if unquoted_control_operator(line) is not None:
+    operator, ARIA-CRITICAL-446; a line break, ARIA-HIGH-443), a word bash
+    would expand into other words (ARIA-HIGH-505), one whose quoting the
+    lexer cannot follow, and an unlexable one."""
+    if unmodelled_shell_syntax(line) is not None:
         return [line]
     try:
         return shlex.split(line)
@@ -587,12 +695,20 @@ __all__ = [
     "VALIDATION_SUITE_RULES",
     "allowed_regexes",
     "ANSI_C_QUOTE",
+    "BACKTICK_SUBSTITUTION",
+    "BRACE_EXPANSION",
     "CONTROL_OPERATOR_CHARS",
+    "DOLLAR_EXPANSION",
+    "DOUBLE_QUOTED_ESCAPES",
+    "EXPANSION_MARKERS",
+    "GLOB_CHARS",
     "LINE_BREAKS",
+    "LINE_CONTINUATION",
+    "TILDE_PREFIX",
     "argv_of",
     "claude_permission_rules",
     "claude_rule_matches",
-    "unquoted_control_operator",
+    "unmodelled_shell_syntax",
     "classify_command",
     "denied_regexes",
     "deny_refusal",

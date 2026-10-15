@@ -1878,7 +1878,10 @@ def _refuse_unverified_runtime_artifacts(store: StateStore) -> dict[str, Any]:
     store's tools root with the checkout as the workspace root — the same
     call, with the same roots, that `integrity verify` makes in the
     executor lane's "Verify ARIA state integrity" step. Returned on
-    success so a caller can carry the counts into its own verdict.
+    success so a caller can carry the counts into its own verdict. That
+    verdict also refuses a store still holding bytes the kernel refused as
+    a credential leak (``refused_output_present``, ARIA-HIGH-515): a public
+    branch's history is permanent, so this is the last point they can stop.
     """
     from .runtime_artifacts import verify_runtime_artifacts
 
@@ -1897,10 +1900,12 @@ def _refuse_unverified_runtime_artifacts(store: StateStore) -> dict[str, Any]:
     remainder = len(issues) - _RUNTIME_REFUSAL_NAMED_ISSUES
     raise StateStoreRefusal(
         "state_publish_runtime_artifacts_unverified: the store's run refs, raw-finding "
-        f"pointers or artifact ledgers do not verify ({len(issues)} issue"
+        "pointers or artifact ledgers do not verify, or bytes the kernel refused as a "
+        f"credential leak remain ({len(issues)} issue"
         f"{'' if len(issues) == 1 else 's'}: {named}"
         f"{f', and {remainder} more' if remainder > 0 else ''}); a compaction that "
-        "leaves the store unverifiable is not published, and neither is a lost artifact"
+        "leaves the store unverifiable is not published, and neither is a lost artifact "
+        "or a refused credential"
     )
 
 

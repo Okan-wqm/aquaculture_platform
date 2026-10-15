@@ -877,6 +877,13 @@ record` CHILD passed the reason through the operator CLI's free-text `--reason` 
   `evidence_validator.EVIDENCE_VERIFICATION_UNAVAILABLE_CODES` is released by the executor as
   `evidence_verification_unavailable` (harness class, no requeue budget charged); any other code
   stays `submit_rejected`.
+- **Withheld output on a credential refusal (ARIA-HIGH-515).** A rejection carrying any of
+  `agent_invocations.CREDENTIAL_REFUSAL_CODES` is never sealed: its row has `output_path: null`,
+  `output_withheld: "credential_refusal"`, `withheld_sources` (the raw files under `outputs/` as
+  named, each with the digest it was judged at, deleted before the journal; a symlinked component
+  refuses the submit), and the hashes. The verdict (`judge_claim_submission`) reduces every other
+  reason to its code for all its consumers. `integrity verify` and every publish refuse
+  `refused_output_present`: a file under `outputs/` whose bytes hash to a refused digest.
 
 ---
 

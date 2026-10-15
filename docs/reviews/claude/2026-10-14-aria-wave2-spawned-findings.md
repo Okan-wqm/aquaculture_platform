@@ -144,6 +144,30 @@ verb can record are listed at the end.
   `merge_frozen_watchdog_incident_open` and no merge, and a runner test whose merge authority does
   not refuse. Deadline: 2027-04-13.
 
+### ARIA-MEDIUM-507 — skill genesis has no working path
+
+- **Raised by:** landing L1's completeness critic, as a lost residual. Wave-2 r10 mapped B04-R01,
+  B04-D10 and B09-D10 (the 2026-09-25 full-read review) onto ARIA-HIGH-470. L1's merge resolves
+  470 from wave-1 `994091b2f`, which fixes only the evidence-grounded gate, corpus sanity and the
+  drainer flag. No design, bucket or open row owned the rest.
+- **Problem:** `select_drafter` and `select_judge` (`dispatcher_factory.py:165-177, 232-243`) take
+  the store from `evidence_pack.get("_base_dir")`. `EvidencePack` (`evidence_collector.py:82-98`)
+  has no such key, and nothing writes one. `accepted_response` (`:363`) returns `None` when
+  `base_dir` is `None`, so every drafter and judge call polls its full 600 s inside the cycle and
+  returns the `dispatchers_unavailable` fallback. A delivered draft is never read. Reproduced on the
+  L1 tree: without the key, the store reader ran 0 times in a 0.4 s poll; with it, 4 times. Also,
+  `skill_genesis_drainer.py:199-201` skips every non-convergent row. `learning.py:439` emits only
+  non-convergent rows, and `existing_genesis_request_keys` (`agent_genesis.py:1093`) blocks a
+  second request for the same gap, so a skill gap never closes. All 20 live rows are
+  non-convergent, so no poll runs in production yet. Once one convergent request is queued, each
+  authoring blocks the cycle; from then on, treat this finding as HIGH.
+- **Planned fix:** the dispatchers take the drainer's `base_dir` as a required argument
+  (`autonomy_orchestrator.py:1988-1991` passes `root`), and the evidence-pack key goes. A test
+  submits an accepted result for the minted request and reads it back as the draft. Then either
+  drain non-convergent requests, or route `skill_gap`/`unobserved_surface` to a seeded convergent
+  request, or stop emitting them. A test shows that a request the router emits reaches a consumer.
+  Deadline: 2027-01-13.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

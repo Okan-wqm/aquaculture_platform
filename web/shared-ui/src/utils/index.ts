@@ -203,3 +203,5 @@ export {
 } from './tenant-capabilities';
 export type { CapabilityUser } from './tenant-capabilities';
 export { toCsv, sanitizeCsvCell, downloadCsv, downloadJson, downloadTextFile } from './csv';
+export { randomId } from './random-id';
+export { logError } from './log-error';

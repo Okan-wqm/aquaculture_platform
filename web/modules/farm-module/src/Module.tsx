@@ -64,10 +64,13 @@ const FinancePage = React.lazy(preloadFinancePage);
  * Map the farm-module's route segments (relative to the `/sites` mount the
  * shell gives this remote) to the chunk that renders them. Redirect source
  * segments (`cleaner-fish`, `feeding/records`, …) map to the chunk their
- * `<Navigate>` TARGET needs — preloading the source's own chunk would be
+ * Navigate TARGET needs — preloading the source's own chunk would be
  * pointless because no page ever renders there.
  */
-const ROUTE_PRELOADS: ReadonlyArray<readonly [prefix: string, preload: () => Promise<unknown>]> = [
+type PreloadResult = Promise<unknown>;
+type RoutePreloadFn = () => PreloadResult;
+
+const ROUTE_PRELOADS: ReadonlyArray<readonly [prefix: string, preload: RoutePreloadFn]> = [
   // Order matters only where one segment prefixes another; none here do.
   ['/environment', preloadEnvironmentPage],
   ['/setup', preloadSetupPage],

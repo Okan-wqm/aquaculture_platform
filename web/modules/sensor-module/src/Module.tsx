@@ -8,6 +8,7 @@
 
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { ErrorBoundary, RequireAuth, RouteWithBoundary } from '@aquaculture/shared-ui';
 import SensorScadaPage from './pages/SensorScadaPage';
 import SensorDashboardPage from './pages/SensorDashboardPage';
 import IndustrySetupPage from './pages/IndustrySetupPage';
@@ -73,7 +74,13 @@ function PageLoader() {
 
 const SensorModule: React.FC = () => {
   return (
-    <Suspense fallback={<PageLoader />}>
+    // Module-level guard family (defense-in-depth — the remote can be
+    // instantiated independently of the shell's ProtectedRoute), plus a
+    // module-level error boundary so a render crash is contained here
+    // instead of unwinding to the host (web/shared-ui/src/components/guards).
+    <RequireAuth>
+      <ErrorBoundary moduleName="Sensor">
+        <Suspense fallback={<PageLoader />}>
       <Routes>
         {/* SCADA View - Main Page */}
         <Route index element={<SensorScadaPage />} />
@@ -101,7 +108,14 @@ const SensorModule: React.FC = () => {
         <Route path="devices/vfd/:deviceId" element={<VfdDeviceDetailPage />} />
 
         {/* Readings */}
-        <Route path="readings" element={<ReadingsPage />} />
+        <Route
+          path="readings"
+          element={
+            <RouteWithBoundary moduleName="Sensor">
+              <ReadingsPage />
+            </RouteWithBoundary>
+          }
+        />
 
         {/* Alerts */}
         <Route path="alerts" element={<AlertsPage />} />
@@ -158,8 +172,10 @@ const SensorModule: React.FC = () => {
 
         {/* Unknown routes */}
         <Route path="*" element={<Navigate to="/sensor" replace />} />
-      </Routes>
-    </Suspense>
+        </Routes>
+      </Suspense>
+      </ErrorBoundary>
+    </RequireAuth>
   );
 };
 

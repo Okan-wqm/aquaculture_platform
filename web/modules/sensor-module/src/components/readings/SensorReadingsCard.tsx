@@ -109,6 +109,20 @@ export const SensorReadingsCard: React.FC<SensorReadingsCardProps> = ({
   const [expanded, setExpanded] = useState(defaultExpanded);
   // The jump goes to the last sample of the channels shown (the parameter
   // filter applies), not of a sibling the chart does not draw.
+  // Stable channel projection for the trend card: the inline `.map` created a
+  // new array identity per render, defeating TrendChart's `lines` memo and
+  // rebuilding the uPlot instance on every parent re-render (useNow ticks
+  // once per second).
+  const chartChannels = useMemo(
+    () =>
+      channels.map((channel) => ({
+        channelKey: channel.channelKey,
+        displayLabel: channel.displayLabel,
+        unit: unitOf(channel) || undefined,
+      })),
+    [channels],
+  );
+
   const lastSampleAt = useMemo(() => {
     const instants = channels.flatMap((channel) => {
       const last = bounds.get(channel.channelId)?.lastSampleAt;
@@ -183,11 +197,7 @@ export const SensorReadingsCard: React.FC<SensorReadingsCardProps> = ({
                 range={range}
                 lastSampleAt={lastSampleAt}
                 onShowRange={onShowRange}
-                channels={channels.map((channel) => ({
-                  channelKey: channel.channelKey,
-                  displayLabel: channel.displayLabel,
-                  unit: unitOf(channel) || undefined,
-                }))}
+                channels={chartChannels}
               />
             </>
           )}

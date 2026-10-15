@@ -824,6 +824,7 @@ class GraphQLClient {
         }),
         signal: abortScope.signal,
       });
+      recordCorrelationId(response);
 
       // 401 — attempt a single token refresh, then retry.
       // retryCount === 0 caps the retry to exactly one attempt (CRIT-01: no infinite loop).
@@ -1288,6 +1289,7 @@ class PublicGraphQLClient {
         body: JSON.stringify({ query: queryString, variables }),
         signal: abortScope.signal,
       });
+      recordCorrelationId(response);
 
       // 5xx (nginx 502/503/504 / server error) returns HTML, not GraphQL JSON.
       // Surface a TYPED transport error before response.json() throws an
@@ -1317,6 +1319,23 @@ class PublicGraphQLClient {
       abortScope.dispose();
     }
   }
+}
+
+
+/**
+ * The correlation id of the most recent completed GraphQL response (read from
+ * the gateway's x-correlation-id header). Error surfaces display it next to a
+ * client-generated errorId so a user-reported crash can be joined with the
+ * gateway/server logs of the same session — the value is observational, never
+ * a client identity.
+ */
+let lastCorrelationId: string | null = null;
+function recordCorrelationId(response: Response): void {
+  const value = response.headers.get('x-correlation-id');
+  if (value) lastCorrelationId = value;
+}
+export function getLastCorrelationId(): string | null {
+  return lastCorrelationId;
 }
 
 export const publicGraphqlClient = new PublicGraphQLClient();

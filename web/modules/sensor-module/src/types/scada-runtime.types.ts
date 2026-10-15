@@ -490,7 +490,6 @@ export interface WidgetPermissionResult {
 /* ================================================================== */
 
 /** Chart view mode (FUXA ChartViewType). */
-export type ChartViewMode = 'realtime' | 'history' | 'custom';
 
 /**
  * Time range presets — the SCADA tokens of the shared time-range table

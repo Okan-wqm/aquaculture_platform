@@ -396,6 +396,18 @@ Tests:
 
 All of them fail on HEAD (`allow command_policy_allow`; "BashDenylistHit not raised").
 
+### Landed (L2): the trim the scanner kept
+
+Closer 8c575da19 was rejected at the L1 landing because one gap of this class survived it: the
+scanner trimmed the line with `rstrip()`, so `git status\n` followed by any of the 26 characters
+that `str.isspace()` admits besides space, tab and newline was cut back to `git status` and
+admitted, and bash runs the trailing character as a second command. On
+`fix/aria-zai-quality-port` (bucket `G026-443-A12-4`), the scanner, now `unmodelled_shell_syntax`,
+trims only space, tab and newline. `tests/test_sandbox_and_perimeter_hardening.py` holds the
+26-character table (allow before, deny after), and a bash-truth test shows bash runs that
+character as a command. The same commit closes ARIA-HIGH-505, the word-expansion half of this
+class.
+
 ## ARIA-MEDIUM-444 — a lease is judged by the provider the claim ran on
 
 Raised by zaiwriter's review of 96f233284 and confirmed here.

@@ -132,6 +132,15 @@ verb can record are listed at the end.
   runs `git commit -m x --amend` and `-m x -n`, options the gate refuses when spelled out.
 - **Planned fix:** the one scanner admits only lines whose shlex argv is bash's, proven by a
   bash-truth differential test; it lands with ARIA-HIGH-443's fix. Deadline: 2026-10-21.
+- **Landed (L2, `G026-443-A12-4`):** the one scanner, renamed `unmodelled_shell_syntax`, refuses by
+  name `$` and backtick outside single quotes, `\$`, `` \` `` and backslash-newline inside double
+  quotes, unquoted `*`, `?` and `[`, tilde prefixes, brace expressions and unquoted backslash-newline;
+  the gate names them `shell_expansion_in_command`. It tracks braces as bash's `brace_gobbler` does
+  (a `}` before any separator does not close the word's `{`), in one linear pass.
+  `test_bash_expansion_differential.py` runs every admitted line through bash in two locales: 1815
+  admitted lines ran a different argv before, 0 after; `test_sandbox_and_perimeter_hardening.py`
+  holds the bypass lines (allow before, deny after) and the linearity pin. The lexer after the
+  scanner, stdlib `shlex.split`, is superlinear: ARIA-MEDIUM-538.
 
 ### ARIA-LOW-506 — each watchdog freeze layer is pinned only together with the other
 
@@ -292,6 +301,14 @@ verb can record are listed at the end.
   records why a route was taken.
 - **Planned fix:** bucket `G026-443-A12-4` (landing L2) retires the module, the metric and the
   surface row and points Plan 020 Phase 13 at the admission row. Deadline: 2027-04-13.
+- **Landed (L2):** `cost_telemetry.py` and its test are deleted, `plan_016_metrics` exposes 12
+  metrics, the `cost_telemetry` ledger row is gone from `state_manifest` (the `cost_telemetry`
+  profile surface stays: `cost_attribution` uses it; `origin/aria/state` holds no
+  `cost-telemetry.jsonl`), and Plan 020 marks Phase 13 retired in favour of the admission row.
+  `test_plan_016_metrics.py` (metric set, module gone, manifest row gone) was red before and is
+  green after; the replay fixtures and the `test_agent_eval.py` metric count follow. The dead
+  cost hook in `cycle_phases/cost_telemetry.py` and plan 032's ARIA-032-D1 belong to
+  `G026-A12-1-cost-booking`.
 
 ### ARIA-LOW-514 — the Plan 016 reflection section swallows every exception
 
@@ -548,6 +565,19 @@ verb can record are listed at the end.
 - **Planned fix:** the validator accepts `Part of: <review_file>#<ID>` as the traceability trailer of
   a `fix`, `security` or `feat` commit, checked against the registry and the row's review file like
   `Closes:`, and closure derivation never reads it as a closure. Deadline: 2027-04-13.
+
+### ARIA-MEDIUM-538 — the Bash gate's argv lexer is superlinear in the line
+
+- **Raised by:** the `G026-443-A12-4` fix round (landing L2).
+- **Problem:** `argv_of` (`command_policy.py:304-307`) hands every line the scanner admits to stdlib
+  `shlex.split`, whose token builder appends one character at a time. One admitted word of 200k
+  characters takes 1.48 s, 400k 3.25 s and 800k 12.25 s; `decide_pre_tool` on an 800k-character
+  line took 12.4 s, all in shlex. The PreToolUse hook (`hooks.py:114`) runs it on every Bash call,
+  and the only bound is the broker's 8 MiB request cap (`hook_broker.py:69`). Pre-existing: the
+  same lines are shlex-split at 013f20324.
+- **Planned fix:** a fail-closed command-length bound in the hook, or the one scanner producing the
+  argv in its own linear pass, checked against bash by `test_bash_expansion_differential.py`. No
+  wave-2 bucket owns it. Deadline: 2027-01-13.
 
 ## Registry amendments recorded at the L1 registry step
 

@@ -262,7 +262,6 @@
     "tests.test_convergence_resumable_step": 98.8,
     "tests.test_convergent_plan_and_skill_demo": 2.3,
     "tests.test_cost_pricing": 2.3,
-    "tests.test_cost_telemetry": 2.3,
     "tests.test_coverage_gap_genesis": 0.0,
     "tests.test_crash_injection": 5.6,
     "tests.test_create_request_strict_fields_required": 3.4,

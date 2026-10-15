@@ -51,7 +51,8 @@ The single operating reference is `/root/.claude/plans/s-md-b-z-bu-parsed-treasu
 
 ### Phase 6 — Agent Eval Harness (mock/real branching)
 - `aria_kernel/agent_eval.py` 5 pinned fixture (aria-evidence-judge / aria-adversarial-judge / aria-consensus-arbiter / architectural-arbiter / auth-security-expert).
-- `aria_agent_eval_mock_only_total` + `aria_agent_eval_real_total` (metric counters 10 + 11 of final 13).
+- `aria_agent_eval_mock_only_total` + `aria_agent_eval_real_total` (metric counters 10 + 11
+  of final 12; 13 until Phase 13 was retired, ARIA-LOW-513).
 - Weekly off-hours CI workflow `.github/workflows/aria-agent-eval.yml`.
 - Mock mode'da "agent quality verified" iddiası YOK; real-mode validation Plan 021 scope eğer Phase 5 fail ederse.
 
@@ -89,14 +90,20 @@ The single operating reference is `/root/.claude/plans/s-md-b-z-bu-parsed-treasu
 - `aria_kernel/instinct_candidate.py` schema + PROPOSED → UNDER_REVIEW → PROMOTED (operator_approval_ref + PR URL) | REJECTED.
 - Kernel-side enforcement: auto-promotion REJECT.
 - `learning.py:_skill_or_agent_genesis` extension — auto-genesis önce candidate kayıt + HUMAN_REQUIRED.
-- `instinct_candidate_recorded` + `instinct_candidate_promoted` events (event #11+#12 of 14).
+- `instinct_candidate_recorded` + `instinct_candidate_promoted` events (event #11+#12 of 14;
+  of 12 since the Phase 13 retirement, ARIA-LOW-513).
 
-### Phase 13 — Cost Telemetry + 13. metric
-- `agent_invocations.create_agent_invocation_request` `dispatch_rationale` kwarg.
-- `aria_kernel/cost_telemetry.py` `compose_dispatch_rationale`.
-- `aria-tools/cost-telemetry.jsonl` + `dispatch_rationale_recorded` + `cost_cap_exceeded` events (event #13+#14).
-- `plan_016_metrics.py` 13. counter `aria_dispatch_rationale_total`.
-- CI executor (Plan 019 Phase 8) integration.
+### Phase 13 — Cost Telemetry + 13. metric (RETIRED 2026-10-15, ARIA-LOW-513)
+
+- Retired: the dispatch-rationale ledger, its writer module `aria_kernel/cost_telemetry.py`
+  and the 13th `plan_016_metrics.py` counter. No production code ever called the writer
+  (the request kwarg, the cost-cap event and the CI executor integration this phase
+  listed were never built), so the counter could only read 0.
+- "Why this route" has one owner: the native admission row, carried onto the attempt
+  (`native_admission.py`).
+- The `cost_telemetry` runtime-profile surface stays; `cost_attribution` is gated
+  through it.
+- Finding: `docs/reviews/claude/2026-10-14-aria-wave2-spawned-findings.md#ARIA-LOW-513`.
 
 ### Phase 14 — Backend Adapter Completion (scoped: outbox + cqrs) + Plan 021 placeholder
 - `tools/aria-adapters/{outbox,cqrs}-adapter.{ts,tool.json,test.ts}` (6 yeni dosya).
@@ -114,6 +121,9 @@ The single operating reference is `/root/.claude/plans/s-md-b-z-bu-parsed-treasu
 ## Acceptance
 
 - 16 phase live evidence; 14 yeni governance event kind; 8 dedicated ledger surface + 1 writer surface (validation-matrix); 9/12 real adapter; 13 metric; 4-mode runtime profile (Plan 020 scoped no-write); 5-invariant spine gate + fresh orchestrator.
+- Since the Phase 13 retirement (2026-10-15, ARIA-LOW-513) the counts above read: 12 metric (not 13),
+  one dedicated ledger surface fewer (`cost-telemetry.jsonl`), and no governance event kinds #13
+  `dispatch_rationale_recorded` / #14 `cost_cap_exceeded` (the second was never built).
 - Plan 016 + 017 + 018 + 019 + 020 cumulative: ~85 commit, 670+ Python test, full self-remediation chain operational with operator-supervised continuous-learning candidate path.
 - DEBT-2026-05-07-003 IN_PROGRESS (3 backend adapter Plan 021 scope).
 - Plan 021 placeholder commit'li.

@@ -1,10 +1,15 @@
 /**
  * TrendChart — uPlot-based high-performance time-series chart for SCADA HMI.
  *
- * Supports three view modes:
- *   realtime  — sliding-window buffer fed by useRealtimeData
- *   history   — range query via useTrendData + ChartToolbar
- *   custom    — caller supplies pre-fetched data
+ * A pure PRESENTATION chart: the caller supplies pre-fetched series data
+ * (customData + breaks). It deliberately has NO data subscription of its own —
+ * the 2026-10 /sensor/readings outage root cause was this component calling
+ * the SCADA DataProvider hooks (useRealtimeData/useTrendData) that throw
+ * outside <DataProviderRoot> (providers/DataProviderContext.tsx), while its
+ * only consumer (MultiParameterTrendCard) mounts it provider-less. Provider-
+ * fed modes belong to the SCADA widget renderers, which own their
+ * DataProviderRoot (OperatorShell / StableModeProvider), not to the shared
+ * chart. Removing the dead modes makes that misuse impossible.
  *
  * Features:
  *   - Multi-Y-axis (up to 4 scales)
@@ -18,19 +23,14 @@
  *   - Max 10 000 points per series in realtime mode
  */
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import { useRealtimeData } from '../../hooks/useRealtimeData';
-import { useTrendData, type TrendTimeRange } from '../../hooks/useTrendData';
 import { colors, useI18n } from '@aquaculture/shared-ui';
-import { ChartToolbar } from './ChartToolbar';
 import { type LineBreaks, toUPlotData } from './trendChartData';
 import type {
-  ChartViewMode,
   ChartLine,
   ChartOptions,
-  ChartTimeRange,
   ChartLineZone,
   HistoricalDataPoint,
   LineInterpolation,
@@ -40,23 +40,25 @@ import type {
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-const MAX_REALTIME_POINTS = 10_000;
-const DEFAULT_REALTIME_WINDOW_MINUTES = 10;
-
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Stable default for the `options` prop. A destructuring default (`= {}`)
+ * creates a NEW object identity per render, which flows into
+ * buildUPlotOptions' memo deps and destroys+recreates the uPlot instance on
+ * EVERY parent re-render — ReadingsPage re-renders once per second (useNow),
+ * so the chart was rebuilt ~60×/min. A module-level constant gives the
+ * default a single identity and lets the memo actually memoize.
+ */
+const DEFAULT_CHART_OPTIONS: Partial<ChartOptions> = {};
+
 export interface TrendChartProps {
-  mode: ChartViewMode;
   lines: ChartLine[];
   options?: Partial<ChartOptions>;
   className?: string;
-  /** Realtime mode: rolling window width in minutes. Default 10. */
-  realtimeWindowMinutes?: number;
-  /** History mode: initial preset; a fixed window is chosen in the toolbar. */
-  initialRange?: ChartTimeRange;
-  /** Custom mode: pre-fetched series data keyed by tagId. */
+  /** Pre-fetched series data keyed by tagId — the chart's data contract. */
   customData?: Record<string, HistoricalDataPoint[]>;
   /**
    * IANA zone the time axis is drawn in (a site's zone). Without it uPlot
@@ -393,12 +395,9 @@ function buildTouchPlugin(): uPlot.Plugin {
 /* ------------------------------------------------------------------ */
 
 export const TrendChart: React.FC<TrendChartProps> = ({
-  mode,
   lines,
-  options = {},
+  options = DEFAULT_CHART_OPTIONS,
   className,
-  realtimeWindowMinutes = DEFAULT_REALTIME_WINDOW_MINUTES,
-  initialRange = 'last1h',
   customData,
   timeZone,
   breaks,
@@ -407,32 +406,12 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
 
-  // Realtime buffer: tagId → [timestamp(s), value, …] interleaved tuples
-  const realtimeBufferRef = useRef<Map<string, Array<[number, number]>>>(new Map());
-  const rafHandleRef = useRef<number | null>(null);
-  const pendingRealtimeRef = useRef(false);
-
-  // History/custom time range state
-  const [historyRange, setHistoryRange] = useState<TrendTimeRange>(initialRange);
-  const [autoRefreshMs, setAutoRefreshMs] = useState<number | undefined>(undefined);
-
   // Tooltip state
   const [tooltip, setTooltip] = useState<TooltipState>({
     left: 0,
     top: 0,
     visible: false,
     values: [],
-  });
-
-  // Tag IDs needed by this chart
-  const tagIds = useMemo(() => lines.map((l) => l.tagId), [lines]);
-
-  /* ---- Data subscriptions ---- */
-
-  const realtimeResult = useRealtimeData(mode === 'realtime' ? tagIds : []);
-
-  const historyResult = useTrendData(mode === 'history' ? tagIds : [], historyRange, {
-    refreshIntervalMs: autoRefreshMs,
   });
 
   /* ---- uPlot instance construction ---- */
@@ -518,7 +497,6 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     return () => {
       instance.destroy();
       uplotRef.current = null;
-      realtimeBufferRef.current.clear();
     };
     // Recreate on lines or options change
   }, [lines, options, buildUPlotOptions]);
@@ -543,149 +521,20 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     return () => ro.disconnect();
   }, [options.panelHeight]);
 
-  /* ---- Feed history / custom data into uPlot ---- */
+  /* ---- Feed the caller's pre-fetched data into uPlot ---- */
 
   useEffect(() => {
-    if (mode !== 'history' && mode !== 'custom') return;
     const u = uplotRef.current;
     if (!u) return;
 
-    const source = mode === 'custom' ? (customData ?? {}) : historyResult.data;
-    const uData = toUPlotData(lines, source, mode === 'custom' ? breaks : undefined);
+    const uData = toUPlotData(lines, customData ?? {}, breaks);
     u.setData(uData);
-  }, [mode, historyResult.data, customData, lines, breaks]);
-
-  /* ---- Realtime buffer management ---- */
-
-  const flushRealtimeBuffer = useCallback(() => {
-    rafHandleRef.current = null;
-    pendingRealtimeRef.current = false;
-    const u = uplotRef.current;
-    if (!u) return;
-
-    const windowSec = realtimeWindowMinutes * 60;
-    const nowSec = Date.now() / 1000;
-    const cutoff = nowSec - windowSec;
-
-    const buf = realtimeBufferRef.current;
-
-    // Build flat sorted timestamp set across all series
-    const tsSet = new Set<number>();
-    for (const pts of buf.values()) {
-      for (const [ts] of pts) tsSet.add(ts);
-    }
-    const timestamps = [...tsSet].filter((t) => t >= cutoff).sort((a, b) => a - b);
-    if (timestamps.length === 0) return;
-
-    const tsIdx = new Map<number, number>();
-    timestamps.forEach((t, i) => tsIdx.set(t, i));
-
-    const seriesData: (number | null)[][] = lines.map((line) => {
-      const pts = buf.get(line.tagId) ?? [];
-      const row: (number | null)[] = new Array(timestamps.length).fill(null);
-      for (const [ts, val] of pts) {
-        if (ts < cutoff) continue;
-        const i = tsIdx.get(ts);
-        if (i != null) row[i] = val;
-      }
-      return row;
-    });
-
-    u.setData([timestamps, ...seriesData] as uPlot.AlignedData);
-  }, [lines, realtimeWindowMinutes]);
-
-  useEffect(() => {
-    if (mode !== 'realtime') return;
-    const { values } = realtimeResult;
-
-    let changed = false;
-    const windowSec = realtimeWindowMinutes * 60;
-    const cutoff = Date.now() / 1000 - windowSec;
-
-    for (const line of lines) {
-      const change = values[line.tagId];
-      if (!change) continue;
-
-      const tsSec = change.timestamp / 1000;
-      const numVal =
-        typeof change.value === 'number' ? change.value : parseFloat(String(change.value));
-      if (isNaN(numVal)) continue;
-
-      if (!realtimeBufferRef.current.has(line.tagId)) {
-        realtimeBufferRef.current.set(line.tagId, []);
-      }
-
-      const buf = realtimeBufferRef.current.get(line.tagId)!;
-      // Append only if newer
-      if (buf.length === 0 || buf[buf.length - 1][0] < tsSec) {
-        buf.push([tsSec, numVal]);
-        changed = true;
-      }
-
-      // Evict old data beyond window + enforce max cap
-      while (buf.length > 0 && buf[0][0] < cutoff) {
-        buf.shift();
-      }
-      while (buf.length > MAX_REALTIME_POINTS) {
-        buf.shift();
-      }
-    }
-
-    if (!changed || pendingRealtimeRef.current) return;
-    pendingRealtimeRef.current = true;
-    rafHandleRef.current = requestAnimationFrame(flushRealtimeBuffer);
-  }, [realtimeResult.values, mode, lines, realtimeWindowMinutes, flushRealtimeBuffer]);
-
-  /* ---- Cleanup RAF on unmount ---- */
-
-  useEffect(() => {
-    return () => {
-      if (rafHandleRef.current !== null) {
-        cancelAnimationFrame(rafHandleRef.current);
-      }
-    };
-  }, []);
-
-  /* ---- Toolbar range change handler ---- */
-
-  const handleRangeChange = useCallback((range: TrendTimeRange) => {
-    setHistoryRange(range);
-  }, []);
-
-  const handleAutoRefreshChange = useCallback((intervalMs: number | undefined) => {
-    setAutoRefreshMs(intervalMs);
-  }, []);
+  }, [customData, lines, breaks]);
 
   /* ---- Render ---- */
 
-  const showToolbar = mode === 'history' && options.hideToolbar !== true;
-
   return (
     <div className={`flex flex-col w-full h-full ${className ?? ''}`}>
-      {showToolbar && (
-        <ChartToolbar
-          currentRange={historyRange}
-          isLoading={historyResult.isLoading}
-          autoRefreshMs={autoRefreshMs}
-          lines={lines}
-          data={historyResult.data}
-          chartTitle={options.title}
-          onRangeChange={handleRangeChange}
-          onAutoRefreshChange={handleAutoRefreshChange}
-          onRefresh={historyResult.refresh}
-        />
-      )}
-      {mode === 'realtime' && !realtimeResult.isConnected && (
-        <div className="px-3 py-1 text-xs text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border-b border-warning-200 dark:border-warning-800">
-          Data source disconnected — showing last known values
-        </div>
-      )}
-      {historyResult.error && (
-        <div className="px-3 py-1 text-xs text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-b border-error-200 dark:border-error-800">
-          {historyResult.error}
-        </div>
-      )}
-
       {/* uPlot mount target */}
       <div
         ref={containerRef}

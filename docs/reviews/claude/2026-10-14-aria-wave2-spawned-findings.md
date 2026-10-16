@@ -369,6 +369,13 @@ verb can record are listed at the end.
 - **Planned fix:** `G006-digest-owner` (L3) adds `digest.py` as the one owner (Part of);
   `G006-digest-sites` and `G006-digest-codemod` (late chain) move every site and close it. Deadline:
   2027-04-13.
+- **Part landed (L3, `G006-digest-owner`, step C1):** `aria_kernel/digest.py` is the one owner of the
+  shape (a stdlib-only leaf: `sha256_digest*`, `is_sha256_digest`, fingerprints, sentinels).
+  `ledger.py` binds `digest.is_sha256_digest` and deletes its regex copy, `_LEDGER_EVENT_ID` and
+  `_replay_payload_sha256`; `_record_hash` and the replay payload digests compose through
+  `ledger.sha256_digest_of_canonical_json`. Byte-identical: `test_digest_byte_pins.py` (12 golden
+  values) and 460 aria/state ledgers that replay identically. The other sites move in
+  `G006-digest-sites` and `G006-digest-codemod`, which close this row.
 
 ### ARIA-LOW-518 — the git object-id validator has 15 copies
 
@@ -625,6 +632,17 @@ verb can record are listed at the end.
 - **Planned fix:** bucket `R6-transcripts` (holds `ci_executor.py`): on a `result_admissible` refusal
   whose codes meet `CREDENTIAL_REFUSAL_CODES`, the executor submits (the kernel records the withheld
   row and deletes the sources), then escalates as today. Deadline: 2026-10-31.
+
+### ARIA-LOW-541 — the evaluator worktree guard misses a module ledger executes
+
+- **Raised by:** the `G006-digest-owner` implementer (landing L3).
+- **Problem:** `ledger.py:19` imports `state_store_lifecycle_arcs` and runs it on every append, but
+  `_COMMON_AUTHORITY_PATHS` (`autonomy_evidence.py:936-951`) does not list it, and
+  `_evaluator_worktree_blocker` (`:1957`) checks git status over that set only. So a dirty copy of
+  an executed module passes the guard. The set is hand-kept; `G006-digest-owner` added `digest.py`
+  to it by hand for the same reason.
+- **Planned fix:** derive the set from ledger's kernel import closure, or an invariant that compares
+  that closure with the set. No wave-2 bucket owns it. Deadline: 2027-04-14.
 
 ## Registry amendments recorded at the L1 registry step
 

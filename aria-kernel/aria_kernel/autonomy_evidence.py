@@ -936,6 +936,9 @@ _KERNEL = "aria-kernel/aria_kernel/"
 _COMMON_AUTHORITY_PATHS = (
     f"{_KERNEL}autonomy_evidence.py",
     f"{_KERNEL}contention_replay.py",
+    # The digest owner: ledger's chain hash and digest validator execute it
+    # (ARIA-LOW-517), so the evaluator must run it from a clean checkout too.
+    f"{_KERNEL}digest.py",
     f"{_KERNEL}file_lock.py",
     f"{_KERNEL}ledger.py",
     f"{_KERNEL}state_manifest.py",

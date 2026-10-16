@@ -86,6 +86,8 @@ EXECUTOR_ACCEPTANCE_AUTHORITY = (
 EXPECTED_COMMON_AUTHORITY = (
     f"{KERNEL}autonomy_evidence.py",
     f"{KERNEL}contention_replay.py",
+    # ledger's chain hash and digest validator execute it (ARIA-LOW-517).
+    f"{KERNEL}digest.py",
     f"{KERNEL}file_lock.py",
     f"{KERNEL}ledger.py",
     f"{KERNEL}state_manifest.py",

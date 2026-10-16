@@ -697,10 +697,12 @@ _KERNEL_DIR = Path(__file__).resolve().parents[1] / "aria_kernel"
 
 
 class Sha256DigestShapeOwnerTests(unittest.TestCase):
-    """ARIA-LOW-491 — the ``sha256:<64 lowercase hex>`` shape has one owner.
+    """ARIA-LOW-491 / ARIA-LOW-517 — the ``sha256:<64 lowercase hex>`` shape has one owner.
 
-    Five modules carried AST-identical private copies of the check; the
-    shape is the one the ledger mints and verifies, so ledger owns it.
+    Five modules carried AST-identical private copies of the check (ARIA-LOW-491
+    gathered them into ledger). The format as a whole — label, producers,
+    parsers, validator — is owned by ``digest.py`` (ARIA-LOW-517, E11-4), so the
+    validator lives there; its semantics are pinned in ``test_digest.py``.
     """
 
     def test_sha256_digest_shape_has_one_owner(self) -> None:
@@ -713,22 +715,7 @@ class Sha256DigestShapeOwnerTests(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name in {"_is_sha256_digest", "is_sha256_digest"}
         )
-        self.assertEqual(definitions, [("ledger.py", "is_sha256_digest")])
-
-    def test_sha256_digest_semantics(self) -> None:
-        from aria_kernel.ledger import is_sha256_digest
-
-        self.assertTrue(is_sha256_digest("sha256:" + "a" * 64))
-        for rejected in (
-            "sha256:" + "A" * 64,
-            "sha256:" + "a" * 63,
-            "sha256:" + "a" * 65,
-            "sha256:" + "a" * 64 + "\n",
-            "a" * 64,
-            "",
-        ):
-            with self.subTest(value=rejected):
-                self.assertFalse(is_sha256_digest(rejected))
+        self.assertEqual(definitions, [("digest.py", "is_sha256_digest")])
 
 
 class ReadinessBindingFieldsOwnerTests(unittest.TestCase):

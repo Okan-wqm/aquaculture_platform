@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Iterator
 
+from .digest import is_sha256_digest, sha256_digest, sha256_hex
 from .file_lock import ExclusiveLockHandle, with_exclusive_lock
 from .state_store_lifecycle_arcs import STATE_LOCK_LIVENESS_SECONDS, state_transaction_held
 from .state_manifest import (
@@ -41,8 +42,12 @@ __all__ = [
     "append_segment_rows",
     "append_jsonl",
     "atomic_write_json",
+    # Owned by .digest (ARIA-LOW-517); ledger validates its own chain
+    # hashes with it. Listed until its remaining importers import it from
+    # .digest (E11-4 part C2), never as a second definition.
     "is_sha256_digest",
     "canonical_json",
+    "sha256_digest_of_canonical_json",
     "sha256_of_canonical_json",
     "stamp_row_format",
     "file_hash",
@@ -240,19 +245,8 @@ _REPLAY_TRANSPORT_STORED_KEYS = frozenset({
     "previous_ledger_hash",
     "ledger_hash",
 })
-_LEDGER_EVENT_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REPLAY_TRANSACTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CHAIN_FIELDS = frozenset({"ledger_hash", "previous_ledger_hash"})
-
-
-def is_sha256_digest(value: str) -> bool:
-    """True when ``value`` is a ``sha256:``-prefixed lowercase 64-hex digest.
-
-    The one owner of the digest shape the ledger mints and verifies as
-    ``ledger_hash`` (``_LEDGER_EVENT_ID``); proof and claim gates check
-    their hash fields against it rather than restating the shape.
-    """
-    return _LEDGER_EVENT_ID.fullmatch(value) is not None
 
 
 def stamp_row_format(row: dict[str, Any]) -> dict[str, Any]:
@@ -1030,8 +1024,21 @@ def sha256_of_canonical_json(value: Any) -> str:
     Identity and evidence digests (feedback event ids, finding ids,
     evidence hashes) used to re-spell the canonical encoding inline. Any
     JSON value is accepted: some callers hash a list of evidence items.
+    Bare hex, for the callers that build ids from it; a labelled digest is
+    ``sha256_digest_of_canonical_json``.
     """
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+    return sha256_hex(canonical_json(value).encode("utf-8"))
+
+
+def sha256_digest_of_canonical_json(value: Any) -> str:
+    """``sha256:<hex>`` of ``canonical_json(value)``: the one composed form (ARIA-LOW-517).
+
+    The kernel's canonical encoder (here) under the digest owner's label
+    (``digest.py``, a stdlib leaf that cannot import the encoder). Callers
+    that need a labelled content digest call this instead of joining the
+    label to ``sha256_of_canonical_json`` or re-encoding the value.
+    """
+    return sha256_digest(canonical_json(value).encode("utf-8"))
 
 
 def _parse_jsonl_stored_text(path: Path, content: str) -> list[dict[str, Any]]:
@@ -1095,12 +1102,6 @@ def _surface_instance_for_path(path: Path) -> str | None:
         ) from exc
 
 
-def _replay_payload_sha256(payload: dict[str, Any]) -> str:
-    return "sha256:" + hashlib.sha256(
-        canonical_json(payload).encode("utf-8"),
-    ).hexdigest()
-
-
 def _validated_replay_transport(
     row: dict[str, Any],
     *,
@@ -1146,19 +1147,10 @@ def _validated_replay_transport(
         raise LedgerIntegrityError("replay_transport_surface_instance_mismatch")
     producer_event_id = row.get("producer_event_id")
     replay_transaction_id = row.get("replay_transaction_id")
-    if (
-        not isinstance(producer_event_id, str)
-        or _LEDGER_EVENT_ID.fullmatch(producer_event_id) is None
-    ):
+    if not is_sha256_digest(producer_event_id):
         raise LedgerIntegrityError("replay_transport_producer_identity_invalid")
     producer_previous = row.get("producer_previous_ledger_hash")
-    if (
-        producer_previous is not None
-        and (
-            not isinstance(producer_previous, str)
-            or _LEDGER_EVENT_ID.fullmatch(producer_previous) is None
-        )
-    ):
+    if producer_previous is not None and not is_sha256_digest(producer_previous):
         raise LedgerIntegrityError(
             "replay_transport_producer_previous_identity_invalid"
         )
@@ -1174,22 +1166,14 @@ def _validated_replay_transport(
         raise LedgerIntegrityError("replay_transport_payload_chain_fields_forbidden")
     if _is_replay_transport_candidate(payload):
         raise LedgerIntegrityError("replay_transport_nested_envelope_forbidden")
-    if row.get("payload_sha256") != _replay_payload_sha256(payload):
+    if row.get("payload_sha256") != sha256_digest_of_canonical_json(payload):
         raise LedgerIntegrityError("replay_transport_payload_hash_mismatch")
     if producer_event_id != _record_hash(payload, producer_previous):
         raise LedgerIntegrityError("replay_transport_producer_identity_mismatch")
     ledger_hash = row.get("ledger_hash")
     previous_hash = row.get("previous_ledger_hash")
-    if (
-        not isinstance(ledger_hash, str)
-        or _LEDGER_EVENT_ID.fullmatch(ledger_hash) is None
-        or (
-            previous_hash is not None
-            and (
-                not isinstance(previous_hash, str)
-                or _LEDGER_EVENT_ID.fullmatch(previous_hash) is None
-            )
-        )
+    if not is_sha256_digest(ledger_hash) or (
+        previous_hash is not None and not is_sha256_digest(previous_hash)
     ):
         raise LedgerIntegrityError("replay_transport_outer_chain_invalid")
     return row
@@ -1272,11 +1256,11 @@ def _make_replay_transport_row(
         or instance_owner.name != expected_surface
     ):
         raise LedgerIntegrityError("replay_transport_surface_instance_mismatch")
-    if _LEDGER_EVENT_ID.fullmatch(producer_event_id) is None:
+    if not is_sha256_digest(producer_event_id):
         raise LedgerIntegrityError("replay_transport_producer_identity_invalid")
     if (
         producer_previous_ledger_hash is not None
-        and _LEDGER_EVENT_ID.fullmatch(producer_previous_ledger_hash) is None
+        and not is_sha256_digest(producer_previous_ledger_hash)
     ):
         raise LedgerIntegrityError(
             "replay_transport_producer_previous_identity_invalid"
@@ -1301,7 +1285,7 @@ def _make_replay_transport_row(
         "producer_event_id": producer_event_id,
         "producer_previous_ledger_hash": producer_previous_ledger_hash,
         "replay_transaction_id": replay_transaction_id,
-        "payload_sha256": _replay_payload_sha256(producer_payload),
+        "payload_sha256": sha256_digest_of_canonical_json(producer_payload),
         "producer_payload": producer_payload,
     }
 
@@ -1310,8 +1294,7 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
     payload = dict(record)
     payload.pop("ledger_hash", None)
     payload.pop("previous_ledger_hash", None)
-    raw = canonical_json({"previous_ledger_hash": previous_hash, "record": payload})
-    return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return sha256_digest_of_canonical_json({"previous_ledger_hash": previous_hash, "record": payload})
 
 
 def heal_torn_tail(path: Path) -> int:

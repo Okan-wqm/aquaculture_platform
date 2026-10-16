@@ -397,11 +397,16 @@ class Refusals(_Store):
         # Review H1: keys skipped every check. A built state never has
         # caller keys, and the backstop reads them anyway.
         # Both nets read keys: the redact view names a key block's type
-        # (ARIA-HIGH-519 added it), and the system_one view backs it up.
+        # (ARIA-HIGH-519 added it) and, since ARIA-MEDIUM-546, every family
+        # the system_one view detects (a webhook secret here); the system_one
+        # view backs it up on a shape no redact row removes (a key header
+        # cut before its closing dashes).
         payload = {"model": "m", "state": "{}", "questions": {}}
         key = "-----BEGIN RSA " + "PRIVATE KEY-----"
         self.assertEqual(system_one._egress_refusal(payload, {key: "x"}), "state_secret_shaped:private_key_block")
         key = "wh" + "sec_" + "a1B2c3D4e5F6g7H8i9"
+        self.assertEqual(system_one._egress_refusal(payload, {key: "x"}), "state_secret_shaped:stripe_webhook_secret")
+        key = "-----BEGIN DSA " + "PRIVATE KEY"
         self.assertEqual(system_one._egress_refusal(payload, {key: "x"}), "state_secret_shaped:credential_shape")
 
     def test_a_free_text_subject_is_refused(self) -> None:

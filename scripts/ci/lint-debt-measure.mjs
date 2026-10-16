@@ -74,10 +74,27 @@ function isAncestorOfHead(sha) {
   return git(['merge-base', '--is-ancestor', sha, 'HEAD']).status === 0;
 }
 
+/** The UTC committer day of a commit, YYYY-MM-DD; null when git cannot read it. */
+function commitDayOf(sha) {
+  const shown = git(['show', '-s', '--format=%ct', sha]);
+  const seconds = Number(shown.stdout.trim());
+  if (shown.status !== 0 || !Number.isSafeInteger(seconds)) return null;
+  return new Date(seconds * 1000).toISOString().slice(0, 10);
+}
+
+function utcToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function verify(args) {
   const policy = readJson(args.policy);
   const measurement = existsSync(args.measurement) ? readJson(args.measurement) : null;
-  const problems = verifyLintQuarantine(policy, measurement, isAncestorOfHead);
+  const problems = verifyLintQuarantine(
+    policy,
+    measurement,
+    { isAncestorOfHead, commitDayOf },
+    utcToday(),
+  );
   if (problems.length > 0) {
     console.error(`lint quarantine is not a measured one:\n  ${problems.join('\n  ')}`);
     return 1;
@@ -195,7 +212,7 @@ async function measure(args) {
     }
   }
   const sha = git(['rev-parse', 'HEAD']).stdout.trim();
-  const measuredAt = new Date().toISOString().slice(0, 10);
+  const measuredAt = utcToday();
   const policy = readJson(args.policy);
   const quarantine = policy.targets?.lint?.knownUnstableProjects ?? {};
   const { NON_SECURITY_RESTRICTED_SYNTAX_MESSAGES } = await import(

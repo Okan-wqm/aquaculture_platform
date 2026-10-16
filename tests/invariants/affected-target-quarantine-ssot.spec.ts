@@ -319,20 +319,36 @@ const HEAD_SHA = execFileSync('git', ['rev-parse', 'HEAD'], {
   encoding: 'utf8',
 }).trim();
 
+/** The UTC day HEAD was committed: the earliest day a measurement of HEAD can carry. */
+const HEAD_DAY = new Date(
+  Number(
+    execFileSync('git', ['show', '-s', '--format=%ct', HEAD_SHA], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    }).trim(),
+  ) * 1000,
+)
+  .toISOString()
+  .slice(0, 10);
+
 function lintPolicyWith(entry: unknown): unknown {
   return { version: 2, targets: { lint: { knownUnstableProjects: { invariants: entry } } } };
 }
 
-function lintMeasurementOf(measured: unknown, sha: string = HEAD_SHA): unknown {
+function lintMeasurementOf(
+  measured: unknown,
+  sha: string = HEAD_SHA,
+  measuredAt: string = HEAD_DAY,
+): unknown {
   return {
     schema: 'aqua.lint-debt-measurement.v1',
-    measured_at: '2026-10-16',
+    measured_at: measuredAt,
     measured_sha: sha,
     projects: measured === undefined ? {} : { invariants: measured },
   };
 }
 
-/** 26 blocking problems measured 2026-10-16: 14 d + 2 × 7 d, so the bound is 2026-11-13. */
+/** 26 blocking problems: the bound is the measured day + 14 d + 2 × 7 d. */
 const DEBT_26 = { debt: 26, security: 0, security_rules: {} };
 const lintEntry = (expiresOn: string): QuarantineEntry => ({
   ...validEntry,
@@ -470,8 +486,14 @@ describe('the lint quarantine is a measured one', () => {
   });
 
   it('keeps the policy, its measurement and the rules that renew it owner-reviewed', () => {
-    // An agent renewal keeps lint exemptions alive with no person deciding;
-    // the operator's CODEOWNERS review of these files is that decision.
+    // An agent renewal keeps lint exemptions alive with no person deciding.
+    // What these lines enforce: ARIA's risk policy puts a CODEOWNERS path in
+    // its human-merge lane (L3), so no ARIA lane merges a change to them.
+    // GitHub itself requires no code-owner review on main
+    // (required_pull_request_reviews is null, checked 2026-10-16), so another
+    // agent session with merge authority is not stopped by them; requiring
+    // server-side review is the operator's open decision (HL safety review
+    // 2026-10-16, cross-cutting X1 / PRE-1).
     const owned = new Set(
       readFileSync(join(REPO_ROOT, '.github/CODEOWNERS'), 'utf8')
         .split('\n')
@@ -499,9 +521,12 @@ describe('the lint quarantine is a measured one', () => {
   });
 
   describe('verification refuses a quarantine it cannot trust', () => {
+    const bound26 = lintDebt<string>('lintQuarantineExpiryBound', HEAD_DAY, 26);
+    const pastBound26 = lintDebt<string>('addDaysIso', bound26, 1);
+
     it('accepts an expiry on the measured bound', () => {
       const result = runLintVerify({
-        policy: lintPolicyWith(lintEntry('2026-11-13')),
+        policy: lintPolicyWith(lintEntry(bound26)),
         measurement: lintMeasurementOf(DEBT_26),
       });
       expect(result.stderr).toBe('');
@@ -510,11 +535,31 @@ describe('the lint quarantine is a measured one', () => {
 
     it('refuses an expiry one day past the measured bound', () => {
       const result = runLintVerify({
-        policy: lintPolicyWith(lintEntry('2026-11-14')),
+        policy: lintPolicyWith(lintEntry(pastBound26)),
         measurement: lintMeasurementOf(DEBT_26),
       });
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain('expires 2026-11-14, after 2026-11-13');
+      expect(result.stderr).toContain(`expires ${pastBound26}, after ${bound26}`);
+    });
+
+    it('refuses a measurement dated after today, which would move every bound', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2999-03-01')),
+        measurement: lintMeasurementOf(DEBT_26, HEAD_SHA, '2999-01-01'),
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('measured_at 2999-01-01 is after today');
+    });
+
+    it('refuses a measurement dated before the commit it names', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2000-01-20')),
+        measurement: lintMeasurementOf(DEBT_26, HEAD_SHA, '2000-01-01'),
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        `measured_at 2000-01-01 is before ${HEAD_DAY}, the commit date of measured_sha`,
+      );
     });
 
     it('refuses a lint entry that has no measurement', () => {
@@ -559,11 +604,13 @@ describe('the lint quarantine is a measured one', () => {
 
     it('refuses a measurement taken on a commit outside this history', () => {
       const result = runLintVerify({
-        policy: lintPolicyWith(lintEntry('2026-11-13')),
+        policy: lintPolicyWith(lintEntry(bound26)),
         measurement: lintMeasurementOf(DEBT_26, 'f'.repeat(40)),
       });
       expect(result.status).toBe(1);
       expect(result.stderr).toContain('is not an ancestor of HEAD');
+      // A squash or rebase merge drops the measured commit; the message names the way out.
+      expect(result.stderr).toContain('node scripts/ci/lint-debt-measure.mjs --renew');
     });
   });
 
@@ -609,6 +656,32 @@ describe('the lint quarantine is a measured one', () => {
     });
   });
 
+  it('lists only the JSON.stringify indent selector as non-security restricted syntax', () => {
+    // eslint.config.mjs names the selector instead of picking it by array
+    // position; this pins that the list a renewal trusts as non-security is
+    // exactly that selector and never a tenant or JWT one.
+    const program = [
+      `const config = await import(${JSON.stringify(pathToFileURL(join(REPO_ROOT, 'eslint.config.mjs')).href)});`,
+      'process.stdout.write(JSON.stringify({',
+      '  selectors: config.NON_SECURITY_RESTRICTED_SYNTAX,',
+      '  messages: config.NON_SECURITY_RESTRICTED_SYNTAX_MESSAGES,',
+      '}));',
+    ].join('\n');
+    const outcome = runNode(['--input-type=module', '-e', program]);
+    expect(outcome.stderr).toBe('');
+    const listed = JSON.parse(outcome.stdout) as {
+      selectors: ReadonlyArray<{ selector: string; message: string }>;
+      messages: readonly string[];
+    };
+    expect(listed.selectors.map(({ selector }) => selector)).toEqual([
+      "CallExpression[callee.object.name='JSON'][callee.property.name='stringify'][arguments.length>2]",
+    ]);
+    expect(listed.messages).toEqual(listed.selectors.map(({ message }) => message));
+    expect(listed.messages.filter((message) => /getRepository|JWT_SECRET/.test(message))).toEqual(
+      [],
+    );
+  });
+
   it('counts unknown restricted-syntax messages, unknown plugin rules and unparsed files as security-class', () => {
     const allowed = ['not a security selector'];
     const isSecurity = (message: unknown): boolean =>
@@ -628,7 +701,7 @@ describe('the lint quarantine is a measured one', () => {
     expect(isSecurity({ ruleId: null })).toBe(false);
   });
 
-  it('counts a warning as debt only past the invocation --max-warnings', () => {
+  it('counts every warning of a run past its --max-warnings as debt, and no warning of a run within it', () => {
     const messages = [
       { severity: 1, ruleId: 'import/order' },
       { severity: 1, ruleId: 'import/order' },
@@ -648,6 +721,22 @@ describe('the lint quarantine is a measured one', () => {
     );
     expect(ungated.debt).toBe(1);
     expect(ungated.rules).toEqual({ 'no-console': 1 });
+    // Past a limit above zero every warning of the run blocks, so debt is
+    // the sum of the per-rule counts, never just the overflow.
+    const overLimit = lintDebt<{ debt: number; rules: Record<string, number> }>(
+      'summarizeLintInvocations',
+      [{ results: [{ messages }], maxWarnings: 1 }],
+      [],
+    );
+    expect(overLimit.rules).toEqual({ 'import/order': 2, 'no-console': 1 });
+    expect(overLimit.debt).toBe(3);
+    const withinLimit = lintDebt<{ debt: number; rules: Record<string, number> }>(
+      'summarizeLintInvocations',
+      [{ results: [{ messages }], maxWarnings: 2 }],
+      [],
+    );
+    expect(withinLimit.debt).toBe(1);
+    expect(withinLimit.rules).toEqual({ 'no-console': 1 });
   });
 
   it('measures exactly the eslint invocation a lint target runs, and refuses one it cannot reproduce', () => {

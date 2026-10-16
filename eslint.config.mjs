@@ -113,20 +113,26 @@ const TS_PROJECTS = [
   'e2e/tsconfig.json',
 ];
 
+// The two selectors both lists below share, named so that no list picks one
+// by array position (the non-security list did, and an inserted tenant
+// selector would have been classed non-security without any test noticing).
+const GET_REPOSITORY_SELECTOR = {
+  selector: "CallExpression[callee.property.name='getRepository']",
+  message:
+    'Direct getRepository() bypasses TenantAwareRepository and skips tenantId injection on all find operations, creating IDOR vulnerabilities. Use getScopedRepository() instead. For cross-tenant admin operations, use getUnfilteredRepository() with explicit justification.',
+};
+const JSON_STRINGIFY_INDENT_SELECTOR = {
+  selector:
+    "CallExpression[callee.object.name='JSON'][callee.property.name='stringify'][arguments.length>2]",
+  message:
+    'JSON.stringify with an indent argument produces multi-line output that breaks structured JSON logging. Use the NestJS Logger — it calls StructuredLoggerService and emits a single JSON event per log.',
+};
+
 // The 6 main no-restricted-syntax selectors (.eslintrc.json override 2,
 // lines 107-133) — getRepository, JSON.stringify>2, 4×JWT_SECRET. Verbatim.
 const RESTRICTED_SYNTAX_MAIN = [
-  {
-    selector: "CallExpression[callee.property.name='getRepository']",
-    message:
-      'Direct getRepository() bypasses TenantAwareRepository and skips tenantId injection on all find operations, creating IDOR vulnerabilities. Use getScopedRepository() instead. For cross-tenant admin operations, use getUnfilteredRepository() with explicit justification.',
-  },
-  {
-    selector:
-      "CallExpression[callee.object.name='JSON'][callee.property.name='stringify'][arguments.length>2]",
-    message:
-      'JSON.stringify with an indent argument produces multi-line output that breaks structured JSON logging. Use the NestJS Logger — it calls StructuredLoggerService and emits a single JSON event per log.',
-  },
+  GET_REPOSITORY_SELECTOR,
+  JSON_STRINGIFY_INDENT_SELECTOR,
   {
     selector: "CallExpression[callee.property.name='get'][arguments.0.value='JWT_SECRET']",
     message:
@@ -153,17 +159,20 @@ const RESTRICTED_SYNTAX_MAIN = [
 
 // The 2 test-override no-restricted-syntax selectors (.eslintrc.json override
 // 14, lines 282-292) — getRepository + JSON.stringify>2. Verbatim subset.
-const RESTRICTED_SYNTAX_TEST = [RESTRICTED_SYNTAX_MAIN[0], RESTRICTED_SYNTAX_MAIN[1]];
+const RESTRICTED_SYNTAX_TEST = [GET_REPOSITORY_SELECTOR, JSON_STRINGIFY_INDENT_SELECTOR];
 
-// The no-restricted-syntax messages that are NOT security rules. Every other
+// The no-restricted-syntax selectors that are NOT security rules. Every other
 // selector here guards tenant isolation (getRepository) or the RS256 migration
-// (JWT_SECRET), and ESLint reports a selector only by its message, so this
-// list is what scripts/ci/lib/lint-debt.mjs uses to keep security lint out of
-// the lint quarantine: any restricted-syntax message not named here counts as
-// security-class (fail-closed, HL safety review 2026-10-16).
-export const NON_SECURITY_RESTRICTED_SYNTAX_MESSAGES = Object.freeze([
-  RESTRICTED_SYNTAX_MAIN[1].message,
-]);
+// (JWT_SECRET), and ESLint reports a selector only by its message, so the
+// messages of this list are what scripts/ci/lib/lint-debt.mjs uses to keep
+// security lint out of the lint quarantine: any restricted-syntax message not
+// named here counts as security-class (fail-closed, HL safety review
+// 2026-10-16). tests/invariants/affected-target-quarantine-ssot.spec.ts pins
+// the list to the JSON.stringify selector.
+export const NON_SECURITY_RESTRICTED_SYNTAX = Object.freeze([JSON_STRINGIFY_INDENT_SELECTOR]);
+export const NON_SECURITY_RESTRICTED_SYNTAX_MESSAGES = Object.freeze(
+  NON_SECURITY_RESTRICTED_SYNTAX.map(({ message }) => message),
+);
 
 const RESTRICTED_IMPORTS_PATHS = [
   {

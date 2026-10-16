@@ -140,7 +140,10 @@ function sortedCounts(counts) {
  * Summarize the ESLint JSON results of one project's lint invocations.
  *
  * A problem is BLOCKING when it fails the lint target: every error, and every
- * warning of an invocation whose warnings exceed its `--max-warnings`.
+ * warning of an invocation whose warnings exceed its `--max-warnings`. One
+ * definition serves `debt`, `rules` and `security` alike, so `debt` is the sum
+ * of `rules` and the bound is computed from the same problems the per-rule
+ * counts name.
  *
  * @param {ReadonlyArray<{results: ReadonlyArray<{messages: ReadonlyArray<object>}>, maxWarnings: number | null}>} invocations
  * @param {readonly string[]} nonSecurityRestrictedSyntax
@@ -160,7 +163,7 @@ export function summarizeLintInvocations(invocations, nonSecurityRestrictedSynta
     const warningsBlock = maxWarnings !== null && invocationWarnings > maxWarnings;
     errors += invocationErrors;
     warnings += invocationWarnings;
-    debt += invocationErrors + (warningsBlock ? invocationWarnings - maxWarnings : 0);
+    debt += invocationErrors + (warningsBlock ? invocationWarnings : 0);
     for (const message of messages) {
       if (message.severity !== 2 && !(warningsBlock && message.severity === 1)) continue;
       bump(rules, ruleKey(message));
@@ -326,12 +329,19 @@ function isCount(value) {
 /**
  * Every problem that keeps the lint quarantine from being a measured one.
  *
+ * The bound is computed from `measured_at`, so the date is pinned on both
+ * sides: no earlier than the day its commit was made (a measurement cannot
+ * predate the tree it measured) and no later than today (a renewing agent
+ * cannot date a measurement into the future to move every bound).
+ *
  * @param {object} policy
  * @param {unknown} measurement
- * @param {(sha: string) => boolean} isAncestorOfHead
+ * @param {{isAncestorOfHead: (sha: string) => boolean, commitDayOf: (sha: string) => string | null}} history
+ *        `commitDayOf` is the UTC committer day (YYYY-MM-DD) of a commit, null when unknown
+ * @param {string} today YYYY-MM-DD, UTC
  * @returns {string[]} empty when every lint entry is measured, within its bound and renewable
  */
-export function verifyLintQuarantine(policy, measurement, isAncestorOfHead) {
+export function verifyLintQuarantine(policy, measurement, history, today) {
   const entries = Object.entries(lintQuarantine(policy));
   if (entries.length === 0) return [];
   const where = 'scripts/ci/lint-debt-measurement.json';
@@ -342,13 +352,31 @@ export function verifyLintQuarantine(policy, measurement, isAncestorOfHead) {
   if (measurement.schema !== MEASUREMENT_SCHEMA) {
     problems.push(`${where}: schema is ${String(measurement.schema)}, not ${MEASUREMENT_SCHEMA}`);
   }
-  if (typeof measurement.measured_at !== 'string' || !ISO_DATE.test(measurement.measured_at)) {
+  const measuredAt = measurement.measured_at;
+  const datedOk = typeof measuredAt === 'string' && ISO_DATE.test(measuredAt);
+  if (!datedOk) {
     problems.push(`${where}: measured_at must be YYYY-MM-DD`);
+  } else if (measuredAt > today) {
+    problems.push(`${where}: measured_at ${measuredAt} is after today (${today})`);
   }
-  if (typeof measurement.measured_sha !== 'string' || !GIT_SHA.test(measurement.measured_sha)) {
+  const sha = measurement.measured_sha;
+  if (typeof sha !== 'string' || !GIT_SHA.test(sha)) {
     problems.push(`${where}: measured_sha must be a full commit sha`);
-  } else if (!isAncestorOfHead(measurement.measured_sha)) {
-    problems.push(`${where}: measured_sha ${measurement.measured_sha} is not an ancestor of HEAD`);
+  } else if (!history.isAncestorOfHead(sha)) {
+    problems.push(
+      `${where}: measured_sha ${sha} is not an ancestor of HEAD (a squash or rebase merge drops ` +
+        'the measured commit); measure again on this history: node scripts/ci/lint-debt-measure.mjs ' +
+        '--renew on a clean checkout of main',
+    );
+  } else if (datedOk) {
+    const committed = history.commitDayOf(sha);
+    if (committed === null) {
+      problems.push(`${where}: the commit date of measured_sha ${sha} cannot be read`);
+    } else if (measuredAt < committed) {
+      problems.push(
+        `${where}: measured_at ${measuredAt} is before ${committed}, the commit date of measured_sha`,
+      );
+    }
   }
   const projects = measurement.projects;
   if (projects === null || typeof projects !== 'object' || Array.isArray(projects)) {

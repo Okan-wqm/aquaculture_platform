@@ -51,7 +51,11 @@ tools/gates/                     @Okan-wqm
 # JWT_SECRET, the aquaculture tenant rules). Who may add, renew or widen
 # an entry, the measurement a lint renewal is bound to, and the lint
 # policy that decides what counts as security-class are authority
-# questions (HL safety review 2026-10-16, HL-lint-quarantine).
+# questions (HL safety review 2026-10-16, HL-lint-quarantine). These lines
+# put the files in ARIA's human-merge lane (risk policy L3). GitHub requires
+# no code-owner review on main (required_pull_request_reviews is null), so
+# they bind ARIA's lanes, not every session with merge rights; server-side
+# review is the operator's open decision (HL safety review X1 / PRE-1).
 scripts/ci/affected-target-policy.json       @Okan-wqm
 scripts/ci/write-affected-target-report.mjs  @Okan-wqm
 scripts/ci/lib/affected-target-policy.mjs    @Okan-wqm

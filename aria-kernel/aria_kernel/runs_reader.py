@@ -24,10 +24,14 @@ the silent-skip pattern on runs.jsonl fail at build time.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any, Iterator
 
+from .runtime_artifacts import resolve_artifact_payload
 from .strict_jsonl_reader import read_strict_jsonl
+from .tool_registry import GovernanceError
 
 
 def read_runs_rows(
@@ -102,4 +106,60 @@ def latest_run_for_tool(
     return latest
 
 
-__all__ = ["read_runs_rows", "latest_run_for_tool", "upcast_run_row", "raw_findings_count", "raw_observations_count"]
+# ARIA-HIGH-523 — a run row is an INDEX (ARIA-HIGH-017): the read set a run
+# declared is stored once, in the run's own artifact (``payload.read_paths``),
+# and the row names it by content address. Inlined, it was 66% of runs.jsonl
+# (25.5 of 39.1 MB on 2026-10-16; a test-gap row was 576 KB, 536 KB of it its
+# read set), and seven days of such rows outgrew the 64 MiB per-surface publish
+# cap, so every aria-auto-cycle publish was refused whole. The writer
+# (``tool_health.record_run``) builds the reference with ``read_paths_reference``
+# and every reader takes the set from ``run_read_paths``: one shape, one owner.
+READ_PATHS_REF_FIELD = "read_paths_ref"
+READ_PATHS_POINTER = "/payload/read_paths"
+
+
+def read_set_digest(paths: list[Any]) -> str:
+    """The content address of a read set: sha256 of its canonical JSON."""
+    encoded = json.dumps(paths, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def read_paths_reference(paths: list[Any]) -> dict[str, Any]:
+    """The row's stand-in for ``paths``, which its run artifact holds at the pointer."""
+    return {"count": len(paths), "sha256": read_set_digest(paths), "json_pointer": READ_PATHS_POINTER}
+
+
+def run_read_paths(row: dict[str, Any], *, base_dir: str | Path | None) -> list[Any]:
+    """The read set a run row declares, wherever its writer stored it.
+
+    A row written before ARIA-HIGH-523, a v1 row (no artifact), a row whose
+    artifact write failed and the writer's in-memory envelope carry the list
+    inline, and it is returned as stored: a compacted pre-fix row still reads
+    its five-path sample, as every reader read it before. A row with a
+    ``read_paths_ref`` is resolved from its artifact and checked against the
+    count and digest the row recorded. A set that cannot be read back is
+    refused by name, never read as empty: the row says the set exists.
+    """
+    inline = row.get("read_paths")
+    if isinstance(inline, list):
+        return inline
+    run_id = row.get("run_id")
+    ref = row.get(READ_PATHS_REF_FIELD)
+    if not isinstance(ref, dict):
+        raise GovernanceError(f"run_read_set_missing:{run_id}: the row carries neither read_paths nor {READ_PATHS_REF_FIELD}")
+    if ref.get("json_pointer") != READ_PATHS_POINTER:
+        raise GovernanceError(f"run_read_set_pointer_unknown:{run_id}:{ref.get('json_pointer')}")
+    artifact = resolve_artifact_payload(row.get("artifact_ref"), base_dir=base_dir)
+    payload = artifact.get("payload") if isinstance(artifact, dict) else None
+    paths = payload.get("read_paths") if isinstance(payload, dict) else None
+    if not isinstance(paths, list):
+        raise GovernanceError(f"run_read_set_unavailable:{run_id}: its artifact does not hold the read set")
+    if len(paths) != ref.get("count") or read_set_digest(paths) != ref.get("sha256"):
+        raise GovernanceError(f"run_read_set_mismatch:{run_id}: the artifact's read set is not the one the row names")
+    return paths
+
+
+__all__ = [
+    "read_runs_rows", "latest_run_for_tool", "upcast_run_row", "raw_findings_count", "raw_observations_count",
+    "READ_PATHS_REF_FIELD", "READ_PATHS_POINTER", "read_set_digest", "read_paths_reference", "run_read_paths",
+]

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import register_tool, run_tool
+from aria_kernel.runs_reader import run_read_paths
 
 
 class Phase007cAdaptersIntegrationTests(unittest.TestCase):
@@ -33,7 +34,7 @@ class Phase007cAdaptersIntegrationTests(unittest.TestCase):
         self.assert_shadow_run_contract(decision)
         run = self.latest_run()
         self.assertGreater(run["runner"]["raw_observations_count"], 0)
-        self.assertIn("apps/farm-service/src/app.module.ts", run["read_paths"])
+        self.assertIn("apps/farm-service/src/app.module.ts", run_read_paths(run, base_dir=self.tools_dir))
 
     def test_security_boundary_adapter_runs_in_shadow_without_mutation(self):
         self.register_tool_from_file("security-boundary-adapter")
@@ -49,7 +50,7 @@ class Phase007cAdaptersIntegrationTests(unittest.TestCase):
         self.assert_shadow_run_contract(decision)
         run = self.latest_run()
         self.assertGreater(run["runner"]["raw_observations_count"], 0)
-        self.assertTrue(any(path.startswith("apps/ai-service/src/") for path in run["read_paths"]))
+        self.assertTrue(any(path.startswith("apps/ai-service/src/") for path in run_read_paths(run, base_dir=self.tools_dir)))
 
     def test_test_gap_adapter_runs_in_shadow_without_mutation(self):
         self.register_tool_from_file("test-gap-adapter")
@@ -65,7 +66,7 @@ class Phase007cAdaptersIntegrationTests(unittest.TestCase):
         self.assert_shadow_run_contract(decision)
         run = self.latest_run()
         self.assertGreater(run["runner"]["raw_observations_count"], 0)
-        self.assertTrue(any(path.endswith(".spec.ts") for path in run["read_paths"]))
+        self.assertTrue(any(path.endswith(".spec.ts") for path in run_read_paths(run, base_dir=self.tools_dir)))
 
     def register_tool_from_file(self, tool_id: str):
         path = self.repo_root / "tools" / "aria-adapters" / f"{tool_id}.tool.json"

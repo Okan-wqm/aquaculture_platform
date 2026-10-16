@@ -252,11 +252,12 @@ def run_tool(
         "status": status,
         "input_hash": _sha256(input_bytes),
         "output_hash": _sha256(stdout.encode("utf-8")),
-        # NOTE: read_paths stays a plain array on purpose — it is a
-        # schema-owned field of the run envelope (validate_run_envelope
-        # requires an array). Its observed worst case (88 KB) sits far
-        # under the cap; the unbounded offender this finding chased was
-        # evidence_validation.
+        # The ENVELOPE carries the full read set: record_run judges scope
+        # against it in memory (validate_run_envelope requires an array).
+        # The stored ROW names it by content address once the run artifact
+        # holds it (ARIA-HIGH-523, tool_health._ledger_row_fields): inline it
+        # grew to 536 KB a run (test-gap, 2026-10-15) and 66% of runs.jsonl.
+        # Readers take it from runs_reader.run_read_paths.
         "read_paths": _array_or_empty(output.get("read_paths")),
         "emitted_observations": _array_or_empty(raw_observations) if can_emit else [],
         "emitted_findings": _array_or_empty(raw_findings) if can_emit else [],

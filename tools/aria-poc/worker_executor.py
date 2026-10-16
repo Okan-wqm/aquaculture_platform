@@ -47,6 +47,7 @@ from claude_runtime import (
     ClaudeProviderUnreachable,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    ProviderCredentialAbsent,
     UsageRecording,
     is_mock_mode,
     run_claude_exec,
@@ -378,9 +379,13 @@ def main(argv: list[str] | None = None) -> int:
                 f"{completed.refusal.get('category')!r}); operator triage required\n"
             )
             return 1
-    except (ClaudeCreditExhausted, ClaudeAuthFailure, ClaudeProviderUnreachable) as exc:
-        # ARIA-HIGH-366 — a dead credential and an unreachable vendor are
-        # provider facts exactly like a quota: the auth failure used to fall
+    except (ClaudeCreditExhausted, ClaudeAuthFailure, ClaudeProviderUnreachable, ProviderCredentialAbsent) as exc:
+        # ARIA-HIGH-434 review — so is a credential boundary absent on this
+        # host (`ProviderCredentialAbsent`: the Z.ai key not configured):
+        # cooled here, the hook's next tick holds or routes past it instead
+        # of re-claiming into the same absence. ARIA-HIGH-366 — a dead
+        # credential and an unreachable vendor are provider facts exactly
+        # like a quota: the auth failure used to fall
         # into the generic arm below with no cooldown and no outage, so the
         # hook re-claimed and re-spawned into the same dead login every tick
         # and no timer knew the provider was gone.
@@ -410,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
             exit_code=None,
         )
         record_provider_cooldown(
-            tools_dir, provider=exc.provider, model=exc.model,
+            tools_dir, provider=exc.provider, model=str(exc.model or model),
             cooldown_seconds=provider_cooldown_seconds(repo),
             request_id=assignment_id, claim_id=parsed.claim_id, detection=exc.detail,
         )

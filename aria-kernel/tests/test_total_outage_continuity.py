@@ -80,6 +80,10 @@ _PLAN = "plan-o"
 _IMPL_PLAN = "plan-i"
 _WORKER = "W-1"
 _IMPL_PATH = "apps/farm-service/src/farm/services/water-quality.service.ts"
+# ARIA-HIGH-434 review — the emulated host runs every vendor (`_Scenario._child`
+# answers for each): the claim and mint gates read THIS presence
+# (`provider_outage.host_providers`), never the test machine's PATH.
+_HOST_PROVIDERS = frozenset({"anthropic", "zai", "openai"})
 
 
 class _Frozen(_REAL):
@@ -286,6 +290,9 @@ class TenDaysWithoutAProviderLoseNothing(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._tmp = Path(tempfile.mkdtemp(prefix="aria-total-outage-"))
+        host = patch("aria_kernel.provider_outage.host_providers", return_value=_HOST_PROVIDERS)
+        host.start()
+        cls.addClassCleanup(host.stop)
         # Every scenario moment lies in the real past, so nothing the frozen clock does not
         # reach (a function-local `datetime` import) can stamp a row earlier than one it did.
         t0 = (_REAL.now(timezone.utc) - timedelta(days=12)).replace(minute=0, second=0, microsecond=0)
@@ -348,7 +355,8 @@ class TenDaysWithoutAProviderLoseNothing(unittest.TestCase):
             r["outages"] = sorted((i.provider, i.kind) for i in open_outages(s.tools))
             r["states"] = {key: derive_request_state(request_id=s.ids[key], base_dir=s.tools)
                            for key in ("judge", "challenger", "implementation")}
-            r["challenger_route"] = provider_outage("challenger_plan", cooled_providers(s.tools, now=after), now=after)
+            r["challenger_route"] = provider_outage("challenger_plan", cooled_providers(s.tools, now=after), now=after,
+                                                    present=_HOST_PROVIDERS)
             r["adopted"] = resume_candidate_plan_id(base_dir=s.tools)
             r["step"] = step_request_disposition(
                 [row for row in list_agent_invocation_requests(base_dir=s.tools)

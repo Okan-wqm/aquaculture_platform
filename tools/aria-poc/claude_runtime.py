@@ -164,6 +164,25 @@ class ClaudeAuthUnavailable(RuntimeError):
     """Claude Code CLI auth/session state could not be verified."""
 
 
+class ProviderCredentialAbsent(ClaudeAuthUnavailable):
+    """A provider's credential boundary is absent on this host (ARIA-HIGH-434 review).
+
+    A provider fact, not the request's: the lane that holds the claim cools
+    ``provider`` under ``detail["signature"]`` through the one cooldown
+    writer (which opens the outage), so its queue routes past the provider
+    instead of re-claiming into the same absence every tick. A subclass of
+    ``ClaudeAuthUnavailable`` on purpose: every existing arm keeps reading
+    it as an unverifiable credential (the auth failover still keeps the
+    primary's verdict over a rung whose credential is not configured).
+    """
+
+    def __init__(self, message: str, *, provider: str, model: str | None, signature: str, marker: str) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.detail = {"signature": signature, "marker": marker, "matched_marker": marker}
+
+
 class ClaudeUsageUnavailable(RuntimeError):
     """Claude stream-json did not include the required usage data."""
 

@@ -3166,21 +3166,15 @@ def _run_zai_as_claude_result(
     Claude writer's gate and room, not one completion.
     """
     from claude_runtime import _record_usage_best_effort
-    from zai_runtime import (
-        ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, resolve_zai_max_tokens,
-        run_zai_chat,
-    )
-    from zai_tool_loop import ROOM_SYSTEM_PROMPT, claude_run_result, run_zai_writer
+    from zai_runtime import ZaiTransportUnavailable, resolve_zai_max_tokens, run_zai_chat
+    from zai_tool_loop import ROOM_SYSTEM_PROMPT, claude_run_result, prepare_zai_credential, run_zai_writer
 
     if room is not None:
         # The contract already leads `prompt_text` on this lane.
         return run_zai_writer(seat=room, model=model, effort=effort, user=prompt_text,
                               system=ROOM_SYSTEM_PROMPT + "\n\n" + _ZAI_SYSTEM_PROMPT,
                               timeout_seconds=timeout_seconds, usage_recording=usage_recording)
-    try:
-        context = prepare_zai_context(dict(os.environ), default_model=model)
-    except ZaiCredentialUnavailable as exc:
-        raise ClaudeAuthUnavailable(f"zai_{exc.reason}: {exc}") from exc
+    context = prepare_zai_credential(model)
     try:
         completed = run_zai_chat(
             context.credential, base_url=context.base_url, model=model,

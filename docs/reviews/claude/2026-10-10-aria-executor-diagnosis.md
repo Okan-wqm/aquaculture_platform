@@ -947,3 +947,45 @@ With `ARIA_ZAI_MODEL=glm-5.4`:
 - An exhaustion on the override raises under provider zai.
 - The worker lane's `worker_route` is `("zai", "glm-5.4")` while anthropic is cooled.
 - Import-graph tiers 0-2 (11 modules): 217 tests OK.
+
+### Follow-up 2 (continuity's review of dfe4f63fb, two LOWs): presence is read at every gate that routes
+
+- **LOW 1: `worker_route` skipped the host-presence check for rung 0.**
+  - With `suspended_providers: ["anthropic"]`, the worker ladder is `("zai",)`. On a host with no
+    Z.ai key, every tick claimed the assignment.
+  - The child raised `ClaudeAuthUnavailable` from the credential boundary, the arm cooled
+    nothing, and the hook released `worker_executor_failed`. It repeated with no end.
+- **LOW 2: `provider_outage` ignored host presence.**
+  - The writer ladder became `[anthropic, zai]`. On a zai-less host a cooled Anthropic left the
+    implementer "not in an outage".
+  - The planner hook's ARIA-HIGH-364 gate therefore claimed the implementer every poll, and the
+    admission released it `no_eligible_provider`.
+- **Fix, at the owners.**
+  - `provider_outage.host_providers()` is the one reading of what this host can run
+    (`model_fleet.available_providers`: the claude CLI on PATH, the Z.ai credential boundary
+    named, the codex session).
+  - `provider_outage(..., present=)` (a required keyword) counts a rung as able to take over only
+    when the host can run it. A ladder nothing has cooled is no outage, whatever is absent: there
+    is no event to wait out, and the admission names an absent provider itself.
+  - The planner hook's claim gate and the mint gate (`request_admission`, which records
+    `host_providers` on the capacity row) read the same presence, so they agree. Both run on the
+    same self-hosted runner.
+  - `worker_route` takes the first rung that is neither cooled nor absent. It holds (None) when no
+    rung can serve and one is cooled. A ladder that nothing has cooled and nothing here can run
+    takes its head, and the child that meets the absence cools the provider:
+    `claude_runtime.ProviderCredentialAbsent` is a `ClaudeAuthUnavailable` subclass carrying
+    provider and signature. For zai it is `zai_auth_refusal` from
+    `zai_tool_loop.prepare_zai_credential`, the one place a rung reads the key boundary. The next
+    tick holds by name.
+- **Tests.**
+  - The tests pin the host explicitly instead of trusting the machine's PATH. The kernel suite
+    runs on GitHub-hosted runners with no claude binary.
+  - New tests:
+    - `test_request_admission.ProviderOutage.test_a_rung_this_host_cannot_run_takes_over_nothing`;
+    - `ThePlannerDaemonBacksOffACooledProvider.test_on_a_host_with_no_zai_key_a_cooled_anthropic_holds_the_implementer_unclaimed`;
+    - `test_claude_quota_window_failover…test_a_zai_rung_whose_key_is_absent_cools_zai_and_the_next_tick_holds_unclaimed`;
+    - `test_provider_routing…test_presence_is_read_for_every_rung_the_head_included`.
+  - All four are red on be6ed002c.
+  - The lane fixtures now put a claude CLI on PATH, and continuity's 10-day e2e pins its emulated
+    host (`_HOST_PROVIDERS`). The e2e passes 12 tests under the real PATH and under a PATH with
+    no claude binary.

@@ -300,6 +300,29 @@ class ConsumeOnceTests(_Fixture):
         self.assertEqual(again.admitted, ())
         self.assertEqual([d["reason"] for d in again.dropped], [ingestion.REQUEST_ID_REUSED])
 
+    def test_a_spent_request_costs_no_verification_and_no_ledger_growth(self) -> None:
+        # ARIA-LOW-268 — every historical request row went through ssh-keygen
+        # before the spent check, and every scan row re-listed every spent
+        # request, so plan-source time and the ingestion ledger grew with the
+        # history of requests ever filed rather than the requests still live.
+        self._bind_and_maybe_start("cyc-1", start=True)
+        live = self.fx.record(request_id="OP-live")
+        verified: list[str] = []
+        real_verify = ingestion.verify_operator_request
+
+        def counting_verify(row, **kwargs):
+            verified.append(str(row.get("id")))
+            return real_verify(row, **kwargs)
+
+        with mock.patch.object(ingestion, "verify_operator_request", counting_verify):
+            result = self._ingest("cyc-2")
+        self.assertEqual(verified, ["OP-live"], "only the live request is verified")
+        self.assertEqual([entry["id"] for entry in result.admitted], [live["id"]])
+        self.assertEqual([(s["id"], s["reason"]) for s in result.spent], [("OP-once", "consumed_by_started_plan")])
+        scan = [row for row in _ingestion_rows(self.tools) if row["row_type"] == ingestion.INGESTION_ROW_TYPE][-1]
+        self.assertNotIn("spent", scan, "the spent set lives in the history it is derived from")
+        self.assertEqual(scan["spent_count"], 1)
+
     def test_a_copy_at_a_new_position_with_a_new_ledger_hash_is_still_spent(self) -> None:
         # Round 1 keyed the spend on (id, ledger_hash) and the reused-id set on
         # rows still in the feedback file; ledger_hash is unsigned and

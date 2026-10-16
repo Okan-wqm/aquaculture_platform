@@ -25,6 +25,10 @@ plan-candidate purposes.
   (``request_refused``); a runner fault (no anchor, no verifier) is reported
   and never spends.
 * A drop already reported is not announced again (GSEC-LOW-009).
+* A request already spent under the subject it carries is counted and
+  skipped before verification, and the scan row records the count, not the
+  list (ARIA-LOW-268): a scan's cost follows the requests still live, not
+  every request ever filed.
 
 When the provider selects a candidate, :func:`bind_plan_synthesis` appends a
 ``synthesis_bound`` row joining the scan to the synthesized ``plan_content``
@@ -87,7 +91,8 @@ LEDGER_CHAIN_BROKEN = "ledger_chain_broken"
 # consumed exactly what the ingestion admitted. Provenance, never evidence:
 # the row is ARIA's own ledger, which no challenger may cite (ORPHAN-HIGH-519).
 PROVENANCE_REF_PREFIX = "aria-tools/operator-feedback.jsonl:"
-_INGESTION_SCHEMA_VERSION = 3
+# 4 — the scan row carries ``spent_count`` instead of the spent list (ARIA-LOW-268).
+_INGESTION_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -229,11 +234,18 @@ def ingest_operator_feedback(
         rows_scanned += 1
         if not is_operator_request_row(row):
             continue
+        identifier, digest = str(row.get("id")), request_subject_digest(row)
+        if identifier in history.spent and history.claimed.get(identifier) == digest:
+            # ARIA-LOW-268 — the subject the kernel already spent: it is never
+            # admitted again, whatever its signature says today, so it costs
+            # no ssh-keygen run. Another subject under a spent id is judged
+            # below and refused as ``request_id_reused``.
+            spent_rows.append({"id": identifier, "subject_digest": digest, "reason": history.spent[identifier]})
+            continue
         verdict = verify_operator_request(row, allowed_signers=signers)
         if verdict.reason is not None:
             scan.drop(row, line_no, verdict.reason, signer=verdict.signer)
             continue
-        identifier, digest = str(row.get("id")), request_subject_digest(row)
         if identifier in history.claimed and history.claimed[identifier] != digest:
             scan.drop(row, line_no, REQUEST_ID_REUSED, signer=verdict.signer)
             continue
@@ -299,7 +311,10 @@ def ingest_operator_feedback(
             for entry in admitted
         ],
         "dropped": scan.dropped,
-        "spent": spent_rows,
+        # ARIA-LOW-268 — a count, not the list: the spent set is derived from
+        # this ledger's own history (``request_history``), so re-listing it on
+        # every scan only grew the ledger with every request ever filed.
+        "spent_count": len(spent_rows),
         "refused": refused_ids,
     }, expected_surface=INGESTION_SURFACE)
     candidates = tuple({

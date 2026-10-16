@@ -33,10 +33,24 @@ def verify_integrity(
         for issue in artifact_integrity.get("issues", []):
             issues.append({"code": "runtime_artifact_invalid", "details": issue})
     status = "ok" if not issues else "drift"
+    # ARIA-MEDIUM-120 — the verdict carries the count of the list it was
+    # decided on, with a per-code histogram. Before this the list was built,
+    # decided on and dropped, so the doctor (which read a top-level `issues`
+    # key that was never written) reported `integrity_drift:0_issues` on the
+    # quarantined store whose runtime pointers failed with 3,898 issues. The
+    # issues themselves stay in their sub-verdicts (`workspace`, `tools`,
+    # `cycle_lifecycle`, `runtime_artifacts`), printed once by
+    # `integrity verify`; a second top-level copy would double the verdict
+    # the lanes print.
+    issue_codes: dict[str, int] = {}
+    for issue in issues:
+        issue_codes[issue["code"]] = issue_codes.get(issue["code"], 0) + 1
     return {
         "schema_version": 2,
         "status": status,
         "valid": status == "ok",
+        "issue_count": len(issues),
+        "issue_codes": dict(sorted(issue_codes.items())),
         "workspace": workspace,
         "tools": tools,
         "ledger_count": len(workspace.get("ledgers", [])) + len(tools.get("ledgers", [])),

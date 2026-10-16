@@ -141,15 +141,17 @@ def _guarded(name: str, probe: Callable[[], DoctorCheck]) -> DoctorCheck:
 def _check_integrity(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
     from .integrity import verify_integrity
 
+    # ARIA-MEDIUM-120 — the count is the verdict's own (`issue_count`, the
+    # list `status` was decided on), the number `integrity verify` prints in
+    # the lanes. It used to be summed here from a key the verdict never wrote
+    # plus the tools sub-list, so a store failing only on runtime artifacts
+    # read `integrity_drift:0_issues`.
     result = verify_integrity(base_dir=tools_dir, workspace_root=workspace_root)
-    issues = list(result.get("issues") or [])
-    tools_issues = list((result.get("tools") or {}).get("issues") or [])
-    total = len(issues) + len(tools_issues)
-    if result.get("valid") is True:
-        return DoctorCheck("integrity", "ok", detail={"ledger_count": result.get("ledger_count")})
+    if result["valid"] is True:
+        return DoctorCheck("integrity", "ok", detail={"ledger_count": result["ledger_count"]})
     return DoctorCheck(
-        "integrity", "fail", f"integrity_drift:{total}_issues",
-        detail={"status": result.get("status"), "issue_count": total},
+        "integrity", "fail", f"integrity_drift:{result['issue_count']}_issues",
+        detail={"status": result["status"], "issue_count": result["issue_count"], "issue_codes": result["issue_codes"]},
     )
 
 

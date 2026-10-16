@@ -23,7 +23,7 @@
  *   - Max 10 000 points per series in realtime mode
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { colors, useI18n } from '@aquaculture/shared-ui';
@@ -484,7 +484,49 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     [lines, options, timeZone, locale],
   );
 
-  /* ---- Create / recreate uPlot on mount and option changes ---- */
+  /* ---- Create / recreate uPlot on STRUCTURAL change only ---- */
+
+  /**
+   * What forces a uPlot REBUILD rather than a data update: the series set
+   * (count, identity, scale, appearance) or the frame around it (time zone,
+   * locale, options). A refresh that only carries new points keeps the
+   * instance — the chart stays on screen and the data lands at its right
+   * edge, heartbeat-monitor style, instead of flashing away and being
+   * rebuilt. On /sensor/readings every latest-values poll produced new
+   * `lines` array identities with identical content, and the identity-based
+   * deps below tore the chart down on each one.
+   */
+  const structureKey = useMemo(
+    () =>
+      JSON.stringify([
+        lines.map((line) => [
+          line.id,
+          line.tagId,
+          line.label,
+          line.yAxis,
+          line.color,
+          line.lineWidth ?? null,
+          line.interpolation,
+          line.spanGaps ?? null,
+          line.showIsolatedPoints ?? null,
+          (line.zones ?? []).map((zone) => [zone.min, zone.max, zone.stroke, zone.fill]),
+        ]),
+        timeZone ?? null,
+        locale,
+        options,
+      ]),
+    [lines, timeZone, locale, options],
+  );
+
+  // Read by the create/recreate effect without being its dependency, so a
+  // data-only change cannot destroy the instance through the builder's or
+  // the lines' identity churn.
+  const buildOptionsRef = useRef(buildUPlotOptions);
+  buildOptionsRef.current = buildUPlotOptions;
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  const dataRef = useRef({ customData, breaks });
+  dataRef.current = { customData, breaks };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -493,18 +535,28 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     const width = container.clientWidth || 600;
     const height = options.panelHeight ?? (container.clientHeight || 300);
 
-    const uplotOpts = buildUPlotOptions(width, height);
-    const emptyData: uPlot.AlignedData = [[], ...lines.map(() => [])] as uPlot.AlignedData;
+    const uplotOpts = buildOptionsRef.current(width, height);
+    const emptyData: uPlot.AlignedData = [
+      [],
+      ...linesRef.current.map(() => []),
+    ] as uPlot.AlignedData;
 
     const instance = new uPlot(uplotOpts, emptyData, container);
     uplotRef.current = instance;
+    // A rebuild must not wait for the data effect's deps to also change
+    // (e.g. a time-zone change with identical data): seed the fresh
+    // instance with the data on screen right away.
+    instance.setData(
+      toUPlotData(linesRef.current, dataRef.current.customData ?? {}, dataRef.current.breaks),
+    );
 
     return () => {
       instance.destroy();
       uplotRef.current = null;
     };
-    // Recreate on lines or options change
-  }, [lines, options, buildUPlotOptions]);
+    // Recreate only when the chart's structure changes (see structureKey);
+    // data flows in through setData, never through a rebuild.
+  }, [structureKey, options.panelHeight]);
 
   /* ---- ResizeObserver ---- */
 

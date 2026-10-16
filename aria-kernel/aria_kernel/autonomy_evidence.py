@@ -948,6 +948,12 @@ _COMMON_AUTHORITY_PATHS = (
     f"{_KERNEL}state_manifest.py",
     f"{_KERNEL}state_snapshot.py",
     f"{_KERNEL}state_store.py",
+    # ARIA-LOW-541 — ledger imports it at module level and runs it on every
+    # append (state_transaction_held, the lock liveness). Every module in
+    # ledger's import-time closure is listed here; the closure is derived
+    # from the source and compared with this set by
+    # test_common_authorities_hold_ledger_import_time_closure.
+    f"{_KERNEL}state_store_lifecycle_arcs.py",
     f"{_KERNEL}tool_registry.py",
     f"{_KERNEL}tools_binding.py",
     f"{_KERNEL}workspace.py",

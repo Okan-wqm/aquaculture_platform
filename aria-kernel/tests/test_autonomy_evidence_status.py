@@ -93,6 +93,8 @@ EXPECTED_COMMON_AUTHORITY = (
     f"{KERNEL}state_manifest.py",
     f"{KERNEL}state_snapshot.py",
     f"{KERNEL}state_store.py",
+    # ledger imports it at module level and runs it on every append (ARIA-LOW-541).
+    f"{KERNEL}state_store_lifecycle_arcs.py",
     f"{KERNEL}tool_registry.py",
     f"{KERNEL}tools_binding.py",
     f"{KERNEL}workspace.py",
@@ -2615,6 +2617,56 @@ class NativeProofContractTests(unittest.TestCase):
             expected,
         )
 
+    def test_common_authorities_hold_ledger_import_time_closure(self) -> None:
+        """ARIA-LOW-541 — every kernel module ledger.py executes when it is
+        imported is a common authority, so the clean-worktree guard
+        (``_evaluator_worktree_blocker``) checks it. The set is hand-kept;
+        it missed state_store_lifecycle_arcs.py, which ledger imports at
+        module level and runs on every append, as it had missed digest.py
+        (ARIA-LOW-517). The closure is derived from the source here, so the
+        next import ledger gains fails this test by name."""
+        import ast
+
+        package = Path(autonomy_evidence_module.__file__).resolve().parent
+
+        def module_imports(module: str) -> set[str]:
+            source = package / f"{module}.py"
+            if not source.is_file():
+                source = package / module / "__init__.py"
+            found: set[str] = set()
+
+            def visit(statements: list[ast.stmt]) -> None:
+                for statement in statements:
+                    if isinstance(statement, ast.ImportFrom) and statement.level == 1:
+                        if statement.module:
+                            found.add(statement.module.split(".")[0])
+                        else:
+                            found.update(alias.name for alias in statement.names)
+                    elif isinstance(statement, (ast.If, ast.Try, ast.With)):
+                        visit(statement.body)
+                        visit(getattr(statement, "orelse", []))
+                        visit(getattr(statement, "finalbody", []))
+                        for handler in getattr(statement, "handlers", []):
+                            visit(handler.body)
+
+            visit(ast.parse(source.read_text(encoding="utf-8")).body)
+            return found
+
+        closure: set[str] = set()
+        pending = ["ledger"]
+        while pending:
+            module = pending.pop()
+            if module not in closure:
+                closure.add(module)
+                pending.extend(module_imports(module) - closure)
+        self.assertIn("state_store_lifecycle_arcs", closure)
+        common = set(autonomy_evidence_module._COMMON_AUTHORITY_PATHS)
+        missing = sorted(
+            f"{KERNEL}{module}.py" for module in closure
+            if f"{KERNEL}{module}.py" not in common
+        )
+        self.assertEqual(missing, [])
+
     def test_every_capability_hash_includes_common_admission_authorities(
         self,
     ) -> None:
@@ -2626,6 +2678,7 @@ class NativeProofContractTests(unittest.TestCase):
             "aria-kernel/aria_kernel/state_manifest.py",
             "aria-kernel/aria_kernel/state_snapshot.py",
             "aria-kernel/aria_kernel/state_store.py",
+            "aria-kernel/aria_kernel/state_store_lifecycle_arcs.py",
             "aria-kernel/aria_kernel/tool_registry.py",
             "aria-kernel/aria_kernel/tools_binding.py",
             "aria-kernel/aria_kernel/workspace.py",

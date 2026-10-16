@@ -26,6 +26,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -126,14 +127,63 @@ class NotifyIsBounded(unittest.TestCase):
                 senders={"telegram": sender, "github_issue": sender},
             )
         self.assertEqual(len(rows), 2)
-        # The per-signature dedup is across channels too: the second channel
-        # sees the first's `sent` row of this same call and dedups. Two
-        # rows, one send — and still ONE transaction for both rows.
-        self.assertEqual([row["status"] for row in rows], ["sent", "deduped"])
-        self.assertEqual(len(sends), 1)
+        # ARIA-MEDIUM-110 — the dedup is per channel: the first channel's
+        # `sent` row of this same call does not dedup the second channel.
+        # Two rows, two sends — and still ONE transaction for both rows.
+        self.assertEqual([row["status"] for row in rows], ["sent", "sent"])
+        self.assertEqual(len(sends), 2)
         self.assertEqual(len(transactions), 1, "one transaction per call, not per channel")
         self.assertGreater(transactions[0], max(sends), "the lock is taken after every send")
         self.assertEqual(len(notify.read_outbox(self.tools)), 2)
+
+
+class TheDedupIsPerChannel(unittest.TestCase):
+    """ARIA-MEDIUM-110 — one delivery per signature PER CHANNEL inside the window.
+
+    The dedup used to match the signature alone, so whichever channel sent
+    first silenced every other configured channel for six hours: an operator
+    with telegram and an issue got the notice on one of them only, and a
+    channel whose send failed was never retried while another had sent.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-notify-dedup-"))
+        self.tools = self.tmp / "aria-tools"
+        set_profile("standard", operator_approval_ref="notify-dedup", base_dir=self.tools)
+        self.sent: list[str] = []
+        self.failing: set[str] = set()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _sender(self, channel: str):
+        def send(title: str, body: str, environ) -> dict:
+            if channel in self.failing:
+                raise RuntimeError(f"{channel} down")
+            self.sent.append(channel)
+            return {"transport": channel}
+        return send
+
+    def _notify(self, at: datetime) -> dict[str, str]:
+        rows = notify.notify(
+            kind="cycle_failed", title="ARIA cycle failed", body="b", key="cyc-1",
+            base_dir=self.tools, environ=_ENV, channels=["telegram", "github_issue"],
+            senders={"telegram": self._sender("telegram"), "github_issue": self._sender("github_issue")},
+            now=at,
+        )
+        return {row["channel"]: row["status"] for row in rows}
+
+    def test_a_channel_that_failed_is_retried_while_the_one_that_sent_is_deduped(self) -> None:
+        start = datetime(2026, 10, 16, 12, tzinfo=timezone.utc)
+        self.failing = {"github_issue"}
+        self.assertEqual(self._notify(start), {"telegram": "sent", "github_issue": "failed"})
+        self.failing = set()
+        self.assertEqual(self._notify(start + timedelta(hours=1)), {"telegram": "deduped", "github_issue": "sent"})
+        self.assertEqual(self._notify(start + timedelta(hours=2)), {"telegram": "deduped", "github_issue": "deduped"})
+        # Each channel's window runs from its OWN last send: telegram sent at
+        # +0 h and is due again, the issue sent at +1 h and is still inside.
+        self.assertEqual(self._notify(start + timedelta(hours=7)), {"telegram": "sent", "github_issue": "deduped"})
+        self.assertEqual(self.sent, ["telegram", "github_issue", "telegram"])
 
 
 if __name__ == "__main__":

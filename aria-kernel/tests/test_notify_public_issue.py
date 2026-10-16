@@ -28,9 +28,9 @@ _WEAKNESS = "the tenant guard accepts an unsigned x-tenant-id header on /interna
 class _Channels(unittest.TestCase):
     """A public and a private channel, each recording what it was handed.
 
-    The notifier's per-signature dedup spans channels (a notice is delivered
-    once, by the first channel that sends it; test_notify_bound pins that), so
-    a test selects the channel whose body it reads: ``SELECTOR``.
+    A test selects the channel whose body it reads (``SELECTOR``), so the
+    other channel's recorder stays empty and a body that reached the wrong
+    channel is visible as a send there.
     """
 
     SELECTOR = "github_issue"

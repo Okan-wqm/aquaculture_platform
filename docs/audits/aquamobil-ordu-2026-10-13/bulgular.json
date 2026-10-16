@@ -1,0 +1,282 @@
+[
+  {
+    "no": "W1-K1",
+    "rol": "sözleşme analisti · auth-service · Kimlik/oturum (login/refresh/currentUser/mobi",
+    "baslik": "PANEL_ONLY kullanilar biyometrik girisle mobil engelini by-pass ediyor",
+    "onem": "yuksek",
+    "iddia": "Sifre yolunda 'hard block' olarak uygulanan accessType=PANEL_ONLY kontrolü biyometrik yolda üç katmanda da yok: seçim setinde, loginWithToken'da ve backend verifyLogin'de; getMyMobileSettings ise satir yoksa isMobileEnabled:true ile otomatik satir açiyor.",
+    "kanit": "FE web/apps/aquamobil/src/hooks/useWebAuthn.ts:82-89 (VERIFY user seçimi: `user { id email firstName lastName role tenantId }` — accessType yok) + useAuth.tsx:390-395 (loginWithToken yalnız `checkMobileEnabled` çağırır) ↔ BE apps/auth-service/.../webauthn.service.ts:384-397 (`if (!user || !user.isActive) ... if (user.isLocked())` — accessType kontrolü yok) + mobile-settings.service.ts:23-31 (`settings = this.repo.create({ ..., isMobileEnabled: true })`). Kod zinciri doğrulandi, runtime test edilmedi.",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K2",
+    "rol": "sözleşme analisti · auth-service · Kimlik/oturum (login/refresh/currentUser/mobi",
+    "baslik": "MFA'li kullanicilar mobilde desteklenmiyor; boş accessToken ile hayalet oturum kuruluyor",
+    "onem": "yuksek",
+    "iddia": "Backend login, MFA aciksa accessToken:'' + mfaRequired:true + mfaToken döner; mobil uygulama mfaRequired'i hiç okumaz, verifyMfaLogin mutasyonunu hiç çağırmaz ve boş token'le isAuthenticated:true durumuna geçer (checkMobileEnabled fail-open'i yüzünden engellenmez).",
+    "kanit": "BE apps/auth-service/.../authentication.service.ts:566-574 (`return { accessToken: '', ..., mfaRequired: true, mfaToken: ... }`) + mfa.resolver.ts:187 (`async verifyMfaLogin(`) ↔ FE: web/apps/aquamobil/src içinde `mfa|Mfa|MFA` grep'i 0 sonuç; useAuth.tsx:346 (`const { accessToken, user } = result.data.login;` — boşluk kontrolü yok) ve useAuth.tsx:366-377 (setState isAuthenticated:true). Kod okunarak doğrulandi.",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K3",
+    "rol": "sözleşme analisti · auth-service · Kimlik/oturum (login/refresh/currentUser/mobi",
+    "baslik": "checkMobileEnabled GraphQL/hata yanitinda fail-OPEN — yorumu 'fail-closed' diyor",
+    "onem": "yuksek",
+    "iddia": "getMyMobileSettings sorgusu hata döndürünce (401, rol reddi, resolver hatası) `?? true` nedeniyle mobil erişim VERİLİR; yalnız ağ istisnası catch'e düşer ve false döner. Yorumdaki güvenlik iddiası kodla çelişiyor.",
+    "kanit": "web/apps/aquamobil/src/hooks/useAuth.tsx:162-167: `const result = await parseGraphQL<MobileSettingsResponse>(response); return result.data?.getMyMobileSettings?.isMobileEnabled ?? true; } catch { ... return false; }` — HTTP durum kodu hiç kontrol edilmiyor (parseGraphQL useAuth.tsx:142-144 yalnız response.json()). Karşıt doğru örnek: useMobilePermissions.ts:197-211 aynı hatayı fail-closed işliyor.",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K4",
+    "rol": "sözleşme analisti · auth-service · Kimlik/oturum (login/refresh/currentUser/mobi",
+    "baslik": "WebAuthn login'inin refresh cookie'si SSoT dışı — ':' kodlama düzeltmesi eksik",
+    "onem": "yuksek",
+    "iddia": "verifyWebAuthnLogin refresh cookie'sini SSoT (refresh-token-cookie.ts) yerine satır içi seçeneklerle set ediyor; identity `encode` düzeltmesi olmadığından `${userId}:${random}` içindeki ':' express varsayılanı ile %3A'e kodlanır — SSoT yorumunun belgelediği 'her sessiz yenileme başarisiz → logout' hata modu biyometrik oturumlarda yeniden açılır. Ayrıca rememberMe'siz her zaman kalıcı maxAge verir.",
+    "kanit": "BE apps/auth-service/.../webauthn.resolver.ts:48-56 (`res.cookie('refresh_token', token, { httpOnly: true, secure: ..., sameSite: 'lax', path: '/', maxAge: ... })` — encode yok) ↔ SSoT apps/auth-service/.../refresh-token-cookie.ts:35-45 (ROOT CAUSE (logout-on-refresh) ... `encode: (value: string): string => value`); token formatı token.service.ts:347 (`${user.id}:${transportedRefreshSecret}`). Sapma kodda görüldü; oturum sonu etki SSoT yorumundan çıkarımdır, runtime doğrulanmadi.",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K5",
+    "rol": "sözleşme analisti · auth-service · Kimlik/oturum (login/refresh/currentUser/mobi",
+    "baslik": "Geçici refresh hatası otomatik logout tetikler ve senkronlanmamış offline kuyruğun tamamını kalıcı siler",
+    "onem": "yuksek",
+    "iddia": "Tek uçuşlu refresh'in başarisizliği (ağ kesintisi dahil) tam logout çalıştırır; logout clearAllOperations() ile şifreli IndexedDB kuyruğundaki tüm gönderilmemiş saha kayıtlarını siler. (Aşama-1 meslektaş bulgusu — bu oturumda satırları bizzat doğruladım.)",
+    "kanit": "web/apps/aquamobil/src/services/authenticated-fetch.ts:165-176 (`refreshInFlight = refreshAuth().catch(() => false).then(async (refreshed) => { if (!refreshed && authStore.logout) { await authStore.logout(); } ...`) → useAuth.tsx:194-196 (`clearAllOperations(),` clearAllUserData içinde) + useAuth.tsx:540-543/570-572 (refreshAuth hata/error yolunda `await logout()`).",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K6",
+    "rol": "sözleşme analisti · farm-service · Stok olayları: recordMortality, recordCull, c",
+    "baslik": "MortalityReason enum değer seti kırık: mobil 13, backend GraphQL 10",
+    "onem": "kritik",
+    "iddia": "Ölüm kayıt ekranı AMMONIA/STARVATION/GENETIC sebeplerini sunuyor ama backend GraphQL MortalityReason enum'ında bu üç değer yok — operatör bu sebeplerden birini seçerse mutasyon GraphQL enum coercion'da kalıcı olarak başarısız olur, kayıt stok'a hiç işlenmez ve kuyrukta 5 yeniden deneme sonrası 'failed' kalır (hata mesajı 'Value \"AMMONIA\" does not exist in \"MortalityReason\" enum' biçiminde olduğu için offline-queue.ts:882-891 İngilizce permanentPatterns listesiyle eşleşmez, retryable sınıfına düşer). Sayfadaki 'All 13 MortalityReason enum values from the backend schema' yorumu yanlış — mobil, 13 değerli DB entity enum'una (MortalityCause) hizalanmış, 10 değerli GraphQL input enum'ına değil.",
+    "kanit": "FE: web/apps/aquamobil/src/types/index.ts:72-85 (`| 'AMMONIA'` ... `| 'STARVATION'` ... `| 'GENETIC'` dahil 13'lü union) + web/apps/aquamobil/src/pages/mortality/RecordMortalityPage.tsx:23-37 (üçü de seçilebilir ReasonGrid opsiyonu). BE: apps/farm-service/src/batch/entities/tank-operation.enums.ts:71-82 (enum yalnızca 10 değer: DISEASE..OTHER; AMMONIA/STARVATION/GENETIC yok). Bağımsız teyit 1: web/shared-ui/src/generated/graphql-types.ts:9288-9298 (compose edilmiş supergraph'tan codegen — 10 değer). Bağımsız teyit 2 (başyazar, bu oturumda bizzat okundu): types/index.ts:72-85 ve tank-operation.enums.ts:71-82 birebir örtüştü. NOT: W2-K7 aynı bulgunun ikinci analist kaydıdır.",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K7",
+    "rol": "sözleşme analisti · farm-service · Stok olayları: recordMortality, recordCull, c",
+    "baslik": "Dört stok mutasyonu S1 codegen sözleşme kapısının kapsamı dışında",
+    "onem": "yuksek",
+    "iddia": "recordMortality/recordCull/createHarvestRecord/transferBatch mutasyon dokümanları düz string olarak src/pwa/operation-registry.ts'te yaşıyor; codegen kapısı yalnız src/graphql/**/*.ts glob'unu taradığı için bu dokümanlar supergraph şemasına karşı hiçbir zaman doğrulanmıyor. Yukarıdaki kritik enum drift'ini yakalayacak hiçbir otomatik kapı yok — operation-registry.spec.ts de yalnızca yapısal assert yapıyor ('mutation' içermesi, { input: payload } şekli).",
+    "kanit": "codegen.ts:47 — `const aquamobilDocuments = ['web/apps/aquamobil/src/graphql/**/*.ts'];` (src/pwa/ dışında; başyazar bu oturumda satırı bizzat okudu). web/apps/aquamobil/src/pwa/operation-registry.ts:35-61 (dört stok mutasyonu düz string). web/apps/aquamobil/src/pwa/__tests__/operation-registry.spec.ts:54-58 (`expect(OPERATION_MUTATIONS[type]).toContain('mutation')` — şema doğrulaması yok). tests/invariants/farm-graphql-enum-parity.spec.ts:46-81 yalnızca desktop farm-module regulatory enum'larını kapsar, aquamobil MortalityReason yok.",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K8",
+    "rol": "sözleşme analisti · farm-service · Su kalitesi (equipmentList/equipmentParameter",
+    "baslik": "FE `parameters: {}` gönderiyor; backend input'unda alan yok → mutasyon her iki hatta da her seferinde reddedilir",
+    "onem": "kritik",
+    "iddia": "WaterQualityRecordPage online submit'te input içine `parameters: {}` koyar; farm-service CreateWaterQualityInput'ta (single-ingress tasarımı) bu alan kaldırılmıştır; Apollo gateway (graphql-js 16.14.2) tanımsız input alanını variable coercion'da request hatası yapar — dolayısıyla bu ekrandan su kalitesi ölçümü hiçbir koşulda kaydedilemez (canlı istek çalıştırılmadı; kanıt statik kod + kurulu graphql-js kaynağı).",
+    "kanit": "web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx:212 `parameters: {},` (başyazar bu oturumda satırı bizzat okudu) ↔ apps/farm-service/src/water-quality/dto/create-water-quality.input.ts:4-15 \"The legacy `WaterParametersInput` class and its fixed `parameters` field were removed\" + schema.graphql:9551-9608 (parameters yok) + /var/aqua-saas/node_modules/graphql/utilities/coerceInputValue.js:175-188 `Field \"${fieldName}\" is not defined by type \"${type.name}\"` + apps/gateway-api/src/app.module.ts:32 `ApolloGatewayDriver`",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K9",
+    "rol": "sözleşme analisti · farm-service · Su kalitesi (equipmentList/equipmentParameter",
+    "baslik": "Mobil TS tipi bayat fork: `parameters` zorunlu, `equipmentId`/`dynamicParameters` opsiyonel — backend tam tersi",
+    "onem": "yuksek",
+    "iddia": "aquamobil `CreateWaterQualityInput` tipi mevcut backend sözleşmesini yansıtmıyor; TS bunu derleme zamanında zorladığı için sayfa yanlış alanı göndermeye mecbur bırakılıyor (kök neden). Masaüstü web'in aynı arayüzü doğru (parameters yok, equipmentId zorunlu).",
+    "kanit": "web/apps/aquamobil/src/types/index.ts:562-576 `parameters: WaterQualityParameters;` (zorunlu), `equipmentId?: string`, `dynamicParameters?:` ↔ apps/farm-service/src/water-quality/dto/create-water-quality.input.ts:67-69 `equipmentId!: string` (ID!), :78-82 `dynamicParameters!` (JSON!, IsNotEmpty) — doğru referans: web/modules/farm-module/src/hooks/useWaterQuality.ts:131-144 (parameters alanı yok)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K10",
+    "rol": "sözleşme analisti · farm-service · Su kalitesi (equipmentList/equipmentParameter",
+    "baslik": "Saha kullanıcısı (MODULE_USER) equipmentId-only input'la site yetkisinde fail-closed 'Access denied' yer",
+    "onem": "yuksek",
+    "iddia": "Backend site çözümlemesi yalnız siteId/tankId'den yapılır; mobil sayfa ikisini de göndermediği için non-manager kullanıcının ölçümü ForbiddenException ile reddedilir (bulgu-1'den bağımsız ikinci kesinti).",
+    "kanit": "web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx:207-216 (input'ta tankId/siteId yok) ↔ apps/farm-service/src/water-quality/water-quality.service.ts:193-207 `if (input.siteId)... if (input.tankId)... return null` + :282 `this.siteAuth.assertSiteAssignment(...)` ↔ libs/backend-common/src/security/site-authorization.service.ts:89-92 `if (siteId == null) { throw new ForbiddenException('Access denied'); }`",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K11",
+    "rol": "sözleşme analisti · farm-service · Su kalitesi (equipmentList/equipmentParameter",
+    "baslik": "equipmentList sayfalamalı (varsayılan limit 50), FE tüm liste gibi tüketiyor — 50+ ekipmanda sessiz kesilme",
+    "onem": "yuksek",
+    "iddia": "Sayfa pagination argümanı göndermez ve yanıttan yalnız `items`'ı okur; backend varsayılan limit 50 (maks 100) sayfalı döndürür — büyük kiracıda ekipman seçicideki liste eksik kalır ve kullanıcı fark etmez.",
+    "kanit": "web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx:53-57 `equipmentList(filter: $filter) { items { ... } }` (total/totalPages seçilmiyor) + :120-123 (pagination yok) ↔ apps/farm-service/src/equipment/handlers/list-equipment.handler.ts:73-76 `const limit = Math.min(pagination?.limit ?? 50, MAX_LIMIT)`",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K12",
+    "rol": "sözleşme analisti · farm-service · Depo (storage)",
+    "baslik": "warehouseSummary.recentMovements.movementType değer uyumsuzluğu Depo hub'ını çökertiyor",
+    "onem": "kritik",
+    "iddia": "Backend hareket tipini ham entity değeri olarak (küçük harf 'in'/'out'/'transfer'/'waste') String alan üzerinden döndürürken FE Record<'IN'|'OUT'|'WASTE'> haritasına indeksleyip config.icon okur; undefined.icon TypeError fırlatır, ErrorBoundary tüm /storage hub'ını 'Storage Error' fallback'ine düşürür. Uygulamanın kendi transferStock mutasyonu 'transfer' yazdığı için aktif bir çiftlikte hub beslemesi her hareketle kırılır.",
+    "kanit": "web/apps/aquamobil/src/pages/storage/StorageHubPage.tsx:157-159 `const config = MOVEMENT_TYPE_CONFIG[movement.movementType]; const Icon = config.icon;` (harita anahtarları 74-98: IN/OUT/WASTE; başyazar bu oturumda satırları bizzat okudu) ↔ apps/farm-service/src/storage/handlers/get-warehouse-summary.handler.ts:320-327 `movementType: m.movementType` (dönüşüm yok) + apps/farm-service/src/storage/entities/stock-movement.entity.ts:14-21 `IN = 'in' ... TRANSFER = 'transfer'` + dto/warehouse-summary.response.ts:53-54 `@Field() movementType!: str...` (String, dönüşüm yok)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K13",
+    "rol": "sözleşme analisti · farm-service · Görevler: myTasks/todaysT",
+    "baslik": "Checklist `id`: backend opsiyonel, mobil zorunlu — normalizasyon görmemiş satırda toggle kırılır",
+    "onem": "yuksek",
+    "iddia": "Backend TaskChecklistItem.id opsiyoneldir ve id atayan normalizasyon yalnızca yazma yolunda (create/update/setChecklistItem) çalışır; okuma ham JSONB döndürür. Mobil tip `id`'yi zorunlu sanır; id'siz (veya legacy `completed` alanlı) bir öğede TaskDetailPage itemId=undefined gönderir — SetChecklistItemInput.itemId (String!) doğrulamada ya da service find'inde 'Checklist öğesi bulunamadı' ile reddedilir; kullanıcıya genel 'Failed to update checklist item' düşer. Legacy satırların varlığı entity'nin kendi yorumuyla destekleniyor ama prod'daki miktarı doğrulanmadi.",
+    "kanit": "apps/farm-service/src/task/entities/task.entity.ts:40-45 (`id?: string;` ... `/** Legacy field from the old toggleChecklistItem flip */ completed?: boolean;`) + apps/farm-service/src/task/services/task.service.ts:626-628 (`const item = task.checklistItems.find((i) => i.id === itemId); if (!item) { throw new NotFoundException(...)`) + okuma yolunda normalizasyon yok: apps/farm-service/src/task/handlers/get-task.handler.ts:28-32 ↔ web/apps/aquamobil/src/types/index.ts:463-466 (`export interface Ch...` ChecklistItem.id zorunlu) + TaskDetailPage.tsx:331 (onClick item.id geçer)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K14",
+    "rol": "sözleşme analisti · farm-service · Görevler: myTasks/todaysT",
+    "baslik": "Online görev aksiyonları tüm GraphQLError'ları ağ hatası sanıp kuyruğa atıyor",
+    "onem": "yuksek",
+    "iddia": "useTaskActions'ın online catch bloğu hatayı sınıflandırmaz: 'Görev zaten tamamlanmış', 'Görev bulunamadı', MobileFeatureGuard 'Access denied' gibi kalıcı hatalar da sessizce offline kuyruğa girer. Kullanıcı 'Complete task queued' geribildirimi görür (durumu yanlış beyan), op daha sonra her drain'de yine aynı iş hatasıyla başarısız olur. Doğrulanmış akış: graphqlRequest GraphQLError fırlatır → catch-all → addToQueue.",
+    "kanit": "web/apps/aquamobil/src/hooks/useTaskActions.ts:84-92 (`} catch { // Network error despite isOnline — fall through to queue } ... const { id: operationId } = await addToQueue('completeTask', rawPayload, clientCommandId);`) + TaskDetailPage.tsx:118-123 (`setSuccessMessage('Complete task queued');`) ↔ backend kalıcı hataları: task.service.ts:412-417, mobile-feature.guard.ts:72-95",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K15",
+    "rol": "sözleşme analisti · farm-service · Rapor yüzeyi (online-only)",
+    "baslik": "Rapor yüzeyi uygulamada hiçbir giriş noktası olmayan yetim akış",
+    "onem": "yuksek",
+    "iddia": "ReportsDuePage ve ReportReviewPage rotaları tanımlı ve FeatureRoute ile kapılı, ancak uygulama içinde /reports yoluna giden hiçbir sekme, hub kartı veya CTA yok — akış yalnızca URL elle yazılarak (derin bağlantı) ulaşılabilir.",
+    "kanit": "web/apps/aquamobil/src/App.tsx:536-551 — `/reports` ve `/reports/:draftId` yalnızca rota tanımı (`<FeatureRoute feature=\"reports\">`); src genelinde '/reports' yalnızca App.tsx:537,545 + sayfaların kendi iç navigasyonu (ReportsDuePage.tsx:135 `navigate(\\`/reports/${row.id}\\`)`, ReportReviewPage.tsx:139 geri tuşu). Alt sekmeler: layouts/MobileLayout.tsx:72-94 yalnız /, /operations, /tasks, /messages, /account; OperationsHubPage.tsx:189-237 yalnız /operations/* kartları; bildirim tarafında da derin bağlantı yok.",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K16",
+    "rol": "sözleşme analisti · farm-service · AI içgörüler (MCP aracılı): farmDashboardInsi",
+    "baslik": "AI içgörü hattı üretimde hiç açılamıyor: MCP_ENABLED konfigürasyonda yok + imajda MCP sunucusu yok",
+    "onem": "kritik",
+    "iddia": "Dört AI sorgusunun GraphQL sözleşmesi kusursuz olsa da uçtan uca veri akışı üretimde ölü: MCP_ENABLED default 'false' ve hiçbir helm/compose/deploy konfiginde açılmamış; ayrıca deploy imajı (Dockerfile.backend.simple) yalnız dist/ kopyaladığı için MCP sunucu yolu (default 'mcp/farm-management/src/index.ts') konteynerde mevcut değil — flag açılsa bile sunucu spawn edilemez.",
+    "kanit": "apps/farm-service/src/ai-insights/services/mcp-client.service.ts:68-81 (`MCP_SERVER_PATH', 'mcp/farm-management/src/index.ts'`; `'MCP_ENABLED', 'false') === 'true'`) + infrastructure/docker/Dockerfile.backend.simple:66 (`COPY --chown=nestjs:nodejs dist/apps/${SERVICE_NAME} ./dist` — mcp/ kopyalanmıyor) + .github/workflows/deploy-digitalocean.yml:900 (`file=infrastructure/docker/Dockerfile.backend.simple`) + infrastructure/helm/aquaculture/values.yaml:106-112 (farmService.env yalnız MET değişkenleri; MCP_ENABLED yok)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K17",
+    "rol": "sözleşme analisti · farm-service · AI içgörüler (MCP aracılı): farmDashboardInsi",
+    "baslik": "farmDashboardInsights asla null dönmüyor — FE'in 'AI unavailable' tasarımı erişilemez, '0 Risk / All clear' yanıltıcı",
+    "onem": "yuksek",
+    "iddia": "Frontend (sorgu dosyası ve hook yorumları) MCP kapalıyken backend'in null döneceğini varsayıyor ve bileşen null'u 'AI insights currently unavailable' olarak gösteriyor; ama dashboard sorgusu şemada non-null, resolver nullable değil ve servis overallRiskScore=0 + boş dizilerden sentezik kabuk döndürüyor. Sonuç: mevcut deployment'ta (MCP kapalı) ana ekran AI kartı 'çiftlik kusursuz güvenli' mesajı veriyor.",
+    "kanit": "web/apps/aquamobil/src/graphql/ai-insights.queries.ts:12-13 ('When MCP_ENABLED=false, the resolver returns null') + src/hooks/useAiInsights.ts:61-63 ↔ apps/farm-service/schema.graphql:5634 (`farmDashboardInsights: FarmDashboardInsights!`) + src/ai-insights/ai-insights.resolver.ts:111-120 (nullable yok) + services/ai-insights.service.ts:363 (`overallRiskScore = riskData?.overallRisk ?? 0`) ve :384-389; FE tarafı AiInsightsCard.tsx:135-160 (`isError || !insights` → null bekleyen guard, sonra 'All clear' dalı)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K18",
+    "rol": "sözleşme analisti · farm-service · AI içgörüler (MCP aracılı): farmDashboardInsi",
+    "baslik": "riskLevel enum uyumsuzluğu: MCP 'normal/attention/warning/critical' ↔ FE LOW/MEDIUM/HIGH/CRITICAL",
+    "onem": "yuksek",
+    "iddia": "Backend GraphQL tip dokümantasyonu LOW/MEDIUM/HIGH/CRITICAL vaat ediyor ve frontend renk haritası bu dört anahtarı bekliyor; ama servis MCP'den gelen riskLevel'i dönüşümsüz geçiriyor ve MCP gerçekten 'normal'/'attention'/'warning'/'critical' üretiyor. 'attention' ve 'warning' seviyeli tanklar haritada bulunamayıp yeşil LOW stiline düşüyor — risk triyajı yanlış renk gösteriyor.",
+    "kanit": "mcp/farm-management/src/analytics/risk-scorer.ts:767-772 (`if (score <= 25) return 'normal'; if (score <= 50) return 'attention'; ...`) + apps/farm-service/src/ai-insights/services/ai-insights.service.ts:112 (`riskLevel: raw.riskLevel` passthrough; backend tip yorumu ise ai-insights.types.ts:22 'LOW/MEDIUM/HIGH/CRITICAL' diyor) ↔ web/apps/aquamobil/src/components/ai/TankRiskBadge.tsx:26-53 (RISK_COLORS anahtarları LOW/MEDIUM/HIGH/CRITICAL; `DEFAULT_COLORS = RISK_COLORS.LOW`) ve :75 (`RISK_COLORS[risk.riskLevel.toUpperCase()] || DEFAULT_COLORS`)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K19",
+    "rol": "sözleşme analisti · farm-service · AI içgörüler (MCP aracılı): farmDashboardInsi",
+    "baslik": "batchGrowthPrediction batchId'yi hesapta kullanmıyor — her batch'e aynı sabit projeksiyon",
+    "onem": "yuksek",
+    "iddia": "Sorgu sözleşmesi batch'e özel tahmin vaat ediyor (batchId parametreli, şema açıklaması 'prediction for a batch'), ama servis batch'in gerçek ağırlık/adet/SGR verisini hiç çekmiyor: tüm batch'lere currentWeightG=100, currentQuantity=10000, sgr=2.0 sabitleriyle MCP çağrısı yapıyor. currentAvgWeight alanı batch'in gerçek ortalaması değil girdinin yankısı (hep 100g) — mobil 'Current → Predicted' karşılaştırması anlamsız.",
+    "kanit": "apps/farm-service/src/ai-insights/services/ai-insights.service.ts:156-163 (`currentWeightG: 100, currentQuantity: 10000, sgr: 2.0, projectionDays: 30` — batchId yalnızca cache anahtarı ve echo) ve :181 (`currentAvgWeight: raw.parameters.currentWeightG` — MCP girdi yankısı, mcp/farm-management/src/tools/math/calculate-growth-metrics.ts:592-594) ↔ web/apps/aquamobil/src/components/ai/GrowthPredictionCard.tsx:69 (`{prediction.currentAvgWeight.toFixed(0)}g` 'Current' olarak render)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W1-K20",
+    "rol": "sözleşme analisti · farm-service · AI içgörüler (MCP aracılı): farmDashboardInsi",
+    "baslik": "feedingAdvice tankId'yi hesapta kullanmıyor — her tanka aynı 5.0kg 'hassas yemleme' önerisi",
+    "onem": "yuksek",
+    "iddia": "Mobil ekran tank bazlı hassas yemleme önerisi sunarken (FeedingAdviceCard başlığı 'AI-driven precision feeding'), backend tankın gerçek biyokütle/hacim/sıcaklık verisini çekmek yerine her çağrıda aynı sabit girdi setini (5kg yem, 500kg biyokütle, 50m³, 22°C) MCP'ye veriyor; feedType 'standard-pellet' sabit. Öneri miktarı tanktan bağımsız.",
+    "kanit": "apps/farm-service/src/ai-insights/services/ai-insights.service.ts:280-288 (`predict_feeding_impact', { feedKg: 5.0, biomassKg: 500, tankVolumeM3: 50, temperature: 22, ... }` — tankId yalnızca cache anahtarı ve echo) ve :304-310 (`feedType: 'standard-pellet'` sabit; `recommendedAmount: raw.feedingRate.feedKg`) ↔ web/apps/aquamobil/src/components/ai/FeedingAdviceCard.tsx:57-79 (değerler tanka özel gibi KPI olarak gösteriliyor)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W2-K1",
+    "rol": "kalite analisti · dilim 1/5",
+    "baslik": "Typing göstergesi hattı uçtan uca ölü (giden hiç yok, gelen yarışıyor)",
+    "onem": "yuksek",
+    "iddia": "Giden typing olayı hiçbir yerde gönderilmiyor: useTypingIndicator.startTyping ve useMessageSocket.emitTyping'in uygulamada tek çağırıcısı yok; ChatRoomPage yalnızca stopTyping/typingUsers alıyor. Gelen tarafta dinleyici efekti socketRef.current'i bir kez okuduğu ve bağımlılıkları (stable ref + channelId + userId) socket bağlanınca değişmediği için ilk açılan sohbette 'typing' dinleyicisi hiç eklenmiyor — yalnız sonraki kanal değişiminde düzelir. TypingIndicator bileşeni pratikte hep boş render ediyor.",
+    "kanit": "web/apps/aquamobil/src/pages/messaging/ChatRoomPage.tsx:105 — `const { stopTyping, typingUsers } = useTypingIndicator(` (startTyping yok; başyazar bu oturumda satırı bizzat okudu) ; web/apps/aquamobil/src/hooks/useTypingIndicator.ts:110-112 — `const socket = socketRef.current; if (!socket || !channelId) return;` (socket io() await'inden SONRA yaratılıyor: useMessageSocket.ts:384-402); grep `startTyping|emitTyping` src → tanım dosyaları dışında 0 sonuç (çalıştırdım)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W2-K2",
+    "rol": "kalite analisti · dilim 1/5",
+    "baslik": "Field-ergonomics 44px kapısında yapısal delik: min-* beyan etmeyen butonlar kaçıyor",
+    "onem": "yuksek",
+    "iddia": "Sub-44 kontrolü yalnız AYNI SATIRDA açıkça beyan edilmiş `min-[hw]-[N<44]px` yakalar; min-h/min-w hiç yazmayan, padding'le boyutlanan butonlar kapıdan kaçar. Sonuç: `p-2` + 22px ikon ≈ 38px'lik geri butonu 15 dosyada 21 kez kopyalanmış (hepsi aria-label'sız, IconButton primitive'ini by-pass ediyor) ve ChatRoomPage'in toast kapatma butonu (~28px) invariant'a rağmen el değmeden duruyor.",
+    "kanit": "web/apps/aquamobil/src/__tests__/field-ergonomics.invariant.spec.ts:107 — `const SUB_44 = /min-[hw]-\\[(?:[0-9]|[1-3][0-9]|4[0-3])px\\]/`; web/apps/aquamobil/src/pages/feeding/RecordFeedingPage.tsx:292-297 — `<button onClick={() => navigate(-1)} className=\"p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback\"><ArrowLeft size={22}`; grep sayımı: 21 örnek / 15 dosya (çalıştırdım; hakem kendi sayımında 16 dosyada 24 kez buldu — öz aynen geçerli); web/apps/aquamobil/src/pages/messaging/ChatRoomPage.tsx:766-773 — dismiss butonu `px-1.5 ... touch-feedback`",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W2-K3",
+    "rol": "kalite analisti · dilim 1/5",
+    "baslik": "TankRiskBadge fail-open renk eşlemesi: bilinmeyen risk LOW yeşili boyanıyor",
+    "onem": "yuksek",
+    "iddia": "riskLevel eşleşmezse renk DEFAULT_COLORS'a, yani LOW (yeşil) stiline düşüyor. Backend GraphQL tipi enum değil düz String (generated graphql'te `riskLevel: string`), sözleşme analisti MCP tarafında 'warning'/'attention' gibi değerler doğruladı — bu değerler toUpperCase sonrası haritada yok ve risk kartı YEŞİL (düşük risk) görünüyor. Fail-closed (nötr/bilinmeyen stili) olması gereken yerde fail-open.",
+    "kanit": "web/apps/aquamobil/src/components/ai/TankRiskBadge.tsx:53 — `const DEFAULT_COLORS = RISK_COLORS.LOW;` ve :75 — `const colors = RISK_COLORS[risk.riskLevel.toUpperCase()] || DEFAULT_COLORS;`; web/apps/aquamobil/src/generated/graphql.ts:388 — `tankRiskAssessment: { ... riskLevel: string ... }`. İlişkili: W1-K18 (MCP değer seti uyumsuzluğu).",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W2-K4",
+    "rol": "kalite analisti · dilim 1/5",
+    "baslik": "Başarısız mesaj gönderimi 'pending' saati gibi render ediliyor",
+    "onem": "yuksek",
+    "iddia": "Optimistik `_status: 'failed'` olan mesaj 'pending' as const'ye eşleniyor; DeliveryStatus tipinde 'failed' varies yok. Kod yorumu 'send failure is already surfaced in the UI via _status failed' diyor ama render yolu onu pending'le eziyor — kullanıcı başarısız gönderimi asla göremiyor, mesajın hâlâ gönderiliyormuş izlenimi kalıyor.",
+    "kanit": "web/apps/aquamobil/src/pages/messaging/ChatRoomPage.tsx:606-609 — `const status = msg._status === 'pending' ? 'pending' as const : msg._status === 'failed' ? 'pending' as const : ...`; :680-684 — '...surfaced in the UI via the optimistic message's _status: 'failed''; web/apps/aquamobil/src/components/messaging/MessageBubble.tsx:31 — `type DeliveryStatus = 'pending' | 'sent' | 'delivered' | 'read';`",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W2-K5",
+    "rol": "kalite analisti · dilim 2/5",
+    "baslik": "useAiConsent iki yönde de tüm hataları yutuyor: fetch hatası 'AI kapalı' sanılıyor, mutasyon hatası sessiz geri dönüyor",
+    "onem": "yuksek",
+    "iddia": "aiSettings sorgusu ve updateUserAiConsent mutasyonu her hatayı yakalayıp başarı görünümü döndürüyor; ağ hatası geçici olsa bile toggle kalıcı disabled oluyor ve başarısız onay seçimi kullanıcıya hiçbir hata göstermeden eski değere dönüyor.",
+    "kanit": "web/apps/aquamobil/src/hooks/useAiConsent.ts:94-96 `} catch { return { isAiEnabled: false, hasConsented: false }; }` (fetch yutma; mutation.isError hiç set olmaz) ve :110-112 `} catch { return { hasConsented: !consented }; }` (başarısızlığta eski değer 'başarı' gibi). Tüketici: web/apps/aquamobil/src/pages/messaging/ChannelSettingsPage.tsx:432 `disabled={!isAiEnabled || aiConsentLoading}` — isAiEnabled=false olduğunda 'Not enabled for tenant' gösterip toggle'ı kilitliyor, hata/Retry yok.",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W2-K6",
+    "rol": "kalite analisti · dilim 2/5",
+    "baslik": "StockMovementType tip yalanı: yanıt modeli 3 değerli girdi enum'unu yeniden kullanıyor, backend 6 değer üretiyor",
+    "onem": "yuksek",
+    "iddia": "RecentStockMovement.movementType, yalnız IN/OUT/WASTE içeren girdi tipiyle tiplendi; backend MovementType enum'unda ayrıca TRANSFER/ADJUSTMENT/RETURN var — Record<StockMovementType,...> lookup'ları derleme zamanında güvenli görünürken çalışma zamanında undefined döner (meslektaş ekran hakeminin doğruladığı depo hub çökmesinin tip-kökü).",
+    "kanit": "web/apps/aquamobil/src/types/index.ts:579 `export type StockMovementType = 'IN' | 'OUT' | 'WASTE';` ve :705-712 yanıt modeli `movementType: StockMovementType;` — backend gerçek: /var/aqua-saas/apps/farm-service/src/storage/entities/stock-movement.entity.ts:14-21 `TRANSFER = 'transfer', WASTE = 'waste', ADJUSTMENT = 'adjustment', RETURN = 'return',`. İlişkili: W1-K12 (runtime çökme).",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W2-K7",
+    "rol": "kalite analisti · dilim 2/5",
+    "baslik": "MortalityReason mobil tipi 13 değer, backend enum 10 — AMMONIA/STARVATION/GENETIC backend'de yok",
+    "onem": "yuksek",
+    "iddia": "Elle bakılmış mobil tip backend enum'undan 3 fazla değer taşıyor; bu üçü seçilerek gönderilen ölüm kayıtları backend GraphQL enum doğrulamasında reddedilir (sözleşme analisti 'kalıcı ret' bulgusuyla uyumlu — farkı bu kez iki taraftan bizzat okudum).",
+    "kanit": "web/apps/aquamobil/src/types/index.ts:72-85 `| 'AMMONIA' | ... | 'STARVATION' | 'GENETIC' | 'OTHER';` (13 üye) — backend: /var/aqua-saas/apps/farm-service/src/batch/entities/tank-operation.enums.ts:71-82 `export enum MortalityReason { DISEASE... OXYGEN, PREDATION, CANNIBALISM, UNKNOWN, OTHER }` (10 üye; AMMONIA/STARVATION/GENETIC yok). NOT: W1-K6 ile aynı bulgunun ikinci analist kaydıdır (çift kayıt).",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  },
+  {
+    "no": "W2-K8",
+    "rol": "kalite analisti · dilim 3/5",
+    "baslik": "checkMobileEnabled yorumu fail-closed diyor, kod null/hata yanıtında fail-OPEN",
+    "onem": "yuksek",
+    "iddia": "Ağ hatasında kapalı davranan fonksiyon, GraphQL data'sı null/eksik döndüğünde (errors dahil) `?? true` ile mobil erişimi AÇIYOR; yorumdaki güvenlik sözüyle çelişiyor. [NOT — başyazar: bu kayıt kaynak veri paketinde kesikti; içerik W1-K3 ile aynı bulgunun ikinci analist kaydıdır ve W1-K3 hakem tarafından satır satır doğrulanmıştır. Kanıt için W1-K3'ün kanıt alanına bakınız: web/apps/aquamobil/src/hooks/useAuth.tsx:142-144,162-167.]",
+    "kanit": "web/apps/aquamobil/src/hooks/useAuth.tsx:163 — `return result.data?.getMyMobileSettings?.isMobileEnabled ?? true;` (tam kanıt zinciri W1-K3 kaydında; başyazar bu oturumda satırları bizzat okudu)",
+    "guven": "dogrulanmis",
+    "durum": "dogrulandi"
+  }
+]

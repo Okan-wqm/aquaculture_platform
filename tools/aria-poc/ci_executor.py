@@ -2258,6 +2258,21 @@ def invoke_claude_cli(
         # attempt closure and its governance-audit callback; the helper owns
         # the single-retry-bounded control flow.
         def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
+            # ARIA-LOW-445 — the spawn lane's route, on the ledger BEFORE the
+            # rung runs: a rung that hangs until its lease runs out is judged
+            # by its own provider's outage (`attempt_providers_by_claim`), not
+            # the ladder head's. The native lane's route is its reserved
+            # attempt row. No rung runs without its record, as on the native
+            # lane: a refused write is a refused spawn, released by name.
+            if route_model is None and tools_dir is not None and claim_id:
+                from aria_kernel.independence_check import record_claim_route
+                from aria_kernel.tool_registry import GovernanceError as _RouteRecordRefused
+
+                try:
+                    record_claim_route(tools_dir, request_id=request_id, claim_id=claim_id,
+                                       provider=_provider_for_model(model), model=model, lane="spawn")
+                except _RouteRecordRefused as exc:
+                    raise ClaudeCliUnavailable(f"claim_route_record_unavailable: {exc}") from exc
             # The auth failover is written in tier names; the runtime that
             # serves a tier is the fleet's decision. A Z.ai tier (its own HTTP
             # transport since the 2026-09-11 policy) never reaches the claude
@@ -3711,6 +3726,31 @@ def _cool_provider(
         cooldown_seconds=(native_runtime.policy.provider_cooldown_seconds if native_runtime is not None
                           else provider_cooldown_seconds(_REPO_ROOT)),
         request_id=request_id, claim_id=claim_id, detection=exc.detail,
+    )
+
+
+def _summarize_native_provider_fact(
+    *, native_runtime: Any, request: dict[str, Any], request_id: str, target_agent: str,
+    exc: ClaudeAuthFailure | ClaudeCreditExhausted | ClaudeProviderUnreachable,
+) -> None:
+    """The native child's summary of a provider fact (ARIA-MEDIUM-438).
+
+    The drain tells a re-probe of a standing outage from a new failure by
+    the child's summary: its class names the outage kind and its provider
+    the outage it met. The native Z.ai and Codex attempts raise their fact
+    straight to `_main`'s arm, so they wrote none, and the drain counted
+    `child_without_summary` — a harness failure — every re-probe night.
+    Written here, beside `_cool_provider`, for every native runtime, on the
+    pair the attempt RAN on (ARIA-HIGH-182), as the nonzero-exit path does;
+    for the native Claude route it supersedes the spawn's own summary. The
+    spawn lane's summary is `invoke_claude_cli`'s own.
+    """
+    if native_runtime is None:
+        return
+    _write_dispatch_summary(
+        route=_native_route_for_summary(native_runtime, request, target_agent=target_agent),
+        request_id=request_id, outcome="failed",
+        failure=classify_dispatch_failure(exception=exc, phase="runtime"), exit_code=1,
     )
 
 
@@ -5546,6 +5586,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # and the next admission routes past it.
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         from aria_kernel.provider_outage_ledger import outage_opened_by_claim
 
         # ARIA-HIGH-366 — said once per outage: a re-probe that meets the
@@ -5581,6 +5623,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
@@ -5595,6 +5639,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,

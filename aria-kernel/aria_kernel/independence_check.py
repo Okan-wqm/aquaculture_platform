@@ -125,21 +125,47 @@ def response_principal(response: dict[str, Any]) -> str | None:
 # native dispatch: the provider, runtime and model a seat was sent to, bound
 # to its request and claim.
 RUNTIME_ATTEMPT_STARTED_KIND = "runtime_attempt_started"
+# ARIA-LOW-445 — the route record of a rung no native admission reserved: the
+# spawn lane (adaptive runtime off) writes one before each rung it runs
+# (`record_claim_route`). Not a `runtime_attempt_started` row: that row is the
+# native admission's, refused for the spawn lane's metered admission and
+# reconciled against native results by its readers.
+CLAIM_ROUTE_STARTED_KIND = "claim_route_started"
+_CLAIM_ROUTE_KINDS = frozenset({RUNTIME_ATTEMPT_STARTED_KIND, CLAIM_ROUTE_STARTED_KIND})
+
+
+def record_claim_route(
+    base_dir: str | Path, *, request_id: str, claim_id: str, provider: str, model: str, lane: str,
+) -> dict[str, Any]:
+    """Record the provider a claim's rung is about to run on (ARIA-LOW-445).
+
+    Written BEFORE the rung runs, so a rung that hangs until its lease runs
+    out has its route on the ledger; the lease reaper judges that expiry by
+    this provider's outage, not by the ladder head's.
+    """
+    from .tool_registry import append_tools_governance
+
+    return append_tools_governance(base_dir, CLAIM_ROUTE_STARTED_KIND, {
+        "schema_version": 1, "request_id": request_id, "claim_id": claim_id,
+        "provider": provider, "model": model, "lane": lane,
+    })
 
 
 def attempt_providers_by_claim(attempt_rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
-    """The provider each claim's NEWEST native attempt was sent to, by claim id.
+    """The provider each claim's NEWEST route record names, by claim id.
 
-    ARIA-MEDIUM-444 — the route a claim actually ran on, read from the one
-    record of it: ``budget._reserve_native_runtime_attempt`` writes a
+    ARIA-MEDIUM-444 — the route a claim actually ran on, read from its
+    records: ``budget._reserve_native_runtime_attempt`` writes a
     ``runtime_attempt_started`` row naming the claim and the provider before
-    every native dispatch, and a claim can carry more than one attempt (a
-    failover inside one dispatch), so the newest row is the route the claim
-    held when its lease ran out. A claim with no row never reached a route.
+    every native dispatch, and the spawn lane's rung writes a
+    ``claim_route_started`` row (``record_claim_route``, ARIA-LOW-445). A
+    claim can carry more than one (a failover inside one dispatch), so the
+    newest row is the route the claim held when its lease ran out. A claim
+    with no row never reached a route.
     """
     routed: dict[str, str] = {}
     for row in attempt_rows:
-        details = row.get("details") if row.get("kind") == RUNTIME_ATTEMPT_STARTED_KIND else None
+        details = row.get("details") if row.get("kind") in _CLAIM_ROUTE_KINDS else None
         if isinstance(details, Mapping) and details.get("claim_id") and details.get("provider"):
             routed[str(details["claim_id"])] = str(details["provider"])
     return routed

@@ -75,6 +75,9 @@ class ClosedVocabularyTests(unittest.TestCase):
                 # ARIA-HIGH-107 — a refused summary whose cause is the
                 # executor's own host (a halted fleet admission), retryable.
                 "harness_unavailable",
+                # ARIA-MEDIUM-438 — the vendor did not serve (429/529/network):
+                # the outage kind the drain matches a re-probe against.
+                "provider_unreachable",
                 "timeout",
                 "response_schema_rejected",
                 "process_exit",

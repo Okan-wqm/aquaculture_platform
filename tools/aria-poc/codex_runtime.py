@@ -54,6 +54,13 @@ CODEX_SANDBOX_MODES = ("read-only", "workspace-write")
 # usage-limit phrasing family.
 CODEX_AUTH_MARKERS = ("401", "unauthorized", "missing bearer", "authentication")
 CODEX_QUOTA_MARKERS = ("usage limit", "rate limit", "quota", "billing")
+# ARIA-HIGH-536 — the event types the CLI itself writes about a failed turn
+# (`{"type": "error", "message": ...}`, `{"type": "turn.failed", "error":
+# {"message": ...}}`). The markers above are matched there only: every other
+# event carries the model's messages, its commands' output or token counts,
+# and a "401" inside `"input_tokens": 14012401`, or an agent writing about the
+# billing-service, is not the vendor refusing the session.
+CODEX_ERROR_EVENT_TYPES = frozenset({"error", "turn.failed"})
 
 
 def _probe_codex_auth_status(
@@ -211,8 +218,12 @@ def build_codex_argv(
 
 
 def classify_codex_events(events: list[dict[str, Any]], returncode: int) -> CodexRunResult:
-    """Map the JSONL stream onto the shared typed-failure vocabulary."""
-    blob = json.dumps(events).lower()
+    """Map the JSONL stream onto the shared typed-failure vocabulary.
+
+    Vendor facts are read from the CLI's own error events only
+    (``CODEX_ERROR_EVENT_TYPES``), never from the model's or a tool's text.
+    """
+    blob = json.dumps([event for event in events if event.get("type") in CODEX_ERROR_EVENT_TYPES]).lower()
     auth = next((m for m in CODEX_AUTH_MARKERS if m in blob), None)
     quota = next((m for m in CODEX_QUOTA_MARKERS if m in blob), None)
     return CodexRunResult(  # typed fields; caller merges final_message

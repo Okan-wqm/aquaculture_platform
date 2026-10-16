@@ -47,6 +47,7 @@ DispatchFailureClass = Literal[
     "credit_exhausted",
     "policy_violation",
     "harness_unavailable",
+    "provider_unreachable",
     "timeout",
     "response_schema_rejected",
     "process_exit",
@@ -64,6 +65,15 @@ DispatchFailureClass = Literal[
 #: a back-off), so it is ``retryable`` where ``policy_violation`` is not;
 #: the summary agrees with the claims-ledger release (harness fault) and
 #: the hook's back-off status instead of contradicting them.
+#:
+#: ``provider_unreachable`` (ARIA-MEDIUM-438) is the VENDOR not serving the
+#: attempt (429/529/a connection that never completed —
+#: ``ClaudeProviderUnreachable``, ARIA-HIGH-366), retryable like the host's
+#: class but not the host's: the attempt cooled the provider and opened (or
+#: met) its ``unreachable`` outage, and the drain reads this class to tell a
+#: re-probe of that standing outage from a new failure. Folded into
+#: ``harness_unavailable`` it was indistinguishable from a halted admission,
+#: and the drain's key for it matched nothing.
 DISPATCH_FAILURE_CLASSES: tuple[DispatchFailureClass, ...] = (
     "cli_unavailable",
     "auth_unavailable",
@@ -72,6 +82,7 @@ DISPATCH_FAILURE_CLASSES: tuple[DispatchFailureClass, ...] = (
     "credit_exhausted",
     "policy_violation",
     "harness_unavailable",
+    "provider_unreachable",
     "timeout",
     "response_schema_rejected",
     "process_exit",
@@ -140,9 +151,9 @@ _EXCEPTION_CLASSES: tuple[tuple[type[BaseException], DispatchFailureClass], ...]
     (claude_runtime.ClaudeCliUnavailable, "cli_unavailable"),
     (claude_runtime.ClaudeUsageUnavailable, "usage_unavailable"),
     (claude_runtime.ClaudeCreditExhausted, "credit_exhausted"),
-    # ARIA-HIGH-366 — the vendor did not serve (429/529/network): the
-    # host's view of a provider outage, retried when the provider is back.
-    (claude_runtime.ClaudeProviderUnreachable, "harness_unavailable"),
+    # ARIA-HIGH-366 — the vendor did not serve (429/529/network): a
+    # provider outage, retried when the provider is back (ARIA-MEDIUM-438).
+    (claude_runtime.ClaudeProviderUnreachable, "provider_unreachable"),
     (claude_runtime.ClaudePolicyViolation, "policy_violation"),
     (subprocess.TimeoutExpired, "timeout"),
 )
@@ -189,7 +200,7 @@ def classify_dispatch_failure(
             if isinstance(exception, exc_type):
                 return DispatchFailure(
                     failure_class=failure_class,
-                    retryable=failure_class in ("timeout", "harness_unavailable"),
+                    retryable=failure_class in ("timeout", "harness_unavailable", "provider_unreachable"),
                     detail_code=_detail_from_exception(exception, failure_class),
                     phase=phase,
                     exit_code=getattr(exception, "returncode", None),

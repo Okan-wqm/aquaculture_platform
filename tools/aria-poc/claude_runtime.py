@@ -437,10 +437,15 @@ def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
         return {"status": "skipped_by_env", "version": version}
 
     if not _managed_auth_present():
-        raise ClaudeAuthUnavailable(
+        # ARIA-HIGH-441 — a provider fact: the lane holding the claim cools
+        # anthropic under `claude_logged_out` (the logged-out signature the
+        # native admission's seam already uses), so the queue routes past a
+        # Claude that is logged out instead of re-claiming into it.
+        raise ProviderCredentialAbsent(
             "claude_managed_auth_absent: no logged-in Claude Code session found; "
             "run `claude` login on the runner or set "
-            "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1 for a dry-run"
+            "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1 for a dry-run",
+            provider="anthropic", model=None, signature="claude_logged_out", marker="claude_managed_auth_absent",
         )
     return {"status": "ok", "version": version}
 

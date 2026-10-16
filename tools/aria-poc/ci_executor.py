@@ -71,6 +71,7 @@ from claude_runtime import (
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    ProviderCredentialAbsent,
     UsageRecording,
     extract_final_message,
     failure_cause_text,
@@ -4266,7 +4267,88 @@ def _git_availability_gap(session: Any, *, workspace: Path) -> str | None:
     return None
 
 
-def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
+def _spawn_lane_rungs(*, tools_dir: Path, request_id: str, target_agent: str) -> tuple[tuple[str, str], ...] | None:
+    """``(provider, model)`` for this request's spawn-lane rungs, in the order
+    `invoke_claude_cli` will try them (`runtime_profiles.routed_models` over
+    the active cooldowns), or None when the request row cannot be read.
+
+    ARIA-HIGH-441 — the route owner the pre-claim gate asks whether Claude
+    is needed at all; the gate keeps no copy of the ladder.
+    """
+    from aria_kernel.agent_invocations import list_agent_invocation_requests
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+    from aria_kernel.provider_cooldown import active_provider_cooldowns
+    from aria_kernel.runtime_profiles import routed_models
+
+    rows = list_agent_invocation_requests(request_id=request_id, base_dir=tools_dir)
+    if len(rows) != 1 or not rows[0].get("role"):
+        return None
+    profile = read_agent_runtime_profile(target_agent, repo_root=_kernel_checkout_root())
+    models = routed_models(str(rows[0]["role"]), target_agent, profile_model=profile.model,
+                           write_capable=profile.write_capable, environ=os.environ,
+                           runtimes=_SPAWN_LANE_RUNTIMES, cooled=active_provider_cooldowns(tools_dir))
+    return tuple((_provider_for_model(model), model) for model in models)
+
+
+def _cool_logged_out_anthropic(*, tools_dir: Path, request_id: str, exc: ProviderCredentialAbsent, model: str) -> None:
+    """Cool anthropic for a login that is gone, through the one writer (which
+    opens the `logged_out` outage and its operator item once per transition)."""
+    from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+    record_provider_cooldown(
+        tools_dir, provider=exc.provider, model=model, cooldown_seconds=provider_cooldown_seconds(_REPO_ROOT),
+        request_id=request_id, claim_id=f"preflight:{request_id}", detection={**exc.detail, "seam": "spawn_preflight"},
+    )
+
+
+def _claude_preflight_refusal(*, tools_dir: Path, request_id: str | None, target_agent: str | None) -> str | None:
+    """Why this spawn-lane request cannot proceed for want of Claude, or None.
+
+    ARIA-HIGH-441 — Claude's preflight is the question only when the
+    request's first rung runs on Anthropic. A logged-out Claude
+    (`ProviderCredentialAbsent`) is a provider fact: Anthropic is cooled
+    under `claude_logged_out` through the one cooldown writer (which opens
+    its outage), and the request goes on when a rung past Anthropic remains
+    — `invoke_claude_cli` reads the same cooldowns and tries that rung
+    first. Before, every spawn-lane request was refused before its claim
+    while the Claude login was gone, whatever its route. A rung the host
+    cannot run is no rung: with no Claude login and no Z.ai key the request
+    is refused before its claim (`claude_auth_unavailable`, the gate's
+    `::error::`), and Anthropic's outage is open for the operator.
+    """
+    from aria_kernel.provider_outage import host_providers
+
+    rungs = (None if request_id is None or target_agent is None
+             else _spawn_lane_rungs(tools_dir=tools_dir, request_id=request_id, target_agent=target_agent))
+    # The rungs this host can run (`provider_outage.host_providers`, the one
+    # presence reading): a rung past anthropic the host cannot run takes
+    # over nothing, so with no Claude and no Z.ai key the request is refused
+    # here, loudly, before any claim — never claimed into a dead rung.
+    present = host_providers()
+    runnable = [(provider, model) for provider, model in rungs or () if provider in present]
+    if runnable and runnable[0][0] != "anthropic":
+        return None
+    try:
+        preflight_claude_auth()
+    except ProviderCredentialAbsent as exc:
+        if not runnable or all(provider == "anthropic" for provider, _model in runnable):
+            if rungs:
+                # Refused all the same: the fact is still Anthropic's, and
+                # cooling it opens the outage an operator is told about.
+                _cool_logged_out_anthropic(tools_dir=tools_dir, request_id=str(request_id), exc=exc,
+                                           model=runnable[0][1] if runnable else rungs[0][1])
+            return str(exc)
+        _cool_logged_out_anthropic(tools_dir=tools_dir, request_id=str(request_id), exc=exc, model=runnable[0][1])
+        _stage(f"claude_logged_out_cooled request_id={request_id} routes_past_anthropic")
+        return None
+    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
+        return str(exc)
+    return None
+
+
+def _pre_claim_environment_gate(
+    *, tools_dir: Path, request_id: str | None = None, target_agent: str | None = None,
+) -> str | None:
     """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
 
     The correct shape existed in the dead `--consume` loop: preflight the
@@ -4287,10 +4369,9 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
 
     kind: str | None = None
     detail = ""
-    try:
-        preflight_claude_auth()
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
-        kind, detail = "claude_auth_unavailable", str(exc)
+    claude_refusal = _claude_preflight_refusal(tools_dir=tools_dir, request_id=request_id, target_agent=target_agent)
+    if claude_refusal is not None:
+        kind, detail = "claude_auth_unavailable", claude_refusal
     if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
         # ARIA-HIGH-123 — the detail names WHY (the git containment probe's
         # refusal when that is what failed): an operator reading the row
@@ -4649,7 +4730,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 native_runtime = admission_exit
             elif isinstance(admission_exit, _NativeAdmissionRefusal):
                 return admission_exit.exit_code
-        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir) if native_runtime is None else None
+        gate_kind = (_pre_claim_environment_gate(tools_dir=tools_dir, request_id=request_id, target_agent=subagent_type)
+                     if native_runtime is None else None)
         if gate_kind is not None:
             return 1
         # Step 1 — claim the request through the kernel CLI. The lease is

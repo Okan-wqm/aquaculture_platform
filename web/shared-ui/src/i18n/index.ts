@@ -16,6 +16,7 @@ export {
   detectBrowserLocale,
   resolveInitialLocale,
   applyDocumentLocale,
+  toIntlLocale,
 } from './localePreference';
 
 // Locale message maps (for testing or direct access)

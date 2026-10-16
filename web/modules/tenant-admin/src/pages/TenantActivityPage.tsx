@@ -100,7 +100,7 @@ const PeriodSelector: React.FC<{
         onClick={() => onChange(p)}
         className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
           value === p
-            ? 'bg-white dark:bg-gray-900 text-primary-700 dark:text-primary-300 shadow-sm'
+            ? 'bg-white dark:bg-gray-900 text-primary-700 dark:text-primary-300 shadow-(--shadow-sd-sm)'
             : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
         }`}
       >
@@ -169,13 +169,10 @@ const ActivitySkeleton: React.FC = () => (
     </div>
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {[1, 2, 3].map((i) => (
-        <div
-          key={i}
-          className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5 h-24"
-        />
+        <div key={i} className={`${SD_CARD} p-5 h-24`} />
       ))}
     </div>
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6 h-60" />
+    <div className={`${SD_CARD} p-6 h-60`} />
   </div>
 );
 
@@ -296,7 +293,7 @@ const TenantActivityPage: React.FC = () => {
       {/* Recent Logins & User Summary - Two Column */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Logins */}
-        <div className={`${SD_CARD} overflow-hidden`}>
+        <div className={SD_CARD}>
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h2 className={SD_CARD_LABEL}>Recent Logins</h2>
           </div>
@@ -347,7 +344,7 @@ const TenantActivityPage: React.FC = () => {
         </div>
 
         {/* User Activity Summary */}
-        <div className={`${SD_CARD} overflow-hidden`}>
+        <div className={SD_CARD}>
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h2 className={SD_CARD_LABEL}>User Activity Summary</h2>
           </div>

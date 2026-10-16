@@ -135,7 +135,7 @@ function getSourceBadge(source?: string) {
       );
     case 'auto':
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
           Otomatik
         </span>
       );
@@ -234,20 +234,20 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({
   // ---- Loading skeleton ----
   if (fetchLoading && channels.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center justify-between mb-6">
-          <div className="h-6 w-40 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-          <div className="h-9 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          <div className="h-6 w-40 bg-gray-200 dark:bg-gray-700 rounded motion-safe:animate-pulse" />
+          <div className="h-9 w-32 bg-gray-200 dark:bg-gray-700 rounded motion-safe:animate-pulse" />
         </div>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex items-center space-x-4">
-              <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-              <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-              <div className="h-4 w-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded motion-safe:animate-pulse" />
+              <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded motion-safe:animate-pulse" />
+              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded motion-safe:animate-pulse" />
+              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded motion-safe:animate-pulse" />
+              <div className="h-4 w-20 bg-gray-200 dark:bg-gray-700 rounded motion-safe:animate-pulse" />
+              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded motion-safe:animate-pulse" />
             </div>
           ))}
         </div>
@@ -258,7 +258,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({
   // ---- Error state ----
   if (error) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
         <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-error-600 dark:text-error-400 flex-shrink-0" />
           <div>
@@ -380,7 +380,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Veri Kanallari</h3>
@@ -389,8 +389,8 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({
             onClick={() => setShowAIDetection((prev) => !prev)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
               showAIDetection
-                ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700'
-                : 'bg-accent-600 text-white hover:bg-accent-700'
+                ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 border border-primary-300 dark:border-primary-700'
+                : 'bg-primary-600 text-white hover:bg-primary-700'
             }`}
           >
             <Sparkles className="w-4 h-4" />

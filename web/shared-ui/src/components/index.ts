@@ -55,16 +55,14 @@ export { Header } from './Layout/Header';
 export type { HeaderProps, HeaderTheme } from './Layout/Header';
 export { Sidebar } from './Layout/Sidebar';
 export type { SidebarProps, SidebarTheme } from './Layout/Sidebar';
-export { SuderraSidebar, SUDERRA_RAIL_ICONS } from './Layout/SuderraSidebar';
-export type {
-  SuderraSidebarProps,
-  SuderraNavSection,
-  SuderraRailIconName,
-} from './Layout/SuderraSidebar';
 export { PageHeader } from './Layout/PageHeader';
 export type { PageHeaderProps } from './Layout/PageHeader';
+export { PageTitle, PageTitleScope, usePageTitleMode } from './Layout/PageTitleScope';
+export type { PageTitleMode, PageTitleProps, PageTitleScopeProps } from './Layout/PageTitleScope';
 export { DesktopOnlyNotice } from './Layout/DesktopOnlyNotice';
 export type { DesktopOnlyNoticeProps } from './Layout/DesktopOnlyNotice';
+// Tenant console shell (Industry; FE-HIGH-334) — rail, header, annunciator, palette
+export * from './Layout/console';
 
 // Modal
 export { Modal, ConfirmModal, DeleteConfirmationDialog } from './Modal';
@@ -198,7 +196,7 @@ export { SandboxedHtmlPreview } from './SandboxedHtmlPreview';
 export type { SandboxedHtmlPreviewProps } from './SandboxedHtmlPreview';
 
 // Accessibility (a11y) Primitives — FE-HIGH-017, FE-HIGH-018, FE-HIGH-019
-export { VisuallyHidden, FocusTrap, RouteAnnouncer, SkipToContent } from './a11y';
+export { VisuallyHidden, FocusTrap, RouteAnnouncer, SkipToContent, usePageTitle } from './a11y';
 export type {
   VisuallyHiddenProps,
   FocusTrapProps,

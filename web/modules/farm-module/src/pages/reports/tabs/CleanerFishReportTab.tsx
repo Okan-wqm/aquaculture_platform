@@ -1118,7 +1118,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <div className="text-xs text-gray-500 dark:text-gray-400">Deployed</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
-          <div className="text-xl font-bold text-accent-600 dark:text-accent-400">
+          <div className="text-xl font-bold text-info-600 dark:text-info-400">
             {formData.perCageData.length}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Cages</div>

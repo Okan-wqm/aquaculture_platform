@@ -75,9 +75,18 @@ export class DeploymentLog {
   @Column({ name: 'checksum_sha256', type: 'char', length: 64, nullable: true })
   checksumSha256?: string;
 
+  /** The deployer's JWT subject — the identity the rollback four-eyes rule compares. */
   @Field({ nullable: true })
   @Column({ name: 'deployed_by', nullable: true })
   deployedBy?: string;
+
+  /**
+   * The deployer's e-mail as it was at deploy time — what the command log
+   * shows (a UUID names nobody). NULL on rows written before it was recorded.
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ name: 'deployed_by_email', type: 'varchar', length: 255, nullable: true })
+  deployedByEmail?: string | null;
 
   @Field()
   @Column({ name: 'deployed_at', type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })

@@ -78,11 +78,9 @@ const templates: Template[] = [
   },
 ];
 
-const complexityColors = {
-  simple: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-  medium: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-  complex: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
-};
+// Complexity is a category, not a risk: one neutral tag, the word carries the
+// level. Amber and red would read as an alarm in the console (README §7.8).
+const COMPLEXITY_TAG = 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
 
 const ProcessTemplatesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -118,7 +116,7 @@ const ProcessTemplatesPage: React.FC = () => {
           return (
             <div
               key={template.id}
-              className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow overflow-hidden"
+              className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-(--shadow-sd-sm) hover:shadow-(--shadow-sd-md) transition-shadow overflow-hidden"
             >
               {/* Template Header */}
               <div className="p-5 border-b border-gray-100 dark:border-gray-700">
@@ -147,11 +145,7 @@ const ProcessTemplatesPage: React.FC = () => {
                   <span className="text-gray-500 dark:text-gray-400">
                     {template.nodeCount} components
                   </span>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      complexityColors[template.complexity]
-                    }`}
-                  >
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${COMPLEXITY_TAG}`}>
                     {template.complexity.charAt(0).toUpperCase() + template.complexity.slice(1)}
                   </span>
                 </div>

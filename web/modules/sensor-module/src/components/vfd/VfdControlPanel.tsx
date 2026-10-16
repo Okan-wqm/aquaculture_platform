@@ -84,7 +84,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
           <Zap className="w-5 h-5 text-primary-500" />
@@ -92,7 +92,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
         </h3>
         <div className="flex items-center gap-2">
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[vfdStatus.status]}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium border ${STATUS_COLORS[vfdStatus.status]}`}
           >
             {vfdStatus.label}
           </span>

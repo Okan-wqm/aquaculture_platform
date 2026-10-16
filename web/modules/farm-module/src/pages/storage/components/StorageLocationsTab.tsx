@@ -28,7 +28,7 @@ import { Plus } from 'lucide-react';
 const typeColors: Record<string, string> = {
   WAREHOUSE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   COLD_ROOM: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  CHEMICAL_STORE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  CHEMICAL_STORE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   FEED_SILO: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   OUTDOOR: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   HAZMAT: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
@@ -237,9 +237,9 @@ export const StorageLocationsTab: React.FC = () => {
                       {loc.usedCapacity} / {loc.capacity || 0} {loc.capacityUnit}
                     </span>
                   </div>
-                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2">
                     <div
-                      className={`h-2 rounded-full ${usagePercent > 90 ? 'bg-error-500' : usagePercent > 70 ? 'bg-warning-500' : 'bg-info-500'}`}
+                      className={`h-2 rounded ${usagePercent > 90 ? 'bg-error-500' : usagePercent > 70 ? 'bg-warning-500' : 'bg-info-500'}`}
                       style={{ width: `${Math.min(usagePercent, 100)}%` }}
                     />
                   </div>

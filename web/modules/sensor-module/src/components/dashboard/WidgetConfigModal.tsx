@@ -455,12 +455,13 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                           )}
                         </div>
                         <span
-                          className={`text-xs px-2 py-0.5 rounded-full ${
+                          className={`text-xs px-2 py-0.5 rounded ${
+                            // lifecycle, not alarm: draft is neutral as on ProcessListPage
                             process.status === 'active'
                               ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                               : process.status === 'draft'
-                                ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
-                                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                                ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
                           }`}
                         >
                           {process.status}
@@ -584,7 +585,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     {selectedChannels.map((ch) => (
                       <span
                         key={ch.id}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 text-xs rounded-full"
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 text-xs rounded"
                       >
                         <span
                           className="w-2 h-2 rounded-full"

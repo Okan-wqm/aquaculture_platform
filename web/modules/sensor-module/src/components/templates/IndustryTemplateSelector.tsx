@@ -23,7 +23,7 @@ interface IndustryTemplateSelectorProps {
 // ============================================================================
 
 const SkeletonCard: React.FC = () => (
-  <div className="p-5 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 animate-pulse">
+  <div className="p-5 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 motion-safe:animate-pulse">
     <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-lg mb-4" />
     <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2" />
     <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-full mb-1" />
@@ -46,9 +46,9 @@ const TemplateCard: React.FC<TemplateCardProps> = ({ template, isSelected, onSel
   <button
     type="button"
     onClick={onSelect}
-    className={`relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
+    className={`relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 text-left transition-all hover:shadow-(--shadow-sd-md) focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
       isSelected
-        ? 'border-info-500 ring-1 ring-info-500 shadow-md'
+        ? 'border-info-500 ring-1 ring-info-500 shadow-(--shadow-sd-md)'
         : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
     }`}
   >
@@ -75,7 +75,7 @@ const TemplateCard: React.FC<TemplateCardProps> = ({ template, isSelected, onSel
     </p>
 
     {/* Sensor type count badge */}
-    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
       {template.sensorTypes.length} sensor tipi
     </span>
   </button>
@@ -94,9 +94,9 @@ const CustomCard: React.FC<CustomCardProps> = ({ isSelected, onSelect }) => (
   <button
     type="button"
     onClick={onSelect}
-    className={`relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 border-dashed text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
+    className={`relative p-5 bg-white dark:bg-gray-900 rounded-xl border-2 border-dashed text-left transition-all hover:shadow-(--shadow-sd-md) focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
       isSelected
-        ? 'border-info-500 ring-1 ring-info-500 shadow-md'
+        ? 'border-info-500 ring-1 ring-info-500 shadow-(--shadow-sd-md)'
         : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
     }`}
   >
@@ -118,7 +118,7 @@ const CustomCard: React.FC<CustomCardProps> = ({ isSelected, onSelect }) => (
       Sektorden bagimsiz olarak sensorlerinizi manuel olarak yapilandirin.
     </p>
 
-    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
       Ozel kurulum
     </span>
   </button>

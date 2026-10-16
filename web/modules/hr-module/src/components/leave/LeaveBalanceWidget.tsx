@@ -91,7 +91,7 @@ function BalanceBar({
   const pendingPercent = entitled > 0 ? (pending / entitled) * 100 : 0;
 
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+    <div className="h-2 w-full overflow-hidden rounded-sm bg-gray-200 dark:bg-gray-700">
       <div className="flex h-full">
         <div
           className="transition-all"

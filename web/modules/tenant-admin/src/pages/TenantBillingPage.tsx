@@ -38,6 +38,7 @@ import {
 } from '@aquaculture/shared-ui';
 
 import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling';
+import { SD_CARD } from '../components/ui/suderra';
 
 // ============================================================================
 // Sub-Components
@@ -108,7 +109,7 @@ const InvoiceStatusBadge: React.FC<{ status: string }> = ({ status }) => {
 
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${c.bg} ${c.text}`}
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.bg} ${c.text}`}
     >
       {status}
     </span>
@@ -131,7 +132,7 @@ const UsageBar: React.FC<{
   else if (percentage >= 70) barColor = 'bg-warning-500';
 
   return (
-    <div className="p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
+    <div className={`${SD_CARD} p-4`}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           {icon}
@@ -143,9 +144,9 @@ const UsageBar: React.FC<{
           {unit}
         </span>
       </div>
-      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2">
         <div
-          className={`${barColor} rounded-full h-2 transition-all duration-300`}
+          className={`${barColor} rounded h-2 transition-all duration-300`}
           style={{ width: `${percentage}%` }}
         />
       </div>
@@ -166,7 +167,7 @@ const StatCard: React.FC<{
   icon: React.ReactNode;
   color: string;
 }> = ({ label, value, subtext, icon, color }) => (
-  <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5">
+  <div className={`${SD_CARD} p-5`}>
     <div className="flex items-center gap-3">
       <div className={`p-2.5 rounded-xl ${color}`}>{icon}</div>
       <div>
@@ -194,17 +195,14 @@ const BillingSkeleton: React.FC = () => (
     {/* Cards skeleton */}
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {[1, 2, 3].map((i) => (
-        <div
-          key={i}
-          className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5"
-        >
+        <div key={i} className={`${SD_CARD} p-5`}>
           <div className="w-32 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
           <div className="w-24 h-6 bg-gray-200 dark:bg-gray-700 rounded mt-2" />
         </div>
       ))}
     </div>
     {/* Table skeleton */}
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
+    <div className={`${SD_CARD} p-6`}>
       <div className="w-36 h-5 bg-gray-200 dark:bg-gray-700 rounded mb-4" />
       {[1, 2, 3, 4].map((i) => (
         <div key={i} className="flex gap-4 py-3 border-b border-gray-50">
@@ -212,7 +210,7 @@ const BillingSkeleton: React.FC = () => (
           <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
           <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
           <div className="flex-1" />
-          <div className="w-16 h-5 bg-gray-200 dark:bg-gray-700 rounded-full" />
+          <div className="w-16 h-5 bg-gray-200 dark:bg-gray-700 rounded" />
         </div>
       ))}
     </div>
@@ -373,8 +371,8 @@ const TenantBillingPage: React.FC = () => {
 
       {/* Subscription Card */}
       {subscription ? (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-success-50 to-white">
+        <div className={SD_CARD}>
+          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-xl bg-success-100 dark:bg-success-900/40">
@@ -428,7 +426,7 @@ const TenantBillingPage: React.FC = () => {
             )}
           </div>
           {isUpgradeable && (
-            <div className="p-6 border-t border-gray-100 dark:border-gray-700 bg-gradient-to-r from-success-50/50 to-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="p-6 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-start gap-3">
                 <div className="p-2 rounded-lg bg-success-100 dark:bg-success-900/40">
                   <ArrowUpCircle className="w-5 h-5 text-success-600 dark:text-success-400" />
@@ -455,7 +453,7 @@ const TenantBillingPage: React.FC = () => {
           )}
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-8 text-center">
+        <div className={`${SD_CARD} p-8 text-center`}>
           <CreditCard className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
           <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
             No subscription data
@@ -472,6 +470,8 @@ const TenantBillingPage: React.FC = () => {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
             Plan Limits
           </h2>
+          {/* The icons are decoration — graphite or the workspace accent, never a
+              hazard colour (README §7.8): only the bar turns amber / red near a limit. */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <UsageBar
               label="Farms"
@@ -489,14 +489,14 @@ const TenantBillingPage: React.FC = () => {
               label="Users"
               current={planLimits.currentUsers}
               limit={planLimits.maxUsers}
-              icon={<Users className="w-4 h-4 text-accent-500" />}
+              icon={<Users className="w-4 h-4 text-primary-500" />}
             />
             <UsageBar
               label="Storage"
               current={planLimits.currentStorage}
               limit={planLimits.maxStorage}
               unit=" GB"
-              icon={<HardDrive className="w-4 h-4 text-warning-500" />}
+              icon={<HardDrive className="w-4 h-4 text-primary-500" />}
             />
           </div>
         </div>
@@ -527,8 +527,8 @@ const TenantBillingPage: React.FC = () => {
               label="Sensor Readings"
               value={usageMetrics.sensorReadingsThisMonth.toLocaleString()}
               subtext={`of ${usageMetrics.sensorReadingsLimit.toLocaleString()} limit`}
-              icon={<BarChart3 className="w-5 h-5 text-accent-600 dark:text-accent-400" />}
-              color="bg-accent-50 dark:bg-accent-900/20"
+              icon={<BarChart3 className="w-5 h-5 text-primary-600 dark:text-primary-400" />}
+              color="bg-primary-50 dark:bg-primary-900/20"
             />
           </div>
         </div>
@@ -537,7 +537,7 @@ const TenantBillingPage: React.FC = () => {
       {/* Invoices */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Invoices</h2>
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className={SD_CARD}>
           {invoices.length > 0 ? (
             <DataTable<TenantInvoice>
               data={invoices}
@@ -569,7 +569,7 @@ const TenantBillingPage: React.FC = () => {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
             Payment History
           </h2>
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className={SD_CARD}>
             <DataTable<TenantInvoice>
               data={invoices.filter((inv) => inv.paidAt)}
               columns={paymentColumns}

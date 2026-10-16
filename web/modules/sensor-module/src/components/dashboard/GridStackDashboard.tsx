@@ -564,14 +564,14 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
                 {currentLayout?.name || 'Select Layout'}
               </span>
               {currentLayout?.isDefault && (
-                <Star size={14} className="text-warning-500 fill-current" />
+                <Star size={14} className="text-primary-500 fill-current" />
               )}
               <ChevronDown size={16} className="text-gray-500 dark:text-gray-400" />
             </button>
 
             {/* Dropdown */}
             {showLayoutDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+              <div className="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 z-50">
                 <div className="p-2 border-b border-gray-100 dark:border-gray-700">
                   <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                     Saved Layouts
@@ -600,7 +600,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
                             {layout.name}
                           </span>
                           {layout.isDefault && (
-                            <Star size={12} className="inline ml-1 text-warning-500 fill-current" />
+                            <Star size={12} className="inline ml-1 text-primary-500 fill-current" />
                           )}
                           {layout.isSystemDefault && (
                             <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
@@ -686,7 +686,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
 
             {/* Process Dropdown */}
             {showProcessDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+              <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 z-50">
                 <div className="p-2 border-b border-gray-100 dark:border-gray-700">
                   <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                     Process Background
@@ -888,7 +888,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ classNam
                   gs-w={widget.gridPosition.w}
                   gs-h={widget.gridPosition.h}
                 >
-                  <div className="grid-stack-item-content bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                  <div className="grid-stack-item-content bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
                     {/* Widget Header */}
                     <div className="widget-drag-handle flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 cursor-move">
                       <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">

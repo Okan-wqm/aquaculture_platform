@@ -70,7 +70,13 @@ const CHANNEL_SERIES_QUERY = documentFromSource(
   'CHANNEL_SERIES_QUERY',
 );
 
+const VFD_COMMAND_AUDIT_LOG_QUERY = documentFromSource(
+  'graphql/command-log.queries.ts',
+  'VFD_COMMAND_AUDIT_LOG_QUERY',
+);
+
 const documents: Array<[string, string]> = [
+  ['command-log.VFD_COMMAND_AUDIT_LOG_QUERY', VFD_COMMAND_AUDIT_LOG_QUERY],
   ['channelReadings.CHANNEL_LATEST_VALUES_QUERY', CHANNEL_LATEST_VALUES_QUERY],
   ['channelReadings.CHANNEL_SERIES_QUERY', CHANNEL_SERIES_QUERY],
   ['useSensorRegistration.GET_SENSOR_QUERY', GET_SENSOR_QUERY],

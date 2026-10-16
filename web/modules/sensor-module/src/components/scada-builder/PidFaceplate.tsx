@@ -152,7 +152,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
       align: 'center',
       render: (_value, pt) => (
         <span
-          className="inline-block w-3 h-3 rounded-full border border-white shadow-sm"
+          className="inline-block w-3 h-3 rounded-full border border-white shadow-(--shadow-sd-sm)"
           style={{
             backgroundColor: CONNECTION_POINT_COLORS[pt.direction],
           }}

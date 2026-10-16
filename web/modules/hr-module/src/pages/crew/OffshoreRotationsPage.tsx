@@ -28,10 +28,12 @@ import {
   PageHeader,
   Button,
   Select,
+  useI18n,
 } from '@aquaculture/shared-ui';
 import { useWorkRotations, useEmployees, useCurrentlyOffshore } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../../components/common';
+import { CREW_LOCATION_TONE } from '../../components/crew';
 import type { WorkRotation, Employee, RotationType, PaginationInput } from '../../types';
 import { RotationStatus } from '../../types';
 
@@ -50,6 +52,8 @@ interface RotationCalendarDay {
 // Helper Functions
 // ============================================================================
 
+// A rotation type is a category, not a state: neutral under the Industry
+// console, never the amber / red that signal risk (README §7.8).
 const ROTATION_TYPE_CONFIG: Record<RotationType, { label: string; color: string }> = {
   OFFSHORE: {
     label: 'Offshore',
@@ -61,7 +65,7 @@ const ROTATION_TYPE_CONFIG: Record<RotationType, { label: string; color: string 
   },
   FIELD: {
     label: 'Field',
-    color: 'bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-400',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
   },
   VESSEL: {
     label: 'Vessel',
@@ -69,7 +73,7 @@ const ROTATION_TYPE_CONFIG: Record<RotationType, { label: string; color: string 
   },
   MIXED: {
     label: 'Mixed',
-    color: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-400',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
   },
 };
 
@@ -101,7 +105,7 @@ interface StatCardProps {
 }
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, icon, color, isLoading }) => (
-  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
     <div className="flex items-center justify-between">
       <div>
         <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{title}</p>
@@ -189,6 +193,7 @@ const UpcomingTransitionCard: React.FC<{ rotation: WorkRotation }> = ({ rotation
 // ============================================================================
 
 export function OffshoreRotationsPage() {
+  const { t } = useI18n();
   // State
   const [activeTab, setActiveTab] = useState<'schedule' | 'calendar' | 'history'>('schedule');
   const [rotationFilter, setRotationFilter] = useState<RotationType | ''>('');
@@ -532,15 +537,15 @@ export function OffshoreRotationsPage() {
           {/* Calendar Legend */}
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded bg-info-500" />
+              <div className={cn('h-3 w-3 rounded', CREW_LOCATION_TONE.offshore.fill)} />
               <span className="text-gray-600 dark:text-gray-400">Offshore</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded bg-success-500" />
+              <div className={cn('h-3 w-3 rounded', CREW_LOCATION_TONE.onshore.fill)} />
               <span className="text-gray-600 dark:text-gray-400">Onshore</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded bg-warning-500" />
+              <div className={cn('h-3 w-3 rounded', CREW_LOCATION_TONE.transit.fill)} />
               <span className="text-gray-600 dark:text-gray-400">Transition</span>
             </div>
           </div>
@@ -597,20 +602,28 @@ export function OffshoreRotationsPage() {
                       {day.getDate()}
                     </div>
                     <div className="space-y-1">
-                      {dayRotations.slice(0, 3).map((rotation) => (
-                        <div
-                          key={rotation.id}
-                          className={cn(
-                            'truncate rounded px-1 py-0.5 text-xs',
-                            rotation.rotationType === ('OFFSHORE' as RotationType)
-                              ? 'bg-info-100 text-info-700 dark:bg-info-900/50 dark:text-info-300'
-                              : 'bg-success-100 text-success-700 dark:bg-success-900/50 dark:text-success-300',
-                          )}
-                          title={`${rotation.employee?.firstName} ${rotation.employee?.lastName}`}
-                        >
-                          {rotation.employee?.firstName?.charAt(0)}. {rotation.employee?.lastName}
-                        </div>
-                      ))}
+                      {dayRotations.slice(0, 3).map((rotation) => {
+                        // The entry's fill is the location's legend swatch; its name is
+                        // read out too, so offshore and onshore are not told by colour alone.
+                        const tone =
+                          rotation.rotationType === ('OFFSHORE' as RotationType)
+                            ? CREW_LOCATION_TONE.offshore
+                            : CREW_LOCATION_TONE.onshore;
+                        return (
+                          <div
+                            key={rotation.id}
+                            className={cn(
+                              'truncate rounded px-1 py-0.5 text-xs',
+                              tone.fill,
+                              tone.onFill,
+                            )}
+                            title={`${rotation.employee?.firstName} ${rotation.employee?.lastName}`}
+                          >
+                            <span className="sr-only">{t(tone.label)}: </span>
+                            {rotation.employee?.firstName?.charAt(0)}. {rotation.employee?.lastName}
+                          </div>
+                        );
+                      })}
                       {dayRotations.length > 3 && (
                         <div className="text-xs text-gray-500 dark:text-gray-400">
                           +{dayRotations.length - 3} more

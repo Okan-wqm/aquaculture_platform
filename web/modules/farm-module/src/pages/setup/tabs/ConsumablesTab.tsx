@@ -50,8 +50,8 @@ const CATEGORIES = [
 const categoryColors: Record<string, string> = {
   NET: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   ROPE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  PPE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  SPARE_PART: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  PPE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  SPARE_PART: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   OXYGEN: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   PACKAGING: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
@@ -322,7 +322,7 @@ export const ConsumablesTab: React.FC = () => {
       render: (_value, item) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {getCategoryLabel(item.category)}
           </span>
@@ -363,7 +363,7 @@ export const ConsumablesTab: React.FC = () => {
       render: (_value, item) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {statusLabels[item.status] || item.status}
           </span>
@@ -443,7 +443,7 @@ export const ConsumablesTab: React.FC = () => {
 
       {/* Table */}
       {!isLoading && !error && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<ItemRow>
             data={filtered}
             columns={itemRowColumns}

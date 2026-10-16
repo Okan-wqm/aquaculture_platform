@@ -3,6 +3,7 @@ import { CheckCircle, Search, Shield, RefreshCw } from 'lucide-react';
 import { Modal, Button } from '@aquaculture/shared-ui';
 import { useAssignModuleManager, useTenantUsers } from '../../hooks/useTenantData';
 import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
+import { UserAvatar } from '../ui/UserAvatar';
 import type { DisplayModule } from './ModuleCard';
 
 /**
@@ -84,7 +85,7 @@ const AssignManagerModal: React.FC<{
             placeholder="Search users..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           />
         </div>
       </div>
@@ -106,18 +107,11 @@ const AssignManagerModal: React.FC<{
                 onClick={() => setSelectedUserId(user.id)}
                 className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left ${
                   selectedUserId === user.id
-                    ? 'bg-success-100 dark:bg-success-900/40 ring-2 ring-success-500'
-                    : 'hover:bg-success-50 dark:hover:bg-success-900/30'
+                    ? 'bg-primary-100 dark:bg-primary-900/40 ring-2 ring-primary-500'
+                    : 'hover:bg-primary-50 dark:hover:bg-primary-900/30'
                 }`}
               >
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-success-500 to-success-700 flex items-center justify-center text-white text-sm font-medium">
-                  {user.name
-                    .split(' ')
-                    .map((n) => n[0])
-                    .join('')
-                    .substring(0, 2)
-                    .toUpperCase()}
-                </div>
+                <UserAvatar name={user.name} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                     {user.name}
@@ -125,7 +119,7 @@ const AssignManagerModal: React.FC<{
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
                 </div>
                 {selectedUserId === user.id ? (
-                  <CheckCircle className="w-4 h-4 text-success-600 dark:text-success-400" />
+                  <CheckCircle className="w-4 h-4 text-primary-600 dark:text-primary-400" />
                 ) : (
                   <Shield className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 )}

@@ -65,7 +65,7 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period, canViewSalary 
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-white">
           Payroll & HR expense trend ({summary.currency})
         </h2>
@@ -84,7 +84,7 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period, canViewSalary 
         </ResponsiveContainer>
       </div>
 
-      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-white">
           Cost by department ({summary.currency})
         </h2>

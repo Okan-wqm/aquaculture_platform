@@ -152,7 +152,7 @@ const InputPanel: React.FC<InputPanelProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm)">
       {/* Tab buttons */}
       <div className="flex border-b border-gray-200 dark:border-gray-700">
         {INPUT_TABS.map((tab) => (
@@ -278,10 +278,10 @@ const InputPanel: React.FC<InputPanelProps> = ({
               return (
                 <div
                   key={reagent.name}
-                  className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded ${isActive ? 'bg-accent-50 dark:bg-accent-900/20' : ''}`}
+                  className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded ${isActive ? 'bg-primary-50 dark:bg-primary-900/20' : ''}`}
                 >
                   <span
-                    className={`text-xs font-medium whitespace-nowrap ${isActive ? 'text-accent-700 dark:text-accent-300' : 'text-gray-600 dark:text-gray-400'}`}
+                    className={`text-xs font-medium whitespace-nowrap ${isActive ? 'text-primary-700 dark:text-primary-300' : 'text-gray-600 dark:text-gray-400'}`}
                   >
                     {reagent.formula}
                   </span>
@@ -305,9 +305,9 @@ const InputPanel: React.FC<InputPanelProps> = ({
                         onDemandAmountsChange?.(next);
                       }
                     }}
-                    className={`w-16 px-1.5 py-0.5 text-xs border rounded text-right focus:outline-hidden focus:ring-1 focus:ring-accent-400 ${
+                    className={`w-16 px-1.5 py-0.5 text-xs border rounded text-right focus:outline-hidden focus:ring-1 focus:ring-primary-400 ${
                       isActive
-                        ? 'border-accent-300 bg-white dark:bg-gray-900'
+                        ? 'border-primary-300 bg-white dark:bg-gray-900'
                         : 'border-gray-300 dark:border-gray-600'
                     }`}
                   />

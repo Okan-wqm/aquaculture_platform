@@ -344,7 +344,7 @@ function StatusBit({ name, active }: { name: string; active: boolean }) {
 
   return (
     <span
-      className={`px-2 py-1 text-xs rounded-full ${
+      className={`px-2 py-1 text-xs rounded ${
         active
           ? name === 'fault'
             ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'

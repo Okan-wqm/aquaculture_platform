@@ -242,7 +242,7 @@ export function VfdBasicInfoStep({
                   : [...currentTags, tag];
                 onChange({ tags: newTags });
               }}
-              className={`px-3 py-1 text-sm rounded-full border transition-colors ${
+              className={`px-3 py-1 text-sm rounded border transition-colors ${
                 values.tags?.includes(tag)
                   ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'

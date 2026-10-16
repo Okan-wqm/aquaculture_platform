@@ -126,7 +126,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
       render: (_value, item) => (
         <>
           <span
-            className={`px-2 py-0.5 text-xs rounded-full ${
+            className={`px-2 py-0.5 text-xs rounded ${
               STATUS_BADGES[item.status ?? 'ACTIVE'] ??
               'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}

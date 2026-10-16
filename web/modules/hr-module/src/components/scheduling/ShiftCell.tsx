@@ -27,6 +27,9 @@ interface ShiftCellProps {
   dateLabel?: string; // For accessibility: "13 Ocak", etc.
 }
 
+// An entry type is a category, not a state: under the Industry console it is
+// neutral or the workspace accent, never the amber / red that signal risk
+// (README §7.8). The icon and label tell the types apart.
 const entryTypeConfig: Record<
   WeeklyPlanEntryType,
   { label: string; icon: React.ElementType; bgClass: string; textClass: string }
@@ -52,14 +55,14 @@ const entryTypeConfig: Record<
   HOLIDAY: {
     label: 'Resmi',
     icon: Calendar,
-    bgClass: 'bg-accent-100 dark:bg-accent-900/40',
-    textClass: 'text-accent-800 dark:text-accent-200',
+    bgClass: 'bg-primary-100 dark:bg-primary-900/40',
+    textClass: 'text-primary-800 dark:text-primary-200',
   },
   TRAINING: {
     label: 'Egitim',
     icon: GraduationCap,
-    bgClass: 'bg-warning-100 dark:bg-warning-900/40',
-    textClass: 'text-warning-800 dark:text-warning-200',
+    bgClass: 'bg-primary-100 dark:bg-primary-900/40',
+    textClass: 'text-primary-800 dark:text-primary-200',
   },
 };
 

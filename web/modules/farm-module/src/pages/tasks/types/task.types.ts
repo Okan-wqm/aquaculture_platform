@@ -117,8 +117,8 @@ export interface TaskStats {
 export const CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: string; bg: string }> = {
   FEEDING: {
     label: 'Yemleme',
-    color: 'text-accent-800 dark:text-accent-200',
-    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
   },
   WATER_QUALITY: {
     label: 'Su Kalitesi',
@@ -137,8 +137,8 @@ export const CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: strin
   },
   STOCK_MANAGEMENT: {
     label: 'Stok',
-    color: 'text-accent-800 dark:text-accent-200',
-    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
   },
   CLEANING: {
     label: 'Temizlik',
@@ -165,7 +165,11 @@ export const CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: strin
     color: 'text-warning-800 dark:text-warning-200',
     bg: 'bg-warning-100 dark:bg-warning-900/40',
   },
-  GENERAL: { label: 'Genel', color: 'text-slate-800', bg: 'bg-slate-100' },
+  GENERAL: {
+    label: 'Genel',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
+  },
 };
 
 export const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; bg: string }> = {
@@ -225,8 +229,8 @@ export const FREQUENCY_CONFIG: Record<
 > = {
   HOURLY: {
     label: 'Saatlik',
-    color: 'text-accent-800 dark:text-accent-200',
-    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
   },
   DAILY: {
     label: 'Günlük',
@@ -245,8 +249,8 @@ export const FREQUENCY_CONFIG: Record<
   },
   MONTHLY: {
     label: 'Aylık',
-    color: 'text-accent-800 dark:text-accent-200',
-    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
   },
   CUSTOM: {
     label: 'Özel',

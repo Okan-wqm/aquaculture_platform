@@ -6,6 +6,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { PageHeader } from '../PageHeader';
+import { PageTitle, PageTitleScope } from '../PageTitleScope';
 
 describe('PageHeader', () => {
   it('renders the title as the page heading with its description', () => {
@@ -49,5 +50,80 @@ describe('PageHeader', () => {
     const back = screen.getByRole('link', { name: 'Back to tanks' });
     expect(back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByRole('paragraph')).toBeNull();
+  });
+});
+
+/**
+ * Inside the tenant console the header's h1 names the page (README §4), so a
+ * PageHeader below the console's PageTitleScope must not add a second h1 —
+ * whichever shell hosts the (federated) page, the page itself is unchanged.
+ */
+describe('PageHeader under a PageTitleScope', () => {
+  it('keeps the title as the h1 outside any scope and under the heading scope', () => {
+    render(
+      <PageTitleScope mode="heading">
+        <PageHeader title="Devices" />
+      </PageTitleScope>,
+    );
+    expect(screen.getByRole('heading', { level: 1, name: 'Devices' })).toBeTruthy();
+  });
+
+  it('hides a title the console h1 already says, keeping description and actions', () => {
+    render(
+      <PageTitleScope mode="hidden">
+        <PageHeader
+          title="Devices"
+          description="Edge controllers and sensors"
+          actions={<button type="button">Add device</button>}
+        />
+      </PageTitleScope>,
+    );
+    expect(screen.queryByRole('heading')).toBeNull();
+    // Still read out, never drawn: assistive technology keeps the page's own words.
+    expect(screen.getByText('Devices')).toHaveClass('sr-only');
+    expect(screen.getByText('Edge controllers and sensors')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add device' })).toBeTruthy();
+  });
+
+  // Heading navigation must find the record (a tank, a device); the console
+  // h1 above stays the only h1.
+  it('shows a record title under the console h1 as a visible h2', () => {
+    render(
+      <PageTitleScope mode="subtitle">
+        <PageHeader title="Tank A-1" description="Pond 3" />
+      </PageTitleScope>,
+    );
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    const title = screen.getByRole('heading', { level: 2, name: 'Tank A-1' });
+    expect(title).not.toHaveClass('sr-only');
+  });
+});
+
+/**
+ * A page whose title is one control in its own toolbar (a SCADA view, a
+ * simulator strip) writes it through PageTitle, which follows the same scope.
+ */
+describe('PageTitle', () => {
+  it('is the h1 outside the console', () => {
+    render(<PageTitle className="text-xl">SCADA view</PageTitle>);
+    expect(screen.getByRole('heading', { level: 1, name: 'SCADA view' })).toHaveClass('text-xl');
+  });
+
+  it('defers to the console h1 inside its scope', () => {
+    const { rerender } = render(
+      <PageTitleScope mode="hidden">
+        <PageTitle className="text-xl">SCADA view</PageTitle>
+      </PageTitleScope>,
+    );
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.getByText('SCADA view')).toHaveClass('sr-only');
+
+    rerender(
+      <PageTitleScope mode="subtitle">
+        <PageTitle className="text-xl">SCADA view</PageTitle>
+      </PageTitleScope>,
+    );
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.getByRole('heading', { level: 2, name: 'SCADA view' })).toHaveClass('text-xl');
   });
 });

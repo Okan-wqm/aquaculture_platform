@@ -251,7 +251,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] min-w-[200px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 py-1 shadow-lg"
+      className="fixed z-[9999] min-w-[200px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 py-1 shadow-(--shadow-sd-lg)"
       style={{ left: x, top: y }}
     >
       {target === 'widget' && (

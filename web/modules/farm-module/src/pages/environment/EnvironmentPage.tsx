@@ -43,7 +43,8 @@ const AVAILABILITY_STYLES: Record<EnvironmentAvailabilityStatus, string> = {
     'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-300 dark:border-warning-700',
   NO_DATA:
     'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
-  CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
+  CLOUD_OBSCURED:
+    'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-300 dark:border-gray-600',
   OUT_OF_COVERAGE:
     'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
   STALE:
@@ -61,7 +62,8 @@ const QUALITY_STYLES: Record<EnvironmentQualityStatus, string> = {
     'bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800',
   NO_DATA:
     'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
-  CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
+  CLOUD_OBSCURED:
+    'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-300 dark:border-gray-600',
   OUT_OF_COVERAGE:
     'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
   STALE:
@@ -221,7 +223,7 @@ function availabilityMessage(status: EnvironmentAvailabilityStatus): string {
 function StatusPill({ status }: { status: EnvironmentAvailabilityStatus }): React.ReactElement {
   return (
     <span
-      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${AVAILABILITY_STYLES[status]}`}
+      className={`inline-flex rounded border px-2 py-0.5 text-xs font-semibold ${AVAILABILITY_STYLES[status]}`}
       title={availabilityMessage(status)}
     >
       {status}
@@ -232,7 +234,7 @@ function StatusPill({ status }: { status: EnvironmentAvailabilityStatus }): Reac
 function QualityPill({ status }: { status: EnvironmentQualityStatus }): React.ReactElement {
   return (
     <span
-      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${QUALITY_STYLES[status]}`}
+      className={`inline-flex rounded border px-2 py-0.5 text-xs font-semibold ${QUALITY_STYLES[status]}`}
     >
       {status}
     </span>
@@ -877,7 +879,8 @@ const EnvironmentPage: React.FC = () => {
         </div>
       </nav>
 
-      <main className="grid gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      {/* A div, not a second main landmark: the console shell's main holds the page. */}
+      <div className="grid gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <section className="min-w-0">
           {(sitesQuery.isError || currentQuery.isError || catalogQuery.isError) && (
             <div className="mb-4 space-y-2">
@@ -1111,7 +1114,7 @@ const EnvironmentPage: React.FC = () => {
                       <img
                         src={sceneImage.imageUrl}
                         alt={`${selectedLayer.name}, acquired ${formatDateTime(selectedScene.acquiredAt)}`}
-                        className="aspect-video w-full bg-slate-950 object-contain"
+                        className="aspect-video w-full bg-gray-900 object-contain"
                       />
                       <figcaption className="grid gap-2 p-4 text-xs text-gray-600 dark:text-gray-400 sm:grid-cols-2">
                         <span>Acquired: {formatDateTime(selectedScene.acquiredAt)} UTC</span>
@@ -1167,7 +1170,7 @@ const EnvironmentPage: React.FC = () => {
             <LayerAvailabilityPanel layers={layers} />
           )}
         </aside>
-      </main>
+      </div>
     </div>
   );
 };

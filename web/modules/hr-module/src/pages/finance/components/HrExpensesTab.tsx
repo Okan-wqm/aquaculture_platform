@@ -141,7 +141,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
   return (
     <div className="space-y-6">
       {/* Category management */}
-      <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <form onSubmit={handleCreateCategory} className="flex items-end gap-2">
             <div>
@@ -180,11 +180,11 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
           {(categoriesQuery.data ?? []).map((c) => (
             <span
               key={c.id}
-              className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+              className="inline-flex items-center gap-2 rounded-md bg-gray-100 px-3 py-1 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200"
             >
               {c.name}
               {c.computedRule && (
-                <span className="text-accent-600 dark:text-accent-300">
+                <span className="text-primary-700 dark:text-primary-300">
                   {c.computedRule.percent}%
                 </span>
               )}
@@ -216,7 +216,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
         sortable={false}
         stickyHeader={false}
         compact
-        className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
+        className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-(--shadow-sd-sm)"
       />
 
       {modal.open && (

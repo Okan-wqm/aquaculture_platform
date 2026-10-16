@@ -115,8 +115,8 @@ export const CompactSummaryStats: React.FC<CompactSummaryStatsProps> = ({ data }
         {/* Cages */}
         <div className="flex-1 px-3 py-1 text-center">
           <div className="flex items-center justify-center gap-1.5">
-            <span className="text-accent-500 text-sm">Cages</span>
-            <span className="text-xl font-bold text-accent-600 dark:text-accent-400">
+            <span className="text-info-500 text-sm">Cages</span>
+            <span className="text-xl font-bold text-info-600 dark:text-info-400">
               {stats.cages.count}
             </span>
           </div>

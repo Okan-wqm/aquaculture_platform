@@ -28,7 +28,7 @@ const typeBadge: Record<string, string> = {
   TRANSFER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   WASTE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   ADJUSTMENT: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  RETURN: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  RETURN: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const TYPES = ['IN', 'OUT', 'TRANSFER', 'WASTE', 'ADJUSTMENT', 'RETURN'];
@@ -104,7 +104,7 @@ export const StockMovementsTab: React.FC = () => {
       header: 'Type',
       render: (_value, m) => (
         <span
-          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
         >
           {m.movementType}
         </span>
@@ -120,7 +120,7 @@ export const StockMovementsTab: React.FC = () => {
           {/* Show lot number in standard view when available,
               since it helps staff cross-reference delivery notes */}
           {!lotTraceMode && m.lotNumber && (
-            <div className="text-xs text-accent-500">Lot: {m.lotNumber}</div>
+            <div className="text-xs text-primary-700 dark:text-primary-300">Lot: {m.lotNumber}</div>
           )}
         </>
       ),
@@ -233,7 +233,7 @@ export const StockMovementsTab: React.FC = () => {
             }}
             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
               lotTraceMode
-                ? 'bg-accent-600 text-white'
+                ? 'bg-primary-600 text-white'
                 : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
@@ -253,8 +253,8 @@ export const StockMovementsTab: React.FC = () => {
           typed at least 2 characters, matching the backend minimum length
           to avoid overly broad searches. */}
       {lotTraceMode && (
-        <div className="mb-4 p-4 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg">
-          <label className="block text-sm font-medium text-accent-800 dark:text-accent-200 mb-1">
+        <div className="mb-4 p-4 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg">
+          <label className="block text-sm font-medium text-primary-800 dark:text-primary-200 mb-1">
             Lot Number (EU 178/2002 Traceability)
           </label>
           <Input
@@ -265,7 +265,7 @@ export const StockMovementsTab: React.FC = () => {
             placeholder="Enter lot number to trace..."
           />
           {lotTraceNumber.length > 0 && lotTraceNumber.length < 2 && (
-            <p className="mt-1 text-xs text-accent-600 dark:text-accent-400">
+            <p className="mt-1 text-xs text-primary-600 dark:text-primary-400">
               Type at least 2 characters to begin tracing.
             </p>
           )}
@@ -275,11 +275,7 @@ export const StockMovementsTab: React.FC = () => {
       {/* Loading state — accounts for both standard and lot trace queries */}
       {(isLoading || isLotTraceLoading) && (
         <div className="flex items-center justify-center py-12">
-          <Spinner
-            size="lg"
-            color="inherit"
-            className={lotTraceMode ? 'text-accent-500' : 'text-primary-500'}
-          />
+          <Spinner size="lg" color="inherit" className="text-primary-500" />
         </div>
       )}
 
@@ -302,8 +298,8 @@ export const StockMovementsTab: React.FC = () => {
               chain: Received (IN) -> Stored -> Transferred -> Consumed/Disposed.
               This gives auditors an at-a-glance view of the lot's journey. */}
           {lotTraceMode && lotTraceData && lotTraceData.length > 0 && (
-            <div className="mb-4 p-4 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg">
-              <h4 className="text-sm font-semibold text-accent-900 dark:text-accent-100 mb-2">
+            <div className="mb-4 p-4 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg">
+              <h4 className="text-sm font-semibold text-primary-900 dark:text-primary-100 mb-2">
                 Lot Trace Chain: {lotTraceNumber}
               </h4>
               <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -320,7 +316,7 @@ export const StockMovementsTab: React.FC = () => {
                   const location = m.toLocationName || m.fromLocationName || 'Unknown';
                   return (
                     <React.Fragment key={m.id}>
-                      {idx > 0 && <span className="text-accent-400">&rarr;</span>}
+                      {idx > 0 && <span className="text-primary-400">&rarr;</span>}
                       <span
                         className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                           typeBadge[m.movementType] ||
@@ -341,7 +337,7 @@ export const StockMovementsTab: React.FC = () => {
                   );
                 })}
               </div>
-              <p className="mt-2 text-xs text-accent-600 dark:text-accent-400">
+              <p className="mt-2 text-xs text-primary-600 dark:text-primary-400">
                 {lotTraceData.length} movement{lotTraceData.length !== 1 ? 's' : ''} found for this
                 lot.
               </p>
@@ -349,9 +345,9 @@ export const StockMovementsTab: React.FC = () => {
           )}
 
           <div
-            className={`bg-white dark:bg-gray-900 rounded-lg shadow-sm border overflow-hidden ${
+            className={`bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border overflow-hidden ${
               lotTraceMode
-                ? 'border-accent-200 dark:border-accent-800'
+                ? 'border-primary-200 dark:border-primary-800'
                 : 'border-gray-200 dark:border-gray-700'
             }`}
           >

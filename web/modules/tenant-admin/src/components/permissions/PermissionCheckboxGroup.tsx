@@ -28,6 +28,7 @@ import {
   Settings,
 } from 'lucide-react';
 import type { PermissionCategory, PanelPermissions } from '../../services/tenant-api.service';
+import { SD_CARD } from '../ui/suderra';
 
 // ============================================================================
 // Types
@@ -85,6 +86,10 @@ const formatResourceName = (resource: string): string => {
 // Sub-Components
 // ============================================================================
 
+// A checked or partly checked box is a selection, so it takes the workspace
+// accent (`primary` inside the console scope), like every selected control in
+// the console; the legacy tenant green reads graphite there.
+
 interface ActionCheckboxProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -105,7 +110,7 @@ const ActionCheckbox = React.memo<ActionCheckboxProps>(
             ? 'cursor-not-allowed opacity-60'
             : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'
         }
-        ${checked ? 'text-success-700 dark:text-success-300' : 'text-gray-500 dark:text-gray-400'}
+        ${checked ? 'text-primary-700 dark:text-primary-300' : 'text-gray-500 dark:text-gray-400'}
       `}
       >
         <input
@@ -120,10 +125,10 @@ const ActionCheckbox = React.memo<ActionCheckboxProps>(
           flex items-center justify-center w-4 h-4 rounded border transition-all
           ${
             checked
-              ? 'bg-success-600 border-success-600'
+              ? 'bg-primary-600 border-primary-600'
               : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600'
           }
-          ${!disabled && !readOnly && !checked ? 'group-hover:border-success-400' : ''}
+          ${!disabled && !readOnly && !checked ? 'group-hover:border-primary-400' : ''}
         `}
         >
           {checked && <Check className="w-3 h-3 text-white" />}
@@ -172,21 +177,21 @@ const ResourceRow = React.memo<ResourceRowProps>(
             disabled={disabled || readOnly}
             className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
-            focus:outline-hidden focus:ring-2 focus:ring-success-500
+            focus:outline-hidden focus:ring-2 focus:ring-primary-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allSelected
-                ? 'bg-success-600 border-success-600'
+                ? 'bg-primary-600 border-primary-600'
                 : someSelected
-                  ? 'bg-success-100 dark:bg-success-900/40 border-success-400'
-                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-success-400'
+                  ? 'bg-primary-100 dark:bg-primary-900/40 border-primary-400'
+                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-primary-400'
             }
           `}
           >
             {allSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
             {someSelected && (
               <Minus
-                className="w-3 h-3 text-success-600 dark:text-success-400"
+                className="w-3 h-3 text-primary-600 dark:text-primary-400"
                 aria-hidden="true"
               />
             )}
@@ -257,7 +262,7 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(
     );
 
     return (
-      <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900">
+      <div className={SD_CARD}>
         {/* Category Header.
           RBAC-MEDIUM-007 (M16): the select-all used to be a click-only
           <span role="checkbox"> NESTED inside the expand <button> — invalid
@@ -265,7 +270,7 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(
           keyboard (WCAG 2.1.1). It is now a real sibling <button
           role="checkbox">, so Tab reaches it and Space/Enter toggle natively;
           the expand trigger is its own button covering the rest of the row. */}
-        <div className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-gray-50 to-white">
+        <div className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800">
           <button
             type="button"
             role="checkbox"
@@ -275,21 +280,21 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(
             onClick={() => onSelectAllCategory(!allResourcesSelected)}
             className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
-            focus:outline-hidden focus:ring-2 focus:ring-success-500
+            focus:outline-hidden focus:ring-2 focus:ring-primary-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allResourcesSelected
-                ? 'bg-success-600 border-success-600'
+                ? 'bg-primary-600 border-primary-600'
                 : someResourcesSelected
-                  ? 'bg-success-100 dark:bg-success-900/40 border-success-400'
-                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-success-400'
+                  ? 'bg-primary-100 dark:bg-primary-900/40 border-primary-400'
+                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-primary-400'
             }
           `}
           >
             {allResourcesSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
             {someResourcesSelected && (
               <Minus
-                className="w-3 h-3 text-success-600 dark:text-success-400"
+                className="w-3 h-3 text-primary-600 dark:text-primary-400"
                 aria-hidden="true"
               />
             )}
@@ -492,15 +497,15 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
               ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
               ${
                 allSelected
-                  ? 'bg-success-600 border-success-600'
+                  ? 'bg-primary-600 border-primary-600'
                   : someSelected
-                    ? 'bg-success-100 dark:bg-success-900/40 border-success-400'
-                    : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-success-400'
+                    ? 'bg-primary-100 dark:bg-primary-900/40 border-primary-400'
+                    : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-primary-400'
               }
             `}
           >
             {allSelected && <Check className="w-4 h-4 text-white" />}
-            {someSelected && <Minus className="w-4 h-4 text-success-600 dark:text-success-400" />}
+            {someSelected && <Minus className="w-4 h-4 text-primary-600 dark:text-primary-400" />}
           </button>
           <div>
             <span className="font-semibold text-gray-900 dark:text-gray-100">All Permissions</span>

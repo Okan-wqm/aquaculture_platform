@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
 import { VfdCommandAuditLog } from '../entities/vfd-command-audit-log.entity';
 import { VfdDevice } from '../entities/vfd-device.entity';
+import type { RecordedActor } from '../../common/recorded-actor';
 import { VfdCommandType, VfdDeviceStatus } from '../entities/vfd.enums';
 
 import { VfdDeviceService } from './vfd-device.service';
@@ -38,10 +39,8 @@ export interface VfdCommandInput {
  * Who dispatched a command — captured on the audit record (DB-SENSOR-HIGH-003).
  * Optional so internal/system callers (automation) can pass a system identity.
  */
-export interface VfdCommandActor {
-  userId: string;
-  email?: string;
-  source?: string; // 'operator' (default) | 'automation' | 'system'
+export interface VfdCommandActor extends RecordedActor {
+  readonly source?: string; // 'operator' (default) | 'automation' | 'system'
 }
 
 /**

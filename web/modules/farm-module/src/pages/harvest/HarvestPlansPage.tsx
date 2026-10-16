@@ -516,8 +516,8 @@ const STATUS_CONFIG: Record<
   },
   scheduled: {
     label: 'Scheduled',
-    color: 'text-accent-700 dark:text-accent-300',
-    bgColor: 'bg-accent-100 dark:bg-accent-900/40',
+    color: 'text-primary-700 dark:text-primary-300',
+    bgColor: 'bg-primary-100 dark:bg-primary-900/40',
     icon: <Clock className="w-4 h-4" />,
   },
   in_progress: {
@@ -548,10 +548,10 @@ const STATUS_CONFIG: Record<
 
 const HARVEST_TYPE_CONFIG: Record<HarvestType, { label: string; color: string }> = {
   full: { label: 'Full Harvest', color: 'text-info-600 dark:text-info-400' },
-  partial: { label: 'Partial Harvest', color: 'text-accent-600 dark:text-accent-400' },
+  partial: { label: 'Partial Harvest', color: 'text-gray-600 dark:text-gray-400' },
   selective: { label: 'Selective', color: 'text-primary-600 dark:text-primary-400' },
   emergency: { label: 'Emergency', color: 'text-error-600 dark:text-error-400' },
-  thinning: { label: 'Thinning', color: 'text-accent-600 dark:text-accent-400' },
+  thinning: { label: 'Thinning', color: 'text-gray-600 dark:text-gray-400' },
 };
 
 const PRODUCT_FORM_LABELS: Record<ProductForm, string> = {
@@ -613,7 +613,7 @@ const StatusBadge: React.FC<{ status: HarvestPlanStatus; showIcon?: boolean }> =
   const config = STATUS_CONFIG[status];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${config.bgColor} ${config.color}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium ${config.bgColor} ${config.color}`}
     >
       {showIcon && config.icon}
       {config.label}
@@ -631,7 +631,7 @@ const StatsCard: React.FC<{
   onClick?: () => void;
 }> = ({ title, value, subtitle, icon, color, onClick }) => (
   <div
-    className={`bg-white dark:bg-gray-900 rounded-lg shadow p-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+    className={`bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4 ${onClick ? 'cursor-pointer hover:shadow-(--shadow-sd-md) transition-shadow' : ''}`}
     onClick={onClick}
   >
     <div className="flex items-center">
@@ -679,7 +679,7 @@ const PlanCard: React.FC<{
         label: 'Schedule',
         action: 'schedule',
         icon: <Calendar className="w-4 h-4" />,
-        color: 'text-accent-600 dark:text-accent-400',
+        color: 'text-primary-600 dark:text-primary-400',
       });
     }
     if (plan.canStartHarvest) {
@@ -720,7 +720,7 @@ const PlanCard: React.FC<{
 
   if (compact) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:shadow-md transition-shadow">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:shadow-(--shadow-sd-md) transition-shadow">
         <div className="flex items-start justify-between mb-2">
           <div>
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
@@ -739,7 +739,7 @@ const PlanCard: React.FC<{
               <MoreVertical className="w-4 h-4 text-gray-400 dark:text-gray-500" />
             </Button>
             {showActions && (
-              <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-md shadow-lg z-10 border border-gray-200 dark:border-gray-700">
+              <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-md shadow-(--shadow-sd-lg) z-10 border border-gray-200 dark:border-gray-700">
                 {plan.canEdit && (
                   <Button
                     variant="ghost"
@@ -802,7 +802,7 @@ const PlanCard: React.FC<{
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) hover:shadow-(--shadow-sd-md) transition-shadow">
       <div className="p-4 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-start justify-between">
           <div>
@@ -812,7 +812,7 @@ const PlanCard: React.FC<{
               </h3>
               <StatusBadge status={plan.status} />
               {plan.isOverdue && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300">
                   <AlertTriangle className="w-3 h-3" />
                   Overdue
                 </span>
@@ -831,7 +831,7 @@ const PlanCard: React.FC<{
               <MoreVertical className="w-5 h-5 text-gray-400 dark:text-gray-500" />
             </Button>
             {showActions && (
-              <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-md shadow-lg z-10 border border-gray-200 dark:border-gray-700">
+              <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-md shadow-(--shadow-sd-lg) z-10 border border-gray-200 dark:border-gray-700">
                 {plan.canEdit && (
                   <Button
                     variant="ghost"
@@ -1005,7 +1005,7 @@ const FilterPanel: React.FC<{
   batches: { id: string; batchNumber: string; name: string }[];
 }> = ({ filters, onFilterChange, onReset, batches }) => {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 space-y-4">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
           <Filter className="w-4 h-4" />
@@ -1033,7 +1033,7 @@ const FilterPanel: React.FC<{
               value={filters.searchText}
               onChange={(e) => onFilterChange({ ...filters, searchText: e.target.value })}
               placeholder="Search by plan code, name..."
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm pl-9"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-(--shadow-sd-sm) focus:border-info-500 focus:ring-info-500 text-sm pl-9"
             />
             <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
           </div>
@@ -2189,8 +2189,8 @@ const ScheduleModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Schedule Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-accent-50 dark:bg-accent-900/20 rounded-md p-3 mb-4">
-          <p className="text-sm text-accent-800 dark:text-accent-200">
+        <div className="bg-info-50 dark:bg-info-900/20 rounded-md p-3 mb-4">
+          <p className="text-sm text-info-800 dark:text-info-200">
             Set the confirmed harvest date for <strong>{plan.planCode}</strong>
           </p>
         </div>
@@ -2291,7 +2291,7 @@ const ConfirmDeleteModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
       <div className="flex items-center gap-4 mb-4">
-        <div className="flex-shrink-0 p-3 bg-error-100 dark:bg-error-900/40 rounded-full">
+        <div className="flex-shrink-0 p-3 bg-error-100 dark:bg-error-900/40 rounded">
           <Trash2 className="w-6 h-6 text-error-600 dark:text-error-400" />
         </div>
         <div>
@@ -2778,8 +2778,8 @@ export const HarvestPlansPage: React.FC = () => {
           <StatsCard
             title="Scheduled"
             value={stats.scheduled}
-            icon={<Clock className="w-5 h-5 text-accent-600 dark:text-accent-400" />}
-            color="bg-accent-100 dark:bg-accent-900/40"
+            icon={<Clock className="w-5 h-5 text-primary-600 dark:text-primary-400" />}
+            color="bg-primary-100 dark:bg-primary-900/40"
             onClick={() => setFilters({ ...filters, status: 'scheduled' })}
           />
           <StatsCard
@@ -2818,8 +2818,8 @@ export const HarvestPlansPage: React.FC = () => {
             title="Upcoming"
             value={stats.upcomingCount}
             subtitle="Next 30 days"
-            icon={<Calendar className="w-5 h-5 text-accent-600 dark:text-accent-400" />}
-            color="bg-accent-100 dark:bg-accent-900/40"
+            icon={<Calendar className="w-5 h-5 text-info-600 dark:text-info-400" />}
+            color="bg-info-100 dark:bg-info-900/40"
           />
           <StatsCard
             title="Overdue"
@@ -2898,7 +2898,7 @@ export const HarvestPlansPage: React.FC = () => {
               />
             ))}
             {filteredPlans.length === 0 && (
-              <div className="col-span-full text-center py-12 bg-white dark:bg-gray-900 rounded-lg shadow">
+              <div className="col-span-full text-center py-12 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm)">
                 <FileText className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
                 <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
                   No harvest plans found
@@ -2920,7 +2920,7 @@ export const HarvestPlansPage: React.FC = () => {
         )}
 
         {viewMode === 'table' && (
-          <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) rounded-lg overflow-hidden">
             <DataTable<PlanRow>
               data={filteredPlans}
               columns={planRowColumns}

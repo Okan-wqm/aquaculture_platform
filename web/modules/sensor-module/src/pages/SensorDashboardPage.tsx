@@ -28,7 +28,7 @@ import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
 import { SensorPanel } from '../components/scada/SensorPanel';
 import { SensorPicker, WidgetType } from '../components/dashboard/SensorPicker';
-import { Spinner, Button } from '@aquaculture/shared-ui';
+import { Spinner, Button, PageTitle } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -57,7 +57,7 @@ interface StatCardProps {
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color }) => {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3 flex items-center gap-3">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 px-4 py-3 flex items-center gap-3">
       <div className={`p-2 rounded-lg ${color}`}>{icon}</div>
       <div>
         <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{title}</p>
@@ -190,7 +190,9 @@ const SensorDashboardPage: React.FC = () => {
           {/* Left: Title and process selector */}
           <div className="flex items-center gap-4">
             <div>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">SCADA Görünümü</h1>
+              <PageTitle className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                SCADA Görünümü
+              </PageTitle>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Proses izleme ve sensör verileri
               </p>
@@ -205,7 +207,7 @@ const SensorDashboardPage: React.FC = () => {
             <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg">
               <div
                 className={`w-2 h-2 rounded-full ${
-                  isLiveMode ? 'bg-success-500 animate-pulse' : 'bg-gray-400'
+                  isLiveMode ? 'bg-success-500 motion-safe:animate-pulse' : 'bg-gray-400'
                 }`}
               />
               <span className="text-xs text-gray-600 dark:text-gray-400">

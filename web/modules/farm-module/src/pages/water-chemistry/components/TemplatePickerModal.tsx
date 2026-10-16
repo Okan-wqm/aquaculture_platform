@@ -109,7 +109,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                     {tpl.species.map((sp: string) => (
                       <span
                         key={sp}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
+                        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
                       >
                         {sp}
                       </span>

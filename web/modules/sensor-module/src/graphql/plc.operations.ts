@@ -82,6 +82,7 @@ const FEEDING_PARAMETER_FIELDS = `
   createdAt
   updatedAt
   createdBy
+  createdByEmail
 `;
 
 const PLC_ALARM_FIELDS = `

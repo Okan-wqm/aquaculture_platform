@@ -15,11 +15,12 @@ export function NodeKpis({ node }: { node: FacilityNode }): React.ReactElement {
   const { t } = useI18n();
   const counts = useNodeCounts(node);
 
-  // TODO(data): the design's energy tiles — power now (kW), today (kWh), this
-  // month (MWh) and cost / site share — have no per-node source: needs a
-  // farm-service energy rollup per site/department/system/equipment (power-meter
-  // and VFD channels bound to equipment) and a cost-centre split of the
-  // ELECTRICITY ledger. Left out rather than estimated.
+  // TODO(data): the design's energy tiles — power now (kW), today (kWh) and
+  // this month (MWh) — have no per-node source: needs a farm-service energy
+  // rollup per site/department/system/equipment (power-meter and VFD channels
+  // bound to equipment). Left out rather than estimated. The design's cost /
+  // site-share tile is CostShareCard (the site's booked electricity, and
+  // labelled previews where no record exists, FARM-MEDIUM-440).
   return (
     <section aria-label={t('facilityStructure.kpi.label')}>
       {counts.status === 'restricted' ? (

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/graphql';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 
+import { recordedActorOf } from '../common/recorded-actor';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 
 import { AutomationService } from './automation.service';
@@ -592,7 +593,7 @@ export class AutomationResolver {
         input.programId,
         input.deviceId,
         tenantId,
-        user.sub,
+        recordedActorOf(user),
         input.forceQueue,
       );
 
@@ -628,7 +629,7 @@ export class AutomationResolver {
       const result = await this.automationService.rollbackDeployment(
         deviceId,
         tenantId,
-        user.sub,
+        recordedActorOf(user),
       );
 
       return result;

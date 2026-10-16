@@ -183,7 +183,7 @@ export function WeeklyCalendarGrid({
             role="alert"
             aria-live="polite"
             className={cn(
-              'flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
+              'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium',
               plan.plannedOvertimeMinutes > 300
                 ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
                 : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
@@ -198,7 +198,7 @@ export function WeeklyCalendarGrid({
       {/* Status indicator */}
       {plan.status === 'PUBLISHED' && (
         <div className="mt-2 flex items-center justify-end">
-          <span className="text-xs px-2 py-0.5 rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
+          <span className="text-xs px-2 py-0.5 rounded-md bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
             Yayinlandi
             {plan.publishedAt && (
               <span className="ml-1 text-success-500">

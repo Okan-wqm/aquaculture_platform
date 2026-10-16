@@ -389,6 +389,19 @@ export class EdgeDeviceStats {
   @Field(() => Int)
   offline!: number;
 
+  /**
+   * total without the decommissioned and revoked devices: decommissioning
+   * keeps the row, so `total` still counts them, and a fleet figure that did
+   * would read a retired device as one that is down.
+   */
+  @Field(() => Int, {
+    description: 'Devices not in a terminal lifecycle state (decommissioned, revoked)',
+  })
+  inService!: number;
+
+  @Field(() => Int, { description: 'Online devices among inService' })
+  onlineInService!: number;
+
   @Field(() => [StateCount])
   byState!: StateCount[];
 

@@ -75,7 +75,7 @@ export const ConnectionPointContextMenu: React.FC<ConnectionPointContextMenuProp
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
+      className="fixed z-50 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
       style={{
         left: position.x,
         top: position.y,

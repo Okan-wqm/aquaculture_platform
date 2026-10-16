@@ -2,19 +2,24 @@
  * Hook for fetching and managing alert history
  *
  * Uses the alert-engine's GraphQL API:
- * - alertHistory query (paginated, filterable by severity/acknowledged)
+ * - alertHistory query (paginated, filterable by a severity set, acknowledged
+ *   and resolved — every status tab is a server filter)
  * - acknowledgeAlert mutation
  * - resolveAlert mutation
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { AlertSeverity } from '@platform/shared-ui/generated/graphql-types';
 import { graphqlFetch } from '../config/api';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type AlertSeverity = 'info' | 'low' | 'warning' | 'medium' | 'high' | 'critical';
+// The supergraph's enum (CRITICAL, HIGH, …): GraphQL sends and accepts the
+// enum NAMES, so a lower-case copy here was rejected as a filter variable and
+// never matched a returned row.
+export type { AlertSeverity };
 
 export interface AlertHistoryItem {
   id: string;
@@ -36,11 +41,18 @@ export interface AlertHistoryItem {
   createdAt: string;
 }
 
-export type AlertStatusFilter = 'all' | 'active' | 'acknowledged' | 'resolved';
+/**
+ * The status tabs. Each shows the rows whose status badge it names: 'active'
+ * = open and unacknowledged, 'acknowledged' = open and acknowledged,
+ * 'resolved' = cleared; 'open' = both open states, what a priority tile of the
+ * console annunciator counts (shared-ui annunciatorScope).
+ */
+export type AlertStatusFilter = 'all' | 'open' | 'active' | 'acknowledged' | 'resolved';
 
 export interface AlertFilters {
   status: AlertStatusFilter;
-  severity?: AlertSeverity;
+  /** Only alarms of these severities; empty for every severity. */
+  severities: readonly AlertSeverity[];
   page: number;
   limit: number;
 }
@@ -54,6 +66,44 @@ export interface AlertStats {
   high: number;
 }
 
+/**
+ * The variables of ALERT_HISTORY_QUERY; a filter left out does not narrow.
+ * A type alias, not an interface: it is passed as graphqlFetch's
+ * Record<string, unknown> variables, which an interface is not assignable to.
+ */
+export type AlertHistoryVariables = {
+  page: number;
+  limit: number;
+  severities?: readonly AlertSeverity[];
+  acknowledged?: boolean;
+  resolved?: boolean;
+};
+
+/**
+ * What each status tab asks alert-engine for. Both flags are server filters,
+ * so a page of a tab is a page of exactly its alarms — narrowing a page
+ * client-side after the server cut it would show short or empty pages while
+ * matching rows wait on later ones.
+ */
+const STATUS_VARIABLES: Readonly<
+  Record<AlertStatusFilter, Pick<AlertHistoryVariables, 'acknowledged' | 'resolved'>>
+> = {
+  all: {},
+  open: { resolved: false },
+  active: { acknowledged: false, resolved: false },
+  acknowledged: { acknowledged: true, resolved: false },
+  resolved: { resolved: true },
+};
+
+export function alertHistoryVariables(filters: AlertFilters): AlertHistoryVariables {
+  return {
+    page: filters.page,
+    limit: filters.limit,
+    ...(filters.severities.length > 0 ? { severities: filters.severities } : {}),
+    ...STATUS_VARIABLES[filters.status],
+  };
+}
+
 // ============================================================================
 // GraphQL Queries and Mutations
 // ============================================================================
@@ -62,14 +112,16 @@ const ALERT_HISTORY_QUERY = `
   query AlertHistory(
     $page: Int
     $limit: Int
-    $severity: AlertSeverity
+    $severities: [AlertSeverity!]
     $acknowledged: Boolean
+    $resolved: Boolean
   ) {
     alertHistory(
       page: $page
       limit: $limit
-      severity: $severity
+      severities: $severities
       acknowledged: $acknowledged
+      resolved: $resolved
     ) {
       id
       ruleId
@@ -126,6 +178,7 @@ export function useAlerts(initialFilters?: Partial<AlertFilters>) {
   const [mutating, setMutating] = useState<string | null>(null); // alertId being mutated
   const [filters, setFilters] = useState<AlertFilters>({
     status: 'all',
+    severities: [],
     page: 1,
     limit: 20,
     ...initialFilters,
@@ -133,55 +186,24 @@ export function useAlerts(initialFilters?: Partial<AlertFilters>) {
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Build query variables from filters
-  const buildVariables = useCallback((f: AlertFilters) => {
-    const vars: Record<string, unknown> = {
-      page: f.page,
-      limit: f.limit,
-    };
-
-    if (f.severity) {
-      vars.severity = f.severity;
-    }
-
-    // Map status filter to acknowledged boolean
-    if (f.status === 'active') {
-      vars.acknowledged = false;
-    } else if (f.status === 'acknowledged') {
-      vars.acknowledged = true;
-    }
-    // 'resolved' and 'all' are filtered client-side since the backend
-    // query only supports acknowledged filter, not resolved
-
-    return vars;
-  }, []);
-
   // Fetch alerts
   const fetchAlerts = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
 
     try {
-      const vars = buildVariables(filters);
       const result = await graphqlFetch<{ alertHistory: AlertHistoryItem[] }>(
         ALERT_HISTORY_QUERY,
-        vars,
+        alertHistoryVariables(filters),
       );
 
-      let items = result.alertHistory || [];
-
-      // Client-side filter for 'resolved' status (backend doesn't have this filter)
-      if (filters.status === 'resolved') {
-        items = items.filter((a) => a.resolved);
-      }
-
-      setAlerts(items);
+      setAlerts(result.alertHistory || []);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [filters, buildVariables]);
+  }, [filters]);
 
   // Initial fetch and polling
   useEffect(() => {
@@ -205,8 +227,8 @@ export function useAlerts(initialFilters?: Partial<AlertFilters>) {
     active: alerts.filter((a) => !a.acknowledged && !a.resolved).length,
     acknowledged: alerts.filter((a) => a.acknowledged && !a.resolved).length,
     resolved: alerts.filter((a) => a.resolved).length,
-    critical: alerts.filter((a) => a.severity === 'critical' && !a.resolved).length,
-    high: alerts.filter((a) => a.severity === 'high' && !a.resolved).length,
+    critical: alerts.filter((a) => a.severity === 'CRITICAL' && !a.resolved).length,
+    high: alerts.filter((a) => a.severity === 'HIGH' && !a.resolved).length,
   };
 
   // Acknowledge an alert (optimistic update)

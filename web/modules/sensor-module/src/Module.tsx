@@ -54,6 +54,10 @@ const PlcAlarmsPage = lazy(() => import('./pages/plc/PlcAlarmsPage'));
 // VFD Programming Page (lazy loaded)
 const VfdProgrammingPage = lazy(() => import('./pages/VfdProgrammingPage'));
 
+// Command log — what was sent to the field, by whom, and the device reply (lazy loaded;
+// the route element carries its role gate)
+const CommandLogRoute = lazy(() => import('./pages/commands/CommandLogRoute'));
+
 // Water Chemistry Monitoring (lazy — recharts drill-down arrives in P1)
 const WaterChemistryMonitoringPage = lazy(
   () => import('./pages/water-chemistry/WaterChemistryMonitoringPage'),
@@ -169,6 +173,9 @@ const SensorModule: React.FC = () => {
         {/* VFD Programming */}
         <Route path="vfd-programming" element={<VfdProgrammingPage />} />
         <Route path="vfd-programming/:deviceId" element={<VfdProgrammingPage />} />
+
+        {/* Command log (read-only; module managers and up — CommandLogRoute) */}
+        <Route path="commands" element={<CommandLogRoute />} />
 
         {/* Unknown routes */}
         <Route path="*" element={<Navigate to="/sensor" replace />} />

@@ -73,6 +73,13 @@ export interface AuthUser {
   resourcePermissions?: string[];
   /** The UI language saved on the account (FE-HIGH-089); the shell applies it on sign-in. */
   preferredLanguage?: string | null;
+  /**
+   * The display name of the session's tenant, from `me` (auth.tenants);
+   * null for a platform SUPER_ADMIN. The tenant console's rail names the
+   * tenant from it for every tenant role — TenantContext holds a tenant only
+   * while a SUPER_ADMIN acts as one.
+   */
+  tenantName?: string | null;
 }
 
 /**
@@ -373,6 +380,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
               defaultRoute
             }
             redirectPath
+            tenantName
           }
         }
       `;
@@ -382,6 +390,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           user: AuthUser;
           modules: UserModule[];
           redirectPath: string;
+          tenantName: string | null;
         };
       }>(ME_QUERY);
 
@@ -392,9 +401,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       // useAuth().hasPermission can gate action/UI visibility. The `me` query
       // intentionally does not carry them (they are a token concern); the token
       // is the same trust anchor the FE already uses for role/tenantId.
+      // The tenant's name rides on the session payload beside the user and is
+      // kept on the user, the one record every consumer already reads.
       const token = getAccessToken();
       const resourcePermissions = token ? decodeResourcePermissions(token) : [];
-      return { ...me, user: { ...me.user, resourcePermissions } };
+      const { tenantName, ...session } = me;
+      return { ...session, user: { ...me.user, resourcePermissions, tenantName } };
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error('Failed to fetch user:', error);

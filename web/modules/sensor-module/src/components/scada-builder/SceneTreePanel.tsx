@@ -510,7 +510,7 @@ export const SceneTreePanel: React.FC = () => {
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
+          className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <Button

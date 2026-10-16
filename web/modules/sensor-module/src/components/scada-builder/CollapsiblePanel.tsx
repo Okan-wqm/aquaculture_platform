@@ -58,7 +58,7 @@ const TooltipWrapper: React.FC<TooltipWrapperProps> = ({ label, side, children }
       {children}
       {show && (
         <div
-          className={`absolute top-1/2 -translate-y-1/2 ${tooltipPosition} z-50 px-2 py-1 text-xs text-white bg-gray-800 rounded shadow-lg whitespace-nowrap pointer-events-none`}
+          className={`absolute top-1/2 -translate-y-1/2 ${tooltipPosition} z-50 px-2 py-1 text-xs text-white bg-gray-800 rounded shadow-(--shadow-sd-lg) whitespace-nowrap pointer-events-none`}
         >
           {label}
         </div>
@@ -108,7 +108,7 @@ const IconRail: React.FC<IconRailProps> = ({ icons, side, activeIconId, onIconCl
           >
             {item.icon}
             {item.badge !== undefined && item.badge !== '' && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center text-[9px] font-medium leading-none text-white bg-info-600 rounded-full">
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center text-[9px] font-medium leading-none text-white bg-info-600 rounded">
                 {item.badge}
               </span>
             )}
@@ -144,7 +144,7 @@ const ToggleButton: React.FC<ToggleButtonProps> = ({ side, collapsed, onToggle }
       className={`
         absolute ${positionClasses} z-10
         flex items-center justify-center w-6 h-6
-        bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-full shadow-sm
+        bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-full shadow-(--shadow-sd-sm)
         text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800
         transition-colors duration-150
       `}

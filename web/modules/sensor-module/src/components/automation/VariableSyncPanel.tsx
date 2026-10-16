@@ -575,11 +575,11 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
           compact
           rowClassName={(item) =>
             item.status === 'missing'
-              ? 'bg-info-50/50 dark:bg-info-900/20/50'
+              ? 'bg-info-50/50 dark:bg-info-900/10'
               : item.status === 'orphaned'
-                ? 'bg-warning-50/50 dark:bg-warning-900/20/50'
+                ? 'bg-warning-50/50 dark:bg-warning-900/10'
                 : item.status === 'changed'
-                  ? 'bg-accent-50/50 dark:bg-accent-900/20/50'
+                  ? 'bg-accent-50/50 dark:bg-accent-900/10'
                   : ''
           }
         />

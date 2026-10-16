@@ -187,7 +187,10 @@ export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({ co
             />
             <Tooltip
               content={<ChartTooltipContent />}
-              cursor={{ fill: 'rgba(14, 165, 233, 0.1)' }}
+              // The hover band is the axis grey at low opacity, so it reads as a
+              // faint band on both the light and the Control-room ground; a light
+              // constant at 50% became a bright slab over the dark widget.
+              cursor={{ fill: colors.gray[400], fillOpacity: 0.15 }}
             />
             {config.settings?.showLegend !== false && sensorNames.length > 1 && (
               <Legend wrapperStyle={{ fontSize: '10px' }} iconType="rect" iconSize={10} />

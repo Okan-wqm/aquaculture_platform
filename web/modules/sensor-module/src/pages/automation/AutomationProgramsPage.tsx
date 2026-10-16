@@ -123,7 +123,7 @@ const formatDate = (dateStr?: string): string => {
 
 const StatusBadge: React.FC<{ status: ProgramStatus }> = ({ status }) => (
   <span
-    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(status)}`}
+    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(status)}`}
   >
     {getStatusIcon(status)}
     {getStatusText(status)}
@@ -153,7 +153,7 @@ const ProgramCard: React.FC<{
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-(--shadow-sd-md) transition-shadow">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <Workflow className="h-5 w-5 text-primary-600 dark:text-primary-400" />
@@ -172,7 +172,7 @@ const ProgramCard: React.FC<{
             <MoreVertical className="h-4 w-4 text-gray-500 dark:text-gray-400" />
           </Button>
           {showMenu && (
-            <div className="absolute right-0 top-8 w-40 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
+            <div className="absolute right-0 top-8 w-40 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) z-10">
               <Button
                 variant="ghost"
                 size="sm"
@@ -677,13 +677,13 @@ const AutomationProgramsPage: React.FC = () => {
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}
-            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}
+            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)' : ''}`}
           >
             <LayoutGrid className="h-4 w-4" />
           </button>
           <button
             onClick={() => setViewMode('list')}
-            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}
+            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)' : ''}`}
           >
             <List className="h-4 w-4" />
           </button>

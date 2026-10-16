@@ -21,7 +21,8 @@ const formatDataType = (column: ColumnInfo): string => {
 };
 
 /**
- * Get icon color class based on data type category
+ * Get icon color class based on data type category. The class also colours
+ * the type chip's text, so the accent takes its text-safe step (700 / 300).
  */
 const getTypeColor = (dataType: string): string => {
   const type = dataType.toLowerCase();
@@ -38,13 +39,13 @@ const getTypeColor = (dataType: string): string => {
     return 'text-success-500';
   }
   if (type.includes('timestamp') || type.includes('date') || type.includes('time')) {
-    return 'text-accent-500';
+    return 'text-primary-700 dark:text-primary-300';
   }
   if (type.includes('bool')) {
-    return 'text-accent-500';
+    return 'text-primary-700 dark:text-primary-300';
   }
   if (type.includes('json') || type.includes('array')) {
-    return 'text-accent-500';
+    return 'text-primary-700 dark:text-primary-300';
   }
   if (type.includes('uuid')) {
     return 'text-info-500';
@@ -112,7 +113,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       render: (_value, idx) => (
         <>
           {idx.isPrimary ? (
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 text-xs font-medium">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 text-xs font-medium">
               Y
             </span>
           ) : (
@@ -158,7 +159,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           <span
             className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ${
               col.isNullable
-                ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
             }`}
           >
@@ -192,7 +193,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
         <div className="flex items-center justify-center gap-1">
           {col.isPrimaryKey && (
             <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 text-xs font-medium"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 text-xs font-medium"
               title="Primary Key"
             >
               <Key className="w-3 h-3" />
@@ -201,7 +202,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           )}
           {col.isForeignKey && (
             <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 text-xs font-medium"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 text-xs font-medium"
               title={`Foreign Key → ${col.foreignKeyTable}.${col.foreignKeyColumn}`}
             >
               <Link2 className="w-3 h-3" />

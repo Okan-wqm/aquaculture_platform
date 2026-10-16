@@ -97,7 +97,7 @@ export const ReportCard: React.FC<ReportCardProps> = ({
   return (
     <div
       className={`
-        bg-white dark:bg-gray-900 rounded-lg border shadow-sm hover:shadow-md transition-shadow
+        bg-white dark:bg-gray-900 rounded-lg border shadow-(--shadow-sd-sm) hover:shadow-(--shadow-sd-md) transition-shadow
         ${isUrgent ? 'border-error-200 dark:border-error-800' : 'border-gray-200 dark:border-gray-700'}
         ${onClick ? 'cursor-pointer' : ''}
       `}

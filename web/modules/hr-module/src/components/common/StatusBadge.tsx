@@ -36,7 +36,7 @@ export function StatusBadge({ label, variant, size = 'md', icon, className }: St
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full font-medium',
+        'inline-flex items-center gap-1 rounded-md font-medium',
         variantStyle,
         sizeStyles[size],
         className,

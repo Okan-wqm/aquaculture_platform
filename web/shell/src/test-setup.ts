@@ -37,6 +37,12 @@ if (typeof Element !== 'undefined' && typeof Element.prototype.scrollTo !== 'fun
   Element.prototype.scrollTo = (): void => {};
 }
 
+// Nor Element.scrollIntoView (the command palette keeps its highlighted row in
+// view). A no-op keeps the effect harmless.
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = (): void => {};
+}
+
 beforeEach(() => {
   localStorage.clear();
 });

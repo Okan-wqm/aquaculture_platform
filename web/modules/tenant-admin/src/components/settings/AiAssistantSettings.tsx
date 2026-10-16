@@ -98,7 +98,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
 
   const saving = updateMutation.isPending;
   const inputClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   if (isLoading) {
     return (
@@ -160,7 +160,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
           checked={isEnabled}
           onChange={(e) => setIsEnabled(e.target.checked)}
           disabled={!canEdit}
-          className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-success-600 focus:ring-success-500 disabled:cursor-not-allowed"
+          className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500 disabled:cursor-not-allowed"
         />
         Enable the AI assistant
       </label>

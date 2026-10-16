@@ -64,7 +64,7 @@ export function VfdReviewStep({
                 {basicInfo.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="px-2 py-0.5 text-xs bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded-full"
+                    className="px-2 py-0.5 text-xs bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded"
                   >
                     {tag}
                   </span>
@@ -151,7 +151,7 @@ export function VfdReviewStep({
       </ReviewSection>
 
       {/* Summary Card */}
-      <div className="bg-gradient-to-r from-info-50 to-primary-50 rounded-lg p-6 border border-info-200 dark:border-info-800">
+      <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg p-6 border border-primary-200 dark:border-primary-800">
         <div className="flex items-start">
           <div className="flex-shrink-0">
             <div className="w-12 h-12 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center">

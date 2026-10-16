@@ -6,10 +6,12 @@
  * same reads — the chips can never disagree with the cards below them.
  *
  * WHAT: header (chain, kind · code, name) › setup gaps › subtree counts ›
- * responsibility › linked flows.
+ * cost share (a site's booked electricity; its tariff and the split below a
+ * site as labelled previews, FARM-MEDIUM-440) › responsibility › linked flows.
  */
 import React, { useId } from 'react';
 
+import { CostShareCard } from './CostShareCard';
 import type { FacilityNode } from './facilityTree';
 import { FlowsCard } from './FlowsCard';
 import { NodeHeader } from './NodeHeader';
@@ -47,6 +49,7 @@ export function NodePanel({ node, path, onSelect }: NodePanelProps): React.React
         onSelect={onSelect}
       />
       <NodeKpis node={node} />
+      <CostShareCard node={node} />
       <ResponsibilityCard rows={responsibility} onSelect={onSelect} />
       <FlowsCard state={flows} />
     </section>

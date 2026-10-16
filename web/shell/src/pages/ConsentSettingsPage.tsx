@@ -42,7 +42,8 @@ const ConsentCard: React.FC<{
 
   return (
     <div className="flex items-start gap-4 p-4 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 transition-colors">
-      {/* Toggle switch */}
+      {/* Toggle switch. "On" is a selection, drawn in the workspace accent like
+          every selected control in the console; inside its scope info is graphite. */}
       <button
         type="button"
         role="switch"
@@ -52,14 +53,14 @@ const ConsentCard: React.FC<{
         onClick={() => onToggle(consentType, !granted)}
         className={`
           relative mt-0.5 inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent
-          transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2
-          ${isEssential ? 'bg-info-400 cursor-not-allowed opacity-75' : granted ? 'bg-info-600' : 'bg-gray-300'}
+          transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+          ${isEssential ? 'bg-primary-400 cursor-not-allowed opacity-75' : granted ? 'bg-primary-600' : 'bg-gray-300'}
           ${isLoading ? 'opacity-50 cursor-wait' : ''}
         `}
       >
         <span
           className={`
-            pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0
+            pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) ring-0
             transition duration-200 ease-in-out
             ${isEssential || granted ? 'translate-x-5' : 'translate-x-0'}
           `}
@@ -265,13 +266,13 @@ const ConsentSettingsPage: React.FC = () => {
           </div>
           <div>
             {status && !isOutdated && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
                 <Check className="h-4 w-4" aria-hidden="true" />
                 Up to Date
               </span>
             )}
             {isOutdated && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300">
                 <TriangleAlert className="h-4 w-4" aria-hidden="true" />
                 Update Required
               </span>

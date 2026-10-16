@@ -148,9 +148,9 @@ export const SparklineWidget: React.FC<SparklineWidgetProps> = ({
             status === 'normal'
               ? 'bg-success-500'
               : status === 'warning'
-                ? 'bg-warning-500 animate-pulse'
+                ? 'bg-warning-500 motion-safe:animate-pulse'
                 : status === 'critical'
-                  ? 'bg-error-500 animate-pulse'
+                  ? 'bg-error-500 motion-safe:animate-pulse'
                   : 'bg-gray-400'
           }`}
         />

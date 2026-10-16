@@ -45,7 +45,9 @@
 #                 components/ui/Spinner) is the loading indicator.
 #   rawPageTitle — hand-written page titles (an h1 in text-2xl/text-xl/text-lg
 #                 bold or semibold), per package. shared-ui PageHeader is the
-#                 title row; AquaMobil's components/ui/PageHeader is the band.
+#                 title row (PageTitle for a full-screen tool's toolbar title —
+#                 both defer to the tenant console's h1); AquaMobil's
+#                 components/ui/PageHeader is the band.
 #   darkSurface — light-only surfaces (a class string painting bg-white,
 #                 bg-gray-50 or bg-gray-100 with no `dark:` sibling), per
 #                 package, shared-ui included. theme.css keys `dark:` on the
@@ -188,13 +190,13 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 31
+      ceiling: 28
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/shell
-      ceiling: 25
+      ceiling: 23
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -292,7 +294,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 2612
+      ceiling: 2608
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -310,7 +312,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 3170
+      ceiling: 3168
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -328,7 +330,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/shell
-      ceiling: 148
+      ceiling: 141
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -337,24 +339,6 @@ rawSpinner:
   entries: []
 rawPageTitle:
   entries:
-    - package: web/modules/hr-module
-      ceiling: 1
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-MEDIUM-071
-      reason: the HR module load-failure state — a centred message, not a page header
-    - package: web/modules/hydroponics-module
-      ceiling: 1
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-MEDIUM-071
-      reason: the pH/EC dosing simulator strip — the title is one control in a dense tool layout, compact by design
-    - package: web/modules/sensor-module
-      ceiling: 4
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-MEDIUM-071
-      reason: toolbars of full-screen tools (SCADA view, widget dashboard, VFD programming, tag registry) — the title is one control in a dense strip, compact by design; a page header would break the strip
     - package: web/shell
       ceiling: 1
       owner: okan

@@ -320,12 +320,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
           <Button variant="secondary" onClick={handleClose}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            onClick={handleSubmit}
-            disabled={!isValid || assign.isPending}
-            className="bg-accent-600 hover:bg-accent-700"
-          >
+          <Button variant="primary" onClick={handleSubmit} disabled={!isValid || assign.isPending}>
             {assign.isPending ? 'Saving…' : 'Save feed assignment'}
           </Button>
         </div>

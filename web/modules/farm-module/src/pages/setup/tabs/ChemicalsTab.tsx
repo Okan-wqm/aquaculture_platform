@@ -44,11 +44,11 @@ const categoryColors: Record<string, string> = {
   DISINFECTANT: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   ANTIBIOTIC: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   VITAMIN: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  MINERAL: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  MINERAL: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   WATER_CONDITIONER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   PROBIOTIC: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
-  ANTIPARASITIC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  ANESTHETIC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  ANTIPARASITIC: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  ANESTHETIC: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   pH_ADJUSTER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   ALGAECIDE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
@@ -259,7 +259,7 @@ const SiteMultiSelect: React.FC<{
             return site ? (
               <span
                 key={id}
-                className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
+                className="inline-flex items-center px-2 py-1 rounded text-xs bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
               >
                 {site.name}
                 <Button
@@ -685,7 +685,7 @@ export const ChemicalsTab: React.FC = () => {
       render: (_value, chemical) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[chemical.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${categoryColors[chemical.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {categoryLabels[chemical.type] || chemical.type}
           </span>
@@ -703,7 +703,7 @@ export const ChemicalsTab: React.FC = () => {
       render: (_value, chemical) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[chemical.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[chemical.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {statusLabels[chemical.status] || chemical.status}
           </span>
@@ -815,7 +815,7 @@ export const ChemicalsTab: React.FC = () => {
 
       {/* Chemicals Table */}
       {!isLoading && !error && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<ChemicalRow>
             data={filteredChemicals}
             columns={chemicalRowColumns}

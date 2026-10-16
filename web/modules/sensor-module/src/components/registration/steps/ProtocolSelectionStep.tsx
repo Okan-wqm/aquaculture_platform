@@ -106,7 +106,7 @@ function ProtocolCard({
           </span>
         )}
         {protocol.capabilities?.supportsSubscription && (
-          <span className="px-2 py-0.5 bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 text-xs rounded">
+          <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs rounded">
             Subscribe
           </span>
         )}

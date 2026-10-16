@@ -173,6 +173,12 @@ export interface SwitchProps extends Omit<InputHTMLAttributes<HTMLInputElement>,
   description?: string;
   /** Boyut */
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * Where the label and description sit. `end` (default): after the track.
+   * `start`: before it, the track at the row's far edge — a settings list
+   * row, label on the left and the switch on the right.
+   */
+  labelPlacement?: 'end' | 'start';
 }
 
 const switchSizeStyles = {
@@ -183,6 +189,13 @@ const switchSizeStyles = {
 
 /**
  * Switch bileşeni
+ *
+ * One control for assistive technology and the keyboard: the track is the
+ * `role="switch"` button, named by the visible label (`aria-labelledby`) and
+ * described by the description line (`aria-describedby`). The checkbox under
+ * it exists for forms (`ref`, `name`, the label's click) and is hidden from
+ * both — otherwise a screen reader meets the same setting twice and Tab stops
+ * on it twice. Focus draws the accent ring for keyboard focus only.
  *
  * @example
  * <Switch
@@ -197,6 +210,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
       label,
       description,
       size = 'md',
+      labelPlacement = 'end',
       disabled = false,
       checked = false,
       className = '',
@@ -209,14 +223,44 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
     const generatedId = useId();
     const switchId = providedId || generatedId;
     const styles = switchSizeStyles[size];
+    const labelId = `${switchId}-label`;
+    const descriptionId = `${switchId}-description`;
+    const labelFirst = labelPlacement === 'start';
+
+    const text = (label || description) && (
+      <div className={labelFirst ? 'min-w-0' : 'ml-3'}>
+        {label && (
+          <label
+            id={labelId}
+            htmlFor={switchId}
+            className={`
+              font-medium text-gray-700 dark:text-gray-300
+              ${labelSizeStyles[size]}
+              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+            `}
+          >
+            {label}
+          </label>
+        )}
+        {description && (
+          <p id={descriptionId} className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {description}
+          </p>
+        )}
+      </div>
+    );
 
     return (
-      <div className={`flex items-start ${className}`}>
+      <div
+        className={`flex ${labelFirst ? 'items-center justify-between gap-4' : 'items-start'} ${className}`}
+      >
+        {labelFirst && text}
         <button
           type="button"
           role="switch"
           aria-checked={checked}
-          aria-labelledby={label ? `${switchId}-label` : undefined}
+          aria-labelledby={label ? labelId : undefined}
+          aria-describedby={description ? descriptionId : undefined}
           disabled={disabled}
           onClick={() => {
             if (onChange && !disabled) {
@@ -231,7 +275,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
             relative inline-flex flex-shrink-0
             rounded-full cursor-pointer
             transition-colors duration-200 ease-in-out
-            focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+            focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
             ${checked ? 'bg-primary-600' : 'bg-gray-200 dark:bg-gray-700'}
             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
           `}
@@ -249,7 +293,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
           />
         </button>
 
-        {/* Gizli input (form uyumluluğu için) */}
+        {/* Gizli input (form uyumluluğu için) — the switch above is the one control */}
         <input
           ref={ref}
           type="checkbox"
@@ -258,29 +302,12 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
           disabled={disabled}
           onChange={onChange}
           className="sr-only"
+          tabIndex={-1}
+          aria-hidden="true"
           {...props}
         />
 
-        {(label || description) && (
-          <div className="ml-3">
-            {label && (
-              <label
-                id={`${switchId}-label`}
-                htmlFor={switchId}
-                className={`
-                  font-medium text-gray-700 dark:text-gray-300
-                  ${labelSizeStyles[size]}
-                  ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-                `}
-              >
-                {label}
-              </label>
-            )}
-            {description && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
-            )}
-          </div>
-        )}
+        {!labelFirst && text}
       </div>
     );
   },

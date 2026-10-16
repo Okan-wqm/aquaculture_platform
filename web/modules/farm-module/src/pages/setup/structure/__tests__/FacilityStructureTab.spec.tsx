@@ -6,7 +6,11 @@
  * (role=tree, aria-expanded, arrow keys), and show for the selected node the
  * chain, the subtree counts from the delete-preview reads, the responsible
  * person from the real fields, the process diagrams it is linked to, and the
- * setup gaps — never an invented value (no energy or cost figures exist).
+ * setup gaps — never an invented value: no energy figure exists; a site's
+ * electricity cost is the real total booked in the finance ledger; the tariff
+ * and the cost split below a site have no backend (FARM-MEDIUM-440), so their
+ * sample figures render only inside the MockPreview the notice describes; and
+ * a role that cannot read finance sees no cost figure at all.
  */
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -37,6 +41,14 @@ vi.mock(
 vi.mock(
   '../../../../hooks/useProcessFlows',
   async () => (await import('./structureFixtures')).processFlowsHooks,
+);
+vi.mock(
+  '../useSiteElectricity',
+  async () => (await import('./structureFixtures')).siteElectricityHooks,
+);
+vi.mock(
+  '../../../finance/useCanReadFinance',
+  async () => (await import('./structureFixtures')).financeAccessHooks,
 );
 
 beforeEach(() => {
@@ -103,7 +115,75 @@ describe('FacilityStructureTab — node panel', () => {
     expect(within(counts).getByText('1 with live stock')).toBeInTheDocument();
     const responsibility = screen.getByRole('region', { name: 'Responsibility' });
     expect(within(responsibility).getByText('Deniz Kaya · Site manager')).toBeInTheDocument();
-    expect(screen.queryByText(/kW|kWh|MWh|₺/)).not.toBeInTheDocument();
+    // A money or energy figure is either the electricity read from the ledger
+    // or sits inside the labelled cost-share preview.
+    const booked = electricityTile();
+    for (const figure of screen.queryAllByText(/kW|kWh|MWh|₺/)) {
+      expect(
+        booked.contains(figure) ||
+          figure.closest('[data-preview-finding="FARM-MEDIUM-440"]') !== null,
+      ).toBe(true);
+    }
+  });
+
+  it('shows a site’s booked electricity as real, and only its tariff as a preview naming FARM-MEDIUM-440', () => {
+    renderStructure();
+    const site = screen.getByRole('region', { name: 'Cost share' });
+
+    // The site's electricity this month is the ledger total, outside any preview.
+    const booked = electricityTile();
+    expect(site).toContainElement(booked);
+    expect(within(booked).getByText('₺12,346')).toBeInTheDocument();
+    expect(booked.closest('[data-preview-finding]')).toBeNull();
+    expect(state.electricitySites).toContain('site-a');
+
+    const notice = within(site).getByRole('note');
+    expect(within(notice).getByText('PREVIEW · NO BACKEND YET')).toBeInTheDocument();
+    expect(within(notice).getByText('Tracked as FARM-MEDIUM-440.')).toBeInTheDocument();
+    expect(within(notice).getByText('Data shown is sample data.')).toBeInTheDocument();
+    expect(within(notice).getByText(/No electricity tariff is stored/)).toBeInTheDocument();
+    const figures = within(site).getByRole('group', { description: /PREVIEW · NO BACKEND YET/ });
+    expect(within(figures).getByText('Tariff')).toBeInTheDocument();
+    expect(within(figures).getByText('₺3.20 / kWh')).toBeInTheDocument();
+    expect(within(figures).queryByText('Energy cost · this month')).not.toBeInTheDocument();
+  });
+
+  it('shows the cost below a site only as a preview, since electricity is booked per site', async () => {
+    const user = userEvent.setup();
+    renderStructure();
+    await user.click(screen.getByRole('treeitem', { name: /A-BUY/ }));
+
+    const department = screen.getByRole('region', { name: 'Cost share' });
+    expect(
+      within(department).queryByText('Electricity booked · this month'),
+    ).not.toBeInTheDocument();
+    const notice = within(department).getByRole('note');
+    expect(within(notice).getByText('Tracked as FARM-MEDIUM-440.')).toBeInTheDocument();
+    expect(within(notice).getByText(/booked per site only/)).toBeInTheDocument();
+    const figures = within(department).getByRole('group', {
+      description: /PREVIEW · NO BACKEND YET/,
+    });
+    expect(within(figures).getByText('Energy cost · this month')).toBeInTheDocument();
+    expect(within(figures).getByText('Share of the site')).toBeInTheDocument();
+    expect(within(figures).getByText('89%')).toBeInTheDocument();
+  });
+
+  it('says so when a site booked no electricity this month or the ledger cannot be read', () => {
+    state.electricity = { status: 'ready', totals: [] };
+    const { refetch } = renderStructure();
+    expect(within(electricityTile()).getByText('None booked this month')).toBeInTheDocument();
+
+    state.electricity = { status: 'error' };
+    refetch();
+    expect(within(electricityTile()).getByRole('alert')).toHaveTextContent(
+      'The electricity booked to this site could not be loaded.',
+    );
+
+    state.electricity = { status: 'too-many' };
+    refetch();
+    expect(
+      within(electricityTile()).getByText(/More electricity lines are booked this month/),
+    ).toBeInTheDocument();
   });
 
   it('flags a department without a responsible and without a linked flow', async () => {
@@ -141,8 +221,9 @@ describe('FacilityStructureTab — node panel', () => {
     expect(screen.queryByText('Not linked to a process diagram')).not.toBeInTheDocument();
   });
 
-  it('selects an ancestor from the path and keeps counts hidden from roles that cannot read them', async () => {
+  it('selects an ancestor from the path and keeps counts and costs hidden from roles that cannot read them', async () => {
     state.canRead = false;
+    state.canReadFinance = false;
     state.primaryContact = false;
     const user = userEvent.setup();
     renderStructure();
@@ -165,5 +246,22 @@ describe('FacilityStructureTab — node panel', () => {
     expect(
       within(gaps).getByRole('button', { name: 'SITE-A · Ayvalik Grow-out' }),
     ).toBeInTheDocument();
+
+    // No finance figure — real or sample — reaches a role finance is closed to.
+    const cost = screen.getByRole('region', { name: 'Cost share' });
+    expect(
+      within(cost).getByText('Cost figures are visible to tenant admins and module managers.'),
+    ).toBeInTheDocument();
+    expect(within(cost).queryByRole('note')).not.toBeInTheDocument();
+    expect(screen.queryAllByText(/₺|kWh/)).toEqual([]);
+    expect(state.electricitySites).toEqual([]);
   });
 });
+
+/** The real electricity tile of the selected site: its term and its figure. */
+function electricityTile(): HTMLElement {
+  const term = screen.getByText('Electricity booked · this month');
+  const tile = term.parentElement;
+  if (tile === null) throw new Error('the electricity term has no tile');
+  return tile;
+}

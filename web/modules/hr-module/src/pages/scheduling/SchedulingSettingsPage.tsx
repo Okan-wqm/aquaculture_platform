@@ -270,7 +270,7 @@ export function SchedulingSettingsPage() {
       {/* Content */}
       <div className="max-w-3xl mx-auto p-6">
         {/* Shift Management Section */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden mb-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Layers className="h-5 w-5 text-primary-600 dark:text-primary-400" />
@@ -503,7 +503,7 @@ export function SchedulingSettingsPage() {
                         onClick={() => handleToggleShiftActive(shift)}
                         disabled={updateShiftMutation.isPending}
                         className={cn(
-                          'px-2 py-1 text-xs rounded-full font-medium transition-colors',
+                          'px-2 py-1 text-xs rounded-md font-medium transition-colors',
                           shift.isActive
                             ? 'text-success-700 dark:text-success-300 bg-success-100 dark:bg-success-900/40 hover:bg-success-200 dark:hover:bg-success-800/60'
                             : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600',
@@ -537,7 +537,7 @@ export function SchedulingSettingsPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Work Hours Section */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
               <Clock className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Calisma Saatleri</h2>
@@ -637,7 +637,7 @@ export function SchedulingSettingsPage() {
           </div>
 
           {/* Schedule Settings Section */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
               <CalendarDays className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Program Ayarlari</h2>
@@ -720,7 +720,7 @@ export function SchedulingSettingsPage() {
           </div>
 
           {/* Notification Settings Section */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
               <Bell className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Bildirim Ayarlari</h2>

@@ -142,7 +142,7 @@ export const FunctionReference: React.FC = () => {
           role="dialog"
           aria-label="Function reference"
           data-testid="function-reference-popover"
-          className="absolute right-0 top-6 z-50 w-80 max-h-72 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3"
+          className="absolute right-0 top-6 z-50 w-80 max-h-72 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) p-3"
         >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">

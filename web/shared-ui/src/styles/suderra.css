@@ -10,8 +10,9 @@
  *      other element that opts in) and every dialog while the console is on
  *      screen re-assign the theme tokens Tailwind's utilities and shared-ui's
  *      primitives paint from: white → cream, gray / success / info → a
- *      graphite ramp, primary → the workspace accent, warning / error → the
- *      hazard amber / red, every radius → square, and the sans / display
+ *      graphite ramp, primary → the workspace accent, warning and accent
+ *      (Severity's "high" tier) → the hazard amber, error → the hazard red,
+ *      every radius → square, and the sans / display
  *      faces → Barlow / Barlow Condensed. Card, Button, Badge, DataTable,
  *      Input inside the scope therefore render Industry with no per-component
  *      skin, and their own `dark:` classes keep working because the dark theme
@@ -21,6 +22,8 @@
  *   3. The blueprint frame: `sd-card`, and `sd-corners` for any other box.
  *   4. The `sd-*` page classes messaging-module's pages are written against
  *      (page head, banner, empty state, the chat surface).
+ *   5. Forced colours: the console's current / pressed / selected cues, which
+ *      are all box-shadows or fills, redrawn as a system-coloured outline.
  *
  * WHY tokens and not class overrides: production's stylesheet (PR #1569's
  * tree) re-coloured `.sd-page .bg-white`, `.sd-page .text-gray-700`, … one
@@ -125,6 +128,28 @@
     --color-info-700: var(--color-sd-ink-700);
     --color-info-800: var(--color-sd-ink-800);
     --color-info-900: var(--color-sd-ink-900);
+
+    /* Accent (coral) is the design system's "high" tier — shared-ui Severity
+       paints critical from error, high from accent, medium from warning
+       (FE-HIGH-085) — and the colour the modules moved their orange caution
+       marks to. Industry's HIGH is the hazard amber (README §7.5), so accent
+       takes the amber ramp step for step, like warning: a High alarm reads as
+       an alarm, and coral, which the console has no place for, never paints.
+       A category that only borrowed accent for variety is not an alarm and
+       paints from gray or primary at its call site. With high and medium on
+       one ramp, a tint no longer tells them apart: Severity draws HIGH as the
+       filled amber tile and MEDIUM as a surface with amber ink, as the
+       annunciator does (its spec resolves each tone through this rule). */
+    --color-accent-50: var(--color-sd-amber-50);
+    --color-accent-100: var(--color-sd-amber-100);
+    --color-accent-200: var(--color-sd-amber-200);
+    --color-accent-300: var(--color-sd-amber-300);
+    --color-accent-400: var(--color-sd-amber-400);
+    --color-accent-500: var(--color-sd-amber-500);
+    --color-accent-600: var(--color-sd-amber-600);
+    --color-accent-700: var(--color-sd-amber-700);
+    --color-accent-800: var(--color-sd-amber-800);
+    --color-accent-900: var(--color-sd-amber-900);
 
     /* Square corners on every card, button and field. `rounded-full` (dots,
        avatars, switches) reads no token and stays round. */
@@ -272,6 +297,15 @@
 
   .sd-main {
     padding: clamp(14px, 2.4cqi, 40px);
+  }
+
+  /* The console header, where it sticks, covers the top of the viewport. Its
+     height is the document's scroll padding (useStickyHeaderOffset publishes
+     it, 0 while the header scrolls with the page), so a control reached by
+     Tab or a fragment scrolled to stops below the header, not under it
+     (WCAG 2.4.11). Unset outside the console: no padding. */
+  :root {
+    scroll-padding-top: var(--sd-header-sticky-h, 0px);
   }
 
   /* ── 3. Blueprint frame (README §7.7, the Industry `.blueprint`) ────────── */
@@ -592,5 +626,31 @@
   .sd-send:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  /* ── 5. Forced colours (Windows contrast themes) ───────────────────────── */
+  /* Forced colours drop box-shadows and author backgrounds, and every
+     current, pressed or selected cue in the console is one of those: the
+     rail's inset bars (page, tab, tile), the palette's active row, the
+     annunciator's foot bar, the segment and workspace-menu fills. Only a
+     weight change was left to mark the current page. An outline survives in
+     a system colour, so every control that states it is current, pressed or
+     selected draws one. The ARIA state is the single source: no component
+     carries a second class for it, and a new control gets the cue by stating
+     its state. `body:has(.sd-content)` is the console on screen, as in §1 —
+     the rail and portaled dialogs included. A control with keyboard focus
+     keeps its focus ring instead: the ring is also an outline, and focus is
+     the cue the reader is acting on (WCAG 2.4.7). */
+  @media (forced-colors: active) {
+    body:has(.sd-content)
+      :is(
+        [aria-current]:not([aria-current='false']),
+        [aria-pressed='true'],
+        [role='option'][aria-selected='true'],
+        [role='tab'][aria-selected='true']
+      ):not(:focus-visible) {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+    }
   }
 }

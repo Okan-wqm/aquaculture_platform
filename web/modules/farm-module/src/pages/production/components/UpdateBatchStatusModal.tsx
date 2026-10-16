@@ -152,7 +152,6 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || updateStatus.isPending}
-            className="bg-accent-600 hover:bg-accent-700"
           >
             {updateStatus.isPending ? 'Updating…' : 'Update status'}
           </Button>

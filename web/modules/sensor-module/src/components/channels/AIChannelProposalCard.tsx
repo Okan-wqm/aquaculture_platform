@@ -59,9 +59,9 @@ const confidenceConfig = {
 
 const dataTypeBadgeColor: Record<string, string> = {
   number: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  boolean: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  boolean: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   string: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
-  enum: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  enum: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
 };
 
 // ============================================================================

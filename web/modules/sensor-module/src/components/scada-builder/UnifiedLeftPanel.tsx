@@ -241,7 +241,7 @@ const WidgetCard: React.FC<{
       <GripVertical className="w-3 h-3 text-gray-500 dark:text-gray-400 group-hover:text-info-400 flex-shrink-0" />
       <span className="text-gray-600 dark:text-gray-400 flex-shrink-0">{icon(w.iconKey)}</span>
       <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{w.label}</span>
-      {isFav && <Star className="w-3 h-3 text-warning-400 fill-warning-400 flex-shrink-0" />}
+      {isFav && <Star className="w-3 h-3 text-primary-500 fill-primary-500 flex-shrink-0" />}
       {pw > 0 && (
         <span className="text-[9px] text-gray-500 dark:text-gray-400 flex-shrink-0">
           {pw}x{ph}
@@ -536,7 +536,7 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
                   onDragStart={(e) => onDrag(e, w)}
                   onContextMenu={(e) => onCtx(e, w)}
                   onClick={() => onAdd(w)}
-                  className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:border-info-400 hover:bg-info-50 cursor-grab text-xs text-gray-600 dark:text-gray-400 transition-colors"
+                  className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:border-info-400 hover:bg-info-50 cursor-grab text-xs text-gray-600 dark:text-gray-400 transition-colors"
                   title={w.label}
                 >
                   {icon(w.iconKey, 'w-3 h-3')}
@@ -551,7 +551,7 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
         {favW.length > 0 && (
           <div className="border-b border-gray-100 dark:border-gray-700 pb-1">
             <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              <Star className="w-3 h-3 text-warning-400" />
+              <Star className="w-3 h-3 text-primary-500" />
               Favorites
             </div>
             <div className="py-1 px-2 space-y-1">
@@ -612,14 +612,14 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
         <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
           <button
             onClick={() => setTab('scene')}
-            className={`flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors ${tab === 'scene' ? 'bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'}`}
+            className={`flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors ${tab === 'scene' ? 'bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'}`}
           >
             <FolderTree className="w-3.5 h-3.5" />
             Scene
           </button>
           <button
             onClick={() => setTab('palette')}
-            className={`flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors ${tab === 'palette' ? 'bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'}`}
+            className={`flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors ${tab === 'palette' ? 'bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'}`}
           >
             <Palette className="w-3.5 h-3.5" />
             Palette

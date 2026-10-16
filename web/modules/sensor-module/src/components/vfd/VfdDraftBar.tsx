@@ -24,7 +24,7 @@ export function VfdDraftBar() {
 
   return (
     <div
-      className="sticky bottom-0 z-40 border-t border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-900/20 px-4 py-3 shadow-lg sm:px-6"
+      className="sticky bottom-0 z-40 border-t border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-900/20 px-4 py-3 shadow-(--shadow-sd-lg) sm:px-6"
       role="status"
       aria-live="polite"
       data-testid="vfd-draft-bar"

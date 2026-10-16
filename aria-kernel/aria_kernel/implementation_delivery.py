@@ -98,7 +98,11 @@ the request worktree:
    here, before the push. Until round 5 the executor's artifact scrub hid
    such a string from the SUBMITTED envelope while the ledger's log kept
    it raw, so the submit's scan never saw what the ledger carried and the
-   PR landed;
+   PR landed. ARIA-MEDIUM-539: the log is no longer raw — its one writer
+   (``validation._write_run_log``) judges the RAW output with the refusal
+   set, records the verdict on the run's row (``output_secret_scan``) and
+   writes the output redacted, so the refusal is decided from that verdict
+   and the published log never holds the string;
 3. the change ledger's commit row (``change_ledger.emit_change_committed``,
    round 2; the same verdict as step 1, now written with the claim id).
    The contract used to tell the AGENT to call ``emit_change_committed(...)``
@@ -487,6 +491,24 @@ def _gate_validation_results(action: Mapping[str, Any], *, base_dir: str | Path 
             "output_head_tail": truncate_validation_result(output),
         })
     return tuple(results)
+
+
+def _secret_shaped_gate_runs(
+    validation_results: Sequence[Mapping[str, Any]], *, base_dir: str | Path | None,
+) -> list[str]:
+    """``<validation_run_id>: <verdict>`` for every run of the gate's group
+    whose raw output the kernel's refusal set fired on, read off the run's
+    row (``output_secret_scan``, ARIA-MEDIUM-539: the log writer's verdict,
+    counts only). Empty when none did."""
+    from .validation_runs_ledger import find_validation_run_by_id
+
+    printed: list[str] = []
+    for result in validation_results:
+        run_id = str(result.get("validation_run_id") or "")
+        row = find_validation_run_by_id(run_id, base_dir=base_dir) or {}
+        if row.get("output_secret_scan"):
+            printed.append(f"{run_id}: {row['output_secret_scan']}")
+    return printed
 
 
 def agent_dispositions(envelope: Mapping[str, Any]) -> dict[str, str]:
@@ -915,6 +937,14 @@ def deliver_implementation(
         raise ImplementationDeliveryRefusal("apply_gate", f"gate_blocked:{blocked}")
     validation_gate_ref = str(action.get("validation_gate_ref") or "")
     validation_results = _gate_validation_results(action, base_dir=base_dir)
+    # ARIA-MEDIUM-539 — the runs' RAW output was judged by their one log
+    # writer (`validation._write_run_log`) and redacted before any byte
+    # reached the published log surface; the verdict rides each run's row.
+    # A suite that printed a credential-shaped string is refused here, by
+    # name, before the push, while its log never held the string.
+    printed = _secret_shaped_gate_runs(validation_results, base_dir=base_dir)
+    if printed:
+        raise ImplementationDeliveryRefusal("apply_gate", f"gate_output_secret_shaped:{'; '.join(printed)[:300]}")
     # The recorded runs are the agent's output, on the ledger and in the
     # stamp (round 5): scanned HERE, before the push, on exactly the rows
     # the stamp carries, with the scanner the submit uses.

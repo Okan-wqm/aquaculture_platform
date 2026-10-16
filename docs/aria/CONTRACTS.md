@@ -2726,7 +2726,11 @@ own key>` (below). (0b, round 3) the admission
   carry) and a secret-shaped string in the suite's output refuses
   `apply_gate:gate_output_secret_shaped` before the push — the executor's artifact scrub
   hides such a string from the SUBMITTED envelope while the ledger's log keeps it raw, so the
-  submit's scan never saw what the ledger carried; (3) the change ledger's commit row;
+  submit's scan never saw what the ledger carried. Since ARIA-MEDIUM-539 the log's one writer
+  (`validation._write_run_log`) judges the raw output with the refusal set, records the verdict on
+  the run's row (`output_secret_scan`, counts only) and writes the output redacted: the refusal is
+  decided from that verdict and the published `validation_run_logs` surface never holds the
+  string; (3) the change ledger's commit row;
   (4) `git push
 origin refs/heads/<branch>` with the
   delivery credential's environment (`GH_TOKEN` + the env-only `gh auth git-credential` helper)

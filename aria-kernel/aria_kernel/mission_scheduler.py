@@ -95,6 +95,16 @@ WIP_SLOT_HELD = "wip_slot_held"
 ALL_MISSIONS_WAITING = "all_open_missions_waiting"
 SELECTED = "selected"
 
+# Which ordering decided among the eligible missions (ARIA-MEDIUM-101), named
+# on the decision like every other outcome. The Thompson draws when the
+# effectiveness ledger has history; the static rank when it has none; the
+# static rank BECAUSE the ledger could not be read (`ranking_fault` names the
+# fault class). Before this the third case was the first one silently, and a
+# defect in the ranker read as an unreadable ledger.
+RANKING_THOMPSON = "thompson_draws"
+RANKING_STATIC = "static_rank"
+RANKING_LEDGER_UNREADABLE = "static_rank_ledger_unreadable"
+
 
 @dataclass(frozen=True)
 class SkippedMission:
@@ -119,9 +129,12 @@ class SchedulerDecision:
     considered: int = 0
     wip_cap: int = DEFAULT_WIP_CAP
     decided_at: str = ""
+    # Set only when eligible missions were ranked (outcome SELECTED).
+    ranking: str = ""
+    ranking_fault: str = ""
 
     def as_event(self) -> dict[str, Any]:
-        return {
+        event = {
             "schema_version": 1,
             "schema": SCHEDULER_SCHEMA,
             "outcome": self.outcome,
@@ -131,7 +144,11 @@ class SchedulerDecision:
             "wip_cap": self.wip_cap,
             "skipped": [row.as_row() for row in self.skipped],
             "decided_at": self.decided_at,
+            "ranking": self.ranking,
         }
+        if self.ranking_fault:
+            event["ranking_fault"] = self.ranking_fault
+        return event
 
 
 def _parse_instant(value: Any) -> datetime | None:
@@ -197,38 +214,56 @@ def _rank(mission: dict[str, Any]) -> tuple[int, int, str, str]:
     )
 
 
-def _thompson_source_draws(root: Path, decided_at: str) -> dict[str, float]:
+@dataclass(frozen=True)
+class SourceRanking:
+    """The source ordering for one decision: its name, the draws, the fault."""
+
+    ranking: str
+    draws: dict[str, float] = field(default_factory=dict)
+    fault: str = ""
+
+
+def _source_ranking(root: Path, decided_at: str) -> SourceRanking:
     """One seeded Beta draw per source_kind, from the effectiveness ledger.
 
     Reward = cycles_merged / cycles_minted (a merge is the only outcome that
-    proves a source's work was worth the slot). Missing or unreadable ledger
-    → {} and the caller falls back to the static rank; the scheduler must
-    never fail on its own tiebreaker.
-    """
-    try:
-        from .calibrated_intelligence import deterministic_seed, thompson_rank
-        from .knowledge_graph import rank_pressure_sources
+    proves a source's work was worth the slot). No history → the static rank;
+    an unreadable ledger → the static rank, named with the fault class, so the
+    scheduler never fails on its own tiebreaker for a fault outside the code.
 
+    ARIA-MEDIUM-101 — only the reader's declared fault set
+    (`effectiveness_reader_faults`) is absorbed, and only around the read.
+    The draw is pure arithmetic over the rows (`thompson_rank`,
+    `deterministic_seed` raise nothing of their own), so anything it raises
+    is a kernel defect and raises here. The previous guard caught
+    `(OSError, ValueError, KeyError, TypeError)` around both, and a defect in
+    the ranker became an empty draw set — the laundering class B1 removed
+    from the pressure and cycle readers (2026-09-12).
+    """
+    from .calibrated_intelligence import deterministic_seed, thompson_rank
+    from .knowledge_graph import effectiveness_reader_faults, rank_pressure_sources
+
+    try:
         # `root` is the tools root; the ledger is a tools-root surface.
         # `root.parent` only reached it on a `<workspace>/aria-tools` layout
         # and never on the lane's `<store>/tools` (B4, 2026-09-12).
         rows = rank_pressure_sources(base_dir=root)
-        if not rows:
-            return {}
-        ranked = thompson_rank(
-            [
-                {
-                    "key": str(row.get("source_type")),
-                    "successes": int(row.get("cycles_merged", 0) or 0),
-                    "trials": int(row.get("cycles_minted", 0) or 0),
-                }
-                for row in rows
-            ],
-            seed=deterministic_seed("mission_scheduler", decided_at[:10]),
-        )
-        return {row["key"]: row["draw"] for row in ranked}
-    except (OSError, ValueError, KeyError, TypeError):
-        return {}
+    except effectiveness_reader_faults() as exc:
+        return SourceRanking(RANKING_LEDGER_UNREADABLE, fault=type(exc).__name__)
+    if not rows:
+        return SourceRanking(RANKING_STATIC)
+    ranked = thompson_rank(
+        [
+            {
+                "key": str(row.get("source_type")),
+                "successes": int(row.get("cycles_merged", 0) or 0),
+                "trials": int(row.get("cycles_minted", 0) or 0),
+            }
+            for row in rows
+        ],
+        seed=deterministic_seed("mission_scheduler", decided_at[:10]),
+    )
+    return SourceRanking(RANKING_THOMPSON, {row["key"]: row["draw"] for row in ranked})
 
 
 def select_next_mission(
@@ -269,7 +304,8 @@ def select_next_mission(
             continue
         eligible.append(mission)
 
-    def decide(outcome: str, selected: dict[str, Any] | None = None) -> SchedulerDecision:
+    def decide(outcome: str, selected: dict[str, Any] | None = None,
+               ranking: SourceRanking | None = None) -> SchedulerDecision:
         decision = SchedulerDecision(
             outcome=outcome,
             selected=selected,
@@ -277,6 +313,8 @@ def select_next_mission(
             considered=len(missions),
             wip_cap=wip_cap,
             decided_at=decided_at,
+            ranking=ranking.ranking if ranking is not None else "",
+            ranking_fault=ranking.fault if ranking is not None else "",
         )
         if record:
             append_tools_governance(root, "mission_schedule_decided", decision.as_event())
@@ -305,7 +343,8 @@ def select_next_mission(
     # tried. Seeded by the decision DAY, never wall-clock: a replayed
     # decision ranks identically. Static SOURCE_RANK remains the fallback
     # (no ledger, or a source the ledger has never seen).
-    source_draws = _thompson_source_draws(root, decided_at)
+    ranking = _source_ranking(root, decided_at)
+    source_draws = ranking.draws
     if source_draws:
         eligible.sort(
             key=lambda m: (
@@ -323,17 +362,21 @@ def select_next_mission(
     winner, *rest = eligible
     for mission in rest:
         skipped.append(SkippedMission(str(mission.get("mission_id") or ""), SKIP_NOT_SELECTED))
-    return decide(SELECTED, winner)
+    return decide(SELECTED, winner, ranking)
 
 
 __all__ = [
     "ALL_MISSIONS_WAITING",
     "NO_OPEN_MISSIONS",
+    "RANKING_LEDGER_UNREADABLE",
+    "RANKING_STATIC",
+    "RANKING_THOMPSON",
     "SCHEDULER_SCHEMA",
     "SELECTED",
     "SOURCE_RANK",
     "SchedulerDecision",
     "SkippedMission",
+    "SourceRanking",
     "WIP_SLOT_HELD",
     "select_next_mission",
 ]

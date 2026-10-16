@@ -883,7 +883,11 @@ record` CHILD passed the reason through the operator CLI's free-text `--reason` 
   named, each with the digest it was judged at, deleted before the journal; a symlinked component
   refuses the submit), and the hashes. The verdict (`judge_claim_submission`) reduces every other
   reason to its code for all its consumers. `integrity verify` and every publish refuse
-  `refused_output_present`: a file under `outputs/` whose bytes hash to a refused digest.
+  `refused_output_present`: a file under `outputs/` whose bytes hash to a refused digest. The
+  implementation delivery reaches the same owner (ARIA-HIGH-540): a `result_admissible` refusal
+  whose verdict carries one of those codes (`ImplementationDeliveryRefusal.rejection_codes`,
+  `withholds_output`) is submitted by the executor before it escalates, so the row is recorded
+  and its sources deleted; that row, not a release, ends the claim.
 
 ---
 

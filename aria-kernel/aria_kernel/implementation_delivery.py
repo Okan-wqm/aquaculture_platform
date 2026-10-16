@@ -151,8 +151,13 @@ A refusal at any stage is by name (``ImplementationDeliveryRefusal``:
 envelope mint left it; the executor records it, escalates to
 HUMAN_REQUIRED and releases the claim under a request-class reason — a
 retry cannot deliver the same branch again (``implementation_branch_exists``
-refuses the next attempt before a turn is spent), so a person decides. The
-``admission`` and ``credential`` stages (``HOST_STAGES``) are the
+refuses the next attempt before a turn is spent), so a person decides. A
+``result_admissible`` verdict that judged the envelope a credential leak
+(``ImplementationDeliveryRefusal.withholds_output``, ARIA-HIGH-540) is
+SUBMITTED by the executor before it escalates: the submit is the kernel's one
+withholding owner, so the refused envelope and transcript are deleted under a
+withheld row the publish gate reads, and the row, not a release, makes the
+claim terminal. The ``admission`` and ``credential`` stages (``HOST_STAGES``) are the
 exception: they say nothing about the request (the host's window, the
 host's sandbox, the lane's credential source), so the executor releases
 them harness-class (``implementation_delivery_unavailable``) — and decides
@@ -385,14 +390,32 @@ def deadline_refusal(*, job_deadline_epoch: float | None, worst_case_seconds: in
 
 
 class ImplementationDeliveryRefusal(Exception):
-    """The delivery could not complete; ``stage`` and ``reason`` name why."""
+    """The delivery could not complete; ``stage`` and ``reason`` name why.
 
-    def __init__(self, stage: str, reason: str) -> None:
+    ``rejection_codes`` are the codes of the kernel's own verdict on the
+    envelope when the refusal IS that verdict (``result_admissible``,
+    ``result_rejected``), and empty for every other refusal.
+    """
+
+    def __init__(self, stage: str, reason: str, *, rejection_codes: Sequence[str] = ()) -> None:
         if stage not in DELIVERY_STAGES:
             raise ValueError(f"unknown delivery stage {stage!r}")
         super().__init__(f"{stage}:{reason}")
         self.stage = stage
         self.reason = reason
+        self.rejection_codes: tuple[str, ...] = tuple(rejection_codes)
+
+    @property
+    def withholds_output(self) -> bool:
+        """ARIA-HIGH-540 — the verdict judged the envelope's bytes a credential
+        leak (any of ``agent_invocations.CREDENTIAL_REFUSAL_CODES``, the one
+        closed set): those bytes must not outlive the refusal. The kernel's
+        only withholding owner is the submit (``_build_rejection_row``,
+        ``_withhold_submission_sources``), so the executor submits a refusal
+        this answers True for before it escalates it; nothing else does."""
+        from .agent_invocations import CREDENTIAL_REFUSAL_CODES
+
+        return bool(CREDENTIAL_REFUSAL_CODES.intersection(self.rejection_codes))
 
 
 @dataclass(frozen=True)
@@ -871,6 +894,7 @@ def deliver_implementation(
         raise ImplementationDeliveryRefusal(
             RESULT_ADMISSIBLE_STAGE,
             f"result_rejected:{codes}:reasons={len(judgment.reasons)}:{_first_line(judgment.reasons[0], limit=200)}",
+            rejection_codes=judgment.rejection_codes,
         )
 
     # 2. The apply gate, contained: validation at the branch HEAD in this

@@ -10,8 +10,53 @@
  * WHAT: ↓/↑ next/previous row, Home/End first/last, → opens a closed row or
  * moves into an open one, ← closes an open row or moves to its parent,
  * Enter/Space activate (select) the row. Focus moves; selection does not.
+ * The roving tab stop (one `tabIndex=0` row) may only sit on a row that is
+ * rendered right now — `isRendered` decides that from the current tree, the
+ * open set and the equipment rows each open container reported as drawn.
  */
 import type { KeyboardEvent } from 'react';
+
+import type { FacilityNodeKind, FacilityTree } from './facilityTree';
+
+/** A tab-stop candidate: the last focused, the selected or the first row. */
+export interface RowRef {
+  kind: FacilityNodeKind;
+  key: string;
+  parentKey: string | null;
+}
+
+/** Equipment row keys each open container currently draws, by container key. */
+export type RenderedEquipment = ReadonlyMap<string, ReadonlySet<string>>;
+
+export function isRendered(
+  tree: FacilityTree,
+  expanded: ReadonlySet<string>,
+  renderedEquipment: RenderedEquipment,
+  row: RowRef | null,
+): row is RowRef {
+  if (!row) return false;
+  if (row.kind === 'equipment') {
+    // Reported only by a mounted EquipmentRows, i.e. an open container whose
+    // ancestors are open too — so membership alone means "on screen".
+    return row.parentKey !== null && (renderedEquipment.get(row.parentKey)?.has(row.key) ?? false);
+  }
+  // A container is re-read from the current tree: it may have been deleted or
+  // moved under another parent since it was focused.
+  const node = tree.byKey.get(row.key);
+  if (!node) return false;
+  let parentKey = node.parentKey;
+  while (parentKey !== null) {
+    const parent = tree.byKey.get(parentKey);
+    if (!parent || !expanded.has(parent.key)) return false;
+    parentKey = parent.parentKey;
+  }
+  return true;
+}
+
+/** Whether a container reported the same drawn equipment rows as before. */
+export function sameKeys(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  return a.size === b.size && [...a].every((key) => b.has(key));
+}
 
 export interface TreeRowKeyContext {
   /** The `role="tree"` element the row lives in. */

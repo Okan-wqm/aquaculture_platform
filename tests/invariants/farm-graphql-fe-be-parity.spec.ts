@@ -55,9 +55,10 @@ const CROSS_SUBGRAPH_FIELDS: Record<string, string> = {
   // measures (FARM-HIGH-384; a farm-side bindableChannels is FARM-MEDIUM-385).
   dataChannelsBySensor: 'sensor-service',
   // apps/sensor-service/src/process/resolvers/process.resolver.ts
-  // The facility structure page lists the process diagrams a site,
-  // department or piece of equipment takes part in (FE-MEDIUM-336); the
-  // diagrams belong to sensor-service, whose editor the page links out to.
+  // (`@Query(() => ProcessListType, { name: 'processes' })`, tenant-scoped).
+  // The facility structure page lists the process diagrams a site, department
+  // or piece of equipment takes part in
+  // (web/modules/farm-module/src/graphql/processFlows.operations.ts).
   processes: 'sensor-service',
 };
 

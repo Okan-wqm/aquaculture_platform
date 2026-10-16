@@ -27,6 +27,8 @@ export function NodeHeader({
     <header className="flex flex-col gap-1.5">
       <nav aria-label={t('facilityStructure.path')}>
         <ol className="flex flex-wrap items-center gap-1 text-sm">
+          {/* An ancestor step is a ghost Button at md — the shared Button's 40px
+              touch size (xs is 24px) — with the design's accent code text inside. */}
           {path.map((step, index) => (
             <li key={step.key} className="flex items-center gap-1">
               {index > 0 ? (
@@ -42,8 +44,6 @@ export function NodeHeader({
                   {step.code}
                 </span>
               ) : (
-                // md: the shared Button's 40px touch size (xs is 24px), with
-                // the design's accent code text inside.
                 <Button variant="ghost" size="md" onClick={() => onSelect(step)}>
                   <span className="font-semibold tracking-wide text-primary-700 dark:text-primary-300">
                     {step.code}

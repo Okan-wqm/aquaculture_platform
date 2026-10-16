@@ -118,26 +118,6 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -178,26 +158,6 @@ jobs:
       (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 40
     # continue-on-error removed: lint failures must block PR merge.
     # BEFORE: lint errors showed green in GitHub — no signal to reviewers or authors.
@@ -357,8 +317,12 @@ jobs:
     # pull-requests: read — a merge group carries no PR body; the entity-diff
     # witness reads its waiver from the queued pull request (see the step
     # "Resolve the queued pull request's body").
+    # packages: read — the nats service and the sensor-ingestion NATS
+    # testcontainer pull the GHCR mirror of .github/manifests/ci-images.json
+    # with this job's GITHUB_TOKEN (INFRA-HIGH-227).
     permissions:
       contents: read
+      packages: read
       pull-requests: read
     runs-on: ubuntu-latest
     # Raised from 40 to 45 when the integration lane joined this job
@@ -378,18 +342,21 @@ jobs:
     timeout-minutes: 45
     # continue-on-error removed: failing tests must block PR merge.
     # BEFORE: broken unit tests were invisible to reviewers — PRs merged with red tests.
+    # Only NATS: "Run tests (affected only)" points NATS_URL at it for the
+    # event-bus specs. No step reaches Redis (every Redis client in a spec is
+    # mocked), so this job declares no redis service. Each declared image is a
+    # pull before the first step (INFRA-HIGH-225). A service nothing reaches
+    # fails tests/invariants/ci-service-containers-used.spec.ts.
+    # The image is the GHCR mirror pinned in .github/manifests/ci-images.json,
+    # pulled with this job's GITHUB_TOKEN: anonymous Docker Hub and ECR Public
+    # pulls share a per-IP quota across GitHub-hosted runners (INFRA-HIGH-227).
+    # tests/invariants/ci-image-registry.spec.ts holds this ref to the manifest.
     services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
+        image: ghcr.io/okan-wqm/aquaculture_platform/ci/nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         ports:
           - 4222:4222
           - 8222:8222
@@ -402,6 +369,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      # The sensor-ingestion NATS testcontainer (apps/sensor-ingestion/tests/
+      # policy_integration.rs) pulls the same GHCR mirror through the Docker
+      # credentials this writes; testcontainers reads ~/.docker/config.json.
+      - name: Login to GHCR for mirrored CI images
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -647,26 +622,6 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.farm_checks_required == 'true'
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -787,26 +742,6 @@ jobs:
       (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -876,26 +811,6 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.has_changes == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 20
     continue-on-error: false
     steps:
@@ -957,26 +872,6 @@ jobs:
     needs: detect-changes
     # No `has_changes` gate — infra/compose/NATS drift must always fire.
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1422,26 +1317,6 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.infra_image_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -1483,26 +1358,6 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.dependency_audit_required == 'true'
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1670,26 +1525,6 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.sensor_checks_required == 'true'
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1731,26 +1566,6 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.rust_checks_required == 'true'
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1792,26 +1607,6 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.sensor_checks_required == 'true'
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1865,26 +1660,6 @@ jobs:
       - build
     if: always()
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     timeout-minutes: 5
     steps:
       - name: Fail on skipped, cancelled or failed Sens dependencies

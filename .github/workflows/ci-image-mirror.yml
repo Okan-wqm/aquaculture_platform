@@ -1,0 +1,124 @@
+name: CI Image Mirror
+
+# INFRA-HIGH-227: copies every image in .github/manifests/ci-images.json into GHCR under this
+# repository, by digest, so CI never pulls a third-party image anonymously. Anonymous pulls
+# from Docker Hub (INFRA-HIGH-213) and from ECR Public share a per-source-IP quota with every
+# tenant on the GitHub-hosted runner egress IPs, and CI failed with `toomanyrequests` whatever
+# the change. An authenticated GHCR pull does not draw on that quota.
+#
+# Only a digest the mirror does not hold yet touches the upstream registry, once. Every later
+# run finds `<mirror>@<digest>` present and only re-verifies it.
+#
+# Content addressing is what makes it safe to run this on a pull request with packages: write.
+# Consumers pin `<mirror>:<tag>@<digest>`, and a digest names exactly one manifest, so a branch
+# can add a digest but cannot change what an already-pinned digest resolves to. The tag is
+# pushed for readability; no consumer resolves by tag. A fork's GITHUB_TOKEN cannot write
+# packages, so a new digest from a fork lands through a same-repository branch.
+#
+# The copy keeps the upstream index byte-for-byte: no `--annotation`. An
+# org.opencontainers.image.source annotation would change the digest every consumer pins. A
+# package first pushed by this repository's workflow GITHUB_TOKEN is linked to this repository,
+# which is what lets a consumer job's own GITHUB_TOKEN (packages: read) pull it.
+#
+# No docker/setup-buildx-action: `imagetools` runs in the runner's preinstalled buildx CLI
+# against the registries directly, and a docker-container builder would pull moby/buildkit
+# from Docker Hub anonymously (INFRA-HIGH-214).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/manifests/ci-images.json'
+      - '.github/workflows/ci-image-mirror.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/manifests/ci-images.json'
+      - '.github/workflows/ci-image-mirror.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# A copy is idempotent and keyed by digest, so a superseded PR run can be cancelled. A main
+# run is the mirror's verdict of record and always finishes.
+concurrency:
+  group: ci-image-mirror-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  mirror:
+    name: mirror CI images to GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Login to GHCR
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Copy each manifest digest and verify it
+        env:
+          CI_IMAGES_MANIFEST: .github/manifests/ci-images.json
+        run: |
+          set -euo pipefail
+          prefix="ghcr.io/${GITHUB_REPOSITORY,,}/ci"
+          entries="$(jq -r '.images[] | [.name, .upstream, .digest, .mirror, .tag] | @tsv' "$CI_IMAGES_MANIFEST")"
+          if [ -z "$entries" ]; then
+            echo "::error::${CI_IMAGES_MANIFEST} lists no images"
+            exit 1
+          fi
+
+          index_digest() {
+            docker buildx imagetools inspect "$1" --format '{{json .Manifest.Digest}}' | tr -d '"'
+          }
+
+          # Entries arrive on fd 3 so no docker call in the loop can consume them from stdin.
+          while IFS=$'\t' read -r -u 3 name upstream digest mirror tag; do
+            ref="${mirror}:${tag}@${digest}"
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
+              || [ "$mirror" != "${prefix}/${name}" ] \
+              || [ "$upstream" != "docker.io/library/${name}:${tag}" ]; then
+              echo "::error::Malformed ${CI_IMAGES_MANIFEST} entry ${name}:${tag} (digest=${digest} mirror=${mirror} upstream=${upstream})"
+              exit 1
+            fi
+
+            # Already mirrored: any retag reads from GHCR itself, never upstream.
+            if [ "$(index_digest "${mirror}@${digest}" 2>/dev/null || true)" = "$digest" ]; then
+              source_ref="${mirror}@${digest}"
+              action="present"
+            else
+              source_ref="${upstream}@${digest}"
+              action="copied from ${source_ref}"
+            fi
+
+            if [ "$(index_digest "${mirror}:${tag}" 2>/dev/null || true)" != "$digest" ]; then
+              if [ "$action" = "present" ]; then
+                action="retagged from ${source_ref}"
+              fi
+              for attempt in 1 2 3; do
+                if docker buildx imagetools create --tag "${mirror}:${tag}" "$source_ref"; then
+                  break
+                fi
+                if [ "$attempt" -eq 3 ]; then
+                  echo "::error::Copy of ${source_ref} to ${mirror}:${tag} failed 3 times"
+                  exit 1
+                fi
+                sleep $((attempt * 30))
+              done
+            fi
+
+            mirrored="$(index_digest "${mirror}@${digest}")"
+            tagged="$(index_digest "${mirror}:${tag}")"
+            if [ "$mirrored" != "$digest" ] || [ "$tagged" != "$digest" ]; then
+              echo "::error::Mirror digest mismatch for ${name}:${tag}: manifest=${digest} by-digest=${mirrored} by-tag=${tagged}"
+              exit 1
+            fi
+            echo "verified ${ref} (${action})"
+            echo "- \`${ref}\` (${action})" >> "$GITHUB_STEP_SUMMARY"
+          done 3<<< "$entries"

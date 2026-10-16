@@ -16,7 +16,8 @@ import { useI18n } from '@aquaculture/shared-ui';
 import React, { useCallback, useRef, useState } from 'react';
 
 import { EquipmentRows } from './EquipmentRows';
-import type { ContainerNode, FacilityNode, FacilityNodeKind, FacilityTree } from './facilityTree';
+import type { ContainerNode, FacilityNode, FacilityTree } from './facilityTree';
+import { isRendered, sameKeys, type RenderedEquipment, type RowRef } from './treeKeyboard';
 import { TreeNoteRow, TreeRow } from './TreeRow';
 
 export interface FacilityTreeViewProps {
@@ -26,44 +27,6 @@ export interface FacilityTreeViewProps {
   labelledBy: string;
   onToggle: (key: string) => void;
   onSelect: (node: FacilityNode) => void;
-}
-
-interface RowRef {
-  kind: FacilityNodeKind;
-  key: string;
-  parentKey: string | null;
-}
-
-/** Equipment row keys each open container currently draws, by container key. */
-type RenderedEquipment = ReadonlyMap<string, ReadonlySet<string>>;
-
-function isRendered(
-  tree: FacilityTree,
-  expanded: ReadonlySet<string>,
-  renderedEquipment: RenderedEquipment,
-  row: RowRef | null,
-): row is RowRef {
-  if (!row) return false;
-  if (row.kind === 'equipment') {
-    // Reported only by a mounted EquipmentRows, i.e. an open container whose
-    // ancestors are open too — so membership alone means "on screen".
-    return row.parentKey !== null && (renderedEquipment.get(row.parentKey)?.has(row.key) ?? false);
-  }
-  // A container is re-read from the current tree: it may have been deleted or
-  // moved under another parent since it was focused.
-  const node = tree.byKey.get(row.key);
-  if (!node) return false;
-  let parentKey = node.parentKey;
-  while (parentKey !== null) {
-    const parent = tree.byKey.get(parentKey);
-    if (!parent || !expanded.has(parent.key)) return false;
-    parentKey = parent.parentKey;
-  }
-  return true;
-}
-
-function sameKeys(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
-  return a.size === b.size && [...a].every((key) => b.has(key));
 }
 
 export function FacilityTreeView({

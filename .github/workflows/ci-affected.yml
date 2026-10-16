@@ -272,26 +272,9 @@ jobs:
       (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
+    # No service containers: the gate is `npm run gates:type-check-spec` (tsc,
+    # no redis/nats client). Like docs-check, the inherited redis+nats blocks
+    # only put the job at the mercy of the public-ECR anonymous pull quota.
     timeout-minutes: 40
     # continue-on-error removed: TypeScript errors must block PR merge.
     # BEFORE: type errors merged silently — caught only at runtime or in production.
@@ -1950,26 +1933,11 @@ jobs:
       - sens-enterprise-validation
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
+    # No service containers: this gate only asserts the conclusions of its
+    # `needs` (pure shell, no redis/nats client). Like docs-check and
+    # type-check, the inherited redis+nats blocks put a 2-minute status check
+    # at the mercy of the public-ECR anonymous pull quota — when it ran out,
+    # merge-gate itself failed at container init and nothing could merge.
     timeout-minutes: 2
     steps:
       - name: Assert required PR checks

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .canonical_path import matches_repo_glob, normalize_repo_relpath
+from .canonical_path import expand_repo_glob, matches_repo_glob, normalize_repo_relpath
 from .change_paths import (
     CHANGE_PATHS_SOURCE,
     CHANGE_STATUSES,
@@ -32,6 +32,17 @@ HUMAN_MERGE_DECISION = "human_merge_lane"
 # status is unknown is never L1; its lane reads as STATUS_UNKNOWN_LANE and
 # the change is refused by name.
 L1_ADMISSIBLE_STATUSES: frozenset[str] = frozenset({"A", "M"})
+# ARIA-CRITICAL-215 — the file kinds an L1 entry may name. M-6.1
+# (docs/aria/MISSION_SPEC.md) admits documentation and NEW UNIT-TEST FILES
+# to L1, nothing else: a mock, setup module, snapshot or fixture beside a
+# test changes what existing specs run against (jest resolves a new
+# `__mocks__/<pkg>.ts` for every spec of its project with no `jest.mock`
+# call). Every alternative of an L1 glob must end in one of these suffixes,
+# so a glob that names a whole tree is refused at load time; changing this
+# set is a change to the M-6.1 charter. Known residue, accepted: a
+# `*.spec.ts` placed inside `__mocks__` registers a mock named `<x>.spec`,
+# which no import resolves to.
+L1_FILE_SUFFIXES: tuple[str, ...] = (".spec.ts", ".spec.tsx", ".test.ts", ".test.tsx", ".md")
 STATUS_UNKNOWN_LANE = "status_unknown"
 RISK_POLICY_PATH = Path(__file__).resolve().parents[2] / "docs" / "aria" / "policy" / "risk-policy.json"
 CODEOWNERS_PATH = Path(__file__).resolve().parents[2] / ".github" / "CODEOWNERS"
@@ -383,6 +394,12 @@ def _validate_l1_lane(lane_policy: dict[str, Any]) -> None:
     non-empty subset of ``L1_ADMISSIBLE_STATUSES`` (added, modified), never a
     deletion or a type change, and a status an entry does not admit falls to
     ``disallowed_status_lane``, which is never L1.
+
+    Each entry also names only test or prose files (M-6.1): every
+    alternative ``canonical_path.expand_repo_glob`` gives for its glob, the
+    one expansion the matcher uses, must pass ``_names_test_or_prose_files``.
+    ``apps/**/__tests__/**`` is refused: it admits every mock, setup module,
+    snapshot and fixture of the tree.
     """
     entries = lane_policy.get("entries")
     if "globs" in lane_policy or not isinstance(entries, list) or not entries:
@@ -398,8 +415,29 @@ def _validate_l1_lane(lane_policy: dict[str, Any]) -> None:
             or not all(isinstance(status, str) and status in L1_ADMISSIBLE_STATUSES for status in statuses)
         ):
             raise GovernanceError(f"risk_policy_l1_entry_statuses_required:{glob}")
+        if not all(_names_test_or_prose_files(candidate) for candidate in expand_repo_glob(glob)):
+            raise GovernanceError(f"risk_policy_l1_entry_not_test_or_prose:{glob}")
     if lane_policy.get("disallowed_status_lane") not in ("L2", "L3"):
         raise GovernanceError("risk_policy_l1_disallowed_status_lane_must_be_L2_or_L3")
+
+
+def _names_test_or_prose_files(candidate: str) -> bool:
+    """Whether every path the brace-free glob ``candidate`` matches is a
+    test or prose file: its last segment holds no ``**`` (which crosses
+    ``/``) and no brace (a nested group or an unbalanced brace the one
+    expander kept literally; refused, not guessed at), and ends in a member
+    of ``L1_FILE_SUFFIXES``. The suffix characters are literal and the
+    matcher anchors them at the end of the path (``\\Z``, never ``$``, which
+    also matched before a trailing newline), so every path the matcher
+    matches against that segment ends in the suffix.
+    """
+    last = candidate.rsplit("/", 1)[-1]
+    return (
+        "**" not in last
+        and "{" not in last
+        and "}" not in last
+        and last.endswith(L1_FILE_SUFFIXES)
+    )
 
 
 def classify_path(path: str, *, status: str | None, policy: dict[str, Any] | None = None) -> str | None:
@@ -578,6 +616,7 @@ __all__ = [
     "CODEOWNERS_PATH",
     "CodeownersRule",
     "L1_ADMISSIBLE_STATUSES",
+    "L1_FILE_SUFFIXES",
     "RiskPolicyVerdict",
     "STATUS_UNKNOWN_LANE",
     "change_entries",

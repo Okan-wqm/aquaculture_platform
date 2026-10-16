@@ -25,9 +25,9 @@
       "reason_code": "docs_and_new_unit_tests_low_risk",
       "entries": [
         { "glob": "docs/**/*.md", "allowed_statuses": ["A", "M"] },
-        { "glob": "apps/**/__tests__/**", "allowed_statuses": ["A"] },
-        { "glob": "libs/**/__tests__/**", "allowed_statuses": ["A"] },
-        { "glob": "web/**/__tests__/**", "allowed_statuses": ["A"] },
+        { "glob": "apps/**/__tests__/**/*.{spec,test}.{ts,tsx}", "allowed_statuses": ["A"] },
+        { "glob": "libs/**/__tests__/**/*.{spec,test}.{ts,tsx}", "allowed_statuses": ["A"] },
+        { "glob": "web/**/__tests__/**/*.{spec,test}.{ts,tsx}", "allowed_statuses": ["A"] },
         { "glob": "apps/**/src/**/*.spec.ts", "allowed_statuses": ["A"] },
         { "glob": "libs/**/src/**/*.spec.ts", "allowed_statuses": ["A"] },
         { "glob": "web/**/src/**/*.spec.ts", "allowed_statuses": ["A"] }

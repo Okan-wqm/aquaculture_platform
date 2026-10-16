@@ -59,18 +59,67 @@ class L1LaneTableTests(unittest.TestCase):
                 self.assertEqual(_lane(path), "L1")
         self.assertEqual(_lane("docs/runbooks/x.md", "M"), "L1")
 
+    def test_new_unit_test_files_under_unit_trees_stay_l1(self) -> None:
+        for path in (
+            "apps/farm-service/src/batch/__tests__/x.spec.ts",
+            "web/modules/farm-module/src/__tests__/x.test.tsx",
+            "web/modules/farm-module/src/__tests__/x.spec.tsx",
+            "libs/backend-common/src/__tests__/x.test.ts",
+            "apps/farm-service/src/__tests__/nested/deeper/x.spec.ts",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(_lane(path), "L1")
+
+    def test_test_support_files_under_unit_trees_are_never_l1(self) -> None:
+        # ARIA-CRITICAL-215 — M-6.1 admits new unit-test FILES. A mock, a
+        # setup module, a snapshot or a fixture added under a unit-test tree
+        # changes what EXISTING specs run against (jest resolves a new
+        # `__mocks__/<pkg>.ts` for every spec of its project, with no
+        # `jest.mock` call), so it is supervised source under any status.
+        for path in (
+            "apps/auth-service/src/__tests__/__mocks__/bcrypt.ts",
+            "libs/backend-common/src/__tests__/__mocks__/ioredis.ts",
+            "web/modules/dashboard/src/__tests__/__mocks__/react-query.ts",
+            "apps/farm-service/src/__tests__/setup-env.ts",
+            "apps/farm-service/src/__tests__/__snapshots__/x.spec.ts.snap",
+            "apps/farm-service/src/__tests__/fixtures/a.json",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(_lane(path), "L2")
+                self.assertFalse(_ever_l1(path))
+
+    def test_a_status_less_support_file_reads_l2_not_status_unknown(self) -> None:
+        # A stored record (human_required_adjudication) names bare paths. A
+        # support file no L1 entry matches needs no status to be placed: it
+        # reads L2 like any supervised source, so it is adjudicable as L2
+        # source is, while a bare new-test path still needs the status only
+        # git holds.
+        for path in (
+            "apps/auth-service/src/__tests__/__mocks__/bcrypt.ts",
+            "apps/farm-service/src/__tests__/fixtures/a.json",
+        ):
+            with self.subTest(path=path):
+                verdict = classify_change([path])
+                self.assertTrue(verdict.valid)
+                self.assertEqual(verdict.lane, "L2")
+                self.assertNotIn("risk_change_status_unknown", verdict.reason_codes)
+        verdict = classify_change(["apps/farm-service/src/__tests__/x.spec.ts"])
+        self.assertIn("risk_change_status_unknown", verdict.reason_codes)
+
     def test_l1_is_the_explicit_allowlist(self) -> None:
-        # ARIA-CRITICAL-215 — the unreviewed lane is a short list of trees
-        # the operator admitted (plan 037, 2026-09-26): prose under docs/
-        # and the unit-test trees of apps/, libs/ and web/. Widening it is a
-        # policy change this test makes visible.
+        # ARIA-CRITICAL-215 — the unreviewed lane is a short list the
+        # operator admitted (plan 037, 2026-09-26; M-6.1): prose under docs/
+        # and new unit-test FILES of apps/, libs/ and web/ (never the support
+        # files beside them). Widening it is a policy change this test makes
+        # visible; `_validate_l1_lane` refuses an entry that names anything
+        # but a test or prose file.
         self.assertEqual(
             [entry["glob"] for entry in risk_policy.load_risk_policy()["lanes"]["L1"]["entries"]],
             [
                 "docs/**/*.md",
-                "apps/**/__tests__/**",
-                "libs/**/__tests__/**",
-                "web/**/__tests__/**",
+                "apps/**/__tests__/**/*.{spec,test}.{ts,tsx}",
+                "libs/**/__tests__/**/*.{spec,test}.{ts,tsx}",
+                "web/**/__tests__/**/*.{spec,test}.{ts,tsx}",
                 "apps/**/src/**/*.spec.ts",
                 "libs/**/src/**/*.spec.ts",
                 "web/**/src/**/*.spec.ts",

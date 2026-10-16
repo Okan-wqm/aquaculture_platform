@@ -2097,6 +2097,21 @@ def invoke_claude_cli(
         # attempt closure and its governance-audit callback; the helper owns
         # the single-retry-bounded control flow.
         def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
+            # ARIA-LOW-445 — the spawn lane's route, on the ledger BEFORE the
+            # rung runs: a rung that hangs until its lease runs out is judged
+            # by its own provider's outage (`attempt_providers_by_claim`), not
+            # the ladder head's. The native lane's route is its reserved
+            # attempt row. No rung runs without its record, as on the native
+            # lane: a refused write is a refused spawn, released by name.
+            if route_model is None and tools_dir is not None and claim_id:
+                from aria_kernel.independence_check import record_claim_route
+                from aria_kernel.tool_registry import GovernanceError as _RouteRecordRefused
+
+                try:
+                    record_claim_route(tools_dir, request_id=request_id, claim_id=claim_id,
+                                       provider=_provider_for_model(model), model=model, lane="spawn")
+                except _RouteRecordRefused as exc:
+                    raise ClaudeCliUnavailable(f"claim_route_record_unavailable: {exc}") from exc
             # The auth failover is written in tier names; the runtime that
             # serves a tier is the fleet's decision. A Z.ai tier (its own HTTP
             # transport since the 2026-09-11 policy) never reaches the claude

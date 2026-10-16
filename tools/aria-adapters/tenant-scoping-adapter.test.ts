@@ -96,6 +96,38 @@ writeFileSync(
   'utf8',
 );
 
+// ARIA-HIGH-045 — a finding names the symbol it sits in, so two unscoped
+// reads in one file are told apart by WHERE in the code they are (which
+// method), not by their line number, which every edit above them moves.
+writeFileSync(
+  join(root, 'two-methods.service.ts'),
+  `
+    import { Batch } from './batch.entity';
+    interface Repository<T> { findOne(input: unknown): Promise<T | null>; }
+    export class TwoMethodsService {
+      constructor(private readonly repo: Repository<Batch>) {}
+      loadOne(id: string, tenantId: string) {
+        return this.repo.findOne({ where: { id } });
+      }
+      loadTwo(id: string, tenantId: string) {
+        return [id].map((key) => {
+          const owner = tenantId;
+          return this.repo.findOne({ where: { id: key } });
+        });
+      }
+    }
+    export const loadArrow = (repo: Repository<Batch>, id: string, tenantId: string) => {
+      return repo.findOne({ where: { id } });
+    };
+    export function loadFree(repo: Repository<Batch>, id: string, tenantId: string) {
+      return repo.findOne({ where: { id } });
+    }
+    declare const moduleRepo: Repository<Batch>;
+    export const moduleLoad = moduleRepo.findOne({ where: { id: 'm' } });
+  `,
+  'utf8',
+);
+
 const output = analyzeTenantScoping({ roots: ['apps/farm-service/src'], includeRepositoryReadFindings: true }, workspace);
 
 assert.equal(output.metadata.adapter, 'tenant-scoping-adapter');
@@ -118,5 +150,28 @@ assert.equal(output.findings.some((finding) => finding.path.endsWith('/safe.serv
 assert.equal(output.findings.some((finding) => finding.path.endsWith('safe-tenant-manager.service.ts')), false);
 assert.equal(output.findings.some((finding) => finding.path.endsWith('array-find.service.ts')), false);
 assert.equal(output.findings.some((finding) => finding.rule === 'tenant_guard_missing'), false);
+
+type TenantFinding = (typeof output.findings)[number];
+function symbolOf(finding: TenantFinding | undefined): unknown {
+  assert.ok(finding, 'the expected finding exists');
+  assert.ok(finding.details, 'a tenant finding carries details');
+  return finding.details.enclosingSymbol;
+}
+const twoMethodSymbols = output.findings
+  .filter((finding) => finding.path.endsWith('two-methods.service.ts'))
+  .map((finding) => symbolOf(finding))
+  .sort();
+assert.deepEqual(twoMethodSymbols, [
+  '<module>',
+  'TwoMethodsService.loadOne',
+  'TwoMethodsService.loadTwo.<anonymous>',
+  'loadArrow',
+  'loadFree',
+]);
+assert.equal(symbolOf(output.findings.find((finding) => finding.path.endsWith('unsafe.service.ts'))), 'UnsafeService.load');
+assert.equal(
+  symbolOf(output.findings.find((finding) => finding.rule === 'tenant_raw_query_missing_tenant_predicate')),
+  'RawQueryService.load',
+);
 
 process.stdout.write('tenant-scoping-adapter tests passed\n');

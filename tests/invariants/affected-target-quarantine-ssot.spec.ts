@@ -27,11 +27,26 @@
  * the file's contents, proves that refusal behaviourally, keeps every finding
  * id real and unresolved, keeps every key a real Nx project, and ratchets the
  * `test` quarantine count downward.
+ *
+ * # THE LINT QUARANTINE IS A MEASURED ONE (HL-lint-quarantine, 2026-10-16)
+ *
+ * The 40 `lint` entries all expired on 2026-10-31, one date chosen without a
+ * measurement and owned by the operator, and the writer refuses the WHOLE
+ * file once one entry is past its date: from 2026-11-01 every affected lane
+ * would have failed on every PR and main push. Now each lint entry carries a
+ * committed measurement (scripts/ci/lint-debt-measurement.json, written by
+ * scripts/ci/lint-debt-measure.mjs), its expiry is at most the bound computed
+ * from that measurement by the same exported function renewal uses, the
+ * measurement is anchored on a commit in HEAD's history, a project that
+ * measured clean is not in the quarantine, a project with security-class lint
+ * (getRepository, JWT_SECRET, the aquaculture tenant/SSRF/XSS rules) is never
+ * renewed, and the lint count is ratcheted downward like the test count.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { ORPHAN_MD_HEADING_REGEX } from '../../tools/gates/finding-registry-store';
 import { nxProjects } from './helpers/nx';
@@ -40,6 +55,8 @@ import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const POLICY_PATH = join(REPO_ROOT, 'scripts/ci/affected-target-policy.json');
 const WRITER_PATH = join(REPO_ROOT, 'scripts/ci/write-affected-target-report.mjs');
+const MEASURE_PATH = join(REPO_ROOT, 'scripts/ci/lint-debt-measure.mjs');
+const LINT_DEBT_LIB = join(REPO_ROOT, 'scripts/ci/lib/lint-debt.mjs');
 const REGISTRY_PATH = join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 const ORPHAN_MD_PATH = join(REPO_ROOT, 'docs/reviews/orphan-findings.md');
 
@@ -50,6 +67,15 @@ const ORPHAN_MD_PATH = join(REPO_ROOT, 'docs/reviews/orphan-findings.md');
  * the map emptied and this ceiling is zero (PROC-MEDIUM-025).
  */
 const MAX_TEST_QUARANTINE = 0;
+
+/**
+ * Ratchet: the number of projects whose `lint` target the affected lane does
+ * NOT gate. Lower it when a key is deleted; never raise it. Measured
+ * 2026-10-16 (scripts/ci/lint-debt-measurement.json): 36 of the 40 entries
+ * linted clean and left the quarantine; backend-common, event-bus, outbox and
+ * storage carry debt-class errors under ORPHAN-HIGH-588.
+ */
+const MAX_LINT_QUARANTINE = 4;
 
 interface QuarantineEntry {
   readonly owner: string;
@@ -165,6 +191,106 @@ function policyWith(entry: unknown): unknown {
   return { version: 2, targets: { test: { knownUnstableProjects: { invariants: entry } } } };
 }
 
+interface ProcessOutcome {
+  readonly status: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+function runNode(args: readonly string[]): ProcessOutcome {
+  try {
+    const stdout = execFileSync('node', [...args], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return { status: 0, stdout, stderr: '' };
+  } catch (error) {
+    const failure = error as { status?: number; stdout?: string; stderr?: string };
+    return {
+      status: failure.status ?? 1,
+      stdout: failure.stdout ?? '',
+      stderr: failure.stderr ?? '',
+    };
+  }
+}
+
+/**
+ * `lint-debt-measure.mjs --verify` over the live files, or over a fixture
+ * policy and measurement (`null` measurement: no measurement file at all).
+ */
+function runLintVerify(fixture?: {
+  readonly policy: unknown;
+  readonly measurement: unknown;
+}): ProcessOutcome {
+  if (fixture === undefined) return runNode([MEASURE_PATH, '--verify']);
+  const dir = mkdtempSync(join(tmpdir(), 'lint-debt-verify-'));
+  try {
+    const policyPath = join(dir, 'policy.json');
+    const measurementPath = join(dir, 'measurement.json');
+    writeFileSync(policyPath, JSON.stringify(fixture.policy));
+    if (fixture.measurement !== null) {
+      writeFileSync(measurementPath, JSON.stringify(fixture.measurement));
+    }
+    return runNode([
+      MEASURE_PATH,
+      '--verify',
+      '--policy',
+      policyPath,
+      '--measurement',
+      measurementPath,
+    ]);
+  } finally {
+    removeFixtureTree(dir);
+  }
+}
+
+/**
+ * Call one export of scripts/ci/lib/lint-debt.mjs, the module renewal and
+ * verification both use, so these expectations pin THE function rather than
+ * a copy of its arithmetic. Arguments and result cross as JSON.
+ */
+function callLintDebt(name: string, ...args: readonly unknown[]): ProcessOutcome {
+  const program = [
+    `const lib = await import(${JSON.stringify(pathToFileURL(LINT_DEBT_LIB).href)});`,
+    `const result = lib[${JSON.stringify(name)}](...${JSON.stringify(args)});`,
+    'process.stdout.write(JSON.stringify(result));',
+  ].join('\n');
+  return runNode(['--input-type=module', '-e', program]);
+}
+
+function lintDebt<T>(name: string, ...args: readonly unknown[]): T {
+  const outcome = callLintDebt(name, ...args);
+  if (outcome.status !== 0) throw new Error(`${name} failed: ${outcome.stderr}`);
+  return JSON.parse(outcome.stdout) as T;
+}
+
+const HEAD_SHA = execFileSync('git', ['rev-parse', 'HEAD'], {
+  cwd: REPO_ROOT,
+  encoding: 'utf8',
+}).trim();
+
+function lintPolicyWith(entry: unknown): unknown {
+  return { version: 2, targets: { lint: { knownUnstableProjects: { invariants: entry } } } };
+}
+
+function lintMeasurementOf(measured: unknown, sha: string = HEAD_SHA): unknown {
+  return {
+    schema: 'aqua.lint-debt-measurement.v1',
+    measured_at: '2026-10-16',
+    measured_sha: sha,
+    projects: measured === undefined ? {} : { invariants: measured },
+  };
+}
+
+/** 26 blocking problems measured 2026-10-16: 14 d + 2 × 7 d, so the bound is 2026-11-13. */
+const DEBT_26 = { debt: 26, security: 0, security_rules: {} };
+const lintEntry = (expiresOn: string): QuarantineEntry => ({
+  ...validEntry,
+  owner: 'claude',
+  expires_on: expiresOn,
+});
+
 describe('affected-lane quarantine is tracked debt', () => {
   it('is on the structured-entry policy version', () => {
     expect(readPolicy().version).toBe(2);
@@ -242,5 +368,250 @@ describe('affected-lane quarantine is tracked debt', () => {
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain('version 1 is not 2');
     });
+  });
+});
+
+describe('the lint quarantine is a measured one', () => {
+  it('measures every lint entry, keeps each within its bound and anchors the measurement in this history', () => {
+    const result = runLintVerify();
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
+  it('ratchets the lint quarantine downward', () => {
+    const count = Object.keys(readPolicy().targets['lint']?.knownUnstableProjects ?? {}).length;
+    expect(count).toBeLessThanOrEqual(MAX_LINT_QUARANTINE);
+  });
+
+  it('keeps the policy, its measurement and the rules that renew it owner-reviewed', () => {
+    // An agent renewal keeps lint exemptions alive with no person deciding;
+    // the operator's CODEOWNERS review of these files is that decision.
+    const owned = new Set(
+      readFileSync(join(REPO_ROOT, '.github/CODEOWNERS'), 'utf8')
+        .split('\n')
+        .map((line) => line.trim().split(/\s+/))
+        .filter(([path, owner]) => path !== undefined && owner === '@Okan-wqm')
+        .map(([path]) => path),
+    );
+    const unowned = [
+      'scripts/ci/affected-target-policy.json',
+      'scripts/ci/lint-debt-measurement.json',
+      'scripts/ci/lint-debt-measure.mjs',
+      'scripts/ci/lib/lint-debt.mjs',
+      'eslint.config.mjs',
+    ].filter((path) => !owned.has(path));
+    expect(unowned).toEqual([]);
+  });
+
+  it('bounds an expiry by the measured debt: 14 days plus 7 per 25 problems, at most 90', () => {
+    expect(lintDebt('lintQuarantineExpiryBound', '2026-10-16', 1)).toBe('2026-11-06');
+    expect(lintDebt('lintQuarantineExpiryBound', '2026-10-16', 25)).toBe('2026-11-06');
+    expect(lintDebt('lintQuarantineExpiryBound', '2026-10-16', 26)).toBe('2026-11-13');
+    expect(lintDebt('lintQuarantineExpiryBound', '2026-10-16', 100_000)).toBe('2027-01-14');
+    expect(callLintDebt('lintQuarantineExpiryBound', '2026-10-16', 0).status).not.toBe(0);
+  });
+
+  describe('verification refuses a quarantine it cannot trust', () => {
+    it('accepts an expiry on the measured bound', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2026-11-13')),
+        measurement: lintMeasurementOf(DEBT_26),
+      });
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+    });
+
+    it('refuses an expiry one day past the measured bound', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2026-11-14')),
+        measurement: lintMeasurementOf(DEBT_26),
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('expires 2026-11-14, after 2026-11-13');
+    });
+
+    it('refuses a lint entry that has no measurement', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2026-10-31')),
+        measurement: lintMeasurementOf(undefined),
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('lint/invariants: has no measurement');
+    });
+
+    it('refuses lint entries when no measurement file exists', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2026-10-31')),
+        measurement: null,
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('1 lint quarantine entries have no measurement');
+    });
+
+    it('never renews security-class lint, whatever the expiry', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2026-10-17')),
+        measurement: lintMeasurementOf({
+          debt: 26,
+          security: 3,
+          security_rules: { 'no-restricted-syntax': 3 },
+        }),
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('3 security-class lint problems (no-restricted-syntax)');
+    });
+
+    it('refuses an entry whose project measured clean', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2026-10-31')),
+        measurement: lintMeasurementOf({ debt: 0, security: 0, security_rules: {} }),
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('measured clean; delete the entry');
+    });
+
+    it('refuses a measurement taken on a commit outside this history', () => {
+      const result = runLintVerify({
+        policy: lintPolicyWith(lintEntry('2026-11-13')),
+        measurement: lintMeasurementOf(DEBT_26, 'f'.repeat(40)),
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('is not an ancestor of HEAD');
+    });
+  });
+
+  it('renews from a measurement: clean entries leave, security-class entries stay as they were, the rest get the bound', () => {
+    const before = lintEntry('2026-10-31');
+    const renewal = lintDebt<{
+      policy: { targets: { lint: { knownUnstableProjects: Record<string, QuarantineEntry> } } };
+      deleted: string[];
+      renewed: string[];
+      refused: string[];
+      unmeasured: string[];
+    }>(
+      'renewLintQuarantine',
+      {
+        version: 2,
+        targets: {
+          lint: { knownUnstableProjects: { clean: before, risky: before, owed: before } },
+        },
+      },
+      {
+        schema: 'aqua.lint-debt-measurement.v1',
+        measured_at: '2026-10-16',
+        measured_sha: HEAD_SHA,
+        projects: {
+          clean: { debt: 0, security: 0 },
+          risky: { debt: 26, security: 1 },
+          owed: { debt: 26, security: 0 },
+        },
+      },
+    );
+    expect(renewal.deleted).toEqual(['clean']);
+    expect(renewal.refused).toEqual(['risky']);
+    expect(renewal.renewed).toEqual(['owed']);
+    expect(renewal.unmeasured).toEqual([]);
+    const lint = renewal.policy.targets.lint.knownUnstableProjects;
+    expect(Object.keys(lint).sort()).toEqual(['owed', 'risky']);
+    expect(lint['risky']).toEqual(before);
+    expect(lint['owed']).toEqual({
+      owner: 'claude',
+      reason: `26 blocking eslint problems measured 2026-10-16 at ${HEAD_SHA.slice(0, 12)}; paid down per project under INFRA-LOW-001.`,
+      expires_on: '2026-11-13',
+      finding_id: 'INFRA-LOW-001',
+    });
+  });
+
+  it('counts unknown restricted-syntax messages, unknown plugin rules and unparsed files as security-class', () => {
+    const allowed = ['not a security selector'];
+    const isSecurity = (message: unknown): boolean =>
+      lintDebt<boolean>('isSecurityClassMessage', message, allowed);
+    expect(
+      isSecurity({ ruleId: 'no-restricted-syntax', message: 'a tenant-isolation selector' }),
+    ).toBe(true);
+    expect(isSecurity({ ruleId: 'no-restricted-syntax', message: 'not a security selector' })).toBe(
+      false,
+    );
+    expect(isSecurity({ ruleId: 'aquaculture/a-rule-added-tomorrow' })).toBe(true);
+    expect(isSecurity({ ruleId: 'aquaculture/no-unverified-tenant-param' })).toBe(true);
+    expect(isSecurity({ ruleId: 'aquaculture/no-direct-event-publish' })).toBe(false);
+    expect(isSecurity({ ruleId: '@typescript-eslint/no-implied-eval' })).toBe(true);
+    expect(isSecurity({ ruleId: 'import/order' })).toBe(false);
+    expect(isSecurity({ ruleId: null, fatal: true })).toBe(true);
+    expect(isSecurity({ ruleId: null })).toBe(false);
+  });
+
+  it('counts a warning as debt only past the invocation --max-warnings', () => {
+    const messages = [
+      { severity: 1, ruleId: 'import/order' },
+      { severity: 1, ruleId: 'import/order' },
+      { severity: 2, ruleId: 'no-console' },
+    ];
+    const gated = lintDebt<{ debt: number; rules: Record<string, number> }>(
+      'summarizeLintInvocations',
+      [{ results: [{ messages }], maxWarnings: 0 }],
+      [],
+    );
+    expect(gated.debt).toBe(3);
+    expect(gated.rules).toEqual({ 'import/order': 2, 'no-console': 1 });
+    const ungated = lintDebt<{ debt: number; rules: Record<string, number> }>(
+      'summarizeLintInvocations',
+      [{ results: [{ messages }], maxWarnings: null }],
+      [],
+    );
+    expect(ungated.debt).toBe(1);
+    expect(ungated.rules).toEqual({ 'no-console': 1 });
+  });
+
+  it('measures exactly the eslint invocation a lint target runs, and refuses one it cannot reproduce', () => {
+    expect(
+      lintDebt(
+        'lintInvocations',
+        {
+          name: 'lib',
+          root: 'libs/lib',
+          targets: { lint: { executor: '@nx/eslint:lint', options: {} } },
+        },
+        {},
+      ),
+    ).toEqual([{ cwd: '.', mode: 'argv', args: ['libs/lib'], maxWarnings: null }]);
+    expect(
+      lintDebt(
+        'lintInvocations',
+        {
+          name: 'web',
+          root: 'web/x',
+          targets: {
+            lint: {
+              executor: 'nx:run-commands',
+              options: { cwd: 'web/x', command: 'npm run lint' },
+            },
+          },
+        },
+        { 'web/x': { lint: 'eslint src --max-warnings 0' } },
+      ),
+    ).toEqual([
+      { cwd: 'web/x', mode: 'shell', command: 'eslint src --max-warnings 0', maxWarnings: 0 },
+    ]);
+    const chained = callLintDebt(
+      'lintInvocations',
+      {
+        name: 'chained',
+        root: 'x',
+        targets: {
+          lint: { executor: 'nx:run-commands', options: { command: 'tsc -b && eslint .' } },
+        },
+      },
+      {},
+    );
+    expect(chained.status).not.toBe(0);
+    expect(chained.stderr).toContain('not one plain eslint invocation');
+    const custom = callLintDebt(
+      'lintInvocations',
+      { name: 'custom', root: 'x', targets: { lint: { executor: '@acme/lint:run', options: {} } } },
+      {},
+    );
+    expect(custom.status).not.toBe(0);
+    expect(custom.stderr).toContain('is not measurable');
   });
 });

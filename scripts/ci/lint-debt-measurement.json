@@ -1,0 +1,471 @@
+{
+  "schema": "aqua.lint-debt-measurement.v1",
+  "measured_at": "2026-10-16",
+  "measured_sha": "340df8b7e30e778805477a08d6883ca26a99f342",
+  "projects": {
+    "@aqua/cargo": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint tools/executors/cargo/src/**/*.ts"]
+    },
+    "@aquaculture/aquamobil": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/apps/aquamobil) eslint src"]
+    },
+    "@aquaculture/e2e-tests": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": [
+        "eslint e2e/global-setup.ts e2e/global-teardown.ts e2e/jest.config.ts e2e/playwright.config.ts e2e/playwright.water-chemistry.config.ts e2e/playwright.aquamobil.config.ts e2e/fixtures/**/*.ts e2e/helpers/**/*.ts e2e/tests/*.ts",
+        "eslint e2e/tests/integration/**/*.ts",
+        "eslint e2e/tests/mobile/**/*.ts",
+        "eslint e2e/tests/modules/farm/**/*.ts",
+        "eslint e2e/tests/modules/hr/**/*.ts",
+        "eslint e2e/tests/modules/sensor/**/*.ts",
+        "eslint e2e/tests/modules/tenant-admin/**/*.ts",
+        "eslint e2e/tests/security/**/*.ts",
+        "eslint e2e/tests/water-chemistry/**/*.ts",
+        "eslint e2e/tests/workflow/**/*.ts"
+      ]
+    },
+    "@aquaculture/farm-shared": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint libs/farm-shared/src/**/*.{ts,tsx}"]
+    },
+    "@aquaculture/node-components": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint libs/node-components/src/**/*.{ts,tsx}"]
+    },
+    "@platform/mcp-farm-management": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": [
+        "eslint mcp/farm-management/src/**/*.ts mcp/farm-management/vitest.config.ts"
+      ]
+    },
+    "admin-api-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/admin-api-service/**/*.ts"]
+    },
+    "admin-panel": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/modules/admin-panel) eslint src"]
+    },
+    "ai-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/ai-service/**/*.ts"]
+    },
+    "alert-engine": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/alert-engine/**/*.ts"]
+    },
+    "aqua-scripts": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint scripts/**/*.{ts,tsx,js,mjs,cjs}"]
+    },
+    "auth-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/auth-service/**/*.ts"]
+    },
+    "backend-common": {
+      "finding_id": "ORPHAN-HIGH-588",
+      "errors": 791,
+      "warnings": 49,
+      "debt": 791,
+      "security": 0,
+      "rules": {
+        "@nx/enforce-module-boundaries": 24,
+        "@typescript-eslint/no-base-to-string": 8,
+        "@typescript-eslint/no-dynamic-delete": 4,
+        "@typescript-eslint/no-empty-function": 2,
+        "@typescript-eslint/no-explicit-any": 7,
+        "@typescript-eslint/no-extraneous-class": 10,
+        "@typescript-eslint/no-floating-promises": 3,
+        "@typescript-eslint/no-inferrable-types": 10,
+        "@typescript-eslint/no-invalid-void-type": 1,
+        "@typescript-eslint/no-misused-promises": 1,
+        "@typescript-eslint/no-non-null-assertion": 99,
+        "@typescript-eslint/no-require-imports": 9,
+        "@typescript-eslint/no-unnecessary-type-assertion": 54,
+        "@typescript-eslint/no-unsafe-argument": 22,
+        "@typescript-eslint/no-unsafe-assignment": 110,
+        "@typescript-eslint/no-unsafe-call": 42,
+        "@typescript-eslint/no-unsafe-function-type": 15,
+        "@typescript-eslint/no-unsafe-member-access": 115,
+        "@typescript-eslint/no-unsafe-return": 20,
+        "@typescript-eslint/no-unused-expressions": 1,
+        "@typescript-eslint/no-unused-vars": 17,
+        "@typescript-eslint/no-useless-constructor": 1,
+        "@typescript-eslint/prefer-promise-reject-errors": 1,
+        "@typescript-eslint/require-await": 76,
+        "@typescript-eslint/restrict-template-expressions": 2,
+        "import/order": 131,
+        "no-console": 1,
+        "no-control-regex": 3,
+        "no-useless-escape": 2
+      },
+      "security_rules": {},
+      "measured_with": ["(cd libs/backend-common) eslint ."]
+    },
+    "billing-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/billing-service/**/*.ts"]
+    },
+    "config-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/config-service/**/*.ts"]
+    },
+    "dashboard": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/modules/dashboard) eslint src"]
+    },
+    "db-migrate": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/db-migrate/**/*.{ts,tsx}"]
+    },
+    "event-bus": {
+      "finding_id": "ORPHAN-HIGH-588",
+      "errors": 25,
+      "warnings": 0,
+      "debt": 25,
+      "security": 0,
+      "rules": {
+        "@nx/enforce-module-boundaries": 7,
+        "@typescript-eslint/no-explicit-any": 3,
+        "@typescript-eslint/no-non-null-assertion": 6,
+        "@typescript-eslint/no-unsafe-assignment": 4,
+        "@typescript-eslint/no-unsafe-return": 3,
+        "@typescript-eslint/no-unused-vars": 2
+      },
+      "security_rules": {},
+      "measured_with": ["(cd platform/libs/event-bus) eslint ."]
+    },
+    "event-contracts": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint libs/event-contracts"]
+    },
+    "event-store-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/event-store-service/**/*.ts"]
+    },
+    "farm-module": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/modules/farm-module) eslint src"]
+    },
+    "farm-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/farm-service/**/*.ts"]
+    },
+    "gateway-api": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/gateway-api/**/*.ts"]
+    },
+    "hr-module": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/modules/hr-module) eslint src"]
+    },
+    "hr-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/hr-service/**/*.ts"]
+    },
+    "hydroponics-module": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/modules/hydroponics-module) eslint ."]
+    },
+    "hydroponics-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/hydroponics-service/**/*.ts"]
+    },
+    "invariants": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd tests/invariants) eslint ."]
+    },
+    "messaging-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/messaging-service/**/*.ts"]
+    },
+    "migration-harness": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint libs/migration-harness/src/**/*.ts"]
+    },
+    "node-red-project": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd infrastructure/simulators/nodered/data) eslint . --max-warnings=0"]
+    },
+    "notification-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/notification-service/**/*.ts"]
+    },
+    "observability-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/observability-service/**/*.ts"]
+    },
+    "outbox": {
+      "finding_id": "ORPHAN-HIGH-588",
+      "errors": 13,
+      "warnings": 0,
+      "debt": 13,
+      "security": 0,
+      "rules": {
+        "@nx/enforce-module-boundaries": 2,
+        "@typescript-eslint/no-non-null-assertion": 4,
+        "@typescript-eslint/no-unnecessary-type-assertion": 2,
+        "@typescript-eslint/require-await": 1,
+        "import/order": 4
+      },
+      "security_rules": {},
+      "measured_with": ["(cd platform/libs/outbox) eslint ."]
+    },
+    "sensor-module": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/modules/sensor-module) eslint src"]
+    },
+    "sensor-service": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["eslint apps/sensor-service/**/*.ts"]
+    },
+    "shared-ui": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/shared-ui) node ../../tools/toolchain/run.mjs eslint src"]
+    },
+    "shell": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": ["(cd web/shell) eslint src"]
+    },
+    "storage": {
+      "finding_id": "ORPHAN-HIGH-588",
+      "errors": 17,
+      "warnings": 1,
+      "debt": 17,
+      "security": 0,
+      "rules": {
+        "@typescript-eslint/no-non-null-assertion": 2,
+        "@typescript-eslint/no-unsafe-assignment": 1,
+        "@typescript-eslint/no-unsafe-member-access": 6,
+        "@typescript-eslint/require-await": 2,
+        "import/order": 6
+      },
+      "security_rules": {},
+      "measured_with": ["(cd libs/storage) eslint ."]
+    },
+    "tenant-admin": {
+      "finding_id": "INFRA-MEDIUM-154",
+      "errors": 0,
+      "warnings": 0,
+      "debt": 0,
+      "security": 0,
+      "rules": {},
+      "security_rules": {},
+      "measured_with": [
+        "(cd web/modules/tenant-admin) eslint src --report-unused-disable-directives --max-warnings 0"
+      ]
+    }
+  }
+}

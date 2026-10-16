@@ -769,6 +769,12 @@ verb can record are listed at the end.
   rules) is never renewed. The others expire at a bound computed from their debt (at most 90 days),
   owner claude. The invariant spec checks measurement, bound and anchor, and ratchets the lint
   count. The policy file gets a CODEOWNERS line. Deadline: 2026-10-30.
+- **Landed (ARIA order chain, `HL-lint-quarantine`):** `scripts/ci/lint-debt-measure.mjs` measured
+  all 40 entries at `340df8b7e`. 36 linted clean and left; backend-common (791), event-bus (25),
+  outbox (13) and storage (17) were renewed with zero security-class problems, after the three
+  getRepository errors in backend-common were paid down. `affected-target-quarantine-ssot.spec.ts`
+  runs `--verify` (measurement, bound, anchor, renewability), ratchets the lint count to 4 and pins
+  the CODEOWNERS lines. It was red on the old policy and is green on the renewed one.
 
 ### INFRA-HIGH-223 — security lint in a quarantined project is checked only at measurement
 

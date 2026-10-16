@@ -7,17 +7,29 @@
     "target_agent": "aria-evidence-judge"
   },
   "kernel_disposition": {
-    "disposition": "expired_operator_required",
-    "expiry_fault_class": "unclassified",
+    "disposition": "expired_reminted",
+    "expiry_fault_class": "harness",
     "expiry_reason": "anchor_expired",
-    "reason": "producer_unverified:anchor_stale",
-    "role": "evidence_judgment"
+    "reason": "subject_live",
+    "role": "evidence_judgment",
+    "successor_request_id": "AIR-aria-evidence-judge-31680192120b",
+    "supersedes": {
+      "disposition": "expired_operator_required",
+      "expiry_fault_class": "unclassified",
+      "expiry_reason": "anchor_expired",
+      "reason": "producer_unverified:anchor_stale",
+      "role": "evidence_judgment"
+    },
+    "target_sha": "b743e27c3fed0cd90c1987ffd0bf16787aea56fc"
   },
   "reason": "request 'AIR-aria-evidence-judge-37af91b975b2' expired ANCHOR_STALE unclaimed; kernel disposition expired_operator_required: producer_unverified:anchor_stale",
   "recorded_at": "2026-10-09T08:12:54Z",
   "request_id": "AIR-aria-evidence-judge-37af91b975b2",
+  "resolution_note": "kernel disposition expired_reminted: subject_live",
+  "resolved_at": "2026-10-16T10:03:26Z",
+  "resolved_by": "kernel",
   "schema_version": 1,
   "severity": "HIGH",
   "sla_deadline": "2026-10-12T08:12:54Z",
-  "status": "open"
+  "status": "resolved"
 }

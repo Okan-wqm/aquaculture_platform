@@ -45,6 +45,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .secret_scrub import view_alternation
+
 # ARIA's own scratch prefixes under the system temp dir. Anything not on
 # this list is somebody else's file and the janitor never touches it —
 # the blast radius is bounded by a literal, not by a heuristic.
@@ -179,7 +181,8 @@ DOCKER_SOCKET = Path("/var/run/docker.sock")
 # Personal tokens by GitHub's documented prefixes: classic, fine-grained,
 # OAuth and user-to-server. An App installation token (ghs_) is the identity
 # T2 is meant to hold; ARIA_GH_TOKEN was the operator's PAT (ARIA-CRITICAL-246).
-_PERSONAL_TOKEN_RE = re.compile(r"\b(?:ghp_|github_pat_|gho_|ghu_)[A-Za-z0-9_]{20,}")
+# The habitat view of secret_scrub.CREDENTIAL_SHAPES (ARIA-HIGH-519).
+_PERSONAL_TOKEN_RE = view_alternation("habitat")
 _RETIRED_PAT_KEY_RE = re.compile(r"(?m)^\s*(?:export\s+)?ARIA_GH_TOKEN\s*=")
 _PRIVATE_KEY_HEADER = b"-----BEGIN OPENSSH PRIVATE KEY-----"
 _MAX_KEY_FILES = 256

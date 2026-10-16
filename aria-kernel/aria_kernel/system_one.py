@@ -51,7 +51,7 @@ from typing import Any, Callable, Mapping
 from .jev_runtime import JevReply, JevUnavailable
 from .jev_runtime import post_systemone as _transport
 from .ledger import append_declared_jsonl
-from .secret_scrub import scrub_text_with_count
+from .secret_scrub import pii_shape_names, scrub_text_with_count, view_alternation
 from .tool_registry import bound_workspace_root, ensure_tools_dir, utc_now
 
 REGISTRY_RELPATH = ("aria-config", "system-one-questions.json")
@@ -88,27 +88,10 @@ _OUTLINE_LINE = re.compile(
     r"^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(?:pub(?:\([^)]*\))?\s+)?"
     r"(?:def|class|function|interface|type|enum|struct|trait|impl|fn|mod)\b"
 )
-# Credential shapes beyond the kernel's secret patterns (secret_scrub): the
+# A wider credential net than the redact view's types, as one alternation:
+# the system_one view of secret_scrub.CREDENTIAL_SHAPES (ARIA-HIGH-519). The
 # backstop the reference-built state should never need.
-_EXTRA_SECRET = re.compile(
-    r"-----BEGIN [A-Z ]*PRIVATE KEY"
-    r"|eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
-    r"|\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}"
-    r"|\bwhsec_[A-Za-z0-9]{16,}"
-    r"|\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@"
-    r"|\bdop_v1_[a-f0-9]{64}"
-    r"|\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"
-    r"|\bnpm_[A-Za-z0-9]{36}"
-    r"|\bglpat-[A-Za-z0-9_-]{20,}"
-    r"|\bAIza[0-9A-Za-z_-]{35}"
-    r"|\bxox[abposr]-[A-Za-z0-9-]{10,}"
-    r"|hooks\.slack\.com/services/"
-    r"|\bapikey_[0-9a-f]{20,}"
-    r"|(?i:aws.{0,20}?(?:secret|access).{0,20}?[\"'=:\s][A-Za-z0-9/+=]{40}\b)"
-    r"|(?i:\bpass(?:word|wd)?\s*[:=]\s*[\"'][^\"'\s]{4,}[\"'])"
-    r"|(?m:^[+\- \t]*(?:export\s+)?[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|API_?KEY)\s*[=:]\s*\S{6,})"
-    r"|(?im:^[+\- \t]*[A-Za-z_]*pass(?:word|wd)?\s*:\s*(?!string\b|number\b|boolean\b|undefined\b|null\b|any\b)[^\s'\"{(<|][^\s]{3,}\s*$)",
-)
+_EXTRA_SECRET = view_alternation("system_one")
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
 _EMAIL_DOMAINS_ALLOWED = re.compile(
     r"(?:^|\.)(?:example\.(?:com|org|net)|example|invalid|test|localhost|users\.noreply\.github\.com|noreply\.github\.com)$",
@@ -470,7 +453,9 @@ def _egress_refusal(payload: Mapping[str, Any], state: Mapping[str, Any]) -> str
     # The state travels as one JSON string; it is scanned as the strings it
     # was built from, so a multi-line credential is still seen line by line.
     strings = _strings_of(state) + _strings_of({key: value for key, value in payload.items() if key != "state"})
-    leaked = sorted({kind for text in strings for kind in scrub_text_with_count(text)[1]} - {"email", "ipv4_octet"})
+    # Personal data is judged below with its allowlists; every other redact
+    # type is a credential.
+    leaked = sorted({kind for text in strings for kind in scrub_text_with_count(text)[1]} - pii_shape_names())
     if leaked or any(_EXTRA_SECRET.search(text) for text in strings):
         return "state_secret_shaped:" + (",".join(leaked) or "credential_shape")
     for text in strings:

@@ -404,6 +404,14 @@ verb can record are listed at the end.
   refuses; that set's header-only rows cannot redact. Three more tables restate credential shapes.
 - **Planned fix:** bucket `R6-credential-shapes` (landing L3): one `CREDENTIAL_SHAPES` table with a
   detect and a redact pattern per family; every consumer derives its view. Deadline: 2026-10-31.
+- **Landed (L3, `R6-credential-shapes`):** `secret_scrub.CREDENTIAL_SHAPES` is the one table (49
+  rows with detect, value-spanning redact, views and a fixture), proven at import: no row or view may
+  leave a refusal hit or any part of a fixture's secret. New redact rows cover PEM key blocks,
+  `aws_secret_access_key` values and named secret assignments; `gh[pousr]_` tokens are redacted.
+  `write_sanitized_json` refuses, writing nothing, a credential-shaped mapping key and any refusal
+  hit in the bytes it would write. The refusal set, DLP, `system_one`, habitat, vault and harness
+  views read the table. `test_credential_shapes_single_owner.py` was red before and is green after.
+  The views the redact view does not cover are ARIA-MEDIUM-546; run artifacts are ARIA-LOW-547.
 
 ### ARIA-HIGH-520 — the closure policy's missing refs hide the Mode-A blocker
 
@@ -702,6 +710,30 @@ verb can record are listed at the end.
   `sens-api-gateway/src/scripting/bytecode_e2e_tests.rs` (no `#[cfg(test)]`, gated by its declaring
   mod) is harness there and not spec evidence for the twin.
 - **Planned fix:** the twin asks the TypeScript reader or drops its Rust rule. Deadline: 2026-11-15.
+
+### ARIA-MEDIUM-546 — the redact view covers only the refuse view
+
+- **Raised by:** the `R6-credential-shapes` reviewers, accepted by its fix round (landing L3).
+- **Problem:** 22 rows that the dlp, `system_one` and harness views of `secret_scrub.CREDENTIAL_SHAPES`
+  detect (Stripe, Slack, npm, GitLab, Google and DigitalOcean tokens, JWTs, password lines, among
+  others) come out of `artifact_safety.scrub_text` unredacted, because `validate_credential_table`
+  checks the redact view only against redact and refuse rows. The GitHub token family has 7 rows
+  with 7 regexes, the habitat row lacks `ghr_`, and `github_writes._TOKEN_CLASSES` (`:38-44`) is a
+  second prefix list.
+- **Planned fix:** every credential row gets a value-spanning redact pattern, checked for
+  over-redaction against negative fixtures, and the table requires the redact view to cover every
+  credential-kind detect view. No wave-2 bucket owns it. Deadline: 2026-10-31.
+
+### ARIA-LOW-547 — run artifacts are written with no credential refusal
+
+- **Raised by:** the `R6-credential-shapes` fix round (landing L3).
+- **Problem:** `runtime_artifacts.write_run_artifact` writes `scrub_json(payload)` to the published
+  `runtime_artifact_hot` surface with no key check and no byte scan, so a credential in a mapping key,
+  or a refusal hit that JSON escaping forms, is published verbatim. `write_sanitized_json` now refuses
+  both.
+- **Planned fix:** the writer runs `refuse_credential_keys` and `refuse_unredacted_credentials`,
+  and an `ArtifactSafetyError` takes the existing `write_failed` path. Owner: the next bucket
+  holding `runtime_artifacts.py` (R-NEW-runs-bound) or `R6-transcripts`. Deadline: 2026-10-31.
 
 ## Registry amendments recorded at the L1 registry step
 

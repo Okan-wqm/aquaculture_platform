@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ..ledger import append_declared_jsonl, load_declared_jsonl
+from ..secret_scrub import view_alternation
 from ..tool_registry import ensure_tools_dir, utc_now
 from .scope_policy import MAX_RESPONSE_BYTES
 
@@ -29,9 +30,11 @@ EVIDENCE_KINDS = ("http_exchange", "graphql_exchange", "mqtt_exchange", "zap_rep
 RETENTION_DAYS_DEFAULT = 7
 RETENTION_DAYS_CONFIRMED_CRITICAL = 30
 PREVIEW_CHARS = 200
-# header/kv lines are cut to the END of the line; bare bearer/JWT-shaped values are cut too
+# header/kv lines are cut to the END of the line; bare bearer/JWT-shaped values are cut too.
+# The value shapes are the vault view of the kernel's one credential table
+# (secret_scrub.CREDENTIAL_SHAPES), never a copy kept here.
 _REDACT = re.compile(r"(?i)(authorization|cookie|set-cookie|x-api-key|token|secret|password)\s*[:=][^\r\n]*")
-_REDACT_VALUES = re.compile(r"(?i)\bbearer\s+\S+|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_.-]+")
+_REDACT_VALUES = view_alternation("vault")
 
 
 class VaultError(RuntimeError):

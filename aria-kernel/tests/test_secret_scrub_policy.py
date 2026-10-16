@@ -11,17 +11,20 @@ policy so drift fails CI instead of leaking.
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
-from aria_kernel.artifact_safety import SECRET_PATTERNS, scrub_text as artifact_scrub
-from aria_kernel.secret_scrub import (
-    scrub_text as review_scrub,
-    secret_patterns,
-)
+from aria_kernel import secret_scrub
+from aria_kernel.artifact_safety import scrub_text as artifact_scrub
+from aria_kernel.secret_scrub import scrub_text as review_scrub
 
 
 class SinglePolicyTests(unittest.TestCase):
-    def test_artifact_boundary_consums_the_central_patterns(self) -> None:
-        self.assertEqual(SECRET_PATTERNS, secret_patterns())
+    def test_artifact_boundary_runs_the_central_redactor(self) -> None:
+        # The boundary keeps no pattern set and no loop of its own: it runs
+        # the table's one redaction loop with the uniform marker.
+        with mock.patch.object(secret_scrub, "_redact_counted", wraps=secret_scrub._redact_counted) as loop:
+            artifact_scrub("x")
+        loop.assert_called_once_with(secret_scrub.shapes_in("redact"), "x", typed=False)
 
     def test_named_env_assignments_never_survive_either_scrubber(self) -> None:
         # The audit's exact reproduction strings.

@@ -22,6 +22,7 @@ structural reason instead of crashing.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,7 @@ from .enterprise_readiness import (
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl, sha256_of_canonical_json
 from .ledger_refs import ledger_ref_for_row
+from .secret_scrub import named_detectors
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 # Single spelling of the source/target surfaces so the producer and its
@@ -1203,28 +1205,18 @@ def produce_token_proof(
 # had parked this behind an operator waiver; a waiver cannot satisfy
 # the evaluator, so the ROOT fix is the scanner itself). The pattern
 # set is closed, deterministic, and secret-shaped — private key
-# headers, provider token prefixes, credential assignments. A hit
-# records the pattern NAME and location, NEVER the matched bytes.
+# headers, provider token prefixes, credential assignments: the dlp view
+# of secret_scrub.CREDENTIAL_SHAPES, the one credential table
+# (ARIA-HIGH-519). A hit records the pattern NAME and location, NEVER the
+# matched bytes.
 # --------------------------------------------------------------------------
 
-DLP_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("private_key_block", r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    ("github_token", r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}"),
-    ("github_pat", r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
-    ("aws_access_key", r"\bAKIA[0-9A-Z]{16}\b"),
-    ("stripe_live_key", r"\bsk_live_[A-Za-z0-9]{16,}"),
-    ("slack_token", r"\bxox[baprs]-[A-Za-z0-9-]{10,}"),
-    ("npm_auth_token", r"_authToken\s*=\s*\S+"),
-    ("jwt_like", r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\."),
-    ("credential_assignment", r"(?i)\b(?:api[_-]?key|secret|password|token)\b\s*[:=]\s*['\"][^'\"\s]{16,}['\"]"),
-)
+DLP_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = named_detectors("dlp")
 
 
 def scan_paths_for_secrets(paths: list[Path]) -> list[dict[str, Any]]:
     """Deterministic secret-pattern scan. Findings carry pattern NAME and
     location only — the matched bytes never leave the file."""
-    import re
-
     findings: list[dict[str, Any]] = []
     for path in paths:
         try:
@@ -1232,7 +1224,7 @@ def scan_paths_for_secrets(paths: list[Path]) -> list[dict[str, Any]]:
         except OSError as exc:
             raise GovernanceError(f"dlp_scan_unreadable:{path}:{exc.errno}")
         for name, pattern in DLP_PATTERNS:
-            for match in re.finditer(pattern, text):
+            for match in pattern.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
                 findings.append({"pattern": name, "path": str(path), "line": line})
     return findings

@@ -12,6 +12,14 @@
  * images, `ghcr.io/...` for images the org publishes). A bare `redis:7-alpine` or
  * `timescale/timescaledb-ha:...` resolves to Docker Hub and fails this spec.
  *
+ * An explicit host is necessary, not sufficient. ECR Public also limits anonymous pulls per
+ * source IP (500 GB/month, 1 pull/s, neither adjustable), and GitHub-hosted runners share
+ * egress IPs. On 2026-10-16 that quota failed most CI-Affected runs (INFRA-HIGH-225), so
+ * INFRA-HIGH-213's premise that the mirror has "no anonymous rate limit" was false. Two specs
+ * divide the work. ci-service-containers-used.spec.ts keeps only images a step actually uses.
+ * Moving the remaining images to a registry the org controls, a digest-preserving GHCR mirror,
+ * is owned by INFRA-HIGH-214.
+ *
  * The only exceptions are image families listed in DOCKER_HUB_EXCEPTIONS, each keyed to an
  * OPEN registry finding that owns moving it. Closing that finding without removing the
  * exception fails here too, so an exception cannot outlive its fix.
@@ -115,8 +123,13 @@ function openFindingIds(): Set<string> {
 describe('INVARIANT: CI images never come from Docker Hub anonymously (INFRA-HIGH-213)', () => {
   const references = [...workflowImageReferences(), ...rustTestcontainerReferences()];
 
+  // Both extractors must be live: a parse regression that returns nothing would turn every
+  // check below vacuously green. This is deliberately not a count floor. A floor of "> 30" once
+  // counted 25 service pulls that no step used as coverage, and it would have failed the PR that
+  // removed them (INFRA-HIGH-225).
   it('finds the image references it guards', () => {
-    expect(references.length).toBeGreaterThan(30);
+    expect(references.some((ref) => ref.source.startsWith('.github/workflows/'))).toBe(true);
+    expect(references.some((ref) => /\.rs:\d+$/.test(ref.source))).toBe(true);
   });
 
   it('names an explicit registry host for every image outside the tracked exceptions', () => {

@@ -34,6 +34,7 @@ const ITEM_ICONS: Readonly<Record<string, SuderraRailIconName>> = {
   'tenant-audit-log': 'scroll',
   'tenant-billing': 'card',
   'tenant-settings': 'sliders',
+  'tenant-platform': 'network',
   'farm-module': 'waves',
   'sensor-module': 'signal',
   'hr-module': 'contact',
@@ -71,6 +72,7 @@ const CHILD_ICONS: Readonly<Record<string, SuderraRailIconName>> = {
   'sensor-processes': 'network',
   'sensor-scada': 'expand',
   'hr-dashboard': 'gauge',
+  'hr-today': 'clock',
   'hr-employees': 'users',
   'hr-departments': 'contact',
   'hr-scheduling': 'calendar',
@@ -86,6 +88,8 @@ const CHILD_ICONS: Readonly<Record<string, SuderraRailIconName>> = {
   'hydroponics-user': 'user',
   'hydroponics-result': 'linechart',
   'hydroponics-pid-sim': 'workflow',
+  'tenant-architecture': 'workflow',
+  'tenant-architecture-review': 'checks',
 };
 
 function withRailIcons(items: NavigationItem[]): NavigationItem[] {
@@ -117,12 +121,15 @@ const COMMUNICATION = [
   'tenant-support',
   'tenant-announcements',
 ];
+// The Platform group (architecture document + its review) closes Account, as
+// the console design's Account › Platform group does.
 const ACCOUNT = [
   'tenant-devices',
   'tenant-database',
   'tenant-audit-log',
   'tenant-billing',
   'tenant-settings',
+  'tenant-platform',
 ];
 
 export function buildTenantRailSections({

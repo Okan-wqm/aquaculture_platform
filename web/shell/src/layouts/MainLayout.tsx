@@ -272,6 +272,22 @@ const tenantAdminBaseNavigation: NavigationDefinition[] = [
     icon: 'activity',
   },
   {
+    // The platform's static reference documents (tenant-admin): the
+    // architecture v4 and its end-to-end review. Admin-only like activity —
+    // not in DELEGATABLE_TENANT_NAV, matching the routes' adminOnly guard.
+    id: 'tenant-platform',
+    labelKey: 'nav.platform',
+    icon: 'system',
+    children: [
+      { id: 'tenant-architecture', labelKey: 'nav.architecture', path: '/tenant/architecture' },
+      {
+        id: 'tenant-architecture-review',
+        labelKey: 'nav.architectureReview',
+        path: '/tenant/architecture/review',
+      },
+    ],
+  },
+  {
     id: 'tenant-settings',
     labelKey: 'nav.settings',
     path: '/tenant/settings',
@@ -407,6 +423,9 @@ export const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
     icon: 'users',
     children: [
       { id: 'hr-dashboard', labelKey: 'nav.dashboard', path: '/hr' },
+      // Same audience as scheduling / attendance (no requiredRoles): hr-service
+      // narrows todaysAttendance to the caller's own record for non-managers.
+      { id: 'hr-today', labelKey: 'nav.today', path: '/hr/today' },
       { id: 'hr-employees', labelKey: 'nav.employees', path: '/hr/employees' },
       { id: 'hr-departments', labelKey: 'nav.departments', path: '/hr/departments' },
       { id: 'hr-scheduling', labelKey: 'nav.scheduling', path: '/hr/scheduling', icon: 'calendar' },

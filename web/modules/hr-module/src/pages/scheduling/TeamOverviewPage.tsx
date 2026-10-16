@@ -17,13 +17,13 @@ import {
 import type { WeekDay, DayEntry } from '../../types/scheduling.types';
 
 const WEEKDAYS: WeekDay[] = [
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-  'sunday',
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY',
+  'SUNDAY',
 ];
 
 interface DayCellProps {
@@ -45,7 +45,7 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
     );
   }
 
-  if (entry.entryType === 'off') {
+  if (entry.entryType === 'OFF') {
     return (
       <td
         className={cn(
@@ -63,7 +63,7 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
     );
   }
 
-  if (entry.entryType === 'leave') {
+  if (entry.entryType === 'LEAVE') {
     return (
       <td
         className={cn(
@@ -81,7 +81,7 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
     );
   }
 
-  if (entry.entryType === 'holiday') {
+  if (entry.entryType === 'HOLIDAY') {
     return (
       <td
         className={cn(
@@ -252,7 +252,7 @@ export function TeamOverviewPage() {
                         key={day}
                         className={cn(
                           'text-center px-2 py-3 text-sm font-semibold min-w-[90px]',
-                          day === 'saturday' || day === 'sunday'
+                          day === 'SATURDAY' || day === 'SUNDAY'
                             ? 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'
                             : 'text-gray-700 dark:text-gray-300',
                         )}
@@ -316,7 +316,7 @@ export function TeamOverviewPage() {
                         {/* Days */}
                         {WEEKDAYS.map((day) => {
                           const dayEntry = emp.days.find((d) => d.dayOfWeek === day);
-                          const isWeekend = day === 'saturday' || day === 'sunday';
+                          const isWeekend = day === 'SATURDAY' || day === 'SUNDAY';
                           return <DayCell key={day} entry={dayEntry} isWeekend={isWeekend} />;
                         })}
 

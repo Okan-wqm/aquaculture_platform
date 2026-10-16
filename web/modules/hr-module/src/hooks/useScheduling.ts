@@ -469,13 +469,13 @@ export type { WeekDay } from '../types/scheduling.types';
  */
 export function getWeekdayNameTR(day: WeekDay): string {
   const names: Record<WeekDay, string> = {
-    monday: 'Pazartesi',
-    tuesday: 'Salı',
-    wednesday: 'Çarşamba',
-    thursday: 'Perşembe',
-    friday: 'Cuma',
-    saturday: 'Cumartesi',
-    sunday: 'Pazar',
+    MONDAY: 'Pazartesi',
+    TUESDAY: 'Salı',
+    WEDNESDAY: 'Çarşamba',
+    THURSDAY: 'Perşembe',
+    FRIDAY: 'Cuma',
+    SATURDAY: 'Cumartesi',
+    SUNDAY: 'Pazar',
   };
   return names[day];
 }
@@ -485,13 +485,13 @@ export function getWeekdayNameTR(day: WeekDay): string {
  */
 export function getWeekdayShortTR(day: WeekDay): string {
   const names: Record<WeekDay, string> = {
-    monday: 'Pzt',
-    tuesday: 'Sal',
-    wednesday: 'Çar',
-    thursday: 'Per',
-    friday: 'Cum',
-    saturday: 'Cts',
-    sunday: 'Paz',
+    MONDAY: 'Pzt',
+    TUESDAY: 'Sal',
+    WEDNESDAY: 'Çar',
+    THURSDAY: 'Per',
+    FRIDAY: 'Cum',
+    SATURDAY: 'Cts',
+    SUNDAY: 'Paz',
   };
   return names[day];
 }

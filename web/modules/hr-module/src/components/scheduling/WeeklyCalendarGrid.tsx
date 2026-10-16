@@ -21,23 +21,23 @@ interface WeeklyCalendarGridProps {
 }
 
 const WEEKDAYS: WeekDay[] = [
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-  'sunday',
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY',
+  'SUNDAY',
 ];
 
 const WEEKDAY_LABELS: Record<WeekDay, string> = {
-  monday: 'Pazartesi',
-  tuesday: 'Sali',
-  wednesday: 'Carsamba',
-  thursday: 'Persembe',
-  friday: 'Cuma',
-  saturday: 'Cumartesi',
-  sunday: 'Pazar',
+  MONDAY: 'Pazartesi',
+  TUESDAY: 'Sali',
+  WEDNESDAY: 'Carsamba',
+  THURSDAY: 'Persembe',
+  FRIDAY: 'Cuma',
+  SATURDAY: 'Cumartesi',
+  SUNDAY: 'Pazar',
 };
 
 export function WeeklyCalendarGrid({
@@ -110,7 +110,7 @@ export function WeeklyCalendarGrid({
               aria-colindex={index + 1}
               className={cn(
                 'text-center py-2 rounded-t-lg',
-                day === 'saturday' || day === 'sunday'
+                day === 'SATURDAY' || day === 'SUNDAY'
                   ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                   : 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300',
               )}
@@ -133,7 +133,7 @@ export function WeeklyCalendarGrid({
               <div key={day} className="min-h-[60px]" role="gridcell" aria-colindex={index + 1}>
                 <ShiftCell
                   entry={entry}
-                  isEditable={isEditable && plan.status === 'draft'}
+                  isEditable={isEditable && plan.status === 'DRAFT'}
                   isSelected={entry?.id === selectedEntryId}
                   onSelect={() => entry && onSelectEntry?.(entry.id)}
                   onDrop={(shiftId, isOffDay) => handleEntryDrop(day, shiftId, isOffDay)}
@@ -196,7 +196,7 @@ export function WeeklyCalendarGrid({
       </div>
 
       {/* Status indicator */}
-      {plan.status === 'published' && (
+      {plan.status === 'PUBLISHED' && (
         <div className="mt-2 flex items-center justify-end">
           <span className="text-xs px-2 py-0.5 rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
             Yayinlandi

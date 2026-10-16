@@ -28,3 +28,6 @@ export * from './usePayroll';
 
 // Scheduling hooks
 export * from './useScheduling';
+
+// Cross-service: farm-service site responsibility (Today page)
+export * from './useSiteResponsibility';

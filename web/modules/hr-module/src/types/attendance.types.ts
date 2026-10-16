@@ -100,14 +100,17 @@ export interface ScheduleEntry extends BaseEntity {
 
 export interface AttendanceRecord extends BaseEntity {
   employeeId: string;
-  employee?: Employee;
+  // Nullable on the wire (`@Field({ nullable: true })`): graphql-js sends an
+  // absent employee or clock time as `null` — an ABSENT record has no clock-in,
+  // anyone still on shift has no clock-out.
+  employee?: Employee | null;
   date: string;
   scheduleId?: string;
   schedule?: Schedule;
   shiftId?: string;
   shift?: Shift;
-  clockIn?: string;
-  clockOut?: string;
+  clockIn?: string | null;
+  clockOut?: string | null;
   clockInMethod?: ClockMethod;
   clockOutMethod?: ClockMethod;
   clockInLocation?: GeoLocation;

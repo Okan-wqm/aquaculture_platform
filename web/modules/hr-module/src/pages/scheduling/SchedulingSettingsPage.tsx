@@ -29,13 +29,13 @@ import type { Shift, CreateShiftInput, DayOfWeek } from '../../types/attendance.
 import type { WeekDay, UpdateSchedulingSettingsInput } from '../../types/scheduling.types';
 
 const WEEKDAY_OPTIONS: { value: WeekDay; label: string }[] = [
-  { value: 'monday', label: 'Pazartesi' },
-  { value: 'tuesday', label: 'Sali' },
-  { value: 'wednesday', label: 'Carsamba' },
-  { value: 'thursday', label: 'Persembe' },
-  { value: 'friday', label: 'Cuma' },
-  { value: 'saturday', label: 'Cumartesi' },
-  { value: 'sunday', label: 'Pazar' },
+  { value: 'MONDAY', label: 'Pazartesi' },
+  { value: 'TUESDAY', label: 'Sali' },
+  { value: 'WEDNESDAY', label: 'Carsamba' },
+  { value: 'THURSDAY', label: 'Persembe' },
+  { value: 'FRIDAY', label: 'Cuma' },
+  { value: 'SATURDAY', label: 'Cumartesi' },
+  { value: 'SUNDAY', label: 'Pazar' },
 ];
 
 export function SchedulingSettingsPage() {
@@ -649,7 +649,7 @@ export function SchedulingSettingsPage() {
                   Hafta Baslangic Gunu
                 </label>
                 <select
-                  value={formData.workWeekStartDay || 'monday'}
+                  value={formData.workWeekStartDay || 'MONDAY'}
                   onChange={(e) => handleChange('workWeekStartDay', e.target.value as WeekDay)}
                   className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 >

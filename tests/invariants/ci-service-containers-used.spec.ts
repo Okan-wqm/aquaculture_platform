@@ -6,7 +6,7 @@
  *
  * The runner pulls and health-checks every `services:` image before the job's first step. For a
  * job that never talks to the service, that pull adds nothing, but it can still fail the job.
- * CI pulls these images anonymously from public.ecr.aws, and ECR Public limits anonymous pulls
+ * CI pulled these images anonymously from public.ecr.aws, and ECR Public limits anonymous pulls
  * per source IP: 500 GB/month and 1 pull/s, neither adjustable. GitHub-hosted runners share
  * their egress IPs, so other tenants spend the same quota.
  *
@@ -32,8 +32,9 @@
  * `scripts/nats/generate-nats-conf.py` and never contacts a broker, so a name match would have
  * kept its unused nats service green. A reference has to be shaped like a connection.
  *
- * The registry each remaining image comes from is ci-image-registry.spec.ts's concern
- * (INFRA-HIGH-214). This spec only asks whether the image needs to be pulled at all.
+ * The registry each remaining image comes from is ci-image-registry.spec.ts's concern: the GHCR
+ * mirror pinned in .github/manifests/ci-images.json (INFRA-HIGH-227). This spec only asks
+ * whether the image needs to be pulled at all.
  */
 
 import { execFileSync } from 'node:child_process';

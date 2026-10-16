@@ -54,10 +54,48 @@ a service that no job/step `env`, `run` or `with` reaches. A reference is a `loc
 `127.0.0.1` URL on the service's published port, a `*PORT` env var holding that port, the
 service name used as a host, or `job.services.<id>`.
 
-Remains, owned by INFRA-HIGH-214 (digest-preserving GHCR mirror, operator decision): the `test`
-job's `nats:2.10-alpine`, ci-full's `redis:7` and e2e-messaging's `redis:7-alpine` still pull
-anonymously from `public.ecr.aws` by floating tag. INFRA-HIGH-213 assumed ECR Public had "no
-anonymous rate limit" for this usage. That assumption is false.
+Remains, owned by INFRA-HIGH-227: the `test` job's `nats:2.10-alpine`, ci-full's `redis:7` and
+e2e-messaging's `redis:7-alpine` still pull anonymously from `public.ecr.aws` by floating tag.
+INFRA-HIGH-213 assumed ECR Public had "no anonymous rate limit" for this usage. That assumption
+is false.
+
+## INFRA-HIGH-227
+
+INFRA-HIGH-225 left the pulls CI needs, and they still go anonymously to `public.ecr.aws` by
+floating tag:
+
+- the CI-Affected `test` job's nats service;
+- the sensor-ingestion NATS testcontainer (`policy_integration.rs`), run by Rust CI
+  `cargo test --workspace`, by the `test` job and by ci-full's `test:all`;
+- ci-full `test`'s `redis:7` and e2e-messaging's `redis:7-alpine` services.
+
+PR #1981's own run shows it. Its `test` job died at "Initialize containers" with
+`toomanyrequests: Data limit exceeded` on `nats:2.10-alpine` (run 38962444868), and Rust CI's
+`cargo test --workspace` failed on the same pull (run 38962444723). ECR Public's anonymous quota
+is per source IP, and GitHub-hosted runners share egress IPs, so this moved INFRA-HIGH-213's
+Docker Hub failure to another registry instead of removing it.
+
+Fix: a registry the org controls, pinned by digest, pulled with the job's own token.
+
+- `.github/manifests/ci-images.json` records each image once: mirror
+  `ghcr.io/okan-wqm/aquaculture_platform/ci/<name>`, tag, and the upstream multi-arch index
+  digest (nats `sha256:b83efabe…`, redis:7-alpine `sha256:858f009f…`, redis:7
+  `sha256:4fa24486…`; Docker Hub and ECR Public serve the same digests).
+- `.github/workflows/ci-image-mirror.yml` runs on every manifest change, on PRs and on main. It
+  skips a digest the mirror already holds, otherwise runs `imagetools create` from
+  `upstream@digest`, and fails unless the mirror resolves to the manifest digest by digest and by
+  tag. No annotation is added, because one would change the digest every consumer pins.
+- Consumers pull `<mirror>:<tag>@<digest>`. Services pass `credentials` with `GITHUB_TOKEN` and
+  their jobs grant `packages: read`. Jobs that run the NATS testcontainer `docker login ghcr.io`
+  first. The Rust test reads the manifest through `include_str!`, so the digest exists once.
+- `tests/invariants/ci-image-registry.spec.ts` fails on any workflow image that is not a
+  manifest mirror ref, an org-built image or a tracked Docker Hub exception. It also fails on a
+  GHCR pull without token credentials and `packages: read`, a Rust testcontainer image literal,
+  any `public.ecr.aws/docker/library/` ref, a manifest entry nothing consumes, and a mirror
+  workflow that stops copying by digest.
+
+INFRA-HIGH-214 keeps the Docker Hub remainder (timescale/timescaledb-ha, Dockerfile FROM bases,
+moby/buildkit). It can move those images through the same manifest and mirror workflow.
 
 ## FARM-MEDIUM-442
 

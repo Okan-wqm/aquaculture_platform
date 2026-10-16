@@ -763,6 +763,7 @@ def deliver_implementation(
     publication: QuarantinePublication | None,
     profile: Any,
     job_deadline_epoch: float | None = None,
+    transcript_path: str | Path | None = None,
 ) -> ImplementationDelivery:
     """Verify the tip's identity, admit, verify scope, decide the result, gate (contained), record, mint the credential, push and open the PR for a published implementation branch.
 
@@ -785,10 +786,17 @@ def deliver_implementation(
     dispositions for intended files it left untouched are read off it
     (``agent_dispositions``) and go, with ``claim_id``, on the change
     ledger's commit row; ``job_deadline_epoch`` is the job's
-    ``ARIA_JOB_DEADLINE_EPOCH`` (None binds nothing). Raises
-    ``ImplementationDeliveryRefusal`` by name.
+    ``ARIA_JOB_DEADLINE_EPOCH`` (None binds nothing); ``transcript_path``
+    is the run's transcript the executor will submit beside the envelope,
+    judged with it (ARIA-HIGH-524; None, or no such file, judges none).
+    Raises ``ImplementationDeliveryRefusal`` by name.
     """
-    from .agent_invocations import EVIDENCE_TARGET_AUTO, find_request, judge_claim_submission
+    from .agent_invocations import (
+        EVIDENCE_TARGET_AUTO,
+        find_request,
+        judge_claim_submission,
+        read_submission_transcript,
+    )
     from .apply_engine import run_apply_gate
     from .change_ledger import emit_change_committed, emit_change_validated, verify_change_scope
     from .plan_convergence_bridge import verify_implementation_commit
@@ -904,6 +912,7 @@ def deliver_implementation(
             # kernel: the reading the executor's submit passes as
             # `--evidence-target-sha auto`.
             workspace_root=workspace, evidence_target_sha=EVIDENCE_TARGET_AUTO,
+            transcript=read_submission_transcript(transcript_path) if transcript_path is not None else None,
         )
     except GovernanceErrorType as exc:
         raise ImplementationDeliveryRefusal(RESULT_ADMISSIBLE_STAGE, f"judgment_refused:{str(exc)[:300]}") from exc

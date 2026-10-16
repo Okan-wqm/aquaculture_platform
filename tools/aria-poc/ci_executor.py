@@ -5895,6 +5895,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                     # dispositions for intended files it left untouched)
                     # off the same record.
                     envelope=_envelope_for_validation, output_path=expected_output_path,
+                    # ARIA-HIGH-524 — and the transcript it submits beside it,
+                    # judged with it, so a credential there is refused (and
+                    # withheld, `_close_refused_delivery`) before any push.
+                    transcript_path=transcript_output_path,
                     # (round 3) the delivery's own admission reads the job
                     # window; the executor decided it before the publication.
                     job_deadline_epoch=float(_deadline_epoch) if _deadline_epoch else None,

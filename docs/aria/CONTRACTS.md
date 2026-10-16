@@ -887,7 +887,11 @@ record` CHILD passed the reason through the operator CLI's free-text `--reason` 
   implementation delivery reaches the same owner (ARIA-HIGH-540): a `result_admissible` refusal
   whose verdict carries one of those codes (`ImplementationDeliveryRefusal.rejection_codes`,
   `withholds_output`) is submitted by the executor before it escalates, so the row is recorded
-  and its sources deleted; that row, not a release, ends the claim.
+  and its sources deleted; that row, not a release, ends the claim. The transcript is judged
+  with the same set (ARIA-HIGH-524): `judge_claim_submission(transcript=...)` refuses
+  `secret_in_transcript` (in `CREDENTIAL_REFUSAL_CODES`) for a transcript that carries a
+  credential shape — the submit passes the bytes bound to the declared `transcript_hash`, the
+  delivery the lane's file — so no accepted row's transcript is sealed unscanned.
 
 ---
 

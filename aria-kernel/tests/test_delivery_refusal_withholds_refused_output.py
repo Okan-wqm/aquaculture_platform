@@ -108,13 +108,14 @@ class _RefusedDeliveryFixture(_DeliveredBranch):
         }
 
     def _refuse(self, envelope: dict, *, transcript: str) -> ImplementationDeliveryRefusal:
-        """The agent's files as a lane left them, then the real delivery."""
+        """The agent's files as a lane left them, then the real delivery,
+        handed both as the executor hands them."""
         self.output.parent.mkdir(parents=True, exist_ok=True)
         self.output.write_text(json.dumps(envelope), encoding="utf-8")
         self.transcript.write_text(transcript, encoding="utf-8")
         return self._deliver(
             request_id=self.request_id, claim_id=self.claim["claim_id"], agent_id=self.claim["agent_id"],
-            envelope=envelope, output_path=self.output,
+            envelope=envelope, output_path=self.output, transcript_path=self.transcript,
         )
 
     def _close(self, refused: ImplementationDeliveryRefusal) -> tuple[int, str]:
@@ -157,7 +158,8 @@ class ACredentialRefusalOnTheDeliveryPathIsWithheldTests(_RefusedDeliveryFixture
             transcript='{"type":"tool_result","content":"' + _DB_PASSWORD + '"}\n',
         )
         self.assertEqual(refused.stage, RESULT_ADMISSIBLE_STAGE)
-        self.assertTrue(refused.reason.startswith("result_rejected:secret_in_envelope:"), refused.reason)
+        self.assertTrue(refused.reason.startswith("result_rejected:secret_in_envelope"), refused.reason)
+        self.assertIn("secret_in_envelope", refused.rejection_codes)
         self.assertTrue(self._store_files_holding_the_credential(), "the fixture must hold the refused bytes")
 
         code, stderr = self._close(refused)
@@ -202,6 +204,29 @@ class ACredentialRefusalOnTheDeliveryPathIsWithheldTests(_RefusedDeliveryFixture
         # A refusal raised without a verdict withholds nothing.
         self.assertFalse(ImplementationDeliveryRefusal("apply_gate", "gate_blocked:x").withholds_output)
         self.assertEqual(ImplementationDeliveryRefusal("apply_gate", "gate_blocked:x").rejection_codes, ())
+
+
+class ACredentialInTheTranscriptIsRefusedByTheDeliveryTests(_RefusedDeliveryFixture):
+    """ARIA-HIGH-524 — the delivery judges the transcript the executor will
+    submit with the same chain as the submit (``judge_claim_submission``), so
+    a clean envelope whose transcript carries a credential is refused before
+    the suite, the push and the PR, and withheld like an envelope's leak."""
+
+    def test_the_transcript_is_judged_before_any_authority_and_withheld(self) -> None:
+        refused = self._refuse(self._envelope(), transcript='{"type":"tool_result","content":"' + _DB_PASSWORD + '"}\n')
+        self.assertEqual(refused.stage, RESULT_ADMISSIBLE_STAGE)
+        self.assertEqual(refused.rejection_codes, ("secret_in_transcript",))
+        self.assertTrue(refused.withholds_output)
+        self.assertFalse((self.tools / "apply").exists(), "the suite ran for a refused transcript")
+
+        code, stderr = self._close(refused)
+
+        self.assertEqual(code, ci_executor.REFUSAL_EXIT_CODE, stderr)
+        self.assertEqual(self._store_files_holding_the_credential(), [], stderr)
+        rows = self._result_rows()
+        self.assertEqual([(row["rejection_codes"], row["output_withheld"]) for row in rows],
+                         [(["secret_in_transcript"], "credential_refusal")])
+        self.assertTrue(verify_runtime_artifacts(base_dir=self.tools, workspace_root=self.repo)["valid"])
 
 
 class ARefusalThatIsNotACredentialVerdictIsReleasedAsBeforeTests(_RefusedDeliveryFixture):

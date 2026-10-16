@@ -242,6 +242,25 @@ class TheImplementerRunsOnZaiWhileClaudeIsCooled(unittest.TestCase):
         self.assertEqual([(row["decision"], row["reason"].split(":", 2)[:2]) for row in rows],
                          [("deny", ["command_policy_deny", "BashDenylistHit"])])
 
+    def test_a_secret_shape_in_the_run_never_reaches_the_sealed_transcript(self) -> None:
+        """ARIA-HIGH-448 — the run's stream-json carries every tool call's
+        input. A secret shape in one is redacted at the executor's one
+        transcript write, so the transcript the kernel seals (and aria/state
+        publishes) holds the marker, and its recorded hash is the scrubbed
+        bytes' hash."""
+        from tests._helpers.sealed_transcripts import assert_sealed_transcript_scrubbed
+
+        leaked = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+        self._script()
+        self.vendor.script[1] = (200, _turn([("t1", "Bash", {"command": "git branch --show-current"}),
+                                             ("t2", "Bash", {"command": f"git rev-parse --verify --quiet {leaked}"})],
+                                            rid="r1"))
+        completed, _worktree = self._run_in_request_worktree()
+        self._assert_delivered_on_zai(completed)
+        assert_sealed_transcript_scrubbed(self, tools=self.tools, request_id=self.request_id, secrets=(leaked,))
+        transcript = Path(self.request["expected_output_path"]).with_suffix(".transcript.jsonl")
+        self.assertNotIn(leaked, transcript.read_text(encoding="utf-8"))
+
     def test_a_host_that_cannot_build_the_room_admits_no_writer_on_zai(self) -> None:
         """The zai arm of the admission asks what the claude arm asks: can
         this host contain the writer? A bwrap that cannot build its

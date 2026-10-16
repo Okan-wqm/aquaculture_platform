@@ -871,6 +871,14 @@ def _write_sanitized_envelope(path: Path, envelope: dict[str, Any]) -> None:
     write_sanitized_json(path, envelope)
 
 
+def _write_sanitized_transcript(path: Path, text: str) -> None:
+    """The ONE transcript write of every lane (ARIA-HIGH-448): through the
+    artifact-safety boundary, before the transcript is hashed and sealed."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.artifact_safety import write_sanitized_transcript
+    write_sanitized_transcript(path, text)
+
+
 def _safe_agent_text_excerpt(text: str, *, limit: int = 4000) -> str:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
@@ -1931,8 +1939,8 @@ def invoke_claude_cli(
             }
         _write_sanitized_envelope(output_path, mock_envelope)
         resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
-        resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_transcript_path.write_text(
+        _write_sanitized_transcript(
+            resolved_transcript_path,
             json.dumps(
                 {
                     "schema_version": "aria/ci-executor-transcript/v1",
@@ -1946,7 +1954,6 @@ def invoke_claude_cli(
                 sort_keys=True,
             )
             + "\n",
-            encoding="utf-8",
         )
         if on_outcome is not None:
             # ARIA-HIGH-188 — every terminal path reports once, the mock too.
@@ -2399,8 +2406,7 @@ def invoke_claude_cli(
         envelope["details"]["agent_contract_hash"] = agent_contract.contract_hash
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
-        resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_transcript_path.write_text(completed.stdout, encoding="utf-8")
+        _write_sanitized_transcript(resolved_transcript_path, completed.stdout)
         # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution. Gated on
         # _MOCK_MODE_AT_ENTRY frozen sentinel (V3.1-D2) so a mid-run
         # CLAUDE_CLI_MOCK flip cannot rewrite mock-mode classification
@@ -3285,8 +3291,7 @@ def _invoke_native_codex(
             native_runtime.context, contract.text + "\n\n" + prompt, model=route["model"], effort=route["effort"],
             timeout_seconds=timeout_seconds, control=spawn_control,
         )
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_path.write_text(completed.stdout, encoding="utf-8")
+        _write_sanitized_transcript(transcript_path, completed.stdout)
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
             raise ClaudeAuthFailure("Codex managed authentication unavailable", provider=route["provider"],
@@ -3432,8 +3437,7 @@ def _invoke_native_zai(
                 max_tokens=resolve_zai_max_tokens(dict(os.environ)), reasoning_effort=route["effort"],
                 json_object=resolve_zai_json_object(dict(os.environ)),
             )
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
+        _write_sanitized_transcript(transcript_path, completed.raw_body.decode("utf-8", errors="replace"))
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
             raise ClaudeAuthFailure(
@@ -5861,8 +5865,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # Step 4 — submit through the kernel CLI; lease-token via env var.
     # ORPHAN-HIGH-081 — bounded timeout + survivable claim release on hang.
     if not transcript_output_path.exists():
-        transcript_output_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_output_path.write_text(
+        _write_sanitized_transcript(
+            transcript_output_path,
             json.dumps(
                 {
                     "schema_version": "aria/ci-executor-transcript/v1",
@@ -5874,7 +5878,6 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 sort_keys=True,
             )
             + "\n",
-            encoding="utf-8",
         )
     _transcript_hash = "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
     # ARIA-HIGH-022 — implementer agents cite the POST-FIX lines of files

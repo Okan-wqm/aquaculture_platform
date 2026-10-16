@@ -75,6 +75,7 @@ def _mint_row(tools_dir: Path, *, draft_suffix: str = "1"):
         profile_name="standard",
         profile_state_at_mint="standard:v1",
         commit_sha_at_mint="deadbeef",
+        reviewed_body_sha256=_scope(tools_dir, f"draft-{draft_suffix}").body_sha256,
     )
 
 

@@ -2486,7 +2486,8 @@ def build_parser() -> argparse.ArgumentParser:
                                help="The exact operator_provenance_ref the shadow-eval proof will carry.")
     opprov_record.add_argument("--expires-at", required=True,
                                help="ISO-8601 expiry; must be in the future at mint.")
-    opprov_record.add_argument("--target-agent", default=None)
+    opprov_record.add_argument("--target-agent", required=True,
+                               help="The one agent this approval may promote (ARIA-MEDIUM-512).")
     opprov_record.add_argument("--note", default="")
     opprov_list = add_subparser(opprov_sub, "list")
 
@@ -3095,10 +3096,18 @@ def build_parser() -> argparse.ArgumentParser:
     # body digest) is derived from the draft, never typed: the former
     # --intent-id/--target-path let a mint name a subject the draft does
     # not have, and --operator-approval-ref was required then discarded.
+    # ARIA-MEDIUM-512 — the operator reads the body with ``ack scope`` and
+    # mints for that body's digest; a body re-drafted in between is refused.
+    ack_scope = add_subparser(ack_sub, "scope",
+        help="Print a draft's body and the ack scope that digests it (read before `ack mint`).")
+    ack_scope.add_argument("--draft-id", required=True)
+    ack_scope.add_argument("--kind", required=True, choices=["agent", "skill"])
     ack_mint = add_subparser(ack_sub, "mint",
-        help="Operator-mint an ack token for the draft's current body.")
+        help="Operator-mint an ack token for the draft body you reviewed with `ack scope`.")
     ack_mint.add_argument("--draft-id", required=True)
     ack_mint.add_argument("--kind", required=True, choices=["agent", "skill"])
+    ack_mint.add_argument("--body-sha256", required=True,
+        help="scope.body_sha256 that `ack scope` printed with the body you reviewed.")
     ack_mint.add_argument("--reason", required=True, type=_validate_reason)
     ack_mint.add_argument("--operator-user-id", required=True)
     ack_mint.add_argument("--profile-state", default="standard")
@@ -3201,9 +3210,10 @@ def build_parser() -> argparse.ArgumentParser:
     ag_materialize.add_argument("--draft-id", required=True)
     ag_materialize.add_argument("--assignment-id", required=True)
     # Plan ARIA-V3 §A4 + §2k — pre-V3 ``--acknowledge`` flag REMOVED.
-    # Operators MUST first mint an ack token via
-    # ``aria-kernel ack mint --draft-id ... --reason ...`` then pass
-    # the returned ``ack_id`` via ``--ack-token``.
+    # Operators MUST first read the draft with ``aria-kernel ack scope``,
+    # mint an ack token for that body via ``aria-kernel ack mint
+    # --draft-id ... --reason ... --body-sha256 ...`` then pass the
+    # returned ``ack_id`` via ``--ack-token``.
     ag_materialize.add_argument(
         "--ack-token", required=True,
         help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
@@ -6271,6 +6281,7 @@ def _main(argv: list[str] | None = None) -> int:
             init_ack_ledger,
             list_keys,
             mint_operator_ack,
+            review_draft,
             rotate_key,
             verify_range,
         )
@@ -6281,6 +6292,8 @@ def _main(argv: list[str] | None = None) -> int:
                 operator_approval_ref=args.operator_approval_ref,
                 force=args.force,
             )
+        elif args.ack_command == "scope":
+            result = review_draft(base_dir=args.tools_dir, draft_id=args.draft_id, kind=args.kind)
         elif args.ack_command == "mint":
             # The row records a commit, not the revision name the operator
             # typed (it stored the literal "HEAD"); resolved through the
@@ -6302,6 +6315,7 @@ def _main(argv: list[str] | None = None) -> int:
                 profile_name=args.profile_state,
                 profile_state_at_mint=args.profile_state,
                 commit_sha_at_mint=commit_sha,
+                reviewed_body_sha256=args.body_sha256,
                 parent_observation_id=args.parent_observation_id,
             )
             result = row.to_dict()

@@ -4,9 +4,12 @@ The autonomous-loop materialise gate (Phase A4) consumes one
 ``AckLedgerRow`` token per draft. Tokens are minted by either:
 
   * **operator** — explicit CLI invocation
-    ``aria-kernel ack mint --draft-id X --kind agent --reason Y``; the
-    ack's scope (``ack_row.AckScope``: draft, intent, target path, kind,
-    body digest) is derived from the draft ledger, never passed in.
+    ``aria-kernel ack mint --draft-id X --kind agent --reason Y
+    --body-sha256 D``; the ack's scope (``ack_row.AckScope``: draft,
+    intent, target path, kind, body digest) is derived from the draft
+    ledger, never passed in, and ``D`` — the digest ``aria-kernel ack
+    scope`` printed with the body the operator read — must equal the
+    derived body digest (ARIA-MEDIUM-512).
   * **autonomous_profile** — reserved primitive for a future executable
     lane contract (``record_autonomous_ack``: minted and consumed in one
     transaction). Current mainline authority derives no live auto-ack
@@ -49,6 +52,7 @@ from __future__ import annotations
 
 import hmac
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -238,8 +242,8 @@ def list_keys(*, base_dir: str | Path) -> list[dict[str, Any]]:
     return _keyring(base_dir).redacted()
 
 
-def _scope_for_draft(kind: str, draft_id: str, base_dir: str | Path) -> AckScope:
-    """The scope an ack for ``draft_id`` authorizes, from the materializer's own scope function.
+def _review_for_draft(kind: str, draft_id: str, base_dir: str | Path) -> tuple[AckScope, str]:
+    """The scope an ack for ``draft_id`` authorizes and the body it digests, from the materializer's own function.
 
     WHY: the mint used to take ``intent_id`` and ``target_path`` from its
     caller, so a mint could name a subject the draft does not have, and the
@@ -247,12 +251,23 @@ def _scope_for_draft(kind: str, draft_id: str, base_dir: str | Path) -> AckScope
     derives its scope with derives it here, over the same draft ledger.
     """
     if kind == "agent":
-        from .agent_genesis import ack_scope_for_draft
+        from .agent_genesis import ack_review_for_draft
     elif kind == "skill":
-        from .skill_genesis import ack_scope_for_draft
+        from .skill_genesis import ack_review_for_draft
     else:
         raise GovernanceError(f"ack_mint_unknown_kind: {kind!r}")
-    return ack_scope_for_draft(draft_id, base_dir)
+    return ack_review_for_draft(draft_id, base_dir)
+
+
+def review_draft(*, base_dir: str | Path, draft_id: str, kind: str) -> dict[str, Any]:
+    """ARIA-MEDIUM-512 — what the operator reads before ``ack mint``: the draft's body and the scope that digests it.
+
+    ``scope.body_sha256`` is the value ``ack mint --body-sha256`` names; the
+    mint refuses any other, so the ack authorizes the body printed here.
+    Read-only.
+    """
+    scope, body = _review_for_draft(kind, draft_id, ensure_tools_dir(base_dir))
+    return {"scope": asdict(scope), "body": body}
 
 
 def _signed_mint_row(
@@ -341,14 +356,19 @@ def mint_operator_ack(
     profile_name: str,
     profile_state_at_mint: str,
     commit_sha_at_mint: str,
+    reviewed_body_sha256: str,
     breaker_state_at_mint: str = "ok",
     parent_observation_id: str | None = None,
 ) -> AckLedgerRow:
-    """Plan ARIA-V3 §A5 — operator-driven token mint, scoped to the draft as it stands.
+    """Plan ARIA-V3 §A5 — operator-driven token mint, scoped to the body the operator reviewed.
 
     The scope (draft, intent, target path, kind, body digest) is derived from
-    the draft ledger (:func:`_scope_for_draft`), never taken from the caller:
-    the ack authorizes exactly the body the operator could read at mint.
+    the draft ledger (:func:`_review_for_draft`), never taken from the caller.
+    ``reviewed_body_sha256`` is the digest :func:`review_draft` printed with
+    the body the operator read (ARIA-MEDIUM-512): when the draft's latest
+    body is another one — re-drafted between the review and the mint — the
+    mint refuses ``ack_mint_body_not_reviewed`` and writes nothing, so an ack
+    never authorizes a body its operator did not read.
 
     The ``reason`` field is validated by the CLI layer
     (``_validate_reason`` from Plan ARIA-V2 §AUDITTRAIL-HIGH-005a)
@@ -356,9 +376,17 @@ def mint_operator_ack(
     and persist.
     """
     root = ensure_tools_dir(base_dir)
+    scope, _body = _review_for_draft(kind, draft_id, root)
+    reviewed = str(reviewed_body_sha256 or "").strip().lower()
+    if reviewed != scope.body_sha256:
+        raise GovernanceError(
+            f"ack_mint_body_not_reviewed: draft {draft_id!r} holds body sha256 "
+            f"{scope.body_sha256}, not the reviewed {reviewed or '<none>'}; read it with "
+            f"`aria-kernel ack scope --draft-id {draft_id} --kind {kind}` and mint for that body"
+        )
     row_dict, row = _signed_mint_row(
         root=root,
-        scope=_scope_for_draft(kind, draft_id, root),
+        scope=scope,
         actor_kind="operator",
         actor_user_id=operator_user_id,
         profile_name=profile_name,

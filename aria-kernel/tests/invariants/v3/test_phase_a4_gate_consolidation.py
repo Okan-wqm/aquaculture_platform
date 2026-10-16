@@ -199,7 +199,7 @@ class PhaseA4GateConsolidation(unittest.TestCase):
         fires 2 of 3 events: ack_consumed + materialize_committed).
         """
         from unittest.mock import patch
-        from aria_kernel.ack_ledger import init_ack_ledger, mint_operator_ack
+        from aria_kernel.ack_ledger import init_ack_ledger, mint_operator_ack, review_draft
         from aria_kernel.agent_genesis import materialize_agent_draft
         from aria_kernel.auto_action_gate import gate_from_test_fixture
         from aria_kernel.runtime_profile import set_profile
@@ -253,6 +253,7 @@ class PhaseA4GateConsolidation(unittest.TestCase):
                     profile_name="autonomous",
                     profile_state_at_mint="autonomous:v1",
                     commit_sha_at_mint="test-head",
+                    reviewed_body_sha256=review_draft(base_dir=base, draft_id="drf-evt", kind="agent")["scope"]["body_sha256"],
                 )
                 result = materialize_agent_draft(
                     draft_id="drf-evt",

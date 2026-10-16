@@ -63,7 +63,7 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
         }
 
     def _materialize(self, sandbox_state, **kwargs):
-        from aria_kernel.ack_ledger import mint_operator_ack
+        from aria_kernel.ack_ledger import mint_operator_ack, review_draft
         from aria_kernel.auto_action_gate import gate_from_test_fixture
 
         gate = gate_from_test_fixture(
@@ -95,6 +95,7 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
                 profile_name="autonomous",
                 profile_state_at_mint="autonomous:v1",
                 commit_sha_at_mint="test-head",
+                reviewed_body_sha256=review_draft(base_dir=self.base, draft_id="drf-e6", kind="agent")["scope"]["body_sha256"],
             )
             return materialize_agent_draft(
                 draft_id="drf-e6",

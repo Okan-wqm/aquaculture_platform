@@ -151,6 +151,7 @@ class ShadowEvalProofTests(unittest.TestCase):
                 "row_type": "operator_approval",
                 "operator_provenance_ref": "operator:approval:1",
                 "operator": "test-operator",
+                "target_agent": "aria-shadow-candidate",
                 "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
             },
             expected_surface="operator_provenance",

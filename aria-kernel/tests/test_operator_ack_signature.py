@@ -78,11 +78,15 @@ class _GenesisFixture(unittest.TestCase):
                                 {"draft_id": draft_id, "decision": "pass", "synthetic_test_mode": False},
                                 expected_surface="skill_genesis_sandbox")
 
-    def mint(self, draft_id: str, *, kind: str = "agent") -> Any:
+    def mint(self, draft_id: str, *, kind: str = "agent", reviewed_body_sha256: str | None = None) -> Any:
+        """Mint as the operator does: review the draft as it stands, then mint for that body."""
+        if reviewed_body_sha256 is None:
+            reviewed_body_sha256 = ack_ledger.review_draft(
+                base_dir=self.tools, draft_id=draft_id, kind=kind)["scope"]["body_sha256"]
         return ack_ledger.mint_operator_ack(
             base_dir=self.tools, draft_id=draft_id, kind=kind, reason="ack scope binding test",
             operator_user_id="tester", profile_name="standard", profile_state_at_mint="standard:v1",
-            commit_sha_at_mint="0" * 40,
+            commit_sha_at_mint="0" * 40, reviewed_body_sha256=reviewed_body_sha256,
         )
 
     def materialize(self, draft_id: str, ack_id: str, *, kind: str = "agent") -> dict[str, Any]:
@@ -169,6 +173,110 @@ class AckScopeBindingTests(_GenesisFixture):
         self.assertEqual(len(self.consumptions(ack.ack_id)), 1)
 
 
+class RefusedMaterializationKeepsTheAckTests(_GenesisFixture):
+    """ARIA-MEDIUM-512 — a materialization the kernel refuses never spends the operator's ack.
+
+    The ack is the operator's one authorization for one body; spending it on
+    a write that is then refused (a target that resolves outside the
+    worktree, a drafter below the model-tier floor) left the operator to
+    mint again for a body nothing ever wrote.
+    """
+
+    def test_a_target_outside_the_worktree_refuses_before_the_ack_is_spent(self) -> None:
+        escaping = ".claude/agents/aria-escape/../../../../escaped.md"
+        append_declared_fixture(self.tools / "agent-genesis" / "drafts.jsonl",
+                                {"draft_id": "drf-esc", "target_path": escaping, "body": "# escaping body"},
+                                expected_surface="agent_genesis_drafts")
+        append_declared_fixture(self.tools / "genesis-sandbox" / "runs.jsonl",
+                                {"draft_id": "drf-esc", "decision": "pass", "synthetic_test_mode": False},
+                                expected_surface="genesis_sandbox_runs")
+        ack = self.mint("drf-esc")
+        with self.assertRaisesRegex(GovernanceError, r"^target_path_escapes_worktree$"):
+            self.materialize("drf-esc", ack.ack_id)
+        self.assertEqual(self.consumptions(ack.ack_id), [], "a refused write does not spend the ack")
+
+    def test_a_skill_target_outside_the_worktree_refuses_before_the_ack_is_spent(self) -> None:
+        escaping = ".claude/skills/../../../escaped-skill.md"
+        append_declared_fixture(self.tools / "skill-genesis" / "drafts.jsonl",
+                                {"draft_id": "skl-esc", "target_path": escaping, "body": "# escaping skill",
+                                 "status": "approved_for_skill_pr"},
+                                expected_surface="skill_genesis_drafts")
+        append_declared_fixture(self.tools / "skill-genesis" / "sandbox.jsonl",
+                                {"draft_id": "skl-esc", "decision": "pass", "synthetic_test_mode": False},
+                                expected_surface="skill_genesis_sandbox")
+        ack = self.mint("skl-esc", kind="skill")
+        with self.assertRaisesRegex(GovernanceError, r"^target_path_escapes_worktree$"):
+            self.materialize("skl-esc", ack.ack_id, kind="skill")
+        self.assertEqual(self.consumptions(ack.ack_id), [], "a refused write does not spend the ack")
+
+    def test_a_drafter_below_the_authoring_floor_refuses_before_the_ack_is_spent(self) -> None:
+        from unittest import mock
+
+        self.agent_draft("drf-x", "# agent x body")
+        ack = self.mint("drf-x")
+        with mock.patch("aria_kernel.agent_genesis._authoring_model", return_value="sonnet"), \
+                self.assertRaisesRegex(GovernanceError, r"agent_authoring_tier_too_low"):
+            self.materialize("drf-x", ack.ack_id)
+        self.assertEqual(self.consumptions(ack.ack_id), [], "a refused write does not spend the ack")
+        self.assertFalse((self.worktree / _AGENT_TARGET.format("drf-x")).exists())
+        self.assertEqual(self.materialize("drf-x", ack.ack_id)["status"], "accepted",
+                         "the same ack still authorizes the body once the refusal is gone")
+
+
+class AckMintBindsTheReviewedBodyTests(_GenesisFixture):
+    """ARIA-MEDIUM-512 — the operator authorizes the body they read, not whatever the draft holds at mint.
+
+    ``ack mint`` derived its scope from the draft's LATEST row, so a body
+    re-drafted between the operator's review and the mint was the body the
+    ack authorized. The operator now names the digest of the body they
+    reviewed (``ack scope`` prints the body and that digest together) and the
+    mint refuses any other.
+    """
+
+    def run_cli(self, *argv: str) -> tuple[int, str]:
+        from aria_kernel.cli import main
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            try:
+                code = main(["--tools-dir", str(self.tools), *argv])
+            except SystemExit as exc:
+                code = int(exc.code or 0)
+        return code, out.getvalue()
+
+    def test_a_body_redrafted_after_the_review_is_not_minted(self) -> None:
+        self.agent_draft("drf-x", "# agent x body, the one the operator read")
+        reviewed = ack_ledger.review_draft(base_dir=self.tools, draft_id="drf-x", kind="agent")
+        self.assertEqual(reviewed["body"], "# agent x body, the one the operator read")
+        self.assertEqual(reviewed["scope"]["body_sha256"], _sha256(reviewed["body"]))
+        self.agent_draft("drf-x", "# agent x body, re-drafted after the review")
+        with self.assertRaisesRegex(GovernanceError, r"^ack_mint_body_not_reviewed\b"):
+            self.mint("drf-x", reviewed_body_sha256=reviewed["scope"]["body_sha256"])
+        self.assertEqual(self.ledger_rows(), [], "nothing is minted for a body the operator did not read")
+        ack = self.mint("drf-x")
+        self.assertEqual(ack.body_sha256, _sha256("# agent x body, re-drafted after the review"))
+
+    def test_the_review_surface_prints_the_body_with_its_digest(self) -> None:
+        self.skill_draft("skl-x", "# skill x body")
+        code, out = self.run_cli("ack", "scope", "--draft-id", "skl-x", "--kind", "skill")
+        self.assertEqual(code, 0)
+        printed = json.loads(out)
+        self.assertEqual(printed["body"], "# skill x body")
+        self.assertEqual(printed["scope"], {"draft_id": "skl-x", "intent_id": "", "kind": "skill",
+                                            "target_path": _SKILL_TARGET.format("skl-x"),
+                                            "body_sha256": _sha256("# skill x body")})
+
+    def test_the_cli_mint_requires_the_reviewed_digest(self) -> None:
+        self.agent_draft("drf-x", "# agent x body")
+        base = ["ack", "mint", "--draft-id", "drf-x", "--kind", "agent", "--reason", "cli reviewed-body test",
+                "--operator-user-id", "tester", "--workspace-root", str(make_local_git_repo(self.tmp))]
+        self.assertEqual(self.run_cli(*base)[0], 2, "argparse refuses a mint that names no reviewed body")
+        self.assertEqual(self.ledger_rows(), [])
+        code, _ = self.run_cli(*base, "--body-sha256", _sha256("# agent x body"))
+        self.assertEqual(code, 0)
+        self.assertEqual([row["body_sha256"] for row in self.ledger_rows()], [_sha256("# agent x body")])
+
+
 class AckMintScopeTests(_GenesisFixture):
     """The mint names no subject of its own: it binds the draft as it stands."""
 
@@ -221,7 +329,8 @@ class AckMintScopeTests(_GenesisFixture):
                               text=True).stdout.strip()
         self.agent_draft("drf-x", "# agent x body")
         base = ["--tools-dir", str(self.tools), "ack", "mint", "--draft-id", "drf-x", "--kind", "agent",
-                "--reason", "cli ack scope binding test", "--operator-user-id", "tester"]
+                "--reason", "cli ack scope binding test", "--operator-user-id", "tester",
+                "--body-sha256", _sha256("# agent x body")]
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = cli_main([*base, "--workspace-root", str(repo)])

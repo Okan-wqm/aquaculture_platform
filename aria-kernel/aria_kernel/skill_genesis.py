@@ -849,9 +849,16 @@ def materialize_skill(
                 "kind": "skill",
             },
         )
+    target = worktree / target_path
+    try:
+        target.resolve().relative_to(worktree.resolve())
+    except ValueError as exc:
+        raise GovernanceError("target_path_escapes_worktree") from exc
     # Plan ARIA-V3 §2g event 2 — ack_consumed (operator or auto). The
     # scope is derived from THIS draft row — the body written below — by
     # the function the mint derived it with (ARIA-MEDIUM-254 slice A).
+    # ARIA-MEDIUM-512 — consumed after the last refusal, so a refused
+    # write never spends the operator's token.
     gate_outcome = gate.acquire_or_consume(
         ack_id=ack_id,
         base_dir=ensure_tools_dir(base_dir),
@@ -859,11 +866,6 @@ def materialize_skill(
         commit_sha_at_mint=_git_head(worktree),
         profile_state_at_mint=f"{gate.profile}:v1",
     )
-    target = worktree / target_path
-    try:
-        target.resolve().relative_to(worktree.resolve())
-    except ValueError as exc:
-        raise GovernanceError("target_path_escapes_worktree") from exc
     file_sha256_pre = _file_sha256(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
@@ -1036,15 +1038,23 @@ def _ack_scope(draft: dict[str, Any]) -> AckScope:
     return AckScope.of_draft(draft, kind="skill", body=_drafter_body(draft))
 
 
-def ack_scope_for_draft(draft_id: str, base_dir: str | Path | None) -> AckScope:
-    """ARIA-MEDIUM-254 slice A — the scope ``ack_ledger.mint_operator_ack`` binds a skill ack to.
+def ack_review_for_draft(draft_id: str, base_dir: str | Path | None) -> tuple[AckScope, str]:
+    """ARIA-MEDIUM-254 slice A / ARIA-MEDIUM-512 — what a skill ack for ``draft_id`` authorizes, with its body.
 
     The latest row of ``draft_id`` in the skill drafts ledger, the row
-    :func:`materialize_skill` writes; materialize derives its own scope from
-    that row through :func:`_ack_scope` too, so a body re-drafted after the
-    mint no longer matches the ack.
+    :func:`materialize_skill` writes; materialize derives its own scope from that
+    row through :func:`_ack_scope` too, so a body re-drafted after the mint no
+    longer matches the ack. The body and its scope come from ONE row read, so
+    the body the operator reviews (``aria-kernel ack scope``) is the body the
+    digest names.
     """
-    return _ack_scope(_require_draft(draft_id, base_dir))
+    draft = _require_draft(draft_id, base_dir)
+    return _ack_scope(draft), _drafter_body(draft)
+
+
+def ack_scope_for_draft(draft_id: str, base_dir: str | Path | None) -> AckScope:
+    """The scope :func:`ack_review_for_draft` derives, without the body."""
+    return ack_review_for_draft(draft_id, base_dir)[0]
 
 
 def _latest_sandbox(

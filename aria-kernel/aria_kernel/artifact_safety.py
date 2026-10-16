@@ -41,15 +41,18 @@ def published_text(text: Any, *, store_root: Path | None, limit: int) -> str:
     cycle's exception, a refusal, a human-required reason — routinely names
     host paths and can carry anything an exception or an agent put into it.
     One sanitizer for all of them (the review of the 2026-10-10 repair stack
-    found four that each did part of this): secret shapes redacted, a path
-    under the store kept store-relative (``memory/beliefs.jsonl``), any other
-    absolute path reduced to its file name, then bounded.
+    found four that each did part of this): a path under the store kept
+    store-relative (``memory/beliefs.jsonl``), secret shapes redacted, any
+    other absolute path reduced to its file name, then bounded. The
+    redaction runs before the path reduction: reducing first cut a URL's
+    ``//user:password@`` and a webhook's ``/services/`` path down to their
+    last component, and the redaction no longer knew either (ARIA-MEDIUM-546).
     """
     out = str(text)
     if store_root is not None:
         for prefix in {Path(store_root).as_posix(), Path(store_root).resolve().as_posix()}:
             out = out.replace(f"{prefix}/", "")
-    return scrub_text(_ABSOLUTE_PATH.sub(r"\1", out))[:limit]
+    return _ABSOLUTE_PATH.sub(r"\1", scrub_text(out))[:limit]
 
 
 def scrub_json(value: Any) -> Any:

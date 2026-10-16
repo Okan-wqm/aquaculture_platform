@@ -143,9 +143,13 @@ jobs:
     # spec exists to stop.
     timeout-minutes: 60
     # The coverage control plane is repository-owned and needs no external
-    # identity. Keep the job at the minimum permission needed by checkout.
+    # identity. Keep the job at the minimum permission needed by checkout, plus
+    # packages: read: the redis service and the sensor-ingestion NATS
+    # testcontainer pull the GHCR mirror of .github/manifests/ci-images.json
+    # with this job's GITHUB_TOKEN (INFRA-HIGH-227).
     permissions:
       contents: read
+      packages: read
     services:
       postgres:
         # INFRA-CRITICAL-010: HA edition includes pgvector (HNSW + vector_cosine_ops)
@@ -162,7 +166,13 @@ jobs:
         ports:
           - 5432:5432
       redis:
-        image: public.ecr.aws/docker/library/redis:7
+        # GHCR mirror pinned in .github/manifests/ci-images.json: anonymous
+        # Docker Hub and ECR Public pulls share a per-IP quota across
+        # GitHub-hosted runners (INFRA-HIGH-227).
+        image: ghcr.io/okan-wqm/aquaculture_platform/ci/redis:7@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -176,6 +186,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      # `test:all` runs sensor-ingestion's NATS testcontainer
+      # (apps/sensor-ingestion/tests/policy_integration.rs), which pulls the GHCR
+      # mirror through the Docker credentials this writes.
+      - name: Login to GHCR for mirrored CI images
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA

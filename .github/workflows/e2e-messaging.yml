@@ -55,6 +55,11 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # packages: read — the redis service pulls the GHCR mirror with this job's
+    # GITHUB_TOKEN (INFRA-HIGH-227).
+    permissions:
+      contents: read
+      packages: read
 
     # ── Infrastructure Services ──────────────────────────────────────────
     # Real PostgreSQL (TimescaleDB) + Real Redis — same images as production.
@@ -78,7 +83,13 @@ jobs:
           - 5432:5432
 
       redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
+        # GHCR mirror pinned in .github/manifests/ci-images.json: anonymous
+        # Docker Hub and ECR Public pulls share a per-IP quota across
+        # GitHub-hosted runners (INFRA-HIGH-227).
+        image: ghcr.io/okan-wqm/aquaculture_platform/ci/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s

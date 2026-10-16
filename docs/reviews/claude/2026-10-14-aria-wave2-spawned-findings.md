@@ -775,18 +775,41 @@ verb can record are listed at the end.
   getRepository errors in backend-common were paid down. `affected-target-quarantine-ssot.spec.ts`
   runs `--verify` (measurement, bound, anchor, renewability), ratchets the lint count to 4 and pins
   the CODEOWNERS lines. It was red on the old policy and is green on the renewed one.
+- **Landed, review round (same PR):** the renewal moved the dates but kept the cliff. On
+  2026-11-07 three entries would have expired and the writer would have refused the whole file
+  again. The affected-lane partition now lives in `scripts/ci/lib/affected-target-policy.mjs`. A
+  malformed entry still refuses the file. An expired entry quarantines nothing: its project is
+  gated strictly for that target, and nothing else changes. The spec replays the writer's partition
+  over the live policy one day past every date the file names. It no longer compares the file with
+  today's date, which would have turned `invariants:fast` red on every PR on the same day.
+  `--verify` also pins `measured_at` between the measured commit's day and today. The one
+  non-security restricted-syntax selector is now named rather than picked by array position.
 
-### INFRA-HIGH-223 — security lint in a quarantined project is checked only at measurement
+### INFRA-HIGH-223 — withdrawn before push (2026-10-16)
 
-- **Raised by:** the `HL-lint-quarantine` fix (ARIA order chain).
-- **Problem:** the affected lint lane moves every quarantined project out of its strict list
-  (`write-affected-target-report.mjs:111`), and `lint:all` excludes the four libraries in
-  `lint-all-exclusions.json` (`lint-all.mjs:37`). The renewal refuses security-class lint, but only
-  at measurement time. A `getRepository` call or `JWT_SECRET` read added to `backend-common`,
-  `event-bus`, `outbox` or `storage` after a measurement passes every lane.
-- **Planned fix:** the affected lint lane runs each quarantined affected project's own lint
-  invocation and fails on any blocking message that `isSecurityClassMessage` classifies as
-  security-class, so a quarantine relaxes only debt-class rules. Deadline: 2026-10-31.
+INFRA-HIGH-223 claimed that a `getRepository` call or `JWT_SECRET` read added to a lint-quarantined
+project passes every lane. That was false for TypeScript files. The lint job runs
+`scripts/ci/lint-changed-files.sh` before the affected lane, and `lint-changed-files.mjs` lints
+every changed `.ts`/`.tsx` file at base and head, whatever the quarantine says. A new error-level
+finding fails it (`lint-changed-files.mjs:575-586`). `no-direct-getrepository-call.spec.ts` also
+catches an unannotated `getRepository` under `libs/`. The row was withdrawn before the branch was
+pushed and never reached main. Its second-lane fix direction is dropped, because that lane would
+duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
+
+### INFRA-MEDIUM-224 — a baseline file hides changed-file lint inside a quarantined project
+
+- **Raised by:** the `HL-lint-quarantine` review (ARIA order chain). It replaces INFRA-HIGH-223.
+- **Problem:** `lint-changed-files-baseline.txt` skips 16 files, and one of them lies inside a
+  lint-quarantined project: `libs/backend-common/src/bootstrap/create-service-app.ts`, the
+  bootstrap every service runs. The affected lane does not lint backend-common, the changed-file
+  lint skips the file, and `lint:all` excludes the project. A `JWT_SECRET` read or an aquaculture
+  tenant-rule violation added there passes CI. An unannotated `getRepository` is still caught by
+  the invariant spec. The other 15 baseline files sit in projects the affected lane lints strictly.
+  The baseline is a leftover of the strict changed-file mode that the base comparison replaced on
+  2026-06-09.
+- **Fix (same PR):** the entry leaves the baseline, so the file gets the same base-versus-head
+  regression lint as every other changed file. `affected-target-quarantine-ssot.spec.ts` fails when
+  a baseline entry lies inside a lint-quarantined project. Deadline: 2026-10-31.
 
 ## Registry amendments recorded at the L1 registry step
 

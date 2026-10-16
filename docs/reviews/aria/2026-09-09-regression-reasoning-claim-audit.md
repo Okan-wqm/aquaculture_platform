@@ -180,6 +180,13 @@ longer absorb a new defect. This changes the measurement payload written to
 the spine ledger and every reader of it, so it needs its own review and
 migration of existing baseline rows.
 
+**Progress (landing L3, bucket `G002-045-runs`, plan commits 1-3 of 4).** Tenant-scoping findings
+carry `details.enclosingSymbol`, a location-free identity. The spine refresh runs the five declared
+owner adapters with their declared input, judges them by the status the store recorded, and hands
+the gate the stored runs and the manifest versions (ARIA-MEDIUM-516, closed by the third commit).
+The comparator still compares counts: this finding closes with plan commit 4 (bucket
+`G002-045-gate`).
+
 ## What full ARIA documentation would require, honestly
 
 The operator's request is that ARIA's whole codebase be read and recorded so

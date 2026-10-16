@@ -31,7 +31,9 @@ relevant TS / py files, runs the adapter, asserts shape.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -43,7 +45,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_harness_security_adapter import (  # type: ignore[import-not-found]
+    CREDENTIAL_TABLE_PATH as HARNESS_CREDENTIAL_TABLE_PATH,
     SCANNED_GLOBS as HARNESS_SCANNED_GLOBS,
+    _load_credential_table as harness_credential_table,
 )
 from outbox_adapter import (  # type: ignore[import-not-found]
     SCANNED_GLOBS as OUTBOX_SCANNED_GLOBS,
@@ -351,6 +355,61 @@ class AgentHarnessSecurityScopeUnchangedTests(unittest.TestCase):
                 "Manifest is the single source of truth."
             ),
         )
+
+
+class AgentHarnessCredentialTableTests(unittest.TestCase):
+    """Rule 1 reads the kernel's one credential table (ARIA-HIGH-519).
+
+    The adapter loads aria-kernel/aria_kernel/secret_scrub.py alone, by path:
+    the file must lie inside the scope the manifest declares, and the scan
+    must work when that file is the only kernel code present, which is the
+    runner's argv (`python3 agent_harness_security_adapter.py` from
+    tools/aria-poc) with no PYTHONPATH.
+    """
+
+    def test_the_table_lies_inside_the_declared_read_scope(self) -> None:
+        # The kernel's own read-scope gate decides, on the committed manifest.
+        from aria_kernel.tool_health import find_scope_violations
+
+        relative = HARNESS_CREDENTIAL_TABLE_PATH.relative_to(_REPO_ROOT).as_posix()
+        manifest = json.loads(
+            (_MANIFEST_DIR / "agent-harness-security-adapter.tool.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(manifest["allowed_read_globs"])
+        self.assertEqual(find_scope_violations(manifest, [relative]), [])
+
+    def test_the_runner_argv_scans_with_the_table_file_alone(self) -> None:
+        rows = harness_credential_table().shapes_in("harness")
+        self.assertTrue(rows)
+        tree = Path(tempfile.mkdtemp(prefix="aria-harness-table-"))
+        self.addCleanup(shutil.rmtree, tree, True)
+        poc = tree / "checkout" / "tools" / "aria-poc"
+        kernel = tree / "checkout" / "aria-kernel" / "aria_kernel"
+        poc.mkdir(parents=True)
+        kernel.mkdir(parents=True)
+        shutil.copy2(Path(__file__).resolve().parents[1] / "agent_harness_security_adapter.py", poc)
+        shutil.copy2(HARNESS_CREDENTIAL_TABLE_PATH, kernel)
+        # The package __init__ imports some sixty modules the room may not
+        # hold; here it refuses to load, so an adapter that imports the
+        # package instead of the one file fails this test.
+        (kernel / "__init__.py").write_text(
+            'raise ImportError("the aria_kernel package must not be imported by the harness adapter")\n',
+            encoding="utf-8",
+        )
+        scanned = tree / "scanned"
+        _seed(scanned, ".github/workflows/leak.yml", "\n".join(row.fixture for row in rows) + "\n")
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "ARIA_REPO_ROOT": str(scanned)}
+        completed = subprocess.run(
+            [sys.executable, "agent_harness_security_adapter.py"],
+            cwd=poc, env=env, input=json.dumps({"cycle_id": "harness-table"}),
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+        labels = {
+            finding["label"] for finding in json.loads(completed.stdout)["findings"]
+            if finding["rule"] == "secret_leak_in_yaml_or_md"
+        }
+        self.assertEqual(labels, {row.name for row in rows})
 
 
 if __name__ == "__main__":

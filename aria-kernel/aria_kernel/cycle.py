@@ -1365,12 +1365,12 @@ def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     for tool in list_tools(base_dir=context.base_dir):
         if tool.get("status") not in ("ACTIVE", "SHADOW", "CALIBRATE"):
             continue
-        payload = dict(tool.get("default_input") or {})
-        payload.update({"cycle_id": context.cycle_id, "pressure_summary": pressure_summary})
+        # The manifest's default_input is merged by run_tool, the one owner
+        # (ARIA-MEDIUM-516); the cycle hands over only its own keys.
         decisions.append(
             run_tool(
                 str(tool["tool_id"]),
-                payload,
+                {"cycle_id": context.cycle_id, "pressure_summary": pressure_summary},
                 context.cycle_id,
                 workspace_root=context.workspace_root,
                 base_dir=context.base_dir,

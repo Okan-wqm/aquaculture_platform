@@ -42,9 +42,9 @@ from .ledger import (
     _load_jsonl_stored_verified_text,
     _make_replay_transport_row,
     _replay_logical_payload_from_stored,
-    _replay_payload_sha256,
     _replay_transport_metadata,
     append_declared_jsonl,
+    sha256_digest_of_canonical_json,
     state_transaction,
 )
 from .state_manifest import (
@@ -329,7 +329,7 @@ def _producer_identity(
     return (
         _producer_event_identity(row, expected_surface=expected_surface),
         _producer_previous_ledger_hash(row, expected_surface=expected_surface),
-        _replay_payload_sha256(payload),
+        sha256_digest_of_canonical_json(payload),
         payload,
     )
 

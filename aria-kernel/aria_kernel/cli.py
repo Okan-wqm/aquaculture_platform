@@ -187,19 +187,24 @@ ERROR_EXIT_CODES = {
 }
 
 
-# Plan 024 v3 §B-7 — closed enum mapping run_tool envelope status to
+# Plan 024 v3 §B-7 — closed enum mapping the RECORDED run status to the
 # CLI exit code. Operator scripts pattern-match on exit code for
 # failure detection; pre-fix the CLI returned 0 unconditionally even
 # when the runner crashed / parsed invalid output / hit budget caps.
-# The mapping shares vocabulary with spine_orchestrator's whitelist
-# (H-6); a future status addition in tool_runner must update both.
+# ARIA-MEDIUM-516 — keyed by exactly tool_health.RUN_STATUSES (pinned by
+# test_run_tool_api_split_and_spine_status_whitelist): the statuses
+# record_run downgrades a run to (scope_violation, evidence_error,
+# integrity_failed) used to fall through a `.get(status, 1)` default, and
+# a status nothing records ("output_unparseable") sat in the map.
 _TOOL_RUN_EXIT_CODES: dict[str, int] = {
     "ok": 0,
-    "crash": 1,
     "schema_error": 1,
-    "output_unparseable": 1,
+    "scope_violation": 1,
+    "evidence_error": 1,
+    "crash": 1,
     "budget_exceeded": 2,
     "tool_unhealthy": 3,
+    "integrity_failed": 1,
     "environment_unavailable": 1,
 }
 
@@ -4250,12 +4255,10 @@ def _main(argv: list[str] | None = None) -> int:
             workspace_root=args.workspace_root, base_dir=args.tools_dir,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
-        # Plan 024 v3 §B-7 — exit code reflects envelope status (the
-        # canonical ok|crash|schema_error|... vocabulary), NOT the
-        # registry status (ACTIVE|SHADOW|QUARANTINED). Operator scripts
-        # can pattern-match exit code for failure detection.
-        envelope_status = (result.get("envelope") or {}).get("status", "ok")
-        return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+        # Plan 024 v3 §B-7 — exit code reflects the recorded run status
+        # (run_tool's "envelope" is the stored row, ARIA-MEDIUM-516), NOT
+        # the registry status (ACTIVE|SHADOW|QUARANTINED).
+        return _TOOL_RUN_EXIT_CODES[result["envelope"]["status"]]
 
     # ARIA-MEDIUM-395 — standalone fixture runner dispatch: the cycle phase's
     # own refresh lane, behind the pinned-workspace check.
@@ -6157,13 +6160,16 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         if args.spine_command == "refresh":
             from aria_kernel.spine_orchestrator import refresh_spine_adapters
-            summary = refresh_spine_adapters(
+            refreshed = refresh_spine_adapters(
                 base_dir=args.tools_dir,
                 workspace_root=workspace,
                 freshness_max_age_seconds=args.freshness_max_age_seconds,
                 cycle_id=args.cycle_id,
                 max_workers=args.max_workers,
             )
+            # The summary the governance event records; the full run rows
+            # (adapter_runs) are the gate's input, not operator output.
+            summary = {key: value for key, value in refreshed.items() if key != "adapter_runs"}
             print(json.dumps(summary, indent=2, sort_keys=True))
             return 0
         parser.error("unknown spine command")

@@ -49,6 +49,7 @@ the same shape every TypeScript adapter under tools/aria-adapters emits):
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -88,14 +89,29 @@ SCANNED_GLOBS: tuple[str, ...] = (
     "aria-kernel/aria_kernel/**/*.py",
 )
 
-# Rule 1 — secret leak.
-_SECRET_RES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("github_pat", re.compile(r"\bghp_[A-Za-z0-9]{36,}\b")),
-    ("anthropic_api_key", re.compile(r"\bsk-ant-(?:api|admin)?-?[A-Za-z0-9_\-]{20,}\b")),
-    ("hardcoded_password", re.compile(r"(?i)\bpassword\s*=\s*['\"][^'\"]{4,}")),
-    ("hardcoded_token", re.compile(r"(?i)\btoken\s*=\s*['\"][^'\"<{][^'\"]{4,}")),
-)
+# Rule 1 — secret leak: the harness view of the kernel's one credential table
+# (aria_kernel/secret_scrub.py, CREDENTIAL_SHAPES; ARIA-HIGH-519), never a copy.
+# The table module is a standard-library-only leaf, loaded ALONE from this
+# file's own checkout: importing the `aria_kernel` package would execute its
+# __init__, which imports some sixty kernel modules, and tie this scanner's run
+# in the adapter room to every one of them importing there. The file lies
+# inside this tool's declared read scope (`aria-kernel/aria_kernel/**/*.py`).
+CREDENTIAL_TABLE_PATH = Path(__file__).resolve().parents[2] / "aria-kernel" / "aria_kernel" / "secret_scrub.py"
+_CREDENTIAL_TABLE_MODULE = "aria_harness_credential_table"
+
+
+def _load_credential_table() -> Any:
+    spec = importlib.util.spec_from_file_location(_CREDENTIAL_TABLE_MODULE, CREDENTIAL_TABLE_PATH)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"credential table not loadable: {CREDENTIAL_TABLE_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    # dataclasses resolves the table's annotations through sys.modules.
+    sys.modules[_CREDENTIAL_TABLE_MODULE] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_SECRET_RES: tuple[tuple[str, re.Pattern[str]], ...] = _load_credential_table().named_detectors("harness")
 
 # Rule 2 — untrusted head ref checkout in workflow_run/pull_request_target.
 _UNTRUSTED_TRIGGER_RE = re.compile(r"^on:\s*\n(?:.|\n)*?(workflow_run|pull_request_target)", re.MULTILINE)

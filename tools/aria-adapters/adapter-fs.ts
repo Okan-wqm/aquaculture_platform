@@ -1,5 +1,15 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+} from 'node:fs';
+import { join, posix, relative, resolve, sep } from 'node:path';
 
 export interface RepoSnapshot {
   readonly snapshot_mode?: string;
@@ -55,14 +65,92 @@ export function isArchivedWorkspacePath(path: string): boolean {
   );
 }
 
+/**
+ * The one containment rule for a workspace-relative path: POSIX, relative,
+ * already normalised (no `.`, `..` or empty segment, no trailing `/`), not
+ * leading out of the workspace, and free of NUL, which node's fs rejects by
+ * throwing. It is lexical, so a path that fails it never reaches the
+ * filesystem, and a non-normalised spelling such as `c/../../x.rs` fails
+ * instead of being resolved: no caller can alias its way out. Every adapter
+ * check of "is this inside the workspace" goes through this predicate.
+ */
+export function isWorkspaceRelativePath(path: string): boolean {
+  return (
+    path !== '' &&
+    path !== '.' &&
+    path !== '..' &&
+    !path.includes('\0') &&
+    !posix.isAbsolute(path) &&
+    !path.startsWith('../') &&
+    !path.endsWith('/') &&
+    posix.normalize(path) === path
+  );
+}
+
 export function resolveInsideWorkspace(workspaceRoot: string, requestedPath: string): string {
   const root = resolve(workspaceRoot);
   const resolved = resolve(root, requestedPath);
-  const relativePath = relative(root, resolved);
-  if (relativePath.startsWith('..') || relativePath === '..' || relativePath.includes(`..${sep}`)) {
+  const relativePath = normalizeWorkspacePath(relative(root, resolved));
+  // `relative` already normalises; '' is the workspace root itself.
+  if (relativePath !== '' && !isWorkspaceRelativePath(relativePath)) {
     throw new Error(`path escapes workspace root: ${requestedPath}`);
   }
   return resolved;
+}
+
+/**
+ * What a workspace-relative path names, looked up without following any
+ * symlink: `refused` when the path fails `isWorkspaceRelativePath` or any of
+ * its components (the entry included) is a symlink, so nothing behind a
+ * symlink is ever examined and the answer says nothing about files outside the
+ * workspace; `absent` when no entry is there; `file` for a regular file;
+ * `other` for a directory or a special file.
+ */
+export type WorkspaceEntry = 'absent' | 'file' | 'other' | 'refused';
+
+export interface ContainedWorkspace {
+  readonly entry: (path: string) => WorkspaceEntry;
+  /** The UTF-8 text of a `file` entry; any other entry is refused with an error. */
+  readonly readFile: (path: string) => string;
+}
+
+/**
+ * Filesystem access confined to a workspace: one resolver owns containment
+ * (`isWorkspaceRelativePath`, then a component walk under the root's realpath
+ * that refuses every symlink), so a caller cannot escape by passing an
+ * unchecked path. `collectFiles` never follows a symlink either, so the walk
+ * and this reader agree on what the workspace holds. The final open uses
+ * O_NOFOLLOW, so a file swapped for a symlink after the check is refused too.
+ */
+export function containedWorkspace(workspaceRoot: string): ContainedWorkspace {
+  const root = realpathSync(workspaceRoot);
+  const entry = (path: string): WorkspaceEntry => {
+    if (!isWorkspaceRelativePath(path)) return 'refused';
+    const segments = path.split('/');
+    let current = root;
+    for (const [index, segment] of segments.entries()) {
+      current = join(current, segment);
+      const stat = lstatSync(current, { throwIfNoEntry: false });
+      if (stat === undefined) return 'absent';
+      if (stat.isSymbolicLink()) return 'refused';
+      if (index === segments.length - 1) return stat.isFile() ? 'file' : 'other';
+      if (!stat.isDirectory()) return 'absent';
+    }
+    return 'other';
+  };
+  return {
+    entry,
+    readFile: (path) => {
+      if (entry(path) !== 'file') throw new Error(`refused workspace read: ${path}`);
+      const descriptor = openSync(join(root, path), constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        if (!fstatSync(descriptor).isFile()) throw new Error(`refused workspace read: ${path}`);
+        return readFileSync(descriptor, 'utf8');
+      } finally {
+        closeSync(descriptor);
+      }
+    },
+  };
 }
 
 export function collectFiles(
@@ -71,6 +159,15 @@ export function collectFiles(
     readonly extensions: readonly string[];
     readonly includeFile?: (name: string, path: string) => boolean;
     readonly includeExcludedDir?: (name: string) => boolean;
+    /**
+     * A directory the walk must not enter, decided from its name and the
+     * directory holding it. Language conventions that depend on a sibling
+     * file (cargo's default build dir is `target/` beside a `Cargo.toml`)
+     * cannot be a name in ADAPTER_EXCLUDED_DIRS: a `target/` without that
+     * manifest is ordinary source. Absent for every adapter that has no such
+     * convention, so their walk is unchanged.
+     */
+    readonly skipDir?: (name: string, parentPath: string) => boolean;
   },
 ): readonly string[] {
   const files: string[] = [];
@@ -84,6 +181,9 @@ export function collectFiles(
       const path = resolve(current, entry.name);
       if (entry.isDirectory()) {
         if (ADAPTER_EXCLUDED_DIRS.has(entry.name) && options.includeExcludedDir?.(entry.name) !== true) {
+          continue;
+        }
+        if (options.skipDir !== undefined && options.skipDir(entry.name, current)) {
           continue;
         }
         stack.push(path);

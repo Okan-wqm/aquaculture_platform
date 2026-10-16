@@ -72,6 +72,12 @@ remain unresolved narrative debt under the existing finding governance.
 - Owner task: Task 13
 - Required predicate: `rust_observation_shadow_proven`
 - Closure mode: `task_commit`
+- Part landed (landing L3, bucket `G018-rust-source`): the one Rust reader for adapters,
+  `tools/aria-adapters/rust-source.ts` and `rust-cargo.ts` (lexer, cargo targets, module tree,
+  production/harness/upstream classification; files only, symlink-safe through `adapter-fs.ts`
+  `containedWorkspace`). `rust-source.test.ts` pins the real repository at 0 parse failures and 0
+  unclassified targets (444 files: 297 production, 88 harness, 46 upstream, 13 unreached). The row
+  closes with bucket `G018-rust-adapter` (adapter, manifest, fixtures).
 
 ## ARIA-HIGH-011 — ARIA cannot meaningfully observe migration safety
 

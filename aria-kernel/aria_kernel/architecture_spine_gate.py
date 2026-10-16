@@ -69,19 +69,35 @@ from .tool_registry import (
 )
 
 
-INVARIANT_KINDS = (
-    "tenant_scoping",
-    "event_contracts",
-    "schema_entity",
-    "auth_security",
-    # Plan 020 Phase 10 — 5th invariant backed by agent-harness-security-
-    # adapter (7 detection rules over .claude/agents, .github/workflows,
-    # tools/aria-{poc,adapters}, aria-kernel surfaces). The spine gate
-    # reads the LATEST adapter run row from runs.jsonl; the fresh
-    # orchestrator (Phase 4) is responsible for ensuring that row was
-    # taken against the current repo_state_id.
-    "harness_security",
+@dataclass(frozen=True)
+class SpineInvariant:
+    """One spine invariant and the adapter that owns its rule.
+
+    ``kind`` is persisted vocabulary (baseline/postcheck rows); its values
+    and order never change. ``adapter_id`` is the rule's owner: the adapter
+    whose finding set IS the invariant.
+    """
+    kind: str
+    adapter_id: str
+
+
+# ARIA-HIGH-045 / ARIA-MEDIUM-516 — the ONE declaration of the spine: which
+# invariants it holds and which adapter owns each. The spine refresh's
+# adapter set derives from it (spine_orchestrator imports SPINE_ADAPTER_IDS),
+# so the refresh can no longer name an adapter that has no manifest
+# (schema-drift-adapter) or one no invariant reads (test-gap-adapter).
+# ``harness_security`` (Plan 020 Phase 10) is agent-harness-security-adapter's
+# 7 rules over .claude/agents, .github/workflows, tools/aria-{poc,adapters}
+# and aria-kernel surfaces.
+SPINE_INVARIANTS: tuple[SpineInvariant, ...] = (
+    SpineInvariant("tenant_scoping", "tenant-scoping-adapter"),
+    SpineInvariant("event_contracts", "event-contracts-adapter"),
+    SpineInvariant("schema_entity", "typeorm-entity-schema-adapter"),
+    SpineInvariant("auth_security", "security-boundary-adapter"),
+    SpineInvariant("harness_security", "agent-harness-security-adapter"),
 )
+INVARIANT_KINDS: tuple[str, ...] = tuple(spec.kind for spec in SPINE_INVARIANTS)
+SPINE_ADAPTER_IDS: tuple[str, ...] = tuple(spec.adapter_id for spec in SPINE_INVARIANTS)
 
 # 5 consecutive regressions for the same plan_id → HUMAN_REQUIRED
 # (Plan 019 §Architecture Spine Gate acceptance).

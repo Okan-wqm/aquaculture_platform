@@ -36,6 +36,17 @@ e2e/tests classify L1. Files: `docs/aria/policy/risk-policy.json`,
 Rule: The unreviewed lane is an explicit allowlist that excludes every file a required check
 executes or reads as expected values.
 
+**Landed (landing L3, bucket `G016-215-L1`).** The three whole-tree entries
+`{apps,libs,web}/**/__tests__/**` became `{apps,libs,web}/**/__tests__/**/*.{spec,test}.{ts,tsx}`
+(status A), and `_validate_l1_lane` refuses an L1 entry with any brace alternative whose last
+segment holds `**`, `{` or `}` or lacks a test or prose suffix (`L1_FILE_SUFFIXES`), so the old
+policy is refused at load. `canonical_path.expand_repo_glob` is the one brace expander. The matcher
+is DOTALL with `\Z` and `normalize_repo_relpath` refuses control characters, so a newline-named path
+can no longer slip past a deny glob into L1. Measured over 19,442 (status, tracked path) pairs: 0
+paths widen, 20 support files move from L1 to L2. `test_risk_policy_l1_lane.py`,
+`test_risk_policy_change_status.py` and `test_repo_path_canonical_form.py` were red before and are
+green after.
+
 ## ARIA-CRITICAL-216
 
 Operator approval references prove no operator act: `gov:<id>` accepts any governance event including

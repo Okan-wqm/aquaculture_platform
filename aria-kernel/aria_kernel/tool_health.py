@@ -110,10 +110,27 @@ def calibration_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "calibration.jsonl"
 
 
+@dataclass(frozen=True)
+class RecordedRun:
+    """What ``record_run`` stored, by value.
+
+    ``row`` is the runs.jsonl row exactly as appended (ledger hash included).
+    ``validate_run_envelope`` works on a COPY of the caller's envelope and the
+    store may downgrade that copy (``scope_violation``, ``evidence_error``,
+    ``integrity_failed``), so the caller's own dict is never what was stored:
+    a caller that judged the run by it read a status the store never held
+    (ARIA-MEDIUM-516). Returning the stored row is the only way a caller sees
+    a run, so it can only see the recorded one.
+    """
+
+    row: dict[str, Any]
+    health_decision: dict[str, Any]
+
+
 def record_run(
     run: dict[str, Any],
     base_dir: str | Path | None = None,
-) -> dict[str, Any]:
+) -> RecordedRun:
     envelope = validate_run_envelope(run)
     tool = get_tool(envelope["tool_id"], base_dir)
     emission_count = _count(envelope["emitted_observations"]) + _count(envelope["emitted_findings"])
@@ -197,7 +214,7 @@ def record_run(
             {"tool_name": envelope["tool_id"], "reason": envelope.get("runner", {}).get("stderr_sample", "tool unhealthy")},
         )
     update_tools_index(ensure_tools_dir(base_dir))
-    return decision
+    return RecordedRun(row=run_row, health_decision=decision)
 
 
 def validate_run_envelope(run: dict[str, Any]) -> dict[str, Any]:

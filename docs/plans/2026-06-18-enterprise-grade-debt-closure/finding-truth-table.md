@@ -283,7 +283,7 @@ litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it 
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
-| `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | real-open |
+| `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | already-fixed-needs-close |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
@@ -434,11 +434,17 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   each pin turns red when its mechanism is reverted. The closing `Closes:` commit merges with this
   entry (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
 - `ARIA-CRITICAL-215` (2026-09-26, same review): the L1 scope reached paths no CI gate covers.
-  `bd8d2c6f5` fixed the cited instances, but the residual reproduces: the L1 entries
-  `apps/**/__tests__/**`, `libs/**/__tests__/**` and `web/**/__tests__/**` admit any added file,
-  including a `__mocks__` module that jest applies to every existing spec of the project. Real
-  open work, owner claude (registry owner_user okan), deadline 2026-10-31. `3ff275a5f` (PR #1743)
-  claims 215 fixed; the registry rejects that commit as its closer.
+  `bd8d2c6f5` fixed the cited instances; the residual, the L1 entries `apps/**/__tests__/**`,
+  `libs/**/__tests__/**` and `web/**/__tests__/**` admitting any added file (a `__mocks__` module
+  jest applies to every existing spec of the project), is fixed by `2a3fceee5` (landing L3, bucket
+  `G016-215-L1`, carrying its `Closes:` line). The entries became
+  `{apps,libs,web}/**/__tests__/**/*.{spec,test}.{ts,tsx}`, `risk_policy._validate_l1_lane` refuses
+  an L1 entry whose brace alternatives do not end in a test or prose suffix (`L1_FILE_SUFFIXES`), so
+  the old policy is refused at load, and `canonical_path.normalize_repo_relpath` refuses control
+  characters so a newline-named path cannot pass a deny glob. Proof: `aria-suite-run.sh` over
+  `test_risk_policy_l1_lane.py`, `test_risk_policy_change_status.py` and
+  `test_repo_path_canonical_form.py`; seven mutants of the checks fail them. `3ff275a5f` (PR #1743)
+  claimed 215 fixed; the registry rejects that commit as its closer.
 - `ARIA-CRITICAL-399` (2026-10-09, genesis adapter execution): an adapter ran unconfined with the
   runner's environment. Fixed on the repair stack (`d188cad26`, `211895946`, `78966eda4`,
   `8961e645f`, each carrying its `Closes:` line): `tool_runner`, `fixture_runner` and genesis

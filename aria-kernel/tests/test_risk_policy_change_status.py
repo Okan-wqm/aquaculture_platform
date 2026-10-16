@@ -238,15 +238,65 @@ class PolicyDeclaresStatusesTests(unittest.TestCase):
                     "entries": [{"glob": "docs/**/*.md", "allowed_statuses": ["A"]}],
                 }))
 
+    def _l1_entry_policy(self, glob: str) -> dict:
+        return self._policy_with_l1({
+            "reason_code": "x", "disallowed_status_lane": "L2",
+            "entries": [{"glob": glob, "allowed_statuses": ["A"]}],
+        })
+
+    def test_an_l1_entry_must_name_test_files_or_prose(self) -> None:
+        # ARIA-CRITICAL-215 — M-6.1 admits new unit-test files and prose, so
+        # an L1 entry whose glob can match any other file kind is refused:
+        # every brace alternative must end in a test or prose suffix, with no
+        # `**` and no brace left in its last segment (a nested group or an
+        # unbalanced brace the one expander keeps literal is refused, not
+        # guessed at). The first two shapes are the reported defect's own file
+        # kinds (a plain .ts mock or setup module; a snapshot), so widening
+        # `L1_FILE_SUFFIXES` back to them turns this red. The two `x{`/`x}`
+        # globs end in a test suffix and are refused by the brace clause
+        # alone.
+        for glob in (
+            "apps/**/__tests__/__mocks__/*.ts",
+            "apps/**/__tests__/**/*.snap",
+            "apps/**/x{.spec.ts",
+            "apps/**/x}.spec.ts",
+            "apps/**/__tests__/**",
+            "apps/**",
+            "apps/**/*.json",
+            "apps/**/*.spec.t?",
+            "apps/**/*.{spec.ts,{x,y}}",
+            "apps/**/*.spec.{ts,js}",
+            "apps/**/{x.spec.ts,y/**}",
+            "apps/**/*.spec.ts}",
+            "apps/**/*.{spec.ts",
+            "apps/**/**.spec.ts",
+            "apps/**/",
+        ):
+            with self.subTest(glob=glob), self.assertRaisesRegex(
+                GovernanceError, "risk_policy_l1_entry_not_test_or_prose",
+            ):
+                load_risk_policy(self._l1_entry_policy(glob))
+
+    def test_test_and_prose_l1_entries_load(self) -> None:
+        for glob in (
+            "docs/**/*.md",
+            "apps/**/__tests__/**/*.{spec,test}.{ts,tsx}",
+            "libs/**/__tests__/**/*.{spec,test}.{ts,tsx}",
+            "web/**/__tests__/**/*.{spec,test}.{ts,tsx}",
+            "apps/**/src/**/*.spec.ts",
+        ):
+            with self.subTest(glob=glob):
+                load_risk_policy(self._l1_entry_policy(glob))
+
     def test_the_repository_policy_admits_tests_only_as_added_files(self) -> None:
         entries = load_risk_policy()["lanes"]["L1"]["entries"]
         self.assertEqual(
             [(entry["glob"], entry["allowed_statuses"]) for entry in entries],
             [
                 ("docs/**/*.md", ["A", "M"]),
-                ("apps/**/__tests__/**", ["A"]),
-                ("libs/**/__tests__/**", ["A"]),
-                ("web/**/__tests__/**", ["A"]),
+                ("apps/**/__tests__/**/*.{spec,test}.{ts,tsx}", ["A"]),
+                ("libs/**/__tests__/**/*.{spec,test}.{ts,tsx}", ["A"]),
+                ("web/**/__tests__/**/*.{spec,test}.{ts,tsx}", ["A"]),
                 ("apps/**/src/**/*.spec.ts", ["A"]),
                 ("libs/**/src/**/*.spec.ts", ["A"]),
                 ("web/**/src/**/*.spec.ts", ["A"]),

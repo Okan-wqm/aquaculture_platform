@@ -79,6 +79,11 @@ def lexical_repo_path(raw_path: object) -> str:
     return path
 
 
+# C0 control characters and DEL. Space is not one: it is part of a name
+# (ARIA-MEDIUM-224).
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def _refuse_non_repo_spelling(text: str, raw_path: object) -> None:
     """The refusals every repo-relative reading shares: an absolute path (a
     POSIX root or a drive letter) and a backslash.
@@ -104,19 +109,30 @@ def normalize_repo_relpath(raw_path: object) -> str:
     with no ``''``, ``.`` or ``..`` segment (``snapshot._scoped_input_path``
     holds the same rule). ``docs//x.md``, ``docs/./x.md`` and ``docs/x.md/``
     are refused, not returned: they are spellings no glob is written for, so
-    a classifier handed one judged a string instead of the file. Whitespace is
+    a classifier handed one judged a string instead of the file. A space is
     part of a POSIX name and is kept (``strip()`` once turned a name with a
-    leading space into ``docs/x.md``, a different file). An absolute path and a backslash
-    are refused (``_refuse_non_repo_spelling``).
+    leading space into ``docs/x.md``, a different file). An absolute path and
+    a backslash are refused (``_refuse_non_repo_spelling``).
+
+    ARIA-CRITICAL-215 (fix round) — a C0 control character (newline, tab,
+    ...) or DEL is refused too. It is legal in a git name and ``git diff -z``
+    returns it verbatim, but no repository glob is written for such a name:
+    the lane classifier once placed ``.../__tests__/a\\nb.test.ts`` under the
+    blocked billing tree in L1. ``resolve_repo_relpath`` keeps it, because
+    its readers (agent evidence refs) refuse control and bidi characters
+    under their own code (``agent_evidence_path_unresolvable``).
 
     Raises ``tool_registry.GovernanceError`` with ``repo_relpath_absolute``,
-    ``repo_relpath_backslash``, ``repo_relpath_traversal``,
-    ``repo_relpath_non_canonical`` or ``repo_relpath_empty``.
+    ``repo_relpath_backslash``, ``repo_relpath_control_char``,
+    ``repo_relpath_traversal``, ``repo_relpath_non_canonical`` or
+    ``repo_relpath_empty``.
     """
     from .tool_registry import GovernanceError as _GE
 
     text = str(raw_path)
     _refuse_non_repo_spelling(text, raw_path)
+    if _CONTROL_CHARACTER.search(text):
+        raise _GE(f"repo_relpath_control_char: {raw_path!r}")
     path = lexical_repo_path(text)
     segments = path.split("/")
     if ".." in segments:
@@ -188,12 +204,30 @@ def matches_repo_glob(path: str, pattern: str) -> bool:
     * ``*`` matches zero or more characters that are not ``/``.
     * ``?`` matches exactly one character that is not ``/``.
     * Other characters are matched literally.
+    * Every wildcard reads a newline as a name character, and the match ends
+      at the end of the path (ARIA-CRITICAL-215 fix round; ``fnmatch``'s
+      ``(?s:…)\\Z``). ``**`` once compiled to ``.`` without DOTALL while
+      ``*`` matched a newline, so ``apps/billing-service/**`` missed a name
+      ``*.test.ts`` matched; and ``$`` also matched before a trailing
+      newline, so ``*.spec.ts`` matched ``a.spec.ts\\n``.
     """
-    normalized_pattern = lexical_repo_path(pattern)
-    for candidate in _expand_braces(normalized_pattern):
-        if _glob_match(path, candidate):
-            return True
-    return False
+    return any(_glob_match(path, candidate) for candidate in expand_repo_glob(pattern))
+
+
+def expand_repo_glob(pattern: str) -> tuple[str, ...]:
+    """THE brace expansion of a repo glob: the brace-free alternatives
+    ``matches_repo_glob`` matches ``pattern`` as, in its lexical repo form.
+
+    ARIA-CRITICAL-215 — a reader that must judge what a glob CAN match (the
+    L1 entry validator in ``risk_policy``) reads these alternatives, so it
+    judges exactly the patterns the matcher compiles; a private expander
+    beside the matcher is a second brace semantics that can disagree with
+    it. Only the outermost group of each alternative is expanded (see
+    ``_expand_braces``): a nested group and an unbalanced brace stay in the
+    alternative literally, so a caller that requires brace-free alternatives
+    refuses them instead of guessing.
+    """
+    return tuple(_expand_braces(lexical_repo_path(pattern)))
 
 
 def _expand_braces(pattern: str) -> list[str]:
@@ -331,13 +365,16 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
         # Literal character
         parts.append(re.escape(char))
         index += 1
-    parts.append("$")
-    compiled = re.compile("".join(parts))
+    # `\Z`, not `$`: `$` also matches before a trailing newline. DOTALL: the
+    # `.` that `**` compiles to must read a newline as `*` (`[^/]*`) does.
+    parts.append(r"\Z")
+    compiled = re.compile("".join(parts), re.DOTALL)
     _GLOB_REGEX_CACHE[pattern] = compiled
     return compiled
 
 __all__ = [
     "_canonical_evidence_path",
+    "expand_repo_glob",
     "lexical_repo_path",
     "matches_repo_glob",
     "normalize_repo_relpath",

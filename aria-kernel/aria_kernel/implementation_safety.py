@@ -62,6 +62,7 @@ from .gh_token_factory import GitCommitIdentity
 from .git_containment import GitContainment
 from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
 from .mcp_broker import MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET
+from .secret_scrub import refusal_patterns
 from .text_safety import contains_bidi_or_control
 from .workspace_view import WorkspaceView
 from .validation_suite import (
@@ -270,24 +271,11 @@ MAX_VALIDATION_RESULT_BYTES: int = 4096
 # V9.0-D ships the registry shape; V9.1 populates the hash.
 IMMUTABLE_AGENT_FILE_HASH_REGISTRY: dict[str, str] = {}
 
-# Plan ARIA-V9.0-D — SECRET_SCAN_PATTERNS. Union of
-# agent_harness_security_adapter._SECRET_RES + secret_scrub
-# patterns + high-entropy AWS / GH / Anthropic key formats.
+# Plan ARIA-V9.0-D — SECRET_SCAN_PATTERNS: the refuse view of
+# secret_scrub.CREDENTIAL_SHAPES, the one credential table (ARIA-HIGH-519).
 # Defense-in-depth: secret-scan diff BEFORE gh pr create
-# (CRIT-004 + sec HIGH-005).
-SECRET_SCAN_PATTERNS: frozenset[re.Pattern[str]] = frozenset({
-    re.compile(r"AKIA[0-9A-Z]{16}"),                 # AWS access key
-    re.compile(r"aws_secret_access_key\s*[:=]"),     # AWS secret kv
-    re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}"),       # GitHub PAT (ghp/gho/...)
-    re.compile(r"github_pat_[A-Za-z0-9_]{50,}"),     # GitHub fine-grained PAT
-    re.compile(r"ghs_[A-Za-z0-9]{36,}"),             # GitHub App installation token
-    re.compile(r"sk-ant-[A-Za-z0-9-]{32,}"),         # Anthropic API key
-    re.compile(r"sk-[A-Za-z0-9]{32,}"),              # OpenAI / generic
-    re.compile(r"Bearer\s+[A-Za-z0-9_.-]{32,}"),     # bearer token
-    re.compile(r"-----BEGIN (RSA|EC|OPENSSH|DSA) PRIVATE KEY-----"),
-    re.compile(r"-----BEGIN PGP PRIVATE KEY BLOCK-----"),
-    re.compile(r"(JWT_SECRET|API_SECRET|DATABASE_PASSWORD)\s*[:=]\s*['\"]?[A-Za-z0-9+/=_-]{16,}"),
-})
+# (CRIT-004 + sec HIGH-005), and every envelope before it persists.
+SECRET_SCAN_PATTERNS: frozenset[re.Pattern[str]] = frozenset(refusal_patterns())
 
 
 # =============================================================================

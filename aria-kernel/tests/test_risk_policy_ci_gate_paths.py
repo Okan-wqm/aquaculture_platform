@@ -17,8 +17,10 @@ every ``docs/`` file a gate suite reads by literal path. A new invocation of a
 file the policy admits to L1 turns this test red until the policy excludes it.
 
 The whole-repository unit target (``--target test`` over affected projects)
-is not a named gate: the unit-test trees it runs are L1 by operator decision
-(plan 037), and those trees are what L1 admits.
+is not a named gate: new unit-test files are L1 by operator decision (plan
+037, M-6.1). Support files in those trees (mocks, setup, snapshots,
+fixtures) are L2 under ``src/``; outside ``src/`` no lane admits them and
+they are refused as ``risk_unknown_path``.
 """
 from __future__ import annotations
 

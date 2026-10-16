@@ -367,6 +367,15 @@ verb can record are listed at the end.
 - **Planned fix:** bucket `G002-045-runs` (landing L3): one `default_input` merge in `run_tool`, the
   refresh judged by the recorded status, the adapter list derived from manifests. Deadline:
   2027-01-13.
+- **Landed (L3, `G002-045-runs`):** `run_tool` merges the manifest `default_input` for every caller
+  (caller keys win) and returns the row `record_run` stored, so `tool run`, the gateway scheduler
+  and the refresh judge a run by its recorded status. The refresh's adapter set derives from
+  `architecture_spine_gate.SPINE_INVARIANTS` (no `schema-drift-adapter`, no `test-gap-adapter`); it
+  snapshots the working tree, treats only an `ok` cached row as fresh, and names quarantined and
+  unregistered adapters without running them. `test_tool_runner_default_input.py` and
+  `test_spine_orchestrator.py` were red before and are green after. The same change stops a
+  `repo_snapshot` declared in a manifest's `default_input` from replacing the run's own snapshot (no
+  shipped manifest declares one; no separate row).
 
 ### ARIA-LOW-517 — the prefixed sha256 digest has no single owner
 
@@ -378,6 +387,13 @@ verb can record are listed at the end.
 - **Planned fix:** `G006-digest-owner` (L3) adds `digest.py` as the one owner (Part of);
   `G006-digest-sites` and `G006-digest-codemod` (late chain) move every site and close it. Deadline:
   2027-04-13.
+- **Part landed (L3, `G006-digest-owner`, step C1):** `aria_kernel/digest.py` is the one owner of the
+  shape (a stdlib-only leaf: `sha256_digest*`, `is_sha256_digest`, fingerprints, sentinels).
+  `ledger.py` binds `digest.is_sha256_digest` and deletes its regex copy, `_LEDGER_EVENT_ID` and
+  `_replay_payload_sha256`; `_record_hash` and the replay payload digests compose through
+  `ledger.sha256_digest_of_canonical_json`. Byte-identical: `test_digest_byte_pins.py` (12 golden
+  values) and 460 aria/state ledgers that replay identically. The other sites move in
+  `G006-digest-sites` and `G006-digest-codemod`, which close this row.
 
 ### ARIA-LOW-518 — the git object-id validator has 15 copies
 
@@ -406,6 +422,14 @@ verb can record are listed at the end.
   refuses; that set's header-only rows cannot redact. Three more tables restate credential shapes.
 - **Planned fix:** bucket `R6-credential-shapes` (landing L3): one `CREDENTIAL_SHAPES` table with a
   detect and a redact pattern per family; every consumer derives its view. Deadline: 2026-10-31.
+- **Landed (L3, `R6-credential-shapes`):** `secret_scrub.CREDENTIAL_SHAPES` is the one table (49
+  rows with detect, value-spanning redact, views and a fixture), proven at import: no row or view may
+  leave a refusal hit or any part of a fixture's secret. New redact rows cover PEM key blocks,
+  `aws_secret_access_key` values and named secret assignments; `gh[pousr]_` tokens are redacted.
+  `write_sanitized_json` refuses, writing nothing, a credential-shaped mapping key and any refusal
+  hit in the bytes it would write. The refusal set, DLP, `system_one`, habitat, vault and harness
+  views read the table. `test_credential_shapes_single_owner.py` was red before and is green after.
+  The views the redact view does not cover are ARIA-MEDIUM-546; run artifacts are ARIA-LOW-547.
 
 ### ARIA-HIGH-520 — the closure policy's missing refs hide the Mode-A blocker
 
@@ -634,6 +658,100 @@ verb can record are listed at the end.
 - **Planned fix:** bucket `R6-transcripts` (holds `ci_executor.py`): on a `result_admissible` refusal
   whose codes meet `CREDENTIAL_REFUSAL_CODES`, the executor submits (the kernel records the withheld
   row and deletes the sources), then escalates as today. Deadline: 2026-10-31.
+
+### ARIA-LOW-541 — the evaluator worktree guard misses a module ledger executes
+
+- **Raised by:** the `G006-digest-owner` implementer (landing L3).
+- **Problem:** `ledger.py:19` imports `state_store_lifecycle_arcs` and runs it on every append, but
+  `_COMMON_AUTHORITY_PATHS` (`autonomy_evidence.py:936-951`) does not list it, and
+  `_evaluator_worktree_blocker` (`:1957`) checks git status over that set only. So a dirty copy of
+  an executed module passes the guard. The set is hand-kept; `G006-digest-owner` added `digest.py`
+  to it by hand for the same reason.
+- **Planned fix:** derive the set from ledger's kernel import closure, or an invariant that compares
+  that closure with the set. No wave-2 bucket owns it. Deadline: 2027-04-14.
+
+### EDGE-MEDIUM-044 — a sens-api-gateway invariant test is never built
+
+- **Raised by:** the `G018-rust-source` implementer (landing L3).
+- **Problem:** `sens-api-gateway/Cargo.toml` declares 43 of the 44 `tests/invariants/*.rs` as
+  `[[test]]` targets (`:586-938`); `d3_boot_order.rs` is missing, and cargo auto-discovery finds
+  only `tests/*.rs` and `tests/*/main.rs`, so `cargo test --all-targets`
+  (`sens-api-gateway-ci.yml:257`) never compiles it. The rekey runbook
+  (`db-migration-rekey-ceremony.md:193`) says it enforces the boot order at CI time.
+- **Planned fix:** declare the target and fix what the compiled test reports (edge gateway, product
+  lane). Deadline: 2027-01-14.
+
+### EDGE-LOW-045 — the panic-safe protocol reader is compiled into no target
+
+- **Raised by:** the `G018-rust-source` implementer (landing L3).
+- **Problem:** no `mod protocol_reader` exists, so `sens-api-gateway/src/protocol_reader.rs`, whose
+  header says external PLC, Modbus, LoRa and mTLS payloads must be decoded through its checked
+  cursors, is built by no target; nothing decodes through it and its two unit tests never run.
+  SENSOR-LOW-022 assumes it is the shared reader.
+- **Planned fix:** wire it in or delete it and correct SENSOR-LOW-022's premise (edge gateway).
+  Deadline: 2027-04-14.
+
+### ARIA-LOW-542 — an untracked file under a scan root crashes an adapter in the room
+
+- **Raised by:** the `G018-rust-source` implementer; observed independently by `G002-045-runs`
+  (landing L3).
+- **Problem:** the adapter room shows the tracked view, but `collectFiles` (`adapter-fs.ts`) lists a
+  masked untracked entry and the adapter fails to open it: with `digest.py` untracked,
+  kernel-dead-wire-adapter exited 1 with `EACCES` in the room and 0 outside it. The fixture contract
+  keeps only `stderr_hash` (`fixture_runner.py:870`), so the cause is invisible. CI checkouts have no
+  untracked files; operator and dev checkouts do.
+- **Planned fix:** walk the view the room grants (or report an unreadable entry as an observation),
+  and record bounded, scrubbed stderr text beside its hash. Deadline: 2027-04-14.
+
+### ARIA-LOW-543 — the TypeScript adapters read through symlinks
+
+- **Raised by:** the `G018-rust-source` fix round (landing L3).
+- **Problem:** `readWorkspaceFile` and `workspacePathExists` (`adapter-fs.ts:230-239`) follow
+  symlinks, and `resolveInsideWorkspace` and five per-adapter wrappers check containment only
+  lexically, so an explicitly named tracked symlink (kernel-dead-wire's policy dir, typeorm's
+  module-schema path) is read from outside the workspace. The Rust reader already reads through
+  `containedWorkspace`.
+- **Planned fix:** route these reads through `containedWorkspace`. Deadline: 2027-04-14.
+
+### ARIA-LOW-544 — the upstream manifest grammar has two copies
+
+- **Raised by:** the `G018-rust-source` fix round (landing L3).
+- **Problem:** `local-rumqttc-fork-hygiene.spec.ts:65` `parseManifest` and `rust-cargo.ts:795`
+  `parseUpstreamManifest` hold the same `UPSTREAM-MANIFEST.sha256` grammar and Map shape.
+- **Planned fix:** the gate imports `parseUpstreamManifest`. Deadline: 2027-04-14.
+
+### ARIA-LOW-545 — twin_test_surface keeps a second Rust test rule
+
+- **Raised by:** the `G018-rust-source` fix round (landing L3).
+- **Problem:** `_is_rust_spec` (`twin_test_surface.py:71`, `:101-108`) calls Rust code a test when it
+  sits under `tests/` or contains `#[cfg(test)]`. The adapter reader disagrees:
+  `sens-api-gateway/src/scripting/bytecode_e2e_tests.rs` (no `#[cfg(test)]`, gated by its declaring
+  mod) is harness there and not spec evidence for the twin.
+- **Planned fix:** the twin asks the TypeScript reader or drops its Rust rule. Deadline: 2026-11-15.
+
+### ARIA-MEDIUM-546 — the redact view covers only the refuse view
+
+- **Raised by:** the `R6-credential-shapes` reviewers, accepted by its fix round (landing L3).
+- **Problem:** 22 rows that the dlp, `system_one` and harness views of `secret_scrub.CREDENTIAL_SHAPES`
+  detect (Stripe, Slack, npm, GitLab, Google and DigitalOcean tokens, JWTs, password lines, among
+  others) come out of `artifact_safety.scrub_text` unredacted, because `validate_credential_table`
+  checks the redact view only against redact and refuse rows. The GitHub token family has 7 rows
+  with 7 regexes, the habitat row lacks `ghr_`, and `github_writes._TOKEN_CLASSES` (`:38-44`) is a
+  second prefix list.
+- **Planned fix:** every credential row gets a value-spanning redact pattern, checked for
+  over-redaction against negative fixtures, and the table requires the redact view to cover every
+  credential-kind detect view. No wave-2 bucket owns it. Deadline: 2026-10-31.
+
+### ARIA-LOW-547 — run artifacts are written with no credential refusal
+
+- **Raised by:** the `R6-credential-shapes` fix round (landing L3).
+- **Problem:** `runtime_artifacts.write_run_artifact` writes `scrub_json(payload)` to the published
+  `runtime_artifact_hot` surface with no key check and no byte scan, so a credential in a mapping key,
+  or a refusal hit that JSON escaping forms, is published verbatim. `write_sanitized_json` now refuses
+  both.
+- **Planned fix:** the writer runs `refuse_credential_keys` and `refuse_unredacted_credentials`,
+  and an `ArtifactSafetyError` takes the existing `write_failed` path. Owner: the next bucket
+  holding `runtime_artifacts.py` (R-NEW-runs-bound) or `R6-transcripts`. Deadline: 2026-10-31.
 
 ## Registry amendments recorded at the L1 registry step
 

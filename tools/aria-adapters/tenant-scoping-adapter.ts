@@ -231,6 +231,10 @@ function analyzeTenantUnit(
     const callHasTenantPredicate = /\btenantId\b|tenant_id|current_tenant|set_config\(['"]app\.current_tenant/.test(callText + statementText);
     const scopeHasTenant = /\btenantId\b|@Tenant\b|TenantContext|tenantManagerRepo/.test(scopeText);
     const explicitCrossTenant = hasCrossTenantComment(unit.text, node.getFullStart(), node.getStart(unit.sourceFile));
+    // ARIA-HIGH-045 — where in the code the call sits, by name: the spine
+    // gate keys a finding without its line, so two calls in one file are
+    // told apart by their symbol and an edit above them moves neither.
+    const enclosingSymbol = enclosingSymbolName(enclosing, unit.sourceFile);
 
     result.observations.push({
       id: `tenant-repository-call:${unit.relativePath}:${line}:${method}`,
@@ -274,7 +278,7 @@ function analyzeTenantUnit(
         confidence: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 0.55 : 0.9,
         actionability: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 'review_required' : 'actionable',
         review_reason: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 'seed_or_bootstrap_context' : undefined,
-        details: { method, receiver: receiverText, entityName: boundary.entityName ?? null },
+        details: { method, receiver: receiverText, entityName: boundary.entityName ?? null, enclosingSymbol },
       });
       return;
     }
@@ -291,7 +295,7 @@ function analyzeTenantUnit(
       evidence: [{ path: unit.relativePath, line }],
       confidence: 0.82,
       actionability: 'actionable',
-      details: { method, receiver: receiverText, entityName: boundary.entityName ?? null },
+      details: { method, receiver: receiverText, entityName: boundary.entityName ?? null, enclosingSymbol },
     });
   });
 }
@@ -478,6 +482,37 @@ function enclosingFunctionLike(node: ts.Node): ts.Node | undefined {
     current = current.parent;
   }
   return undefined;
+}
+
+/**
+ * The dotted name of the code a call sits in: enclosing classes and
+ * functions, outermost first (`Service.method`, `Service.method.<anonymous>`
+ * for an unnamed callback), or `<module>` at top level. A function or class
+ * expression takes the name it is bound to (`const handler = () => ...`).
+ * No position enters it, so it is stable under edits elsewhere in the file.
+ */
+function enclosingSymbolName(enclosing: ts.Node | undefined, sourceFile: ts.SourceFile): string {
+  const parts: string[] = [];
+  for (let current: ts.Node | undefined = enclosing; current; current = current.parent) {
+    if (ts.isFunctionLike(current) || ts.isClassLike(current)) {
+      parts.unshift(declarationName(current, sourceFile));
+    }
+  }
+  return parts.length > 0 ? parts.join('.') : '<module>';
+}
+
+function declarationName(node: ts.SignatureDeclaration | ts.ClassLikeDeclaration, sourceFile: ts.SourceFile): string {
+  if (ts.isConstructorDeclaration(node)) {
+    return 'constructor';
+  }
+  if (node.name) {
+    return node.name.getText(sourceFile);
+  }
+  const parent = node.parent;
+  if ((ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)) && parent.initializer === node) {
+    return parent.name.getText(sourceFile);
+  }
+  return '<anonymous>';
 }
 
 function firstLineMatching(unit: SourceUnit, pattern: RegExp): number {

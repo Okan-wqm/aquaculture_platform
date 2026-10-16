@@ -396,9 +396,13 @@ class Refusals(_Store):
     def test_the_backstop_reads_mapping_keys_too(self) -> None:
         # Review H1: keys skipped every check. A built state never has
         # caller keys, and the backstop reads them anyway.
+        # Both nets read keys: the redact view names a key block's type
+        # (ARIA-HIGH-519 added it), and the system_one view backs it up.
+        payload = {"model": "m", "state": "{}", "questions": {}}
         key = "-----BEGIN RSA " + "PRIVATE KEY-----"
-        refusal = system_one._egress_refusal({"model": "m", "state": "{}", "questions": {}}, {key: "x"})
-        self.assertEqual(refusal, "state_secret_shaped:credential_shape")
+        self.assertEqual(system_one._egress_refusal(payload, {key: "x"}), "state_secret_shaped:private_key_block")
+        key = "wh" + "sec_" + "a1B2c3D4e5F6g7H8i9"
+        self.assertEqual(system_one._egress_refusal(payload, {key: "x"}), "state_secret_shaped:credential_shape")
 
     def test_a_free_text_subject_is_refused(self) -> None:
         transport = _Transport()

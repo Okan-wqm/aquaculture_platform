@@ -53,7 +53,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { ORPHAN_MD_HEADING_REGEX } from '../../tools/gates/finding-registry-store';
-import { nxProjects } from './helpers/nx';
+import { nxProjectRoot, nxProjects } from './helpers/nx';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -478,6 +478,36 @@ describe('the lint quarantine is a measured one', () => {
     const result = runLintVerify();
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
+  });
+
+  it('keeps changed-file lint on inside every lint-quarantined project: no baseline entry lies in one', () => {
+    // A quarantine relaxes a project's PRE-EXISTING lint debt only. The lint
+    // job still runs scripts/ci/lint-changed-files.mjs first, which lints
+    // every changed .ts/.tsx file at base and head and fails on a new error,
+    // so a getRepository call or JWT_SECRET read added to a quarantined
+    // project is caught there. A file in its baseline is skipped by that
+    // lint, and inside a quarantined project no other lane lints it
+    // (INFRA-MEDIUM-224: create-service-app.ts, the bootstrap every service
+    // runs). Same parse as readBaseline() in lint-changed-files.mjs.
+    const baseline = readFileSync(
+      join(REPO_ROOT, 'scripts/ci/lint-changed-files-baseline.txt'),
+      'utf8',
+    )
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith('#'));
+    const lint = readPolicy().targets['lint'];
+    if (lint === undefined) throw new Error('affected-target-policy.json has no lint target');
+    const roots = Object.keys(lint.knownUnstableProjects).map((project) => ({
+      project,
+      root: nxProjectRoot(project),
+    }));
+    const hidden = baseline.flatMap((file) =>
+      roots
+        .filter(({ root }) => file.startsWith(`${root}/`))
+        .map(({ project }) => `${file} (lint-quarantined ${project})`),
+    );
+    expect(hidden).toEqual([]);
   });
 
   it('ratchets the lint quarantine downward', () => {

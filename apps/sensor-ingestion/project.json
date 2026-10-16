@@ -32,6 +32,7 @@
         "package": "sensor-ingestion",
         "allFeatures": true
       },
+      "inputs": ["default", "^production", "{workspaceRoot}/.github/manifests/ci-images.json"],
       "cache": true
     },
     "lint": {

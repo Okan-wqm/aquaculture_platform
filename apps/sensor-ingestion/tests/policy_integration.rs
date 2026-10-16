@@ -82,6 +82,54 @@ use sensor_ingestion::config::{IngestBackend, IngestBackendConfig};
 // Container fixture
 // ---------------------------------------------------------------------
 
+/// `.github/manifests/ci-images.json`: the one record of the mirror
+/// repository and digest for every third-party image CI pulls. The
+/// workflow services, `.github/workflows/ci-image-mirror.yml` and this
+/// test all read it, so the digest exists exactly once. Anonymous
+/// Docker Hub and ECR Public pulls share a per-source-IP quota across
+/// GitHub-hosted runners and failed CI whatever the change
+/// (INFRA-HIGH-213, INFRA-HIGH-227); the GHCR mirror is pulled with the
+/// job's GITHUB_TOKEN (`docker login ghcr.io` in the workflow, which
+/// testcontainers reads from `~/.docker/config.json`).
+const CI_IMAGES_MANIFEST: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../.github/manifests/ci-images.json"
+));
+
+#[derive(Debug, serde::Deserialize)]
+struct CiImagesManifest {
+    images: Vec<CiImage>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CiImage {
+    name: String,
+    mirror: String,
+    tag: String,
+    digest: String,
+}
+
+/// `(repository, tag)` arguments for `GenericImage::new`, resolved from
+/// the CI image manifest. testcontainers formats its descriptor as
+/// `{name}:{tag}`, so the tag carries the digest and the pull is
+/// `<mirror>:<tag>@<digest>`: the daemon resolves it by digest alone.
+fn ci_image(name: &str, tag: &str) -> (String, String) {
+    let manifest: CiImagesManifest =
+        serde_json::from_str(CI_IMAGES_MANIFEST).expect("parse .github/manifests/ci-images.json");
+    let mut entries = manifest
+        .images
+        .into_iter()
+        .filter(|image| image.name == name && image.tag == tag);
+    let image = entries
+        .next()
+        .unwrap_or_else(|| panic!("ci-images.json has no {name}:{tag} entry"));
+    assert!(
+        entries.next().is_none(),
+        "ci-images.json lists {name}:{tag} more than once"
+    );
+    (image.mirror, format!("{}@{}", image.tag, image.digest))
+}
+
 /// Spin up a plaintext NATS broker inside Docker + return a
 /// client connected to it. Every test owns its own container so
 /// state never leaks between runs; the container stops when the
@@ -102,10 +150,8 @@ async fn start_nats_broker() -> (
     // `nats:2.10-alpine` is the image `aqua-nats` runs — pin the
     // minor so a container registry refresh cannot silently upgrade
     // the test broker to a major version with different defaults.
-    // Pulled through the ECR Public mirror of the Docker official
-    // images: CI runners share Docker Hub's anonymous pull quota
-    // (INFRA-HIGH-213, tests/invariants/ci-image-registry.spec.ts).
-    let container = GenericImage::new("public.ecr.aws/docker/library/nats", "2.10-alpine")
+    let (nats_repository, nats_tag) = ci_image("nats", "2.10-alpine");
+    let container = GenericImage::new(nats_repository, nats_tag)
         .with_exposed_port(4222.tcp())
         .with_wait_for(WaitFor::message_on_stderr("Server is ready"))
         .with_cmd(vec!["-m", "8222", "-DV"])

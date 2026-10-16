@@ -144,6 +144,12 @@
       "reason": "Scheduled full CI of main and release-tag builds."
     },
     {
+      "workflow": "ci-image-mirror.yml",
+      "name": "CI Image Mirror",
+      "role": "main_verdict",
+      "reason": "On push to main, proves every image main's CI pins is in the GHCR mirror."
+    },
+    {
       "workflow": "closes-footer-check.yml",
       "name": "Closes Footer Check",
       "role": "pr_verdict",

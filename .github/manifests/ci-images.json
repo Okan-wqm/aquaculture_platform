@@ -1,0 +1,48 @@
+{
+  "$comment": [
+    "INFRA-HIGH-227: the single source for every third-party image CI pulls at run time.",
+    "Anonymous pulls from Docker Hub (INFRA-HIGH-213) and from ECR Public (INFRA-HIGH-227) share a",
+    "per-source-IP quota with every tenant on the GitHub-hosted runner egress IPs, so CI failed",
+    "with toomanyrequests whatever the change. Each entry is copied once, by digest, into GHCR",
+    "under this repository by .github/workflows/ci-image-mirror.yml, and CI pulls the copy with",
+    "the job's GITHUB_TOKEN.",
+    "",
+    "name:     repository under ghcr.io/okan-wqm/aquaculture_platform/ci/ (an entry is name + tag).",
+    "upstream: the Docker official image and tag the digest was resolved from (provenance only).",
+    "digest:   the upstream multi-arch index digest. The mirror keeps it byte-for-byte, so",
+    "          upstream@digest and mirror@digest name the same content.",
+    "mirror:   ghcr.io/okan-wqm/aquaculture_platform/ci/<name>.",
+    "tag:      the upstream tag, also pushed on the mirror.",
+    "",
+    "Consumers reference <mirror>:<tag>@<digest>: workflow services/containers (with",
+    "`credentials` and job `packages: read`) and testcontainers (apps/sensor-ingestion reads this",
+    "file at compile time). tests/invariants/ci-image-registry.spec.ts fails on any other form.",
+    "Changing a digest: edit it and every consumer in one PR from a same-repository branch. The",
+    "mirror workflow copies the new digest on that PR, and a consumer job that started before the",
+    "copy finished needs one re-run."
+  ],
+  "schemaVersion": 1,
+  "images": [
+    {
+      "name": "nats",
+      "upstream": "docker.io/library/nats:2.10-alpine",
+      "digest": "sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927",
+      "mirror": "ghcr.io/okan-wqm/aquaculture_platform/ci/nats",
+      "tag": "2.10-alpine"
+    },
+    {
+      "name": "redis",
+      "upstream": "docker.io/library/redis:7-alpine",
+      "digest": "sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499",
+      "mirror": "ghcr.io/okan-wqm/aquaculture_platform/ci/redis",
+      "tag": "7-alpine"
+    },
+    {
+      "name": "redis",
+      "upstream": "docker.io/library/redis:7",
+      "digest": "sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85",
+      "mirror": "ghcr.io/okan-wqm/aquaculture_platform/ci/redis",
+      "tag": "7"
+    }
+  ]
+}

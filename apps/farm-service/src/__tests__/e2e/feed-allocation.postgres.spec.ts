@@ -353,8 +353,24 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
 
     const result = await allocate({ quantityKg: 12 });
     // EU 178/2002 lot izlenebilirliği: iade ve geri çağırma bu alana dayanır.
-    expect(result.slices[0]?.expiryDate).toBeTruthy();
-    expect(String(result.slices[0]?.expiryDate)).toContain(EXPIRY_PROPAGATION_DATE);
+    //
+    // WHAT: the slice honours its declared `FeedAllocationSlice.expiryDate:
+    // Date | null` contract — a real `Date` whose UTC calendar day is the
+    // stored lot expiry.
+    // WHY: `StorageInventory.expiryDate` hydrates through
+    // `DateColumnTransformer` (FARM-CRITICAL-406), which turns the Postgres
+    // `date` text 'YYYY-MM-DD' into a `Date` at UTC midnight of that day. The
+    // previous `String(value)).toContain('YYYY-MM-DD')` check passed only
+    // while TypeORM leaked the raw text through the Date-typed field; once
+    // the type was honoured it compared against `Date#toString()` ("Sat Feb 13
+    // 2027 00:00:00 GMT+0000 …") and could never match. Asserting the type and
+    // the UTC day pins the contract instead of a leaked representation.
+    expect(result.slices).toHaveLength(1);
+    const expiry = result.slices[0]?.expiryDate;
+    expect(expiry).toBeInstanceOf(Date);
+    expect(expiry instanceof Date && expiry.toISOString().slice(0, 10)).toBe(
+      EXPIRY_PROPAGATION_DATE,
+    );
   });
 
   it('honours a pinned lot number and refuses to silently spill into other lots', async () => {

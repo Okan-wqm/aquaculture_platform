@@ -170,14 +170,31 @@ def refuse_credential_keys(payload: Any, *, where: str | Path) -> None:
         raise ArtifactSafetyError(f"artifact_credential_in_key: {where}: {shapes}")
 
 
+def sanitized_json_text(document: Any, *, where: str | Path, **dumps: Any) -> str:
+    """The JSON text a publishing writer may write for an already-scrubbed ``document``.
+
+    The one encoding step of every published JSON writer (ARIA-LOW-547: the
+    run-artifact writer encoded ``scrub_json(payload)`` itself and refused
+    nothing). It refuses a credential-shaped mapping key (``scrub_json``
+    never rewrites a key), encodes with the writer's own ``json.dumps``
+    options, and refuses a refusal hit in the encoded text: escaping can form
+    one the raw strings did not hold (``ensure_ascii`` writes an e-circumflex
+    as an escape that ends in ``a``). Raises ``ArtifactSafetyError`` naming
+    shape types, never a value; returns only text the kernel would not refuse.
+    """
+    refuse_credential_keys(document, where=where)
+    text = json.dumps(document, **dumps)
+    refuse_unredacted_credentials(text, where=where)
+    return text
+
+
 def write_sanitized_json(path: str | Path, payload: Any, *, max_bytes: int = 1_000_000) -> None:
     scrubbed = scrub_json(payload)
-    refuse_credential_keys(scrubbed, where=path)
-    raw = json.dumps(scrubbed, indent=2, sort_keys=True)
+    # The size and the refusal scan read the bytes the format owner
+    # (ledger.atomic_write_json) writes.
+    raw = sanitized_json_text(scrubbed, where=path, indent=2, sort_keys=True)
     if len(raw.encode("utf-8")) > max_bytes:
         raise ArtifactSafetyError(f"artifact exceeds max_bytes={max_bytes}: {path}")
-    # The size and the refusal scan read the bytes the format owner writes.
-    refuse_unredacted_credentials(raw, where=path)
     atomic_write_json(Path(path), scrubbed)
 
 
@@ -186,6 +203,7 @@ __all__ = [
     "assert_real_mode_env_safe",
     "refuse_credential_keys",
     "refuse_unredacted_credentials",
+    "sanitized_json_text",
     "scrub_json",
     "scrub_text",
     "write_sanitized_json",

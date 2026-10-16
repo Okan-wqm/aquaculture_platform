@@ -465,11 +465,28 @@ def change_for_pr(
         ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl",
         expected_surface="pr_lifecycle",
     )
-    latest_change_id: str | None = None
+    binding = pr_change_binding(rows, pr_number)
+    return None if binding is None else str(binding["change_id"])
+
+
+def pr_change_binding(rows: list[dict[str, Any]], pr_number: int) -> dict[str, Any] | None:
+    """The pr-lifecycle row that binds ``pr_number`` to its change, or None.
+
+    ARIA-HIGH-521 — the binding is ARIA's own record: the opener's row
+    (``pr_manager`` and ``self_revert`` write ``opened`` with the change_id
+    and proposal_id). GitHub knows neither, so the merge lane's ``observed``
+    row (``_merge_if_green_with_executor`` records ``adapter.get_pr``)
+    carries change_id None and binds nothing; it is also the LAST row by
+    the time the pre-merge perimeter reads the ledger. The binding is
+    therefore the latest row that carries a change_id, never the latest
+    row. ``change_for_pr`` and the perimeter's change join read it through
+    this one rule, over the file and over a verified prefix respectively.
+    """
+    binding: dict[str, Any] | None = None
     for row in rows:
         if row.get("pr_number") == pr_number and row.get("change_id"):
-            latest_change_id = str(row["change_id"])
-    return latest_change_id
+            binding = row
+    return binding
 
 
 def human_merge_decision(

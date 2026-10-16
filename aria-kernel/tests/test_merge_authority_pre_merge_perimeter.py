@@ -271,13 +271,19 @@ class NativePreMergeContextTests(unittest.TestCase):
             change_id=planned["change_id"], commit_sha=head_sha,
             actual_affected_files=[source_path], base_dir=tools,
         )
-        pr = {
+        opener_pr = {
             "number": 731, "base_branch": "main", "base_sha": base_sha,
             "head_ref": "aria/native-pre-merge-context", "head_sha": head_sha,
             "changed_files": [source_path], "change_id": planned["change_id"],
             "body": "Apply the converged sample-interval change.",
         }
+        # ARIA-HIGH-521 — production shape: the opener's row binds the PR to
+        # its change; the merge lane then records what GitHub reports, and
+        # GitHub knows no change_id, so the LAST row carries none.
+        opened = record_pr_lifecycle(opener_pr, event="opened", base_dir=tools)
+        pr = {key: value for key, value in opener_pr.items() if key != "change_id"}
         observed = record_pr_lifecycle(pr, base_dir=tools)
+        self.assertIsNone(observed["change_id"])
         snapshot = build_repo_snapshot(workspace_root=repo, mode="committed")
         self.assertEqual(change_for_pr(731, base_dir=tools), planned["change_id"])
         self.assertEqual(plan_status(plan_id=plan.plan_id, base_dir=tools)["state"], "CONVERGED")
@@ -286,7 +292,7 @@ class NativePreMergeContextTests(unittest.TestCase):
         self.assertEqual(git("diff", "--name-only", base_sha, head_sha), source_path)
         self.assertEqual(snapshot["base_commit_sha"], head_sha)
         self.assertNotEqual(base_sha, head_sha)
-        for row in (planned, committed, observed):
+        for row in (planned, committed, opened, observed):
             self.assertRegex(row["ledger_hash"], r"^sha256:[0-9a-f]{64}$")
 
         # Missing optional native context capability is the initial RED;
@@ -312,7 +318,8 @@ class NativePreMergeContextTests(unittest.TestCase):
         self.assertIsNone(evidence.claim_id)
         self.assertEqual(evidence.pr_number, 731)
         self.assertEqual(evidence.change_id, planned["change_id"])
-        self.assertEqual(evidence.pr_row_hash, observed["ledger_hash"])
+        # The evidence names the row that binds the PR to its change.
+        self.assertEqual(evidence.pr_row_hash, opened["ledger_hash"])
         self.assertEqual(evidence.planned_row_hash, planned["ledger_hash"])
         self.assertEqual(evidence.committed_row_hash, committed["ledger_hash"])
         self.assertEqual(evidence.plan_id, plan.plan_id)
@@ -637,11 +644,18 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(plan_status(plan_id=plan.plan_id, base_dir=tools)["state"], "IMPLEMENTATION_RECORDED")
         self.assertEqual(accepted_result_for_request(request_id=request["request_id"], base_dir=tools)["ledger_hash"],
             submitted["row"]["ledger_hash"])
-        pr = {"number": 732, "state": "OPEN", "base_branch": "main", "base_sha": staged["base_sha"],
+        # ARIA-HIGH-521 — production shape: the opener's row binds the PR to
+        # its change and proposal; the merge lane observes the PR through
+        # GitHub (`GhCliGitHubAdapter.get_pr`), which knows neither, so every
+        # row the lane appends carries change_id None.
+        opener_pr = {"number": 732, "state": "OPEN", "base_branch": "main", "base_sha": staged["base_sha"],
             "head_ref": staged["branch"], "head_sha": head_sha, "body": "Native implementation result fixture.",
             "changed_files": [source_path], "change_id": staged["change_id"],
             "proposal_id": staged["proposal_id"], "url": pr_url}
+        opened = record_pr_lifecycle(opener_pr, event="opened", base_dir=tools)
+        pr = {key: value for key, value in opener_pr.items() if key not in {"change_id", "proposal_id"}}
         observed = record_pr_lifecycle(pr, base_dir=tools)
+        self.assertIsNone(observed["change_id"])
         with patch("aria_kernel.tool_registry.update_tools_index", wraps=actual_index_writer) as public_writer:
             public_binding = verify_invocation_context_binding(
                 request_id=request["request_id"], context_hash=request["context_hash"],
@@ -660,7 +674,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(evidence.request_id, request["request_id"])
         self.assertEqual(evidence.claim_id, claim["claim_id"])
         self.assertEqual(evidence.result_row_hash, submitted["row"]["ledger_hash"])
-        self.assertEqual(evidence.pr_row_hash, observed["ledger_hash"])
+        self.assertEqual(evidence.pr_row_hash, opened["ledger_hash"])
         self.assertEqual(evidence.plan_revision_id, plan.revision_id)
         self.assertEqual(evidence.plan_content_hash, plan.content_hash)
         self.assertEqual(evidence.head_sha, head_sha)

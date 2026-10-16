@@ -1656,26 +1656,12 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.docs_changed == 'true'
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: public.ecr.aws/docker/library/nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
+    # No service containers: markdownlint-changed.mjs is pure git+fs (no
+    # redis/nats client anywhere in it). The inherited redis+nats blocks made
+    # this job pull two images before its first step, so every docs-touching
+    # PR shared the public-ECR anonymous pull quota — when that quota ran out
+    # (2026-10-16), docs-check failed at container init and blocked merges
+    # while the actual lint never ran.
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

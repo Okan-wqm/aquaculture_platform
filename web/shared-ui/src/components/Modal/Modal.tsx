@@ -48,7 +48,9 @@ export interface ModalProps {
    * Palette of the panel's content. A dialog renders through a portal, so it
    * sits outside the page's `sd-page` scope; `suderra` gives the panel the
    * same scope (`sd-surface`, shared-ui/styles/suderra.css), so the controls
-   * in a tenant console dialog paint like the page that opened it.
+   * in a tenant console dialog paint like the page that opened it. While the
+   * tenant console is on screen every `role="dialog"` already joins that
+   * scope (suderra.css), so a console call site needs no value here.
    */
   surface?: ModalSurface;
   /**

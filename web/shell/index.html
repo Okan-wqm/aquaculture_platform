@@ -30,10 +30,12 @@
       form-action 'self';
     " />
     <title>Aquaculture Platform</title>
-    <!-- The three families theme.css names (--font-sans, --font-mono, --font-display) and no others (FE-MEDIUM-090) -->
+    <!-- The five families theme.css names and no others (FE-MEDIUM-090): --font-sans, --font-mono,
+         --font-display (the auth pages) and the tenant console's Industry pair --font-body-sd /
+         --font-display-sd (Barlow 400-700, Barlow Condensed 600). Same two origins, so the CSP is unchanged. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <!-- First paint (FE-MEDIUM-083): the boot splash lives in #root until React replaces it,
          so the federation runtime and the fonts never leave a blank page behind. -->
     <style>

@@ -62,9 +62,16 @@
    same value would fall to 3.7:1 on gray-900 and 3.0:1 on gray-800 — the dark
    theme restores Tailwind's default (6.9:1 / 5.5:1). One token, one contrast
    answer per theme; `tests/invariants/web-theme-token-parity.spec.ts` asserts
-   both ratios. */
-[data-theme='dark'] {
-  --color-gray-400: #9ca3af;
+   both ratios.
+   WHY the base layer: it still overrides the @theme value (theme layer), and
+   it yields to the tenant console's scope (suderra.css, components layer). A
+   surface that pins `data-theme='dark'` on itself inside that scope matches
+   both rules on the same element; unlayered, this one would win there and put
+   one step of the cool Tailwind grey into the console's graphite ramp. */
+@layer base {
+  [data-theme='dark'] {
+    --color-gray-400: #9ca3af;
+  }
 }
 
 @theme {
@@ -167,12 +174,18 @@
   --color-info-900: #1e3a8a;
 
   /* ============================ Fonts ============================ */
-  /* The three families web/shell/index.html loads, and no others (FE-MEDIUM-090):
+  /* The five families web/shell/index.html loads, and no others (FE-MEDIUM-090):
      one sans for the product, one mono for code and readings, one display serif
-     for the auth pages' title. A family named here must be in that loader. */
+     for the auth pages' title, and the tenant console's Industry pair — Barlow
+     for its body, Barlow Condensed 600 for its headings. A family named here
+     must be in that loader. The console pair does not replace the globals:
+     suderra.css points `--font-sans` / `--font-display` at them inside the
+     console scope only, so the auth pages keep Instrument Serif. */
   --font-sans: Inter, system-ui, -apple-system, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, Consolas, monospace;
   --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
+  --font-body-sd: 'Barlow', system-ui, -apple-system, sans-serif;
+  --font-display-sd: 'Barlow Condensed', system-ui, -apple-system, sans-serif;
 
   /* ===================== Type scale (size + line-height) ===================== */
   --text-xs: 0.75rem;
@@ -200,6 +213,10 @@
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
   --radius-2xl: 1rem;
+  /* The tenant console's corner (Industry, README §6): square cards, buttons and
+     inputs. suderra.css points every radius token above at this one inside the
+     console scope, so a component's `rounded-lg` squares there and nowhere else. */
+  --radius-sd: 0;
 
   /* ===================== Shadows ===================== */
   /* v4 RENAMED the shadow scale (v3 shadow-sm -> v4 shadow-xs, v3 shadow ->
@@ -213,6 +230,9 @@
   --shadow-card: 0 2px 8px rgb(0 0 0 / 0.08);
   --shadow-dropdown: 0 4px 12px rgb(0 0 0 / 0.12);
   --shadow-modal: 0 20px 40px rgb(0 0 0 / 0.2);
+  /* The tenant console's elevation (`--shadow-sd-*`) is NOT here: it flips
+     per theme, and a shadow theme value is copied into its utility — see the
+     `:root` rule before the SUDERRA dark block. */
 
   /* ===================== Animations ===================== */
   --animate-spin-slow: spin 2s linear infinite;
@@ -222,145 +242,373 @@
   --animate-slide-up: slideUp 0.2s ease-out;
   --animate-slide-down: slideDown 0.2s ease-out;
 
-  /* ============ SUDERRA console tokens (tenant console design port) ============
-     WHAT: the SUDERRA LABS visual language — warm paper surfaces, deep-water
-     rail, teal/mint accents, Instrument Serif display type. Prefixed `sd-` so
-     they ADD to (not replace) the legacy Ocean Blue scale: pages still on the
-     old tokens keep rendering identically while they are migrated one by one.
-     Values are the approved Tenant Console mockup's exact constants. */
-  --color-sd-paper: #f7f4ea; /* console page background (warm cream) */
-  --color-sd-parchment: #fffdf8; /* raised surfaces (cards, dropdowns) */
-  --color-sd-ink: #0a1f2b; /* primary text on paper */
-  --color-sd-ink-soft: #3d5c69; /* secondary text */
-  --color-sd-ink-muted: #4a6673; /* tertiary text — 6.0:1 on parchment, 5.5:1 on paper */
-  --color-sd-ink-faint: #9cbcc6; /* faint labels on dark rail */
-  --color-sd-teal: #146f84; /* accent (links, active tabs) */
-  --color-sd-teal-deep: #0b4f60; /* accent hover/deep */
-  --color-sd-mint: #6ee7c7; /* live/active accent on dark */
-  --color-sd-mint-soft: #a7e8dc; /* active rail label color */
-  --color-sd-rail-top: #0b324a; /* rail gradient stop 1 */
-  --color-sd-rail-mid: #082134; /* rail gradient stop 2 */
-  --color-sd-rail-bottom: #051523; /* rail gradient stop 3 */
-  --color-sd-rail-item: #c6dde4; /* rail item label */
-  --color-sd-rail-icon: #8fb6c2; /* rail item icon */
-  --color-sd-rail-child: #9cbcc6; /* rail child label */
-  --color-sd-rail-child-icon: #7fa2ad; /* rail child icon */
-  --color-sd-danger: #b04a28; /* unread badge / destructive accent */
-  --color-sd-danger-ink: #8e3a1e; /* error banner text on paper */
-  --color-sd-ink-hint: #4f6c78; /* hint text — 5.5:1 on parchment, 4.6:1 on a chat bubble */
-  --color-sd-mint-paper: #eafaf4; /* text on the deep-teal composer button */
-  --color-sd-rule: rgba(10, 31, 43, 0.09); /* hairline dividers on paper */
-  --color-sd-sea: #4fb6c8; /* cyan accent: eyebrow dot, info tint */
-  --color-sd-mint-deep: #4abba2; /* success accent on paper */
-  --color-sd-mint-ink: #166f5a; /* success text on paper */
-  --color-sd-rail-bright: #eaf6f8; /* rail brand name, hovered child label */
-  --color-sd-rail-accent: #8fd8e4; /* rail brand caption */
-  --color-sd-cream: #fffdf8; /* white inside the Suderra scope, both themes (never re-assigned) */
-  --color-sd-sand: #f6d08a; /* warm glow over the paper column */
-  --color-sd-foam: #bae4e5; /* cool glow over the paper column */
-  --color-sd-violet: #8b74be; /* AI accent (chat bubble, channel icon) */
-  --color-sd-violet-ink: #4a3766; /* AI icon on paper */
+  /* ============ SUDERRA console tokens — the Industry palette ============
+     WHAT: the tenant console's visual language (design handoff "Tenant
+     Console — Industrial", README §6): graphite neutrals, a steel-blue
+     accent, red and amber as the only alarm colours, square corners and
+     Barlow type. The values below are the light theme ("Drawing"); the
+     `[data-theme='dark']` block further down re-assigns the theme-flipping
+     ones to "Control room".
 
-  /* Suderra scope ramps (FE-HIGH-321). `sd-page` / `sd-surface` (suderra.css)
-     re-assign the design-system scales to these, so this file stays the one
-     owner of every colour value; web-theme-token-parity.spec.ts pins the
-     contrast the scope relies on. ink = gray under the light theme, deep = gray
-     under the dark theme, teal = primary, mint / amber / rust / sea = success /
-     warning / error / info. */
-  --color-sd-ink-50: #f6f4ee;
-  --color-sd-ink-100: #eeece4;
-  --color-sd-ink-200: #e1e2dc;
-  --color-sd-ink-300: #ccd2d1;
-  --color-sd-ink-400: #557282;
-  --color-sd-ink-500: #4a6673;
-  --color-sd-ink-600: #3d5c69;
-  --color-sd-ink-700: #2b4956;
-  --color-sd-ink-800: #173341;
-  --color-sd-ink-900: #0a1f2b;
-  --color-sd-deep-50: #eef6f8;
-  --color-sd-deep-100: #dcebef;
-  --color-sd-deep-200: #c6dde4;
-  --color-sd-deep-300: #a9c7d0;
-  --color-sd-deep-400: #8fb6c2;
-  --color-sd-deep-500: #6f93a0;
-  --color-sd-deep-600: #3f6272;
-  --color-sd-deep-700: #24465a;
-  --color-sd-deep-800: #12324a;
-  --color-sd-deep-900: #0b2436;
-  --color-sd-teal-50: #e9f5f7;
-  --color-sd-teal-100: #cde9ee;
-  --color-sd-teal-200: #9fd3dd;
-  --color-sd-teal-300: #6bb9c8;
-  --color-sd-teal-400: #3c9db1;
-  --color-sd-teal-500: #1d8399;
-  --color-sd-teal-600: #146f84;
-  --color-sd-teal-700: #0b4f60;
-  --color-sd-teal-800: #093f4d;
-  --color-sd-teal-900: #07303b;
-  --color-sd-mint-50: #ebfaf5;
-  --color-sd-mint-100: #d2f3e8;
-  --color-sd-mint-200: #a6e6d2;
-  --color-sd-mint-300: #74d4b9;
-  --color-sd-mint-400: #4abba2;
-  --color-sd-mint-500: #2b9c84;
-  --color-sd-mint-600: #1d7c68;
-  --color-sd-mint-700: #166f5a;
-  --color-sd-mint-800: #125849;
-  --color-sd-mint-900: #0e4438;
-  --color-sd-amber-50: #fcf6e6;
-  --color-sd-amber-100: #f9edcc;
-  --color-sd-amber-200: #f3dc9c;
-  --color-sd-amber-300: #e9c46a;
-  --color-sd-amber-400: #d4a64a;
-  --color-sd-amber-500: #b98a26;
-  --color-sd-amber-600: #946610;
-  --color-sd-amber-700: #8a5e10;
-  --color-sd-amber-800: #6e4a0d;
-  --color-sd-amber-900: #57390a;
-  --color-sd-rust-50: #fbf0eb;
-  --color-sd-rust-100: #f6ddd3;
-  --color-sd-rust-200: #ecbca9;
-  --color-sd-rust-300: #de977d;
-  --color-sd-rust-400: #d97c5c;
-  --color-sd-rust-500: #b04a28;
-  --color-sd-rust-600: #9d4022;
-  --color-sd-rust-700: #8e3a1e;
-  --color-sd-rust-800: #722f18;
-  --color-sd-rust-900: #5a2513;
-  --color-sd-sea-50: #eaf7f9;
-  --color-sd-sea-100: #d1eef3;
-  --color-sd-sea-200: #a6dce6;
-  --color-sd-sea-300: #77c8d6;
-  --color-sd-sea-400: #4fb6c8;
-  --color-sd-sea-500: #2f9bb0;
-  --color-sd-sea-600: #217f91;
-  --color-sd-sea-700: #1b6675;
-  --color-sd-sea-800: #16525e;
-  --color-sd-sea-900: #11414b;
-  --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
+     WHY the Suderra names stayed: every `sd-*` utility and suderra.css rule
+     reads them, so re-valuing them moves every tenant page to the new
+     language without touching a page. A name states the ROLE — paper is the
+     page ground, teal the text-safe accent — not the hue. Tokens nothing
+     reads any more (the paper glows, the sea and mint scope ramps that
+     success and info now take from the neutrals) are removed, not re-valued
+     into meaning nothing.
+
+     Contrast: web-theme-token-parity.spec.ts holds every text token below to
+     4.5:1 and every icon token to 3:1, in both themes and every workspace. */
+  --color-sd-paper: #f2f2f3; /* page ground (Industry bg) */
+  --color-sd-parchment: #e9e9ea; /* raised surface: fields, dialogs (Industry surface) */
+  --color-sd-ink: #1d1f20; /* primary text */
+  --color-sd-ink-soft: #424244; /* secondary text (neutral-800) */
+  --color-sd-ink-muted: #5d5d60; /* tertiary text (neutral-700) — 5.4:1 on parchment, 5.9:1 on paper */
+  --color-sd-ink-hint: #5d5d60; /* hint text (neutral-700) — 6.0:1 on the own-message bubble */
+  --color-sd-ink-faint: #a8aaad; /* faint label on the graphite rail (Control-room neutral-700) — 6.2:1 */
+  --color-sd-teal: #3c5c7e; /* text-safe accent: links, eyebrows, active tabs (accent-700) */
+  --color-sd-teal-deep: #2e4865; /* accent hover, and the solid accent fill under sd-mint-paper (accent-800) */
+  --color-sd-mint-paper: #f2f2f3; /* text on sd-teal-deep: the ground colour, so the pair flips together */
+  --color-sd-rule: rgba(29, 31, 32, 0.16); /* hairline divider: ink at 16% */
+  --color-sd-cream: #f5f5f8; /* white inside the scope, both themes (never re-assigned) — neutral-100 */
+  --color-sd-danger: #e94740; /* alarm red as an icon or destructive accent (= hz-red), both themes */
+  --color-sd-danger-ink: #be2323; /* red text — 5.0:1 on parchment and on the red tint */
+  --color-sd-violet: #8377a9; /* AI accent (chat bubble, channel icon) at Industry chroma */
+  --color-sd-violet-ink: #584e75; /* AI icon on paper */
+
+  /* The rail SuderraSidebar paints. It stays one dark ground in both themes —
+     now Control-room graphite instead of deep water — because the sidebar
+     reads one token per role (`rail-bright` is both the logo plate and the
+     brand label, `rail-bottom` also the scrim behind dialogs), and a rail that
+     flipped light would put the logo on a dark plate. The per-theme rail of
+     README §7.2 is its own component in the console's shell phase (Phase 2 of
+     the handoff plan), painting from sd-paper and sd-neutral-* instead. */
+  --color-sd-rail-top: #28292b; /* rail gradient stop 1 (Control-room surface) */
+  --color-sd-rail-mid: #232527; /* rail gradient stop 2 (Control-room neutral-100) */
+  --color-sd-rail-bottom: #202224; /* rail gradient stop 3, dialog and mobile-rail scrim (Control-room bg) */
+  --color-sd-rail-item: #c4c6c9; /* rail item label — 8.5:1 on rail-top */
+  --color-sd-rail-icon: #a8aaad; /* rail item icon */
+  --color-sd-rail-child: #a8aaad; /* rail child and section label — 6.2:1 on rail-top */
+  --color-sd-rail-child-icon: #8c8e91; /* rail child icon */
+  --color-sd-rail-bright: #eceef0; /* brand name, hovered child label, logo plate */
+  --color-sd-rail-accent: #a9cdf0; /* brand caption (Control-room accent-700) */
+  --color-sd-mint: #749dc4; /* rail accent: active icon, focus ring (Control-room accent) */
+  --color-sd-mint-soft: #c6e2fe; /* active rail label (Control-room accent-800) */
+
+  /* Industry semantic ramps (README §6). Step N keeps its ROLE in both themes
+     — 100 the subtlest fill, 900 the strongest ink — so the dark block
+     re-assigns every step, and a component written once against
+     `bg-sd-accent-100 text-sd-accent-900` reads in both. Text takes 700 and
+     up; 500 (= `sd-accent`) is for icons and lines only (3:1). This accent is
+     the aqua (steel) workspace; the `[data-ws]` blocks below swap it. */
+  --color-sd-accent: #5980a6;
+  --color-sd-accent-100: #eef6ff;
+  --color-sd-accent-200: #d5e4f3;
+  --color-sd-accent-300: #b8cfe6;
+  --color-sd-accent-400: #93b2d1;
+  --color-sd-accent-500: #5980a6;
+  --color-sd-accent-600: #4a6f94;
+  --color-sd-accent-700: #3c5c7e;
+  --color-sd-accent-800: #2e4865;
+  --color-sd-accent-900: #203349;
+  --color-sd-neutral-100: #f5f5f8;
+  --color-sd-neutral-200: #e7e7ea;
+  --color-sd-neutral-300: #d4d4d7;
+  --color-sd-neutral-400: #b7b7ba;
+  --color-sd-neutral-500: #98989b;
+  --color-sd-neutral-600: #7a7a7d;
+  --color-sd-neutral-700: #5d5d60;
+  --color-sd-neutral-800: #424244;
+  --color-sd-neutral-900: #2b2b2d;
+
+  /* Hazard (README §6, §7.8): red and amber are the only alarm colours —
+     "good" is shown neutral and nothing is green. sRGB hex of the README's
+     OKLCH values. An amber glyph standing on paper takes amber-ink: the fill
+     amber is 1.7:1 there, below the 3:1 a graphic needs. */
+  --color-sd-hz-red: #e94740; /* oklch(0.63 0.2 27) — P1 glyph, alarm stripe */
+  --color-sd-hz-red-deep: #cc2827; /* oklch(0.55 0.2 27) — CRIT tile fill */
+  --color-sd-hz-red-tint: #ffe2dd; /* oklch(0.94 0.04 27) — alarm row and banner tint */
+  --color-sd-hz-on-red: #ffffff; /* text on hz-red-deep — 5.4:1 */
+  --color-sd-hz-amber: #f0b135; /* oklch(0.8 0.15 80) — HIGH tile fill */
+  --color-sd-hz-on-amber: #1d1f20; /* text on hz-amber, both themes (README §7.5) */
+  --color-sd-hz-amber-tint: #fdedc9; /* oklch(0.95 0.05 88) — warning row tint */
+  --color-sd-hz-amber-ink: #804d0c; /* oklch(0.47 0.1 65) — amber text and glyph on paper */
+
+  /* The engineering grid of the page ground (README §7.6): ink at 5% / 9%. */
+  --color-sd-grid-minor: rgba(29, 31, 32, 0.05);
+  --color-sd-grid-major: rgba(29, 31, 32, 0.09);
+
+  /* Workspace identity — the module menu's stripe (README §7.3), the same in
+     both themes so a module is recognisable from any other: oklch(0.62 C H). */
+  --color-sd-ws-aqua: #668aaf;
+  --color-sd-ws-gh: #62946c;
+  --color-sd-ws-ctl: #897daf;
+  --color-sd-ws-org: #7d8794;
+
+  /* Scope ramps (FE-HIGH-321). suderra.css re-assigns the design-system scales
+     to these inside `sd-content` / `sd-page` / `sd-surface`, so this file stays
+     the one owner of every colour value. Absolute lightness — 50 lightest, 900
+     darkest — the order `bg-*-600 text-white` pairs assume:
+       ink   = gray, success and info under the light theme: the Drawing
+               neutrals, with 400 and 600 set between two Industry steps so
+               muted text keeps AA on the cream card (FE-MEDIUM-024). "Good"
+               and "for information" are not colours in Industry (README §7.8;
+               the prototype's OK tag, good glyph and info glyph are neutral);
+       deep  = the same three under the dark theme: the Control-room neutrals
+               in absolute order (Control-room 100 is the darkest fill,
+               deep-900 here);
+       teal  = primary: the workspace accent;
+       amber = warning, rust = error: the hazard hues, the only alarm colours. */
+  --color-sd-ink-50: #f2f2f3;
+  --color-sd-ink-100: #e9e9ea;
+  --color-sd-ink-200: #d4d4d7;
+  --color-sd-ink-300: #b7b7ba;
+  --color-sd-ink-400: #67676a;
+  --color-sd-ink-500: #5d5d60;
+  --color-sd-ink-600: #4f4f52;
+  --color-sd-ink-700: #424244;
+  --color-sd-ink-800: #2b2b2d;
+  --color-sd-ink-900: #1d1f20;
+  --color-sd-deep-50: #f5f5f8;
+  --color-sd-deep-100: #eceef0;
+  --color-sd-deep-200: #dedfe1;
+  --color-sd-deep-300: #c4c6c9;
+  --color-sd-deep-400: #a8aaad;
+  --color-sd-deep-500: #8c8e91;
+  --color-sd-deep-600: #525457;
+  --color-sd-deep-700: #3a3c3f;
+  --color-sd-deep-800: #28292b;
+  --color-sd-deep-900: #202224;
+  --color-sd-teal-50: #f6fbff;
+  --color-sd-teal-100: #eef6ff;
+  --color-sd-teal-200: #d5e4f3;
+  --color-sd-teal-300: #b8cfe6;
+  --color-sd-teal-400: #93b2d1;
+  --color-sd-teal-500: #5980a6;
+  --color-sd-teal-600: #4a6f94;
+  --color-sd-teal-700: #3c5c7e;
+  --color-sd-teal-800: #2e4865;
+  --color-sd-teal-900: #203349;
+  --color-sd-amber-50: #fef8ea;
+  --color-sd-amber-100: #fdedc9;
+  --color-sd-amber-200: #fada99;
+  --color-sd-amber-300: #f8c562;
+  --color-sd-amber-400: #f0b135;
+  --color-sd-amber-500: #ca8a10;
+  --color-sd-amber-600: #9a600b;
+  --color-sd-amber-700: #804d0c;
+  --color-sd-amber-800: #683c0b;
+  --color-sd-amber-900: #4f2b08;
+  --color-sd-rust-50: #fff3f1;
+  --color-sd-rust-100: #ffe2dd;
+  --color-sd-rust-200: #ffc7bf;
+  --color-sd-rust-300: #ff988d;
+  --color-sd-rust-400: #fa695e;
+  --color-sd-rust-500: #e94740;
+  --color-sd-rust-600: #cc2827;
+  --color-sd-rust-700: #a51f1e;
+  --color-sd-rust-800: #801616;
+  --color-sd-rust-900: #581412;
 }
 
-/* SUDERRA tokens under the dark theme (FE-HIGH-313). The paper/ink tokens are
-   the surface pair every sd-* page paints with, so the dark theme re-assigns
-   them here once and every `bg-sd-paper` / `text-sd-ink` follows the shell's
-   toggle with no `dark:` sibling of its own. The rail tokens stay: the rail is
-   deep water in both themes. `mint-paper` is the text ON `teal-deep`, so the
-   two flip together and keep their contrast. */
+/* Tenant console elevation (Industry): ink-tinted soft shadows on the light
+   theme; the dark block below re-assigns them to a hairline edge plus ambient
+   dark.
+   WHY a plain rule and not @theme: Tailwind v4 copies a `--shadow-*` theme
+   value into its `shadow-*` utility (to splice in `--tw-shadow-color`), so the
+   utility never reads the variable and a per-theme re-assignment could not
+   reach it. As plain custom properties they are read at paint time: write
+   `shadow-(--shadow-sd-lg)`, which follows the theme toggle and a pinned-dark
+   surface. web-theme-token-parity.spec.ts keeps them out of @theme. */
+:root {
+  --shadow-sd-sm: 0 1px 2px rgb(43 43 45 / 0.14);
+  --shadow-sd-md: 0 3px 10px rgb(43 43 45 / 0.16);
+  --shadow-sd-lg: 0 12px 32px rgb(43 43 45 / 0.22);
+}
+
+/* SUDERRA tokens under the dark theme — Industry "Control room" (FE-HIGH-313).
+   The paper/ink pair, the text accents and the Industry semantic ramps flip
+   here once, so every `bg-sd-paper` / `text-sd-ink` / `bg-sd-accent-100`
+   follows the shell's toggle with no `dark:` sibling of its own. The rail,
+   the scope ramps and the hazard fills keep their one value. `mint-paper` is
+   the text ON `teal-deep`, so the two flip together and keep their contrast. */
 [data-theme='dark'] {
-  --color-sd-paper: #071a28;
-  --color-sd-parchment: #0d2434;
-  --color-sd-ink: #e6f1f4;
-  --color-sd-ink-soft: #b5ccd4;
-  --color-sd-ink-muted: #8fb0bb;
-  --color-sd-ink-hint: #88a6b1;
-  --color-sd-violet-ink: #cbbcf0;
-  --color-sd-teal: #5fc0d1;
-  --color-sd-teal-deep: #8fd8e4;
-  --color-sd-mint-paper: #06202a;
-  --color-sd-mint-ink: #7cdcc0;
-  --color-sd-danger: #e07a55;
-  --color-sd-danger-ink: #f0a58a;
-  --color-sd-rule: rgba(198, 221, 228, 0.12);
+  --color-sd-paper: #202224;
+  --color-sd-parchment: #28292b;
+  --color-sd-ink: #eceef0;
+  --color-sd-ink-soft: #c4c6c9;
+  --color-sd-ink-muted: #a8aaad;
+  --color-sd-ink-hint: #a8aaad;
+  --color-sd-violet-ink: #c0b6e3;
+  --color-sd-teal: #a9cdf0;
+  --color-sd-teal-deep: #c6e2fe;
+  --color-sd-mint-paper: #202224;
+  --color-sd-danger-ink: #ff988d;
+  --color-sd-rule: rgba(236, 238, 240, 0.15);
+  --color-sd-accent: #749dc4;
+  --color-sd-accent-100: #1d2d3d;
+  --color-sd-accent-200: #2c455d;
+  --color-sd-accent-300: #416180;
+  --color-sd-accent-400: #597ea3;
+  --color-sd-accent-500: #749dc4;
+  --color-sd-accent-600: #94bce3;
+  --color-sd-accent-700: #a9cdf0;
+  --color-sd-accent-800: #c6e2fe;
+  --color-sd-accent-900: #e2f0ff;
+  --color-sd-neutral-100: #232527;
+  --color-sd-neutral-200: #2c2e31;
+  --color-sd-neutral-300: #3a3c3f;
+  --color-sd-neutral-400: #525457;
+  --color-sd-neutral-500: #707275;
+  --color-sd-neutral-600: #8c8e91;
+  --color-sd-neutral-700: #a8aaad;
+  --color-sd-neutral-800: #c4c6c9;
+  --color-sd-neutral-900: #dedfe1;
+  --color-sd-hz-red-tint: #481b17; /* oklch(0.29 0.07 27) */
+  --color-sd-hz-amber-tint: #3d2a02; /* oklch(0.3 0.06 80) */
+  --color-sd-hz-amber-ink: #f8c562; /* oklch(0.85 0.13 82) */
+  --color-sd-grid-minor: rgba(236, 238, 240, 0.04);
+  --color-sd-grid-major: rgba(236, 238, 240, 0.07);
+  --shadow-sd-sm: 0 0 0 1px rgb(236 238 240 / 0.06);
+  --shadow-sd-md: 0 0 0 1px rgb(236 238 240 / 0.08), 0 8px 24px rgb(0 0 0 / 0.45);
+  --shadow-sd-lg: 0 0 0 1px rgb(236 238 240 / 0.1), 0 18px 48px rgb(0 0 0 / 0.6);
+}
+
+/* Workspace accents (README §6, §7.3). The console's module menu sets
+   `data-ws` on <body> (or <html>); each block swaps the accent for that
+   module: the semantic ramp, the two text accents and the absolute teal ramp
+   the scope maps primary to. `aqua` (steel) is the default above and has no
+   block. Hex of the prototype's OKLCH ramps (helmet `body[data-ws=…]`).
+
+   A dark block repeats every theme-flipping token and lists every way an
+   element can be dark inside a workspace: the theme on an ancestor of the
+   workspace (<html> over <body>), on the same element, and on a descendant
+   — a surface that pins `data-theme='dark'` itself (a `theme="dark"` Modal
+   or Drawer, the SCADA operator view). That last element matches the
+   theme-wide dark block above, which would put the steel accent back on it
+   while the absolute teal ramp, and with it primary, stayed the
+   workspace's. web-theme-token-parity.spec.ts resolves every token through
+   this cascade in each of those placements and requires one answer. */
+[data-ws='gh'] {
+  --color-sd-accent: #5c8e67;
+  --color-sd-accent-100: #e4f3e6;
+  --color-sd-accent-200: #c9e3cd;
+  --color-sd-accent-300: #abcfb1;
+  --color-sd-accent-400: #84b28d;
+  --color-sd-accent-500: #5c8e67;
+  --color-sd-accent-600: #477551;
+  --color-sd-accent-700: #386041;
+  --color-sd-accent-800: #294830;
+  --color-sd-accent-900: #1a2e1e;
+  --color-sd-teal: #386041;
+  --color-sd-teal-deep: #294830;
+  --color-sd-teal-50: #f5fdf6;
+  --color-sd-teal-100: #e4f3e6;
+  --color-sd-teal-200: #c9e3cd;
+  --color-sd-teal-300: #abcfb1;
+  --color-sd-teal-400: #84b28d;
+  --color-sd-teal-500: #5c8e67;
+  --color-sd-teal-600: #477551;
+  --color-sd-teal-700: #386041;
+  --color-sd-teal-800: #294830;
+  --color-sd-teal-900: #1a2e1e;
+}
+[data-theme='dark'] [data-ws='gh'],
+[data-ws='gh'] [data-theme='dark'],
+[data-theme='dark'][data-ws='gh'] {
+  --color-sd-accent: #71a37b;
+  --color-sd-accent-100: #1e2a20;
+  --color-sd-accent-200: #293e2d;
+  --color-sd-accent-300: #36563d;
+  --color-sd-accent-400: #4a7553;
+  --color-sd-accent-500: #71a37b;
+  --color-sd-accent-600: #88b992;
+  --color-sd-accent-700: #9fcba7;
+  --color-sd-accent-800: #b8dcbe;
+  --color-sd-accent-900: #d6f0da;
+  --color-sd-teal: #9fcba7;
+  --color-sd-teal-deep: #b8dcbe;
+}
+[data-ws='ctl'] {
+  --color-sd-accent: #8377a9;
+  --color-sd-accent-100: #efecfc;
+  --color-sd-accent-200: #dcd6f1;
+  --color-sd-accent-300: #c6bee3;
+  --color-sd-accent-400: #a79dcb;
+  --color-sd-accent-500: #8377a9;
+  --color-sd-accent-600: #6c618e;
+  --color-sd-accent-700: #584e75;
+  --color-sd-accent-800: #423a58;
+  --color-sd-accent-900: #2a2539;
+  --color-sd-teal: #584e75;
+  --color-sd-teal-deep: #423a58;
+  --color-sd-teal-50: #faf9ff;
+  --color-sd-teal-100: #efecfc;
+  --color-sd-teal-200: #dcd6f1;
+  --color-sd-teal-300: #c6bee3;
+  --color-sd-teal-400: #a79dcb;
+  --color-sd-teal-500: #8377a9;
+  --color-sd-teal-600: #6c618e;
+  --color-sd-teal-700: #584e75;
+  --color-sd-teal-800: #423a58;
+  --color-sd-teal-900: #2a2539;
+}
+[data-theme='dark'] [data-ws='ctl'],
+[data-ws='ctl'] [data-theme='dark'],
+[data-theme='dark'][data-ws='ctl'] {
+  --color-sd-accent: #988cbf;
+  --color-sd-accent-100: #272430;
+  --color-sd-accent-200: #393449;
+  --color-sd-accent-300: #4f4767;
+  --color-sd-accent-400: #6c618c;
+  --color-sd-accent-500: #988cbf;
+  --color-sd-accent-600: #aea2d4;
+  --color-sd-accent-700: #c0b6e3;
+  --color-sd-accent-800: #d3cbf0;
+  --color-sd-accent-900: #e9e4ff;
+  --color-sd-teal: #c0b6e3;
+  --color-sd-teal-deep: #d3cbf0;
+}
+[data-ws='org'] {
+  --color-sd-accent: #78818e;
+  --color-sd-accent-100: #ebeff3;
+  --color-sd-accent-200: #d6dbe2;
+  --color-sd-accent-300: #bec5ce;
+  --color-sd-accent-400: #9ca5b1;
+  --color-sd-accent-500: #78818e;
+  --color-sd-accent-600: #616a75;
+  --color-sd-accent-700: #4e5660;
+  --color-sd-accent-800: #3b4048;
+  --color-sd-accent-900: #25292e;
+  --color-sd-teal: #4e5660;
+  --color-sd-teal-deep: #3b4048;
+  --color-sd-teal-50: #f8fafd;
+  --color-sd-teal-100: #ebeff3;
+  --color-sd-teal-200: #d6dbe2;
+  --color-sd-teal-300: #bec5ce;
+  --color-sd-teal-400: #9ca5b1;
+  --color-sd-teal-500: #78818e;
+  --color-sd-teal-600: #616a75;
+  --color-sd-teal-700: #4e5660;
+  --color-sd-teal-800: #3b4048;
+  --color-sd-teal-900: #25292e;
+}
+[data-theme='dark'] [data-ws='org'],
+[data-ws='org'] [data-theme='dark'],
+[data-theme='dark'][data-ws='org'] {
+  --color-sd-accent: #8c96a3;
+  --color-sd-accent-100: #24272a;
+  --color-sd-accent-200: #34383e;
+  --color-sd-accent-300: #484e55;
+  --color-sd-accent-400: #616a75;
+  --color-sd-accent-500: #8c96a3;
+  --color-sd-accent-600: #a2acb8;
+  --color-sd-accent-700: #b6bfca;
+  --color-sd-accent-800: #cbd2db;
+  --color-sd-accent-900: #e3e8ef;
+  --color-sd-teal: #b6bfca;
+  --color-sd-teal-deep: #cbd2db;
 }
 
 /* Custom keyframes (v4 keeps keyframes in the stylesheet, not the config). */

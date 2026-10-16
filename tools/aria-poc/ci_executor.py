@@ -3545,6 +3545,31 @@ def _cool_provider(
     )
 
 
+def _summarize_native_provider_fact(
+    *, native_runtime: Any, request: dict[str, Any], request_id: str, target_agent: str,
+    exc: ClaudeAuthFailure | ClaudeCreditExhausted | ClaudeProviderUnreachable,
+) -> None:
+    """The native child's summary of a provider fact (ARIA-MEDIUM-438).
+
+    The drain tells a re-probe of a standing outage from a new failure by
+    the child's summary: its class names the outage kind and its provider
+    the outage it met. The native Z.ai and Codex attempts raise their fact
+    straight to `_main`'s arm, so they wrote none, and the drain counted
+    `child_without_summary` — a harness failure — every re-probe night.
+    Written here, beside `_cool_provider`, for every native runtime, on the
+    pair the attempt RAN on (ARIA-HIGH-182), as the nonzero-exit path does;
+    for the native Claude route it supersedes the spawn's own summary. The
+    spawn lane's summary is `invoke_claude_cli`'s own.
+    """
+    if native_runtime is None:
+        return
+    _write_dispatch_summary(
+        route=_native_route_for_summary(native_runtime, request, target_agent=target_agent),
+        request_id=request_id, outcome="failed",
+        failure=classify_dispatch_failure(exception=exc, phase="runtime"), exit_code=1,
+    )
+
+
 def _result_admission_for(exc: BaseException, current: str) -> str:
     """The attempt row's ``result_admission`` after ``exc`` ended the run.
 
@@ -5354,6 +5379,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # and the next admission routes past it.
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         from aria_kernel.provider_outage_ledger import outage_opened_by_claim
 
         # ARIA-HIGH-366 — said once per outage: a re-probe that meets the
@@ -5389,6 +5416,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
@@ -5403,6 +5432,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,

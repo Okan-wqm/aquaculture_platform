@@ -8,7 +8,7 @@ from typing import Any, Iterator
 
 from .implementation_safety import SecretLeakDetected, verify_no_secret_in_diff
 from .ledger import atomic_write_json
-from .secret_scrub import UNIFORM_MARKER, credential_shapes_in, redact_secrets
+from .secret_scrub import CREDENTIAL_KEY_WORDS, UNIFORM_MARKER, credential_shapes_in, redact_secrets
 
 FORBIDDEN_REAL_MODE_ENV: frozenset[str] = frozenset({
     "CODEX_OSS_DEBUG",
@@ -70,11 +70,10 @@ def scrub_json(value: Any) -> Any:
             # CLI reports (input_tokens, output_tokens, cache_read_...), and
             # masking those blinded cost telemetry while protecting nothing —
             # an integer cannot leak a secret. String values under token-ish
-            # keys stay masked (lease_token, oauth token, ...).
-            sensitive_key = any(
-                token in key_text.lower()
-                for token in ("token", "secret", "api_key", "apikey")
-            )
+            # keys stay masked (lease_token, oauth token, ...). The key words
+            # are the credential table's (ARIA-HIGH-448 added the password
+            # and private-key names a tool's JSON input or config carries).
+            sensitive_key = any(word in key_text.lower() for word in CREDENTIAL_KEY_WORDS)
             if sensitive_key and isinstance(item, str):
                 scrubbed[key_text] = UNIFORM_MARKER
             else:

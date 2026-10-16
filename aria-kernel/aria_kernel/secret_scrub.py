@@ -233,8 +233,21 @@ _SYSTEM_ONE_REDACT: Final = frozenset({"system_one", "redact"})
 # token. A value that starts with ``$`` or ``<`` is a variable reference, a
 # placeholder or an earlier redaction marker, not a secret, and stays.
 _ASSIGNED_VALUE: Final = r"""(?:"(?![$<])[^"\n]+"|'(?![$<])[^'\n]+'|(?![$<"'])[^\s"']+)"""
-# An environment-style name that ends in a secret word.
-_SECRET_NAME: Final = r"[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|API_?KEY)"
+# An environment-style name that ends in a secret word: the words the
+# system_one view knows, and the key and pass-phrase names an env file, a
+# compose file or a CI secret carries (``JWT_PRIVATE_KEY``,
+# ``STRIPE_SECRET_KEY``, ``SMTP_PASS``; ARIA-HIGH-448). A name merely holding
+# the word (``MAX_TOKENS``, ``TOKEN_BUDGET``, ``BYPASS``) is no secret.
+_SECRET_NAME: Final = (
+    r"(?:[A-Z0-9_]*(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|(?:SECRET|PRIVATE|ACCESS)_?KEY)"
+    r"|[A-Z0-9_]*_PASS)"
+)
+# Mapping keys whose string value is a credential (``artifact_safety.scrub_json``
+# masks it whatever its shape): a key naming a token, a secret, an API key, a
+# password or a private key. A number under such a key is a counter and stays.
+CREDENTIAL_KEY_WORDS: Final[tuple[str, ...]] = (
+    "token", "secret", "api_key", "apikey", "password", "passwd", "passphrase", "private_key",
+)
 
 CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     # --- the redact view, in application order (table order across every
@@ -372,8 +385,11 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     _shape("stripe_webhook_secret", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bwhsec_[A-Za-z0-9]{16,}", redact=_DETECT,
            fixture="whsec" + "_" + "i6" * 9, secret="i6" * 9),
+    # The redaction also takes an empty user name (``redis://:password@``,
+    # ARIA-HIGH-448), which the detection does not.
     _shape("url_userinfo", "credential", _SYSTEM_ONE_REDACT,
-           detect=r"\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@", redact=_DETECT,
+           detect=r"\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@",
+           redact=r"\b[a-z][a-z0-9+.-]*://[^\s/:@]*:[^\s/@]+@",
            fixture="https://" + "deploy:" + "j7" * 5 + "@" + "example.invalid/x", secret="j7" * 5),
     _shape("digitalocean_token", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bdop_v1_[a-f0-9]{64}", redact=_DETECT,
@@ -442,6 +458,18 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
            detect=_SECRET_NAME + r"[ \t]*[=:][ \t]*[A-Za-z0-9]{6,}",
            redact=_SECRET_NAME + r"[\"']?[ \t]*[=:][ \t]*" + _ASSIGNED_VALUE,
            fixture="env " + "DB_PASSWORD" + "=" + "Qm4" * 4, secret="Qm4" * 4),
+    # A lower-case parameter: a libpq DSN, a CLI flag, a URL query
+    # (``password=``, ``--password=``, ``?access_token=``; ARIA-HIGH-448).
+    # ``=`` with no space, so ``password = hashPassword(x)`` in code stays; a
+    # token-like name needs a value of 8+ so a diagnostic code stays.
+    _shape("password_parameter", "credential", _REDACT,
+           detect=r"(?i:\b[a-z0-9_.-]*pass(?:word|wd)=[A-Za-z0-9]{6,})",
+           redact=r"(?i:\b[a-z0-9_.-]*pass(?:word|wd))=" + _ASSIGNED_VALUE,
+           fixture="host=db " + "pass" + "word=" + "Rt5" * 4 + " dbname=x", secret="Rt5" * 4),
+    _shape("credential_parameter", "credential", _REDACT,
+           detect=r"(?i:\b[a-z0-9_.-]*(?:secret|token|api_?key|access_?key)=[A-Za-z0-9]{8,})",
+           redact=r"(?i:\b[a-z0-9_.-]*(?:secret|token|api_?key|access_?key))=(?![$<])[^\s&'\"]{8,}",
+           fixture="GET /cb?state=1&access_" + "token=" + "Wp6" * 4 + "&x=2", secret="Wp6" * 4),
     # --- personal data, redacted last so a credential holding an "@" is named as one ---
     _shape("ipv4_octet", "pii", _REDACT,
            detect=r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b",
@@ -495,6 +523,11 @@ REFERENCE_SHAPES: Final[tuple[str, ...]] = (
     "GH_TOKEN: " + "${{ github.token }}",
     "GH_TOKEN=" + UNIFORM_MARKER + " gh pr list",
     "token <REDACTED:github_pat> end",
+    "PASSWORD=$DB_PASSWORD SECRET=${JWT_SECRET} TOKEN=<value>",
+    "psql --password-file=/run/secrets/db -h db",
+    "https://example.org:8443/path?q=1",
+    "password = hashPassword(input)",
+    "resolve_token=absent",
 )
 
 

@@ -1,0 +1,23 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "ARIA-HIGH-368",
+    "kind": "plan_human_required",
+    "origin": "executor",
+    "plan_id": "plan-cyc-20261016T091233Z-auto",
+    "reason_codes": [
+      "coverage_gaps_present",
+      "material_cross_review_risks_present",
+      "max_rounds_reached"
+    ],
+    "round_number": 2,
+    "verdict": "max_rounds"
+  },
+  "reason": "plan plan-cyc-20261016T091233Z-auto ended convergence HUMAN_REQUIRED (max_rounds: coverage_gaps_present, material_cross_review_risks_present, max_rounds_reached); it advances no further until an operator re-stages, revises or abandons it",
+  "recorded_at": "2026-10-16T14:23:47Z",
+  "request_id": "plan-human-required-plan-cyc-20261016T091233Z-auto",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-19T14:23:47Z",
+  "status": "open"
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-38902486490",
+  "claim_id": "claim_52b470e81e56c497",
+  "details": {
+    "adjudication": {
+      "rationale": "The only admissible evidence is the bare record identifier `human-required:genesis-b4705978981c021a`. Its reason line states that capability gap 'shadow_run:cqrs-adapter' proposes agent genesis and that panel adjudication is required (resolver decision: request) \u2014 that line is the question being escalated, not an answer to it. The payload carries no capability-gap measurement, no agent-genesis proposal text, no resolver transcript, and no repository surface describing a cqrs-adapter shadow-run lane, so nothing in evidence shows the gap is real, already closed, or that creating a new agent is the correct remediation. Agent genesis would additionally modify the agent dispatch surface, which is locked to the Plan 009 kernel-self-change lane with operator routing \u2014 a clearance this panel cannot grant on a contentless record. Neither resolve nor refuse can be established from the record, so the escalation blocks resolution.",
+      "verdict": "insufficient_evidence"
+    },
+    "agent_confidence_source": "self_reported",
+    "agent_contract_hash": "sha256:201f748cc32157ab1e62374ca4a94baa0dd7d72f26f178ec5811e9708104b2d5",
+    "agent_dispatch_model": "glm-5.3",
+    "agent_subagent_type": "aria-adversarial-judge",
+    "agent_text": "{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-adversarial-judge-1686c776f6de\",\n  \"claim_id\": \"genesis-b4705978981c021a\",\n  \"agent_id\": \"aria-adversarial-judge\",\n  \"role\": \"human_required_adjudication\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-human_required_adjudication-AIR-aria-adversarial-judge-1686c776f6de.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"adjudicate-genesis-b4705978981c021a\",\n      \"verdict\": \"satisfied\",\n      \"note\": \"Adjudication answered under details.adjudication with verdict=insufficient_evidence, one of the three allowed values, and it cites the sole evidence ref `human-required:genesis-b4705978981c021a`. The record cannot establish resolve or refuse either way, so resolution blocks \u2014 which is the deliberate outcome for a genesis proposal whose supporting measurement is absent from the record.\",\n      \"evidence_refs\": [\"human-required:genesis-b4705978981c021a\"]\n    }\n  ],\n  \"evidence_refs\": [\"human-required:genesis-b4705978981c021a\"],\n  \"details\": {\n    \"adjudication\": {\n      \"verdict\": \"insufficient_evidence\",\n      \"rationale\": \"The only admissible evidence is the bare record identifier `human-required:genesis-b4705978981c021a`. Its reason line states that capability gap 'shadow_run:cqrs-adapter' proposes agent genesis and that panel adjudication is required (resolver decision: request) \u2014 that line is the question being escalated, not an answer to it. The payload carries no capability-gap measurement, no agent-genesis proposal text, no resolver transcript, and no repository surface describing a cqrs-adapter shadow-run lane, so nothing in evidence shows the gap is real, already closed, or that creating a new agent is the correct remediation. Agent genesis would additionally modify the agent dispatch surface, which is locked to the Plan 009 kernel-self-change lane with operator routing \u2014 a clearance this panel cannot grant on a contentless record. Neither resolve nor refuse can be established from the record, so the escalation blocks resolution.\"\n    },\n    \"counter_evidence_refs\": [],\n    \"instruction_framing\": \"task: decide whether HUMAN_REQUIRED escalation genesis-b4705978981c021a \u2014 raised because capability gap 'shadow_run:cqrs-adapter' proposes creating a new agent \u2014 can be cleared on the evidence in the record. why it matters: an agent minted on thin evidence becomes a trusted dispatch surface for every later kernel cycle, so a wrong resolve bakes an unreviewed agent into the fleet, while a wrong refuse discards a capability the shadow-run lane may need. what breaks if done loosely: a resolve grounded only in the reason line would let agent creation proceed around the Plan 009 kernel-self-change lane that governs agent-surface changes; leaving it unadjudicated leaves the escalation parked. downstream surfaces: the human-required ledger in .aria-state-store, the agent dispatch surface, and the cqrs-adapter shadow-run lane. evidence proving the result: the record id is the sole ref, and its reason line names the gap and the resolver 'request' decision without any measurement, proposal, or repository excerpt \u2014 which is exactly why the verdict is insufficient_evidence rather than resolve or refuse.\"\n  }\n}",
+    "counter_evidence_refs": [],
+    "instruction_framing": "task: decide whether HUMAN_REQUIRED escalation genesis-b4705978981c021a \u2014 raised because capability gap 'shadow_run:cqrs-adapter' proposes creating a new agent \u2014 can be cleared on the evidence in the record. why it matters: an agent minted on thin evidence becomes a trusted dispatch surface for every later kernel cycle, so a wrong resolve bakes an unreviewed agent into the fleet, while a wrong refuse discards a capability the shadow-run lane may need. what breaks if done loosely: a resolve grounded only in the reason line would let agent creation proceed around the Plan 009 kernel-self-change lane that governs agent-surface changes; leaving it unadjudicated leaves the escalation parked. downstream surfaces: the human-required ledger in .aria-state-store, the agent dispatch surface, and the cqrs-adapter shadow-run lane. evidence proving the result: the record id is the sole ref, and its reason line names the gap and the resolver 'request' decision without any measurement, proposal, or repository excerpt \u2014 which is exactly why the verdict is insufficient_evidence rather than resolve or refuse.",
+    "runtime_attempt_ledger_hash": "sha256:8fae78b3e272dfaff79eb960392ae96e06127cebef3b985771112a3bb3a8d413"
+  },
+  "evidence_refs": [
+    "human-required:genesis-b4705978981c021a"
+  ],
+  "request_id": "AIR-aria-adversarial-judge-1686c776f6de",
+  "role": "human_required_adjudication",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "human-required:genesis-b4705978981c021a"
+      ],
+      "id": "adjudicate-genesis-b4705978981c021a",
+      "note": "Adjudication answered under details.adjudication with verdict=insufficient_evidence, one of the three allowed values, and it cites the sole evidence ref `human-required:genesis-b4705978981c021a`. The record cannot establish resolve or refuse either way, so resolution blocks \u2014 which is the deliberate outcome for a genesis proposal whose supporting measurement is absent from the record.",
+      "verdict": "satisfied"
+    }
+  ],
+  "status": "submitted"
+}

@@ -6160,13 +6160,16 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         if args.spine_command == "refresh":
             from aria_kernel.spine_orchestrator import refresh_spine_adapters
-            summary = refresh_spine_adapters(
+            refreshed = refresh_spine_adapters(
                 base_dir=args.tools_dir,
                 workspace_root=workspace,
                 freshness_max_age_seconds=args.freshness_max_age_seconds,
                 cycle_id=args.cycle_id,
                 max_workers=args.max_workers,
             )
+            # The summary the governance event records; the full run rows
+            # (adapter_runs) are the gate's input, not operator output.
+            summary = {key: value for key, value in refreshed.items() if key != "adapter_runs"}
             print(json.dumps(summary, indent=2, sort_keys=True))
             return 0
         parser.error("unknown spine command")

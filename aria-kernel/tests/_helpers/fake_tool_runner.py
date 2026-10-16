@@ -24,6 +24,10 @@ def main(argv: list[str] | None = None) -> int:
     # Exit 1 when the stdin payload lacks a key, the way an adapter that
     # requires its declared input does (adapter-fs.ts requireScanRoots).
     parser.add_argument("--require-input-key", action="append", default=[])
+    # A workspace-relative JSON list of findings the run reports, read at run
+    # time so a test changes what the adapter finds by editing the workspace
+    # (tests/_helpers/spine_fixture.py). Every path a finding cites is read.
+    parser.add_argument("--findings-file")
     args = parser.parse_args(argv)
 
     if args.sleep_seconds:
@@ -34,6 +38,20 @@ def main(argv: list[str] | None = None) -> int:
         target.write_text("changed", encoding="utf-8")
     if args.invalid_json:
         print("not json")
+    elif args.findings_file:
+        findings = json.loads(Path(args.findings_file).read_text(encoding="utf-8"))
+        cited = sorted({
+            ref["path"] for finding in findings for ref in finding.get("evidence", []) if "path" in ref
+        })
+        read = sorted({args.findings_file, *cited})
+        print(json.dumps({
+            "observations": [],
+            "findings": findings,
+            "read_paths": read,
+            "evidence_sources": read,
+            "cost_units": 0,
+            "metadata": {"fixture": True},
+        }))
     elif args.echo_input or args.require_input_key:
         payload = json.load(sys.stdin)
         missing = [key for key in args.require_input_key if key not in payload]

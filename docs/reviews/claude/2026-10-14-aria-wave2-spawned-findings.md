@@ -349,6 +349,15 @@ verb can record are listed at the end.
 - **Planned fix:** bucket `G002-045-runs` (landing L3): one `default_input` merge in `run_tool`, the
   refresh judged by the recorded status, the adapter list derived from manifests. Deadline:
   2027-01-13.
+- **Landed (L3, `G002-045-runs`):** `run_tool` merges the manifest `default_input` for every caller
+  (caller keys win) and returns the row `record_run` stored, so `tool run`, the gateway scheduler
+  and the refresh judge a run by its recorded status. The refresh's adapter set derives from
+  `architecture_spine_gate.SPINE_INVARIANTS` (no `schema-drift-adapter`, no `test-gap-adapter`); it
+  snapshots the working tree, treats only an `ok` cached row as fresh, and names quarantined and
+  unregistered adapters without running them. `test_tool_runner_default_input.py` and
+  `test_spine_orchestrator.py` were red before and are green after. The same change stops a
+  `repo_snapshot` declared in a manifest's `default_input` from replacing the run's own snapshot (no
+  shipped manifest declares one; no separate row).
 
 ### ARIA-LOW-517 — the prefixed sha256 digest has no single owner
 

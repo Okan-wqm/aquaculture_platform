@@ -16,25 +16,38 @@ whether the underlying adapter executed five minutes ago against the
 current `repo_state_id` or five hours ago against a stale snapshot.
 
 Phase 4 fixes that with a fresh-orchestrator chokepoint:
-- refresh_spine_adapters(...) snapshots the current repo state, then for
-  each of the 5 spine adapters checks whether its latest run row matches
-  (a) the current repo_state_id AND (b) is younger than freshness_max_age_
-  seconds. If either condition fails, the adapter is re-executed via
-  tool_runner.run_tool. If both pass, the cached run is reused.
+- refresh_spine_adapters(...) snapshots the WORKING TREE, then for each
+  spine adapter checks whether its latest run row (a) carries the recorded
+  status ``ok``, (b) matches the current repo_state_id AND (c) is younger
+  than freshness_max_age_seconds. If any condition fails, the adapter is
+  re-executed via tool_runner.run_tool. If all pass, the cached run is
+  reused. A QUARANTINED adapter is not run, an unregistered one cannot be;
+  both are named in ``adapter_states``.
 - architecture_spine_gate.take_baseline / take_postcheck call this
   orchestrator BEFORE running invariant checks (require_fresh_adapter_runs
-  default True). The invariant readers downstream (e.g. _check_auth_security)
-  now read freshly-produced rows by construction.
+  default True).
 - emit `spine_orchestrator_refresh_complete` governance event with
-  {repo_state_id, run_ids: {adapter_id: run_id}, fresh_count, cached_count}.
+  {repo_state_id, run_ids: {adapter_id: run_id}, fresh_count, cached_count,
+  adapter_states}; the return adds the recorded rows (``adapter_runs``) and
+  the manifest versions (``adapter_versions``) the refresh ran on.
 
-5-adapter scope (Plan v3.3 §Phase 4.A)
---------------------------------------
-- security-boundary-adapter   (auth_security invariant backing)
-- tenant-scoping-adapter      (tenant_scoping invariant backing)
-- schema-drift-adapter        (schema_entity invariant backing)
-- event-contracts-adapter     (event_contracts invariant backing)
-- test-gap-adapter            (Plan 020 Phase 4.0 binding — meta surface)
+ARIA-MEDIUM-516 — what the refresh runs, keys and trusts
+--------------------------------------------------------
+- The adapter set is the gate's one declaration,
+  ``architecture_spine_gate.SPINE_ADAPTER_IDS`` (derived from
+  ``SPINE_INVARIANTS``). This module used to keep its own list, which named
+  ``schema-drift-adapter`` (no manifest exists) and ``test-gap-adapter`` (no
+  invariant reads it, 900 s of budget per refresh).
+- The cache key is a WORKING-TREE snapshot: the adapters read the working
+  tree, while the committed snapshot it used to take hashes ``git show
+  HEAD:<path>``, so an uncommitted edit inside the window was served a run
+  that never read it.
+- A run is classified by the status ``record_run`` stored (run_tool returns
+  the stored row): only ``ok`` is fresh; any other ``tool_health.RUN_STATUSES``
+  value is ``failed``; anything else is a GovernanceError.
+- The adapters get their manifest ``default_input`` (roots) because run_tool
+  merges it; tenant-scoping and security-boundary used to exit 1 on every
+  refresh without it.
 
 Frozen-aware
 ------------
@@ -57,36 +70,26 @@ runner host and produce flaky timing-sensitive runs in CI.
 """
 from __future__ import annotations
 
-import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .architecture_spine_gate import SPINE_ADAPTER_IDS
 from .runtime_profile import enforce_profile_for_write
 from .snapshot import build_repo_snapshot
+from .tool_health import RUN_STATUSES
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
     ensure_tools_dir,
     ensure_tools_dir_readonly,
+    list_tools,
 )
 from .tool_runner import run_tool
 
-# 5-adapter spine scope. Order is fixed so audit reviewers can pattern-
-# match the sequence of run_ids in the orchestrator complete event.
-SPINE_ADAPTER_IDS: tuple[str, ...] = (
-    "security-boundary-adapter",
-    "tenant-scoping-adapter",
-    "schema-drift-adapter",
-    "event-contracts-adapter",
-    "test-gap-adapter",
-    # Plan 020 Phase 10 — agent harness security adapter feeds the
-    # harness_security invariant added in architecture_spine_gate.
-    # Refresh chokepoint must include it so the spine baseline reads a
-    # fresh row when require_fresh_adapter_runs=True.
-    "agent-harness-security-adapter",
-)
+# The one success status of tool_health.RUN_STATUSES.
+_FRESH_STATUS = "ok"
 
 DEFAULT_FRESHNESS_MAX_AGE_SECONDS: int = 600
 
@@ -125,15 +128,12 @@ def _is_fresh(
     cached FAILED adapter run (``status: crash``,
     ``status: budget_exceeded``, ``status: schema_error``) would
     satisfy "fresh" and the spine orchestrator would re-use the
-    failure as the new baseline. §E.1 also requires the cached row
-    to carry a successful status in
-    ``{"pass", "ok", "completed"}``; any other status (or missing)
-    forces a re-run.
+    failure as the new baseline. The cached row must carry the stored
+    status ``ok``, the only success value of ``tool_health.RUN_STATUSES``
+    (ARIA-MEDIUM-516: ``pass`` and ``completed`` were accepted here and
+    no run can carry either); any other status forces a re-run.
     """
-    if not run_row:
-        return False
-    status = str(run_row.get("status") or "").lower()
-    if status not in {"pass", "ok", "completed"}:
+    if run_row["status"] != _FRESH_STATUS:
         return False
     snapshot = run_row.get("repo_snapshot") or {}
     rsid = snapshot.get("repo_state_id")
@@ -155,22 +155,27 @@ def refresh_spine_adapters(
     max_workers: int = 1,
     adapter_ids: tuple[str, ...] = SPINE_ADAPTER_IDS,
 ) -> dict[str, Any]:
-    """Re-run any spine adapter whose latest run is stale (or repo_state_id
-    drifted), re-use the cached run otherwise. Always emits the
-    spine_orchestrator_refresh_complete governance event.
+    """Re-run any spine adapter whose latest run is not a fresh ``ok`` run of
+    the current working tree, re-use the cached run otherwise. Always emits
+    the spine_orchestrator_refresh_complete governance event.
 
-    Returns:
+    Returns the event's summary plus the rows it ran on:
       {
         repo_state_id,
-        run_ids: {adapter_id: run_id, ...},
-        fresh_count,           # number of adapters re-executed
-        cached_count,          # number reusing the existing latest row
+        run_ids: {adapter_id: run_id},   # every adapter with a recorded run
+        fresh_count,                     # adapters re-executed, stored ok
+        cached_count,                    # adapters reusing their latest row
         adapter_states: [{adapter_id, status, run_id, repo_state_id,
-                          recorded_at, source: 'cached'|'fresh'|'failed'}, ...]
+                          recorded_at, source}, ...],
+          # source: cached | fresh | failed | quarantined | unregistered
+        freshness_max_age_seconds, cycle_id,
+        adapter_runs: {adapter_id: stored runs.jsonl row},  # not in the event
+        adapter_versions: {adapter_id: manifest version},   # not in the event
       }
 
     Raises GovernanceError when the active runtime profile blocks the
-    spine_orchestrator surface (frozen) or tool_runs (frozen|observe).
+    spine_orchestrator surface (frozen) or tool_runs (frozen|observe), and
+    when a stored status is outside tool_health.RUN_STATUSES.
     """
     if freshness_max_age_seconds <= 0:
         raise GovernanceError("freshness_max_age_seconds must be positive")
@@ -182,41 +187,76 @@ def refresh_spine_adapters(
     enforce_profile_for_write("spine_orchestrator", base_dir=base_dir)
 
     workspace = Path(workspace_root).resolve()
+    # The key the cache is checked against is the working tree, the bytes
+    # the adapters read (ARIA-MEDIUM-516); the same snapshot travels into
+    # every run below, so a run's recorded repo_state_id is this key.
     repo_snapshot = build_repo_snapshot(
-        workspace_root=workspace, mode="committed", enforce_clean=False,
+        workspace_root=workspace, mode="working-tree", enforce_clean=False,
     )
-    target_repo_state_id = repo_snapshot.get("repo_state_id")
+    target_repo_state_id = repo_snapshot["repo_state_id"]
     cycle = cycle_id or "spine-orchestrator-refresh"
 
     root = ensure_tools_dir(base_dir)
     runs_path = root / "runs.jsonl"
     now = datetime.now(timezone.utc)
+    registered = {str(tool["tool_id"]): tool for tool in list_tools(base_dir=root)}
 
-    # Pre-compute decision rows: (adapter_id, latest_run_or_None,
-    # is_fresh) so the parallel/serial dispatch only has to RUN
-    # the stale ones.
-    decisions: list[tuple[str, dict[str, Any] | None, bool]] = []
-    for adapter_id in adapter_ids:
-        latest = _latest_run_for_adapter(runs_path, adapter_id)
-        fresh = (
-            latest is not None
-            and _is_fresh(
-                run_row=latest,
-                target_repo_state_id=target_repo_state_id,
-                freshness_max_age_seconds=freshness_max_age_seconds,
-                now=now,
-            )
-        )
-        decisions.append((adapter_id, latest, fresh))
-
-    adapter_states: list[dict[str, Any]] = []
-    run_ids: dict[str, str] = {}
+    # Keyed by adapter, emitted in adapter_ids order: the order is fixed so
+    # audit reviewers can pattern-match the sequence in the complete event.
+    states: dict[str, dict[str, Any]] = {}
+    adapter_runs: dict[str, dict[str, Any]] = {}
+    adapter_versions: dict[str, str] = {}
     fresh_count = 0
     cached_count = 0
+    to_run: list[str] = []
 
-    stale_adapters = [(aid, latest) for (aid, latest, fresh) in decisions if not fresh]
+    def _not_run(adapter_id: str, source: str, error: str | None = None) -> None:
+        states[adapter_id] = {
+            "adapter_id": adapter_id, "status": None, "run_id": None,
+            "repo_state_id": target_repo_state_id, "recorded_at": None, "source": source,
+        }
+        if error is not None:
+            states[adapter_id]["error"] = error
 
-    def _run_one(adapter_id: str) -> tuple[str, dict[str, Any]]:
+    def _with_row(adapter_id: str, row: dict[str, Any], source: str) -> None:
+        adapter_runs[adapter_id] = row
+        state = {
+            "adapter_id": adapter_id,
+            "status": row["status"],
+            "run_id": str(row["run_id"]),
+            "repo_state_id": row["repo_snapshot"]["repo_state_id"],
+            "recorded_at": row["recorded_at"],
+            "source": source,
+        }
+        if source == "failed":
+            state["error"] = f"run_status:{row['status']}"
+        states[adapter_id] = state
+
+    for adapter_id in adapter_ids:
+        tool = registered.get(adapter_id)
+        if tool is None:
+            # run_tool could only refuse it ("tool not found"): name it.
+            _not_run(adapter_id, "unregistered")
+            continue
+        adapter_versions[adapter_id] = str(tool["version"])
+        if tool["status"] == "QUARANTINED":
+            # The normal runner refuses a quarantined tool; the gate reads
+            # this state as an excluded, named invariant.
+            _not_run(adapter_id, "quarantined")
+            continue
+        latest = _latest_run_for_adapter(runs_path, adapter_id)
+        if latest is not None and _is_fresh(
+            run_row=latest,
+            target_repo_state_id=target_repo_state_id,
+            freshness_max_age_seconds=freshness_max_age_seconds,
+            now=now,
+        ):
+            cached_count += 1
+            _with_row(adapter_id, latest, "cached")
+            continue
+        to_run.append(adapter_id)
+
+    def _run_one(adapter_id: str) -> tuple[str, dict[str, Any] | None, str | None]:
         try:
             result = run_tool(
                 tool_id=adapter_id,
@@ -228,109 +268,51 @@ def refresh_spine_adapters(
                 workspace_root=workspace,
                 base_dir=base_dir,
             )
-            return adapter_id, result
         except Exception as exc:  # noqa: BLE001 — caller wants per-adapter failure isolation
-            # Plan 024 v3 §B-7 — exception fallback synthesizes both the
-            # legacy top-level `status` field (preserves existing
-            # callers) AND the envelope/health_decision split that
-            # spine_orchestrator H-6 reads after this commit.
-            return adapter_id, {
-                "status": "failed",
-                "error": str(exc),
-                "envelope": {"status": "failed", "error": str(exc), "run_id": ""},
-                "health_decision": None,
-            }
+            # Nothing was recorded for this adapter: no row, the reason only.
+            return adapter_id, None, str(exc)
+        # Plan 024 v3 §B-7 — "envelope" is the row record_run stored.
+        return adapter_id, result["envelope"], None
 
-    fresh_results: dict[str, dict[str, Any]] = {}
-    if stale_adapters:
-        if max_workers == 1:
-            for adapter_id, _latest in stale_adapters:
-                aid, result = _run_one(adapter_id)
-                fresh_results[aid] = result
-        else:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = [
-                    pool.submit(_run_one, adapter_id)
-                    for adapter_id, _ in stale_adapters
-                ]
-                for fut in as_completed(futures):
-                    aid, result = fut.result()
-                    fresh_results[aid] = result
+    outcomes: dict[str, tuple[dict[str, Any] | None, str | None]] = {}
+    if max_workers == 1:
+        for adapter_id in to_run:
+            aid, row, error = _run_one(adapter_id)
+            outcomes[aid] = (row, error)
+    elif to_run:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_run_one, adapter_id) for adapter_id in to_run]
+            for fut in as_completed(futures):
+                aid, row, error = fut.result()
+                outcomes[aid] = (row, error)
 
-    # Plan 024 v3 §H-6 — fresh-spine status whitelist. Pre-fix the
-    # filter `if status == 'failed'` blacklisted only the literal
-    # "failed" string; everything else (including 'crash',
-    # 'schema_error', 'tool_unhealthy', 'output_unparseable',
-    # 'budget_exceeded') counted as fresh. The whitelist below names
-    # the canonical envelope-side success vocabulary explicitly so an
-    # unknown status raises GovernanceError rather than silently
-    # polluting fresh-spine signal with broken results.
-    _FRESH_PASS_STATUSES = frozenset({"pass", "ok"})
-    _FRESH_EXCLUDE_STATUSES = frozenset({
-        "fail", "failed", "crash", "schema_error", "tool_unhealthy",
-        "output_unparseable", "budget_exceeded", "error",
-        "environment_unavailable",
-    })
-
-    for adapter_id, latest, fresh in decisions:
-        if fresh and latest is not None:
-            cached_count += 1
-            run_ids[adapter_id] = str(latest.get("run_id", ""))
-            adapter_states.append({
-                "adapter_id": adapter_id,
-                "status": str(latest.get("status", "ok")),
-                "run_id": str(latest.get("run_id", "")),
-                "repo_state_id": (latest.get("repo_snapshot") or {}).get("repo_state_id"),
-                "recorded_at": str(latest.get("recorded_at", "")),
-                "source": "cached",
-            })
+    # Plan 024 v3 §H-6 — classified by the STORED status: ``ok`` is fresh,
+    # every other tool_health.RUN_STATUSES value is a failed run, and a value
+    # outside the vocabulary is fail-loud rather than silently fresh.
+    for adapter_id in to_run:
+        row, error = outcomes[adapter_id]
+        if row is None:
+            _not_run(adapter_id, "failed", error)
             continue
-        run = fresh_results.get(adapter_id) or {}
-        # Plan 024 v3 §B-7 — read envelope status (canonical 'ok|crash|
-        # ...' vocabulary) instead of the registry health_decision
-        # status (ACTIVE|SHADOW|QUARANTINED). Pre-fix the spine
-        # orchestrator looked at registry status which made every
-        # registered tool count as fresh regardless of envelope outcome.
-        envelope = run.get("envelope") or {}
-        status = str(envelope.get("status") or run.get("status", "failed"))
-        run_id = str(envelope.get("run_id") or run.get("run_id", ""))
-        run_ids[adapter_id] = run_id
-        if status in _FRESH_EXCLUDE_STATUSES:
-            adapter_states.append({
-                "adapter_id": adapter_id,
-                "status": status,
-                "run_id": run_id,
-                "repo_state_id": target_repo_state_id,
-                "recorded_at": "",
-                "source": "failed",
-                "error": str(envelope.get("error") or run.get("error", "")),
-            })
-        elif status in _FRESH_PASS_STATUSES:
+        status = row["status"]
+        if status == _FRESH_STATUS:
             fresh_count += 1
-            adapter_states.append({
-                "adapter_id": adapter_id,
-                "status": status,
-                "run_id": run_id,
-                "repo_state_id": (run.get("repo_snapshot") or envelope.get("repo_snapshot") or {}).get("repo_state_id") or target_repo_state_id,
-                "recorded_at": str(run.get("recorded_at", "")),
-                "source": "fresh",
-            })
+            _with_row(adapter_id, row, "fresh")
+        elif status in RUN_STATUSES:
+            _with_row(adapter_id, row, "failed")
         else:
-            # Plan 024 v3 §H-6 — unknown status is fail-loud; the
-            # status enum is shared with cli.py:_TOOL_RUN_EXIT_CODES
-            # so a future tool_runner status addition must register
-            # in both vocabularies.
             raise GovernanceError(
                 f"spine_orchestrator_unknown_run_status: {status!r} "
                 f"(adapter_id={adapter_id!r})"
             )
 
+    ordered_runs = {adapter_id: adapter_runs[adapter_id] for adapter_id in adapter_ids if adapter_id in adapter_runs}
     summary = {
         "repo_state_id": target_repo_state_id,
-        "run_ids": run_ids,
+        "run_ids": {adapter_id: str(row["run_id"]) for adapter_id, row in ordered_runs.items()},
         "fresh_count": fresh_count,
         "cached_count": cached_count,
-        "adapter_states": adapter_states,
+        "adapter_states": [states[adapter_id] for adapter_id in adapter_ids],
         "freshness_max_age_seconds": freshness_max_age_seconds,
         "cycle_id": cycle,
     }
@@ -339,7 +321,12 @@ def refresh_spine_adapters(
         "spine_orchestrator_refresh_complete",
         summary,
     )
-    return summary
+    # The rows are the gate's input; the ledger keeps the summary only.
+    return {
+        **summary,
+        "adapter_runs": ordered_runs,
+        "adapter_versions": adapter_versions,
+    }
 
 
 def latest_orchestrator_refresh(
@@ -365,7 +352,6 @@ def latest_orchestrator_refresh(
 
 
 __all__ = [
-    "SPINE_ADAPTER_IDS",
     "DEFAULT_FRESHNESS_MAX_AGE_SECONDS",
     "refresh_spine_adapters",
     "latest_orchestrator_refresh",

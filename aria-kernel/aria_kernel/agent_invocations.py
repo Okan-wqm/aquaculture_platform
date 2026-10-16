@@ -7008,6 +7008,26 @@ def _verified_evidence_target_sha(
     return verified
 
 
+def _lease_routes_and_clock(root: Path) -> tuple[dict[str, str], "ProviderClock"]:
+    """What the lease rule needs from governance.jsonl, from ONE parse of it.
+
+    ARIA-LOW-562 — each claim's attempt route (ARIA-MEDIUM-444) and the
+    providers' outage intervals (ARIA-HIGH-367) both live in the governance
+    ledger, 25.8 MB on aria/state. The reaper parsed and verified the whole
+    ledger for the routes, then the provider clock parsed it again for the
+    intervals. One verified parse feeds both; the rows are released on
+    return, so only the routes and the intervals outlive it.
+    """
+    from .independence_check import attempt_providers_by_claim
+    from .provider_clock import ProviderClock
+    from .provider_outage_ledger import fold_outage_intervals
+
+    governance_path = root / "governance.jsonl"
+    rows = (load_declared_jsonl(governance_path, expected_surface="tools_governance")
+            if governance_path.is_file() else [])
+    return attempt_providers_by_claim(rows), ProviderClock(fold_outage_intervals(rows))
+
+
 def reap_stale_claims(
     *,
     base_dir: str | Path | None = None,
@@ -7079,16 +7099,11 @@ def reap_stale_claims(
             request_id = str(claim_event.get("request_id") or "")
             agent_id = claim_event.get("agent_id")
             if lease_clock is None:
-                from .independence_check import attempt_providers_by_claim
-                from .provider_clock import lease_expiry_reason, provider_clock, role_head_providers
+                from .provider_clock import lease_expiry_reason, role_head_providers
 
-                lease_clock = provider_clock(root)
+                routed, lease_clock = _lease_routes_and_clock(root)
                 request_roles = {str(row.get("request_id")): str(row.get("role") or "")
                                  for row in load_segments(root, "agent_invocation_requests")}
-                governance_path = root / "governance.jsonl"
-                routed = attempt_providers_by_claim(
-                    load_declared_jsonl(governance_path, expected_surface="tools_governance")
-                    if governance_path.is_file() else [])
             # ARIA-HIGH-367 (M1) — the one lease-outage rule (the worker lane
             # asks it too, ARIA-MEDIUM-437). ARIA-MEDIUM-444 — over the
             # provider the claim RAN on (its newest native attempt): since

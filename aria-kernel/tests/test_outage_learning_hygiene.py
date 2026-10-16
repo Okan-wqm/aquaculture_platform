@@ -259,5 +259,37 @@ class M444TheLeaseIsJudgedByTheProviderTheClaimRanOn(M1ALeaseAnOutageAteIsNotCha
             self.assertIn(field, source)
 
 
+class L562OneSweepParsesTheGovernanceLedgerOnce(M1ALeaseAnOutageAteIsNotCharged):
+    """ARIA-LOW-562 — the sweep's lease rule needs two things from governance.jsonl: each
+    claim's attempt route and the providers' outage intervals. It parsed and verified the
+    whole ledger (25.8 MB on aria/state) for the first, and the provider clock parsed it
+    again for the second. One parse serves both; every M1/M444 answer above still holds."""
+
+    def _reap(self) -> dict:
+        from unittest.mock import patch
+
+        from aria_kernel import agent_invocations, provider_outage_ledger
+
+        self.parses: list[str] = []
+        declared, raw = agent_invocations.load_declared_jsonl, provider_outage_ledger.load_jsonl
+
+        def counted(loader):  # noqa: ANN001, ANN202 — wraps either loader's signature
+            def load(path, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+                if Path(path).name == "governance.jsonl":
+                    self.parses.append(loader.__name__)
+                return loader(path, *args, **kwargs)
+            return load
+
+        with patch.object(agent_invocations, "load_declared_jsonl", counted(declared)), \
+                patch.object(provider_outage_ledger, "load_jsonl", counted(raw)):
+            return super()._reap()
+
+    def test_an_expired_claim_under_an_outage_parses_the_ledger_once(self) -> None:
+        self.outage(_T0 + timedelta(minutes=10), None)
+        followup = self._reap()["requeued"][0]
+        self.assertEqual(followup["reason"], "lease_expired_during_provider_outage:anthropic")
+        self.assertEqual(len(self.parses), 1, self.parses)
+
+
 if __name__ == "__main__":
     unittest.main()

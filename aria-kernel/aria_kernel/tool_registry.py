@@ -5,7 +5,7 @@ import json
 import os
 from copy import deepcopy
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .ledger import (
@@ -53,6 +53,16 @@ TOOL_KINDS = ("adapter", "skill", "llm_amplified_skill")
 INITIAL_LIFECYCLE_STATES = ("SHADOW",)
 RUNNER_REQUIRED_STATUSES = ("SHADOW", "ACTIVE", "CALIBRATE")
 RUNNER_TYPES = ("subprocess",)
+# ARIA-MEDIUM-508 — the files a runner executes that the repository does not
+# track (`npm ci` installs them), named workspace-relative. A workspace without
+# one cannot run the tool at all, so the runner refuses to spawn and records
+# the run `environment_unavailable`, never as tool guilt. A runner declares
+# them (`runner.repo_local_dependencies`); the registry derives the ts-node
+# entry of the argv it normalises `npx ts-node` into. One predicate,
+# `missing_repo_local_dependencies`, answers for the runner and the
+# fixture-contract skip alike.
+REPO_LOCAL_DEPENDENCIES_FIELD = "repo_local_dependencies"
+TS_NODE_RUNNER_PREFIX: tuple[str, str] = ("node", "./node_modules/ts-node/dist/bin.js")
 REQUIRED_TOOL_FIELDS = (
     "tool_id",
     "kind",
@@ -961,7 +971,11 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     if not all(isinstance(part, str) and part.strip() for part in argv):
         raise GovernanceError("runner.argv must contain only non-empty strings")
     if len(argv) >= 2 and argv[0] == "npx" and argv[1] == "ts-node":
-        candidate["argv"] = ["node", "./node_modules/ts-node/dist/bin.js", *argv[2:]]
+        candidate["argv"] = [*TS_NODE_RUNNER_PREFIX, *argv[2:]]
+    if REPO_LOCAL_DEPENDENCIES_FIELD in candidate:
+        candidate[REPO_LOCAL_DEPENDENCIES_FIELD] = _validated_repo_local_dependencies(
+            candidate[REPO_LOCAL_DEPENDENCIES_FIELD],
+        )
     cwd = candidate.get("cwd")
     if not isinstance(cwd, str) or not cwd.strip():
         raise GovernanceError("runner.cwd must be a non-empty string")
@@ -986,6 +1000,46 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     if not isinstance(candidate.get("stdin_json"), bool):
         raise GovernanceError("runner.stdin_json must be a boolean")
     return candidate
+
+
+def _validated_repo_local_dependencies(declared: Any) -> list[str]:
+    field = f"runner.{REPO_LOCAL_DEPENDENCIES_FIELD}"
+    if not isinstance(declared, list):
+        raise GovernanceError(f"{field} must be an array of workspace-relative paths")
+    paths: list[str] = []
+    for entry in declared:
+        if not isinstance(entry, str) or not entry.strip():
+            raise GovernanceError(f"{field} must contain only non-empty paths")
+        path = PurePosixPath(entry)
+        if path.is_absolute() or ".." in path.parts:
+            raise GovernanceError(f"{field} must name paths inside the workspace: {entry!r}")
+        paths.append(path.as_posix())
+    return paths
+
+
+def runner_repo_local_dependencies(runner: dict[str, Any]) -> tuple[str, ...]:
+    """The workspace-relative files ``runner`` executes that the repository does not track.
+
+    The declared ones, plus the ts-node a normalised ``npx ts-node`` runner
+    executes from its cwd. Derived here, at the one place that knows what the
+    normalised argv means, rather than stored: a registry entry written before
+    ARIA-MEDIUM-508 still answers for its argv.
+    """
+    dependencies = set(runner.get(REPO_LOCAL_DEPENDENCIES_FIELD) or [])
+    argv = runner.get("argv") or []
+    if tuple(argv[:2]) == TS_NODE_RUNNER_PREFIX:
+        dependencies.add((PurePosixPath(str(runner.get("cwd") or ".")) / TS_NODE_RUNNER_PREFIX[1]).as_posix())
+    return tuple(sorted(dependencies))
+
+
+def missing_repo_local_dependencies(
+    runner: dict[str, Any],
+    *,
+    workspace_root: str | os.PathLike[str],
+) -> list[str]:
+    """The dependencies of ``runner`` that ``workspace_root`` does not provide."""
+    root = Path(workspace_root)
+    return [path for path in runner_repo_local_dependencies(runner) if not (root / path).exists()]
 
 
 def register_tool(

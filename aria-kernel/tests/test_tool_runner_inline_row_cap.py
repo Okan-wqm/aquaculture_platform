@@ -29,6 +29,7 @@ from test_enterprise_cycle import (  # noqa: E402
     tool_output,
 )
 
+from aria_kernel.runs_reader import run_read_paths  # noqa: E402
 from aria_kernel.runtime_artifacts import resolve_artifact_payload  # noqa: E402
 from aria_kernel.tool_runner import (  # noqa: E402
     INLINE_ROW_FIELD_MAX_BYTES,
@@ -109,7 +110,11 @@ class InlineRowCapTests(unittest.TestCase):
         self.assertEqual(result["envelope"], row)
         payload = resolve_artifact_payload(row["artifact_ref"], base_dir=self.tools_dir)["payload"]
         self.assertEqual(len(payload["parsed_output"]["evidence_sources"]), 2500)
-        self.assertIsInstance(row["read_paths"], list)
+        # ARIA-HIGH-523 — the read set is not inline either: the row names it
+        # and the artifact holds it.
+        self.assertNotIn("read_paths", row)
+        self.assertEqual(row["read_paths_ref"]["count"], 2501)
+        self.assertEqual(run_read_paths(row, base_dir=self.tools_dir), ["src/app.ts", *huge])
 
     def test_spill_helper_is_identity_under_the_cap(self) -> None:
         small = ["src/app.ts"]
@@ -126,7 +131,7 @@ class InlineRowCapTests(unittest.TestCase):
         result = self._run()
         self.assertEqual(result["envelope"]["status"], "ok", result)
         row = self._latest_row()
-        self.assertIsInstance(row["read_paths"], list)
+        self.assertEqual(run_read_paths(row, base_dir=self.tools_dir), ["src/app.ts"])
         self.assertNotIn("spilled", row["evidence_validation"])
 
 

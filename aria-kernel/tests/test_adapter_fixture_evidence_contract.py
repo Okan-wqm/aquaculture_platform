@@ -24,12 +24,13 @@ Three pins:
    ``cycle._phase_fixture_refresh`` and consumed by ``readiness`` for
    promotion — a stale count there blocks a promotion, it does not make
    an adapter's evidence invalid, and pinning it per PR would turn every
-   contract-adding commit into a fixture treadmill. Python runners run
-   everywhere; ``npx ts-node`` runners run when the checkout carries the
-   repo-local ``node_modules/ts-node`` the production runner itself
-   requires (``tool_runner._runner_missing_node_deps`` — the CI lane runs
-   ``npm ci`` first; locally without it the adapter is skipped by name,
-   the precedent ``test_007c_adapters_integration`` set).
+   contract-adding commit into a fixture treadmill. A runner runs when the
+   checkout carries the repo-local dependencies the production runner
+   itself requires (``tool_registry.missing_repo_local_dependencies``: the
+   ts-node of an ``npx ts-node`` runner, and what a python runner such as
+   banned-phrase-adapter declares it spawns). The CI lane runs ``npm ci``
+   first; locally without it the adapter is skipped by name, the precedent
+   ``test_007c_adapters_integration`` set.
 """
 from __future__ import annotations
 
@@ -49,8 +50,13 @@ from aria_kernel.adapter_fixture_contract import (
     fixture_cases_for_manifest,
 )
 from aria_kernel.fixture_runner import evaluate_fixture_expectation, run_fixture_suite
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, get_tool, list_tools
-from aria_kernel.tool_runner import _runner_missing_node_deps
+from aria_kernel.tool_registry import (
+    GovernanceError,
+    ensure_tools_dir,
+    get_tool,
+    list_tools,
+    missing_repo_local_dependencies,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_DIR = REPO_ROOT / "tools" / "aria-adapters"
@@ -66,15 +72,15 @@ def _shipped_manifests() -> list[tuple[Path, dict]]:
 def _runner_unavailable(registered: dict) -> str | None:
     """Why this checkout cannot execute the registered tool's runner, or None.
 
-    The registry normalises ``npx ts-node`` to ``node ./node_modules/ts-node/
-    dist/bin.js`` and the production runner refuses to price a missing
-    repo-local dependency as tool guilt (``environment_unavailable``); the
-    same predicate decides here, so the skip and the runner agree on what
-    "available" means.
+    The production runner refuses to price a missing repo-local dependency as
+    tool guilt (``environment_unavailable``); the registry predicate it asks
+    decides here too (declared ``runner.repo_local_dependencies`` plus the
+    ts-node a normalised ``npx ts-node`` runner executes, ARIA-MEDIUM-508), so
+    the skip and the runner agree on what "available" means.
     """
-    runner = registered["runner"]
-    if _runner_missing_node_deps(REPO_ROOT / str(runner.get("cwd") or "."), list(runner["argv"])):
-        return "repo-local node_modules/ts-node/dist/bin.js is absent (the CI lane installs it)"
+    missing = missing_repo_local_dependencies(registered["runner"], workspace_root=REPO_ROOT)
+    if missing:
+        return f"repo-local {', '.join(missing)} absent (the CI lane installs it)"
     return None
 
 

@@ -285,9 +285,15 @@ class AvailabilityFoldsTheProbeTests(_NeedsBwrap):
         self.assertEqual(len(seen), 1)
         self.assertEqual((os.path.isabs(seen[0][0]), os.path.basename(seen[0][0])), (True, "bwrap"))
         # The managed route's network setting, not a smaller argv: the probe
-        # proves what the implementer gets.
+        # proves what the implementer gets — the egress room (ARIA-HIGH-143),
+        # its own network namespace with the relay as its first process, so
+        # the git commands the probe runs ran through the relay's exec.
         self.assertTrue(impl.MANAGED_SPAWN_ALLOW_NETWORK)
-        self.assertNotIn("--unshare-net", seen[0])
+        separator = seen[0].index("--")
+        self.assertIn("--unshare-net", seen[0][:separator])
+        self.assertEqual(seen[0][separator + 1:separator + 6],
+                         [impl.sandbox_interpreter(), "-I", impl.SANDBOX_EGRESS_RELAY,
+                          impl.SANDBOX_EGRESS_PROXY_SOCKET, "--"])
         for path in ("/etc/passwd", "/etc/group"):
             if Path(path).exists():
                 self.assertIn(path, seen[0])

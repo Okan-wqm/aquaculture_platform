@@ -465,9 +465,15 @@ class WriteContainmentTests(unittest.TestCase):
         # By the absolute path the kernel resolved (ARIA-MEDIUM-432).
         self.assertEqual((os.path.isabs(wrapped[0]), os.path.basename(wrapped[0])), (True, "bwrap"))
         self.assertEqual(wrapped[-len(self._ARGV):], self._ARGV)
-        # The agent must reach the Claude API, so the network is NOT unshared —
-        # the property bought here is filesystem containment.
-        self.assertNotIn("--unshare-net", wrapped)
+        # The agent must reach the Claude API, and reaches nothing else: the
+        # room has its own network namespace whose one road out is the
+        # kernel's allowlist proxy, through the relay it starts under
+        # (ARIA-HIGH-143).
+        separator = wrapped.index("--")
+        self.assertIn("--unshare-net", wrapped[:separator])
+        self.assertEqual(wrapped[separator + 1:separator + 6],
+                         [implementation_safety.sandbox_interpreter(), "-I", implementation_safety.SANDBOX_EGRESS_RELAY,
+                          implementation_safety.SANDBOX_EGRESS_PROXY_SOCKET, "--"])
         # READONLY_PATHS that exist are ro-bind, so a write under them EROFSes.
         ro_targets = {
             wrapped[i + 1] for i, tok in enumerate(wrapped) if tok == "--ro-bind"
@@ -512,7 +518,12 @@ class WriteContainmentTests(unittest.TestCase):
                           "a read-only spawn sees the shared heads read-only like any other entry")
             self.assertIn(("--ro-bind", str(common / "worktrees" / "req-1")), pairs)
             self.assertIn(("--tmpfs", str(common / "worktrees")), pairs)
-            self.assertEqual([source for flag, source in pairs if flag == "--bind"], [str(worktree), str(broker_socket)])
+            # The writable binds: the workspace, the hook broker's socket and
+            # the egress proxy's socket (ARIA-HIGH-143) — never a store.
+            from aria_kernel.egress_proxy import kernel_egress_socket
+
+            self.assertEqual([source for flag, source in pairs if flag == "--bind"],
+                             [str(worktree), str(broker_socket), str(kernel_egress_socket())])
             self.assertEqual(wrapped[wrapped.index(HOOK_BROKER_SOCKET_ENV) + 1], SANDBOX_HOOK_BROKER_SOCKET)
             self.assertNotIn("tools_dir", claude_runtime._apply_write_containment.__code__.co_varnames)
 

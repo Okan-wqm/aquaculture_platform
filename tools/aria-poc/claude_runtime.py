@@ -784,10 +784,12 @@ def _apply_write_containment(
     agent could ignore.
 
     ``allow_network=True`` because the agent process must reach the Claude
-    API. Network egress from the agent's own bash commands is a separate
-    concern; the property bought here is that the kernel, workflows and
-    agent definitions cannot be mutated regardless of what the agent
-    decides to do.
+    API — and only that: the room has its own network namespace whose one
+    road out is the kernel's allowlist proxy (ARIA-HIGH-143), so the agent's
+    own bash commands reach no host but the provider's, and none directly.
+    The other property bought here is that the kernel, workflows and agent
+    definitions cannot be mutated regardless of what the agent decides to
+    do.
     """
     if not _is_write_capable(
         skip_permissions=skip_permissions, permission_mode=permission_mode,
@@ -1137,16 +1139,13 @@ def _hook_context(*, usage_recording: UsageRecording | None, workspace_root: str
 
 
 def _spawn_interpreter() -> str:
-    """The interpreter the in-sandbox hook client and MCP relay run under:
-    this process's, by its REAL path. The sandbox binds the system tree,
-    not the directory a symlink named on PATH (ARIA-HIGH-124: a symlinked
-    ``python3`` outside the binds gave the relay no interpreter inside),
-    so the resolved binary is what exists on both sides."""
-    executable = sys.executable or "python3"
-    try:
-        return os.path.realpath(executable)
-    except OSError:
-        return executable
+    """The interpreter the in-sandbox hook client and MCP relay run under —
+    the kernel's one answer for every in-room client
+    (``implementation_safety.sandbox_interpreter``), the egress relay's
+    included, so the room's clients cannot run under different binaries."""
+    from aria_kernel.implementation_safety import sandbox_interpreter
+
+    return sandbox_interpreter()
 
 
 def _kernel_profile(agent_profile: Any | None) -> Any | None:

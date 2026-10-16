@@ -4594,10 +4594,11 @@ def _pre_claim_environment_gate(
             f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
     if kind is None and _egress_boundary_probe is not None:
-        # ARIA-HIGH-143 — the spawn shares the host's network; its boundary
-        # is the allowlist proxy it is handed. No proxy, a silent one or a
-        # permissive one means a prompt-injected agent has the whole
-        # network, so the request stays PENDING until the host has one.
+        # ARIA-HIGH-143 — the spawn's room has its own network namespace and
+        # one road out, the kernel's allowlist proxy. The probe asks a real
+        # managed room, from inside, whether that holds on this host (no
+        # route out, an off-allowlist target refused by name); when it does
+        # not, the request stays PENDING until the host can build one.
         egress_gap = _egress_boundary_probe()
         if egress_gap is not None:
             kind, detail = "egress_boundary_unavailable", egress_gap

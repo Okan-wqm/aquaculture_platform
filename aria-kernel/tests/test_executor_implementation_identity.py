@@ -1717,6 +1717,17 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._governance("implementation_delivered"), [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:apply_gate")
         self._assert_settled("apply_gate", "implementation_delivery_unclassified", "unclassified")
+        # ARIA-MEDIUM-539 — the refused output is not on the published
+        # `validation_run_logs` surface: the gate's one log writer redacted it
+        # and recorded the verdict the refusal above was decided from.
+        token = ("gh" + "p_" + "A" * 36).encode("utf-8")
+        logs = self.tools / "validation" / "logs"
+        self.assertEqual([path.name for path in logs.glob("*.log") if token in path.read_bytes()], [])
+        from aria_kernel.validation_runs_ledger import list_validation_runs_for_change
+
+        flagged = [row for row in list_validation_runs_for_change(self.ids["change_id"], base_dir=self.tools)
+                   if row.get("output_secret_scan")]
+        self.assertEqual(len(flagged), 1, flagged)
 
     def test_a_request_whose_implementation_ids_cannot_stand_a_sandbox_is_escalated_not_retried_forever(self) -> None:
         # ARIA-HIGH-124 (round 2) — the request row names a branch that is

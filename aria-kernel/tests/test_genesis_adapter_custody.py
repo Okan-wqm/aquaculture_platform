@@ -43,6 +43,7 @@ from aria_kernel.genesis_adapter_custody import (
     verify_genesis_dispatch,
 )
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
+from aria_kernel.runtime_artifacts import resolve_artifact_payload
 from aria_kernel.skill_genesis_sandbox import UnsafeAdapterImport, verify_adapter_imports
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, register_tool
 from aria_kernel.tool_runner import run_tool
@@ -391,7 +392,8 @@ class DispatchTests(_RoomLayout):
         self._custody()
         envelope = self._run()["envelope"]
         self.assertEqual(envelope["runner"]["genesis_adapter_sha256"], source_sha256(GOOD_SOURCE))
-        stdout = (envelope.get("_runtime_artifact_payload") or {}).get("stdout") or ""
+        # run_tool returns the stored row; the run's stdout lives in its artifact.
+        stdout = resolve_artifact_payload(envelope["artifact_ref"], base_dir=self.tools)["payload"]["stdout"] or ""
         self.assertEqual(json.loads(stdout)["marker"], "drafted-bytes", envelope["runner"]["stderr_sample"])
 
     def test_bytes_that_no_longer_hash_to_custody_are_refused(self) -> None:

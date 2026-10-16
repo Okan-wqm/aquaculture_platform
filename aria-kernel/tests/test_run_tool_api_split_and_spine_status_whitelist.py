@@ -16,13 +16,14 @@ Backward-compatible (top-level keys preserved).
 schema_error, tool_unhealthy, ...}). Unknown status raises
 GovernanceError.
 
+ARIA-MEDIUM-516: the exit code is the RECORDED status's (run_tool returns the
+row record_run stored; its shape: test_tool_runner_default_input.py).
+
 Tests:
-1. _TOOL_RUN_EXIT_CODES covers every canonical envelope status.
+1. _TOOL_RUN_EXIT_CODES is keyed by exactly tool_health.RUN_STATUSES.
 2. _TOOL_RUN_EXIT_CODES status -> exit code mapping is correct.
 3. spine_orchestrator status whitelist covers known excludes.
 4. The whitelist + exclude sets do not overlap.
-5. tool_runner.run_tool source carries the envelope/health_decision
-   split documented in the docstring + comment.
 """
 from __future__ import annotations
 
@@ -30,33 +31,28 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.cli import _TOOL_RUN_EXIT_CODES
+from aria_kernel.tool_health import RUN_STATUSES
 
 
 class CliExitCodeMapTests(unittest.TestCase):
-    def test_envelope_status_canonical_set_keyed(self) -> None:
-        """Plan 024 §B-7 acceptance (1): every canonical envelope
-        status the runner can produce must be keyed in the exit code
-        map. Otherwise the CLI raises a KeyError on first hit of an
-        unmapped status — fail-loud, not silent-zero."""
-        canonical = {
-            "ok", "crash", "schema_error", "output_unparseable",
-            "budget_exceeded", "tool_unhealthy",
-        }
-        for status in canonical:
-            self.assertIn(status, _TOOL_RUN_EXIT_CODES,
-                f"Plan 024 §B-7 — envelope status {status!r} missing "
-                f"from _TOOL_RUN_EXIT_CODES")
+    def test_exit_code_map_is_keyed_by_exactly_the_recorded_run_statuses(self) -> None:
+        """Plan 024 §B-7 acceptance (1), ARIA-MEDIUM-516: `tool run` indexes
+        the map with the RECORDED status, so every status record_run can
+        store must be keyed (a missing one is a KeyError, fail-loud) and a
+        key nothing can record is dead vocabulary."""
+        self.assertEqual(set(_TOOL_RUN_EXIT_CODES), set(RUN_STATUSES))
 
     def test_exit_code_mapping_correct(self) -> None:
         """Plan 024 §B-7 acceptance (2)."""
-        # ok = 0 (success); 1, 2, 3 are increasingly severe failure
-        # classes operators can pattern-match on.
+        # ok = 0 (success); 1, 2, 3 are failure classes operators can
+        # pattern-match on.
         self.assertEqual(_TOOL_RUN_EXIT_CODES["ok"], 0)
-        # crash / schema_error / output_unparseable: runner-side
-        # protocol failure.
-        for s in ("crash", "schema_error", "output_unparseable"):
+        # Runner-side protocol failures and the statuses record_run
+        # downgrades a run to.
+        for s in ("crash", "schema_error", "scope_violation", "evidence_error",
+                  "integrity_failed", "environment_unavailable"):
             self.assertEqual(_TOOL_RUN_EXIT_CODES[s], 1,
-                f"{s} should map to exit code 1 (runner protocol failure)")
+                f"{s} should map to exit code 1")
         self.assertEqual(_TOOL_RUN_EXIT_CODES["budget_exceeded"], 2,
             "budget_exceeded distinct exit code so operators can rate-limit")
         self.assertEqual(_TOOL_RUN_EXIT_CODES["tool_unhealthy"], 3,
@@ -93,26 +89,6 @@ class SpineOrchestratorStatusWhitelistTests(unittest.TestCase):
             "Plan 024 §H-6 — fail-loud error code must exist in source")
         self.assertIn("raise GovernanceError", spine_src,
             "Plan 024 §H-6 — GovernanceError must be raised on unknown status")
-
-
-class RunToolApiSplitSourceTests(unittest.TestCase):
-    def test_run_tool_returns_envelope_and_health_decision_keys(self) -> None:
-        """Plan 024 §B-7 acceptance (5): source scan asserts the API
-        split is wired. Direct shape test lives in
-        test_tool_runner_*.py via real registered-tool fixtures; this
-        guards against a future regression that re-collapses the API
-        back to a single dict."""
-        runner_src = (Path(__file__).resolve().parent.parent /
-                      "aria_kernel" / "tool_runner.py").read_text(
-            encoding="utf-8")
-        # The closure key must be the 3-key dict literal returned at
-        # the bottom of run_tool.
-        self.assertIn('"envelope": envelope', runner_src,
-            "Plan 024 §B-7 — run_tool must return 'envelope' key")
-        self.assertIn('"health_decision": decision', runner_src,
-            "Plan 024 §B-7 — run_tool must return 'health_decision' key")
-        self.assertIn("**decision,", runner_src,
-            "Plan 024 §B-7 — top-level decision keys merged for backward compat")
 
 
 if __name__ == "__main__":

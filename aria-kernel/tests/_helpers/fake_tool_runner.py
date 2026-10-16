@@ -21,6 +21,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--exit-code", type=int, default=0)
     parser.add_argument("--sleep-seconds", type=float, default=0)
     parser.add_argument("--mutate")
+    # Exit 1 when the stdin payload lacks a key, the way an adapter that
+    # requires its declared input does (adapter-fs.ts requireScanRoots).
+    parser.add_argument("--require-input-key", action="append", default=[])
     args = parser.parse_args(argv)
 
     if args.sleep_seconds:
@@ -31,8 +34,12 @@ def main(argv: list[str] | None = None) -> int:
         target.write_text("changed", encoding="utf-8")
     if args.invalid_json:
         print("not json")
-    elif args.echo_input:
+    elif args.echo_input or args.require_input_key:
         payload = json.load(sys.stdin)
+        missing = [key for key in args.require_input_key if key not in payload]
+        if missing:
+            print(f"missing required input: {', '.join(missing)}", file=sys.stderr)
+            return 1
         print(json.dumps({
             "observations": [{"id": "obs-1", "type": "fixture", "details": payload}],
             "findings": [],

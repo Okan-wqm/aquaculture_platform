@@ -270,7 +270,7 @@ class ToolGovernanceTests(unittest.TestCase):
 
     def test_run_ledger_records_valid_run_envelopes(self):
         register_active_for_test(valid_tool(), base_dir=self.tools_dir)
-        decision = record_run(valid_run(), base_dir=self.tools_dir)
+        decision = record_run(valid_run(), base_dir=self.tools_dir).health_decision
         self.assertEqual(decision["action"], "none")
         rows = (self.tools_dir / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()
         self.assertEqual(len(rows), 1)
@@ -281,7 +281,7 @@ class ToolGovernanceTests(unittest.TestCase):
         decision = record_run(
             valid_run(read_paths=["apps/auth-service/src/main.ts"]),
             base_dir=self.tools_dir,
-        )
+        ).health_decision
         self.assertEqual(decision["action"], "quarantine")
         self.assertIn("scope violation", decision["reason"])
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "QUARANTINED")
@@ -291,7 +291,7 @@ class ToolGovernanceTests(unittest.TestCase):
         decision = record_run(
             valid_run(read_paths=["agent-workspace/l3-findings/backend/farm-service/security.md"]),
             base_dir=self.tools_dir,
-        )
+        ).health_decision
         self.assertEqual(decision["action"], "quarantine")
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "QUARANTINED")
 
@@ -305,13 +305,13 @@ class ToolGovernanceTests(unittest.TestCase):
                 },
             ),
             base_dir=self.tools_dir,
-        )
+        ).health_decision
         self.assertEqual(decision["action"], "quarantine")
         self.assertIn("self-output evidence", decision["reason"])
 
     def test_invalid_output_schema_auto_quarantines_tool(self):
         register_active_for_test(valid_tool(), base_dir=self.tools_dir)
-        decision = record_run(valid_run(status="schema_error"), base_dir=self.tools_dir)
+        decision = record_run(valid_run(status="schema_error"), base_dir=self.tools_dir).health_decision
         self.assertEqual(decision["action"], "quarantine")
         self.assertIn("invalid output schema", decision["reason"])
 
@@ -546,14 +546,14 @@ class ToolGovernanceTests(unittest.TestCase):
                     operator_feedback_refs=[{"kind": "false_positive", "severity": "medium"}],
                 ),
                 base_dir=self.tools_dir,
-            )
+            ).health_decision
         self.assertEqual(decision["action"], "calibrate")
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "CALIBRATE")
 
     def test_budget_cap_exceeded_twice_moves_tool_to_calibrate(self):
         register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         record_run(valid_run(run_id="budget-1", cost_units=51), base_dir=self.tools_dir)
-        decision = record_run(valid_run(run_id="budget-2", cost_units=52), base_dir=self.tools_dir)
+        decision = record_run(valid_run(run_id="budget-2", cost_units=52), base_dir=self.tools_dir).health_decision
         self.assertEqual(decision["action"], "calibrate")
         self.assertEqual(decision["metrics"]["budget_exceeded_7d"], 2)
 
@@ -562,7 +562,7 @@ class ToolGovernanceTests(unittest.TestCase):
         decision = record_run(
             valid_run(operator_feedback_refs=[{"kind": "false_positive", "severity": "critical"}]),
             base_dir=self.tools_dir,
-        )
+        ).health_decision
         self.assertEqual(decision["action"], "quarantine")
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "QUARANTINED")
 
@@ -711,7 +711,7 @@ class ToolGovernanceTests(unittest.TestCase):
             note="operator rejected",
             base_dir=self.tools_dir,
         )
-        decision = record_run(valid_run(run_id="after-feedback", raw_findings=[finding]), base_dir=self.tools_dir)
+        decision = record_run(valid_run(run_id="after-feedback", raw_findings=[finding]), base_dir=self.tools_dir).health_decision
         self.assertEqual(decision["metrics"]["judged_samples"], 1)
         self.assertEqual(decision["metrics"]["precision"], 0.0)
 

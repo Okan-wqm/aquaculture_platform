@@ -29,6 +29,7 @@ from test_enterprise_cycle import (  # noqa: E402
     tool_output,
 )
 
+from aria_kernel.runtime_artifacts import resolve_artifact_payload  # noqa: E402
 from aria_kernel.tool_runner import (  # noqa: E402
     INLINE_ROW_FIELD_MAX_BYTES,
     _spill_oversized_inline,
@@ -54,15 +55,14 @@ class InlineRowCapTests(unittest.TestCase):
         register_tool(tool, base_dir=self.tools_dir)
 
     def _run(self):
+        # No hand-built snapshot: run_tool snapshots the workspace the adapter
+        # reads, so the evidence check judges the run the way production does.
+        # (A synthetic committed snapshot without a target sha made every run
+        # here evidence_error in the store; the old assertions read "ok" from
+        # the pre-record envelope run_tool used to return, ARIA-MEDIUM-516.)
         return run_tool(
             "fixture-shadow-tool",
-            {
-                "repo_snapshot": {
-                    "allowed_paths": ["src/app.ts"],
-                    "snapshot_mode": "committed",
-                    "snapshot_hash": "sha256:test",
-                },
-            },
+            {},
             "cycle-inline-cap",
             workspace_root=self.workspace,
             base_dir=self.tools_dir,
@@ -82,7 +82,9 @@ class InlineRowCapTests(unittest.TestCase):
         # evidence_validation). The pure read_paths spill is unit-pinned
         # below.
         huge = [f"src/f{i:06d}.ts" for i in range(2500)]
-        self._register(tool_output(evidence_sources=huge, read_paths=huge))
+        commit_files(self.workspace, {path: "x\n" for path in huge})
+        # The default finding cites src/app.ts, so the read set names it too.
+        self._register(tool_output(evidence_sources=huge, read_paths=["src/app.ts", *huge]))
         result = self._run()
         self.assertEqual(result["envelope"]["status"], "ok", result)
         row = self._latest_row()
@@ -102,7 +104,10 @@ class InlineRowCapTests(unittest.TestCase):
         self.assertEqual(marker["total"], 2500)
         self.assertIn("sha256:", marker["sha256"])
         # The artifact keeps the full parsed output — the spill never loses it.
-        payload = result["envelope"]["_runtime_artifact_payload"]
+        # run_tool returns the stored row, so the bulk is read where the row
+        # says it lives: its artifact.
+        self.assertEqual(result["envelope"], row)
+        payload = resolve_artifact_payload(row["artifact_ref"], base_dir=self.tools_dir)["payload"]
         self.assertEqual(len(payload["parsed_output"]["evidence_sources"]), 2500)
         self.assertIsInstance(row["read_paths"], list)
 

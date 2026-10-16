@@ -38,6 +38,7 @@ from aria_kernel.adapter_room import (
 )
 from aria_kernel.fixture_runner import refresh_fixture_suites, run_fixture_suite
 from aria_kernel.ledger import load_jsonl
+from aria_kernel.runtime_artifacts import resolve_artifact_payload
 from aria_kernel.tool_registry import GovernanceError, register_tool
 from aria_kernel.tool_runner import run_tool
 from tests._helpers.git_fixtures import commit_files, make_local_git_repo
@@ -135,10 +136,11 @@ class RunnerLayout:
             )
 
 
-def _probe_facts(envelope: dict) -> dict:
-    """What the probe reported, from the run's own stdout (the returned
-    envelope keeps the runtime-artifact payload the ledger row drops)."""
-    stdout = (envelope.get("_runtime_artifact_payload") or {}).get("stdout") or ""
+def _probe_facts(envelope: dict, tools: Path) -> dict:
+    """What the probe reported, from the run's own stdout. run_tool returns
+    the stored row, which names the run's artifact; the stdout lives there."""
+    artifact = resolve_artifact_payload(envelope["artifact_ref"], base_dir=tools)
+    stdout = artifact["payload"]["stdout"] or ""
     return json.loads(stdout)["observations"][0]["details"] if stdout.strip() else {}
 
 
@@ -160,7 +162,7 @@ class LiveRoomTests(unittest.TestCase):
         register_tool(self.layout.tool(), base_dir=self.layout.tools)
         result = self.layout.run_tool()
         envelope = result["envelope"]
-        facts = _probe_facts(envelope)
+        facts = _probe_facts(envelope, self.layout.tools)
         self.assertEqual(envelope["status"], "ok", f"the probe reached something: {facts or envelope['runner']['stderr_sample']}")
         self.assertEqual(facts["forbidden_env"], [])
         self.assertEqual(facts["pem"], "refused:FileNotFoundError")
@@ -208,7 +210,7 @@ class LiveRoomTests(unittest.TestCase):
         extra += tuple(token for relative in visible for token in ("--visible", str(workspace / relative).encode().hex()))
         register_tool(self.layout.tool(extra=extra), base_dir=self.layout.tools)
         envelope = self.layout.run_tool()["envelope"]
-        facts = _probe_facts(envelope)
+        facts = _probe_facts(envelope, self.layout.tools)
         self.assertEqual(envelope["status"], "ok", f"the probe reached something: {facts or envelope['runner']['stderr_sample']}")
         # Absent at the top; beneath a tracked directory the name stays and
         # opening it is refused (an empty, nodev cover), never the content.
@@ -232,7 +234,7 @@ class LiveRoomTests(unittest.TestCase):
         self.assertFalse(Path(target).exists(), "outside the room the link resolves into the other checkout")
         register_tool(self.layout.tool(extra=("--visible", target.encode().hex())), base_dir=self.layout.tools)
         envelope = self.layout.run_tool()["envelope"]
-        facts = _probe_facts(envelope)
+        facts = _probe_facts(envelope, self.layout.tools)
         self.assertEqual(envelope["status"], "ok", envelope["runner"]["stderr_sample"])
         self.assertEqual(facts["visible"], {target: "reached"})
 

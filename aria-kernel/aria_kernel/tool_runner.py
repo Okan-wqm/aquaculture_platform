@@ -87,12 +87,26 @@ def run_tool(
     # tool gets None and runs its manifest argv.
     genesis = verify_genesis_dispatch(tool, base_dir=tools_root)
 
+    # The snapshot evidence is judged against comes from the CALLER or is
+    # built here from the workspace, never from the manifest: a
+    # `repo_snapshot` declared in default_input would otherwise list files
+    # the workspace does not hold as "in the snapshot" (the cycle's own merge
+    # used to let one through). It is read before the merge below and
+    # written over whatever the merge carried.
     repo_snapshot = _input_repo_snapshot(input_payload)
     if repo_snapshot is None:
         repo_snapshot = build_repo_snapshot(workspace_root=root, mode="working-tree", enforce_clean=False)
     repo_snapshot = _snapshot_for_tool(tool, repo_snapshot)
     if isinstance(input_payload, dict):
-        input_payload = {**input_payload, "repo_snapshot": repo_snapshot}
+        # ARIA-MEDIUM-516 — the manifest's declared input is merged HERE, the
+        # one chokepoint every caller passes (cycle tools phase, spine
+        # refresh, `aria-kernel tool run`, gateway scheduler). It used to be
+        # merged only by the cycle's tools phase, so every other caller ran
+        # tenant-scoping and security-boundary without their roots and they
+        # exited 1 in requireScanRoots (adapter-fs.ts). Caller keys win over
+        # the declaration. `default_input` is optional; the registry refuses
+        # a non-object one (tool_registry.validate_tool_definition).
+        input_payload = {**tool.get("default_input", {}), **input_payload, "repo_snapshot": repo_snapshot}
     cwd = (root / runner["cwd"]).resolve()
     try:
         cwd.relative_to(root)
@@ -298,21 +312,19 @@ def run_tool(
             "raw_findings": _array_or_empty(raw_findings),
         },
     }
-    decision = record_run(envelope, base_dir=tools_root)
-    # Plan 024 v3 §B-7 — return contract split. Pre-fix run_tool returned
-    # ONLY the registry-side health_decision (decision dict from
-    # record_run); the runner envelope (with the canonical 'ok|crash|
-    # schema_error|...' status vocabulary) was a side-effect write to
-    # runs.jsonl that callers could not project from the return value.
-    # CLI exit-code mapping and spine_orchestrator status whitelist
-    # both need the envelope status; H-6 atomic with this fix migrates
-    # spine_orchestrator to read result['envelope']['status']. Existing
-    # callers that rely on the top-level health_decision keys (e.g.
-    # tests asserting result.get('status') == 'ACTIVE') keep working —
-    # decision keys are merged at the top of the returned dict for
-    # backward compatibility; the new envelope + health_decision keys
-    # are the canonical access points going forward.
-    return {**decision, "envelope": envelope, "health_decision": decision}
+    recorded = record_run(envelope, base_dir=tools_root)
+    decision = recorded.health_decision
+    # Plan 024 v3 §B-7 — return contract split: the run under "envelope",
+    # the registry-side health decision under "health_decision" and merged
+    # at the top level (callers read result["status"] == "ACTIVE").
+    # ARIA-MEDIUM-516 — "envelope" is the row record_run STORED, never the
+    # dict built above: record_run validates a copy and may downgrade its
+    # status (scope_violation, evidence_error, integrity_failed), and the
+    # CLI exit code, the gateway scheduler and the spine refresh all judged
+    # the run by the status of this local dict, one the store never held.
+    # The stored row drops the runtime-artifact payload (stdout, parsed
+    # output); a caller that needs it reads the run's artifact_ref.
+    return {**decision, "envelope": recorded.row, "health_decision": decision}
 
 
 def _input_repo_snapshot(input_payload: Any) -> dict[str, Any] | None:

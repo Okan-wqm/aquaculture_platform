@@ -252,6 +252,24 @@ verb can record are listed at the end.
   today. Later-stage buckets edit `aria-kernel.yml` and the injection spec, so the fix lands with
   one of those stages or after them. Deadline: 2027-04-13.
 
+### ARIA-LOW-537 — the T2 probe tests fake the whole process identity
+
+- **Raised by:** PR #1961's CI. The aria-kernel lane's shard 8 failed on the hosted runner, whose
+  account is uid 1001, and on its re-run; the module is green as root and as uid 1000.
+- **Problem:** `_as_runner` in `test_t2_boundary_probe.py:68-69` played the runner account by
+  patching the real `pwd.getpwuid` and `os.geteuid`, so every module in the process read the
+  euid as 1000. The probe CLI resolves its tools root through `refuse_foreign_owned_root`
+  (`tool_registry.py:238`, added by ARIA-HIGH-426), which reads that euid
+  (`write_root_owner.py:50-52`) and accepts only that uid or root as the owner (`:90`). The test's
+  temp tree, owned by the real account (uid 1001), read as foreign, the registry read failed, and
+  the probe reported `runner_key_registry_unavailable` (`habitat.py:303-304`). Production is
+  unaffected: the hourly timer really runs as gharunner.
+- **Fix (landed in PR #1961):** the probe reads its account through one seam,
+  `habitat._running_account()`, and the tests patch only that seam, so the process keeps its real
+  identity. The new test `test_playing_the_runner_account_leaves_the_process_its_own_identity`
+  fakes an account that differs from the real one and asserts that `os.geteuid`, `pwd.getpwuid`
+  and `write_root_owner._effective_uid` stay real; it fails on any host before the fix.
+
 ### ARIA-HIGH-511 — the enrolment walk judges history by today's namespace tuple
 
 - **Wave-2 key:** R7-015 (register row; design R-G023-enrolment-walk).

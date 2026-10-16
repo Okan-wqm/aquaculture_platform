@@ -205,3 +205,27 @@ export type {
   RouteAnnouncerProps,
   SkipToContentProps,
 } from './a11y';
+
+/* ------------------------------------------------------------------ */
+/* Guard family — restored from aria-karantina/kapsam-iadesi (dalga3-15) */
+/* ------------------------------------------------------------------ */
+
+export {
+  RequireAuth,
+  RequireRole,
+  RequirePlatformAdmin,
+  RequireTenantPanel,
+  RequireCapability,
+  ErrorBoundary,
+  GuardLoading,
+  RouteWithBoundary,
+} from './guards';
+export type {
+  RequireAuthProps,
+  RequireRoleProps,
+  RequirePlatformAdminProps,
+  RequireTenantPanelProps,
+  RequireCapabilityProps,
+  ErrorBoundaryProps,
+  RouteWithBoundaryProps,
+} from './guards';

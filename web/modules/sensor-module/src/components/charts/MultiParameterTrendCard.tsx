@@ -172,7 +172,6 @@ export function MultiParameterTrendCard({
   } else if (hasAnyData) {
     body = (
       <TrendChart
-        mode="custom"
         lines={lines}
         customData={customData}
         breaks={breaks}

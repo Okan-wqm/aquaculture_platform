@@ -230,8 +230,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-078`  | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
 | `ORPHAN-CRITICAL-419` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-506` | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-513` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
@@ -285,14 +283,10 @@ litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it 
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
-| `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | already-fixed-needs-close |
 | `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | already-fixed-needs-close |
-| `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | already-fixed-needs-close |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
-| `ARIA-CRITICAL-399` | OPEN | 2026-10-16 | claude | already-fixed-needs-close |
-| `ARIA-CRITICAL-446` | OPEN | 2026-10-13 | claude | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -1080,4 +1074,22 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `already-fixed-needs-close`.
 - `FARM-CRITICAL-411`: registry state is `RESOLVED` with closing commit
   `b78dfe891`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ORPHAN-CRITICAL-506`: registry state is `RESOLVED` with closing commit
+  `af6030725`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ORPHAN-CRITICAL-513`: registry state is `RESOLVED` with closing commit
+  `af6030725`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ARIA-CRITICAL-214`: registry state is `RESOLVED` with closing commit
+  `395a60788`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ARIA-CRITICAL-216`: registry state is `RESOLVED` with closing commit
+  `395a60788`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ARIA-CRITICAL-399`: registry state is `RESOLVED` with closing commit
+  `d188cad26`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ARIA-CRITICAL-446`: registry state is `RESOLVED` with closing commit
+  `0ffd209dd`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.

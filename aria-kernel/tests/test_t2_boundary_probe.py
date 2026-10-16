@@ -35,12 +35,11 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 import yaml
 
-from aria_kernel import habitat
+from aria_kernel import habitat, write_root_owner
 from aria_kernel import operator_request_signature as ors
 from aria_kernel.knowledge_graph import fingerprint_of_public_key, register_convention_signer
 from aria_kernel.mcp_server import AriaMcpServer
@@ -87,9 +86,12 @@ def _clean_env() -> mock._patch:
 @contextlib.contextmanager
 def _as_runner(*, user: str = "gharunner", uid: int = 1000, sudo: str = "denied",
                groups: frozenset[str] = frozenset({"gharunner"})):
-    """The probe's view of its own account, without asking this host's root account anything."""
-    with mock.patch.object(habitat.pwd, "getpwuid", return_value=SimpleNamespace(pw_name=user)), \
-            mock.patch.object(habitat.os, "geteuid", return_value=uid), \
+    """The probe's view of its own account, without asking this host's root account anything.
+
+    Only the probe's seams are faked: the process keeps its real identity, which
+    every other kernel module (the tools-root owner check among them) reads.
+    """
+    with mock.patch.object(habitat, "_running_account", return_value=(user, uid)), \
             mock.patch.object(habitat, "_sudo_verdict", return_value=sudo), \
             mock.patch.object(habitat, "_group_names", return_value=groups):
         yield
@@ -210,6 +212,19 @@ class ProbeTests(unittest.TestCase):
             boundary = self._probe()
         self.assertEqual((boundary.identity, boundary.violations, boundary.held), (_T2_ACCOUNT, (), True))
         self.assertEqual(habitat.T2_RUNNER_USER, _T2_ACCOUNT)
+
+    def test_playing_the_runner_account_leaves_the_process_its_own_identity(self) -> None:
+        # The verb resolves its tools root through write_root_owner, which reads
+        # the process euid. A fake that reached it made the test's own temp tree
+        # read as another account's on the hosted runner (uid 1001): the registry
+        # read was refused and the probe reported runner_key_registry_unavailable.
+        euid = os.geteuid()
+        real = (euid, pwd.getpwuid(euid).pw_name)
+        with _as_runner(user="not-" + real[1], uid=euid + 1):
+            self.assertEqual((os.geteuid(), pwd.getpwuid(os.geteuid()).pw_name), real)
+            self.assertEqual(write_root_owner._effective_uid(), euid)
+            boundary = self._probe()
+        self.assertEqual(boundary.identity, "not-" + real[1])
 
     def test_each_capability_the_adr_forbids_is_a_named_violation(self) -> None:
         readable_key = self.root / "readable-key"

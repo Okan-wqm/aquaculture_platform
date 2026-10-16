@@ -201,6 +201,22 @@ class T2Boundary:
         return not self.violations
 
 
+def _running_account() -> tuple[str, int]:
+    """The account the probe runs as: its name and its euid.
+
+    The probe's one identity seam, beside ``_sudo_verdict`` and
+    ``_group_names``. A test that plays the runner account patches THIS, never
+    ``os.geteuid`` / ``pwd.getpwuid``: those are the whole process's identity,
+    and the kernel guards the probe's CLI path runs through read them too. The
+    tools-root owner check (``write_root_owner``) then judged the test's own
+    temp tree, owned by the real account, as another account's and refused it,
+    so the probe reported ``runner_key_registry_unavailable`` on any host whose
+    test account was neither root nor uid 1000 (the hosted runner, uid 1001).
+    """
+    euid = os.geteuid()
+    return pwd.getpwuid(euid).pw_name, euid
+
+
 def _sudo_verdict() -> str:
     sudo = shutil.which("sudo")
     if sudo is None:
@@ -282,11 +298,11 @@ def probe_t2_boundary(
     """
     operator_key = OPERATOR_SIGNING_KEY if operator_key is None else operator_key
     docker_socket = DOCKER_SOCKET if docker_socket is None else docker_socket
-    identity = pwd.getpwuid(os.geteuid()).pw_name
+    identity, euid = _running_account()
     violations: list[str] = []
     if identity != T2_RUNNER_USER:
         violations.append(f"probe_not_run_as_{T2_RUNNER_USER}")
-    if os.geteuid() == 0:
+    if euid == 0:
         violations.append("runner_uid_is_root")
     try:
         with operator_key.open("rb"):

@@ -221,8 +221,12 @@ describe('CI Full scheduled and release contract', () => {
     const uploadIndex = steps.findIndex((step) => step.name === 'Upload coverage evidence');
     const upload = steps[uploadIndex];
 
+    // packages: read is the one addition to checkout's authority: the redis service and the
+    // sensor-ingestion NATS testcontainer pull the GHCR mirror of
+    // .github/manifests/ci-images.json with this job's GITHUB_TOKEN (INFRA-HIGH-227).
     expect(testJob?.permissions).toEqual({
       contents: 'read',
+      packages: 'read',
     });
     expect(verifyIndex).toBeGreaterThan(-1);
     expect(uploadIndex).toBeGreaterThan(verifyIndex);

@@ -12,6 +12,9 @@ on:
       - ".cargo/config.toml"
       - "crates/**"
       - "apps/sensor-ingestion/**"
+      # INFRA-HIGH-227: sensor-ingestion's NATS testcontainer reads its image
+      # from this manifest at compile time.
+      - ".github/manifests/ci-images.json"
       - "tools/scripts/check-codec-drift.ts"
       - ".github/workflows/rust-ci.yml"
       # SUPPLY-HIGH-002: the advisory-ignore-sync gate polices files OUTSIDE
@@ -39,6 +42,9 @@ on:
       - ".cargo/config.toml"
       - "crates/**"
       - "apps/sensor-ingestion/**"
+      # INFRA-HIGH-227: sensor-ingestion's NATS testcontainer reads its image
+      # from this manifest at compile time.
+      - ".github/manifests/ci-images.json"
       - "tools/scripts/check-codec-drift.ts"
       - ".github/workflows/rust-ci.yml"
       # SUPPLY-HIGH-002 mirror of the push path list above.
@@ -152,8 +158,18 @@ jobs:
     name: cargo test --workspace
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # packages: read — sensor-ingestion's NATS testcontainer pulls the GHCR
+    # mirror pinned in .github/manifests/ci-images.json (INFRA-HIGH-227).
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # testcontainers reads the credentials this writes to ~/.docker/config.json.
+      - name: Login to GHCR for mirrored CI images
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
         with:

@@ -1627,9 +1627,7 @@ def run_claude_exec(
         )
     if proc.returncode == 0 and require_usage and usage is None:
         raise ClaudeUsageUnavailable("claude_stream_json_missing_result_usage")
-    credit_exhaustion = extract_credit_exhaustion(
-        returncode=proc.returncode, stderr=proc.stderr, events=events, final_message=final_message,
-    )
+    credit_exhaustion = extract_credit_exhaustion(returncode=proc.returncode, stderr=proc.stderr, events=events)
     quota_reading = extract_rate_limit_exhaustion(events)
     result = ClaudeRunResult(
         returncode=proc.returncode,
@@ -1639,12 +1637,7 @@ def run_claude_exec(
         usage=usage,
         events=events,
         refusal=extract_refusal(events),
-        auth_failure=extract_auth_failure(
-            returncode=proc.returncode,
-            stdout=proc.stdout,
-            stderr=proc.stderr,
-            final_message=final_message,
-        ),
+        auth_failure=extract_auth_failure(returncode=proc.returncode, stderr=proc.stderr, events=events),
         credit_exhaustion=credit_exhaustion,
         unreachable=extract_unreachable(returncode=proc.returncode, stderr=proc.stderr, events=events),
         quota_window=quota_reading if credit_exhaustion is None else None,
@@ -1790,10 +1783,11 @@ def extract_refusal(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None
 #     tokens, terminal_reason=completed):
 #       "You've reached your Fable 5 limit. Run /usage-credits to continue or
 #        switch models with /model."
-#     It is NOT a stderr error and NOT a nonzero exit, so it MUST be matched on
-#     the response TEXT regardless of returncode. These markers are specific
-#     enough that content-matching is false-positive-safe (an agent plan does
-#     not naturally contain "/usage-credits" or "switch models with /model").
+#     It is NOT a stderr error and NOT a nonzero exit, so it is matched
+#     regardless of returncode — but only on the CLI's own channel
+#     (`cli_error_channel`): the notice is an assistant message the CLI
+#     SYNTHESIZES (model "<synthetic>"), never the model's text. An agent that
+#     reviews this module quotes these very markers (ARIA-HIGH-536).
 USAGE_LIMIT_MARKERS: tuple[str, ...] = (
     "usage-credits",              # the /usage-credits purchase command
     "switch models with /model",  # the model-switch hint in the limit notice
@@ -1886,25 +1880,59 @@ UNREACHABLE_MARKERS: tuple[str, ...] = (
     "enotfound", "etimedout", "eai_again", "socket hang up", "fetch failed",
 )
 
+# The model id the Claude CLI stamps on every assistant message IT builds
+# rather than the API returning one (CLI 2.1.278 `Il="<synthetic>"`; its
+# API-error builder `Eo` → `KDn` sets `message.model` to it, zero usage, and
+# the stream-json assistant message carries the typed `error` beside it).
+CLI_SYNTHETIC_MODEL = "<synthetic>"
+
+
+def cli_error_channel(*, stderr: str, events: tuple[dict[str, Any], ...]) -> str:
+    """Everything the Claude CLI itself — never the model — said about how the attempt ended.
+
+    ARIA-HIGH-536: the single owner of where a vendor fact (quota, credential,
+    reachability) may be read from. Three channels, each authored by the CLI:
+
+    * the CLI process's stderr;
+    * an assistant message the CLI synthesized (``message.model`` is
+      ``CLI_SYNTHETIC_MODEL``): its API-error message — the usage-limit
+      notice, "Credit balance is too low", "Not logged in" — which arrives
+      as assistant content, on a clean exit too (the 2026-07-03 case);
+    * the terminal ``result`` event the CLI marks ``is_error``: the CLI sets
+      ``is_error`` from the last message being that API-error message and its
+      ``result`` is then that message's text (CLI 2.1.278).
+
+    The model's text, tool results (what a command in the workspace printed)
+    and a successful ``result`` are not read: this repository has a
+    billing-service and an auth-service, and an agent that wrote "billing"
+    and then timed out cooled Anthropic for the whole fleet and was requeued
+    uncharged (PR #1835 review MEDIUM-1 is the same rule for reachability).
+    """
+    channel = [stderr or ""]
+    for event in events:
+        kind = event.get("type")
+        if kind == "assistant":
+            message = event.get("message")
+            if isinstance(message, dict) and message.get("model") == CLI_SYNTHETIC_MODEL:
+                channel.append(_assistant_text(message))
+        elif kind == "result" and event.get("is_error") is True:
+            channel.extend(str(event.get(key) or "") for key in ("result", "error"))
+    return "\n".join(channel)
+
 
 def extract_unreachable(
     *, returncode: int, stderr: str, events: tuple[dict[str, Any], ...],
 ) -> dict[str, Any] | None:
     """Name a vendor-did-not-serve failure, or return None (detection only).
 
-    Read from the CLI's ERROR channel only — stderr and the terminal
-    ``result`` event the CLI marks ``is_error`` — never from assistant text
-    (PR #1835 review MEDIUM-1): an implementer reporting "ECONNREFUSED
-    127.0.0.1:5432" about the code under test and then exiting nonzero would
-    otherwise cool Anthropic fleet-wide and loop uncharged.
+    Read from the CLI's own channel only (`cli_error_channel`), never from
+    the model's text (PR #1835 review MEDIUM-1): an implementer reporting
+    "ECONNREFUSED 127.0.0.1:5432" about the code under test and then exiting
+    nonzero would otherwise cool Anthropic fleet-wide and loop uncharged.
     """
     if returncode == 0:
         return None
-    channel = [stderr or ""]
-    for event in events:
-        if event.get("type") == "result" and event.get("is_error") is True:
-            channel.extend(str(event.get(key) or "") for key in ("result", "error"))
-    blob = "\n".join(channel).lower()
+    blob = cli_error_channel(stderr=stderr, events=events).lower()
     marker = next((m for m in UNREACHABLE_MARKERS if m in blob), None)
     if marker is None:
         return None
@@ -1913,18 +1941,20 @@ def extract_unreachable(
 
 
 def extract_auth_failure(
-    *, returncode: int, stdout: str, stderr: str, final_message: str
+    *, returncode: int, stderr: str, events: tuple[dict[str, Any], ...],
 ) -> dict[str, Any] | None:
     """Name an authentication failure, or return None.
 
-    Matched on the union of the streams because the CLI reports this on stderr
-    with a nonzero exit, while some paths surface it as content. Requires a
-    NONZERO returncode: the phrase appearing inside an agent's answer about
-    authentication code must not be read as the runtime failing to start.
+    Matched on the CLI's own channel (`cli_error_channel`): the CLI reports
+    this on stderr with a nonzero exit, and on some paths as its synthesized
+    API-error message. Never on the stream's model text or tool results
+    (ARIA-HIGH-536: a test run printing "Not authenticated" in the
+    auth-service read as a dead credential). Also requires a NONZERO
+    returncode, as before.
     """
     if returncode == 0:
         return None
-    blob = f"{stdout}\n{stderr}\n{final_message}".lower()
+    blob = cli_error_channel(stderr=stderr, events=events).lower()
     marker = next((m for m in AUTH_FAILURE_MARKERS if m in blob), None)
     if marker is None:
         return None
@@ -2174,22 +2204,23 @@ def extract_credit_exhaustion(
     returncode: int,
     stderr: str,
     events: tuple[dict[str, Any], ...],
-    final_message: str = "",
 ) -> dict[str, Any] | None:
     """Detect a credit/quota-exhaustion failure (detection only — sibling of
     :func:`extract_refusal`; what happens next is run_with_model_fallback's
     terminal raise and the executors' requeue-under-cooldown).
 
-    Two shapes are matched over the FULL response text (stderr + final message
-    + assistant content + the terminal ``result`` event):
+    Two text shapes are matched over the CLI's own channel
+    (`cli_error_channel`: stderr, the CLI's synthesized API-error message,
+    the ``result`` it marks ``is_error``) — never over the model's text or a
+    tool's output (ARIA-HIGH-536: a timed-out run whose model wrote
+    "billing-service" cooled Anthropic fleet-wide and was requeued free):
 
     * A CLI **usage-limit message** (``USAGE_LIMIT_MARKERS`` or a
       ``USAGE_LIMIT_NOTICE_RX`` line) fires REGARDLESS of returncode —
       the CLI returns its limit notice as assistant content on a clean exit,
       so a ``returncode != 0`` gate would miss it (the 2026-07-03 live case).
     * An API **credit/quota error** (``CREDIT_ERROR_MARKERS``) fires only on a
-      real failure (``returncode != 0``), so a plan that merely mentions
-      "billing" on a clean run is never misread.
+      real failure (``returncode != 0``).
 
     ARIA-HIGH-425 — before either text shape, the structured one: a
     ``rate_limit_event`` whose newest reading is ``rejected`` is the vendor
@@ -2204,15 +2235,7 @@ def extract_credit_exhaustion(
     reading = extract_rate_limit_exhaustion(events)
     if reading is not None and reading["trigger"] == "rejected":
         return reading
-    haystacks: list[str] = [stderr or "", final_message or ""]
-    for event in events:
-        if event.get("type") == "assistant":
-            haystacks.append(_assistant_text(event.get("message")))
-        if event.get("type") == "result":
-            haystacks.append(str(event.get("result") or ""))
-            haystacks.append(str(event.get("error") or ""))
-            haystacks.append(str(event.get("subtype") or ""))
-    text = "\n".join(haystacks)
+    text = cli_error_channel(stderr=stderr, events=events)
     blob = text.lower()
     notice = USAGE_LIMIT_NOTICE_RX.search(text)
     notice_line = notice.group(0).strip() if notice is not None else None

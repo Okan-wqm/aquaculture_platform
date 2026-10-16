@@ -235,15 +235,19 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
     # The LIVE managed-session failure mode (proven 2026-07-03: ARIA's Fable
     # pool ran dry). The CLI returns its limit notice as ASSISTANT CONTENT on
     # a CLEAN exit (returncode 0, zero tokens) — a returncode!=0 gate misses
-    # it, which is exactly why #849's first markers did not fire.
+    # it, which is exactly why #849's first markers did not fire. That
+    # assistant message is the CLI's own (model "<synthetic>"), which is what
+    # lets it be read at all (ARIA-HIGH-536).
     _LIVE_LIMIT = (
         "You've reached your Fable 5 limit. Run /usage-credits to continue "
         "or switch models with /model."
     )
+    _LIVE_LIMIT_EVENT = {"type": "assistant", "error": "rate_limit",
+                         "message": {"model": "<synthetic>", "content": [{"type": "text", "text": _LIVE_LIMIT}]}}
 
     def test_detects_live_usage_limit_message_on_clean_exit(self) -> None:
         marker = claude_runtime.extract_credit_exhaustion(
-            returncode=0, stderr="", events=(), final_message=self._LIVE_LIMIT,
+            returncode=0, stderr="", events=(self._LIVE_LIMIT_EVENT,),
         )
         self.assertIsNotNone(marker)
         self.assertEqual(marker["source"], "cli_usage_limit_message")
@@ -251,20 +255,20 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
 
     def test_detects_live_usage_limit_in_assistant_event(self) -> None:
         events = (
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": self._LIVE_LIMIT}]}},
+            self._LIVE_LIMIT_EVENT,
             {"type": "result", "subtype": "success", "result": self._LIVE_LIMIT},
         )
         self.assertIsNotNone(claude_runtime.extract_credit_exhaustion(returncode=0, stderr="", events=events))
 
     def test_clean_plan_mentioning_billing_is_not_credit(self) -> None:
-        # An API credit-error marker in CONTENT on a clean exit must NOT fire —
-        # only the (returncode!=0) error path matches those.
-        self.assertIsNone(
-            claude_runtime.extract_credit_exhaustion(
-                returncode=0, stderr="", events=(),
-                final_message="This plan refactors the billing-service quota module.",
-            ),
-        )
+        # An API credit-error marker in the MODEL's content must NOT fire, on a
+        # clean exit or a failed one: only the CLI's own channel is read.
+        plan = "This plan refactors the billing-service quota module."
+        events = ({"type": "assistant", "message": {"model": "claude-opus-5",
+                                                    "content": [{"type": "text", "text": plan}]}},
+                  {"type": "result", "subtype": "success", "is_error": False, "result": plan})
+        for returncode in (0, 1):
+            self.assertIsNone(claude_runtime.extract_credit_exhaustion(returncode=returncode, stderr="", events=events))
 
     def test_detects_credit_balance_in_stderr(self) -> None:
         marker = claude_runtime.extract_credit_exhaustion(
@@ -278,7 +282,8 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
 
     def test_detects_quota_in_result_event(self) -> None:
         events = (
-            {"type": "result", "subtype": "error_during_execution", "result": "quota exceeded for this account"},
+            {"type": "result", "subtype": "error_during_execution", "is_error": True,
+             "result": "quota exceeded for this account"},
         )
         marker = claude_runtime.extract_credit_exhaustion(returncode=2, stderr="", events=events)
         self.assertIsNotNone(marker)

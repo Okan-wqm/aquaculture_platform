@@ -97,7 +97,9 @@ def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
 
 # The production shape of a quota exhaustion (2026-07-03, measured live): the
 # CLI exits 0 and delivers its limit notice as the assistant's answer, with a
-# usage block, so an exhausted run is byte-shaped like a successful one.
+# usage block, so an exhausted run is byte-shaped like a successful one. The
+# answer is the CLI's own API-error message — model "<synthetic>" and the typed
+# `error` (CLI 2.1.278) — which is the only reason it is read (ARIA-HIGH-536).
 _USAGE_LIMIT_NOTICE = "You've reached your limit. Run /usage-credits to continue or switch models with /model."
 
 
@@ -113,7 +115,8 @@ def _fake_exhausted_claude(status: dict) -> str:
         + _STATUS_ARM +
         "sys.stdin.read()\n"
         f"message = {_USAGE_LIMIT_NOTICE!r}\n"
-        "print(json.dumps({'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': message}]}}))\n"
+        "print(json.dumps({'type': 'assistant', 'error': 'rate_limit', 'message': {'role': 'assistant', 'model': '<synthetic>',\n"
+        "                  'content': [{'type': 'text', 'text': message}]}}))\n"
         "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': message,\n"
         "                  'usage': {'input_tokens': 12, 'output_tokens': 0}, 'session_id': 'fixture-session'}))\n"
     )

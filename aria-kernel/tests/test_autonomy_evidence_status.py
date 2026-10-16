@@ -6155,7 +6155,13 @@ class OperatorPrerequisiteTests(unittest.TestCase):
                     capabilities["enterprise_readiness"].blockers,
                 )
 
-    def test_target_policy_regression_ref_must_exist_as_regular_blob(self) -> None:
+    def test_an_absent_regression_ref_is_named_and_hides_no_operator_blocker(self) -> None:
+        """ARIA-HIGH-520 — a ref the target tree does not hold yet is a
+        proof still owed by its task, not a malformed policy. It is named
+        (``closure_policy_regression_refs_unresolved``) and the Mode-A
+        operator blocker is composed beside it; it used to be reported as
+        ``operator_prerequisite_policy_invalid`` alone, which hid the one
+        action only the operator can take."""
         self._commit_policy("OPEN")
         policy_path = (
             self.repo / "docs" / "aria" / "policy"
@@ -6173,9 +6179,41 @@ class OperatorPrerequisiteTests(unittest.TestCase):
             repo_root=self.repo,
             target_sha=_git(self.repo, "rev-parse", "HEAD"),
         )
-        self.assertIn(
-            "operator_prerequisite_policy_invalid",
+        readiness = capabilities["enterprise_readiness"]
+        self.assertEqual(
+            readiness.blockers,
+            (
+                "closure_policy_regression_refs_unresolved",
+                "github_app_mode_a_unconfigured",
+            ),
+        )
+        self.assertEqual(readiness.state, "operator_blocked")
+
+    def test_an_invalid_policy_still_composes_the_mode_a_blocker(self) -> None:
+        """ARIA-HIGH-520 — every blocker is composed; none returns early.
+        The Mode-A prerequisite is pinned in code (ORPHAN-MEDIUM-789's
+        metadata) and read from the readiness evidence alone, so an invalid
+        or unreadable policy does not hide it."""
+        policy_path = (
+            self.repo / "docs" / "aria" / "policy"
+            / "autonomy-closure-findings.json"
+        )
+        policy_path.parent.mkdir(parents=True, exist_ok=True)
+        policy_path.write_text("not-json\n", encoding="utf-8")
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-m", "malformed policy")
+
+        capabilities = _apply_operator_prerequisites(
+            capabilities=self._capabilities("live_proven"),
+            repo_root=self.repo,
+            target_sha=_git(self.repo, "rev-parse", "HEAD"),
+        )
+        self.assertEqual(
             capabilities["enterprise_readiness"].blockers,
+            (
+                "github_app_mode_a_unconfigured",
+                "operator_prerequisite_policy_invalid",
+            ),
         )
 
     def test_target_policy_regression_ref_rejects_non_blob_entry(self) -> None:
@@ -6262,6 +6300,57 @@ class OperatorPrerequisiteTests(unittest.TestCase):
         )
         self.assertIn("state_tools_unavailable", status.blockers)
         self.assertIn("github_app_mode_a_unconfigured", status.blockers)
+
+
+# ARIA-HIGH-520 — the closure policy's regression refs this checkout does not
+# hold yet, by finding: each is the proof test its open task still owes
+# (docs/aria/policy/autonomy-closure-findings.json). The evaluator names them
+# as `closure_policy_regression_refs_unresolved`; this record is what keeps
+# that blocker honest. A ref that disappears without a policy migration — how
+# ORPHAN-HIGH-778's test_provider_redirect.py went missing (deleted by
+# 450f457a3) — fails here by name, and a pending proof that lands must leave
+# the record in the same commit.
+PENDING_CLOSURE_REGRESSION_REFS: dict[str, tuple[str, ...]] = {
+    "ORPHAN-HIGH-779": ("aria-kernel/tests/test_learning_funnel_scheduled_path.py",),
+    "ORPHAN-MEDIUM-789": (
+        "aria-kernel/tests/test_workflow_mode_a_transport.py",
+        "aria-kernel/tests/test_signed_readiness_snapshot.py",
+    ),
+    "ARIA-HIGH-004": ("aria-kernel/tests/test_promotion_funnel_e2e.py",),
+    "ARIA-HIGH-005": ("aria-kernel/tests/test_pre_merge_evidence.py",),
+    "ARIA-HIGH-006": (
+        "aria-kernel/tests/test_file_claim_atomic_acquire.py",
+        "aria-kernel/tests/test_pre_merge_file_claims.py",
+    ),
+    "ARIA-CRITICAL-009": ("aria-kernel/tests/test_pre_merge_consensus_and_coverage.py",),
+    "ARIA-HIGH-010": ("tools/aria-adapters/rust-runtime-safety-adapter.test.ts",),
+    "ARIA-HIGH-011": ("tools/aria-adapters/sql-migration-safety-adapter.test.ts",),
+    "ARIA-HIGH-012": ("tools/aria-adapters/infrastructure-policy-adapter.test.ts",),
+    "ARIA-HIGH-013": ("tools/aria-adapters/workflow-shell-safety-adapter.test.ts",),
+    "ARIA-HIGH-014": ("aria-kernel/tests/test_vertical_slice_evidence.py",),
+    "ARIA-CRITICAL-015": ("aria-kernel/tests/test_autonomy_stage_progression.py",),
+    "ARIA-HIGH-016": ("aria-kernel/tests/test_autonomy_closure.py",),
+}
+
+
+class ClosurePolicyRegressionRefsTests(unittest.TestCase):
+    """ARIA-HIGH-520 — the real policy's absent refs are exactly the record."""
+
+    def test_every_absent_regression_ref_is_a_recorded_pending_proof(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        policy = json.loads(
+            (repo / "docs" / "aria" / "policy" / "autonomy-closure-findings.json")
+            .read_text(encoding="utf-8"),
+        )
+        absent: dict[str, tuple[str, ...]] = {}
+        for entry in policy["entries"]:
+            missing = tuple(
+                ref for ref in entry["regression_test_refs"]
+                if not (repo / ref).is_file()
+            )
+            if missing:
+                absent[entry["finding_id"]] = missing
+        self.assertEqual(absent, PENDING_CLOSURE_REGRESSION_REFS)
 
 
 if __name__ == "__main__":

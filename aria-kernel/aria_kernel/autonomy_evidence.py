@@ -397,7 +397,11 @@ _EXPECTED_CLOSURE_POLICY_REFERENCES: Mapping[
     "ORPHAN-HIGH-778": (
         _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-778",
         _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-778",
-        ("aria-kernel/tests/test_provider_redirect.py",),
+        # ARIA-HIGH-520 — 450f457a3 deleted test_provider_redirect.py with the
+        # redirect it pinned; the provider process boundary is now pinned by
+        # its successor (a foreign-provider model is refused at the claude
+        # spawn seam, and no redirect machinery remains).
+        ("aria-kernel/tests/test_claude_runtime_serves_anthropic_only.py",),
     ),
     "ORPHAN-HIGH-779": (
         _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-779",
@@ -3979,13 +3983,48 @@ def _valid_policy_anchor(
     )
 
 
-def _valid_operator_policy_shape(
+@dataclass(frozen=True, slots=True)
+class _OperatorPolicyShape:
+    """ARIA-HIGH-520 — the target policy's structure, apart from its refs.
+
+    ``valid`` is the structure: schema, keys, anchors, the pinned semantics
+    and references, and every ref that IS in the target tree being a regular
+    blob. ``unresolved_refs`` are the refs the target tree does not hold: a
+    proof test its task still owes, which says nothing about whether the
+    policy's operator metadata can be trusted.
+    """
+
+    valid: bool
+    unresolved_refs: tuple[str, ...] = ()
+
+
+_INVALID_OPERATOR_POLICY = _OperatorPolicyShape(valid=False)
+
+
+def _operator_policy_shape(
     policy: Mapping[str, Any],
     *,
     repo_root: Path,
     target_sha: str,
-) -> bool:
+) -> _OperatorPolicyShape:
     """Validate the complete immutable v1 policy, not only its metadata row."""
+    unresolved: list[str] = []
+    if not _valid_operator_policy_structure(
+        policy, repo_root=repo_root, target_sha=target_sha, unresolved=unresolved,
+    ):
+        return _INVALID_OPERATOR_POLICY
+    return _OperatorPolicyShape(valid=True, unresolved_refs=tuple(unresolved))
+
+
+def _valid_operator_policy_structure(
+    policy: Mapping[str, Any],
+    *,
+    repo_root: Path,
+    target_sha: str,
+    unresolved: list[str],
+) -> bool:
+    """The structural half of ``_operator_policy_shape``; appends each ref the
+    target tree does not hold to ``unresolved`` instead of failing on it."""
     if set(policy) != {"$schema", "schema_version", "policy_id", "entries"}:
         return False
     version = policy.get("schema_version")
@@ -4095,23 +4134,25 @@ def _valid_operator_policy_shape(
         ):
             return False
         for ref in refs:
-            if ref not in anchor_entries:
-                try:
-                    regression_entry = _git_tree_entry(
-                        repo_root,
-                        target_sha,
-                        ref,
-                    )
-                except (RuntimeError, ValueError, UnicodeError, OSError):
-                    return False
-                anchor_entries[ref] = (
-                    regression_entry[3]
-                    if regression_entry is not None
-                    and regression_entry[1] in {"100644", "100755"}
-                    and regression_entry[2] == "blob"
-                    else None
+            try:
+                regression_entry = _git_tree_entry(
+                    repo_root,
+                    target_sha,
+                    ref,
                 )
-            if anchor_entries[ref] is None:
+            except (RuntimeError, ValueError, UnicodeError, OSError):
+                return False
+            if regression_entry is None:
+                # ARIA-HIGH-520 — absent from the target tree: a proof its
+                # task still owes, named by the caller, never a malformed
+                # policy (that reading hid the Mode-A operator blocker).
+                if ref not in unresolved:
+                    unresolved.append(ref)
+                continue
+            if (
+                regression_entry[1] not in {"100644", "100755"}
+                or regression_entry[2] != "blob"
+            ):
                 return False
         historical = entry.get("historical_fix_shas", [])
         if (
@@ -4186,98 +4227,57 @@ def _apply_operator_prerequisites(
     repo_root: str | Path,
     target_sha: str,
 ) -> dict[str, CapabilityEvidence]:
-    """Apply target-tree operator metadata without consulting registry state."""
+    """Apply target-tree operator metadata without consulting registry state.
+
+    ARIA-HIGH-520 — every blocker is composed; none returns early. The policy
+    is read and validated at the target (unavailable, too large, invalid);
+    the refs its target tree does not hold yet are named as
+    ``closure_policy_regression_refs_unresolved`` — an engineering blocker,
+    so it leaves the readiness state as its evidence made it; and the Mode-A
+    prerequisite is applied from the readiness evidence on its own: its
+    owner (ORPHAN-MEDIUM-789) and blocker are pinned in this module
+    (``_valid_operator_policy_structure``), so no policy defect can hide the
+    one action only the operator can take. Before this, any policy defect —
+    an absent proof test of any task among them — returned
+    ``operator_prerequisite_policy_invalid`` alone.
+    """
     updated = dict(capabilities)
-    readiness = updated.get("enterprise_readiness")
-    if readiness is None:
+    evidence = updated.get("enterprise_readiness")
+    if evidence is None:
         return updated
-    policy, policy_blocker = _policy_at_target(
-        Path(repo_root).resolve(),
-        target_sha,
-    )
+    readiness = evidence
+    resolved_repo_root = Path(repo_root).resolve()
+    policy, policy_blocker = _policy_at_target(resolved_repo_root, target_sha)
     if policy is None:
-        updated["enterprise_readiness"] = _with_capability_blocker(
+        readiness = _with_capability_blocker(
             readiness,
             policy_blocker or "operator_prerequisite_policy_unavailable",
             state="operator_blocked",
         )
-        return updated
-    resolved_repo_root = Path(repo_root).resolve()
-    if not _valid_operator_policy_shape(
-        policy,
-        repo_root=resolved_repo_root,
-        target_sha=target_sha,
-    ):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "operator_prerequisite_policy_invalid",
-            state="operator_blocked",
+    else:
+        shape = _operator_policy_shape(
+            policy,
+            repo_root=resolved_repo_root,
+            target_sha=target_sha,
         )
-        return updated
-    entries = policy["entries"]
-    finding_ids = tuple(
-        entry.get("finding_id")
-        for entry in entries
-        if isinstance(entry, dict)
-    )
-    if (
-        len(finding_ids) != len(entries)
-        or any(not isinstance(finding_id, str) for finding_id in finding_ids)
-        or len(set(finding_ids)) != len(finding_ids)
-    ):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "operator_prerequisite_policy_invalid",
-            state="operator_blocked",
-        )
-        return updated
-    metadata_owners = tuple(
-        entry
-        for entry in entries
-        if isinstance(entry, dict)
-        and entry.get("operator_prerequisite") is not None
-    )
-    if (
-        len(metadata_owners) != 1
-        or metadata_owners[0].get("finding_id") != "ORPHAN-MEDIUM-789"
-    ):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "operator_prerequisite_policy_invalid",
-            state="operator_blocked",
-        )
-        return updated
-    owner = next(
-        (
-            entry
-            for entry in entries
-            if isinstance(entry, dict)
-            and entry.get("finding_id") == "ORPHAN-MEDIUM-789"
-        ),
-        None,
-    )
-    expected_metadata = {
-        "capability": "enterprise_readiness",
-        "blocker": "github_app_mode_a_unconfigured",
-    }
-    if (
-        owner is None
-        or owner.get("required_predicate")
-        != "mode_a_signed_readiness_live_proven"
-        or owner.get("operator_prerequisite") != expected_metadata
-    ):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "operator_prerequisite_policy_invalid",
-            state="operator_blocked",
-        )
-        return updated
-    if not _mode_a_signed_readiness_live_proven(readiness):
-        updated["enterprise_readiness"] = _with_capability_blocker(
+        if not shape.valid:
+            readiness = _with_capability_blocker(
+                readiness,
+                "operator_prerequisite_policy_invalid",
+                state="operator_blocked",
+            )
+        elif shape.unresolved_refs:
+            readiness = _with_capability_blocker(
+                readiness,
+                "closure_policy_regression_refs_unresolved",
+            )
+    if not _mode_a_signed_readiness_live_proven(evidence):
+        readiness = _with_capability_blocker(
             readiness,
             "github_app_mode_a_unconfigured",
             state="operator_blocked",
         )
+    updated["enterprise_readiness"] = readiness
     return updated
 
 

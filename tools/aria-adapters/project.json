@@ -17,6 +17,14 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/**/*.rs",
+        "{workspaceRoot}/**/Cargo.toml",
+        "{workspaceRoot}/**/UPSTREAM-MANIFEST.sha256"
+      ],
       "options": {
         "cwd": ".",
         "parallel": false,
@@ -27,6 +35,7 @@
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/fe-dto-parity-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/kernel-dead-wire-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/lint-rules-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/rust-source.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/security-boundary-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/tenant-scoping-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/test-gap-adapter.test.ts",

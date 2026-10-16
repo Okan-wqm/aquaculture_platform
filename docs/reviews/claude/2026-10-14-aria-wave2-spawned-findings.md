@@ -644,6 +644,65 @@ verb can record are listed at the end.
 - **Planned fix:** derive the set from ledger's kernel import closure, or an invariant that compares
   that closure with the set. No wave-2 bucket owns it. Deadline: 2027-04-14.
 
+### EDGE-MEDIUM-044 — a sens-api-gateway invariant test is never built
+
+- **Raised by:** the `G018-rust-source` implementer (landing L3).
+- **Problem:** `sens-api-gateway/Cargo.toml` declares 43 of the 44 `tests/invariants/*.rs` as
+  `[[test]]` targets (`:586-938`); `d3_boot_order.rs` is missing, and cargo auto-discovery finds
+  only `tests/*.rs` and `tests/*/main.rs`, so `cargo test --all-targets`
+  (`sens-api-gateway-ci.yml:257`) never compiles it. The rekey runbook
+  (`db-migration-rekey-ceremony.md:193`) says it enforces the boot order at CI time.
+- **Planned fix:** declare the target and fix what the compiled test reports (edge gateway, product
+  lane). Deadline: 2027-01-14.
+
+### EDGE-LOW-045 — the panic-safe protocol reader is compiled into no target
+
+- **Raised by:** the `G018-rust-source` implementer (landing L3).
+- **Problem:** no `mod protocol_reader` exists, so `sens-api-gateway/src/protocol_reader.rs`, whose
+  header says external PLC, Modbus, LoRa and mTLS payloads must be decoded through its checked
+  cursors, is built by no target; nothing decodes through it and its two unit tests never run.
+  SENSOR-LOW-022 assumes it is the shared reader.
+- **Planned fix:** wire it in or delete it and correct SENSOR-LOW-022's premise (edge gateway).
+  Deadline: 2027-04-14.
+
+### ARIA-LOW-542 — an untracked file under a scan root crashes an adapter in the room
+
+- **Raised by:** the `G018-rust-source` implementer; observed independently by `G002-045-runs`
+  (landing L3).
+- **Problem:** the adapter room shows the tracked view, but `collectFiles` (`adapter-fs.ts`) lists a
+  masked untracked entry and the adapter fails to open it: with `digest.py` untracked,
+  kernel-dead-wire-adapter exited 1 with `EACCES` in the room and 0 outside it. The fixture contract
+  keeps only `stderr_hash` (`fixture_runner.py:870`), so the cause is invisible. CI checkouts have no
+  untracked files; operator and dev checkouts do.
+- **Planned fix:** walk the view the room grants (or report an unreadable entry as an observation),
+  and record bounded, scrubbed stderr text beside its hash. Deadline: 2027-04-14.
+
+### ARIA-LOW-543 — the TypeScript adapters read through symlinks
+
+- **Raised by:** the `G018-rust-source` fix round (landing L3).
+- **Problem:** `readWorkspaceFile` and `workspacePathExists` (`adapter-fs.ts:230-239`) follow
+  symlinks, and `resolveInsideWorkspace` and five per-adapter wrappers check containment only
+  lexically, so an explicitly named tracked symlink (kernel-dead-wire's policy dir, typeorm's
+  module-schema path) is read from outside the workspace. The Rust reader already reads through
+  `containedWorkspace`.
+- **Planned fix:** route these reads through `containedWorkspace`. Deadline: 2027-04-14.
+
+### ARIA-LOW-544 — the upstream manifest grammar has two copies
+
+- **Raised by:** the `G018-rust-source` fix round (landing L3).
+- **Problem:** `local-rumqttc-fork-hygiene.spec.ts:65` `parseManifest` and `rust-cargo.ts:795`
+  `parseUpstreamManifest` hold the same `UPSTREAM-MANIFEST.sha256` grammar and Map shape.
+- **Planned fix:** the gate imports `parseUpstreamManifest`. Deadline: 2027-04-14.
+
+### ARIA-LOW-545 — twin_test_surface keeps a second Rust test rule
+
+- **Raised by:** the `G018-rust-source` fix round (landing L3).
+- **Problem:** `_is_rust_spec` (`twin_test_surface.py:71`, `:101-108`) calls Rust code a test when it
+  sits under `tests/` or contains `#[cfg(test)]`. The adapter reader disagrees:
+  `sens-api-gateway/src/scripting/bytecode_e2e_tests.rs` (no `#[cfg(test)]`, gated by its declaring
+  mod) is harness there and not spec evidence for the twin.
+- **Planned fix:** the twin asks the TypeScript reader or drops its Rust rule. Deadline: 2026-11-15.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

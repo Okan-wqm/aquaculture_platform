@@ -1122,7 +1122,8 @@ def _capture_pre_merge_context(
                 conflict = _invocations._implementation_scope_conflict(
                     request, requests=rows["agent_invocation_requests"],
                     claims=rows["agent_invocation_claims"],
-                    results=rows["agent_invocation_results"], now=observed_at,
+                    results=rows["agent_invocation_results"],
+                    pr_lifecycle=rows["pr_lifecycle"], now=observed_at,
                 )
                 scope_observation = {
                     "scope_observed_at": observed_at.isoformat(),

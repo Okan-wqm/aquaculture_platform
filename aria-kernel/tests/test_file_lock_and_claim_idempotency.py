@@ -488,6 +488,74 @@ class ImplementationScopeClaimTests(unittest.TestCase):
         self.assertEqual(final_rows[-1]["claim_id"], next_claim["claim_id"])
         self.assertEqual(output.read_bytes(), original_output)
 
+    def test_a_delivered_pr_holds_its_scope_until_it_merges_or_closes(self) -> None:
+        """ARIA-HIGH-006 — the executor opens the PR inside the claim
+        (implementation_delivery), so the result commits while the PR is
+        live. The scope used to be released the moment the result committed:
+        a second implementation of the same file could be claimed, delivered
+        and opened beside the first PR, and the merge-time check (the same
+        helper) would not see the overlap. The scope is held while the
+        change's PR is open in pr-lifecycle (``pull_requests_for_change``)
+        and released when it closes or merges."""
+        from datetime import datetime, timedelta, timezone
+        import hashlib
+        import json
+        from unittest.mock import patch
+        from aria_kernel.agent_invocations import claim_request, submit_claim_result
+        from aria_kernel.auto_merge import record_pr_lifecycle
+        from aria_kernel.merge_record import EVENT_CLOSED_UNMERGED, record_pr_unmergeable
+        from aria_kernel.tool_registry import GovernanceError
+
+        repo, tools = self._scope_fixture()
+        path = "apps/farm-service/src/interval.ts"
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        request = self._scope_request(tools, path, "deliver the interval change")
+        next_request = self._scope_request(tools, path, "deliver a second interval change")
+        stamp = datetime.now(timezone.utc).replace(microsecond=0)
+        with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=stamp):
+            claim = claim_request(request_id=request["request_id"], agent_id="scope-worker-a",
+                lease_seconds=60, base_dir=tools)
+        # Production order: the delivery opens the PR under the claim, the
+        # opener's row carrying the request's change and proposal.
+        ids = request["implementation_ids"]
+        opened_pr = {
+            "number": 1801, "base_branch": "main", "head_sha": head,
+            "head_ref": ids["branch"], "change_id": ids["change_id"], "proposal_id": ids["proposal_id"],
+        }
+        record_pr_lifecycle(opened_pr, event="opened", base_dir=tools)
+        response = {
+            "$schema": "aria/agent-response/v1", "request_id": request["request_id"],
+            "claim_id": claim["claim_id"], "agent_id": claim["agent_id"],
+            "role": "implementation", "status": "submitted",
+            "satisfaction_matrix": [{"id": entry["id"], "verdict": "satisfied",
+                "evidence_refs": [path + ":1"]} for entry in request["must_satisfy"]],
+            "evidence_refs": [path + ":1"],
+        }
+        output = Path(request["expected_output_path"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(response), encoding="utf-8")
+        transcript = tools.parent / "scope-delivery-transcript.txt"
+        transcript.write_text("Fixture worker delivered the interval change.\n", encoding="utf-8")
+        with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=stamp + timedelta(seconds=1)):
+            accepted = submit_claim_result(
+                claim_id=claim["claim_id"], agent_id=claim["agent_id"],
+                lease_token=claim["lease_token"], output_path=output,
+                workspace_root=repo, base_dir=tools,
+                context_hash=request["context_hash"], prompt_hash=request["prompt_hash"],
+                transcript_hash="sha256:" + hashlib.sha256(transcript.read_bytes()).hexdigest(),
+                transcript_artifact_ref=str(transcript), evidence_target_sha=head,
+            )
+        self.assertEqual(accepted["status"], "accepted")
+        claims_path = tools / "agent-invocations" / "claims.jsonl"
+        before = claims_path.read_bytes()
+        with self.assertRaisesRegex(GovernanceError, "implementation_scope_locked"):
+            claim_request(request_id=next_request["request_id"], agent_id="scope-worker-b", base_dir=tools)
+        self.assertEqual(claims_path.read_bytes(), before)
+        record_pr_unmergeable(pr=opened_pr, event=EVENT_CLOSED_UNMERGED, reason="closed_unmerged_on_github",
+            base_dir=tools)
+        next_claim = claim_request(request_id=next_request["request_id"], agent_id="scope-worker-b", base_dir=tools)
+        self.assertEqual(next_claim["request_id"], next_request["request_id"])
+
 
 
 if __name__ == "__main__":

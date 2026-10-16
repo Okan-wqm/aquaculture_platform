@@ -37,7 +37,7 @@ import { isSafeUrl } from '@/utils/messaging-helpers';
 // Types
 // ---------------------------------------------------------------------------
 
-type DeliveryStatus = 'pending' | 'sent' | 'delivered' | 'read';
+type DeliveryStatus = 'pending' | 'failed' | 'sent' | 'delivered' | 'read';
 
 interface ReplyPreview {
   senderName: string;

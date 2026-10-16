@@ -1,11 +1,11 @@
-import { Clock, Check, CheckCheck } from 'lucide-react';
+import { AlertTriangle, Clock, Check, CheckCheck } from 'lucide-react';
 import React from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type DeliveryStatus = 'pending' | 'sent' | 'delivered' | 'read';
+type DeliveryStatus = 'pending' | 'failed' | 'sent' | 'delivered' | 'read';
 
 interface ReadReceiptProps {
   /** Current delivery/read status of the message. */
@@ -36,6 +36,10 @@ export const ReadReceipt = React.memo(function ReadReceipt({ status }: ReadRecei
   switch (status) {
     case 'pending':
       return <Clock size={12} className={RECEIPT_PENDING} aria-label="Sending" />;
+    case 'failed':
+      // A failed send must not wear the pending clock — that reads as "still
+      // going". The crit triangle is the one honest signal for a lost message.
+      return <AlertTriangle size={12} className="text-crit shrink-0" aria-label="Failed to send" />;
     case 'sent':
       return <Check size={12} className={RECEIPT_PENDING} aria-label="Sent" />;
     case 'delivered':

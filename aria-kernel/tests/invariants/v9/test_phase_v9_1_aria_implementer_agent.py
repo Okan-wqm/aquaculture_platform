@@ -113,10 +113,10 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
 
     def test_i_v9_impl_01_network_egress_prohibition_present(self):
         # ARIA-HIGH-124 — the contract states the sandbox's REAL network
-        # setting (the managed route shares the host's namespace so the
-        # CLI reaches its provider; egress is the command policy's to
-        # refuse), not the `--unshare-net` the safety contract used to
-        # claim; and the PR is the executor's, so no push is the agent's.
+        # setting, not a flag name; and the PR is the executor's, so no push
+        # is the agent's. ARIA-HIGH-143 — that setting is now the egress
+        # room: its own namespace, the kernel's allowlist proxy the one road
+        # out; the contract must not still describe the host's namespace.
         from aria_kernel.implementation_safety import MANAGED_SPAWN_ALLOW_NETWORK
 
         self.assertTrue(MANAGED_SPAWN_ALLOW_NETWORK)
@@ -124,6 +124,9 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         self.assertNotIn("--unshare-net", self.contract_body)
         self.assertNotIn("firejail", self.contract_body)
         self.assertIn("MANAGED_SPAWN_ALLOW_NETWORK", self.contract_body)
+        self.assertIn("own network namespace", self.contract_body)
+        self.assertIn("allowlist proxy", self.contract_body)
+        self.assertNotIn("sharing the host's network namespace", self.contract_body)
         self.assertIn("opened by the EXECUTOR", self.contract_body)
         self.assertNotIn("`gh pr merge\n--squash`", self.contract_body)
 

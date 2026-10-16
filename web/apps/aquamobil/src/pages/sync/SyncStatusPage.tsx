@@ -52,8 +52,16 @@ const OPERATION_LABELS: Record<string, { label: string; icon: string }> = {
 };
 
 export function SyncStatusPage(): JSX.Element {
-  const { pendingOperations, pendingCount, isOnline, isSyncing, syncNow, removeFromQueue } =
-    useOfflineQueue();
+  const {
+    pendingOperations,
+    pendingCount,
+    isOnline,
+    isSyncing,
+    syncNow,
+    removeFromQueue,
+    syncError,
+    clearError,
+  } = useOfflineQueue();
 
   const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr);
@@ -102,6 +110,33 @@ export function SyncStatusPage(): JSX.Element {
             </>
           )}
         </Card>
+
+        {/* Drain failures were invisible: syncNow records syncError but nothing
+            rendered it, so a failing sync looked like "all synced". */}
+        {syncError && (
+          <Card className="flex items-start gap-3 p-4 border-crit" role="alert">
+            <AlertCircle className="text-crit shrink-0 mt-0.5" size={20} />
+            <div className="flex-1">
+              <h3 className="text-title font-semibold text-crit">Sync failed</h3>
+              {/* SEC-07: truncate server-sourced text rendered in the UI */}
+              <p className="text-body text-ink-2 mt-0.5">{syncError.slice(0, 200)}</p>
+              <div className="flex gap-3 mt-3">
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    void syncNow();
+                  }}
+                  disabled={!isOnline || isSyncing}
+                >
+                  Retry Sync
+                </Button>
+                <Button variant="ghost" onClick={clearError}>
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Pending Count */}
         <div className="flex items-center justify-between">

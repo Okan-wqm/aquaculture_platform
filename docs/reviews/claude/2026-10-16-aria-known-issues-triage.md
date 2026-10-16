@@ -319,3 +319,166 @@ Evidence:
 - aria-kernel/aria_kernel/agent_invocations.py:7081-7091 (reap_stale_claims): on the first expired claim of a sweep, load_declared_jsonl(root/'governance.jsonl', expected_surface='tools_governance') is parsed and verified in full for attempt_providers_by_claim, plus provider_clock(root)
 - aria-kernel/aria_kernel/provider_outage_ledger.py:154-157: outage_intervals also loads the whole governance.jsonl
 - git show origin/aria/state:tools/governance.jsonl | wc -c -> 25,773,671 bytes
+
+## Wave A — the run-blockers, fixed (2026-10-16)
+
+Six clusters, each fixed red-first in its own worktree and merged on `fix/aria-known-issues-wave-a`. Each commit body carries the full account and the proof.
+
+| Finding                      | Commit      | What changed                                                                                                                                                                                                                |
+| ---------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ARIA-MEDIUM-546              | `28a84c83b` | Root cause fixed in the one table, secret_scrub.CREDENTIAL_SHAPES                                                                                                                                                           |
+| ARIA-HIGH-448                | `fe616a6cc` | Closes the remaining code gap of 448 in the same table, so every scrubber inherits it                                                                                                                                       |
+| ARIA-LOW-547                 | `5e58252e3` | artifact_safety.sanitized_json_text is now the one encoding step of a published JSON writer                                                                                                                                 |
+| ARIA-MEDIUM-556              | `f90d5e82d` | notify.py (owner): for the kinds in POINTER_ONLY_SUMMARIES (breaker_tripped, human_required_opened, human_required_sla_breached), a public channel (PUBLIC_CHANNELS = github_issue) gets a body the notifier renders itself |
+| ARIA-HIGH-540                | `2e61f180b` | A delivery refusal now carries the verdict's codes                                                                                                                                                                          |
+| ARIA-MEDIUM-539              | `f6206c9df` | The fix is at the one log writer, before any byte reaches the surface                                                                                                                                                       |
+| ARIA-HIGH-524                | `587a20d85` | Kernel half only; the executor half was already fixed at base by 4535de11a                                                                                                                                                  |
+| ARIA-HIGH-527                | `5054fbcce` | publish_quarantine now reaches the agent-writable replica only through a new no-follow reader, aria-kernel/aria_kernel/untrusted_tree.py (UntrustedTree)                                                                    |
+| ARIA-HIGH-536                | `4d543688d` | Claude and Codex vendor facts are now read only from text the CLI wrote itself                                                                                                                                              |
+| ARIA-MEDIUM-438              | `825596860` | Two producers never fed the drain's standing-outage key; both are fixed                                                                                                                                                     |
+| ARIA-LOW-557                 | `8a942f3c5` | judge_fanout.pending_judge_counts no longer uses a hard-coded 4-wall-day horizon                                                                                                                                            |
+| ARIA-LOW-562                 | `fb102f6d0` | A new helper, agent_invocations.\_lease_routes_and_clock, does one verified parse of governance.jsonl                                                                                                                       |
+| ARIA-LOW-445                 | `ce0c3fb8f` | The spawn lane now writes a lane-neutral route record                                                                                                                                                                       |
+| ARIA-HIGH-523                | `2f66f8923` | A run row no longer inlines its read set                                                                                                                                                                                    |
+| ARIA-MEDIUM-508              | `c1d6edfa6` | A runner now declares its repo-local dependencies, and the registry is the one owner of the rule                                                                                                                            |
+| ARIA-HIGH-143, ARIA-HIGH-528 | `fe1c4ef6b` | Every bwrap room now gets its own network namespace (--unshare-net) and only loopback name files                                                                                                                            |
+
+Residual of ARIA-HIGH-448: transcripts sealed on aria/state before the scrubbing writer existed stay as they are. Rescanning them, rotating any credential found, and rewriting or purging history is an operator action. It is registered as ARIA-HIGH-572.
+
+## Findings raised while fixing wave A
+
+### ARIA-HIGH-572 — Agent transcripts sealed on aria/state before 4535de11a stay unredacted: the scrubbing writer only covers new runs, and no purge or credential-rotation step exists for the 607 content-addressed transcripts already published
+
+Remaining half of ARIA-HIGH-448 that a code fix cannot close: it needs an operator-run scan of every sealed transcript with the current redact view (secret_scrub.scrub_text over each JSON line), rotation of any credential found, and a governed rewrite or purge of aria/state history (the transcripts are content-addressed, so a rewritten transcript changes its hash and the sealing envelope's recorded hash). Implementers may not write aria/state. Owner: operator (Okan). Suggested deadline: 2026-10-31 (the SECRETPUB family date).
+
+Evidence:
+
+- git -C /var/aqua-saas ls-tree -r --name-only origin/aria/state | grep -c content-addressed/transcripts/ -> 607 (2026-10-16, aria/state 8e39b2eeb)
+- docs/reviews/claude/2026-10-11-aria-total-outage-continuity.md (ARIA-HIGH-448 section): 31 of 40 sampled stored transcripts were raw stream-json with tool_use inputs and 0 redaction markers
+- aria-kernel/aria_kernel/artifact_safety.py:114-120 write_sanitized_transcript scrubs only at write time; nothing re-reads sealed transcripts
+
+### ARIA-LOW-573 — A failed cycle's public GitHub issue still carries its crash reason text (cycle_failed notices are not pointer-only)
+
+published_text strips credentials and host paths, so this is a discoverability concern, not a credential leak. Fix: add cycle_failed to notify.POINTER_ONLY_SUMMARIES and pass the cycle record pointer as record=, if the operator agrees the crash text should live only on aria/state. Discovered while fixing ARIA-MEDIUM-556 (cluster secret-scrub).
+
+Evidence:
+
+- aria-kernel/aria_kernel/autonomy_orchestrator.py:182-186: notify_best_effort(kind='cycle_failed', body=f'...reason: {published_text(reason, ..., limit=\_CYCLE_FAILURE_REASON_MAX_CHARS)}')
+- .github/workflows/aria-auto-cycle.yml:909-910: ARIA_NOTIFY_CHANNELS=github_issue on the public repository
+
+### ARIA-MEDIUM-574 — A credential refusal the kernel withheld turns the executor job red: the 'Upload response envelope' step uploads exactly the two files the withholding deleted, with if-no-files-found: error
+
+Found while fixing ARIA-HIGH-540 (cluster withhold-refused); not fixed, not registered. Reasoned from the workflow text, not reproduced in Actions: on a targeted run whose request is refused as a credential leak (submit path since 47d1831e2, delivery path since the ARIA-HIGH-540 fix) neither published path exists when the step runs, and upload-artifact errors when no path matches. In drain mode the step reads the last child's paths (GITHUB_OUTPUT, last write wins), so it fails only when that child was withheld. The opposite direction is correct today: a withheld file is not uploaded. Fix direction for the owner: the executor publishes the artifact paths after the terminal, from what the kernel kept (none for a withheld row), and the step treats an empty list as nothing to upload; keep if-no-files-found: error for a published path that is missing.
+
+Evidence:
+
+- .github/workflows/aria-agent-executor.yml:777-801 (upload step: path = steps.executor.outputs.envelope_path and transcript_path, if-no-files-found: error, retention 7 days)
+- tools/aria-poc/ci_executor.py:997 \_publish_artifact_paths and :5103 (both paths published to GITHUB_OUTPUT at claim time, before the result exists)
+- aria-kernel/aria_kernel/agent_invocations.py:6735 \_withhold_submission_sources (ARIA-HIGH-515: a credential refusal deletes the raw envelope and transcript before its journal; ARIA-HIGH-540 now reaches it from the delivery path too)
+
+### ARIA-LOW-575 — A delivery refused for a secret-shaped diff never asks the result's verdict, so an envelope or transcript that carries a credential at the same time is not withheld
+
+Found while fixing ARIA-HIGH-540 and ARIA-HIGH-524 (cluster withhold-refused); not fixed, not registered. Reasoned from the code order, not reproduced. A diff carrying a secret refuses at 1a by name with no verdict, so the executor releases without a submit; if the agent also echoed the credential into its envelope or transcript (in a form the lane's scrubber let through), those bytes stay under outputs/ with no withheld row. Narrow: the lanes write both files through the sanitized writers. Fix direction for the owner: decide 1b before 1a (both precede the suite, the push and the PR), or have the 1a refusal carry the verdict's codes when the verdict also refuses as a credential leak.
+
+Evidence:
+
+- aria-kernel/aria_kernel/implementation_delivery.py:895-898 (stage 1a: verify_no_secret_in_diff over base..tip raises result_admissible:diff_secret_shaped with no rejection_codes)
+- aria-kernel/aria_kernel/implementation_delivery.py:900 (stage 1b, judge_claim_submission, runs only after 1a passed)
+- tools/aria-poc/ci_executor.py \_close_refused_delivery (submits for withholding only when exc.withholds_output, i.e. when the refusal carries the verdict's credential codes)
+
+### ARIA-LOW-569 — Quarantine publication reads every agent-written ref file and the replica HEAD whole into executor memory, with no size bound
+
+Found while fixing ARIA-HIGH-527 and deliberately not fixed there. That commit made every one of these reads no-follow and regular-file only, which already rules out a FIFO, a /dev/zero link and any other unbounded source. A regular ref file or HEAD the agent pads inside its own replica (bounded only by the disk quota) is still read whole into the executor's memory. A ref holds at most 64 hex characters plus a newline, and an implementation-branch HEAD holds 'ref: refs/heads/aria-impl-<hex>'. Fix shape: one small bound (for example 4 KiB) passed as UntrustedTree.read(limit=...) for refs and HEAD, and a ref file over the bound discarded by name (a new reason in \_ref_name_refusal's vocabulary, e.g. ref_file_too_large) rather than truncated, since truncation could turn an over-long file into a valid object id. This was left out of the ARIA-HIGH-527 commit because it adds a discard reason the delivery's receipts and tests name.
+
+Evidence:
+
+- aria-kernel/aria_kernel/git_containment.py:945 (fix/aria-ka-quarantine-symlink: content = replica.read(ref_file) — no limit; at ad18a822b the same read was ref_file.read_text() at :881)
+- aria-kernel/aria_kernel/git_containment.py:995 (fix/aria-ka-quarantine-symlink: head = replica.read("HEAD") — no limit; at ad18a822b (replica / "HEAD").read_text() at :927)
+- aria-kernel/aria_kernel/git_containment.py:269 (\_MAX_LOOSE_OBJECT_BYTES bounds loose objects only; refs and HEAD have no bound)
+
+### ARIA-LOW-566 — Every governance append re-verifies and re-reads the whole governance chain, so the lease reaper pays two full parses of the 25.9 MB ledger per expired claim on top of its one lookup parse
+
+Found while fixing ARIA-LOW-562 (provider-classifier cluster, branch fix/aria-ka-provider-classifier). _append_rows_locked_body runs \_verify_existing_declared_chain_before_append (verify_jsonl over the whole file) and then \_read_jsonl_stored (a second full read) for every append_tools_governance call. reap_stale_claims appends one agent_claim_<kind> row per expired claim, each outside its claims lock, so a sweep of N expired claims parses governance 1 + 2N times. Possibly accepted by ARIA-HIGH-237's design; needs a decision (verified tail checkpoint, or batching the reaper's governance rows into one append_declared_jsonl_rows call).
+
+Evidence:
+
+- aria-kernel/aria_kernel/ledger.py:1364
+- aria-kernel/aria_kernel/ledger.py:1369
+- aria-kernel/aria_kernel/agent_invocations.py:7171
+- measured 2026-10-16 on a copy of origin/aria/state tools/governance.jsonl (25,898,936 bytes, 29,056 rows): load_jsonl_verified 1.1-1.5 s per parse on the droplet
+
+### ARIA-LOW-567 — A spawn-lane child's dispatch summary names the declared ladder head as its provider, not the rung that failed, so the drain's standing-outage check can excuse a new outage of the failover rung as a re-probe of the head's
+
+Found while fixing ARIA-MEDIUM-438. invoke_claude_cli writes every summary with \_dispatch_route = \_dispatch_route_for(request), i.e. resolve_dispatch_route without the cooled set: the ladder head. On the spawn lane with Anthropic cooled, routed_models runs the Z.ai rung first; if Z.ai then fails with the same failure class as Anthropic's standing outage (say credit_exhausted while an Anthropic quota outage stands), the summary says provider=anthropic and the drain lists it as a standing-outage re-probe, so Z.ai's own new outage transition is never counted red. The native lane is not affected (its summaries use \_native_route_for_summary; the provider-fact arms now write the native pair, commit 825596860). Production runs the native lane; this needs adaptive_runtime off. Fix shape: the spawn lane's terminal summary names the rung's pair (the ClaudeProviderUnreachable/ClaudeCreditExhausted/ClaudeAuthFailure exceptions carry provider and model).
+
+Evidence:
+
+- tools/aria-poc/ci_executor.py:2022
+- tools/aria-poc/ci_executor.py:2038
+- tools/aria-poc/ci_executor.py:597-600
+- tools/aria-poc/ci_executor_drain.py:971
+- tools/aria-poc/ci_executor_drain.py:998
+
+### ARIA-LOW-568 — reap_stale_claims parses the governance ledger while holding the claims and results ledger lock
+
+Found while fixing ARIA-LOW-562, which reduced the reaper's lookup to one governance parse per sweep but left it where it was: on the first expired claim, inside `with state_transaction([claims_path, results_path])`. The routes and outage intervals do not need that lock; a pre-read when candidate claims look expired (re-checked under the lock as today) would take the parse out of the critical section.
+
+Evidence:
+
+- aria-kernel/aria_kernel/agent_invocations.py:7063
+- aria-kernel/aria_kernel/agent_invocations.py:7104
+
+### ARIA-MEDIUM-570 — fixture_runner prices a workspace without a runner's repo-local dependency as a failed fixture case ('crash') instead of refusing the suite by name
+
+Found while fixing ARIA-MEDIUM-508 on fix/aria-ka-run-ledger-size. The fixture lane spawns the same adapter in the same room but never asks the registry predicate, so in a checkout without node_modules every banned-phrase-adapter (and every npx ts-node adapter) fixture case is a 'crash' verdict on the tool rather than a blocked refresh. Fix shape: run_fixture_case raises GovernanceError('runner_dependency_missing:<paths>') from missing_repo_local_dependencies before prepare_adapter_spawn, exactly as it does for SandboxUnavailable, so refresh_fixture_suites records a blocked refresh. Not fixed here: fixture_runner.py is outside this cluster's files.
+
+Evidence:
+
+- aria-kernel/aria_kernel/fixture_runner.py:787-796 (only SandboxUnavailable becomes a named refusal, adapter_sandbox_unavailable)
+- aria-kernel/aria_kernel/fixture_runner.py:815-816 (any non-zero exit, including banned-phrase-adapter's 127 'unavailable' without node_modules/.bin/ts-node, is case status 'crash')
+- aria-kernel/aria_kernel/tool_runner.py run_tool (after ARIA-MEDIUM-508: a run whose runner.repo_local_dependencies are absent is environment_unavailable before anything spawns; fixture_runner does not consult tool_registry.missing_repo_local_dependencies)
+- aria-kernel/aria_kernel/promotion.py:35 (CALIBRATE -> SHADOW needs a passing fixture suite, so a suite verdict written in a workspace without node_modules blocks the way back)
+
+### ARIA-LOW-571 — state_compact.\_compact_runs persists a read_paths slim only when the same pass also stripped evidence envelopes, and its count omits read_paths-only rows
+
+Found while fixing ARIA-HIGH-523 on fix/aria-ka-run-ledger-size. Latent in production: every ok row carries evidence_envelopes, so a pass that slims read_paths also strips envelopes. After ARIA-HIGH-523, new artifact-backed rows carry read_paths_ref instead of the list, so the branch only ever sees legacy rows. Fix shape: count a row as stripped when either field is slimmed (one will_strip flag drives both the archive and the count).
+
+Evidence:
+
+- aria-kernel/aria_kernel/state_compact.py:743-759 (a row older than the cutoff with read_paths > 20 is slimmed in memory and archived)
+- aria-kernel/aria_kernel/state_compact.py:756 (stripped is incremented only for evidence_envelopes)
+- aria-kernel/aria_kernel/state_compact.py:761 (if stripped == 0 the pass returns without rewrite_declared_jsonl, so the in-memory slim is dropped and the archive is never written)
+
+### ARIA-MEDIUM-563 — The egress allowlist admits provider hosts by host:port only, so an injected agent can still exfiltrate through an allowlisted provider under a credential it chooses (its own login file is readable in the room)
+
+Residual of the netns+allowlist-proxy fix, not a regression: before it the room had the whole network. Closing it needs the provider traffic bound to the kernel's credential (e.g. the proxy terminating TLS for provider hosts and injecting/validating the auth header, or the kernel holding the credential and the room never seeing it). Not attempted in the implementer-network cluster; recorded for the owner of implementation_safety/egress_proxy.
+
+Evidence:
+
+- aria-kernel/aria_kernel/egress_proxy.py:54 PROVIDER_ENDPOINTS admits api.anthropic.com:443, api.openai.com:443, chatgpt.com:443, platform.claude.com:443, api.z.ai:443, auth.openai.com:443 by host:port
+- aria-kernel/aria_kernel/egress_proxy.py:157 handle() decides on the CONNECT target alone; the tunnel is opaque TLS, so the request's credential and path are not seen
+- aria-kernel/aria_kernel/implementation_safety.py:1603-1604 the managed login's .credentials.json is bound writable into the room (ARIA-HIGH-157), so the agent can read it
+- measured 2026-10-16 on fix/aria-ka-implementer-network 684c63955: the real CLI 2.1.278 in the managed room tunnelled to api.anthropic.com:443 with an arbitrary (bogus) API key and the provider answered 401, i.e. any key the agent supplies reaches the provider
+
+### ARIA-MEDIUM-564 — The pre-claim environment gate is skipped whenever the adaptive native runtime admits a route, so production never runs the egress, git-availability or node_modules checks before a claim
+
+After ARIA-HIGH-143 (684c63955) the egress boundary is structural (every room unshares the network; sandbox_backend()'s git containment probe builds the egress room argv), so the missing egress probe on the native path is a lost detectability layer, not an open boundary. The git and node_modules checks may be intentionally covered elsewhere on the native path; that was not established. Needs the owner of ci_executor's admission to confirm intent and either run the gate's host checks on both paths or record why the native path does not need them.
+
+Evidence:
+
+- tools/aria-poc/ci_executor.py:4738-4739 gate_kind = (\_pre_claim_environment_gate(...) if native_runtime is None else None) — the gate runs only on the legacy (no adaptive policy) path
+- tools/aria-poc/ci_executor.py:4393 egress_boundary_probe, :4405 \_git_availability_gap and :4408 \_node_modules_resolvable_from live only inside that gate
+- tools/aria-poc/ci_executor.py:4047 the native Claude route checks sandbox_backend() itself, but none of the other three
+- git show origin/aria/state:tools/governance.jsonl: 29056 rows, zero egress_boundary_unavailable / git_unavailable rows ever, and only 2 env_deps_missing (last 2026-08-11) although the adaptive policy (B8) has been declared since 2026-09-12
+
+### ARIA-LOW-565 — The killed-holder socket-directory sweep is copied verbatim into four modules (hook broker, MCP broker, signing agent, egress proxy) instead of one helper the orchestrator calls with each holder's prefix
+
+Each copy differs only in (prefix, regex, socket name, answer probe). One helper, e.g. prune_stale_socket_dirs(prefix_re, socket_name), with each holder declaring its pattern and the orchestrator iterating the declarations, would make a new holder's registration automatic. The egress proxy's copy was added deliberately to follow the existing per-holder shape rather than leave a new holder unswept; it should fold into the helper with the other three.
+
+Evidence:
+
+- aria-kernel/aria_kernel/hook_broker.py:202 prune_stale_hook_brokers
+- aria-kernel/aria_kernel/mcp_broker.py:192 prune_stale_mcp_brokers
+- aria-kernel/aria_kernel/signing_agent.py:272 prune_stale_signing_agents
+- aria-kernel/aria_kernel/egress_proxy.py:311 prune_stale_egress_proxies (added on fix/aria-ka-implementer-network to register the per-process proxy with the existing sweep; same body, prefix aria-ep-)
+- aria-kernel/aria_kernel/autonomy_orchestrator.py:1559-1578 the startup sweep calls each copy by name

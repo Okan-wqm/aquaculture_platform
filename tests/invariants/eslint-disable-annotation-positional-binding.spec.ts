@@ -76,6 +76,16 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
+// The binding model (a directive covers the literal next line; a fluent
+// chain continues on lines that start with a continuation token) is shared
+// with no-direct-getrepository-call.spec.ts. A blank or comment line under
+// the directive absorbs it and never binds a restricted call.
+import {
+  NO_RESTRICTED_SYNTAX_DIRECTIVE_RE as ANNOTATION_RE,
+  isBlankOrCommentLine as isCommentLine,
+  isContinuationLine,
+} from './helpers/eslint-next-line-directive';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 /**
@@ -146,81 +156,6 @@ function listTrackedFiles(): readonly string[] {
       )
   );
 }
-
-/**
- * A blank or comment line directly under the annotation absorbs it:
- * ESLint's next-line directive covers that literal line and no
- * further, so the statement below stays reported. Such a binding line
- * never counts as binding a restricted call, whatever its text says.
- */
-function isCommentLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (trimmed === '') return true;
-  if (trimmed.startsWith('//')) return true;
-  if (trimmed.startsWith('/*')) return true;
-  if (trimmed.startsWith('*')) return true;
-  return false;
-}
-
-/**
- * A "continuation line" is a physical line whose first non-whitespace
- * character indicates the line is part of an expression that began on
- * a previous line. The canonical case in this codebase is fluent
- * TypeORM chaining:
- *
- *     // eslint-disable-next-line no-restricted-syntax -- <rationale>
- *     let invitation = await manager       <-- binding line
- *       .getRepository(Invitation)         <-- continuation, restricted
- *       .createQueryBuilder('invitation')
- *       .getOne();
- *
- * ESLint reports the `getRepository` violation at the enclosing
- * CallExpression's `loc.start`, which the parser anchors at the start
- * of `manager` (line N+1). The annotation on line N therefore covers
- * the violation even though the literal `.getRepository(` substring
- * only appears on line N+2. To mirror this AST-aware behaviour
- * without parsing TypeScript ourselves, the spec walks the binding
- * line *and* its continuation lines as a single logical statement
- * and asserts that ANY of them carries a restricted token.
- *
- * The character set below is conservative — it matches the leading
- * tokens of property access, optional chaining, argument lists,
- * binary operators, and ternary continuations. Statements never
- * begin with these characters, so the rule "starts with one of these
- * → continuation" has no false positives in TS source.
- */
-function isContinuationLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (trimmed === '') return false;
-  // Property / optional chaining / argument lists.
-  if (trimmed.startsWith('.') || trimmed.startsWith('?.') || trimmed.startsWith(',')) {
-    return true;
-  }
-  if (trimmed.startsWith(')') || trimmed.startsWith(']') || trimmed.startsWith('}')) {
-    return true;
-  }
-  // Logical / arithmetic / nullish operator continuations.
-  if (
-    trimmed.startsWith('&&') ||
-    trimmed.startsWith('||') ||
-    trimmed.startsWith('??') ||
-    trimmed.startsWith('+') ||
-    trimmed.startsWith('-') ||
-    trimmed.startsWith('*') ||
-    trimmed.startsWith('/') ||
-    trimmed.startsWith('?') ||
-    trimmed.startsWith(':') ||
-    trimmed.startsWith('=')
-  ) {
-    return true;
-  }
-  return false;
-}
-
-const LINT_ANNOTATION_TOKEN = ['eslint', 'disable', 'next', 'line'].join('-');
-const ANNOTATION_RE = new RegExp(
-  `//\\s*${LINT_ANNOTATION_TOKEN}\\s+no-restricted-syntax(?:\\s*--\\s*(.+))?$`,
-);
 
 /**
  * Hard cap on how many continuation lines we scan beyond the binding

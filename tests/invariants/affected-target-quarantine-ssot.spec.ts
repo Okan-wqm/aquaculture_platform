@@ -23,17 +23,21 @@
  * already uses — `{ owner, reason, expires_on, finding_id }` — for EVERY
  * target, so there is one vocabulary for "a gate we are not running yet".
  * scripts/ci/write-affected-target-report.mjs refuses the file when an entry
- * is malformed or past its expiry (the lane fails closed); this spec locks
- * the file's contents, proves that refusal behaviourally, keeps every finding
- * id real and unresolved, keeps every key a real Nx project, and ratchets the
- * `test` quarantine count downward.
+ * is malformed, and gates the project of an entry past its expiry strictly
+ * (scripts/ci/lib/affected-target-policy.mjs: the lane fails closed for that
+ * project, never for every lane); this spec locks the file's contents, proves
+ * both behaviourally, replays the live file past every expiry it names, keeps
+ * every finding id real and unresolved, keeps every key a real Nx project,
+ * and ratchets the `test` quarantine count downward.
  *
  * # THE LINT QUARANTINE IS A MEASURED ONE (HL-lint-quarantine, 2026-10-16)
  *
  * The 40 `lint` entries all expired on 2026-10-31, one date chosen without a
- * measurement and owned by the operator, and the writer refuses the WHOLE
- * file once one entry is past its date: from 2026-11-01 every affected lane
- * would have failed on every PR and main push. Now each lint entry carries a
+ * measurement and owned by the operator, and the writer then refused the WHOLE
+ * file once one entry was past its date: from 2026-11-01 every affected lane
+ * would have failed on every PR and main push (INFRA-MEDIUM-222). A lapsed
+ * entry now quarantines nothing, so no date in this file can take a lane
+ * down, and this spec no longer fails on a calendar day. Each lint entry carries a
  * committed measurement (scripts/ci/lint-debt-measurement.json, written by
  * scripts/ci/lint-debt-measure.mjs), its expiry is at most the bound computed
  * from that measurement by the same exported function renewal uses, the
@@ -43,7 +47,7 @@
  * renewed, and the lint count is ratcheted downward like the test count.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -55,6 +59,7 @@ import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const POLICY_PATH = join(REPO_ROOT, 'scripts/ci/affected-target-policy.json');
 const WRITER_PATH = join(REPO_ROOT, 'scripts/ci/write-affected-target-report.mjs');
+const POLICY_LIB = join(REPO_ROOT, 'scripts/ci/lib/affected-target-policy.mjs');
 const MEASURE_PATH = join(REPO_ROOT, 'scripts/ci/lint-debt-measure.mjs');
 const LINT_DEBT_LIB = join(REPO_ROOT, 'scripts/ci/lib/lint-debt.mjs');
 const REGISTRY_PATH = join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
@@ -133,7 +138,15 @@ function unresolvedFindingIds(): Set<string> {
   return ids;
 }
 
-function runWriter(policy: unknown): { status: number; stderr: string } {
+interface WriterOutcome {
+  readonly status: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  /** The strict project list the writer produced; empty when it refused. */
+  readonly strict: readonly string[];
+}
+
+function runWriter(policy: unknown): WriterOutcome {
   const dir = mkdtempSync(join(tmpdir(), 'affected-policy-'));
   try {
     const policyPath = join(dir, 'policy.json');
@@ -142,8 +155,11 @@ function runWriter(policy: unknown): { status: number; stderr: string } {
     writeFileSync(affected, 'invariants\n');
     const empty = join(dir, 'empty.txt');
     writeFileSync(empty, '');
+    const strictPath = join(dir, 'strict.txt');
+    const strict = (): readonly string[] =>
+      existsSync(strictPath) ? readFileSync(strictPath, 'utf8').split('\n').filter(Boolean) : [];
     try {
-      execFileSync(
+      const stdout = execFileSync(
         'node',
         [
           WRITER_PATH,
@@ -162,7 +178,7 @@ function runWriter(policy: unknown): { status: number; stderr: string } {
           '--explicit-excludes',
           empty,
           '--strict-projects',
-          join(dir, 'strict.txt'),
+          strictPath,
           '--report',
           join(dir, 'report.json'),
           '--dry-run',
@@ -170,10 +186,15 @@ function runWriter(policy: unknown): { status: number; stderr: string } {
         ],
         { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
       );
-      return { status: 0, stderr: '' };
+      return { status: 0, stdout, stderr: '', strict: strict() };
     } catch (error) {
-      const failure = error as { status?: number; stderr?: string };
-      return { status: failure.status ?? 1, stderr: failure.stderr ?? '' };
+      const failure = error as { status?: number; stdout?: string; stderr?: string };
+      return {
+        status: failure.status ?? 1,
+        stdout: failure.stdout ?? '',
+        stderr: failure.stderr ?? '',
+        strict: strict(),
+      };
     }
   } finally {
     removeFixtureTree(dir);
@@ -250,19 +271,47 @@ function runLintVerify(fixture?: {
  * verification both use, so these expectations pin THE function rather than
  * a copy of its arithmetic. Arguments and result cross as JSON.
  */
-function callLintDebt(name: string, ...args: readonly unknown[]): ProcessOutcome {
+function callModule(path: string, name: string, args: readonly unknown[]): ProcessOutcome {
   const program = [
-    `const lib = await import(${JSON.stringify(pathToFileURL(LINT_DEBT_LIB).href)});`,
+    `const lib = await import(${JSON.stringify(pathToFileURL(path).href)});`,
     `const result = lib[${JSON.stringify(name)}](...${JSON.stringify(args)});`,
     'process.stdout.write(JSON.stringify(result));',
   ].join('\n');
   return runNode(['--input-type=module', '-e', program]);
 }
 
-function lintDebt<T>(name: string, ...args: readonly unknown[]): T {
-  const outcome = callLintDebt(name, ...args);
+function moduleResult<T>(path: string, name: string, args: readonly unknown[]): T {
+  const outcome = callModule(path, name, args);
   if (outcome.status !== 0) throw new Error(`${name} failed: ${outcome.stderr}`);
   return JSON.parse(outcome.stdout) as T;
+}
+
+function callLintDebt(name: string, ...args: readonly unknown[]): ProcessOutcome {
+  return callModule(LINT_DEBT_LIB, name, args);
+}
+
+function lintDebt<T>(name: string, ...args: readonly unknown[]): T {
+  return moduleResult<T>(LINT_DEBT_LIB, name, args);
+}
+
+interface Partition {
+  readonly strictProjects: readonly string[];
+  readonly explicitlyExcludedProjects: readonly string[];
+  readonly quarantinedProjects: ReadonlyArray<{ readonly project: string }>;
+  readonly expiredQuarantineProjects: ReadonlyArray<{ readonly project: string }>;
+}
+
+/** The writer's own partition (scripts/ci/lib/affected-target-policy.mjs) on a chosen day. */
+function partitionOn(
+  policy: unknown,
+  target: string,
+  affected: readonly string[],
+  today: string,
+): Partition {
+  return moduleResult<Partition>(POLICY_LIB, 'partitionAffectedProjects', [
+    policy,
+    { target, affectedProjects: affected, explicitExcludes: [], today },
+  ]);
 }
 
 const HEAD_SHA = execFileSync('git', ['rev-parse', 'HEAD'], {
@@ -303,17 +352,38 @@ describe('affected-lane quarantine is tracked debt', () => {
     expect(malformed).toEqual([]);
   });
 
-  it('lets no quarantine outlive its expiry', () => {
-    // ISO strings sort lexicographically, so no timezone reasoning is needed:
-    // an entry is expired the day after the date it names, everywhere.
-    const today = new Date().toISOString().slice(0, 10);
-    const expired = entries()
-      .filter(({ entry }) => isEntry(entry) && entry.expires_on < today)
-      .map(
-        ({ target, project, entry }) =>
-          `${target}/${project} (${(entry as QuarantineEntry).expires_on})`,
+  it('survives every expiry it names: replayed past each date, the writer accepts the file and gates each lapsed project strictly', () => {
+    // An entry is expired the day after the date it names (ISO strings sort
+    // lexicographically, so no timezone reasoning is needed). The replay uses
+    // the writer's own partition over the live file, so a date in this file
+    // can never again refuse the policy for every affected lane.
+    const policy = readPolicy();
+    const replays: string[] = [];
+    for (const [target, config] of Object.entries(policy.targets)) {
+      const quarantine = Object.entries(config.knownUnstableProjects).filter(
+        (pair): pair is [string, QuarantineEntry] => isEntry(pair[1]),
       );
-    expect(expired).toEqual([]);
+      const projects = quarantine.map(([project]) => project).sort();
+      const dates = [...new Set(quarantine.map(([, entry]) => entry.expires_on))].sort();
+      for (const date of dates) {
+        const dayAfter = lintDebt<string>('addDaysIso', date, 1);
+        const lapsed = quarantine
+          .filter(([, entry]) => entry.expires_on < dayAfter)
+          .map(([project]) => project)
+          .sort();
+        const partition = partitionOn(policy, target, projects, dayAfter);
+        expect([...partition.strictProjects].sort()).toEqual(lapsed);
+        expect(partition.expiredQuarantineProjects.map(({ project }) => project).sort()).toEqual(
+          lapsed,
+        );
+        expect(partition.quarantinedProjects.map(({ project }) => project).sort()).toEqual(
+          projects.filter((project) => !lapsed.includes(project)),
+        );
+        replays.push(`${target}@${dayAfter}`);
+      }
+    }
+    // The replay is not vacuous while the lint quarantine still has entries.
+    expect(replays.length).toBeGreaterThan(0);
   });
 
   it('points every entry at a finding that still exists and is not resolved', () => {
@@ -341,8 +411,10 @@ describe('affected-lane quarantine is tracked debt', () => {
   });
 
   describe('the report writer refuses a policy it cannot trust', () => {
-    it('accepts a well-formed, unexpired entry', () => {
-      expect(runWriter(policyWith(validEntry)).status).toBe(0);
+    it('accepts a well-formed, unexpired entry and does not gate its project', () => {
+      const result = runWriter(policyWith(validEntry));
+      expect(result.status).toBe(0);
+      expect(result.strict).toEqual([]);
     });
 
     it('refuses a bare reason string', () => {
@@ -351,10 +423,24 @@ describe('affected-lane quarantine is tracked debt', () => {
       expect(result.stderr).toContain('entry must be an object');
     });
 
-    it('refuses an expired entry', () => {
-      const result = runWriter(policyWith({ ...validEntry, expires_on: '2020-01-01' }));
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain('expired 2020-01-01');
+    it('gates the project of an expired entry strictly and still accepts the file', () => {
+      const unexpired = { ...validEntry, expires_on: '2999-01-01' };
+      const result = runWriter({
+        version: 2,
+        targets: {
+          test: {
+            knownUnstableProjects: {
+              invariants: { ...validEntry, expires_on: '2020-01-01' },
+              'still-quarantined': unexpired,
+            },
+          },
+          lint: { knownUnstableProjects: { elsewhere: unexpired } },
+        },
+      });
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.strict).toEqual(['invariants']);
+      expect(result.stdout).toContain('invariants: expired 2020-01-01');
     });
 
     it('refuses an entry without a finding', () => {
@@ -395,6 +481,7 @@ describe('the lint quarantine is a measured one', () => {
     );
     const unowned = [
       'scripts/ci/affected-target-policy.json',
+      'scripts/ci/lib/affected-target-policy.mjs',
       'scripts/ci/lint-debt-measurement.json',
       'scripts/ci/lint-debt-measure.mjs',
       'scripts/ci/lib/lint-debt.mjs',

@@ -5,11 +5,13 @@
  * WHY. `targets.lint.knownUnstableProjects` in scripts/ci/affected-target-policy.json
  * held 40 entries that all expired on 2026-10-31, a single date chosen without
  * any measurement, owned by the operator, with nothing that renewed or paid
- * them down. `validateQuarantine` (write-affected-target-report.mjs) refuses
- * the WHOLE policy file once any entry is past its date, so from 2026-11-01
- * every affected lane that reads it (lint, test, test:integration,
- * test:contract, test:invariant) would have failed on every PR and main push.
- * A deadline nobody acts on is a cliff, not a forcing function.
+ * them down. The writer then refused the WHOLE policy file once any entry was
+ * past its date, so from 2026-11-01 every affected lane that reads it (lint,
+ * test, test:integration, test:contract, test:invariant) would have failed on
+ * every PR and main push. A deadline nobody acts on is a cliff, not a forcing
+ * function. An expired entry now gates its own project strictly instead
+ * (scripts/ci/lib/affected-target-policy.mjs); this module bounds how long a
+ * renewal may defer that.
  *
  * WHAT.
  *   - The debt of every quarantined project is MEASURED (scripts/ci/lint-debt-measure.mjs)

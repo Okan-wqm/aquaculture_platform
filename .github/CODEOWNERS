@@ -54,6 +54,7 @@ tools/gates/                     @Okan-wqm
 # questions (HL safety review 2026-10-16, HL-lint-quarantine).
 scripts/ci/affected-target-policy.json       @Okan-wqm
 scripts/ci/write-affected-target-report.mjs  @Okan-wqm
+scripts/ci/lib/affected-target-policy.mjs    @Okan-wqm
 scripts/ci/lib/reviewed-exception.mjs        @Okan-wqm
 scripts/ci/lint-debt-measurement.json        @Okan-wqm
 scripts/ci/lint-debt-measure.mjs             @Okan-wqm

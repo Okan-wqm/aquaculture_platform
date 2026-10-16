@@ -589,6 +589,10 @@ export const en = {
   'm.account.logOut': 'Log Out',
   'm.account.appVersion': 'App Version: {version}',
   'm.account.logOutConfirm': 'Are you sure you want to log out?',
+  'm.account.logOutConfirmUnsynced.one':
+    'You have 1 unsynced operation. Logging out will permanently delete it.',
+  'm.account.logOutConfirmUnsynced.other':
+    'You have {count} unsynced operations. Logging out will permanently delete them.',
   'm.account.clearQueueConfirm.one':
     'You have 1 unsynced operation. Clearing will permanently delete it.',
   'm.account.clearQueueConfirm.other':

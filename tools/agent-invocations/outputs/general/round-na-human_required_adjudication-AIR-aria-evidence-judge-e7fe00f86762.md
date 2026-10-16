@@ -1,0 +1,33 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-38852033644",
+  "claim_id": "claim_bbfca82dabc72645",
+  "details": {
+    "adjudication": {
+      "rationale": "The only admissible evidence in this request is the escalation handle human-required:consensus-bf0e0b3cf966119b; every derived-context section (repository map, established knowledge, decision memory) is explicitly marked as not evidence, and none of it may substitute. That handle records only the escalation reason: independent judges disagreed (judge_disagreement) on the doc-staleness-adapter finding that docs/db/18-final-review-report.md:85 references apps/alert-engine/src/middleware/tenant-schema.middleware.ts in a missing or stale manner. It carries no judge transcripts, no file excerpts, and no repository content. To clear this escalation an adjudicator must verify, at snapshot 99689e46bd86eb980ca2bad74df3c6b072eb4e90, what the cited doc line actually says and whether the referenced middleware file exists as described \u2014 but those two repository paths appear neither in this request's evidence_refs nor in its allowed_scope, and this dispatch supplies no file-reading tools, so no such verification can be performed or cited. Resolving on this record would convert an unverified finding into ledger truth, which is precisely the failure mode the human-required gate exists to intercept; refusing would be equally unsupported, since nothing in the record disproves the finding either. Because neither confirmation nor refutation can be established from admissible evidence, insufficient_evidence is the verdict \u2014 it blocks resolution and returns the escalation to the operator queue with the gap named: re-dispatch with file:line excerpts of the two subject files or with direct repository read access within scope. High confidence in this insufficiency determination, because the emptiness of the evidence payload is directly observable in the record.",
+      "verdict": "insufficient_evidence"
+    },
+    "agent_confidence_source": "self_reported",
+    "agent_contract_hash": "sha256:2ad20b3d0a1503d84565189547c861352788304209e58a6f44c481f494581d40",
+    "agent_dispatch_model": "glm-5.3",
+    "agent_subagent_type": "aria-evidence-judge",
+    "agent_text": "{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-evidence-judge-e7fe00f86762\",\n  \"claim_id\": \"AIR-aria-evidence-judge-e7fe00f86762\",\n  \"agent_id\": \"aria-evidence-judge\",\n  \"role\": \"human_required_adjudication\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-human_required_adjudication-AIR-aria-evidence-judge-e7fe00f86762.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"adjudicate-consensus-bf0e0b3cf966119b\",\n      \"verdict\": \"satisfied\",\n      \"note\": \"Adjudication delivered under details.adjudication with verdict=insufficient_evidence and a rationale naming the evidence relied on. The escalation handle human-required:consensus-bf0e0b3cf966119b is the sole admissible evidence and it carries no repository excerpt, so the doc-staleness finding can be neither confirmed nor refuted from the record; per the task instructions, that state blocks resolution and is the correct answer under uncertainty. Downstream effect: the escalation stays open in the human-required queue instead of an unverified finding being laundered into ledger truth.\",\n      \"evidence_refs\": [\"human-required:consensus-bf0e0b3cf966119b\"]\n    }\n  ],\n  \"evidence_refs\": [\"human-required:consensus-bf0e0b3cf966119b\"],\n  \"details\": {\n    \"adjudication\": {\n      \"verdict\": \"insufficient_evidence\",\n      \"rationale\": \"The only admissible evidence in this request is the escalation handle human-required:consensus-bf0e0b3cf966119b; every derived-context section (repository map, established knowledge, decision memory) is explicitly marked as not evidence, and none of it may substitute. That handle records only the escalation reason: independent judges disagreed (judge_disagreement) on the doc-staleness-adapter finding that docs/db/18-final-review-report.md:85 references apps/alert-engine/src/middleware/tenant-schema.middleware.ts in a missing or stale manner. It carries no judge transcripts, no file excerpts, and no repository content. To clear this escalation an adjudicator must verify, at snapshot 99689e46bd86eb980ca2bad74df3c6b072eb4e90, what the cited doc line actually says and whether the referenced middleware file exists as described \u2014 but those two repository paths appear neither in this request's evidence_refs nor in its allowed_scope, and this dispatch supplies no file-reading tools, so no such verification can be performed or cited. Resolving on this record would convert an unverified finding into ledger truth, which is precisely the failure mode the human-required gate exists to intercept; refusing would be equally unsupported, since nothing in the record disproves the finding either. Because neither confirmation nor refutation can be established from admissible evidence, insufficient_evidence is the verdict \u2014 it blocks resolution and returns the escalation to the operator queue with the gap named: re-dispatch with file:line excerpts of the two subject files or with direct repository read access within scope. High confidence in this insufficiency determination, because the emptiness of the evidence payload is directly observable in the record.\"\n    }\n  }\n}",
+    "runtime_attempt_ledger_hash": "sha256:5c35499b7f0c992de19d1b42a8a1fd78dd7832606717f61731692a8d283f6117"
+  },
+  "evidence_refs": [
+    "human-required:consensus-bf0e0b3cf966119b"
+  ],
+  "request_id": "AIR-aria-evidence-judge-e7fe00f86762",
+  "role": "human_required_adjudication",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "human-required:consensus-bf0e0b3cf966119b"
+      ],
+      "id": "adjudicate-consensus-bf0e0b3cf966119b",
+      "note": "Adjudication delivered under details.adjudication with verdict=insufficient_evidence and a rationale naming the evidence relied on. The escalation handle human-required:consensus-bf0e0b3cf966119b is the sole admissible evidence and it carries no repository excerpt, so the doc-staleness finding can be neither confirmed nor refuted from the record; per the task instructions, that state blocks resolution and is the correct answer under uncertainty. Downstream effect: the escalation stays open in the human-required queue instead of an unverified finding being laundered into ledger truth.",
+      "verdict": "satisfied"
+    }
+  ],
+  "status": "submitted"
+}

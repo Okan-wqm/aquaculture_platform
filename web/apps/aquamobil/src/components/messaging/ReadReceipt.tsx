@@ -1,11 +1,13 @@
-import { Clock, Check, CheckCheck } from 'lucide-react';
+import { AlertTriangle, Clock, Check, CheckCheck } from 'lucide-react';
 import React from 'react';
+
+import { useI18n } from '@aquaculture/shared-ui/i18n';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type DeliveryStatus = 'pending' | 'sent' | 'delivered' | 'read';
+type DeliveryStatus = 'pending' | 'failed' | 'sent' | 'delivered' | 'read';
 
 interface ReadReceiptProps {
   /** Current delivery/read status of the message. */
@@ -33,9 +35,20 @@ interface ReadReceiptProps {
 const RECEIPT_PENDING = 'text-acc-on opacity-60 shrink-0';
 
 export const ReadReceipt = React.memo(function ReadReceipt({ status }: ReadReceiptProps) {
+  const { t } = useI18n();
   switch (status) {
     case 'pending':
       return <Clock size={12} className={RECEIPT_PENDING} aria-label="Sending" />;
+    case 'failed':
+      // A failed send must not wear the pending clock — that reads as "still
+      // going". The crit triangle is the one honest signal for a lost message.
+      return (
+        <AlertTriangle
+          size={12}
+          className="text-crit shrink-0"
+          aria-label={t('m.chat.sendFailed')}
+        />
+      );
     case 'sent':
       return <Check size={12} className={RECEIPT_PENDING} aria-label="Sent" />;
     case 'delivered':

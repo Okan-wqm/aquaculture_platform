@@ -177,9 +177,20 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
     await selectUnit();
 
     // Açık öğün (SCHEDULED) dokunulabilir; FED öğünün butonu disabled'dır.
+    // Öğün saati yerel saat diliminde render edilir (timeOf) — sabit '08:'/
+    // '16:' eşleşmesi UTC dışı koşucularda hiçbir öğün bulamaz; beklenen
+    // etiketleri fixture ISO'larından aynı biçimle türet.
+    const hhmm = (iso: string): string => {
+      const d = new Date(iso);
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
     const mealButtons = await screen.findAllByRole('button');
-    const openMeal = mealButtons.find((b) => b.textContent?.includes('08:'));
-    const fedMeal = mealButtons.find((b) => b.textContent?.includes('16:'));
+    const openMeal = mealButtons.find((b) =>
+      b.textContent?.includes(hhmm(plan.meals[0].scheduledAt)),
+    );
+    const fedMeal = mealButtons.find((b) =>
+      b.textContent?.includes(hhmm(plan.meals[1].scheduledAt)),
+    );
     expect(openMeal).toBeTruthy();
     expect(fedMeal).toHaveProperty('disabled', true);
 

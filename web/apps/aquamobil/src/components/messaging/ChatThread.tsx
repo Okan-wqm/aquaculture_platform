@@ -558,7 +558,7 @@ export function ChatThread({ channelId }: ChatThreadProps): ReactElement {
                     msg._status === 'pending'
                       ? ('pending' as const)
                       : msg._status === 'failed'
-                        ? ('pending' as const)
+                        ? ('failed' as const)
                         : msg.receipts?.some((r) => r.status === 'READ')
                           ? ('read' as const)
                           : msg.receipts?.some((r) => r.status === 'DELIVERED')

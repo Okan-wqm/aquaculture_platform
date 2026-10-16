@@ -518,6 +518,7 @@ export const en = {
   'm.chat.conversations': 'Conversations',
   'm.chat.conversationsThing': 'conversations',
   'm.chat.newMessage': 'New message',
+  'm.chat.sendFailed': 'Failed to send',
   'm.chat.search': 'Search conversations',
   'm.chat.clearSearch': 'Clear search',
   'm.chat.noConversations': 'No conversations yet',
@@ -589,6 +590,13 @@ export const en = {
   'm.account.logOut': 'Log Out',
   'm.account.appVersion': 'App Version: {version}',
   'm.account.logOutConfirm': 'Are you sure you want to log out?',
+  'm.account.logOutConfirmUnsynced.one':
+    'You have 1 unsynced operation. Logging out will permanently delete it.',
+  'm.account.logOutConfirmUnsynced.other':
+    'You have {count} unsynced operations. Logging out will permanently delete them.',
+  'm.sync.failedTitle': 'Sync failed',
+  'm.sync.retry': 'Retry Sync',
+  'm.sync.dismiss': 'Dismiss',
   'm.account.clearQueueConfirm.one':
     'You have 1 unsynced operation. Clearing will permanently delete it.',
   'm.account.clearQueueConfirm.other':

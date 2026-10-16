@@ -517,6 +517,7 @@ export const tr: Record<MessageKey, string> = {
   'm.chat.conversations': 'Sohbetler',
   'm.chat.conversationsThing': 'Sohbetler',
   'm.chat.newMessage': 'Yeni mesaj',
+  'm.chat.sendFailed': 'Gönderilemedi',
   'm.chat.search': 'Sohbetlerde ara',
   'm.chat.clearSearch': 'Aramayı temizle',
   'm.chat.noConversations': 'Henüz sohbet yok',
@@ -588,6 +589,13 @@ export const tr: Record<MessageKey, string> = {
   'm.account.logOut': 'Oturumu kapat',
   'm.account.appVersion': 'Uygulama sürümü: {version}',
   'm.account.logOutConfirm': 'Oturumu kapatmak istediğinizden emin misiniz?',
+  'm.account.logOutConfirmUnsynced.one':
+    'Eşitlenmemiş 1 işleminiz var. Oturumu kapatmak onu kalıcı olarak siler.',
+  'm.account.logOutConfirmUnsynced.other':
+    'Eşitlenmemiş {count} işleminiz var. Oturumu kapatmak bunları kalıcı olarak siler.',
+  'm.sync.failedTitle': 'Senkronizasyon başarısız',
+  'm.sync.retry': 'Eşitlemeyi yeniden dene',
+  'm.sync.dismiss': 'Kapat',
   'm.account.clearQueueConfirm.one':
     'Eşitlenmemiş 1 işleminiz var. Temizlemek onu kalıcı olarak siler.',
   'm.account.clearQueueConfirm.other':

@@ -47,7 +47,16 @@ const RISK_TONE: Record<string, { border: string; text: string; dot: 'ok' | 'war
   CRITICAL: { border: 'border-crit', text: 'text-crit', dot: 'crit' },
 };
 
-const DEFAULT_TONE = RISK_TONE.LOW;
+/**
+ * WHY neutral unknown tone: an unmapped riskLevel means the contract drifted.
+ * Unknown data must not wear LOW's green — no dot at all and plain ink read
+ * as "unclassified" instead of "all clear".
+ */
+const UNKNOWN_TONE: { border: string; text: string; dot: undefined } = {
+  border: 'border-line',
+  text: 'text-ink-2',
+  dot: undefined,
+};
 
 export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | null {
   const { data: risk, isLoading, isError } = useTankRiskAssessment(tankId);
@@ -64,7 +73,7 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
     return null;
   }
 
-  const tone = RISK_TONE[risk.riskLevel.toUpperCase()] || DEFAULT_TONE;
+  const tone = RISK_TONE[risk.riskLevel.toUpperCase()] || UNKNOWN_TONE;
 
   return (
     <section className="flex flex-col gap-2">
@@ -82,7 +91,7 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
         {/* WHY: Risk level header with score and label — the primary information */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <StatusDot tone={tone.dot} />
+            {tone.dot ? <StatusDot tone={tone.dot} /> : null}
             <span className={clsx('text-title font-semibold', tone.text)}>{risk.riskLevel}</span>
           </div>
           <span className={clsx('text-display font-mono font-bold tabular-nums', tone.text)}>

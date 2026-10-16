@@ -748,7 +748,13 @@ export function AccountPage(): JSX.Element {
       <ConfirmSheet
         isOpen={showLogoutDialog}
         title={t('m.account.logOut')}
-        message={t('m.account.logOutConfirm')}
+        message={
+          pendingCount > 0
+            ? pendingCount === 1
+              ? t('m.account.logOutConfirmUnsynced.one')
+              : t('m.account.logOutConfirmUnsynced.other', { count: pendingCount })
+            : t('m.account.logOutConfirm')
+        }
         confirmLabel={t('m.account.logOut')}
         onConfirm={handleLogout}
         onCancel={() => {

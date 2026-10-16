@@ -586,7 +586,7 @@ export function AiChatPage(): JSX.Element {
                     msg._status === 'pending'
                       ? ('pending' as const)
                       : msg._status === 'failed'
-                        ? ('pending' as const)
+                        ? ('failed' as const)
                         : ('sent' as const);
 
                   return (

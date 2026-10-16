@@ -24,15 +24,16 @@ from aria_kernel import github_writes as gw
 _KERNEL_ROOT = Path(__file__).resolve().parents[1]
 _APPROVAL_BODY = "cycle note\nARIA-APPROVE surface=runtime_profile profile=strict ceiling=strict"
 
-# Answers `issue list` with no match and `issue create` with a URL, and logs
-# every argv. It has no stored login: which credential a write runs on is
-# decided before it is called.
+# Answers the open-issue lookup (`api --paginate --slurp`, one empty page) with
+# no match and `issue create` with a URL, and logs every argv. It has no
+# stored login: which credential a write runs on is decided before it is
+# called.
 _FAKE_GH = """#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ["FAKE_GH_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps({"argv": sys.argv[1:], "token": os.environ.get("GH_TOKEN")}) + "\\n")
-if sys.argv[1:3] == ["issue", "list"]:
-    print("[]")
+if sys.argv[1] == "api":
+    print("[[]]")
 elif sys.argv[1:3] == ["issue", "create"]:
     print("https://github.com/o/r/issues/7")
 """

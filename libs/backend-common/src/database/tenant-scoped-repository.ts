@@ -89,16 +89,18 @@ export class TenantScopedRepository<T extends TenantEntity> {
   // ── Static Factories ──
 
   /**
-   * Create a TenantScopedRepository from a DataSource and entity class.
+   * Create a TenantScopedRepository from a DataSource (or a transaction's
+   * EntityManager) and entity class. This is the one raw `getRepository`
+   * call of the tenant-scoping layer; `tenantManagerRepo` delegates here.
    *
-   * @param dataSource - TypeORM DataSource instance
+   * @param dataSource - TypeORM DataSource or EntityManager
    * @param entity - Entity class (e.g. SensorDataChannel)
    * @param explicitTenantId - Optional explicit tenantId. When omitted, tenantId
    *   is resolved from AsyncLocalStorage at call time (preferred for HTTP handlers).
    * @returns A new TenantScopedRepository instance
    */
   static create<E extends TenantEntity>(
-    dataSource: DataSource,
+    dataSource: DataSource | EntityManager,
     entity: EntityTarget<E>,
     explicitTenantId?: string,
   ): TenantScopedRepository<E> {
@@ -518,10 +520,9 @@ export class TenantScopedRepository<T extends TenantEntity> {
  * — which the ESLint rule `no-restricted-syntax` rightly flags
  * (CLAUDE.md: "getRepository() is FORBIDDEN") and which frequently
  * leaks cross-tenant queries when a developer forgets the `tenantId`
- * key. The wrapper has a single, audited, eslint-disabled
- * `manager.getRepository()` call at the library boundary — that call
- * is architecturally justified because the return value is
- * immediately handed to TenantScopedRepository which enforces
+ * key. The wrapper delegates to `TenantScopedRepository.create`, the
+ * one audited raw-repository call of the tenant-scoping layer, whose
+ * result is handed straight to TenantScopedRepository, which enforces
  * tenant scoping on every downstream query.
  *
  * Usage pattern:
@@ -547,10 +548,5 @@ export function tenantManagerRepo<T extends TenantEntity>(
   entity: EntityTarget<T>,
   explicitTenantId?: string,
 ): TenantScopedRepository<T> {
-  // eslint-disable-next-line no-restricted-syntax -- justified: the Repository
-  // returned is immediately wrapped by TenantScopedRepository.fromRepository,
-  // which enforces tenantId injection on every downstream query. This is the
-  // single point of contact with manager.getRepository in the whole codebase.
-  const repository = manager.getRepository(entity);
-  return TenantScopedRepository.fromRepository(repository, explicitTenantId);
+  return TenantScopedRepository.create(manager, entity, explicitTenantId);
 }

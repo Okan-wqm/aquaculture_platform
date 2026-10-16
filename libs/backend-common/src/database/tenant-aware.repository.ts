@@ -285,23 +285,6 @@ export class TenantAwareRepository<T extends TenantEntity> {
   }
 
   /**
-   * @deprecated Use getScopedRepository() for tenant-filtered access or
-   * getUnfilteredRepository() for legitimate cross-tenant operations.
-   *
-   * This method is deprecated because it returns a raw repository without
-   * automatic tenant filtering, which creates a risk of cross-tenant data leakage.
-   *
-   * @throws Error always - migrate to getScopedRepository() or getUnfilteredRepository()
-   */
-  getRepository(): never {
-    throw new Error(
-      'getRepository() is deprecated and unsafe. ' +
-      'Use getScopedRepository() for automatic tenant filtering, or ' +
-      'getUnfilteredRepository() for legitimate cross-tenant operations (e.g., admin, migrations).',
-    );
-  }
-
-  /**
    * Get a scoped repository proxy that automatically applies tenant filtering
    * on find, findOne, count, and createQueryBuilder operations.
    *

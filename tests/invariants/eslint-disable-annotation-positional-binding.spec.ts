@@ -14,8 +14,11 @@
  *     manager.getRepository(Plan).findOne(...)
  *
  * The `eslint-disable-next-line` directive is positional — it applies
- * to the next non-blank, non-comment line. Two failure modes silently
- * defeat the architectural intent:
+ * to the LITERAL next line, a comment or blank line included. (This
+ * spec once skipped comment lines; a directive followed by a three-line
+ * rationale comment in libs/backend-common's tenantManagerRepo then
+ * passed here while ESLint still reported the call it was written for.)
+ * Three failure modes silently defeat the architectural intent:
  *
  *   1. **Detached annotation.** A future refactor inserts a blank
  *      line, moves the import block, or reorders methods. The
@@ -107,7 +110,7 @@ interface Hit {
   file: string;
   annotationLine: number;
   rationale: string;
-  // The next non-blank/non-comment line that the annotation should
+  // The literal next line, which the annotation should
   // bind to. `null` when the file ended before any candidate.
   bindingLine: number | null;
   bindingText: string | null;
@@ -116,7 +119,7 @@ interface Hit {
    * output actionable instead of producing one undifferentiated list.
    */
   failure:
-    | 'no-binding-line' // annotation is the last non-trivial line in the file
+    | 'no-binding-line' // annotation is the last line in the file
     | 'binding-misses-restricted-token'; // next code line does not contain any restricted-syntax marker
 }
 
@@ -145,10 +148,10 @@ function listTrackedFiles(): readonly string[] {
 }
 
 /**
- * A line is a "skippable" preamble between the annotation and the
- * statement it disables iff it is blank or a comment. ESLint's own
- * `eslint-disable-next-line` resolution skips these exact line shapes
- * when locating the next "code line", so we mirror that traversal.
+ * A blank or comment line directly under the annotation absorbs it:
+ * ESLint's next-line directive covers that literal line and no
+ * further, so the statement below stays reported. Such a binding line
+ * never counts as binding a restricted call, whatever its text says.
  */
 function isCommentLine(line: string): boolean {
   const trimmed = line.trim();
@@ -240,13 +243,9 @@ function scanFile(file: string): readonly Hit[] {
 
     const rationale = (annotationMatch[1] ?? '').trim() || '<no rationale provided>';
 
-    // Walk past intervening blank / comment lines to reach the
-    // physical "binding line" — the first line ESLint considers
-    // covered by `eslint-disable-next-line`.
-    let j = i + 1;
-    while (j < lines.length && isCommentLine(lines[j] ?? '')) {
-      j++;
-    }
+    // The binding line is the literal next line: the only line ESLint
+    // considers covered by the next-line directive.
+    const j = i + 1;
 
     if (j >= lines.length) {
       hits.push({
@@ -276,7 +275,9 @@ function scanFile(file: string): readonly Hit[] {
     }
     const logicalStatement = statementLines.join('\n');
 
-    const bindsRestricted = RESTRICTED_TOKENS.some(({ token }) => logicalStatement.includes(token));
+    const bindsRestricted =
+      !isCommentLine(bindingText) &&
+      RESTRICTED_TOKENS.some(({ token }) => logicalStatement.includes(token));
 
     if (!bindsRestricted) {
       hits.push({
@@ -296,14 +297,14 @@ describe('INVARIANT (SEC-REVIEW-003): eslint-disable-next-line no-restricted-syn
   const files = listTrackedFiles();
   const allHits: Hit[] = files.flatMap((f) => [...scanFile(f)]);
 
-  it('every annotation is followed by a non-comment line within the same file', () => {
+  it('every annotation is followed by a line within the same file', () => {
     const orphans = allHits.filter((h) => h.failure === 'no-binding-line');
     if (orphans.length > 0) {
       const lines = orphans
         .map(
           (h) =>
             `  ${h.file}:${h.annotationLine}\n    rationale: ${h.rationale}\n` +
-            `    failure: file ends before any non-comment line follows the annotation — ` +
+            `    failure: file ends on the annotation line — ` +
             `the rationale is unreachable by ESLint and the call it was meant to disable does not exist.`,
         )
         .join('\n');

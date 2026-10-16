@@ -122,5 +122,43 @@ class AnchorSweepTests(unittest.TestCase):
         self.assertEqual(result["minted_count"], 2)
 
 
+
+class TheJudgeBacklogAgesLikeItsRequests(unittest.TestCase):
+    """ARIA-LOW-557 — the backlog counted only judge envelopes younger than four WALL
+    days, while the requests themselves age on provider-available time
+    (ARIA-HIGH-365): a judge envelope that waited out a six-day Anthropic outage is
+    still live and claimable, but the gate read it as dead and minted pairs past the
+    per-role cap. A live envelope is exactly one the anchor window has not retired."""
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp(prefix="aria-557-"))
+        self.addCleanup(shutil.rmtree, self._tmp, True)
+        self.tools = ensure_tools_dir(self._tmp / "aria-tools")
+        self.now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    def _judge_row(self, request_id: str, *, age: timedelta) -> dict:
+        created = (self.now - age).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"request_id": request_id, "role": "evidence_judgment", "created_at": created}
+
+    def _count(self, *rows: dict) -> int:
+        states = {row["request_id"]: "PENDING" for row in rows}
+        return pending_judge_counts(base_dir=self.tools, states=states, requests=list(rows))["evidence_judgment"]
+
+    def test_an_envelope_that_waited_out_a_long_outage_is_still_pending(self) -> None:
+        from aria_kernel.provider_cooldown import record_provider_cooldown
+
+        record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
+                                 request_id="AIR-0", claim_id="CL-0",
+                                 detection={"signature": "claude_auth_failure", "marker": "oauth session expired"},
+                                 now=self.now - timedelta(days=6) + timedelta(hours=1))
+        self.assertEqual(self._count(self._judge_row("AIR-waited", age=timedelta(days=6))), 1)
+
+    def test_without_an_outage_the_window_is_the_policys_anchor_window(self) -> None:
+        window = timedelta(seconds=DEFAULT_ANCHOR_MAX_AGE_SECONDS)
+        self.assertEqual(self._count(self._judge_row("AIR-young", age=window - timedelta(hours=1))), 1)
+        self.assertEqual(self._count(self._judge_row("AIR-dead", age=window + timedelta(hours=12))), 0)
+        self.assertEqual(self._count(self._judge_row("AIR-older", age=timedelta(days=6))), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

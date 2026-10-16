@@ -46,6 +46,7 @@ import {
   useChannelLatestValues,
   useSeriesDisplayTimeZone,
 } from '../hooks/useChannelReadings';
+import { useChannelReadingsRealtime } from '../hooks/useChannelReadingsRealtime';
 import { useSensorList } from '../hooks/useSensorList';
 
 const AUTO_REFRESH_MS = 30_000;
@@ -101,6 +102,9 @@ const ReadingsPage: React.FC = () => {
   } = useSensorList();
   const owners = useMemo(() => readingOwners(sensors), [sensors]);
   const ownerIds = useMemo(() => owners.map((sensor) => sensor.id), [owners]);
+  // Values appear the moment a reading is persisted (socket push → targeted
+  // refetch); the poll below stays as the fallback while the socket is down.
+  useChannelReadingsRealtime(ownerIds);
   const latest = useChannelLatestValues(ownerIds, autoRefresh ? AUTO_REFRESH_MS : false);
   // One zone for the page, by the server's rule (the sensors' shared site
   // zone, else the tenant's); the picker waits for it rather than guess.

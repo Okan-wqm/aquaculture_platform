@@ -57,6 +57,11 @@ const DEFAULT_CHART_OPTIONS: Partial<ChartOptions> = {};
 export interface TrendChartProps {
   lines: ChartLine[];
   options?: Partial<ChartOptions>;
+  /**
+   * Tailwind classes for the chart's box. The caller owns the size: pass a
+   * height utility ("h-64", "h-full" inside a definite-height panel, …).
+   * Without one the box has no height to draw into.
+   */
   className?: string;
   /** Pre-fetched series data keyed by tagId — the chart's data contract. */
   customData?: Record<string, HistoricalDataPoint[]>;
@@ -534,11 +539,21 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   /* ---- Render ---- */
 
   return (
-    <div className={`flex flex-col w-full h-full ${className ?? ''}`}>
-      {/* uPlot mount target */}
+    // The root is the caller's box: `className` sizes it (e.g. "h-64" or
+    // "h-full" inside a definite-height panel). It must NOT carry `h-full`
+    // itself — in the compiled Tailwind order `.h-full` lands after any
+    // caller height utility, silently overriding it and leaving the box
+    // content-sized against an auto-height parent.
+    <div className={`relative w-full ${className ?? ''}`}>
+      {/* uPlot mount target. Box-positioned (absolute inset-0), so its
+          contentRect is the assigned box and can never depend on the uPlot
+          root it hosts. A flow-positioned mount made the ResizeObserver read
+          back the chart's own height PLUS the legend and feed that sum in as
+          the next chart height — the chart grew by one legend row per
+          notification, stretching the page downward without end. */}
       <div
         ref={containerRef}
-        className="relative flex-1 min-h-0 overflow-hidden"
+        className="absolute inset-0 overflow-hidden"
         style={{ background: options.colorBackground ?? undefined }}
       >
         {/* Floating tooltip */}

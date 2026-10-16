@@ -3,7 +3,7 @@
  * destination of every tab is spelled once — `?tab=<id>` or `/<id>` under the
  * page's pathname, the id being the value the page itself reads.
  */
-import type { MessageKey } from '@aquaculture/shared-ui';
+import type { MessageKey } from '@platform/shared-ui/i18n/locales/en';
 
 import type { NavTabDef } from '../types';
 

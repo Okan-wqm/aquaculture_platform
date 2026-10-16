@@ -19,8 +19,12 @@
  * resolves these classes through theme.css and suderra.css and holds them to
  * that. The bar also names each segment (`label`), so the series is never
  * told apart by colour alone.
+ *
+ * WHY MessageKey from its declaring module: that invariant imports this file
+ * under a jsx-less project, and the `@aquaculture/shared-ui` barrel would pull
+ * every TSX component in with it (see web/shell/src/console/nav/types.ts).
  */
-import type { MessageKey } from '@aquaculture/shared-ui';
+import type { MessageKey } from '@platform/shared-ui/i18n/locales/en';
 
 export const CREW_LOCATIONS = ['offshore', 'onshore', 'transit', 'leave'] as const;
 export type CrewLocation = (typeof CREW_LOCATIONS)[number];

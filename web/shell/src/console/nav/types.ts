@@ -11,15 +11,20 @@
  * tenant page is reachable from it. Everything under `console/nav` is therefore
  * React-free and imports shared-ui for TYPES only, so the invariant imports the
  * very objects the rail renders.
+ *
+ * WHY the declaring modules and not the `@aquaculture/shared-ui` barrel: even a
+ * type-only import loads the barrel into the importer's program, and the
+ * barrel re-exports every TSX component. The invariant project type-checks
+ * without `jsx` (tests/invariants/tsconfig.spec.json), so a barrel import here
+ * pulls every component into it and fails the project. Each name below comes
+ * from the JSX-free, side-effect-free module that declares it.
  */
 import type { AI_ASSISTANT_USE_CAPABILITY } from '@aquaculture/shared-contracts';
-import type {
-  ConsoleRailIconName,
-  ConsoleWorkspaceId,
-  MessageKey,
-  TENANT_PANEL_CAPABILITIES,
-  UserRole,
-} from '@aquaculture/shared-ui';
+import type { ConsoleRailIconName } from '@platform/shared-ui/components/Layout/console/railIcons';
+import type { ConsoleWorkspaceId } from '@platform/shared-ui/components/Layout/console/railTypes';
+import type { MessageKey } from '@platform/shared-ui/i18n/locales/en';
+import type { UserRole } from '@platform/shared-ui/types';
+import type { TENANT_PANEL_CAPABILITIES } from '@platform/shared-ui/utils/tenant-capabilities';
 
 /**
  * The four console workspaces, in switcher order — declared once by the rail

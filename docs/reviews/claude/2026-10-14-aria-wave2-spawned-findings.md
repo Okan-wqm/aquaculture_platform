@@ -753,6 +753,35 @@ verb can record are listed at the end.
   and an `ArtifactSafetyError` takes the existing `write_failed` path. Owner: the next bucket
   holding `runtime_artifacts.py` (R-NEW-runs-bound) or `R6-transcripts`. Deadline: 2026-10-31.
 
+### INFRA-MEDIUM-222 — the lint quarantine expires on one unmeasured date
+
+- **Wave-2 key:** HL-LINTQ-1 (human-loop design `HL-ops.md` §4.5 and its binding safety review,
+  row 10).
+- **Problem:** all 40 entries of `targets.lint.knownUnstableProjects` in
+  `scripts/ci/affected-target-policy.json` expire on 2026-10-31, a date set without a measurement
+  and owned by the operator. `validateQuarantine` (`write-affected-target-report.mjs:81-93`) refuses
+  the whole file once one entry is past its date, so from 2026-11-01 the lint, test,
+  test:integration, test:contract and test:invariant lanes fail on every PR and main push. No check
+  bounds a lint expiry, counts the lint entries or ties them to measured debt.
+- **Planned fix:** bucket `HL-lint-quarantine` measures each quarantined project with its own lint
+  invocation, per rule, and commits the measurement. A project that measures clean leaves the
+  quarantine. A project with security-class lint (getRepository, JWT_SECRET, the aquaculture tenant
+  rules) is never renewed. The others expire at a bound computed from their debt (at most 90 days),
+  owner claude. The invariant spec checks measurement, bound and anchor, and ratchets the lint
+  count. The policy file gets a CODEOWNERS line. Deadline: 2026-10-30.
+
+### INFRA-HIGH-223 — security lint in a quarantined project is checked only at measurement
+
+- **Raised by:** the `HL-lint-quarantine` fix (ARIA order chain).
+- **Problem:** the affected lint lane moves every quarantined project out of its strict list
+  (`write-affected-target-report.mjs:111`), and `lint:all` excludes the four libraries in
+  `lint-all-exclusions.json` (`lint-all.mjs:37`). The renewal refuses security-class lint, but only
+  at measurement time. A `getRepository` call or `JWT_SECRET` read added to `backend-common`,
+  `event-bus`, `outbox` or `storage` after a measurement passes every lane.
+- **Planned fix:** the affected lint lane runs each quarantined affected project's own lint
+  invocation and fails on any blocking message that `isSecurityClassMessage` classifies as
+  security-class, so a quarantine relaxes only debt-class rules. Deadline: 2026-10-31.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

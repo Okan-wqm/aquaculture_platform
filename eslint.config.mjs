@@ -155,6 +155,16 @@ const RESTRICTED_SYNTAX_MAIN = [
 // 14, lines 282-292) — getRepository + JSON.stringify>2. Verbatim subset.
 const RESTRICTED_SYNTAX_TEST = [RESTRICTED_SYNTAX_MAIN[0], RESTRICTED_SYNTAX_MAIN[1]];
 
+// The no-restricted-syntax messages that are NOT security rules. Every other
+// selector here guards tenant isolation (getRepository) or the RS256 migration
+// (JWT_SECRET), and ESLint reports a selector only by its message, so this
+// list is what scripts/ci/lib/lint-debt.mjs uses to keep security lint out of
+// the lint quarantine: any restricted-syntax message not named here counts as
+// security-class (fail-closed, HL safety review 2026-10-16).
+export const NON_SECURITY_RESTRICTED_SYNTAX_MESSAGES = Object.freeze([
+  RESTRICTED_SYNTAX_MAIN[1].message,
+]);
+
 const RESTRICTED_IMPORTS_PATHS = [
   {
     name: '@aquaculture/backend-common',

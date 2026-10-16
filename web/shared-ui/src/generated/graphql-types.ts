@@ -4603,10 +4603,11 @@ export type DepartmentResponse = {
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['ID']['output']>;
   currentLoad?: Maybe<Scalars['Float']['output']>;
-  departmentManager?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
+  managerName?: Maybe<Scalars['String']['output']>;
+  managerUserId?: Maybe<Scalars['ID']['output']>;
   name: Scalars['String']['output'];
   settings?: Maybe<Scalars['JSON']['output']>;
   site?: Maybe<SiteResponse>;

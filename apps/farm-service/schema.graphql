@@ -467,7 +467,8 @@ type DepartmentResponse {
   capacity: Float
   currentLoad: Float
   settings: JSON
-  departmentManager: String
+  managerUserId: ID
+  managerName: String
   contactEmail: String
   contactPhone: String
   isActive: Boolean!

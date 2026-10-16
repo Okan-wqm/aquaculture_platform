@@ -64,8 +64,9 @@ NATS → gateway-api `sensor-readings.gateway` → Socket.IO `/sensors`).
 **Fix:** `useChannelReadingsRealtime` subscribes the page's sensors and, on each
 push, invalidates the tenant-scoped `channel-latest-values` / `channel-series` /
 `channel-data-bounds` queries (throttled to 2 s so a sonde's multi-channel burst is
-one refetch round). The push is a signal, not a value source — the server stays the SSoT for calibrated values, quality codes and alert levels. The poll intervals
-remain as the socket-outage fallback.
+one refetch round). The push is a signal, not a value source — the server stays
+the SSoT for calibrated values, quality codes and alert levels. The poll
+intervals remain as the socket-outage fallback.
 
 ## Verification
 

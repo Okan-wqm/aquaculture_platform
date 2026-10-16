@@ -1,11 +1,13 @@
 /**
- * PR-6: the multi-parameter card derives one ChartLine per channel (colors,
- * axis grouping, threshold zones) and hands TrendChart custom-mode data.
- * uPlot renders into a stubbed canvas; assertions target the wiring, not pixels.
+ * PR-6 → small multiples: the card renders ONE chart per channel, each
+ * parameter on its own y-axis (time shared on x), colors from the channel or
+ * the design-system chartPalette, threshold bands as value-range zones.
+ * uPlot renders into a stubbed TrendChart; assertions target the wiring, not
+ * pixels.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { colors, I18nProvider } from '@aquaculture/shared-ui';
+import { chartPalette, I18nProvider } from '@aquaculture/shared-ui';
 import type { TimeRangeSpec } from '@aquaculture/shared-contracts';
 
 const seriesMock = vi.fn();
@@ -21,6 +23,8 @@ vi.mock('../TrendChart', () => ({
       data-mode={String(props['mode'])}
       data-timezone={String(props['timeZone'])}
       data-breaks={JSON.stringify(props['breaks'])}
+      data-options={JSON.stringify(props['options'] ?? {})}
+      data-class={String(props['className'])}
     />
   ),
 }));
@@ -50,6 +54,22 @@ function renderCard(
       <MultiParameterTrendCard sensorId="sensor-1" channels={channels} range={RANGE} {...extra} />
     </I18nProvider>,
   );
+}
+
+interface ChartLineJson {
+  label: string;
+  yAxis: number;
+  color: string;
+  zones?: unknown[];
+}
+
+/** The mocked charts on screen, each carrying exactly one line. */
+function chartLines(): ChartLineJson[] {
+  return screen.getAllByTestId('trend-chart').map((chart) => {
+    const lines = JSON.parse(String(chart.getAttribute('data-lines'))) as ChartLineJson[];
+    expect(lines).toHaveLength(1);
+    return lines[0]!;
+  });
 }
 
 function mockSeries(
@@ -101,32 +121,44 @@ describe('MultiParameterTrendCard', () => {
     seriesMock.mockReset();
   });
 
-  it('renders one line per channel with unit-suffixed labels and axis grouping', () => {
+  it('renders one chart per parameter, each on its own y-axis', () => {
     mockSeries();
     renderCard();
 
-    const chart = screen.getByTestId('trend-chart');
-    const lines = JSON.parse(String(chart.getAttribute('data-lines'))) as Array<{
-      label: string;
-      yAxis: number;
-      color: string;
-      zones?: unknown[];
-    }>;
-
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatchObject({ label: 'Su Sıcaklığı (°C)', yAxis: 1, color: '#146f84' });
-    expect(lines[1]).toMatchObject({ yAxis: 2 }); // pH on the secondary axis
-    // Thresholds become warning+critical value zones on the temperature line
+    // Temperature and pH have points → two charts; DO's empty range keeps a
+    // grid cell instead of an empty chart.
+    const charts = screen.getAllByTestId('trend-chart');
+    expect(charts).toHaveLength(2);
+    const lines = chartLines();
+    expect(lines.map((line) => line.label)).toEqual(['Su Sıcaklığı (°C)', 'pH (pH)']);
+    // Own chart → own scale: no axis is shared between units.
+    expect(lines.every((line) => line.yAxis === 1)).toBe(true);
+    expect(lines[0]).toMatchObject({ label: 'Su Sıcaklığı (°C)', color: '#146f84' });
+    // Thresholds become warning+critical value zones on the temperature chart
     expect(lines[0].zones).toHaveLength(2);
     expect(lines[1].zones).toBeUndefined();
+    // The uPlot legend is off: the cell header is the legend.
+    expect(JSON.parse(String(charts[0]!.getAttribute('data-options')))).toEqual({
+      legendMode: 'never',
+    });
   });
 
-  it('falls back to the palette when a channel has no color', () => {
+  it('keeps a labelled cell for a parameter with no points in the range', () => {
+    mockSeries();
+    renderCard();
+
+    expect(screen.getByText(/Çözünmüş Oksijen \(mg\/L\) — Bu aralıkta veri yok\./)).toBeTruthy();
+    expect(screen.getAllByTestId('trend-chart')).toHaveLength(2);
+  });
+
+  it('falls back to the design-system chartPalette when a channel has no color', () => {
     mockSeries();
     renderCard(CHANNELS.slice(1));
 
-    const lines = JSON.parse(String(screen.getByTestId('trend-chart').getAttribute('data-lines')));
-    expect(lines[0].color).toBe(colors.primary[700]); // first palette entry
+    // Only pH has points (DO keeps an empty cell); pH leads the palette.
+    const lines = chartLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.color).toBe(chartPalette[0]);
   });
 
   it('shows the empty state when no series has points', () => {
@@ -146,17 +178,24 @@ describe('MultiParameterTrendCard', () => {
     mockSeries();
     renderCard();
     expect(screen.getByText('15 dakikalık kova · dakika özeti · Europe/Oslo')).toBeTruthy();
-    expect(screen.getByTestId('trend-chart').getAttribute('data-timezone')).toBe('Europe/Oslo');
+    for (const chart of screen.getAllByTestId('trend-chart')) {
+      expect(chart.getAttribute('data-timezone')).toBe('Europe/Oslo');
+    }
   });
 
   it('breaks lines where a channel has no data instead of joining across it', () => {
     mockSeries();
     renderCard();
-    const lines = JSON.parse(String(screen.getByTestId('trend-chart').getAttribute('data-lines')));
-    expect(lines.every((line: { spanGaps: boolean }) => line.spanGaps === false)).toBe(true);
-    expect(lines.every((line: { showIsolatedPoints: boolean }) => line.showIsolatedPoints)).toBe(
-      true,
+    const parsed = screen.getAllByTestId('trend-chart').map(
+      (chart) =>
+        JSON.parse(String(chart.getAttribute('data-lines'))) as Array<{
+          spanGaps: boolean;
+          showIsolatedPoints: boolean;
+        }>,
     );
+    expect(
+      parsed.every(([line]) => line.spanGaps === false && line.showIsolatedPoints === true),
+    ).toBe(true);
   });
 
   it('offers to show the last stored data when the range is empty', () => {
@@ -179,17 +218,19 @@ describe('MultiParameterTrendCard', () => {
     expect(screen.getByText('Saha saat dilimi okunamadı; saatler UTC')).toBeTruthy();
   });
 
-  it('breaks each line at the gaps the server reported for that channel', () => {
+  it('breaks each chart at the gaps the server reported for its channel', () => {
     mockSeries();
     renderCard();
-    const breaks = JSON.parse(
-      String(screen.getByTestId('trend-chart').getAttribute('data-breaks')),
-    );
-    expect(breaks).toEqual({
-      temperature: [Date.parse('1970-01-01T06:00:00.000Z')],
-      ph: [],
-      dissolved_oxygen: [],
-    });
+
+    const byChannel = screen
+      .getAllByTestId('trend-chart')
+      .map(
+        (chart) =>
+          JSON.parse(String(chart.getAttribute('data-breaks'))) as Record<string, number[]>,
+      );
+    // Each chart carries only its own channel's gaps.
+    expect(byChannel[0]).toEqual({ temperature: [Date.parse('1970-01-01T06:00:00.000Z')] });
+    expect(byChannel[1]).toEqual({ ph: [] });
   });
 
   it('never says "no data" before the answer for the range has arrived', () => {

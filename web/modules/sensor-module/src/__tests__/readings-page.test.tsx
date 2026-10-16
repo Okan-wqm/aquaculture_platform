@@ -84,6 +84,11 @@ vi.mock('../hooks/useChannelReadings', () => ({
     ]),
 }));
 vi.mock('../components/charts/TrendChart', () => ({ TrendChart: () => null }));
+vi.mock('../hooks/useChannelReadingsRealtime', () => ({
+  // The socket layer is exercised by its own tests; the page only needs the
+  // hook to exist and not reach for a QueryClient provider.
+  useChannelReadingsRealtime: vi.fn(() => false),
+}));
 
 import ReadingsPage from '../pages/ReadingsPage';
 

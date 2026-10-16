@@ -78,7 +78,7 @@ hex = "0.4"
 sha2 = "0.11"
 hmac = "0.13"
 
-async-nats = "0.49"
+async-nats = "0.50"
 rustls = "0.23"
 # RUST-CVE-001: rustls-pemfile (unmaintained, RUSTSEC-2025-0134) replaced by
 # rustls-pki-types' first-party PEM decoding ("std" gates the slice/reader API).

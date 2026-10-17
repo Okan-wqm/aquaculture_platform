@@ -30,6 +30,7 @@ const WeeklySchedulePage = lazy(() => import('./pages/scheduling/WeeklyScheduleP
 const TeamOverviewPage = lazy(() => import('./pages/scheduling/TeamOverviewPage'));
 const SchedulingSettingsPage = lazy(() => import('./pages/scheduling/SchedulingSettingsPage'));
 const HRFinancePage = lazy(() => import('./pages/finance/HRFinancePage'));
+const TodayPage = lazy(() => import('./pages/today/TodayPage'));
 
 // Loading fallback
 function PageLoader() {
@@ -67,6 +68,9 @@ const HRModule: React.FC = () => {
           {/* Dashboard */}
           <Route index element={<HRDashboardPage />} />
           <Route path="dashboard" element={<HRDashboardPage />} />
+
+          {/* Today: who is on shift, late or absent, open leave, sites with no responsible person */}
+          <Route path="today" element={<TodayPage />} />
 
           {/* Employees - Use modernized page */}
           <Route path="employees" element={<EmployeesListPage />} />

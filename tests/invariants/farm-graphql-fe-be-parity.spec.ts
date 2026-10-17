@@ -54,6 +54,12 @@ const CROSS_SUBGRAPH_FIELDS: Record<string, string> = {
   // The water-chemistry bind dialog lists a sensor's channels with what each
   // measures (FARM-HIGH-384; a farm-side bindableChannels is FARM-MEDIUM-385).
   dataChannelsBySensor: 'sensor-service',
+  // apps/sensor-service/src/process/resolvers/process.resolver.ts
+  // (`@Query(() => ProcessListType, { name: 'processes' })`, tenant-scoped).
+  // The facility structure page lists the process diagrams a site, department
+  // or piece of equipment takes part in
+  // (web/modules/farm-module/src/graphql/processFlows.operations.ts).
+  processes: 'sensor-service',
 };
 
 interface FrontendRootField {

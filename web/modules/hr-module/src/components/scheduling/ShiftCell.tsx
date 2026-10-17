@@ -31,31 +31,31 @@ const entryTypeConfig: Record<
   WeeklyPlanEntryType,
   { label: string; icon: React.ElementType; bgClass: string; textClass: string }
 > = {
-  work: {
+  WORK: {
     label: 'Mesai',
     icon: Calendar,
     bgClass: 'bg-info-100 dark:bg-info-900/40',
     textClass: 'text-info-800 dark:text-info-200',
   },
-  off: {
+  OFF: {
     label: 'Tatil',
     icon: Coffee,
     bgClass: 'bg-gray-100 dark:bg-gray-800',
     textClass: 'text-gray-600 dark:text-gray-400',
   },
-  leave: {
+  LEAVE: {
     label: 'Izin',
     icon: Umbrella,
     bgClass: 'bg-success-100 dark:bg-success-900/40',
     textClass: 'text-success-800 dark:text-success-200',
   },
-  holiday: {
+  HOLIDAY: {
     label: 'Resmi',
     icon: Calendar,
     bgClass: 'bg-accent-100 dark:bg-accent-900/40',
     textClass: 'text-accent-800 dark:text-accent-200',
   },
-  training: {
+  TRAINING: {
     label: 'Egitim',
     icon: GraduationCap,
     bgClass: 'bg-warning-100 dark:bg-warning-900/40',
@@ -141,9 +141,9 @@ export function ShiftCell({
 
     if (!entry) {
       parts.push('bos hucre');
-    } else if (entry.isOffDay || entry.entryType === 'off') {
+    } else if (entry.isOffDay || entry.entryType === 'OFF') {
       parts.push('Tatil');
-    } else if (entry.isLeaveDay || entry.entryType === 'leave') {
+    } else if (entry.isLeaveDay || entry.entryType === 'LEAVE') {
       parts.push('Izin');
     } else if (entry.shift) {
       parts.push(`${entry.shift.code} vardiyasi`);
@@ -207,7 +207,7 @@ export function ShiftCell({
   const Icon = config.icon;
 
   // Off day cell
-  if (entry.isOffDay || entry.entryType === 'off') {
+  if (entry.isOffDay || entry.entryType === 'OFF') {
     return (
       <div
         {...keyboardProps}
@@ -235,13 +235,13 @@ export function ShiftCell({
   }
 
   // Leave day cell
-  if (entry.isLeaveDay || entry.entryType === 'leave') {
+  if (entry.isLeaveDay || entry.entryType === 'LEAVE') {
     return (
       <div
         {...keyboardProps}
         className={cn(
           'h-full min-h-[48px] rounded-md p-1.5',
-          entryTypeConfig.leave.bgClass,
+          entryTypeConfig.LEAVE.bgClass,
           isEditable && 'cursor-pointer hover:opacity-80',
           isEditable &&
             'focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-1',
@@ -255,9 +255,9 @@ export function ShiftCell({
         onDrop={handleDrop}
       >
         <div className="flex flex-col items-center justify-center h-full">
-          <Umbrella className={cn('h-4 w-4', entryTypeConfig.leave.textClass)} aria-hidden="true" />
+          <Umbrella className={cn('h-4 w-4', entryTypeConfig.LEAVE.textClass)} aria-hidden="true" />
           {!compact && (
-            <span className={cn('text-xs mt-0.5', entryTypeConfig.leave.textClass)}>Izin</span>
+            <span className={cn('text-xs mt-0.5', entryTypeConfig.LEAVE.textClass)}>Izin</span>
           )}
         </div>
       </div>

@@ -110,6 +110,13 @@ vi.mock('../pages/TenantBillingPage', () => ({
 vi.mock('../pages/TenantActivityPage', () => ({
   default: () => React.createElement('div', null, 'Activity'),
 }));
+vi.mock('../pages/PlatformArchitecturePage', () => ({
+  default: () => React.createElement('div', { 'data-testid': 'tenant-architecture' }, 'Architecture'),
+}));
+vi.mock('../pages/ArchitectureReviewPage', () => ({
+  default: () =>
+    React.createElement('div', { 'data-testid': 'tenant-architecture-review' }, 'Architecture review'),
+}));
 
 // Import after mocks
 import TenantAdminModule from '../Module';
@@ -185,6 +192,22 @@ describe('Tenant-admin route guards (SEC-007 + MT-HIGH-060)', () => {
       });
     });
 
+    it('should render the platform architecture document for TENANT_ADMIN', async () => {
+      mockUser = { id: 'u1', email: 'a@t.com', role: 'TENANT_ADMIN' };
+      renderModule('/tenant/architecture');
+      await waitFor(() => {
+        expect(screen.getByTestId('tenant-architecture')).toBeInTheDocument();
+      });
+    });
+
+    it('should render the architecture review for TENANT_ADMIN', async () => {
+      mockUser = { id: 'u1', email: 'a@t.com', role: 'TENANT_ADMIN' };
+      renderModule('/tenant/architecture/review');
+      await waitFor(() => {
+        expect(screen.getByTestId('tenant-architecture-review')).toBeInTheDocument();
+      });
+    });
+
     it('should check hasRoleOrHigher with TENANT_ADMIN', async () => {
       mockUser = { id: 'u1', email: 'a@t.com', role: 'TENANT_ADMIN' };
       renderModule('/tenant');
@@ -244,6 +267,15 @@ describe('Tenant-admin route guards (SEC-007 + MT-HIGH-060)', () => {
       await waitFor(() => {
         expect(screen.getByTestId('unauthorized-page')).toBeInTheDocument();
       });
+    });
+
+    it('redirects a users:view delegate away from the admin-only architecture pages', async () => {
+      mockUser = { id: 'u3', email: 'd@t.com', role: 'MODULE_USER', resourcePermissions: ['users:view'] };
+      renderModule('/tenant/architecture/review');
+      await waitFor(() => {
+        expect(screen.getByTestId('unauthorized-page')).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('tenant-architecture-review')).not.toBeInTheDocument();
     });
 
     it('redirects a users:view delegate away from a non-granted delegatable page (/tenant/roles)', async () => {

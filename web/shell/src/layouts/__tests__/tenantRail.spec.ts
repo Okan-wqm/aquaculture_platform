@@ -31,6 +31,10 @@ const adminEntries: NavigationItem[] = [
   entry('tenant-audit-log'),
   entry('tenant-billing'),
   entry('tenant-activity'),
+  entry('tenant-platform', {
+    path: undefined,
+    children: [entry('tenant-architecture'), entry('tenant-architecture-review')],
+  }),
   entry('tenant-settings'),
   entry('tenant-devices'),
 ];
@@ -75,6 +79,24 @@ describe('buildTenantRailSections', () => {
       'tenant-audit-log',
       'tenant-billing',
       'tenant-settings',
+      'tenant-platform',
+    ]);
+  });
+
+  it('keeps the platform documents as one Platform group closing the Account section', () => {
+    const sections = buildTenantRailSections({
+      entries: adminEntries,
+      modules: [],
+      isTenantAdmin: true,
+      t,
+    });
+    const account = sections.find((section) => section.id === 'sec-account');
+    const platform = account?.items.slice(-1)[0];
+    expect(platform?.id).toBe('tenant-platform');
+    expect(platform?.icon).toBe('network');
+    expect(platform?.children?.map((child) => [child.id, child.icon])).toEqual([
+      ['tenant-architecture', 'workflow'],
+      ['tenant-architecture-review', 'checks'],
     ]);
   });
 

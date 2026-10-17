@@ -18,7 +18,8 @@ import { ConsumablesTab } from './tabs/ConsumablesTab';
 import { FishHealthChemicalsTab } from './tabs/FishHealthChemicalsTab';
 import { FeedsTab } from './tabs/FeedsTab';
 import { WorkersTab } from './tabs/WorkersTab';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { FacilityStructureTab } from './structure/FacilityStructureTab';
+import { PageHeader, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import {
   Box,
   Building2,
@@ -27,6 +28,7 @@ import {
   Heart,
   Layers,
   LayoutGrid,
+  ListTree,
   Settings,
   Upload,
   Users,
@@ -35,6 +37,12 @@ import {
 interface SetupTab {
   id: string;
   label: string;
+  /**
+   * Message key of the tab label. A tab that has one is labelled in the
+   * user's language; the English `label` is read only for tabs whose labels
+   * are not yet message keys.
+   */
+  labelKey?: MessageKey;
   path: string;
   icon: React.ReactNode;
   description: string;
@@ -68,6 +76,14 @@ const setupTabs: SetupTab[] = [
     path: 'equipment',
     icon: <Settings className="w-5 h-5" aria-hidden="true" />,
     description: 'Manage tanks, pumps, and other equipment',
+  },
+  {
+    id: 'structure',
+    label: 'Facility structure',
+    labelKey: 'nav.facilityStructure',
+    path: 'structure',
+    icon: <ListTree className="w-5 h-5" aria-hidden="true" />,
+    description: 'Location tree of sites, departments, systems and equipment',
   },
   {
     id: 'species',
@@ -128,6 +144,7 @@ const setupTabs: SetupTab[] = [
 ];
 
 export const SetupPage: React.FC = () => {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -203,7 +220,7 @@ export const SetupPage: React.FC = () => {
                 >
                   {tab.icon}
                 </span>
-                {tab.label}
+                {tab.labelKey ? t(tab.labelKey) : tab.label}
               </button>
             ))}
           </nav>
@@ -218,6 +235,7 @@ export const SetupPage: React.FC = () => {
           <Route path="departments" element={<DepartmentsTab />} />
           <Route path="systems" element={<SystemsTab />} />
           <Route path="equipment" element={<EquipmentTab />} />
+          <Route path="structure" element={<FacilityStructureTab />} />
           <Route path="species" element={<SpeciesTab />} />
           <Route path="suppliers" element={<SuppliersTab />} />
           <Route path="slaughter-facilities" element={<SlaughterFacilitiesTab />} />

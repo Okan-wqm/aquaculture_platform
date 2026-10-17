@@ -71,19 +71,19 @@ const NO_SHIFTS: readonly Shift[] = [];
 function weekdayOf(date: Date): WeekDay {
   switch (date.getDay()) {
     case 0:
-      return 'sunday';
+      return 'SUNDAY';
     case 1:
-      return 'monday';
+      return 'MONDAY';
     case 2:
-      return 'tuesday';
+      return 'TUESDAY';
     case 3:
-      return 'wednesday';
+      return 'WEDNESDAY';
     case 4:
-      return 'thursday';
+      return 'THURSDAY';
     case 5:
-      return 'friday';
+      return 'FRIDAY';
     default:
-      return 'saturday';
+      return 'SATURDAY';
   }
 }
 
@@ -127,7 +127,7 @@ function isWeekend(date: Date): boolean {
 }
 
 function isWorkingEntry(entry: DayEntry): boolean {
-  return entry.entryType === 'work' || entry.entryType === 'training';
+  return entry.entryType === 'WORK' || entry.entryType === 'TRAINING';
 }
 
 function timeRange(start: string, end: string): string {
@@ -168,11 +168,13 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
       </span>
     );
   }
-  if (cell.plan.weeklyPlanId === undefined) {
+  // An employee with no plan this week arrives with weeklyPlanId: null (and
+  // OFF filler days); the cell is empty until a shift is assigned.
+  if (cell.plan.weeklyPlanId == null) {
     return <span className={cn(faceShell, size, 'text-gray-300 dark:text-gray-600')}>·</span>;
   }
   switch (cell.entry.entryType) {
-    case 'off':
+    case 'OFF':
       return (
         <span
           className={cn(
@@ -186,7 +188,7 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
           {!compact && 'Tatil'}
         </span>
       );
-    case 'leave':
+    case 'LEAVE':
       return (
         <span
           className={cn(
@@ -200,7 +202,7 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
           {!compact && 'İzin'}
         </span>
       );
-    case 'holiday':
+    case 'HOLIDAY':
       return (
         <span
           className={cn(
@@ -213,8 +215,8 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
           {compact ? 'RT' : 'Resmi tatil'}
         </span>
       );
-    case 'work':
-    case 'training': {
+    case 'WORK':
+    case 'TRAINING': {
       const title =
         shift === undefined
           ? (cell.entry.shiftName ?? 'Vardiya atanmadı')
@@ -301,7 +303,7 @@ export function WeeklySchedulePage(): React.JSX.Element {
           seen.set(plan.employeeId, {
             employeeId: plan.employeeId,
             employeeName: plan.employeeName,
-            position: plan.position,
+            position: plan.position ?? undefined,
           });
         }
       }
@@ -406,9 +408,7 @@ export function WeeklySchedulePage(): React.JSX.Element {
       weekOverview === undefined
         ? []
         : weekOverview.employeePlans.flatMap((plan) =>
-            plan.weeklyPlanId !== undefined && plan.planStatus === 'draft'
-              ? [plan.weeklyPlanId]
-              : [],
+            plan.weeklyPlanId != null && plan.planStatus === 'draft' ? [plan.weeklyPlanId] : [],
           ),
     [weekOverview],
   );
@@ -448,13 +448,12 @@ export function WeeklySchedulePage(): React.JSX.Element {
       pending !== undefined &&
       pending.employeeId === employee.employeeId &&
       pending.date === dateStr;
-    const shift =
-      cell.entry.shiftCode === undefined ? undefined : shiftByCode.get(cell.entry.shiftCode);
+    const shift = cell.entry.shiftCode == null ? undefined : shiftByCode.get(cell.entry.shiftCode);
     const face = <CellFace cell={cell} shift={shift} compact={compact} saving={saving} />;
     const locked =
       cell.plan.planStatus === 'published' ||
-      cell.entry.entryType === 'leave' ||
-      cell.entry.entryType === 'holiday';
+      cell.entry.entryType === 'LEAVE' ||
+      cell.entry.entryType === 'HOLIDAY';
     if (locked) {
       return (
         <td key={dateStr} className={tdClass}>
@@ -467,7 +466,9 @@ export function WeeklySchedulePage(): React.JSX.Element {
       assign.mutate({
         employeeId: employee.employeeId,
         weekStartDate: cell.weekStart,
-        weeklyPlanId: cell.plan.weeklyPlanId,
+        // No plan yet (null on the wire) → undefined, which makes the assign
+        // mutation create the week's plan before assigning the shift.
+        weeklyPlanId: cell.plan.weeklyPlanId ?? undefined,
         date: dateStr,
         shiftId,
       });

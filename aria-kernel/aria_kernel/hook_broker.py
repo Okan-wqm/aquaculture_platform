@@ -48,7 +48,7 @@ import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from .hook_client import EXIT_ALLOW, EXIT_BLOCK, HOOK_BROKER_SOCKET_ENV, HOOK_VERBS
 from .socket_holders import HOOK_BROKER as _SOCKET_HOLDER

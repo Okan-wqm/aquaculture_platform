@@ -52,7 +52,6 @@ from typing import Any, Literal, Mapping
 
 from .autonomy_evidence import (
     CAPABILITY_SPECS,
-    _FULL_SHA,
     _git_text,
     _git_tree_entry,
     _operator_policy_shape,
@@ -62,6 +61,7 @@ from .autonomy_evidence import (
     _run_git,
     derive_autonomy_evidence_status,
 )
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 
 CLOSURE_REPORT_PATH = "docs/aria/ARIA_AUTONOMY_CLOSURE_EVIDENCE.md"
 # The closure plan's PR C: the report, the current-state boundary and the
@@ -176,7 +176,7 @@ def derive_autonomy_closure_verdict(
 
 
 def _is_commit(repo: Path, sha: str) -> bool:
-    if not isinstance(sha, str) or _FULL_SHA.fullmatch(sha) is None:
+    if not isinstance(sha, str) or not is_object_id(sha, formats=ANY_OBJECT_FORMAT):
         return False
     returncode, resolved = _git_text(repo, "rev-parse", "--verify", f"{sha}^{{commit}}")
     return returncode == 0 and resolved == sha
@@ -191,7 +191,7 @@ def _report_commit_is_main_tip(repo: Path, report: str, report_ok: bool) -> Clos
     if not report_ok:
         return ClosurePredicate(name, False, ("report_commit_unavailable",))
     returncode, tip = _git_text(repo, "rev-parse", "--verify", f"{MAIN_REF}^{{commit}}")
-    if returncode != 0 or _FULL_SHA.fullmatch(tip) is None:
+    if returncode != 0 or not is_object_id(tip, formats=ANY_OBJECT_FORMAT):
         return ClosurePredicate(name, False, ("main_ref_unavailable",))
     if tip != report:
         return ClosurePredicate(name, False, (f"report_commit_is_not_main_tip:{tip}",))
@@ -265,7 +265,7 @@ def _report_payload_binds_evidence_target(
     if payload.get(PAYLOAD_DIGEST_FIELD) != canonical_payload_digest(payload):
         reasons.append("closure_payload_digest_mismatch")
     tip = payload.get("state_evidence_tip")
-    if not isinstance(tip, str) or _FULL_SHA.fullmatch(tip) is None:
+    if not isinstance(tip, str) or not is_object_id(tip, formats=ANY_OBJECT_FORMAT):
         reasons.append("closure_payload_state_evidence_tip_invalid")
     if reasons:
         return ClosurePredicate(name, False, tuple(reasons)), None
@@ -462,7 +462,7 @@ def _state_tip_reaches(base_dir: str | Path, repo: Path, tip: str, derived_tip: 
     from .tool_registry import ensure_tools_dir_readonly
 
     tools = ensure_tools_dir_readonly(base_dir)
-    if tools is None or _FULL_SHA.fullmatch(tip) is None:
+    if tools is None or not is_object_id(tip, formats=ANY_OBJECT_FORMAT):
         return False
     try:
         store = open_state_store(repo, store_dir=tools.parent)

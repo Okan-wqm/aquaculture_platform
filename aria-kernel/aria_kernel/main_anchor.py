@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -370,7 +371,7 @@ def messages_naming(repo_root: str | Path, *, commit: str, key: str) -> tuple[st
     each message. ``log.showSignature`` and friends cannot change the output:
     the format is explicit and signatures are switched off.
     """
-    if _SHA_RE.fullmatch(commit or "") is None or _MESSAGE_KEY_RE.fullmatch(key or "") is None:
+    if not is_object_id(commit or "", formats=ANY_OBJECT_FORMAT) or _MESSAGE_KEY_RE.fullmatch(key or "") is None:
         return None
     if _declares_alternates(repo_root) is not False or _resolve_commit(repo_root, commit) != commit:
         return None

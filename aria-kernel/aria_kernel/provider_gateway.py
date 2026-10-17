@@ -10,15 +10,19 @@ socket bound into the room, speaks plain HTTP/1.1 there, and for each
 request:
 
 1. reads the head under a size cap and refuses request-smuggling shapes by
-   name — ``Transfer-Encoding`` on a request, a missing, duplicate or
-   malformed ``Content-Length``, an absolute-form target, a folded header;
+   name — a control character anywhere in the head (a bare LF or CR is a
+   line end to some parsers), ``Transfer-Encoding`` on a request, a missing,
+   duplicate or malformed ``Content-Length``, an absolute-form target, a
+   folded header;
 2. forwards only the route's pinned ``(method, path)`` pairs with a pinned
    query; everything else (``/v1/files``, batches, the OAuth endpoints, a
    ``CONNECT``) is refused ``request_not_pinned`` before any upstream;
-3. refuses the body features that make the provider fetch something on the
+3. parses the body strictly — UTF-8, no duplicate key, no ``NaN`` — and
+   refuses the features that make the provider fetch something on the
    room's behalf: ``mcp_servers``, ``container``, a tool whose ``type`` is
    not a client tool's, a content ``source`` that is a URL or a file, a file
-   reference anywhere;
+   reference anywhere. What goes upstream is that checked document,
+   serialized by the gateway: no two parsers can read two documents;
 4. drops every credential and hop-by-hop header the room sent, injects the
    kernel's credential (read per request from ``provider_credentials``) and
    the beta it needs, and forwards over TLS to the pinned upstream with
@@ -26,8 +30,12 @@ request:
 5. streams the response back unchanged except for ``Connection: close`` —
    one request per connection.
 
-A missing or loose credential is answered 503 by name without contacting the
-upstream. One JSON decision line per request goes to the kernel's stderr:
+A missing or loose credential is answered by name without contacting the
+upstream, as the provider's own ``authentication_error`` (401): the client
+fails at once and the kernel's classifier names a credential fact, where a
+503 would be retried for minutes and then read as an outage. Every refusal
+carries the provider's error shape with ``gateway_refused:<reason>`` as its
+message. One JSON decision line per request goes to the kernel's stderr:
 the verdict, the reason, the method and path, sizes, whether the room
 presented a credential, the credential's source and the upstream status —
 never a header or body value.
@@ -47,7 +55,6 @@ import time
 from typing import Any, Awaitable, Callable, Mapping
 
 from .provider_credentials import (
-    KERNEL_CHECKOUT_ROOT,
     ProviderCredential,
     ProviderCredentialUnavailable,
     read_provider_credential,
@@ -77,7 +84,15 @@ CLIENT_TOOL_TYPES = frozenset({"custom"})
 # `file` make it fetch an attacker URL or an uploaded file.
 INLINE_SOURCE_TYPES = frozenset({"base64", "text", "content"})
 REFUSED_BODY_FIELDS = ("mcp_servers", "container")
-_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_TOKEN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+# Every C0 control and DEL. Only a header VALUE may carry a tab (RFC 9110
+# 5.5); anything else would be bytes the upstream reads differently from us.
+_HEAD_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_VALUE_CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+# The provider's error type for each refusal status (its error shape).
+_ERROR_TYPES = {"400": "invalid_request_error", "401": "authentication_error", "403": "permission_error",
+                "411": "invalid_request_error", "413": "request_too_large", "431": "invalid_request_error",
+                "502": "api_error", "503": "api_error"}
 
 Opener = Callable[[str, int], Awaitable[tuple[asyncio.StreamReader, asyncio.StreamWriter]]]
 CredentialSource = Callable[[], ProviderCredential]
@@ -106,9 +121,9 @@ async def open_tls_upstream(host: str, port: int) -> tuple[asyncio.StreamReader,
 
 
 def kernel_credential(route: ProviderRoute, environ: Mapping[str, str] | None = None) -> CredentialSource:
-    """The route's credential, re-read from the kernel's boundary on every request."""
-    return lambda: read_provider_credential(route.key, os.environ if environ is None else environ,
-                                            room_trees=(KERNEL_CHECKOUT_ROOT,))
+    """The route's credential, re-read from the kernel's boundary on every request
+    (which refuses a file in any tree a room is given, the checkout among them)."""
+    return lambda: read_provider_credential(route.key, os.environ if environ is None else environ)
 
 
 def refuse_body_reason(document: Any) -> str | None:
@@ -154,24 +169,72 @@ def _content_reason(node: Any) -> str | None:
 
 
 def _parse_head(head: bytes) -> tuple[str, str, list[tuple[str, str]]]:
-    """(method, target, headers) of a request head, or a refusal by name."""
+    """(method, target, headers) of a request head, or a refusal by name.
+
+    Every byte returned has been validated: a request line and header names
+    with no control character at all, header values with none but a tab.
+    The upstream head is built from these alone, so the room cannot write a
+    line, or a second request, into it."""
     try:
         text = head.decode("ascii")
     except UnicodeDecodeError:
         raise Refusal("400 Bad Request", "head_not_ascii") from None
     lines = text[:-4].split("\r\n")
+    if _HEAD_CONTROL.search(lines[0]):
+        raise Refusal("400 Bad Request", "head_control_character")
     parts = lines[0].split(" ")
-    if len(parts) != 3 or parts[2] not in ("HTTP/1.1", "HTTP/1.0") or not _TOKEN.match(parts[0]):
+    if len(parts) != 3 or parts[2] not in ("HTTP/1.1", "HTTP/1.0") or not _TOKEN.fullmatch(parts[0]):
         raise Refusal("400 Bad Request", "request_line_malformed")
     headers: list[tuple[str, str]] = []
     for line in lines[1:]:
         name, sep, value = line.partition(":")
-        if not sep or not _TOKEN.match(name):
+        if _HEAD_CONTROL.search(name) or _VALUE_CONTROL.search(value):
+            raise Refusal("400 Bad Request", "head_control_character")
+        if not sep or not _TOKEN.fullmatch(name):
             # A folded continuation (leading whitespace) or a name with
             # whitespace before the colon: two parsers could read it two ways.
             raise Refusal("400 Bad Request", "header_malformed")
         headers.append((name.lower(), value.strip(" \t")))
     return parts[0], parts[1], headers
+
+
+def _refuse_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    document = dict(pairs)
+    if len(document) != len(pairs):
+        raise Refusal("400 Bad Request", "body_duplicate_key")
+    return document
+
+
+def _refuse_constant(name: str) -> Any:
+    raise Refusal("400 Bad Request", "body_not_json")
+
+
+def checked_body(body: bytes) -> bytes:
+    """The bytes to forward for ``body``: the gateway's own serialization of
+    the one document it checked, or a refusal by name.
+
+    A duplicate key is read last-wins here and may be read first-wins by the
+    provider; a UTF-16 body is accepted by ``json.loads(bytes)``. Either way
+    the check would judge one document and the provider read another. The
+    body is decoded as UTF-8 only, a duplicate key or a non-JSON constant is
+    refused, and what goes upstream is re-serialized from the checked
+    document — the room's bytes never reach the provider."""
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refusal("400 Bad Request", "body_not_utf8") from None
+    try:
+        document = json.loads(text, object_pairs_hook=_refuse_duplicate_keys, parse_constant=_refuse_constant)
+    except ValueError:
+        raise Refusal("400 Bad Request", "body_not_json") from None
+    reason = refuse_body_reason(document)
+    if reason:
+        raise Refusal("403 Forbidden", reason)
+    try:
+        return json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    except UnicodeEncodeError:
+        # A lone surrogate escape (`"\\ud800"`): no UTF-8 spelling exists.
+        raise Refusal("400 Bad Request", "body_not_utf8") from None
 
 
 def _body_length(headers: list[tuple[str, str]]) -> int:
@@ -231,9 +294,11 @@ class ProviderGateway:
 
     async def _refuse(self, writer: asyncio.StreamWriter, refusal: Refusal, **fields: object) -> None:
         self.decide(verdict="refused", route=self.route.key, reason=refusal.reason, **fields)
-        body = f"gateway_refused:{refusal.reason}\n".encode()
-        writer.write(f"HTTP/1.1 {refusal.status}\r\ncontent-type: text/plain\r\ncontent-length: {len(body)}\r\n"
-                     f"connection: close\r\n\r\n".encode() + body)
+        body = json.dumps({"type": "error", "error": {
+            "type": _ERROR_TYPES[refusal.status.split(" ", 1)[0]],
+            "message": f"gateway_refused:{refusal.reason}"}}).encode()
+        writer.write(f"HTTP/1.1 {refusal.status}\r\ncontent-type: application/json\r\n"
+                     f"content-length: {len(body)}\r\nconnection: close\r\n\r\n".encode() + body)
         try:
             await writer.drain()
         except ConnectionError:
@@ -273,17 +338,11 @@ class ProviderGateway:
             length = _body_length(headers)
             body = await asyncio.wait_for(reader.readexactly(length), timeout=BODY_TIMEOUT_SECONDS)
             fields["body_bytes"] = length
-            try:
-                document = json.loads(body)
-            except ValueError:
-                raise Refusal("400 Bad Request", "body_not_json") from None
-            reason = refuse_body_reason(document)
-            if reason:
-                raise Refusal("403 Forbidden", reason)
+            body = checked_body(body)
             try:
                 credential = self.credential()
             except ProviderCredentialUnavailable as exc:
-                raise Refusal("503 Service Unavailable", f"provider_credential_unavailable:{exc.reason}") from None
+                raise Refusal("401 Unauthorized", f"provider_credential_unavailable:{exc.reason}") from None
             fields["credential_source"] = f"kernel_{credential.source}"
         except Refusal as refusal:
             await self._refuse(writer, refusal, **fields)
@@ -351,6 +410,6 @@ async def _stream(upstream: asyncio.StreamReader, writer: asyncio.StreamWriter, 
 
 __all__ = [
     "CLIENT_TOOL_TYPES", "HOP_BY_HOP_HEADERS", "INLINE_SOURCE_TYPES", "MAX_BODY_BYTES", "MAX_HEAD_BYTES",
-    "ProviderGateway", "REFUSED_BODY_FIELDS", "ROOM_CREDENTIAL_HEADERS", "Refusal", "kernel_credential",
+    "ProviderGateway", "REFUSED_BODY_FIELDS", "ROOM_CREDENTIAL_HEADERS", "Refusal", "checked_body", "kernel_credential",
     "open_tls_upstream", "refuse_body_reason", "write_decision",
 ]

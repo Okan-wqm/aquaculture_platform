@@ -173,7 +173,7 @@ class TheGatewayPinsItsRequests(unittest.TestCase):
                                                                "data": "x"}}]}]}).encode()
         answer, h = _exchange(_request("POST", "/v1/messages", body))
         self.assertTrue(answer.startswith(b"HTTP/1.1 200"), answer)
-        self.assertTrue(h.upstream.requests[0].endswith(body))
+        self.assertEqual(json.loads(h.upstream.requests[0].split(b"\r\n\r\n", 1)[1]), json.loads(body))
 
     def test_request_framing_is_refused(self) -> None:
         self.assert_refused(_request("POST", "/v1/messages", headers=("transfer-encoding: chunked",)), b"400",
@@ -193,6 +193,60 @@ class TheGatewayPinsItsRequests(unittest.TestCase):
                             b"431", "head_too_large")
         with mock.patch.object(gw, "MAX_BODY_BYTES", 16):
             self.assert_refused(_request("POST", "/v1/messages"), b"413", "body_too_large")
+
+    def test_a_control_character_in_the_head_is_refused(self) -> None:
+        # A bare LF or CR is a line end to some HTTP parsers (RFC 9112 2.2):
+        # forwarded, it would let the room write header lines, or a second
+        # request, next to the kernel's credential. The gateway emits no byte
+        # it did not validate, so each is refused before any upstream.
+        cases = {
+            "lf_in_value": ("x-a: b\nauthorization: Bearer " + ROOM_TOKEN,),
+            "cr_in_value": ("x-a: b\rauthorization: Bearer " + ROOM_TOKEN,),
+            "nul_in_value": ("x-a: b\x00c",),
+            "del_in_value": ("x-a: b\x7fc",),
+            "lf_after_name": ("authorization\n: Bearer " + ROOM_TOKEN,),
+            "cr_in_name": ("x-a\rb: c",),
+            "smuggled_request": ("x-a: b\n\nPOST /v1/files HTTP/1.1\nhost: api.anthropic.com",),
+        }
+        for case, headers in cases.items():
+            with self.subTest(case=case):
+                self.assert_refused(_request("POST", "/v1/messages", headers=headers), b"400",
+                                    "head_control_character")
+        for case, target in (("lf_in_target", "/v1/messages\n"), ("nul_in_method", "/v1/messages")):
+            raw = _request("POST", target)
+            if case == "nul_in_method":
+                raw = raw.replace(b"POST", b"PO\x00ST", 1)
+            with self.subTest(case=case):
+                self.assert_refused(raw, b"400", "head_control_character")
+        # A tab is the one control character a header value may carry.
+        answer, h = _exchange(_request("POST", "/v1/messages", headers=("x-a: b\tc",)))
+        self.assertTrue(answer.startswith(b"HTTP/1.1 200"), answer)
+        self.assertIn(b"\r\nx-a: b\tc\r\n", h.upstream.requests[0])
+
+    def test_the_body_forwarded_is_the_body_checked(self) -> None:
+        # Parsers disagree on a duplicate key (last wins here; another may
+        # keep the first) and on a non-UTF-8 encoding: the check would judge
+        # one document and the provider read another.
+        server_tool_then_none = (b'{"model":"m","max_tokens":5,"messages":[],'
+                                 b'"tools":[{"type":"web_fetch_20250910","name":"f"}],"tools":[]}')
+        tool_type_twice = (b'{"model":"m","max_tokens":5,"messages":[],'
+                           b'"tools":[{"type":"web_search_20250305","type":"custom","name":"s"}]}')
+        for case, body in (("dup_tools", server_tool_then_none), ("dup_tool_type", tool_type_twice)):
+            with self.subTest(case=case):
+                self.assert_refused(_request("POST", "/v1/messages", body), b"400", "body_duplicate_key")
+        self.assert_refused(_request("POST", "/v1/messages", MESSAGES_BODY.decode().encode("utf-16")), b"400",
+                            "body_not_utf8")
+        self.assert_refused(_request("POST", "/v1/messages", b'{"model":"m","max_tokens":NaN,"messages":[]}'),
+                            b"400", "body_not_json")
+        # What is admitted goes upstream as the checked document, serialized
+        # by the gateway: no byte of the room's encoding survives.
+        spaced = b'{ "model" : "m",\n "max_tokens" : 5, "messages" : [ {"role":"user","content":"\\u00e7a"} ] }'
+        answer, h = _exchange(_request("POST", "/v1/messages", spaced))
+        self.assertTrue(answer.startswith(b"HTTP/1.1 200"), answer)
+        head, forwarded = h.upstream.requests[0].split(b"\r\n\r\n", 1)
+        self.assertEqual(forwarded, json.dumps(json.loads(spaced), ensure_ascii=False,
+                                               separators=(",", ":")).encode("utf-8"))
+        self.assertIn(f"content-length: {len(forwarded)}".encode(), head.split(b"\r\n"))
 
     def test_a_room_key_is_replaced_by_the_kernels(self) -> None:
         raw = _request("POST", "/v1/messages?beta=true", headers=(
@@ -235,8 +289,17 @@ class TheGatewayPinsItsRequests(unittest.TestCase):
         def absent() -> ProviderCredential:
             raise ProviderCredentialUnavailable("credential_file_permissions", "mode 0644", provider="anthropic")
 
-        self.assert_refused(_request("POST", "/v1/messages"), b"503",
-                            "provider_credential_unavailable:credential_file_permissions", credential=absent)
+        h = self.assert_refused(_request("POST", "/v1/messages"), b"401",
+                                "provider_credential_unavailable:credential_file_permissions", credential=absent)
+        # In the provider's own error shape: the CLI fails at once on an
+        # authentication_error (a 503 it retries for minutes, then reads as
+        # unreachable), and the kernel's classifier names it a credential fact.
+        answer, _h = _exchange(_request("POST", "/v1/messages"), credential=absent)
+        error = json.loads(answer.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(error["type"], "error")
+        self.assertEqual(error["error"]["type"], "authentication_error")
+        self.assertIn(b"content-type: application/json", answer.split(b"\r\n\r\n", 1)[0])
+        self.assertEqual(h.decisions[-1]["reason"], "provider_credential_unavailable:credential_file_permissions")
 
     def test_an_unreachable_upstream_is_a_refusal_by_name(self) -> None:
         async def scenario() -> bytes:

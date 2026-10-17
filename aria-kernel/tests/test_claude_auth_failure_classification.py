@@ -63,6 +63,65 @@ class AuthFailureDetectionTest(unittest.TestCase):
         self.assertIn("claude setup-token", detected["remedy"])
         self.assertIn("ARIA_CLAUDE_OAUTH_TOKEN_FILE", detected["remedy"])
 
+    def test_the_gateways_credential_refusal_is_a_credential_fact(self) -> None:
+        # ARIA-MEDIUM-563: the kernel's provider gateway answers a missing or
+        # loose kernel token as the provider's authentication_error (401).
+        # Measured 2026-10-17, offline, as the runner uid: the real CLI
+        # 2.1.278 in the production room through the production gateway with
+        # no token configured exits 1 after 2.6 s with this terminal result.
+        # The 503 the gateway used to answer was retried for 172 s and then
+        # read as `claude_unreachable` — an outage, not the re-mint it needs.
+        import asyncio
+        import json
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from aria_kernel import provider_gateway as gw
+        from aria_kernel.provider_credentials import ProviderCredentialUnavailable
+        from aria_kernel.provider_routes import route
+
+        def absent():
+            raise ProviderCredentialUnavailable("credential_not_configured", "", provider="anthropic")
+
+        class _Writer:
+            def __init__(self) -> None:
+                self.data = b""
+
+            def write(self, data: bytes) -> None:
+                self.data += data
+
+            async def drain(self) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        async def refuse() -> bytes:
+            gateway = gw.ProviderGateway(route("anthropic"), credential=absent, decide=lambda **_: None)
+            reader = asyncio.StreamReader()
+            body = b'{"model":"m","max_tokens":1,"messages":[]}'
+            reader.feed_data(b"POST /v1/messages?beta=true HTTP/1.1\r\nhost: localhost\r\ncontent-length: "
+                             + str(len(body)).encode() + b"\r\n\r\n" + body)
+            reader.feed_eof()
+            writer = _Writer()
+            await gateway.handle(reader, writer)
+            return writer.data
+
+        head, body = asyncio.run(refuse()).split(b"\r\n\r\n", 1)
+        self.assertTrue(head.startswith(b"HTTP/1.1 401 "), head)
+        error = json.loads(body)["error"]
+        self.assertEqual(error["type"], "authentication_error")
+        # The CLI's rendering of a 401 (measured): "Failed to authenticate.
+        # API Error: 401 <error.message>".
+        rendered = f"Failed to authenticate. API Error: 401 {error['message']}"
+        self.assertEqual(rendered, "Failed to authenticate. API Error: 401 "
+                                   "gateway_refused:provider_credential_unavailable:credential_not_configured")
+        events = ({"type": "result", "is_error": True, "result": rendered},)
+        detected = cr.extract_auth_failure(returncode=1, stderr="", events=events)
+        self.assertIsNotNone(detected)
+        assert detected is not None
+        self.assertEqual(detected["signature"], "claude_auth_failure")
+        self.assertIn("claude setup-token", detected["remedy"])
+
     def test_a_clean_exit_is_never_an_auth_failure(self) -> None:
         # An agent writing ABOUT authentication must not be read as the runtime
         # failing to start. The nonzero-exit requirement is what separates them.

@@ -342,6 +342,37 @@ class L445TheSpawnLaneRecordsTheRouteItsClaimRanOn(_Store):
                            row["details"]["lane"]) for row in rows if row["kind"] == CLAIM_ROUTE_STARTED_KIND],
                          [("CL-1", "zai", "glm-5.3", "spawn")])
 
+    def test_the_dispatch_summary_names_the_rung_whose_provider_failed(self) -> None:
+        # ARIA-LOW-567 — the child's summary is what the drain reads to tell a
+        # re-probe of a standing outage from a new one (`_standing_outage`, by
+        # the summary's provider). It named the ladder HEAD (anthropic) while
+        # the Z.ai rung ran and failed, so a new Z.ai outage of the same class
+        # as a standing Anthropic one was excused as Anthropic's re-probe.
+        import json
+        import os
+        from unittest.mock import patch
+
+        def ladder(*, run, model, failover, effort, write_capable, on_credit):  # noqa: ANN001, ANN202, ARG001
+            return run("glm-5.3", effort)  # Claude is cooled: the Z.ai rung runs first
+
+        def exhausted(**_kwargs):  # noqa: ANN003, ANN202
+            raise self.ci_executor.ClaudeCreditExhausted(
+                "Z.ai subscription capacity unavailable", provider="zai", model="glm-5.3", detail={})
+
+        with patch.object(self.ci_executor, "run_with_model_fallback", side_effect=ladder), \
+                patch.object(self.ci_executor, "_run_zai_as_claude_result", side_effect=exhausted), \
+                self.assertRaises(self.ci_executor.ClaudeCreditExhausted):
+            self.ci_executor.invoke_claude_cli(
+                request_id="AIR-1", subagent_type="aria-evidence-judge", prompt_file=self.prompt,
+                output_path=self.tools / "agent-invocations" / "outputs" / "AIR-1.json", timeout_seconds=60,
+                claim_id="CL-1", agent_id="ci-executor:gha-test", role="evidence_judgment", must_satisfy=[],
+                request_envelope={"role": "evidence_judgment", "target_agent": "aria-evidence-judge"},
+                tools_dir=self.tools,
+            )
+        summary = json.loads((Path(os.environ["RUNNER_TEMP"]) / "dispatch-result-AIR-1.json").read_text())
+        self.assertEqual((summary["provider"], summary["model"], summary["failure_class"]),
+                         ("zai", "glm-5.3", "credit_exhausted"))
+
     def test_no_rung_runs_without_its_route_on_the_ledger(self) -> None:
         from unittest.mock import patch
 

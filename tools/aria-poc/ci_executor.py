@@ -2184,6 +2184,12 @@ def invoke_claude_cli(
         {**(request_envelope if isinstance(request_envelope, dict) else {}), "role": role},
         target_agent=subagent_type,
     )
+    # ARIA-LOW-567 — the rung this spawn RAN, once one runs (`_dispatch_attempt`).
+    # The summary names it, as the native lane's names its admitted pair
+    # (ARIA-HIGH-182): with a provider cooled the ladder runs another rung
+    # first, and a summary that named the ladder head made the drain read a
+    # new outage of that rung as a re-probe of the head's standing one.
+    _ran_route: DispatchRoute | None = None
     _summary_emitted = False
 
     def _emit_dispatch_summary(
@@ -2196,7 +2202,7 @@ def invoke_claude_cli(
             return
         _summary_emitted = True
         _write_dispatch_summary(
-            route=_dispatch_route, request_id=request_id, outcome=outcome,
+            route=_ran_route or _dispatch_route, request_id=request_id, outcome=outcome,
             failure=failure, exit_code=exit_code,
         )
         if on_outcome is not None:
@@ -2273,6 +2279,8 @@ def invoke_claude_cli(
                                        provider=_provider_for_model(model), model=model, lane="spawn")
                 except _RouteRecordRefused as exc:
                     raise ClaudeCliUnavailable(f"claim_route_record_unavailable: {exc}") from exc
+            nonlocal _ran_route
+            _ran_route = _replace(_dispatch_route, provider=_provider_for_model(model), model=model)
             # The auth failover is written in tier names; the runtime that
             # serves a tier is the fleet's decision. A Z.ai tier (its own HTTP
             # transport since the 2026-09-11 policy) never reaches the claude

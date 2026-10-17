@@ -258,6 +258,90 @@ class LauncherAllowlistTests(unittest.TestCase):
             launcher_command(GOOD_SOURCE, "0" * 64)
 
 
+class LauncherFilesystemMutationTests(unittest.TestCase):
+    """ARIA-MEDIUM-560 — an adapter is a read-only scanner: no call through an
+    already-loaded module (``os`` is preloaded, so ``import os`` raises no
+    import event) may change the filesystem. Run OUTSIDE the room, so a
+    writable directory measures the launcher, not the room's read-only mount.
+    """
+
+    # Each spelling reaches os the way the triage repro did: `import os` binds
+    # the preloaded module with no import event. VICTIM/DIR are formatted in.
+    MUTATIONS = {
+        "remove": "os.remove(VICTIM)",
+        "unlink": "os.unlink(VICTIM)",
+        "rename": "os.rename(VICTIM, DIR + '/moved')",
+        "replace": "os.replace(VICTIM, DIR + '/moved')",
+        "rmdir": "os.rmdir(DIR + '/sub')",
+        "removedirs": "os.removedirs(DIR + '/sub')",
+        "mkdir": "os.mkdir(DIR + '/new')",
+        "makedirs": "os.makedirs(DIR + '/new/deeper')",
+        "chmod": "os.chmod(VICTIM, 0o777)",
+        "chown": "os.chown(VICTIM, -1, -1)",
+        "symlink": "os.symlink(VICTIM, DIR + '/link')",
+        "link": "os.link(VICTIM, DIR + '/hard')",
+        "truncate": "os.truncate(VICTIM, 0)",
+        "utime": "os.utime(VICTIM, (0, 0))",
+        "setxattr": "os.setxattr(VICTIM, 'user.aria', b'1')",
+        # No audit event exists for these two: the launcher removes them.
+        "mkfifo": "os.mkfifo(DIR + '/fifo')",
+        "mknod": "os.mknod(DIR + '/node')",
+        "mknod_via_posix": "import posix\nposix.mknod(DIR + '/node')",
+        "mknod_via_supports_dir_fd": (
+            "[f for f in os.supports_dir_fd if f.__name__ == 'mknod'][0](DIR + '/node')"
+        ),
+        "pathlib_unlink": "import pathlib\npathlib.Path(VICTIM).unlink()",
+        "pathlib_touch": "import pathlib\npathlib.Path(DIR + '/touched').touch()",
+    }
+    MARKERS = ("genesis_adapter_capability_refused:", "has no attribute 'mkfifo'", "has no attribute 'mknod'",
+               "list index out of range")
+
+    def _layout(self) -> tuple[Path, Path, dict[str, tuple[bytes, int, float]]]:
+        tmp = tempfile.TemporaryDirectory(prefix="aria-genesis-fs-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "sub").mkdir()
+        victim = root / "victim.txt"
+        victim.write_bytes(b"workspace bytes\n")
+        os.chmod(victim, 0o644)
+        return root, victim, self._snapshot(root)
+
+    @staticmethod
+    def _snapshot(root: Path) -> dict[str, tuple[bytes, int, float]]:
+        return {
+            str(path.relative_to(root)): (path.read_bytes() if path.is_file() else b"", path.lstat().st_mode,
+                                          path.lstat().st_mtime)
+            for path in sorted(root.rglob("*"))
+        }
+
+    def test_every_filesystem_mutation_is_refused_and_changes_nothing(self) -> None:
+        for name, call in self.MUTATIONS.items():
+            with self.subTest(mutation=name):
+                root, victim, before = self._layout()
+                source = f"import os\nVICTIM = {str(victim)!r}\nDIR = {str(root)!r}\n{call}\n"
+                completed = _run_launcher_directly(source)
+                self.assertNotEqual(completed.returncode, 0, f"{name} ran: {completed.stdout!r}")
+                self.assertTrue(any(marker in completed.stderr for marker in self.MARKERS), completed.stderr[-400:])
+                self.assertEqual(self._snapshot(root), before, f"{name} changed the filesystem")
+
+    def test_the_removed_constructors_are_real_without_the_launcher(self) -> None:
+        # The same calls, no launcher: they create entries, so the refusal
+        # above is the launcher's, not a broken spelling.
+        root, _victim, _before = self._layout()
+        for name in ("mkfifo", "mknod"):
+            subprocess.run([sys.executable, "-c", f"import os\nos.{name}({str(root / name)!r})"],
+                           check=True, capture_output=True, timeout=60)
+            self.assertTrue((root / name).exists(), name)
+
+    def test_reading_still_works(self) -> None:
+        root, victim, _before = self._layout()
+        source = (f"import os\nprint(open({str(victim)!r}).read().strip(), sorted(os.listdir({str(root)!r})), "
+                  f"os.stat({str(victim)!r}).st_size)\n")
+        completed = _run_launcher_directly(source)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "workspace bytes ['sub', 'victim.txt'] 16")
+
+
 class StagingTests(unittest.TestCase):
     """The bytes come only from the drafter's accepted, hash-matching result."""
 

@@ -86,6 +86,7 @@ import {
   canonicalJson,
   chainTip,
   type Finding,
+  isUnresolvedFindingState,
   parseRegistryJsonl,
   rechain,
   serializeRegistryJsonl,
@@ -1214,7 +1215,10 @@ export function planSweep(entries: readonly Finding[], config: SweepConfig): Swe
   const staleThresholdMs = config.staleAfterDays * 24 * 60 * 60 * 1000;
 
   for (const entry of entries) {
-    if (entry.state === 'RESOLVED') continue;
+    // Only unresolved rows carry a deadline or an age that still matters; the
+    // predicate is the registry's one answer to "is this finding still owed?"
+    // (ARIA-HIGH-534), shared with debt-plan-truth.
+    if (!isUnresolvedFindingState(entry.state)) continue;
 
     // Deadline check (stronger signal) runs first.
     if (entry.deadline) {

@@ -13,6 +13,11 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { GraphQLError } from 'graphql';
 
+import {
+  ClientNetworkRequest,
+  resolveClientNetworkContext,
+} from '../http/client-network-context.util';
+
 import { resolveEdgeRules } from './edge/edge-rule-resolver';
 import { extractClientIp } from './edge/ip-extractor';
 import { InMemoryRateLimitStore } from './in-memory-rate-limit.store';
@@ -28,13 +33,16 @@ import {
   RateLimitStore,
 } from './rate-limit.types';
 
-/** Minimal request surface the guard reads — HTTP and GraphQL both map to it. */
-interface RateLimitedRequest {
-  ip?: string;
+/**
+ * Minimal request surface the guard reads — HTTP and GraphQL both map to it.
+ * It extends the client-network view (ip, headers, verified service identity,
+ * verified user assertion) because the decorator-mode IP dimension is read
+ * through resolveClientNetworkContext (SEC-HIGH-202). Edge mode reads the same
+ * header bag for its X-Forwarded-For / X-Real-IP fallback.
+ */
+interface RateLimitedRequest extends ClientNetworkRequest {
   /** HTTP request path (edge mode only) — used for exact-match tier bucketing. */
   url?: string;
-  /** Header bag (edge mode only) — X-Forwarded-For / X-Real-IP fallback. */
-  headers?: Record<string, string | string[] | undefined>;
   /** Socket fallbacks (edge mode only) for client-IP resolution. */
   connection?: { remoteAddress?: string };
   socket?: { remoteAddress?: string };
@@ -62,6 +70,9 @@ interface RequestContext {
  *    explicit config; every limited surface is visible in review and
  *    reflectable in tests. Identity precedence inside a bucket:
  *      custom identifier (e.g. login email)  >  user  >  tenant+ip  >  ip
+ *    where ip is the END CLIENT as resolveClientNetworkContext reads it, not
+ *    the socket peer (behind the gateway that is the gateway container for
+ *    every caller — SEC-HIGH-202).
  *    Services with no edge config (auth-service, every subgraph) use ONLY this
  *    mode — non-decorated handlers fall through to `true`, unchanged.
  *
@@ -260,7 +271,11 @@ export class RateLimitGuard implements CanActivate {
   private extractContext(context: ExecutionContext): RequestContext {
     if (context.getType<string>() === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
-      const request = gqlContext.getContext<{ req?: RateLimitedRequest }>().req ?? {};
+      // A GraphQL operation without an HTTP request carries no client facts:
+      // it counts against the shared `ip:unknown` bucket, never past the limit.
+      const request = gqlContext.getContext<{ req?: RateLimitedRequest }>().req ?? {
+        headers: {},
+      };
       const info = gqlContext.getInfo<
         { parentType?: { name?: string }; fieldName?: string } | undefined
       >();
@@ -280,7 +295,7 @@ export class RateLimitGuard implements CanActivate {
     const req = ctx.request;
     return {
       url: req.url,
-      headers: req.headers ?? {},
+      headers: req.headers,
       ip: req.ip,
       remoteAddress: req.connection?.remoteAddress ?? req.socket?.remoteAddress,
       userId: req.user?.sub,
@@ -295,10 +310,19 @@ export class RateLimitGuard implements CanActivate {
     args?: Record<string, unknown>,
   ): RateLimitIdentity {
     return {
-      // SECURITY: request.ip is the trust-proxy-resolved address — never read
-      // x-forwarded-for directly here (client-spoofable). The edge path uses
-      // the dedicated ip-extractor, which applies the same discipline.
-      ip: request.ip,
+      // SECURITY (SEC-HIGH-202): the IP dimension is the END CLIENT. Subgraphs
+      // sit behind the gateway, so request.ip is the gateway container for
+      // every caller; keying on it turned each IP-only bucket (refresh,
+      // password-reset, invitation-validation, webauthn-verify) into one
+      // platform-wide bucket. resolveClientNetworkContext reads the
+      // gateway-minted x-client-ip ONLY behind a verified gateway-api service
+      // identity — StripInternalHeadersMiddleware strips it from every request
+      // without one — so a client-supplied header never picks a bucket. With
+      // no verified gateway hop it returns request.ip (trust-proxy-resolved);
+      // x-forwarded-for is never read here. A gateway hop that minted no
+      // client IP stays in the gateway's shared bucket: restrictive, never
+      // unlimited. The edge path (gateway only) uses the ip-extractor.
+      ip: resolveClientNetworkContext(request).ip,
       userId: request.user?.sub,
       tenantId: request.user?.tenantId,
       args,

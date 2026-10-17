@@ -104,6 +104,32 @@ class ReportSectionsTest(unittest.TestCase):
 
         self.assertIn("## Plan-016 Counters", lines)
 
+    def test_an_unreadable_counter_ledger_is_reported_by_name(self) -> None:
+        """ARIA-LOW-514 — a store the counters cannot read was an absent
+        section: `except Exception: return []` around the computation."""
+        from aria_kernel.reflection import _render_plan016_section
+        from aria_kernel.tool_registry import append_tools_governance
+
+        with TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            append_tools_governance(root, "plan_stale", {"plan_id": "P-1"})
+            with (root / "governance.jsonl").open("a", encoding="utf-8") as ledger:
+                ledger.write("not json\n")
+            lines = _render_plan016_section(root)
+
+        self.assertEqual(lines, ["## Plan-016 Counters", "", "- unreadable: LedgerIntegrityError", ""])
+
+    def test_a_defect_in_the_counters_raises(self) -> None:
+        """ARIA-LOW-514 — only the reader's declared faults are a report line;
+        a kernel defect in the computation is not an unreadable store."""
+        from aria_kernel.reflection import _render_plan016_section
+
+        with TemporaryDirectory() as tmp, \
+             patch("aria_kernel.plan_016_metrics.compute_plan_016_metrics", side_effect=TypeError("defect")):
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            with self.assertRaises(TypeError):
+                _render_plan016_section(root)
+
     def test_observability_ledger_gets_its_first_reader(self) -> None:
         from aria_kernel.reflection import _render_observability_section
 

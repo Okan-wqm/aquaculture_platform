@@ -209,8 +209,10 @@ jobs:
       # basis + every declared step timeout after the cycle <= margin.
       # The basis is the one #1371 measurement (842 MB of state: handoff 5 +
       # integrity verify 40 + mint 2 + publish 10 = 57 minutes); the doctor,
-      # self_improve and deliver steps add their timeouts (10 + 12 + 5), 84 of
-      # the 100 minutes.
+      # self_improve and deliver steps add their timeouts (10 + 12 + 5;
+      # measured 229 s / 245 s / 5 s on the 2026-10-10 store, when
+      # self_improve still ran the doctor a second time — it reads the doctor
+      # step's report since ARIA-LOW-559), 84 of the 100 minutes.
       ARIA_CLOSE_OUT_MARGIN_SECONDS: '6000'
       ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS: '3420'
     steps:
@@ -1134,23 +1136,22 @@ jobs:
               print(f"::error title=ARIA doctor unhealthy::failing organs: {names}")
           PY
 
-      # Runs the doctor again inside (`scan_signals`), so it carries the same
-      # notify env: without it the notifications organ would read a CI lane
-      # with no channel.
+      # ARIA-LOW-559 — reads the report the doctor step above wrote (the
+      # doctor action's output carries it) instead of running every organ a
+      # second time inside `scan_signals`. With no doctor run here, it holds
+      # no notify env: it writes missions, never an issue, and the
+      # notifications organ that judged the lane's channel was read above.
+      # A missing or foreign report fails the step rather than re-running
+      # the doctor.
       - name: Self-improve - open missions for failing organs
         if: always() && steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && (github.event.inputs.mode || 'cycle') == 'cycle'
         timeout-minutes: 12
-        # No GH_TOKEN: the opener writes missions and a HIGH adjudication
-        # record, never a GitHub issue. The channel names stay, because the
-        # doctor it runs judges the lane's channel.
-        env:
-          ARIA_NOTIFY_CHANNELS: github_issue
-          ARIA_NOTIFY_GITHUB_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel schedule run --action self_improve \
             --tools-dir "$ARIA_TOOLS_DIR" \
-            --workspace-root "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/aria-self-improve.json"
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --doctor-report "$RUNNER_TEMP/aria-doctor.json" | tee "$RUNNER_TEMP/aria-self-improve.json"
 
       # One comment a day on one issue: the delivery SLO and the
       # HUMAN_REQUIRED backlog counts (a record notifies on its own only when

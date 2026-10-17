@@ -7,12 +7,15 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..github_writes import GitHubWriteRefused, run_gh_write
 from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..tool_registry import append_tools_governance, ensure_tools_dir, utc_now
 from ..tool_registry import parse_utc_stamp as _parse_utc_stamp
+
+if TYPE_CHECKING:
+    from ..doctor import DoctorReport
 
 SCHEDULES_SURFACE = "gateway_schedules"
 SCHEDULES_RELPATH: tuple[str, ...] = ("gateway", "schedules.jsonl")
@@ -42,6 +45,23 @@ DAILY_DELIVERY_TITLE = "ARIA daily delivery summary"
 # One organ's reason can list every lapsed request id (>1000 chars on the
 # 2026-10-10 store); the result, the body and the CI summary carry a bounded one.
 DOCTOR_FAILING_REASON_MAX_CHARS = 300
+
+
+def load_doctor_report(path: str | Path) -> DoctorReport:
+    """The doctor report a `doctor` action wrote to its output (ARIA-LOW-559).
+
+    The live lane's doctor step saves `schedule run --action doctor`'s output
+    to a file and the self-improve step hands that file here, so the second
+    step reads the report instead of running every organ again. The output
+    of any other action, or one without a report, is refused by name.
+    """
+    from ..doctor import DoctorReport
+    from ..tool_registry import GovernanceError
+
+    result = json.loads(Path(path).read_text(encoding="utf-8"))
+    if result.get("action") != "doctor" or "report" not in result:
+        raise GovernanceError(f"doctor_report_not_a_doctor_result:{result.get('action')!r}")
+    return DoctorReport.from_dict(result["report"])
 
 
 def _field_matches(spec: str, value: int, lo: int, hi: int) -> bool:
@@ -180,11 +200,18 @@ def due_schedules(*, now: datetime, base_dir: str | Path | None = None) -> list[
 
 
 def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str | Path, runner: Runner | None = None,
-               schedule_name: str | None = None, ref: str = "main", ran_at: str | None = None) -> dict[str, Any]:
+               schedule_name: str | None = None, ref: str = "main", ran_at: str | None = None,
+               doctor_report: DoctorReport | None = None) -> dict[str, Any]:
     """Execute one closed action. Workflow actions respect the operator pause
-    and the host lease; local actions run in-process."""
+    and the host lease; local actions run in-process.
+
+    ``doctor_report`` (ARIA-LOW-559) is the `self_improve` action's input and
+    no other's: the report a `doctor` action already wrote for this store
+    (`load_doctor_report`), read instead of a second doctor run."""
     root = ensure_tools_dir(base_dir)
     action = validate_action(action, base_dir=root)
+    if doctor_report is not None and action != "self_improve":
+        raise ValueError(f"a doctor report is the self_improve action's input, not {action!r}'s")
     result: dict[str, Any] = {"action": action, "status": "ran", "detail": {}}
     # Facts an action adds to its `gateway_action_ran` governance row.
     ran_facts: dict[str, Any] = {}
@@ -220,6 +247,12 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
         failing = [{"name": c.name, "reason": c.reason[:DOCTOR_FAILING_REASON_MAX_CHARS]}
                    for c in report.checks if c.status == "fail"]
         result["detail"] = {"healthy": report.healthy, "summary": summary, "failing": failing}
+        # ARIA-LOW-559 — the whole report rides the action's own output (the
+        # file the lane's doctor step writes, `load_doctor_report`), so the
+        # self-improve step reads it rather than running the doctor again.
+        # Never `detail`: the schedule ledger keeps that, and an organ's
+        # detail carries host paths.
+        result["report"] = report.to_dict()
         ran_facts["failing"] = [organ["name"] for organ in failing]
         if not report.healthy:
             from ..notify import notify_best_effort
@@ -262,8 +295,9 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
     elif action == "self_improve":
         from ..self_improvement import open_self_improvement_missions
 
-        opened = open_self_improvement_missions(base_dir=root, workspace_root=workspace_root)
-        result["detail"] = {"missions": [o["mission_id"] for o in opened], "new": sum(1 for o in opened if not o["idempotent"])}
+        opened = open_self_improvement_missions(base_dir=root, workspace_root=workspace_root, doctor_report=doctor_report)
+        result["detail"] = {"missions": [o["mission_id"] for o in opened], "new": sum(1 for o in opened if not o["idempotent"]),
+                            "doctor": "report_read" if doctor_report is not None else "ran"}
     elif action == "economy":
         from ..token_economy import calibrate_role_caps, recommend_efforts, record_recommendations, usage_per_accepted_result
 

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from .artifact_safety import scrub_text
-from .doctor import DoctorCheck
+from .doctor import DoctorCheck, DoctorReport
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 SELF_IMPROVEMENT_SOURCE_KIND = "self_improvement"
@@ -59,6 +59,14 @@ SIGNAL_REMEDIES: dict[str, str] = {
     # `::error`) and never minted: a `propose_self_change` for it could only
     # be refused at accept time, after its HIGH adjudication was opened.
     "config_missing": ANNOUNCE_REMEDY,
+    # ARIA-LOW-550 — a doctor organ failing on a fact of the HOST the kernel
+    # runs on (`HOST_ORGANS`): no `claude` binary or one below the floor, no
+    # provider credential, no write-capable sandbox backend, too little disk,
+    # a gateway daemon that stopped beating. The answer is an operator's on
+    # that host (install, provision, restart), never a change under
+    # `SELF_CHANGE_ALLOWED_PREFIXES`, so it is announced (the organ's FAIL,
+    # `doctor_unhealthy`, the CI step's `::error`) and never minted.
+    "host_fault": ANNOUNCE_REMEDY,
 }
 SIGNAL_KINDS: tuple[str, ...] = tuple(SIGNAL_REMEDIES)
 SELF_CHANGE_SIGNAL_KINDS: tuple[str, ...] = tuple(kind for kind, remedy in SIGNAL_REMEDIES.items() if remedy == SELF_CHANGE_REMEDY)
@@ -72,7 +80,16 @@ SELF_CHANGE_SIGNAL_KINDS: tuple[str, ...] = tuple(kind for kind, remedy in SIGNA
 # SLAs) showed it minting a self-change mission every store would carry
 # dead; it is announced like the `deadline_due` rows it summarises (the
 # organ's FAIL, `doctor_unhealthy`, the CI step's `::error`).
-DOCTOR_ORGAN_SIGNAL_KINDS: dict[str, str] = {"notifications": "config_missing", "deadlines": "deadline_due"}
+# ARIA-LOW-550 — the organs that read the host rather than ARIA's code or
+# store. The first four are `run_doctor`'s `host_checks`, run whether or not a
+# store is bound; `gateway_heartbeat_fresh` reads the store but judges the
+# daemon process.
+HOST_ORGANS: tuple[str, ...] = ("providers", "sandbox_backend", "claude_cli", "habitat", "gateway_heartbeat_fresh")
+DOCTOR_ORGAN_SIGNAL_KINDS: dict[str, str] = {
+    "notifications": "config_missing",
+    "deadlines": "deadline_due",
+    **dict.fromkeys(HOST_ORGANS, "host_fault"),
+}
 # Where a self-change may point. Anything else is not ARIA's own code.
 SELF_CHANGE_ALLOWED_PREFIXES: tuple[str, ...] = ("aria-kernel/", "tools/aria-poc/", ".github/workflows/aria-", "aria-config/", ".claude/agents/aria-")
 # The authority surfaces: a self-change naming any of these is refused. These
@@ -228,8 +245,25 @@ def doctor_signals(check: DoctorCheck) -> list[Signal]:
             for cause in check.causes]
 
 
-def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> list[Signal]:
+def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path,
+                 doctor_report: DoctorReport | None = None) -> list[Signal]:
+    """Every signal the store raises tonight.
+
+    ARIA-LOW-559 — ``doctor_report`` is the report the doctor already wrote
+    for this store (the live lane's doctor step, `gateway.scheduler.
+    load_doctor_report`); its failing organs are read from it and the doctor
+    is not run again — a second full run cost the nightly about four minutes
+    (doctor 229 s, self_improve 245 s on the 2026-10-10 store). Without one
+    (the gateway daemon's own `self_improve` slot, the `self-improve` CLI)
+    the doctor runs here. A report of another store or another workspace is
+    refused: its organs describe a different tree.
+    """
     root = ensure_tools_dir(base_dir)
+    if doctor_report is not None:
+        if Path(doctor_report.tools_dir).resolve() != Path(root).resolve():
+            raise GovernanceError(f"doctor_report_store_mismatch:{doctor_report.tools_dir!r}")
+        if Path(doctor_report.workspace_root).resolve() != Path(workspace_root).resolve():
+            raise GovernanceError(f"doctor_report_workspace_mismatch:{doctor_report.workspace_root!r}")
     signals: list[Signal] = []
     try:
         from .capability_gap import latest_capability_gaps
@@ -274,7 +308,8 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> 
     try:
         from .doctor import run_doctor
 
-        for check in run_doctor(base_dir=root, workspace_root=workspace_root).checks:
+        report = doctor_report if doctor_report is not None else run_doctor(base_dir=root, workspace_root=workspace_root)
+        for check in report.checks:
             if check.status == "fail":
                 signals.extend(doctor_signals(check))
     except Exception:  # noqa: BLE001
@@ -306,7 +341,8 @@ def self_change_signals(signals: list[Signal]) -> list[Signal]:
     return sorted((s for s in signals if s.remedy == SELF_CHANGE_REMEDY), key=lambda s: (s.priority, s.kind, s.key))
 
 
-def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_root: str | Path, max_new: int = 3) -> list[dict[str, Any]]:
+def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_root: str | Path, max_new: int = 3,
+                                   doctor_report: DoctorReport | None = None) -> list[dict[str, Any]]:
     """Self-change signals → missions (idempotent on source id); never more than `max_new` NEW missions per call.
 
     ARIA-MEDIUM-417 — the budget counts what this call OPENED. A re-sighting
@@ -322,7 +358,7 @@ def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_roo
     repo_hash = canonical_identity(Path(workspace_root).resolve())
     opened: list[dict[str, Any]] = []
     new = 0
-    for signal in self_change_signals(scan_signals(base_dir=root, workspace_root=workspace_root)):
+    for signal in self_change_signals(scan_signals(base_dir=root, workspace_root=workspace_root, doctor_report=doctor_report)):
         if new >= max_new:
             break
         source_id = f"{signal.kind}:{signal.key}"

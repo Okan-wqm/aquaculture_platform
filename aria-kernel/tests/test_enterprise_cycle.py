@@ -1471,6 +1471,64 @@ class EnterpriseCycleTests(unittest.TestCase):
         }
         self.assertNotIn("cycle-pre-phase-abort", incomplete_ids)
 
+    def _accounts_of_an_aborted_cycle(self, result: dict) -> tuple[list[dict], list[str], str]:
+        """ARIA-LOW-549 — what the night reads off an aborted cycle, through
+        the production path: the orchestrator's closed summary (the
+        ``cycle_completed`` row), the doctor's cause keys over the exit streak
+        that covers it, and the cycle-failed notice's reason."""
+        from aria_kernel import doctor
+        from aria_kernel.autonomy_orchestrator import _bounded_cycle_summary, _cycle_failure_reason
+        from aria_kernel.orchestrator_exit_history import read_orchestrator_exit_streak
+        from tests._helpers.orchestrator_exits import record_cycle_completed, record_exit
+
+        summary = _bounded_cycle_summary(result)
+        record_cycle_completed(self.tools_dir, result["cycle_id"], "failed", summary)
+        record_exit(self.tools_dir, "cycle_failed", 0)
+        streak = read_orchestrator_exit_streak(self.tools_dir)
+        keys = [cause.key for cause in doctor._failed_cycle_causes(streak.failed_cycles)]
+        return summary["failed_phases"], keys, _cycle_failure_reason(summary)
+
+    def test_a_pre_phase_abort_names_its_phase_on_every_account(self):
+        """ARIA-LOW-549 — the aborted cycle carried ``aborted_by_phase`` and no
+        failed phase; the closed summary dropped the first, so the doctor
+        keyed the night ``cycle:unrecorded`` and the notice said
+        ``status=aborted runtime_status=aborted``."""
+        with patch(
+            "aria_kernel.architecture_spine_gate.take_baseline",
+            return_value={"status": "failed", "reason": "fixture-injected baseline failure"},
+        ):
+            result = run_cycle(
+                workspace_root=self.root, cycle_id="cycle-pre-phase-cause", base_dir=self.tools_dir,
+                shadow_only=True, plan_id="PLAN-PRE-PHASE-CAUSE",
+            )
+        self.assertEqual(result["status"], "aborted")
+
+        failed_phases, keys, reason = self._accounts_of_an_aborted_cycle(result)
+
+        self.assertEqual(failed_phases, [{"phase": "architecture_baseline", "status": "failed",
+                                          "error": "fixture-injected baseline failure"}])
+        self.assertEqual(keys, ["architecture_baseline:phase_failed"])
+        self.assertEqual(reason, "architecture_baseline: fixture-injected baseline failure")
+
+    def test_a_state_integrity_gap_abort_names_the_continuity_gate_on_every_account(self):
+        """ARIA-LOW-549 — the gap abort recorded its reason only in a progress
+        line; the cycle result named no phase at all. A standard cycle bound
+        to a tools root outside a workspace that holds the store is the
+        blocking verdict (GSEC-MEDIUM-006), and recovery refuses it."""
+        from aria_kernel.state_store import STORE_DIRNAME
+
+        (self.root / STORE_DIRNAME).mkdir()
+        result = run_cycle(workspace_root=self.root, cycle_id="cycle-gap-cause", base_dir=self.tools_dir)
+        self.assertEqual(result["status"], "aborted")
+
+        failed_phases, keys, reason = self._accounts_of_an_aborted_cycle(result)
+
+        self.assertEqual([(row["phase"], row["status"]) for row in failed_phases], [("state_continuity", "failed")])
+        self.assertTrue(failed_phases[0]["error"].startswith(
+            "state_integrity_gap: state_continuity_tools_root_detached_from_state_store"), failed_phases)
+        self.assertEqual(keys, ["state_continuity:phase_failed"])
+        self.assertTrue(reason.startswith("state_continuity: state_integrity_gap: "), reason)
+
     def latest_run(self):
         rows = (self.tools_dir / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()
         return json.loads(rows[-1])

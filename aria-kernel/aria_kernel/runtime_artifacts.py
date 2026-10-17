@@ -1710,6 +1710,10 @@ def autonomy_output_summary(
         for phase in cycle.get("failed_phases", []) if isinstance(cycle.get("failed_phases"), list) else []:
             if isinstance(phase, dict):
                 failed_phases.append(phase)
+        # ARIA-MEDIUM-548 — the orchestrator's own failed phase (the bridge
+        # replay gate) rides the per-cycle item beside the cycle runner's
+        # summary, not inside it; the night's summary names it too.
+        failed_phases.extend(item.get("failed_phases", []))
         for ref in cycle.get("artifact_refs", []) if isinstance(cycle.get("artifact_refs"), list) else []:
             if isinstance(ref, dict):
                 artifact_refs.append(ref)

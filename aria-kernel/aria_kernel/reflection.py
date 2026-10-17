@@ -1114,12 +1114,22 @@ def _render_proactive_section(reflection: dict[str, Any]) -> list[str]:
 
 
 def _render_plan016_section(root: Path) -> list[str]:
-    try:
-        from .plan_016_metrics import compute_plan_016_metrics
+    """The Plan-016 counters, or the fault that kept the store from them.
 
+    ARIA-LOW-514 — the computation sat in ``except Exception: return []``, so
+    an unreadable ledger and a defect in the counters both read as a report
+    with no such section. Only the reader's declared faults
+    (``plan_016_metric_reader_faults``) are absorbed, and they are named by
+    class (the message carries host paths, and the report is published);
+    anything else raises.
+    """
+    from .plan_016_metrics import compute_plan_016_metrics, plan_016_metric_reader_faults
+
+    faults = plan_016_metric_reader_faults()
+    try:
         metrics = compute_plan_016_metrics(base_dir=root)
-    except Exception:
-        return []
+    except faults as exc:
+        return ["## Plan-016 Counters", "", f"- unreadable: {type(exc).__name__}", ""]
     if not metrics:
         return []
     return [

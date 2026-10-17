@@ -3516,6 +3516,10 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_run = add_subparser(schedule_sub, "run")
     schedule_run.add_argument("--action", required=True)
     schedule_run.add_argument("--workspace-root", default=".")
+    schedule_run.add_argument(
+        "--doctor-report", default=None,
+        help="self_improve only: the output a `schedule run --action doctor` wrote; its report is read, not re-run",
+    )
     event_parser = add_subparser(sub, "event")
     event_sub = event_parser.add_subparsers(dest="event_command", required=True)
     event_ingest = add_subparser(event_sub, "ingest")
@@ -7403,7 +7407,9 @@ def _main(argv: list[str] | None = None) -> int:
         if args.schedule_command == "list":
             print(json.dumps({n: s.__dict__ for n, s in scheduler.fold_schedules(args.tools_dir).items()}, indent=2, sort_keys=True))
             return 0
-        result = scheduler.run_action(args.action, base_dir=args.tools_dir, workspace_root=args.workspace_root)
+        doctor_report = scheduler.load_doctor_report(args.doctor_report) if args.doctor_report else None
+        result = scheduler.run_action(args.action, base_dir=args.tools_dir, workspace_root=args.workspace_root,
+                                      doctor_report=doctor_report)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] != "failed" else 1
 

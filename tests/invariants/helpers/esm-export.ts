@@ -10,7 +10,11 @@
  * one owner of what it decides.
  *
  * Arguments cross on stdin and the result on stdout, both as JSON, so the
- * argument size is not bounded by the command line.
+ * argument size is not bounded by the command line. A function export is
+ * called and awaited (an async export's Promise would otherwise serialise as
+ * `{}` and read as an empty verdict); a constant export is returned as it is
+ * and takes no arguments. tests/invariants/esm-export-helper.spec.ts pins
+ * each case.
  */
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -34,7 +38,13 @@ export function callEsmExport(
     'const chunks = [];',
     'for await (const chunk of process.stdin) chunks.push(chunk);',
     "const args = JSON.parse(Buffer.concat(chunks).toString('utf8'));",
-    `const result = lib[${JSON.stringify(exportName)}](...args);`,
+    `const name = ${JSON.stringify(exportName)};`,
+    'if (!(name in lib)) throw new Error(`the module exports no ${name}`);',
+    'const value = lib[name];',
+    "if (typeof value !== 'function' && args.length > 0) {",
+    '  throw new Error(`${name} is not a function; it takes no arguments`);',
+    '}',
+    "const result = typeof value === 'function' ? await value(...args) : value;",
     'process.stdout.write(JSON.stringify(result));',
   ].join('\n');
   try {

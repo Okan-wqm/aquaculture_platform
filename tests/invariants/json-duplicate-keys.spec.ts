@@ -14,17 +14,43 @@
  * tracked `*.json` on every PR, which covers the readers that are not routed
  * through it: the kernel's `aria_kernel/data/*.json` policies (read by
  * Python), package.json and project.json files, fixtures. A file `JSON.parse`
- * rejects (JSONC such as tsconfig) is skipped; the tools that read it own it.
+ * rejects is skipped, and the skipped set is pinned to NOT_STRICT_JSON: Python's
+ * `json.loads` accepts NaN and Infinity, which `JSON.parse` refuses, so a
+ * kernel policy carrying one would otherwise leave the scan with every
+ * assertion still green.
  */
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 import { esmExportResult } from './helpers/esm-export';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const STRICT_JSON_LIB = join(REPO_ROOT, 'scripts', 'ci', 'lib', 'strict-json.mjs');
+
+/**
+ * The tracked `*.json` files `JSON.parse` rejects, each read only by a tool
+ * with its own dialect: JSONC tsconfig files (comments, trailing commas) and
+ * an empty Postman placeholder. A file joins this list by a reviewed edit
+ * here; any other file that stops being strict JSON fails the scan.
+ */
+const NOT_STRICT_JSON: readonly string[] = [
+  'apps/alert-engine/tsconfig.spec.json',
+  'apps/auth-service/tsconfig.spec.json',
+  'apps/farm-service/tsconfig.spec.json',
+  'docs/api/postman/collection.json',
+  'libs/farm-shared/tsconfig.json',
+  'libs/migration-harness/tsconfig.spec.json',
+  'libs/node-components/tsconfig.json',
+  'web/apps/aquamobil/tsconfig.sw.json',
+  'web/modules/admin-panel/tsconfig.spec.json',
+  'web/shared-ui/tsconfig.json',
+  'web/shell/tsconfig.json',
+];
 
 interface DuplicateKeyReport {
   readonly checked: number;
@@ -52,6 +78,26 @@ describe('INVARIANT: tracked JSON has no repeated keys', () => {
     expect(report.checked + report.notStrictJson.length).toBe(files.length);
     expect(report.checked).toBeGreaterThan(400);
     expect(report.duplicates).toEqual([]);
+    // Only the reviewed files are skipped.
+    const skipped = report.notStrictJson.map((path) => path.slice(REPO_ROOT.length + 1)).sort();
+    expect(skipped).toEqual([...NOT_STRICT_JSON].sort());
+  });
+
+  it('skips a file only Python can read, which the pinned skip set then refuses', () => {
+    // {"auto_merge":"refuse","limit":NaN,"auto_merge":"allow"} loads in Python
+    // as auto_merge=allow; JSON.parse refuses it, so the scan cannot check it.
+    const dir = mkdtempSync(join(tmpdir(), 'json-duplicate-keys-'));
+    try {
+      const path = join(dir, 'policy.json');
+      writeFileSync(path, '{"auto_merge":"refuse","limit":NaN,"auto_merge":"allow"}');
+      const report = esmExportResult<DuplicateKeyReport>(STRICT_JSON_LIB, 'duplicateKeysInFiles', [
+        [path],
+      ]);
+      expect(report.checked).toBe(0);
+      expect(report.notStrictJson).toEqual([path]);
+    } finally {
+      removeFixtureTree(dir);
+    }
   });
 
   it('detects a repeated key at any depth and nothing else', () => {

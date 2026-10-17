@@ -108,6 +108,20 @@ describe('invariant spec reachability', () => {
     expect(problems.some((problem) => problem.includes('x.spec.ts: finding_id'))).toBe(true);
   });
 
+  it('refuses a waiver whose expiry is not an ISO date, which could never lapse', () => {
+    // isReviewedExceptionExpired compares only ISO dates, so a malformed date
+    // must be refused as a shape problem or the waiver would never expire.
+    const problems = waiverProblems({
+      'x.spec.ts': {
+        owner: 'x',
+        reason: 'a reason long enough to be an argument rather than a label',
+        expires_on: '2099-1-1',
+        finding_id: 'INFRA-LOW-001',
+      },
+    });
+    expect(problems).toEqual(['x.spec.ts: expires_on must be YYYY-MM-DD']);
+  });
+
   it('refuses a waiver past its expiry', () => {
     const problems = waiverProblems({
       'x.spec.ts': {

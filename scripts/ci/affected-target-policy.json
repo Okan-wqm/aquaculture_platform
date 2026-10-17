@@ -35,7 +35,10 @@
       "knownUnstableProjects": {},
       "notes": "No quarantine. Admin route contract is a hard gate."
     },
-    "test:integration": { "knownUnstableProjects": {} },
+    "test:integration": {
+      "knownUnstableProjects": {},
+      "notes": "No quarantine. This lane runs the farm-service and auth-service Testcontainers suites (INFRA-MEDIUM-158); an entry here would turn a service's database tests into a warning, the dead-lane condition FARM-MEDIUM-301 ended. Fix the suite, never quarantine the target. tests/invariants/affected-target-quarantine-ssot.spec.ts keeps this map and test:contract's empty."
+    },
     "test": { "knownUnstableProjects": {} }
   }
 }

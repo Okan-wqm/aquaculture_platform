@@ -51,7 +51,6 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { ORPHAN_MD_HEADING_REGEX } from '../../tools/gates/finding-registry-store';
 import { callEsmExport, esmExportResult } from './helpers/esm-export';
@@ -64,6 +63,7 @@ const WRITER_PATH = join(REPO_ROOT, 'scripts/ci/write-affected-target-report.mjs
 const POLICY_LIB = join(REPO_ROOT, 'scripts/ci/lib/affected-target-policy.mjs');
 const MEASURE_PATH = join(REPO_ROOT, 'scripts/ci/lint-debt-measure.mjs');
 const LINT_DEBT_LIB = join(REPO_ROOT, 'scripts/ci/lib/lint-debt.mjs');
+const ESLINT_CONFIG = join(REPO_ROOT, 'eslint.config.mjs');
 const REGISTRY_PATH = join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 const ORPHAN_MD_PATH = join(REPO_ROOT, 'docs/reviews/orphan-findings.md');
 
@@ -83,6 +83,9 @@ const MAX_TEST_QUARANTINE = 0;
  * storage carry debt-class errors under ORPHAN-HIGH-588.
  */
 const MAX_LINT_QUARANTINE = 4;
+
+/** Targets whose quarantine map stays empty: see 'never quarantines the integration or contract lane'. */
+const NEVER_QUARANTINED_TARGETS = ['test:integration', 'test:contract'] as const;
 
 interface QuarantineEntry {
   readonly owner: string;
@@ -438,6 +441,22 @@ describe('affected-lane quarantine is tracked debt', () => {
     expect(count).toBeLessThanOrEqual(MAX_TEST_QUARANTINE);
   });
 
+  it('never quarantines the integration or contract lane', () => {
+    // test:integration is the lane that runs the farm-service and auth-service
+    // Testcontainers suites (INFRA-MEDIUM-158); a quarantine entry there turns
+    // a service's database tests into a warning, the dead-lane condition the
+    // lane was wired to end (FARM-MEDIUM-301). test:contract is the admin
+    // route contract's hard gate. A failing suite is fixed, never quarantined.
+    const { targets } = readPolicy();
+    const quarantined = NEVER_QUARANTINED_TARGETS.map((target) => {
+      const config = targets[target];
+      if (config === undefined) return `${target}: missing from the policy`;
+      const projects = Object.keys(config.knownUnstableProjects);
+      return projects.length === 0 ? null : `${target}: ${projects.join(', ')}`;
+    }).filter((problem): problem is string => problem !== null);
+    expect(quarantined).toEqual([]);
+  });
+
   describe('the report writer refuses a policy it cannot trust', () => {
     it('accepts a well-formed, unexpired entry and does not gate its project', () => {
       const result = runWriter(policyWith(validEntry));
@@ -555,9 +574,15 @@ describe('the lint quarantine is a measured one', () => {
         .filter(([path, owner]) => path !== undefined && owner === '@Okan-wqm')
         .map(([path]) => path),
     );
+    // Every module on the policy's read path is listed: the writer, the
+    // partition, the reviewed-exception rules and the strict reader whose
+    // value the writer applies and a renewal rewrites the file from.
     const unowned = [
       'scripts/ci/affected-target-policy.json',
+      'scripts/ci/write-affected-target-report.mjs',
       'scripts/ci/lib/affected-target-policy.mjs',
+      'scripts/ci/lib/reviewed-exception.mjs',
+      'scripts/ci/lib/strict-json.mjs',
       'scripts/ci/lint-debt-measurement.json',
       'scripts/ci/lint-debt-measure.mjs',
       'scripts/ci/lib/lint-debt.mjs',
@@ -577,6 +602,10 @@ describe('the lint quarantine is a measured one', () => {
   describe('verification refuses a quarantine it cannot trust', () => {
     const bound26 = lintDebt<string>('lintQuarantineExpiryBound', HEAD_DAY, 26);
     const pastBound26 = lintDebt<string>('addDaysIso', bound26, 1);
+    /** Two `lint` blocks: JSON.parse would keep the empty second one and drop the entry. */
+    const duplicatedLintPolicy =
+      `{"version":2,"targets":{"lint":{"knownUnstableProjects":` +
+      `{"invariants":${JSON.stringify(lintEntry(bound26))}}},"lint":{"knownUnstableProjects":{}}}}`;
 
     it('accepts an expiry on the measured bound', () => {
       const result = runLintVerify({
@@ -656,13 +685,26 @@ describe('the lint quarantine is a measured one', () => {
       expect(result.stderr).toContain('measured clean; delete the entry');
     });
 
-    it('refuses a policy with a duplicated key, which a renewal would rewrite without its first block', () => {
-      const text =
-        `{"version":2,"targets":{"lint":{"knownUnstableProjects":` +
-        `{"invariants":${JSON.stringify(lintEntry(bound26))}}},"lint":{"knownUnstableProjects":{}}}}`;
-      const result = runLintVerifyText(text, lintMeasurementOf(DEBT_26));
+    it('refuses a policy with a duplicated key in verification', () => {
+      const result = runLintVerifyText(duplicatedLintPolicy, lintMeasurementOf(DEBT_26));
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain('duplicate key(s) $.targets.lint');
+    });
+
+    it('refuses a policy with a duplicated key before it measures, so a renewal cannot rewrite it without its first block', () => {
+      // --renew measures first and rewrites the policy from what it parsed.
+      // The measurement reads the policy strictly before any eslint or Nx
+      // work; --dry-run takes the same path without the clean-tree check.
+      const dir = mkdtempSync(join(tmpdir(), 'lint-debt-measure-'));
+      try {
+        const policyPath = join(dir, 'policy.json');
+        writeFileSync(policyPath, duplicatedLintPolicy);
+        const result = runNode([MEASURE_PATH, '--dry-run', '--policy', policyPath]);
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain('duplicate key(s) $.targets.lint');
+      } finally {
+        removeFixtureTree(dir);
+      }
     });
 
     it('refuses a measurement taken on a commit outside this history', () => {
@@ -723,18 +765,17 @@ describe('the lint quarantine is a measured one', () => {
     // eslint.config.mjs names the selector instead of picking it by array
     // position; this pins that the list a renewal trusts as non-security is
     // exactly that selector and never a tenant or JWT one.
-    const program = [
-      `const config = await import(${JSON.stringify(pathToFileURL(join(REPO_ROOT, 'eslint.config.mjs')).href)});`,
-      'process.stdout.write(JSON.stringify({',
-      '  selectors: config.NON_SECURITY_RESTRICTED_SYNTAX,',
-      '  messages: config.NON_SECURITY_RESTRICTED_SYNTAX_MESSAGES,',
-      '}));',
-    ].join('\n');
-    const outcome = runNode(['--input-type=module', '-e', program]);
-    expect(outcome.stderr).toBe('');
-    const listed = JSON.parse(outcome.stdout) as {
-      selectors: ReadonlyArray<{ selector: string; message: string }>;
-      messages: readonly string[];
+    const listed = {
+      selectors: esmExportResult<ReadonlyArray<{ selector: string; message: string }>>(
+        ESLINT_CONFIG,
+        'NON_SECURITY_RESTRICTED_SYNTAX',
+        [],
+      ),
+      messages: esmExportResult<readonly string[]>(
+        ESLINT_CONFIG,
+        'NON_SECURITY_RESTRICTED_SYNTAX_MESSAGES',
+        [],
+      ),
     };
     expect(listed.selectors.map(({ selector }) => selector)).toEqual([
       "CallExpression[callee.object.name='JSON'][callee.property.name='stringify'][arguments.length>2]",

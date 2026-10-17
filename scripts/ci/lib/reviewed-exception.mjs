@@ -1,9 +1,10 @@
 /**
  * The shape of a REVIEWED EXCEPTION — a gate we are knowingly not enforcing.
  *
- * The repository has three of these now (dormant invariants, the affected-target
- * quarantine, npm advisories) and they kept being invented separately, each a
- * little weaker than the last: `invariant-reachability.dormant.json` carried the
+ * Three exception files share this shape (dormant invariants, the affected-target
+ * quarantine, npm advisories; more lists are listed at the end of this header,
+ * not yet in it). They kept being invented separately, each a little weaker
+ * than the last: `invariant-reachability.dormant.json` carried the
  * four fields, `affected-target-policy.json` carried a bare reason string, and
  * the npm audit gate carried no exception mechanism at all — so a single
  * unfixable advisory turned the whole required check red and everyone learned
@@ -21,15 +22,23 @@
  * downgraded to warnings for four months behind bare strings with no owner, no
  * clock and no finding.
  *
- * This module is the ONE statement of these rules. Each committed exception
- * file is checked through it, never through a copy: the npm advisories by
- * npm-audit-gate.mjs, the affected-target quarantine by
+ * This module is the ONE statement of these rules. The three files above are
+ * checked through it, never through a copy: the npm advisories by
+ * npm-audit-gate.mjs and the affected-target quarantine by
  * lib/affected-target-policy.mjs (both run on the committed file by their
- * invariant specs), and the dormant-invariant manifest, which has no runtime
- * consumer, by validateReviewedExceptions below, called from
- * tests/invariants/invariant-reachability.spec.ts. The specs used to re-type
- * the rules, and the dormant copy accepted a waiver with reason "tbd" and
- * finding_id "TODO" (INFRA-LOW-229).
+ * invariant specs), and the dormant-invariant manifest by
+ * validateReviewedExceptions below, called from
+ * tests/invariants/invariant-reachability.spec.ts. The manifest's consumer is
+ * tests/invariants/jest.config.ts, which leaves the specs it names out of
+ * layer-1 without validating it; the reachability spec runs in that same
+ * layer-1 run and fails it on a malformed or expired entry. The specs used to
+ * re-type the rules, and the dormant copy accepted a waiver with reason "tbd"
+ * and finding_id "TODO" (INFRA-LOW-229).
+ *
+ * Not yet checked through it: scripts/ci/lint-all-exclusions.json, whose bare
+ * reason strings carry no owner, expiry or finding (INFRA-LOW-231), and the
+ * {owner, reason, expiry, findingId} lists under .claude/allowlists/, which
+ * seven invariant specs check with rules of their own (INFRA-LOW-232).
  */
 
 export const FINDING_ID = /^[A-Z]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$/;

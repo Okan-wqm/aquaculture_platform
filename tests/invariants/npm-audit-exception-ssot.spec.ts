@@ -277,6 +277,42 @@ describe('INVARIANT (SUPPLY-CRITICAL-002): npm audit exceptions are reviewed, tr
       expect(output).toContain('owner is required');
     });
 
+    // The committed file passing the gate proves only that the gate is no
+    // stricter than the data; these pin the refusals the spec's deleted copies
+    // used to restate (INFRA-LOW-229). A string `packages` would excuse every
+    // package named inside it, and a date that is not ISO never lapses.
+    it.each<[string, unknown, string]>([
+      [
+        'a key that is not a GHSA id',
+        { version: 1, advisories: { 'GHSA-bad': FIXTURE_ENTRY } },
+        'GHSA-bad: key must be a GHSA advisory id',
+      ],
+      [
+        'packages given as one string',
+        exceptionFixture({ packages: 'minio stream-json' }),
+        'packages must list the package names',
+      ],
+      ['an empty scopes list', exceptionFixture({ scopes: [] }), 'scopes must list the audit legs'],
+      [
+        'a missing scopes list',
+        exceptionFixture({ scopes: undefined }),
+        'scopes must list the audit legs',
+      ],
+      [
+        'an expiry that is not an ISO date',
+        exceptionFixture({ expires_on: '2099-12-31T00:00' }),
+        'expires_on must be YYYY-MM-DD',
+      ],
+    ])('blocks an exceptions file with %s', (_label, exceptionDoc, message) => {
+      const { status, output } = runGate(AUDIT_FIXTURE, exceptionDoc, {
+        level: 'moderate',
+        scope: 'root-production',
+      });
+      expect(status).toBe(1);
+      expect(output).toContain('npm audit exceptions are invalid');
+      expect(output).toContain(message);
+    });
+
     it('blocks an unexcepted advisory and names the remedy npm offers', () => {
       const { status, output } = runGate(
         {

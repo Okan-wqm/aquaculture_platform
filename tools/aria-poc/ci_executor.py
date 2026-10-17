@@ -1004,6 +1004,14 @@ def _publish_artifact_paths(envelope_path: Path, transcript_path: Path) -> None:
     that claimed a request, AFTER the agent work had already succeeded. The
     producer knows the path; it says so here instead of letting YAML guess.
 
+    ARIA-MEDIUM-574 — only a file that exists is named: what the kernel
+    KEPT. A credential refusal deletes the envelope and the transcript
+    under its withheld row (`agent_invocations._withhold_submission_sources`),
+    and a refusal after the claim may leave neither; naming those paths made
+    the upload step fail the job on exactly the files the withholding
+    removed. Called only through `_publish_kept_artifact_paths_at_exit`, so
+    the question is asked after the terminal, never at claim time.
+
     Paths are emitted relative to the workspace because that is what
     actions/upload-artifact resolves against; an absolute path outside the
     workspace would silently upload nothing.
@@ -1020,9 +1028,26 @@ def _publish_artifact_paths(envelope_path: Path, transcript_path: Path) -> None:
         except ValueError:
             return resolved.as_posix()
 
+    kept = [(key, path) for key, path in (("envelope_path", envelope_path), ("transcript_path", transcript_path))
+            if path.is_file()]
     with open(output_file, "a", encoding="utf-8") as handle:
-        handle.write(f"envelope_path={_relative(envelope_path)}\n")
-        handle.write(f"transcript_path={_relative(transcript_path)}\n")
+        for key, path in kept:
+            handle.write(f"{key}={_relative(path)}\n")
+
+
+def _publish_kept_artifact_paths_at_exit(runtime_stack: _ExitStack, envelope_path: Path, transcript_path: Path) -> None:
+    """ARIA-MEDIUM-574 — publish a request's result files when the process
+    exits, from what is on disk then.
+
+    The paths are known at claim time, but whether the files exist is
+    decided by the terminal: the kernel's submit keeps them or withholds
+    them, a refusal may come before either was written. The entry's
+    runtime stack unwinds after `_main` (or the judge batch) returned, so
+    the publication follows every terminal on every exit path without a
+    call at each of them. Contexts entered later (the lease guard's release
+    on an uncaught exit) unwind before it and never touch these files.
+    """
+    runtime_stack.callback(_publish_artifact_paths, envelope_path, transcript_path)
 
 
 def _write_sanitized_envelope(path: Path, envelope: dict[str, Any]) -> None:
@@ -5162,7 +5187,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
 
     timeout = _max_timeout_seconds()
     transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
-    _publish_artifact_paths(expected_output_path, transcript_output_path)
+    _publish_kept_artifact_paths_at_exit(_runtime_stack, expected_output_path, transcript_output_path)
     # Plan 032 Faz 032c — recovery FIRST: a request whose previous attempt
     # left an external intent without a receipt is not re-run blind. Then
     # the session decision (fresh vs resume, fingerprint-bound) and, for a

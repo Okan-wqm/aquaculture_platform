@@ -507,7 +507,7 @@ def _run_judge_batch(
             "request_id": member.request_id, "answer": json.loads(json.dumps(sealed["details"]["verdict"])),
             "usage_share": share,
         }, sort_keys=True) + "\n")
-        _engine._publish_artifact_paths(expected_output_path, transcript_path)
+        _engine._publish_kept_artifact_paths_at_exit(_runtime_stack, expected_output_path, transcript_path)
         errors = _engine._pre_submit_validate_envelope(sealed, role=role, request=envelope, tools_dir=tools_dir)
         if errors:
             _finish_attempt(member, result_admission="judge_verdict_contract_violation",

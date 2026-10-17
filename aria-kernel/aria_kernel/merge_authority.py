@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .auto_merge import (
     GitHubAdapter,
     _append_decision,
@@ -853,7 +854,6 @@ def _capture_pre_merge_context(
     This reader neither repairs historical rows nor qualifies an absent
     implementation request. The registry still owns all check verdicts.
     """
-    import re as _re
     from dataclasses import replace as _replace
 
     from . import agent_invocations as _invocations
@@ -905,8 +905,8 @@ def _capture_pre_merge_context(
         if (
             type(number) is not int or number <= 0
             or not isinstance(live_base_sha, str)
-            or _re.fullmatch(r"[0-9a-f]{40}", live_base_sha) is None
-            or _re.fullmatch(r"[0-9a-f]{40}", head_sha) is None
+            or not is_object_id(live_base_sha, formats=ANY_OBJECT_FORMAT)
+            or not is_object_id(head_sha, formats=ANY_OBJECT_FORMAT)
             or _git(workspace, "rev-parse", "--verify", live_base_sha + "^{commit}").strip() != live_base_sha
             or _git(workspace, "rev-parse", "--verify", head_sha + "^{commit}").strip() != head_sha
         ):
@@ -919,7 +919,7 @@ def _capture_pre_merge_context(
         # ledger names whenever main still contains it — and every join
         # below is against it; the live base is recorded beside it.
         base_sha = _git(workspace, "merge-base", live_base_sha, head_sha).strip()
-        if _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None:
+        if not is_object_id(base_sha, formats=ANY_OBJECT_FORMAT):
             raise GovernanceError(reason)
         # ARIA-HIGH-374 — what GitHub will merge: the live PR head and the
         # base it forked from (the shaped workspace stands there). Until the
@@ -1034,7 +1034,7 @@ def _capture_pre_merge_context(
                 raise GovernanceError(f"{reason}:{exc.reason}") from exc
             head_sha = str(committed["commit_sha"])
             base_sha = _git(workspace, "merge-base", live_base_sha, head_sha).strip()
-            if _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None:
+            if not is_object_id(base_sha, formats=ANY_OBJECT_FORMAT):
                 raise GovernanceError(reason)
 
         reason = "plan_revision_unavailable"
@@ -1272,7 +1272,7 @@ def _capture_pre_merge_coverage(
         reason = "coverage_planning_commit_unavailable"
         computed_sha = payload["computed_at_sha"]
         if (
-            _re.fullmatch(r"[0-9a-f]{40}", computed_sha) is None
+            not is_object_id(computed_sha, formats=ANY_OBJECT_FORMAT)
             or _git(workspace, "rev-parse", "--verify", computed_sha + "^{commit}").strip() != computed_sha
             or _git(workspace, "merge-base", computed_sha, base_sha).strip() != computed_sha
         ):

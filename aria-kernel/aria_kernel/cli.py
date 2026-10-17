@@ -14,8 +14,10 @@ if __package__ in {None, ""}:
 
 
 def _full_git_sha(value: str) -> str:
-    if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
-        raise argparse.ArgumentTypeError("target SHA must be 40 lowercase hexadecimal characters")
+    from aria_kernel.git_object_id import ANY_OBJECT_FORMAT, is_object_id
+
+    if not is_object_id(value, formats=ANY_OBJECT_FORMAT):
+        raise argparse.ArgumentTypeError("target SHA must be a full lowercase git object id (40 or 64 hex digits)")
     return value
 
 from aria_kernel.cycle import run_cycle
@@ -1647,6 +1649,10 @@ def build_parser() -> argparse.ArgumentParser:
     rs_ingest.add_argument("--summary", required=True)
     rs_ingest.add_argument("--code-ref", action="append", required=True, dest="code_refs")
     rs_ingest.add_argument("--severity", default="high")
+    # ARIA-MEDIUM-271 — a kernel-owned signal by name: what the dataflow
+    # watchdog's dispatch asks the cycle to ingest into the store it owns.
+    rs_standing = add_subparser(runtime_signal_sub, "ingest-standing")
+    rs_standing.add_argument("--name", required=True)
     rs_resolve = add_subparser(runtime_signal_sub, "resolve")
     rs_resolve.add_argument("--signal-id", required=True)
     rs_resolve.add_argument("--resolution-note", required=True)
@@ -2000,6 +2006,11 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
     )
+    # ARIA-HIGH-245 — the evidence the contract names (repo path[:line]),
+    # repeatable. Without one the scheduler skips the mission as unevidenced
+    # (`mission_dispatch.drain_can_plan`) unless its next action is a
+    # kernel contract.
+    mission_open.add_argument("--evidence-ref", action="append", default=[])
     mission_open.add_argument("--capability", default=None)
     mission_open.add_argument("--priority", type=int, default=None)
     mission_contract = add_subparser(
@@ -4808,6 +4819,7 @@ def _main(argv: list[str] | None = None) -> int:
         # without importing the kernel. These verbs are the missing mouth.
         from .runtime_signal_bridge import (
             ingest_runtime_signal,
+            ingest_standing_runtime_signal,
             load_open_runtime_signals,
             resolve_runtime_signal,
         )
@@ -4817,6 +4829,8 @@ def _main(argv: list[str] | None = None) -> int:
                 summary=args.summary, code_refs=args.code_refs,
                 severity=args.severity, base_dir=args.tools_dir,
             )
+        elif args.runtime_signal_command == "ingest-standing":
+            row = ingest_standing_runtime_signal(name=args.name, base_dir=args.tools_dir)
         elif args.runtime_signal_command == "resolve":
             row = resolve_runtime_signal(
                 signal_id=args.signal_id,
@@ -5390,6 +5404,7 @@ def _main(argv: list[str] | None = None) -> int:
                 wake_condition=json.loads(
                     Path(args.wake_file).read_text(encoding="utf-8")
                 ),
+                evidence_refs=args.evidence_ref,
                 capability=args.capability,
                 priority=args.priority,
                 base_dir=args.tools_dir,

@@ -63,6 +63,20 @@ _UNIX_SOCKET_PATH_MAX = 107
 # is refused, not read.
 MAX_REQUEST_BYTES = 8 << 20
 _REQUEST_TIMEOUT_SECONDS = 55.0
+# ARIA-MEDIUM-131 — any process in the sandbox can open the socket, not only
+# the CLI's hook command, and each connection used to get its own handler
+# thread holding up to MAX_REQUEST_BYTES until the request timeout: a caller
+# that opened connections and sent nothing spent the executor's threads and
+# memory without bound. At most this many requests are served at once (the
+# CLI runs one hook per tool call, a few in parallel at most); a connection
+# beyond them is closed unread, which the client answers fail-closed by verb
+# (a PreToolUse is denied). Bounded memory: this many times
+# MAX_REQUEST_BYTES.
+MAX_CONCURRENT_REQUESTS = 16
+# Pending connections the listener queues before refusing a connect: above
+# the served slots, so a burst of parallel hooks waits for accept instead of
+# failing its connect (the stdlib default is 5).
+_LISTEN_BACKLOG = 4 * MAX_CONCURRENT_REQUESTS
 
 
 class HookBrokerUnavailable(RuntimeError):
@@ -97,6 +111,7 @@ def _fail_closed(verb: str, reason: str) -> tuple[int, str]:
 class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
     allow_reuse_address = False
+    request_queue_size = _LISTEN_BACKLOG
 
     def __init__(self, socket_path: str, *, base_dir: Path, workspace_root: Path, request_id: str,
                  turn_budget: int | None) -> None:
@@ -104,7 +119,25 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self.workspace_root = workspace_root
         self.request_id = request_id
         self.turn_budget = turn_budget
+        self._slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
         super().__init__(socket_path, _Handler)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        """Serve the request in a slot, or close it unread when every slot is taken."""
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
 
 class _Handler(socketserver.StreamRequestHandler):
@@ -184,6 +217,7 @@ def serve_hook_broker(
 
 __all__ = [
     "HOOK_BROKER_SOCKET_ENV",
+    "MAX_CONCURRENT_REQUESTS",
     "MAX_REQUEST_BYTES",
     "SANDBOX_HOOK_BROKER_SOCKET",
     "HookBroker",

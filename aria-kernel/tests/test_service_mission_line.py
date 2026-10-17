@@ -429,7 +429,8 @@ class ServiceMissionSeedTest(unittest.TestCase):
             "examination_order": [{"project": "backend-common", "changed_files": 0}],
             "per_service_pressures": [
                 {"service": "backend-common", "layer": 0,
-                 "pressures": [{"pressure_id": "p-bc-1"}]},
+                 "pressures": [{"pressure_id": "p-bc-1",
+                                "evidence": ["libs/backend-common/src/rls.service.ts"]}]},
             ],
         }
         with TemporaryDirectory() as tmp:
@@ -524,7 +525,8 @@ class ServiceMissionSeedTest(unittest.TestCase):
             "examination_order": [{"project": "sensor-service", "changed_files": 1}],
             "per_service_pressures": [
                 {"service": "sensor-service", "layer": 2,
-                 "pressures": [{"pressure_id": "p-77"}]},
+                 "pressures": [{"pressure_id": "p-77",
+                                "evidence": ["apps/sensor-service/src/reading.ts:4"]}]},
             ],
         }
         _, missions, _ = self._seed(
@@ -601,12 +603,16 @@ class ServiceMissionSeedTest(unittest.TestCase):
             "examination_order": [{"project": "farm-service", "changed_files": 1}],
             "per_service_pressures": [
                 {"service": "farm-service", "layer": 1,
-                 "pressures": [{"pressure_id": "p-farm-1"}]},
+                 "pressures": [{"pressure_id": "p-farm-1",
+                                "evidence": ["apps/farm-service/src/pond.service.ts:7"]}]},
             ],
         }
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
             ensure_tools_dir(root)
+            # ARIA-HIGH-245 — every tier's evidence is attributed through the
+            # project map, so the workspace has the projects it names.
+            _workspace(tmp, *_CORE_ROOTS)
             ctx = _context(tmp, exam, ["apps/farm-service/src/pond.service.ts"])
             with patch.object(cycle_mod, "repo_hash", return_value="rh-1"):
                 result = cycle_mod._phase_service_mission_seed(ctx)
@@ -639,12 +645,14 @@ class ServiceMissionSeedTest(unittest.TestCase):
             "examination_order": [{"project": "billing-service", "changed_files": 1}],
             "per_service_pressures": [
                 {"service": "billing-service", "layer": 1,
-                 "pressures": [{"pressure_id": "p-bill-9"}]},
+                 "pressures": [{"pressure_id": "p-bill-9",
+                                "evidence": ["apps/billing-service/src/invoice.service.ts"]}]},
             ],
         }
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
             ensure_tools_dir(root)
+            _workspace(tmp, *_CORE_ROOTS)
             mission_id = _legacy_service_mission(root, "billing-service")
             self.assertTrue(assert_cycle_closure(base_dir=root)["violations"])
 
@@ -674,7 +682,7 @@ class ServiceMissionSeedTest(unittest.TestCase):
             "examination_order": [{"project": "hr-service", "changed_files": 1}],
             "per_service_pressures": [
                 {"service": "hr-service", "layer": 3,
-                 "pressures": [{"pressure_id": "p-hr-1"}]},
+                 "pressures": [{"pressure_id": "p-hr-1", "evidence": ["apps/hr-service/src/leave.service.ts"]}]},
             ],
         }
         # The fixture carries `project_roots` because the real reader does:
@@ -713,7 +721,10 @@ class ServiceMissionSeedTest(unittest.TestCase):
                 {
                     "service": "sensor-service",
                     "layer": 2,
-                    "pressures": [{"pressure_id": "p-1"}, {"pressure_id": "p-2"}],
+                    "pressures": [
+                        {"pressure_id": "p-1", "evidence": ["apps/sensor-service/src/a.ts"]},
+                        {"pressure_id": "p-2", "evidence": ["apps/sensor-service/src/b.ts"]},
+                    ],
                 },
             ],
         }
@@ -743,12 +754,14 @@ class ServiceMissionSeedTest(unittest.TestCase):
             "examination_order": [{"project": "alert-engine", "changed_files": 1}],
             "per_service_pressures": [
                 {"service": "alert-engine", "layer": 2,
-                 "pressures": [{"pressure_id": "p-alert-1"}]},
+                 "pressures": [{"pressure_id": "p-alert-1",
+                                "evidence": ["apps/alert-engine/src/rule.service.ts"]}]},
             ],
         }
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
             ensure_tools_dir(root)
+            _workspace(tmp, *_CORE_ROOTS, "apps/alert-engine")
             with patch.object(cycle_mod, "repo_hash", return_value="rh-1"):
                 first = cycle_mod._phase_service_mission_seed(_context(tmp, exam, []))
                 second = cycle_mod._phase_service_mission_seed(_context(tmp, exam, []))
@@ -770,17 +783,20 @@ class ClosureContractTierOrderTest(unittest.TestCase):
         from aria_kernel import mission_scheduler
 
         evidence = dict(
-            pressures=[{"pressure_id": "p-1"}],
+            pressures={"p-1": ["apps/auth-service/src/session.ts"]},
             changed_paths=["apps/auth-service/src/token.service.ts"],
-            finding_ids=["F-1"],
+            findings={"F-1": ["apps/auth-service/src/jwt.ts"]},
         )
         default = cycle_mod._service_closure_contract("auth-service", **evidence)
         with patch.dict(mission_scheduler.SOURCE_RANK,
                         {"finding": 9, "pressure": 1}, clear=False):
             flipped = cycle_mod._service_closure_contract("auth-service", **evidence)
 
-        self.assertEqual(default[2], "open_finding")
-        self.assertEqual(flipped[2], "scoped_pressure")
+        self.assertEqual(default.contract_source, "open_finding")
+        self.assertEqual(flipped.contract_source, "scoped_pressure")
+        # ARIA-HIGH-245 — the winning tier's evidence is the contract's.
+        self.assertEqual(default.evidence_refs, ("apps/auth-service/src/jwt.ts",))
+        self.assertEqual(flipped.evidence_refs, ("apps/auth-service/src/session.ts",))
 
     def test_a_changed_path_never_outranks_a_declared_source(self) -> None:
         """It is the only tier with no seat at the table, so it takes the
@@ -793,12 +809,12 @@ class ClosureContractTierOrderTest(unittest.TestCase):
                         {"pressure": 999}, clear=False):
             contract = cycle_mod._service_closure_contract(
                 "auth-service",
-                pressures=[{"pressure_id": "p-1"}],
+                pressures={"p-1": ["apps/auth-service/src/session.ts"]},
                 changed_paths=["apps/auth-service/src/token.service.ts"],
-                finding_ids=[],
+                findings={},
             )
 
-        self.assertEqual(contract[2], "scoped_pressure")
+        self.assertEqual(contract.contract_source, "scoped_pressure")
 
 
 class SchedulerIntegrationTest(unittest.TestCase):
@@ -815,6 +831,7 @@ class SchedulerIntegrationTest(unittest.TestCase):
                 repo_hash="rh-1", title="Harden auth-service",
                 next_action="Harden auth-service against finding F-1",
                 wake_condition={"kind": "evidence", "key": "finding:F-1"},
+                evidence_refs=["apps/auth-service/src/auth.service.ts"],
                 target_project="auth-service", base_dir=root,
             )
             ctx = _context(tmp)
@@ -868,7 +885,9 @@ class DrainResolvesMissionMarkersTest(unittest.TestCase):
                 repo_hash="rh-1", title="Harden auth-service",
                 next_action="Harden auth-service against finding F-1",
                 wake_condition={"kind": "evidence", "key": "finding:F-1"},
-                target_project="auth-service", base_dir=root,
+                # A mission minted before the mint recorded refs; the refs
+                # under test arrive the way reconcile adds them, by transition.
+                evidence_refs=(), target_project="auth-service", base_dir=root,
             )
             if evidence_refs:
                 transition_mission(

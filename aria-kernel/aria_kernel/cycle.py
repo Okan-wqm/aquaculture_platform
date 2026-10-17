@@ -5,11 +5,11 @@ import errno
 import json
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from .artifact_safety import published_text
 from .feedback import derive_pressure
@@ -2315,13 +2315,22 @@ SERVICE_HARDENING_CORE: tuple[str, ...] = (
 )
 
 
+class ServiceClosureContract(NamedTuple):
+    """A service mission's forward pointer and the evidence it names (ARIA-HIGH-245)."""
+
+    next_action: str
+    wake_condition: dict[str, Any]
+    contract_source: str
+    evidence_refs: tuple[str, ...]
+
+
 def _service_closure_contract(
     project: str,
     *,
-    pressures: list[dict[str, Any]],
-    changed_paths: list[str],
-    finding_ids: list[str],
-) -> tuple[str, dict[str, Any], str] | None:
+    pressures: Mapping[str, Sequence[str]],
+    changed_paths: Sequence[str],
+    findings: Mapping[str, Sequence[str]],
+) -> ServiceClosureContract | None:
     """The forward pointer for a service-hardening mission, or ``None``.
 
     ORPHAN-MEDIUM-730 — `mission.open_mission` now refuses a mint without
@@ -2331,16 +2340,30 @@ def _service_closure_contract(
     stand-in, because a mission whose wake key names no evidence is exactly
     the row the closure gate exists to report.
 
-    ATTRIBUTION DOES NOT HAPPEN HERE. ``changed_paths`` and ``finding_ids``
-    arrive already attributed to THIS project by the caller, through
-    `impact_graph.project_for_path` — the same longest-root-prefix rule that
-    produced the nx project names this function is handed. The first version
-    asked `service_dimension.service_for_path` instead: that vocabulary emits
-    ``shared:<lib>`` / ``web:<app>`` / ``None`` and can never produce 54 of
-    this repository's 71 nx project names, so for those 54 the seeder wrote a
-    governance row claiming no derivable evidence about the very paths that
-    had just selected the project. Two path -> project vocabularies deciding
-    whether a mission exists is one more than the number of correct answers.
+    ARIA-HIGH-245 — AND THE EVIDENCE THE KEY NAMES TRAVELS WITH IT. Each tier
+    is a mapping from the identifier its key names to that item's evidence in
+    this project: a finding's cited paths, a pressure's own evidence, the
+    changed path itself. Only an item with at least one ref the agent law can
+    accept the shape of (`pressure_evidence.split_citable_refs`) qualifies, and
+    the winning item's citable refs are the mission's ``evidence_refs``. Before
+    this, the key named ``finding:<id>`` while the row recorded nothing, and
+    the drain consumed the mission ``next_cycle_queue_item_unevidenced`` every
+    cycle it was selected — 36 times for the auth-service mission alone on the
+    live store. An item with nothing citable (a pressure whose only evidence
+    is a ledger) names no contract, so a service with nothing else is refused
+    by name instead of minted unplannable.
+
+    ATTRIBUTION DOES NOT HAPPEN HERE. ``changed_paths``, ``findings`` and
+    ``pressures`` arrive already attributed to THIS project by the caller,
+    through `impact_graph.project_for_path` — the same longest-root-prefix
+    rule that produced the nx project names this function is handed. The
+    first version asked `service_dimension.service_for_path` instead: that
+    vocabulary emits ``shared:<lib>`` / ``web:<app>`` / ``None`` and can never
+    produce 54 of this repository's 71 nx project names, so for those 54 the
+    seeder wrote a governance row claiming no derivable evidence about the
+    very paths that had just selected the project. Two path -> project
+    vocabularies deciding whether a mission exists is one more than the number
+    of correct answers.
 
     THE TIER ORDER IS READ OFF `mission_scheduler.SOURCE_RANK` — literally,
     not in prose. That table is this repo's statement of evidence authority
@@ -2348,71 +2371,78 @@ def _service_closure_contract(
     not a mission source at all, so it ranks strictly below every source that
     is. Reordering SOURCE_RANK reorders these tiers with it instead of
     leaving two orders to drift apart.
-
-    Returns ``(next_action, wake_condition, contract_source)``.
     """
     from .mission_scheduler import SOURCE_RANK
+    from .pressure_evidence import split_citable_refs
 
-    # (rank, contract_source, next_action, wake_condition)
-    candidates: list[tuple[int, str, str, dict[str, Any]]] = []
+    def citable(items: Mapping[str, Sequence[str]]) -> dict[str, tuple[str, ...]]:
+        # Sorted by identifier alone: two severity vocabularies live in this
+        # kernel (`finding.SEVERITY_RANK` is uppercase INFORMATIONAL..HIGH,
+        # tool findings carry lowercase critical..low), so choosing one to
+        # sort by here would fork it. The action names the COUNT and the
+        # agent triages.
+        out: dict[str, tuple[str, ...]] = {}
+        for identifier in sorted(items):
+            evidence, _provenance = split_citable_refs(sorted(set(items[identifier])))
+            if identifier.strip() and evidence:
+                out[identifier] = tuple(evidence)
+        return out
 
-    # A confirmed open defect this service owns. Ordered by finding_id
-    # alone: two severity vocabularies live in this kernel
-    # (`finding.SEVERITY_RANK` is uppercase INFORMATIONAL..HIGH, tool
-    # findings carry lowercase critical..low), so choosing one to sort by
-    # here would fork it. The action names the COUNT and the agent triages.
-    findings = sorted(set(finding_ids))
-    if findings:
+    # (rank, contract_source, next_action, wake_condition, evidence_refs)
+    candidates: list[tuple[int, str, str, dict[str, Any], tuple[str, ...]]] = []
+
+    # A confirmed open defect this service owns.
+    owned = citable(findings)
+    if owned:
+        first = next(iter(owned))
         candidates.append((
             SOURCE_RANK["finding"],
             "open_finding",
-            f"Harden {project} against its {len(findings)} open finding(s), "
-            f"starting with {findings[0]}",
-            {"kind": "evidence", "key": f"finding:{findings[0]}"},
+            f"Harden {project} against its {len(owned)} open finding(s), "
+            f"starting with {first}",
+            {"kind": "evidence", "key": f"finding:{first}"},
+            owned[first],
         ))
 
     # A pressure this cycle scoped onto the service. Only a pressure that
     # carries its own id qualifies: an id-less pressure would force a key
     # naming the service instead of the evidence, and every such mission
     # would then share one handle.
-    identified = sorted(
-        (
-            str(pressure.get("pressure_id"))
-            for pressure in pressures
-            if isinstance(pressure, dict)
-            and isinstance(pressure.get("pressure_id"), str)
-            and pressure["pressure_id"].strip()
-        )
-    )
-    if identified:
+    scoped = citable(pressures)
+    if scoped:
+        first = next(iter(scoped))
         candidates.append((
             SOURCE_RANK["pressure"],
             "scoped_pressure",
-            f"Examine {project} against the {len(identified)} pressure(s) scoped "
-            f"to it this cycle, starting with {identified[0]}",
-            {"kind": "evidence", "key": f"pressure:{identified[0]}"},
+            f"Examine {project} against the {len(scoped)} pressure(s) scoped "
+            f"to it this cycle, starting with {first}",
+            {"kind": "evidence", "key": f"pressure:{first}"},
+            scoped[first],
         ))
 
     # The service moved this cycle. A changed path is evidence but not a
     # mission source, so it cannot appear in SOURCE_RANK at all; ranking it
     # one step below the weakest ranked source keeps it last WITHOUT pinning
-    # a number that a future source could quietly overtake.
-    mine = sorted(set(changed_paths))
-    if mine:
+    # a number that a future source could quietly overtake. A path is its own
+    # evidence.
+    moved = citable({path: (path,) for path in changed_paths})
+    if moved:
+        first = next(iter(moved))
         candidates.append((
             max(SOURCE_RANK.values()) + 1,
             "changed_path",
-            f"Review the {len(mine)} path(s) changed in {project} this cycle "
-            f"against charter D1-D6, starting with {mine[0]}",
-            {"kind": "evidence", "key": f"changed_path:{mine[0]}"},
+            f"Review the {len(moved)} path(s) changed in {project} this cycle "
+            f"against charter D1-D6, starting with {first}",
+            {"kind": "evidence", "key": f"changed_path:{first}"},
+            moved[first],
         ))
 
     if not candidates:
         return None
-    _, contract_source, next_action, wake_condition = min(
+    _, contract_source, next_action, wake_condition, evidence_refs = min(
         candidates, key=lambda candidate: (candidate[0], candidate[1])
     )
-    return next_action, wake_condition, contract_source
+    return ServiceClosureContract(next_action, wake_condition, contract_source, evidence_refs)
 
 
 def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
@@ -2534,7 +2564,10 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
     from .service_dimension import finding_dimension_paths
 
     open_findings = list_findings(status="open", base_dir=context.base_dir)
-    findings_by_project: dict[str, list[str]] = {}
+    # project -> finding_id -> the finding's cited paths IN that project: the
+    # paths are the mission's evidence when the finding names its contract
+    # (ARIA-HIGH-245), so they are kept, not reduced to the id.
+    findings_by_project: dict[str, dict[str, list[str]]] = {}
     for finding_row in open_findings:
         finding_id = finding_row.get("finding_id")
         if not isinstance(finding_id, str) or not finding_id.strip():
@@ -2543,19 +2576,29 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
         cited = finding_dimension_paths(document if isinstance(document, dict) else {})
         for path in cited:
             owner = project_for_path(path, project_roots)
-            if owner and finding_id not in findings_by_project.setdefault(owner, []):
-                findings_by_project[owner].append(finding_id)
+            if owner:
+                findings_by_project.setdefault(owner, {}).setdefault(finding_id, []).append(path)
     seeded: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
     for rank, project in enumerate(targets):
         pressures_here = per_service.get(project) or []
         project_changed = changed_by_project.get(project) or []
-        project_findings = findings_by_project.get(project) or []
+        project_findings = findings_by_project.get(project) or {}
+        # pressure_id -> the pressure's own evidence in THIS project, through
+        # the same attribution the changed paths and findings went through.
+        project_pressures: dict[str, list[str]] = {}
+        for pressure in pressures_here:
+            if not isinstance(pressure, dict) or not isinstance(pressure.get("pressure_id"), str):
+                continue
+            project_pressures.setdefault(pressure["pressure_id"], []).extend(
+                ref for ref in (pressure.get("evidence") or [])
+                if isinstance(ref, str) and project_for_path(ref, project_roots) == project
+            )
         contract = _service_closure_contract(
             project,
-            pressures=pressures_here,
+            pressures=project_pressures,
             changed_paths=project_changed,
-            finding_ids=project_findings,
+            findings=project_findings,
         )
         if contract is None:
             # The honest outcome: no evidence names a next action or a wake,
@@ -2569,10 +2612,11 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
             # asserting "no derivable evidence" while a diff and a findings
             # ledger sit unattributed would be the disclosure claiming a
             # result the cycle never computed. That is a different fact and
-            # it gets a different reason.
+            # it gets a different reason. A scoped pressure counts too: its
+            # evidence goes through the same attribution (ARIA-HIGH-245).
             reason = (
                 "project_attribution_unavailable"
-                if not project_roots and (changed_paths or open_findings)
+                if not project_roots and (changed_paths or open_findings or pressures_here)
                 else "no_derivable_closure_contract"
             )
             row = {
@@ -2623,7 +2667,6 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
                 "newly_disclosed": bool(disclosure["appended"]),
             })
             continue
-        next_action, wake_condition, contract_source = contract
         if project in SERVICE_HARDENING_CORE:
             priority = rank
         elif centrality:
@@ -2639,8 +2682,9 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
                 f"Harden {project}: secure/performant/sustainable/testable/"
                 f"documented/correct (charter D1-D6)"
             ),
-            next_action=next_action,
-            wake_condition=wake_condition,
+            next_action=contract.next_action,
+            wake_condition=contract.wake_condition,
+            evidence_refs=contract.evidence_refs,
             capability=SERVICE_HARDENING_CAPABILITY,
             priority=priority,
             target_project=project,
@@ -2660,9 +2704,11 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
             "scoped_pressures": len(pressures_here),
             "priority": priority,
             "centrality": round(centrality.get(project, 0.0), 6) if centrality else None,
-            "contract_source": contract_source,
+            "contract_source": contract.contract_source,
             "contract_healed": bool(result.get("healed")),
             "heal_declined": result.get("heal_declined"),
+            "evidence_refs": list(contract.evidence_refs),
+            "evidence_healed": bool(result.get("evidence_healed")),
         })
     return {
         "status": "completed",

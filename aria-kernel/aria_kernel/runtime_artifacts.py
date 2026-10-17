@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_safety import sanitized_json_text, scrub_json
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, is_sha256_digest, load_declared_jsonl, load_jsonl, verify_jsonl
 from .ledger import (
     LEDGER_ROW_MAX_BYTES as _LEDGER_ROW_MAX_BYTES,
@@ -838,8 +839,7 @@ def cold_blob(root: Path, pointer: dict[str, Any]) -> bytes | None:
     """The evicted bytes from the local object store, or None when the blob is
     not here, over the cap, or not the bytes the pointer's sha256 names."""
     blob = str(pointer.get("git_blob") or "")
-    hexadecimal = len(blob) in {40, 64} and all(ch in "0123456789abcdef" for ch in blob)
-    size = _git_cat_file(root, ("cat-file", "-s", blob)) if hexadecimal else None
+    size = _git_cat_file(root, ("cat-file", "-s", blob)) if is_object_id(blob, formats=ANY_OBJECT_FORMAT) else None
     if size is None or int(size) > _COLD_BLOB_MAX_BYTES:
         return None
     content = _git_cat_file(root, ("cat-file", "blob", blob))

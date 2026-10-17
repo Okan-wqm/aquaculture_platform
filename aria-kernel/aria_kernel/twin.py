@@ -37,6 +37,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id, is_object_id_prefix
 from .genesis_policy import source_qualification_policy
 from .git_probe import refuse_shallow_checkout
 from .impact_graph import _project_for_path, _project_graph, build_service_analysis_order
@@ -866,7 +867,7 @@ def _history_layers(root: Path, *, history_limit: int) -> dict[str, Any]:
 
     for line in output.splitlines():
         line = line.strip()
-        if re.fullmatch(r"[0-9a-f]{40}", line):
+        if is_object_id(line, formats=ANY_OBJECT_FORMAT):
             flush()
         elif line:
             current.append(line)
@@ -947,7 +948,7 @@ def _head_sha(root: Path) -> str:
 
 
 def _commit_known(root: Path, sha: str) -> bool:
-    if not re.fullmatch(r"[0-9a-f]{7,64}", sha or ""):
+    if not is_object_id_prefix(sha, formats=ANY_OBJECT_FORMAT, min_digits=7):
         return False
     try:
         _git(root, "cat-file", "-e", f"{sha}^{{commit}}")

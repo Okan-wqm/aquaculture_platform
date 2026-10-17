@@ -230,7 +230,8 @@ def doctor_signals(check: DoctorCheck) -> list[Signal]:
 
     The key is what the opener hashes into a mission id, so it is ``<organ>``
     or ``<organ>:<cause key>`` — closed vocabularies only. The title is the one
-    text a minted mission keeps (``open_mission`` persists no evidence) and it
+    text a minted mission keeps (it is opened with no evidence refs: the
+    self-change contract asks the answer for them, ARIA-HIGH-245) and it
     reaches the self-change agent's prompt (``self_change_bridge``), so it is
     built from kernel-composed words only: a cause's KEY, never its summary —
     a summary carries the cycle's error, and a crashed cycle's error is a raw
@@ -364,7 +365,9 @@ def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_roo
         source_id = f"{signal.kind}:{signal.key}"
         mission = open_mission(source_kind=SELF_IMPROVEMENT_SOURCE_KIND, source_id=source_id, repo_hash=repo_hash, title=signal.title[:200],
                                next_action=SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": source_id},
-                               priority=signal.priority, base_dir=root)
+                               # ARIA-HIGH-245 — none at the mint: the self-change
+                               # contract asks the answer for `evidence_paths`.
+                               evidence_refs=(), priority=signal.priority, base_dir=root)
         idempotent = bool(mission.get("idempotent"))
         if not idempotent:
             new += 1

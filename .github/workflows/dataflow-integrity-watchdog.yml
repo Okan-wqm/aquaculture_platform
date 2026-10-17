@@ -4,9 +4,9 @@
 # failure). Runs on the droplet runner because the probes need docker truth
 # and the local repo; every probe is read-only and credential-free by design
 # (plan §F5 — write probes are staging-only until the canary-account
-# decision). On a CRITICAL: ingest one runtime signal (stable summary — the
-# dedup hash must not chew on varying values) and dispatch an ARIA cycle so
-# investigation starts NOW, not at the next nightly.
+# decision). On a CRITICAL: dispatch an ARIA cycle that ingests the standing
+# runtime signal `dataflow_integrity_critical` (stable text, kernel-owned) into
+# its own store, so investigation starts NOW, not at the next nightly.
 name: dataflow-integrity-watchdog
 on:
   schedule:
@@ -72,11 +72,6 @@ jobs:
       - name: Fetch aria/state for the freshness probe
         working-directory: watchdog-checkout
         run: git fetch origin '+refs/heads/aria/state:refs/remotes/origin/aria-state' || true
-      # The CRITICAL branch below runs kernel code, and the kernel is not on
-      # the runner by default — provisioning must precede any step that could
-      # invoke it, which the aria-kernel-workflow-setup invariant enforces.
-      - uses: ./watchdog-checkout/.github/actions/setup-aria-kernel
-
       - name: Run T1 probes
         id: probes
         working-directory: watchdog-checkout
@@ -111,21 +106,18 @@ jobs:
           name: dataflow-probe-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: watchdog-checkout/probe-evidence.json
           retention-days: 14
-      - name: On CRITICAL — signal ARIA and dispatch a cycle
+      # ARIA-MEDIUM-271 — this job used to ingest the signal into its own
+      # checkout's aria-tools, thrown away with the job, and then dispatch a
+      # cycle that could not see it. The signal now travels as the dispatch's
+      # input: the cycle ingests it into the store it restores and publishes.
+      - name: On CRITICAL — dispatch a cycle carrying the runtime signal
         if: steps.probes.outputs.exit_code == '3'
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: watchdog-checkout
         run: |
           set -euo pipefail
-          PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir aria-tools \
-            runtime signal ingest \
-            --source telemetry \
-            --service platform-edge \
-            --summary "dataflow watchdog: critical probe failure" \
-            --code-ref "tools/watchdog/probe-runner.mjs" \
-            --severity critical || true
-          gh workflow run aria-auto-cycle.yml || true
+          gh workflow run aria-auto-cycle.yml -f runtime_signal=dataflow_integrity_critical || true
       - name: Fail the run on CRITICAL
         if: steps.probes.outputs.exit_code == '3'
         run: |

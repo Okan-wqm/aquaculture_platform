@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterator
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .adapter_fixture_contract import expected_run_status
 from .adapter_room import adapter_stderr_sample, prepare_adapter_spawn, run_adapter
 from .genesis_adapter_custody import verify_genesis_dispatch
@@ -509,7 +510,7 @@ def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
     except (OSError, subprocess.TimeoutExpired):
         return None
     head = completed.stdout.strip()
-    return head if completed.returncode == 0 and len(head) == 40 else None
+    return head if completed.returncode == 0 and is_object_id(head, formats=ANY_OBJECT_FORMAT) else None
 
 
 #: The branch an operator-run refresh may certify: its HEAD must already be

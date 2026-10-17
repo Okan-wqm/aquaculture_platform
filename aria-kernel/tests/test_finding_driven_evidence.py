@@ -188,10 +188,13 @@ class OrphanRegistryEvidenceTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d, True)
         reviews = Path(d) / "docs" / "reviews"
         (reviews / "_registry").mkdir(parents=True)
+        # The register's heading shape; OPEN is the registry row's state
+        # (ARIA-MEDIUM-249), registered against the register.
         (reviews / "orphan-findings.md").write_text(
-            "## ORPHAN-HIGH-501\nStatus: OPEN\nsome body\n", encoding="utf-8",
+            "## ORPHAN-HIGH-501 — leave entity — OPEN\nsome body\n", encoding="utf-8",
         )
-        row = {"id": "ORPHAN-HIGH-501", "severity": "HIGH", "state": "OPEN"}
+        row = {"id": "ORPHAN-HIGH-501", "severity": "HIGH", "state": "OPEN",
+               "review_file": "docs/reviews/orphan-findings.md"}
         if evidence is not None:
             row["evidence"] = evidence
         (reviews / "_registry" / "findings.jsonl").write_text(

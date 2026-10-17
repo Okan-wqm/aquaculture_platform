@@ -80,6 +80,7 @@ class WeaveTestBase(unittest.TestCase):
             title=f"close {source_id}",
             next_action=f"close {source_id}",
             wake_condition={"kind": "evidence", "key": f"finding:{source_id}"},
+            evidence_refs=[f"apps/farm-service/src/{source_id}.ts"],
             base_dir=self.base,
         )
         return mission_id_for("finding", source_id, REPO_HASH)

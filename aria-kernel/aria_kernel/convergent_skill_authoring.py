@@ -76,6 +76,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable, Literal, TypedDict
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id_prefix
 from .evidence_collector import (
     EvidencePack,
     InsufficientEvidenceError,
@@ -955,7 +956,7 @@ def _git_show_line(
     Returns (ok, captured_line). ok=False on git failure or out-of-
     range line.
     """
-    if not re.fullmatch(r"[0-9a-fA-F]{4,40}", sha or ""):
+    if not is_object_id_prefix(sha, formats=ANY_OBJECT_FORMAT, case_insensitive=True):
         return (False, "")
     # SECURITY: file_path comes from drafter output. Traversal and absolute
     # paths are refused BEFORE any prefix is stripped (ARIA-HIGH-186: the

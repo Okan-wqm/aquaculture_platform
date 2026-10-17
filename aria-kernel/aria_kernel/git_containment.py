@@ -173,6 +173,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .command_policy import ARIA_IMPL_BRANCH_FRAGMENT
 from .untrusted_tree import UntrustedEntryRefused, UntrustedTree
 
@@ -259,7 +260,6 @@ QUARANTINE_PUBLICATION_WORST_CASE_SECONDS = QUARANTINE_PUBLICATION_GIT_CALLS * _
 # to the git subprocess alone.
 KERNEL_GIT_NO_HOOKS_ARGS: tuple[str, ...] = ("-c", f"core.hooksPath={os.devnull}")
 _ARIA_IMPL_BRANCH_RE = re.compile(rf"^{ARIA_IMPL_BRANCH_FRAGMENT}$")
-_OBJECT_ID_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 _LOOSE_OBJECT_DIR_RE = re.compile(r"^[0-9a-f]{2}$")
 # The hash git names objects with, per `git rev-parse --show-object-format`.
 _OBJECT_FORMATS: dict[str, str] = {"sha1": "sha1", "sha256": "sha256"}
@@ -662,7 +662,7 @@ def stand_on_implementation_branch(containment: GitContainment, *, branch: str, 
         raise GitContainmentRefusal("branch_without_commit_capability")
     if not _ARIA_IMPL_BRANCH_RE.match(branch):
         raise GitContainmentRefusal("implementation_branch_name_invalid")
-    if not _OBJECT_ID_RE.match(base_sha):
+    if not is_object_id(base_sha, formats=ANY_OBJECT_FORMAT):
         raise GitContainmentRefusal("base_sha_not_an_object_id")
     env = _publish_environment()
     workspace = containment.workspace_root
@@ -833,7 +833,7 @@ def _migrate_objects(
             pack_names.append(name)
             continue
         object_id = directory + name
-        if not (_LOOSE_OBJECT_DIR_RE.match(directory) and _OBJECT_ID_RE.match(object_id)):
+        if not (_LOOSE_OBJECT_DIR_RE.match(directory) and is_object_id(object_id, formats=ANY_OBJECT_FORMAT)):
             continue
         why = _loose_object_refusal(replica, relative, object_id, object_format)
         if why is not None:
@@ -882,7 +882,7 @@ def _ref_name_refusal(name: str, content: str | None) -> str | None:
         return "not_an_aria_implementation_branch"
     if not content:
         return "empty_ref_file"
-    if not _OBJECT_ID_RE.match(content):
+    if not is_object_id(content, formats=ANY_OBJECT_FORMAT):
         return "not_an_object_id"
     return None
 

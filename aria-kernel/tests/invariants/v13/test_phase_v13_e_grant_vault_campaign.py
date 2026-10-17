@@ -230,7 +230,8 @@ class Campaign(unittest.TestCase):
         self.assertIn("campaign_run_ids", mission.BINDING_KEYS)
         self.assertIn("grant_jtis", mission.BINDING_KEYS)
         opened = mission.open_mission(source_kind="security_hardening", source_id="sec-1", repo_hash="deadbeef", title="tenant isolation",
-                                      next_action="run campaign", wake_condition={"kind": "timer", "key": "2030-01-01T00:00:00Z"}, base_dir=self.tools)
+                                      next_action="run campaign", wake_condition={"kind": "timer", "key": "2030-01-01T00:00:00Z"},
+                                      evidence_refs=["libs/backend-common/src/tenant/tenant-context.middleware.ts"], base_dir=self.tools)
         mid = opened.get("mission_id") or opened.get("mission", {}).get("mission_id")
         run_m = C.open_campaign(packs=("api",), mission_id=mid, base_dir=self.tools)
         bound = C.bind_to_mission(run_m, grant_jti="jti-9", base_dir=self.tools)

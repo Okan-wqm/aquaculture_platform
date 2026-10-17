@@ -76,6 +76,9 @@ def _candidate(
         "title": title,
         "problem": title,
         "score": 50,
+        # ARIA-HIGH-245 — `task.py` copies the source's refs; a candidate
+        # with none an agent can cite is refused `no_citable_evidence`.
+        "evidence_refs": ["apps/x/y.ts"],
     }
     if next_action is not None:
         candidate["next_action"] = next_action
@@ -178,6 +181,9 @@ class AdoptionTests(unittest.TestCase):
                 # repaired a pre-rule row did real work, and a night that
                 # reports only "already_tracked: 1" hides it.
                 "healed",
+                # ARIA-HIGH-245 — re-adopted missions that held no evidence
+                # and now record the candidate's.
+                "evidence_healed",
                 # `blocked_by_owner` says who is holding the refused-as-blocked
                 # work, and `routed_to_panel` how many candidates the generator
                 # handed to the agent panel before adoption: "adopted: 0"

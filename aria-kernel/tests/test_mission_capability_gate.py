@@ -32,6 +32,7 @@ def _open(base: Path, source_id: str, capability: str | None) -> str:
         title=f"close {source_id}",
         next_action=f"close {source_id}",
         wake_condition={"kind": "evidence", "key": f"finding:{source_id}"},
+        evidence_refs=[f"apps/farm-service/src/{source_id}.ts"],
         capability=capability,
         base_dir=base,
     )

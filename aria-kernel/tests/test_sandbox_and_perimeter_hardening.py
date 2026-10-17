@@ -695,6 +695,41 @@ class TheGateVerifiesTheArgvBashRuns(unittest.TestCase):
             self.fail(f"scanning four lines of {braces} braces took over 30 s")
         self.assertEqual((done.returncode, done.stdout.strip()), (0, "scanned"), done.stderr[-2000:])
 
+    def test_the_hook_decides_a_long_command_in_time_linear_in_the_line(self) -> None:
+        """ARIA-MEDIUM-538 — the lexer after the scanner was stdlib
+        ``shlex.split``, whose token builder appends one character at a time:
+        one admitted word of 800k characters took 12 s, and ``decide_pre_tool``
+        lexed it twice on an unterminated quote (``argv_of`` and the operator
+        detector). The hook decides every Bash call of model-authored text,
+        bounded only by the broker's 8 MiB request cap, and a decision slower
+        than the hook client's deadline is a denied call. Decided in a child
+        with a deadline, on 1M-character lines: an admitted word, a quoted
+        one, and an unterminated quote (one token, refused by name)."""
+        import subprocess
+
+        chars = 1_000_000
+        program = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(_KERNEL_ROOT)!r})\n"
+            "from aria_kernel.hooks import decide_pre_tool\n"
+            f"n = {chars}\n"
+            "def verdict(line):\n"
+            "    return decide_pre_tool({'tool_name': 'Bash', 'tool_input': {'command': line}},\n"
+            f"                           workspace_root={str(_REPO_ROOT)!r})\n"
+            "for line, decision in (('git commit -m ' + 'a' * n, 'allow'),\n"
+            "                       (\"git commit -m 'a \" + 'b' * n + \"'\", 'allow'),\n"
+            "                       (\"git commit -m 'a \" + 'b' * n, 'deny')):\n"
+            "    got = verdict(line)\n"
+            "    assert got.decision == decision, (line[:30], got.decision, got.reason[:200])\n"
+            "print('decided')\n"
+        )
+        try:
+            done = subprocess.run([sys.executable, "-B", "-c", program], capture_output=True, text=True,
+                                  check=False, timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail(f"deciding three Bash lines of {chars} characters took over 30 s")
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "decided"), done.stderr[-2000:])
+
 
 class BroaderScopeClaimsAndSubstringGates(unittest.TestCase):
     """ORPHAN-CRITICAL-461 — three gates that passed on inputs meaning nothing.

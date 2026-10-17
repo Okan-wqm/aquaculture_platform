@@ -48,6 +48,9 @@ class MissionSchedulerTests(unittest.TestCase):
             title=f"{source_kind}:{source_id}",
             next_action=f"work {source_kind} {source_id}",
             wake_condition={"kind": "evidence", "key": f"{source_kind}:{source_id}"},
+            # ARIA-HIGH-245 — a mission the drain could not plan is skipped, so
+            # every fixture the ranking is tested over carries citable evidence.
+            evidence_refs=kwargs.pop("evidence_refs", [f"apps/farm-service/src/{source_id}.ts"]),
             base_dir=self.tools,
             **kwargs,  # type: ignore[arg-type]
         )

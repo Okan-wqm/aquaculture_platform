@@ -43,15 +43,15 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import shutil
 import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+
 _GIT_TIMEOUT_SECONDS = 30
-_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 MAIN_TRACKING_REF = "refs/remotes/origin/main"
 
 # Closed vocabulary of anchor failures. Every one is a RUNNER fault: the
@@ -260,7 +260,7 @@ def _resolve_commit(repo_root: str | Path, rev: str) -> str | None:
     if proc is None or proc.returncode != 0:
         return None
     sha = proc.stdout.decode("ascii", errors="replace").strip()
-    return sha if _SHA_RE.fullmatch(sha) else None
+    return sha if is_object_id(sha, formats=ANY_OBJECT_FORMAT) else None
 
 
 def _declares_alternates(repo_root: str | Path) -> bool | None:
@@ -281,7 +281,7 @@ def _trusted_tips(repo_root: str | Path) -> list[str]:
     # A job on main names its commit; a pull-request job's GITHUB_SHA is a
     # merge commit that is not on main, so it is never a tip.
     github_sha = os.environ.get("GITHUB_SHA", "")
-    if os.environ.get("GITHUB_REF") == "refs/heads/main" and _SHA_RE.fullmatch(github_sha):
+    if os.environ.get("GITHUB_REF") == "refs/heads/main" and is_object_id(github_sha, formats=ANY_OBJECT_FORMAT):
         resolved = _resolve_commit(repo_root, github_sha)
         if resolved is not None and resolved not in tips:
             tips.append(resolved)
@@ -325,7 +325,7 @@ def _blob_oid(content: bytes, oid_length: int) -> str:
 
 def committed_blob(repo_root: str | Path, *, commit: str, path: str) -> CommittedBlob | None:
     """``path`` as committed at ``commit``, its bytes re-hashed against the object id."""
-    if not isinstance(commit, str) or _SHA_RE.fullmatch(commit) is None:
+    if not isinstance(commit, str) or not is_object_id(commit, formats=ANY_OBJECT_FORMAT):
         return None
     if _declares_alternates(repo_root) is not False:
         return None
@@ -333,7 +333,7 @@ def committed_blob(repo_root: str | Path, *, commit: str, path: str) -> Committe
     if resolved is None or resolved.returncode != 0:
         return None
     oid = resolved.stdout.decode("ascii", errors="replace").strip()
-    if _SHA_RE.fullmatch(oid) is None:
+    if not is_object_id(oid, formats=ANY_OBJECT_FORMAT):
         return None
     blob = _git(repo_root, "cat-file", "blob", oid)
     if blob is None or blob.returncode != 0 or _blob_oid(blob.stdout, len(oid)) != oid:
@@ -348,7 +348,7 @@ def tracked_files_at(repo_root: str | Path, *, commit: str, paths: list[str]) ->
     """
     if not paths:
         return set()
-    if _SHA_RE.fullmatch(commit or "") is None:
+    if not is_object_id(commit or "", formats=ANY_OBJECT_FORMAT):
         return None
     proc = _git(repo_root, "ls-tree", "-r", "-z", "--name-only", "--full-tree", commit, "--", *paths)
     if proc is None or proc.returncode != 0:

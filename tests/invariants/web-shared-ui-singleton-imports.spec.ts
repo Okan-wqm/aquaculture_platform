@@ -19,17 +19,31 @@
  *      TenantProvider" under the shell's TenantProvider (FE-HIGH-343): shell and
  *      all eight remotes aliased `@aquaculture/shared-ui` to `web/shared-ui/dist`
  *      in every mode, so each bundle carried a private shared-ui.
+ *
+ * Path 2 is checked against the alias table Vite resolves for each config
+ * (lib/federation-vite-configs.ts), not against the config text: a text scan
+ * of sensor-module's config read none of its aliases.
  */
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import { SHARED_VERSIONS } from '../../web/shared-ui/src/federation/federationSharedConfig';
 import {
+  SHARED_UI_PACKAGE,
   SHARED_UI_TEST_MODE,
   sharedUiAlias,
 } from '../../web/shared-ui/src/federation/sharedUiAlias';
+import {
+  FEDERATION_PLUGIN,
+  type ProbeTarget,
+  aliasShadows,
+  describeFind,
+  federationViteConfigs,
+  resolveViteAliases,
+  webViteConfigs,
+} from './lib/federation-vite-configs';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WEB_RUNTIME_GLOBS = [
@@ -98,34 +112,6 @@ function scanFile(file: string): readonly Hit[] {
   return hits;
 }
 
-/** Vite's string-alias rule: `find` matches the id itself or any subpath. */
-function aliasShadows(find: string, sharedKey: string): boolean {
-  return find === sharedKey || sharedKey.startsWith(`${find}/`);
-}
-
-/** Federation vite configs (the shell host and every remote). */
-function federationViteConfigs(): readonly string[] {
-  return gitLsFiles(['web/shell/vite.config.ts', 'web/modules/*/vite.config.ts']).filter((file) =>
-    readFileSync(resolve(REPO_ROOT, file), 'utf-8').includes('federation('),
-  );
-}
-
-/** Alias `find` values a config spells itself: object keys and `find:` strings. */
-function spelledAliasFinds(file: string): readonly { find: string; line: number }[] {
-  const code = readFileSync(resolve(REPO_ROOT, file), 'utf-8')
-    // Blank comments out but keep their newlines so line numbers stay true.
-    .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, ' '))
-    .replace(/^\s*\/\/.*$/gm, '');
-  const finds: { find: string; line: number }[] = [];
-  for (const match of code.matchAll(/['"]([^'"\n]+)['"]\s*:/g)) {
-    finds.push({ find: match[1] ?? '', line: lineOf(code, match.index ?? 0) });
-  }
-  for (const match of code.matchAll(/\bfind\s*:\s*['"]([^'"\n]+)['"]/g)) {
-    finds.push({ find: match[1] ?? '', line: lineOf(code, match.index ?? 0) });
-  }
-  return finds;
-}
-
 describe('INVARIANT: federated web runtime imports shared-ui through one singleton package identity', () => {
   const hits = listRuntimeFiles().flatMap((file) => [...scanFile(file)]);
 
@@ -153,23 +139,91 @@ describe('INVARIANT: federated web runtime imports shared-ui through one singlet
   });
 });
 
-describe('INVARIANT: no federation build resolves a shared singleton around the share scope (FE-HIGH-343)', () => {
-  const configs = federationViteConfigs();
+/** How a federation container is resolved for real: `vite build` and the `vite` dev server. */
+const BUILD_TARGETS: readonly ProbeTarget[] = [
+  { mode: 'production', command: 'build' },
+  { mode: 'development', command: 'serve' },
+];
 
-  it('finds the shell and every remote config', () => {
-    // A walker that matched nothing would make the cases below vacuous.
-    expect(configs.length).toBeGreaterThanOrEqual(9);
-    expect(FEDERATION_SHARED_KEYS).toContain('@aquaculture/shared-ui');
+/** How vitest resolves the same config. */
+const TEST_TARGET: ProbeTarget = { mode: SHARED_UI_TEST_MODE, command: 'serve' };
+
+describe('INVARIANT: no federation build resolves a shared singleton around the share scope (FE-HIGH-343)', () => {
+  // Every vite config under web/, resolved by Vite itself: the alias table a
+  // build applies, with spread-in helpers and plugin-appended entries, and no
+  // way for a string in the config text to hide an entry from the check.
+  const federationConfigs = federationViteConfigs();
+  const resolved = resolveViteAliases(webViteConfigs(), [...BUILD_TARGETS, TEST_TARGET]);
+  const builds = resolved.filter(({ mode }) => mode !== SHARED_UI_TEST_MODE);
+  const federationBuilds = builds.filter(({ configFile }) =>
+    federationConfigs.includes(configFile),
+  );
+  const federationSpecRuns = resolved.filter(
+    ({ configFile, mode }) =>
+      mode === SHARED_UI_TEST_MODE && federationConfigs.includes(configFile),
+  );
+
+  it('governs exactly the configs whose resolved pipeline mounts the federation plugin', () => {
+    // A walker that matched nothing would make the cases below vacuous; one
+    // that matched by text alone could skip a container wired up another way.
+    expect(federationConfigs.length).toBeGreaterThanOrEqual(9);
+    expect(FEDERATION_SHARED_KEYS).toContain(SHARED_UI_PACKAGE);
+
+    const mounted = builds
+      .filter(({ plugins }) => plugins.includes(FEDERATION_PLUGIN))
+      .map(({ configFile, mode }) => `${configFile} (${mode})`);
+    const expected = federationConfigs.flatMap((configFile) =>
+      BUILD_TARGETS.map(({ mode }) => `${configFile} (${mode})`),
+    );
+    expect(mounted.sort()).toEqual(expected.sort());
   });
 
-  it('no federation vite config aliases a federation-shared specifier', () => {
-    const offenders = configs.flatMap((file) =>
-      spelledAliasFinds(file)
+  it("reads each federation build's own alias table", () => {
+    // Every federation config maps '@' to its own src/. Seeing that entry in
+    // every build proves the probe resolved the config it names rather than
+    // returning an empty table the next case would pass on.
+    const unread = federationBuilds
+      .filter(
+        ({ configFile, aliases }) =>
+          !aliases.some(
+            ({ find, replacement }) =>
+              find === '@' && replacement === resolve(REPO_ROOT, dirname(configFile), 'src'),
+          ),
+      )
+      .map(({ configFile, mode }) => `${configFile} (${mode})`);
+
+    expect(unread).toEqual([]);
+  });
+
+  it('no federation build aliases a federation-shared specifier', () => {
+    const offenders = federationBuilds.flatMap(({ configFile, mode, aliases }) =>
+      aliases
         .filter(({ find }) => FEDERATION_SHARED_KEYS.some((key) => aliasShadows(find, key)))
-        .map(({ find, line }) => `${file}:${line} aliases '${find}'`),
+        .map(
+          ({ find, replacement }) =>
+            `${configFile} (${mode}) aliases '${describeFind(find)}' -> ${replacement}`,
+        ),
     );
 
     expect(offenders).toEqual([]);
+  });
+
+  it('sees an alias a helper spreads in: under vitest each federation config sends shared-ui to source', () => {
+    // Positive control for the case above. The shared-ui source alias reaches a
+    // config only through `...sharedUiAlias(root, mode)`, so a check blind to
+    // spread-in entries, or to any config, fails here.
+    const sharedUiSource = resolve(REPO_ROOT, 'web/shared-ui/src');
+    const missing = federationSpecRuns
+      .filter(
+        ({ aliases }) =>
+          !aliases.some(
+            ({ find, replacement }) => find === SHARED_UI_PACKAGE && replacement === sharedUiSource,
+          ),
+      )
+      .map(({ configFile }) => configFile);
+
+    expect(federationSpecRuns).toHaveLength(federationConfigs.length);
+    expect(missing).toEqual([]);
   });
 
   it('the shared-ui alias resolver shadows no shared specifier outside test mode', () => {

@@ -22,13 +22,11 @@
  * shadow no federation-shared specifier.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { sharedUiAlias } from '../../web/shared-ui/src/federation/sharedUiAlias';
-
-const REPO_ROOT = resolve(__dirname, '..', '..');
-const WEB_ROOT = resolve(REPO_ROOT, 'web');
+import { REPO_ROOT, federationViteConfigs, webViteConfigs } from './lib/federation-vite-configs';
 
 /** The alias key whose entry must only come from the resolver. */
 const GOVERNED_ALIAS = "'@aquaculture/shared-ui':";
@@ -36,28 +34,13 @@ const GOVERNED_ALIAS = "'@aquaculture/shared-ui':";
 /** How a config applies the resolver to its `resolve.alias` object. */
 const RESOLVER_SPREAD = '...sharedUiAlias(';
 
-/** Never descend into build output or installed deps. */
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', 'build', '.nx']);
-
-function viteConfigs(dirAbs: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dirAbs, { withFileTypes: true })) {
-    const childAbs = join(dirAbs, entry.name);
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
-      out.push(...viteConfigs(childAbs));
-    } else if (entry.isFile() && entry.name === 'vite.config.ts') {
-      out.push(childAbs);
-    }
-  }
-  return out;
+function readConfig(file: string): string {
+  return readFileSync(resolve(REPO_ROOT, file), 'utf-8');
 }
 
 describe('INVARIANT: shared-ui resolves from source under test and is never aliased in a build', () => {
-  const configs = viteConfigs(WEB_ROOT);
-  const federationConfigs = configs.filter((configAbs) =>
-    readFileSync(configAbs, 'utf-8').includes('federation('),
-  );
+  const configs = webViteConfigs();
+  const federationConfigs = federationViteConfigs();
 
   it('finds the federation configs it is meant to govern', () => {
     // A walker that silently matched nothing would make every case below vacuous.
@@ -66,28 +49,26 @@ describe('INVARIANT: shared-ui resolves from source under test and is never alia
   });
 
   it('leaves no config spelling the @aquaculture/shared-ui alias key for itself', () => {
-    const offenders = configs.flatMap((configAbs) =>
-      readFileSync(configAbs, 'utf-8')
+    const offenders = configs.flatMap((file) =>
+      readConfig(file)
         .split('\n')
         .filter((line) => line.includes(GOVERNED_ALIAS) && !/^\s*(\/\/|\*)/.test(line))
-        .map((line) => `${relative(REPO_ROOT, configAbs)}: ${line.trim()}`),
+        .map((line) => `${file}: ${line.trim()}`),
     );
 
     expect(offenders).toEqual([]);
   });
 
   it('spreads the resolver into every federation config, so specs still reach source', () => {
-    const offenders = federationConfigs
-      .filter((configAbs) => !readFileSync(configAbs, 'utf-8').includes(RESOLVER_SPREAD))
-      .map((configAbs) => relative(REPO_ROOT, configAbs));
+    const offenders = federationConfigs.filter(
+      (file) => !readConfig(file).includes(RESOLVER_SPREAD),
+    );
 
     expect(offenders).toEqual([]);
   });
 
   it('leaves no config spelling the built barrel for itself', () => {
-    const offenders = configs
-      .filter((configAbs) => readFileSync(configAbs, 'utf-8').includes('shared-ui/dist'))
-      .map((configAbs) => relative(REPO_ROOT, configAbs));
+    const offenders = configs.filter((file) => readConfig(file).includes('shared-ui/dist'));
 
     expect(offenders).toEqual([]);
   });

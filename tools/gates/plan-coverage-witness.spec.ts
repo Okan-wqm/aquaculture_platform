@@ -54,7 +54,12 @@ interface WitnessRun {
     verdict: string;
     closure: {
       projects: { name: string; reason: string }[];
-      event_consumers: { event_type: string; consumer: string; matching_pattern: string; subject: string }[];
+      event_consumers: {
+        event_type: string;
+        consumer: string;
+        matching_pattern: string;
+        subject: string;
+      }[];
       migration_couplings: { service: string }[];
     };
     uncovered: { node_id: string; kind: string; why: string }[];
@@ -170,7 +175,9 @@ void test('a dependents-of group waiver covers every reverse dependent (exit 0)'
   const run = runWitness({
     schema_version: 1,
     affected_paths: ['libs/farm-shared/src/index.ts'],
-    waivers: [{ node: 'dependents-of:farm-shared', reason: 'type-only change, tsc closure verified' }],
+    waivers: [
+      { node: 'dependents-of:farm-shared', reason: 'type-only change, tsc closure verified' },
+    ],
   });
   assert.equal(run.exitCode, 0);
   assert.equal(run.report.verdict, 'covered_with_waivers');
@@ -185,15 +192,26 @@ void test('an exact node waiver covers only the named node', () => {
     waivers: [{ node: 'project:farm-service', reason: 'consumer verified unaffected' }],
   });
   assert.equal(run.exitCode, 1);
-  assert.deepEqual(run.report.uncovered.map((n) => n.node_id), ['project:notification-service']);
-  assert.deepEqual(run.report.waived.map((n) => n.node_id), ['project:farm-service']);
+  assert.deepEqual(
+    run.report.uncovered.map((n) => n.node_id),
+    ['project:notification-service'],
+  );
+  assert.deepEqual(
+    run.report.waived.map((n) => n.node_id),
+    ['project:farm-service'],
+  );
 });
 
 void test('touching an event contract surfaces untouched NATS consumers', () => {
   const run = runWitness({
     schema_version: 1,
     affected_paths: ['libs/event-contracts/src/farm-events.ts'],
-    waivers: [{ node: 'dependents-of:event-contracts', reason: 'graph dependents covered by consumer node check' }],
+    waivers: [
+      {
+        node: 'dependents-of:event-contracts',
+        reason: 'graph dependents covered by consumer node check',
+      },
+    ],
   });
   assert.equal(run.exitCode, 1);
   const consumerNodes = run.report.uncovered.filter((n) => n.kind === 'event_consumer');
@@ -221,7 +239,9 @@ void test('a touched consumer project produces no event-consumer node', () => {
       'libs/event-contracts/src/farm-events.ts',
       'apps/notification-service/src/handlers/batch-harvested.handler.ts',
     ],
-    waivers: [{ node: 'dependents-of:event-contracts', reason: 'covered by direct touch + consumer check' }],
+    waivers: [
+      { node: 'dependents-of:event-contracts', reason: 'covered by direct touch + consumer check' },
+    ],
   });
   // The consumer IS recognized (through `application:`), and is covered
   // because the plan touches its nx project — not because nothing matched.
@@ -241,28 +261,35 @@ void test('quoted and unquoted services.yaml items both parse, and the ledger co
   });
   assert.deepEqual(run.report.ledger.services_yaml, {
     services: 2,
-    publish_patterns: 3,
+    publish_patterns: 6,
     subscribe_patterns: 4,
     event_types: 1,
   });
 });
 
 void test('subjects come from the declared publish grants; events.*.<T> only when none declares <T>', () => {
+  // Every service carries the schema's grant minimums (publish >= 3, subscribe >= 2).
   const subscribers = [
     '- name: gateway_service',
     '  application: gateway-api',
     '  description: events-root subscriber',
     '  publish:',
     '  - _INBOX.>',
+    '  - $JS.API.INFO',
+    '  - $JS.ACK.>',
     '  subscribe:',
     '  - events.>',
+    '  - _INBOXGATEWAY_SERVICE.>',
     '- name: notification_service',
     '  application: notification-service',
     '  description: telemetry-root subscriber',
     '  publish:',
     '  - _INBOX.>',
+    '  - $JS.API.INFO',
+    '  - $JS.ACK.>',
     '  subscribe:',
     '  - telemetry.>',
+    '  - _INBOXNOTIFICATION_SERVICE.>',
   ];
   const yamlWith = (farmPublish: string): string =>
     [
@@ -270,11 +297,14 @@ void test('subjects come from the declared publish grants; events.*.<T> only whe
       'services:',
       '- name: farm_service',
       '  application: farm-service',
-      '  description: publisher',
+      '  description: farm publisher',
       '  publish:',
       `  - ${farmPublish}`,
+      '  - $JS.API.INFO',
+      '  - _INBOX.>',
       '  subscribe:',
       '  - _INBOXFARM_SERVICE.>',
+      '  - events.*.SensorReading',
       ...subscribers,
       '',
     ].join('\n');
@@ -285,7 +315,10 @@ void test('subjects come from the declared publish grants; events.*.<T> only whe
   };
 
   // Declared on the telemetry root: only the telemetry subscriber consumes it.
-  const declared = runWitness(input, ['--services-yaml', writeServicesYaml(yamlWith('telemetry.*.BatchHarvested'))]);
+  const declared = runWitness(input, [
+    '--services-yaml',
+    writeServicesYaml(yamlWith('telemetry.*.BatchHarvested')),
+  ]);
   assert.deepEqual(declared.report.closure.event_consumers, [
     {
       event_type: 'BatchHarvested',
@@ -296,7 +329,10 @@ void test('subjects come from the declared publish grants; events.*.<T> only whe
   ]);
 
   // Declared by no service: the event bus's default root, events.*.<T>.
-  const undeclared = runWitness(input, ['--services-yaml', writeServicesYaml(yamlWith('events.*.OtherEvent'))]);
+  const undeclared = runWitness(input, [
+    '--services-yaml',
+    writeServicesYaml(yamlWith('events.*.OtherEvent')),
+  ]);
   assert.deepEqual(undeclared.report.closure.event_consumers, [
     {
       event_type: 'BatchHarvested',
@@ -307,7 +343,7 @@ void test('subjects come from the declared publish grants; events.*.<T> only whe
   ]);
 });
 
-void test('services present with zero parsed patterns is an environment error (exit 2), not an empty closure', () => {
+void test('services that lost their grants are refused by the SSoT schema (exit 2), not an empty closure', () => {
   const emptied = writeServicesYaml(
     [
       'version: 1',
@@ -353,30 +389,54 @@ void test('a services.yaml entry without application: is an environment error (e
 void test('the live services.yaml parses: the ledger counts every publish and subscribe grant', () => {
   const live = loadLiveServices();
   const run = runWitness(
-    { schema_version: 1, affected_paths: ['libs/event-contracts/src/notification-events.ts'], waivers: [] },
+    {
+      schema_version: 1,
+      affected_paths: ['libs/event-contracts/src/notification-events.ts'],
+      waivers: [],
+    },
     LIVE_ARGS,
   );
   assert.ok(run.exitCode === 0 || run.exitCode === 1, `witness exit ${run.exitCode}`);
   const ledger = run.report.ledger.services_yaml;
   assert.ok(ledger !== null);
   assert.equal(ledger.services, live.length);
-  assert.equal(ledger.publish_patterns, live.reduce((sum, s) => sum + s.publish.length, 0));
-  assert.equal(ledger.subscribe_patterns, live.reduce((sum, s) => sum + s.subscribe.length, 0));
+  assert.equal(
+    ledger.publish_patterns,
+    live.reduce((sum, s) => sum + s.publish.length, 0),
+  );
+  assert.equal(
+    ledger.subscribe_patterns,
+    live.reduce((sum, s) => sum + s.subscribe.length, 0),
+  );
   assert.ok(ledger.subscribe_patterns >= 1);
 });
 
 void test('the UserInvited contract yields a node per live events.*.UserInvited subscriber, by nx project', () => {
   const live = loadLiveServices();
-  const declared = live.flatMap((s) => s.publish).filter((p) => p.split('.').includes('UserInvited'));
-  assert.ok(declared.includes('events.*.UserInvited'), 'auth_service declares events.*.UserInvited');
+  const declared = live
+    .flatMap((s) => s.publish)
+    .filter((p) => p.split('.').includes('UserInvited'));
+  assert.ok(
+    declared.includes('events.*.UserInvited'),
+    'auth_service declares events.*.UserInvited',
+  );
   const expected = live
-    .filter((s) => s.subscribe.some((pattern) => declared.some((subject) => natsOverlap(pattern, subject))))
+    .filter((s) =>
+      s.subscribe.some((pattern) => declared.some((subject) => natsOverlap(pattern, subject))),
+    )
     .map((s) => `event-consumer:${s.application}:UserInvited`)
     .sort();
-  assert.ok(expected.length >= 1, 'the live SSoT grants events.*.UserInvited to at least one subscriber');
+  assert.ok(
+    expected.length >= 1,
+    'the live SSoT grants events.*.UserInvited to at least one subscriber',
+  );
 
   const run = runWitness(
-    { schema_version: 1, affected_paths: ['libs/event-contracts/src/notification-events.ts'], waivers: [] },
+    {
+      schema_version: 1,
+      affected_paths: ['libs/event-contracts/src/notification-events.ts'],
+      waivers: [],
+    },
     LIVE_ARGS,
   );
   const nodes = run.report.uncovered
@@ -397,7 +457,10 @@ void test('a change to auth-events.ts yields event-consumer nodes named by nx pr
   assert.ok(consumerNodes.length >= 1, 'auth events have live subscribers');
   for (const node of consumerNodes) {
     const consumer = node.node_id.split(':')[1] ?? '';
-    assert.ok(applications.has(consumer), `${node.node_id} names an application, not a NATS identity`);
+    assert.ok(
+      applications.has(consumer),
+      `${node.node_id} names an application, not a NATS identity`,
+    );
   }
 });
 
@@ -444,7 +507,10 @@ void test('an entity edit without a migration surfaces migration:<svc>; with one
 void test('paths owned by no nx project are unmapped, never gaps', () => {
   const run = runWitness({
     schema_version: 1,
-    affected_paths: ['docs/adr/041-aria-narrow-autonomous-merge-lane.md', '.claude/agents/aria-drafter.md'],
+    affected_paths: [
+      'docs/adr/041-aria-narrow-autonomous-merge-lane.md',
+      '.claude/agents/aria-drafter.md',
+    ],
     waivers: [],
   });
   assert.equal(run.exitCode, 0);
@@ -460,13 +526,19 @@ void test('closure over max_nodes collapses to a single closure:oversized gap', 
     options: { max_nodes: 1 },
   });
   assert.equal(run.exitCode, 1);
-  assert.deepEqual(run.report.uncovered.map((n) => n.node_id), ['closure:oversized']);
+  assert.deepEqual(
+    run.report.uncovered.map((n) => n.node_id),
+    ['closure:oversized'],
+  );
 });
 
 void test('output is deterministic — identical inputs produce identical stdout', () => {
   const input = {
     schema_version: 1,
-    affected_paths: ['libs/farm-shared/src/index.ts', 'apps/farm-service/src/batch/entities/batch.entity.ts'],
+    affected_paths: [
+      'libs/farm-shared/src/index.ts',
+      'apps/farm-service/src/batch/entities/batch.entity.ts',
+    ],
     waivers: [{ node: 'dependents-of:farm-shared', reason: 'verified' }],
   };
   const first = runWitness(input);
@@ -504,7 +576,11 @@ void test('unreadable graph is an environment error (exit 2), not an empty cover
   const inputPath = join(dir, 'input.json');
   writeFileSync(
     inputPath,
-    JSON.stringify({ schema_version: 1, affected_paths: ['libs/farm-shared/src/index.ts'], waivers: [] }),
+    JSON.stringify({
+      schema_version: 1,
+      affected_paths: ['libs/farm-shared/src/index.ts'],
+      waivers: [],
+    }),
     'utf8',
   );
   try {

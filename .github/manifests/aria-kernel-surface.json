@@ -60,6 +60,18 @@
       "readers": "suite: test_runner_env_not_expression_context (chain_next_cycle.py)"
     },
     {
+      "glob": "tools/gates/plan-coverage-witness.ts",
+      "readers": "aria_kernel/plan_coverage.py runs it; suite: test_plan_coverage, test_merge_authority_pre_merge_perimeter copy its import closure (tests/_helpers/witness_sources.py)"
+    },
+    {
+      "glob": "tools/gates/nats-services.ts",
+      "readers": "imported by the plan-coverage witness; same suite tests"
+    },
+    {
+      "glob": "tools/gates/tsconfig.json",
+      "readers": "the witness's ts-node project (aria_kernel/plan_coverage.py WITNESS_TSCONFIG); same suite tests"
+    },
+    {
       "glob": "aria-config/**",
       "readers": "suite: test_pre_merge_budget_and_content, test_closable_backlog_cap, test_executor_implementation_identity"
     },

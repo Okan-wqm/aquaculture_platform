@@ -253,6 +253,7 @@ describe('SensorReadingEventHandler', () => {
         readingPh: 7.2,
         farmId: 'farm-1',
         pondId: 'pond-1',
+        siteId: 'site-1',
       } as any);
 
       expect(mockEvaluationService.evaluateSensorReading).toHaveBeenCalledTimes(1);
@@ -263,6 +264,8 @@ describe('SensorReadingEventHandler', () => {
           readings: { temperature: 25, ph: 7.2 },
           farmId: 'farm-1',
           pondId: 'pond-1',
+          // The sensor's site reaches the alarm (ALERT-MEDIUM-010).
+          siteId: 'site-1',
         }),
       );
     });

@@ -62,7 +62,7 @@ interface SweepFixture {
 
 function makeHarness(fixture: SweepFixture) {
   const callOrder: string[] = [];
-  const enqueued: Array<{ eventType: string; unitCode?: string }> = [];
+  const enqueued: Array<{ eventType: string; unitCode?: string; siteId?: string }> = [];
 
   const find = jest.fn();
   find.mockImplementation(async (entity: unknown) => {
@@ -274,6 +274,7 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
           id: 'dp-1',
           protocolId: 'p-1',
           unitCode: 'T1',
+          siteId: 'site-1',
           // FARM-CRITICAL-244: mod PLANIN kolonunda dondurulur.
           growthApplicationMode: 'per_meal',
           snapshot: stub<DayPlanSnapshot>({ expectedFcr: 1.5 }),
@@ -289,6 +290,8 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
     expect(missedMeal.status).toBe(FeedingMealStatus.MISSED);
     const missedEvent = harness.enqueued.find((event) => event.eventType === 'MealMissed');
     expect(missedEvent?.unitCode).toBe('T1');
+    // The day plan's site travels to the alarm (ALERT-MEDIUM-010).
+    expect(missedEvent?.siteId).toBe('site-1');
     // Kilit koşulsuz alınır (kanonik sıra), ama büyüme uygulanmaz: döküm
     // görmemiş missed öğünün çevrilecek kg'ı yoktur.
     expect(harness.lockUnitForGrowth).toHaveBeenCalledWith(expect.anything(), TENANT, 'unit-1');

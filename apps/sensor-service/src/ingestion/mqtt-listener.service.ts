@@ -1859,6 +1859,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
         ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
         ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
+        // The sensor's site: alert-engine places the alarm a rule raises from
+        // this reading on it (ALERT-MEDIUM-010).
+        ...(sensor.siteId ? { siteId: sensor.siteId } : {}),
       });
       this.logger.debug(`Published SensorReading event for sensor ${sensor.id}`);
     } catch (error) {

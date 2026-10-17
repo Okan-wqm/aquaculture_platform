@@ -1724,8 +1724,6 @@ export const tr: Record<MessageKey, string> = {
   'console.workspaceMenu.title': 'Modül',
   'console.workspaceMenu.hint':
     'Menü ve renk modüle göre değişir. Alarm paneli tüm modüllerde ortaktır.',
-  'console.workspaceMenu.alarmsPreviewReason':
-    'Modül başına alarm sayıları, alert-engine’in henüz sunmadığı modül bazlı sunucu tarafı alarm özetini gerektirir.',
   // ── Console shell (FE-HIGH-334; web/shell console/, mounted by MainLayout):
   //    the role names the user menu shows and the command palette's person
   //    and device hints ──

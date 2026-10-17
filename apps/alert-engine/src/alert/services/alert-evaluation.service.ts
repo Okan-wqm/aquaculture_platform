@@ -15,6 +15,7 @@ import {
   AlertSeverity,
 } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { sensorOrigin } from './alert-origin';
 import {
   AlertIncident,
   IncidentStatus,
@@ -39,6 +40,8 @@ export interface SensorReadingData {
   readings: Record<string, number>;
   farmId?: string;
   pondId?: string;
+  /** The sensor's site, as sensor-service stamped it on the reading (ALERT-MEDIUM-010). */
+  siteId?: string;
   timestamp: string | Date;
 }
 
@@ -312,6 +315,8 @@ export class AlertEvaluationService {
       farmId: reading.farmId,
       pondId: reading.pondId,
       sensorId: reading.sensorId,
+      // A rule alarm is the sensor module's: it fires on a sensor's reading.
+      ...sensorOrigin(reading.siteId),
       severity: condition.severity,
       message,
       triggeringData: {

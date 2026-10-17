@@ -106,6 +106,14 @@ export interface SensorReadingEvent extends BaseEvent {
    * WaterQualityMeasurement was created (sensor-only events).
    */
   relatedWaterQualityMeasurementId?: string;
+  /**
+   * The farm site the sensor is bound to (`Sensor.siteId`) when the reading
+   * was taken — additive and optional like the v3 fields: absent for a sensor
+   * bound to no site and on events minted before it existed. alert-engine
+   * stamps it on the alarm a rule raises from this reading, so the console can
+   * count and list alarms per site (ALERT-MEDIUM-010).
+   */
+  siteId?: string;
 }
 
 /**
@@ -442,6 +450,12 @@ export interface FeedingWindowReadinessEvent extends BaseEvent {
   observedAt?: string;
   /** Protocol's suggested ration reduction while oxygen is low. */
   lowOxygenReductionPercent?: number;
+  /**
+   * Site of the DO sensor that guards the unit (`sensors.site_id`) — the
+   * alarm's site in alert-engine (ALERT-MEDIUM-010). Additive and optional:
+   * absent for a sensor bound to no site and on events minted before it.
+   */
+  siteId?: string;
 }
 
 // ==================== Type Union ====================

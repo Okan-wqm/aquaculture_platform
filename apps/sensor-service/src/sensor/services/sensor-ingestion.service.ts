@@ -39,7 +39,7 @@ import {
   type ParentReadingRoutedEvent,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, In } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 
 import {
   DiscoverySource,
@@ -264,7 +264,11 @@ export class SensorIngestionService {
               // in-memory reading and enqueued/written INSIDE this transaction, so
               // the SENSOR-CRITICAL-001 atomicity guarantee now spans enqueue +
               // metrics (either both commit or neither) with no stored-row write.
-              await this.outboxPublisher.enqueue(this.buildReadingEvent(reading), manager);
+              const sites = await this.sitesOfSensors(manager, [reading.sensorId]);
+              await this.outboxPublisher.enqueue(
+                this.buildReadingEvent(reading, sites.get(reading.sensorId)),
+                manager,
+              );
               const metrics = this.buildMetricInputs(
                 reading,
                 validatedData.readings,
@@ -422,8 +426,15 @@ export class SensorIngestionService {
                 // and its channel-keyed metric rows are derived from the in-memory
                 // reading and committed atomically per chunk (SENSOR-CRITICAL-001).
                 const chunkMetrics: SensorMetricInput[] = [];
+                const sites = await this.sitesOfSensors(
+                  manager,
+                  tenantChunk.map(({ entity }) => entity.sensorId),
+                );
                 for (const { entity, rawReadings } of tenantChunk) {
-                  await this.outboxPublisher.enqueue(this.buildReadingEvent(entity), manager);
+                  await this.outboxPublisher.enqueue(
+                    this.buildReadingEvent(entity, sites.get(entity.sensorId)),
+                    manager,
+                  );
                   const channelsByParameter = channelMapsBySensor.get(entity.sensorId);
                   if (channelsByParameter) {
                     chunkMetrics.push(
@@ -941,7 +952,10 @@ export class SensorIngestionService {
    * the transactional outbox atomically with the reading save
    * (SENSOR-CRITICAL-001). It performs no I/O and no eventBus publish.
    */
-  private buildReadingEvent(reading: SensorReading): SensorReadingEvent {
+  private buildReadingEvent(
+    reading: SensorReading,
+    siteId: string | undefined,
+  ): SensorReadingEvent {
     // Project the JSONB readings onto the flat `readingXxx` event fields via the
     // single mapping SSoT (SENSOR-MEDIUM-066/068). The SensorReadings keys ARE
     // the canonical parameter names, so a new parameter is added in exactly one
@@ -962,8 +976,35 @@ export class SensorIngestionService {
       sensorId: reading.sensorId,
       farmId: reading.farmId,
       pondId: reading.pondId,
+      ...(siteId !== undefined ? { siteId } : {}),
       ...readingFields,
     };
+  }
+
+  /**
+   * The site each sensor is bound to, read in the ingest transaction.
+   *
+   * WHY: a reading enters here addressed by sensor id only (the GraphQL ingest
+   * mutations, parent routing), yet the SensorReading it publishes must carry
+   * the sensor's site — alert-engine places the alarm a rule raises from it
+   * there (ALERT-MEDIUM-010). The client is never asked for a site: the
+   * sensor's own row is the one source. A sensor bound to no site maps to
+   * nothing, and its event carries no site.
+   */
+  private async sitesOfSensors(
+    manager: EntityManager,
+    sensorIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(sensorIds)];
+    const sensors = await tenantManagerRepo(manager, Sensor).find({
+      where: { id: In(ids) },
+      select: { id: true, siteId: true },
+    });
+    const sites = new Map<string, string>();
+    for (const sensor of sensors) {
+      if (sensor.siteId) sites.set(sensor.id, sensor.siteId);
+    }
+    return sites;
   }
 
   /**

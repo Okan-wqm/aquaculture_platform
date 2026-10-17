@@ -10,7 +10,8 @@ import { Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { AlertRule, AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
-import { ActiveAlertCount } from '../dto/active-alert-count.type';
+import { ActiveAlertCount, ActiveAlertCountDimension } from '../dto/active-alert-count.type';
+import { AlertModule } from '../entities/alert-module.enum';
 import { AlertRuleService } from '../services/alert-rule.service';
 import {
   CreateAlertRuleInput,
@@ -72,7 +73,9 @@ export class AlertResolver {
    * one alarm priority of the tenant console spans several (P3 = MEDIUM +
    * WARNING); `resolved` to the open (false) or the cleared (true) alarms —
    * an annunciator tile counts open alarms only, and the list it opens must
-   * hold the same rows. Absent, a filter does not narrow.
+   * hold the same rows; `siteId` / `module` to one site's or one module's
+   * alarms (a module dashboard's alarm panel). Absent, a filter does not
+   * narrow.
    *
    * WHY every filter argument is typed `T | null`: the schema declares them
    * nullable, and graphql-js hands an explicit `null` (e.g. a client sending
@@ -97,6 +100,8 @@ export class AlertResolver {
     @Args('resolved', { type: () => Boolean, nullable: true }) resolved?: boolean | null,
     @Args('startDate', { type: () => Date, nullable: true }) startDate?: Date | null,
     @Args('endDate', { type: () => Date, nullable: true }) endDate?: Date | null,
+    @Args('siteId', { type: () => ID, nullable: true }) siteId?: string | null,
+    @Args('module', { type: () => AlertModule, nullable: true }) module?: AlertModule | null,
   ): Promise<AlertHistory[]> {
     const limit = Math.min(Math.max(1, rawLimit), 100);
     const result = await this.alertRuleService.getAlertHistory(
@@ -109,6 +114,8 @@ export class AlertResolver {
         resolved: resolved ?? undefined,
         startDate: startDate ?? undefined,
         endDate: endDate ?? undefined,
+        siteId: siteId ?? undefined,
+        module: module ?? undefined,
       },
       { page, limit },
     );
@@ -118,11 +125,25 @@ export class AlertResolver {
   /**
    * Unresolved alarms counted per severity and acknowledgement — exact, for
    * the tenant console's annunciator (ActiveAlertCount). Readable by whoever
-   * may read alertHistory: the counts summarise the same rows.
+   * may read alertHistory: the counts summarise the same rows. `siteId` /
+   * `module` narrow them like the list; `groupBy` splits them per site and/or
+   * module (the workspace menu, a module dashboard's site rows). Without
+   * arguments the rows keep the annunciator's shape. An explicit null means
+   * what an absent argument means, as on alertHistory.
    */
   @Query(() => [ActiveAlertCount], { name: 'activeAlertCounts' })
-  async getActiveAlertCounts(@Tenant() tenantId: string): Promise<ActiveAlertCount[]> {
-    return await this.alertRuleService.countActiveAlerts(tenantId);
+  async getActiveAlertCounts(
+    @Tenant() tenantId: string,
+    @Args('siteId', { type: () => ID, nullable: true }) siteId?: string | null,
+    @Args('module', { type: () => AlertModule, nullable: true }) module?: AlertModule | null,
+    @Args('groupBy', { type: () => [ActiveAlertCountDimension], nullable: true })
+    groupBy?: ActiveAlertCountDimension[] | null,
+  ): Promise<ActiveAlertCount[]> {
+    return await this.alertRuleService.countActiveAlerts(tenantId, {
+      siteId: siteId ?? undefined,
+      module: module ?? undefined,
+      groupBy: groupBy ?? undefined,
+    });
   }
 
   /**

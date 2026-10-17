@@ -5,7 +5,11 @@ import { AlertResolver } from '../alert.resolver';
 import { AlertEvaluationService } from '../../services/alert-evaluation.service';
 import { AlertRuleService } from '../../services/alert-rule.service';
 import { AlertHistory } from '../../entities/alert-history.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
+import { ActiveAlertCountDimension } from '../../dto/active-alert-count.type';
 import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.entity';
+
+const SITE_ID = '33333333-3333-4333-8333-333333333333';
 
 function alarm(id: string): AlertHistory {
   return Object.assign(new AlertHistory(), { id });
@@ -80,19 +84,58 @@ describe('AlertResolver.alertHistory', () => {
     });
 
     it('hands the service an absent filter for every explicit null', async () => {
-      await resolver.getAlertHistory(tenantId, 1, 20, null, null, null, null, null, null, null);
+      await resolver.getAlertHistory(
+        tenantId,
+        1,
+        20,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+      );
+
+      const filters = getAlertHistory.mock.calls.at(0)?.[1];
+      expect(Object.entries(filters ?? {})).toEqual([
+        ['ruleId', undefined],
+        ['severity', undefined],
+        ['severities', undefined],
+        ['acknowledged', undefined],
+        ['resolved', undefined],
+        ['startDate', undefined],
+        ['endDate', undefined],
+        ['siteId', undefined],
+        ['module', undefined],
+      ]);
+      expect(getAlertHistory).toHaveBeenCalledWith(tenantId, expect.anything(), {
+        page: 1,
+        limit: 20,
+      });
+    });
+
+    it('forwards the site and module scope of a module dashboard’s alarm panel', async () => {
+      await resolver.getAlertHistory(
+        tenantId,
+        1,
+        20,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        SITE_ID,
+        AlertModule.FARM,
+      );
 
       expect(getAlertHistory).toHaveBeenCalledWith(
         tenantId,
-        {
-          ruleId: undefined,
-          severity: undefined,
-          severities: undefined,
-          acknowledged: undefined,
-          resolved: undefined,
-          startDate: undefined,
-          endDate: undefined,
-        },
+        expect.objectContaining({ resolved: false, siteId: SITE_ID, module: AlertModule.FARM }),
         { page: 1, limit: 20 },
       );
     });
@@ -152,6 +195,60 @@ describe('AlertResolver.alertHistory', () => {
 
       const clauses = query.andWhere.mock.calls.map(([clause]: [string]) => clause);
       expect(clauses).toEqual(['alert.severity IN (:...severities)']);
+    });
+  });
+});
+
+/**
+ * AlertResolver.activeAlertCounts — the scope and grouping reach the service.
+ *
+ * Without arguments the annunciator's request is unchanged; the workspace
+ * menu asks `groupBy: [MODULE]`, a module dashboard `module` + `groupBy:
+ * [SITE]`. An explicit null is an absent argument, as on alertHistory.
+ */
+describe('AlertResolver.activeAlertCounts', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111';
+  let countActiveAlerts: jest.SpyInstance<
+    ReturnType<AlertRuleService['countActiveAlerts']>,
+    Parameters<AlertRuleService['countActiveAlerts']>
+  >;
+  let resolver: AlertResolver;
+
+  beforeEach(() => {
+    const service = alertRuleService();
+    countActiveAlerts = jest.spyOn(service, 'countActiveAlerts').mockResolvedValue([]);
+    resolver = new AlertResolver(service);
+  });
+
+  it('asks for the tenant-wide counts when no argument is given', async () => {
+    await resolver.getActiveAlertCounts(tenantId);
+
+    expect(countActiveAlerts).toHaveBeenCalledWith(tenantId, {
+      siteId: undefined,
+      module: undefined,
+      groupBy: undefined,
+    });
+  });
+
+  it('forwards the module filter and the per-site grouping', async () => {
+    await resolver.getActiveAlertCounts(tenantId, null, AlertModule.SENSOR, [
+      ActiveAlertCountDimension.SITE,
+    ]);
+
+    expect(countActiveAlerts).toHaveBeenCalledWith(tenantId, {
+      siteId: undefined,
+      module: AlertModule.SENSOR,
+      groupBy: [ActiveAlertCountDimension.SITE],
+    });
+  });
+
+  it('forwards a site filter and treats an explicit null grouping as none', async () => {
+    await resolver.getActiveAlertCounts(tenantId, SITE_ID, null, null);
+
+    expect(countActiveAlerts).toHaveBeenCalledWith(tenantId, {
+      siteId: SITE_ID,
+      module: undefined,
+      groupBy: undefined,
     });
   });
 });

@@ -432,6 +432,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
             ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
             ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
             ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
+            // The sensor's site: alert-engine places the alarm a rule raises
+            // from this reading on it (ALERT-MEDIUM-010).
+            ...(sensor.siteId ? { siteId: sensor.siteId } : {}),
           });
         } catch (error) {
           this.logger.warn(`Failed to publish SensorReading event: ${(error as Error).message}`);

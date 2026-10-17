@@ -290,6 +290,7 @@ export class DayPlanRecalcService {
         bandIndex: effective.index,
         avgWeightG,
         automatic: true,
+        siteId: dayPlan.siteId,
       };
       await this.outboxPublisher.enqueue(event, manager);
     }

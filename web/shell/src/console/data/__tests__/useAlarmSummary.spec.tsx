@@ -39,7 +39,9 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
 });
 
 import { ACTIVE_ALERT_COUNTS_QUERY } from '../console.operations';
-import { ALARM_REFRESH_MS, useAlarmSummary } from '../useAlarmSummary';
+import { ALARM_REFRESH_MS } from '../useActiveAlertCounts';
+import { useAlarmSummary } from '../useAlarmSummary';
+import { useWorkspaceAlarmCounts } from '../useWorkspaceAlarmCounts';
 
 const COUNTS = [
   { severity: 'CRITICAL', acknowledged: false, count: 1 },
@@ -80,6 +82,48 @@ describe('useAlarmSummary', () => {
     });
     expect(request).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledWith(ACTIVE_ALERT_COUNTS_QUERY, undefined, expect.anything());
+  });
+
+  it('counts every module’s alarms, and the menu’s per-module counts come from the same request', async () => {
+    // ALERT-MEDIUM-010: the query groups by module; the annunciator sums all
+    // rows (an alarm without a module included), the workspace menu splits.
+    auth.current.modules = [moduleOf('sensor')];
+    request.mockResolvedValue({
+      activeAlertCounts: [
+        { severity: 'CRITICAL', acknowledged: false, module: 'FARM', count: 1 },
+        { severity: 'CRITICAL', acknowledged: false, module: 'SENSOR', count: 2 },
+        { severity: 'HIGH', acknowledged: true, module: null, count: 1 },
+      ],
+    });
+    const { wrapper } = createWrapper();
+
+    const { result } = renderHook(
+      () => ({ summary: useAlarmSummary(), menu: useWorkspaceAlarmCounts() }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.menu.status).toBe('ready'));
+    expect(result.current.summary).toMatchObject({ status: 'ready', p1: 3, p2: 1, p1Unack: 3 });
+    expect(result.current.menu).toEqual({
+      status: 'ready',
+      byWorkspace: {
+        aqua: { p1: 1, p2: 0, p3: 0 },
+        ctl: { p1: 2, p2: 0, p3: 0 },
+        gh: { p1: 0, p2: 0, p3: 0 },
+      },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(ACTIVE_ALERT_COUNTS_QUERY).toContain('activeAlertCounts(groupBy: [MODULE])');
+  });
+
+  it('gives the menu no counts, with no request, for a viewer without the sensor module', () => {
+    auth.current.modules = [moduleOf('farm')];
+    const { wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useWorkspaceAlarmCounts(), { wrapper });
+
+    expect(result.current).toEqual({ status: 'unavailable', byWorkspace: null });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('lights P1 for one older active critical behind hundreds of newer advisories and cleared alarms', async () => {

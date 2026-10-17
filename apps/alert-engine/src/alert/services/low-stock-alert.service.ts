@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import type { LowStockDetectedEvent } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { farmOrigin } from './alert-origin';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
 
 /**
@@ -82,6 +83,9 @@ export class LowStockAlertService {
       ruleId,
       ruleName,
       tenantId: event.tenantId,
+      // Stock is counted across all of the tenant's storage locations
+      // (LowStockDetected.currentQuantity), so the alarm belongs to no site.
+      ...farmOrigin(null),
       severity,
       message,
       triggeringData,

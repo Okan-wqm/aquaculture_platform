@@ -18,13 +18,16 @@ import { WORKSPACES } from './railFixtures';
 
 afterEach(cleanup);
 
-/** A preview chip in the alarm slot, as the shell renders it (ALERT-MEDIUM-010). */
+/**
+ * A preview chip in the alarm slot: the slot is the shell's to fill, and a
+ * labelled preview (MockPreview, a button of its own) must keep working there.
+ */
 const ALARMS_PREVIEW = definePreviewData(
   {
-    finding: 'ALERT-MEDIUM-010',
+    finding: 'TEST-LOW-001',
     // Any message key reads as the reason; the shell passes its own.
     reasonKey: 'common.noResults',
-    needs: 'alert-engine alarmSummary byModule',
+    needs: 'a per-workspace alarm source',
   },
   2,
 );

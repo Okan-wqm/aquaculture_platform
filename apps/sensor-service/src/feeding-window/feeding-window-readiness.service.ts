@@ -52,6 +52,8 @@ export interface UnitOxygenObservation {
   /** Freshest in-window mg/L reading, or null when the sensor has gone quiet. */
   dissolvedOxygen: number | null;
   observedAt: Date | null;
+  /** The guarding DO sensor's site — the alarm's site downstream (ALERT-MEDIUM-010). */
+  siteId: string | null;
 }
 
 export interface FeedingWindowVerdict {
@@ -59,12 +61,14 @@ export interface FeedingWindowVerdict {
   status: 'low_oxygen' | 'no_reading';
   observedDissolvedOxygen?: number;
   observedAt?: string;
+  siteId?: string;
 }
 
 interface OxygenRow {
   unitId: string;
   dissolvedOxygen: string | null;
   observedAt: Date | null;
+  siteId: string | null;
 }
 
 @Injectable()
@@ -108,8 +112,15 @@ export class FeedingWindowReadinessService {
         continue;
       }
 
+      // The sensor's site travels with the verdict so alert-engine can place
+      // the alarm; a site that is not a UUID is not one the wire schema admits.
+      const site =
+        observation.siteId !== null && isValidUUID(observation.siteId)
+          ? { siteId: observation.siteId }
+          : {};
+
       if (observation.dissolvedOxygen === null || observation.observedAt === null) {
-        verdicts.push({ entry, status: 'no_reading' });
+        verdicts.push({ entry, status: 'no_reading', ...site });
         continue;
       }
 
@@ -120,6 +131,7 @@ export class FeedingWindowReadinessService {
           status: 'low_oxygen',
           observedDissolvedOxygen: observation.dissolvedOxygen,
           observedAt: observation.observedAt.toISOString(),
+          ...site,
         });
       }
     }
@@ -149,7 +161,8 @@ export class FeedingWindowReadinessService {
           `SELECT DISTINCT ON (u.unit_id)
                   u.unit_id                                   AS "unitId",
                   (r.readings->>'dissolvedOxygen')::numeric   AS "dissolvedOxygen",
-                  r.timestamp                                 AS "observedAt"
+                  r.timestamp                                 AS "observedAt",
+                  s.site_id                                   AS "siteId"
              FROM unnest($1::text[]) AS u(unit_id)
              JOIN sensors s
                ON (s.equipment_id = u.unit_id OR s.tank_id = u.unit_id)
@@ -178,6 +191,7 @@ export class FeedingWindowReadinessService {
         // numeric arrives as a string from pg — parse once, here.
         dissolvedOxygen: row.dissolvedOxygen === null ? null : Number(row.dissolvedOxygen),
         observedAt: row.observedAt === null ? null : new Date(row.observedAt),
+        siteId: row.siteId,
       });
     }
     return observations;

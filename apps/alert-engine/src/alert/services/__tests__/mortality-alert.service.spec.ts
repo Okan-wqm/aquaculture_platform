@@ -19,6 +19,7 @@ import type { MortalityAlertRaisedEvent } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../../entities/alert-history.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
 import {
   FarmSignalIncidentService,
   FarmSignalIncidentSpec,
@@ -70,6 +71,19 @@ function makeService(): {
 }
 
 describe('MortalityAlertService', () => {
+  it('records the alarm as the farm module’s, on the tank’s site (ALERT-MEDIUM-010)', async () => {
+    const { service, historyRepo } = makeService();
+    const siteId = '55555555-5555-4555-8555-555555555555';
+
+    await service.recordMortalityAlert(makeEvent({ siteId }));
+    await service.recordMortalityAlert(makeEvent());
+
+    expect(historyRepo.create.mock.calls.map(([row]) => [row?.module, row?.siteId])).toEqual([
+      [AlertModule.FARM, siteId],
+      [AlertModule.FARM, null],
+    ]);
+  });
+
   it('records an AlertHistory row with mapped severity + synthetic rule id', async () => {
     const { service, historyRepo } = makeService();
 

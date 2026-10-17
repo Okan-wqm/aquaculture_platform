@@ -1729,8 +1729,6 @@ export const en = {
   'console.workspaceMenu.title': 'Module',
   'console.workspaceMenu.hint':
     'The menu and colour follow the module. The alarm panel is shared by every module.',
-  'console.workspaceMenu.alarmsPreviewReason':
-    'Alarm counts per module need a server-side alarm summary by module, which alert-engine does not serve yet.',
   // ── Console shell (FE-HIGH-334; web/shell console/, mounted by MainLayout):
   //    the role names the user menu shows and the command palette's person
   //    and device hints ──

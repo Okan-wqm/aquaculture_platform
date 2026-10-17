@@ -10,6 +10,7 @@ import {
   AlertSeverity,
 } from '../../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../../entities/alert-history.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
 import { AlertIncident, IncidentStatus } from '../../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../../escalation/escalation-manager.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -227,6 +228,29 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
         expect.objectContaining({
           sourceEventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         }),
+      );
+    });
+
+    it('records the rule alarm as the sensor module’s, on the sensor’s site (ALERT-MEDIUM-010)', async () => {
+      await buildService();
+      const siteId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+      await service.evaluateSensorReading({ ...reading, siteId });
+
+      expect(manager.save).toHaveBeenCalledWith(
+        AlertHistory,
+        expect.objectContaining({ module: AlertModule.SENSOR, siteId }),
+      );
+    });
+
+    it('records a site-less sensor’s alarm with no site', async () => {
+      await buildService();
+
+      await service.evaluateSensorReading({ ...reading, siteId: undefined });
+
+      expect(manager.save).toHaveBeenCalledWith(
+        AlertHistory,
+        expect.objectContaining({ module: AlertModule.SENSOR, siteId: null }),
       );
     });
 

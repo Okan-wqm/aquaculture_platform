@@ -78,8 +78,15 @@ export type ActionType =
 export type ActiveAlertCount = {
   acknowledged: Scalars['Boolean']['output'];
   count: Scalars['Int']['output'];
+  module?: Maybe<AlertModule>;
   severity: AlertSeverity;
+  siteId?: Maybe<Scalars['ID']['output']>;
 };
+
+/** A dimension activeAlertCounts can group the unresolved alarms by */
+export type ActiveAlertCountDimension =
+  | 'MODULE'
+  | 'SITE';
 
 export type ActiveTankResponse = {
   avgWeightG: Scalars['Float']['output'];
@@ -350,6 +357,7 @@ export type AlertHistory = {
   farmId?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   message: Scalars['String']['output'];
+  module?: Maybe<AlertModule>;
   pondId?: Maybe<Scalars['String']['output']>;
   resolved: Scalars['Boolean']['output'];
   resolvedAt?: Maybe<Scalars['DateTime']['output']>;
@@ -357,11 +365,18 @@ export type AlertHistory = {
   ruleName: Scalars['String']['output'];
   sensorId?: Maybe<Scalars['String']['output']>;
   severity: AlertSeverity;
+  siteId?: Maybe<Scalars['ID']['output']>;
   sourceEventId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
   triggeredAt: Scalars['DateTime']['output'];
   triggeringData: Scalars['JSON']['output'];
 };
+
+/** The platform module an alarm originates in */
+export type AlertModule =
+  | 'FARM'
+  | 'HYDROPONICS'
+  | 'SENSOR';
 
 /** Comparison operator for alert conditions */
 export type AlertOperator =
@@ -16257,6 +16272,13 @@ export type Query = {
 };
 
 
+export type QueryActiveAlertCountsArgs = {
+  groupBy?: InputMaybe<Array<ActiveAlertCountDimension>>;
+  module?: InputMaybe<AlertModule>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type QueryActiveEmployeesArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
@@ -16318,11 +16340,13 @@ export type QueryAlertHistoryArgs = {
   acknowledged?: InputMaybe<Scalars['Boolean']['input']>;
   endDate?: InputMaybe<Scalars['DateTime']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
+  module?: InputMaybe<AlertModule>;
   page?: InputMaybe<Scalars['Int']['input']>;
   resolved?: InputMaybe<Scalars['Boolean']['input']>;
   ruleId?: InputMaybe<Scalars['ID']['input']>;
   severities?: InputMaybe<Array<AlertSeverity>>;
   severity?: InputMaybe<AlertSeverity>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
   startDate?: InputMaybe<Scalars['DateTime']['input']>;
 };
 

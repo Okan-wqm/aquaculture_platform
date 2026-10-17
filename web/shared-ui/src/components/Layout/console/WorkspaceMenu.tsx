@@ -12,9 +12,9 @@
  * `onSelect`.
  *
  * WHY the alarm slot sits beside the row button and not inside it: the counts
- * come through a slot the host fills (`renderAlarms`) — today a labelled
- * preview whose MOCK chip is a button of its own (ALERT-MEDIUM-010), and a
- * button inside a button is invalid HTML that no keyboard can reach.
+ * come through a slot the host fills (`renderAlarms`), which may hold a control
+ * of its own (a labelled preview's MOCK chip is a button), and a button inside
+ * a button is invalid HTML that no keyboard can reach.
  *
  * Dismissal is the popover's (FE-HIGH-085): Escape, a press outside, or Tab
  * leaving the panel closes it; focus enters on the current row and goes back

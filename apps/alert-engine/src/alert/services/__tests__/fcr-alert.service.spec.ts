@@ -1,5 +1,6 @@
 import { FcrAlertService } from '../fcr-alert.service';
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
 import type { FCRAlertEvent } from '@platform/event-contracts';
 
 /**
@@ -93,5 +94,12 @@ describe('FcrAlertService', () => {
 
     const spec = farmSignalIncident.ensureIncident.mock.calls[0][0];
     expect(spec.ruleId).toBe('system:fcr:batch-9');
+  });
+
+  it('records the alarm as the farm module’s without a site: a batch has none (ALERT-MEDIUM-010)', async () => {
+    await service.recordFcrAlert(makeEvent());
+
+    const row = historyRepository.create.mock.calls[0][0];
+    expect([row.module, row.siteId]).toEqual([AlertModule.FARM, null]);
   });
 });

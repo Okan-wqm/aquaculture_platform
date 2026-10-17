@@ -360,6 +360,9 @@ export class NatsIngestionConsumerService
       sensorId: sensor.id,
       farmId: event.farmId ?? sensor.farmId ?? undefined,
       pondId: event.pondId ?? sensor.pondId ?? undefined,
+      // The site comes from sensor-service's own metadata — the sidecar does
+      // not carry one. alert-engine places the alarm on it (ALERT-MEDIUM-010).
+      siteId: sensor.siteId ?? undefined,
     };
 
     // SENSOR-MEDIUM-066/068: channelKey → parameter → flat field via the single

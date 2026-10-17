@@ -389,6 +389,21 @@ describe('NatsIngestionConsumerService', () => {
       expect(typedEv['pondId']).toBe(POND_ID);
     });
 
+    it('carries the sensor’s site on the typed event, for the alarm’s site (ALERT-MEDIUM-010)', async () => {
+      const SITE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+      const bus = makeBus();
+      const { svc } = makeService({ bus, sensor: fakeSensor({ siteId: SITE_ID }) });
+      await svc.handle(fakeEvent());
+      expect(asRecord(bus.publish.mock.calls[0]?.[0])['siteId']).toBe(SITE_ID);
+    });
+
+    it('carries no site for a sensor bound to none', async () => {
+      const bus = makeBus();
+      const { svc } = makeService({ bus, sensor: fakeSensor({ siteId: undefined }) });
+      await svc.handle(fakeEvent());
+      expect(asRecord(bus.publish.mock.calls[0]?.[0])['siteId']).toBeUndefined();
+    });
+
     it('publish failure does not abort persistence — enqueue already happened', async () => {
       const bus = makeBus();
       bus.publish.mockRejectedValueOnce(new Error('broker down'));

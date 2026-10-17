@@ -870,6 +870,8 @@ export class FeedingCronV2Service {
             mealId: meal.id,
             dayPlanId: meal.dayPlanId,
             scheduledAt: toEventIso(meal.scheduledAt),
+            // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+            siteId: dayPlanById.get(meal.dayPlanId)?.siteId,
           };
           await this.outboxPublisher.enqueue(event, manager);
         }
@@ -1051,6 +1053,7 @@ export class FeedingCronV2Service {
         id: string;
         unitId: string;
         unitCode: string;
+        siteId: string;
         planDate: string;
         status: FeedingDayPlanStatus;
         plannedTotalKg: string | number;
@@ -1064,7 +1067,7 @@ export class FeedingCronV2Service {
         //
         // `cancelled` planlar HARİÇ (FARM-MEDIUM-256): tam hasat edilen tankın
         // iptal edilmiş planı her akşam "%100 az beslendi" alarmı üretiyordu.
-        `SELECT dp.id, dp."unitId", dp."unitCode", dp."planDate", dp.status,
+        `SELECT dp.id, dp."unitId", dp."unitCode", dp."siteId", dp."planDate", dp.status,
                 dp."plannedTotalKg", dp."unplannedActualKg",
                 (SELECT COALESCE(SUM(m."actualKg"), 0) FROM "feeding_meals" m
                   WHERE m."tenantId" = dp."tenantId" AND m."dayPlanId" = dp.id) AS "actualKg",
@@ -1136,6 +1139,8 @@ export class FeedingCronV2Service {
               actualKg: round3(actual),
               variancePercent: round3(dayVariancePercent),
               thresholdPercent: threshold,
+              // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+              siteId: row.siteId,
             };
             await this.outboxPublisher.enqueue(underfed, manager);
           }

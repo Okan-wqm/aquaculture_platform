@@ -1985,10 +1985,14 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     workspace_root=Path(workspace_root) if workspace_root else root,
                     profile=str(profile_snapshot or "standard"),
-                    primary_drafter=_v7_select_drafter(role="primary_authoring", cycle_id=cycle_id),
-                    challenger_drafter=_v7_select_drafter(role="challenger_authoring", cycle_id=cycle_id),
-                    evidence_judge=_v7_select_judge(role="evidence_judgment", cycle_id=cycle_id),
-                    adversarial_judge=_v7_select_judge(role="adversarial_judgment", cycle_id=cycle_id),
+                    # ARIA-MEDIUM-507 — the store is bound at the producer:
+                    # each dispatcher mints into and reads back from `root`.
+                    primary_drafter=_v7_select_drafter(role="primary_authoring", base_dir=root, cycle_id=cycle_id),
+                    challenger_drafter=_v7_select_drafter(
+                        role="challenger_authoring", base_dir=root, cycle_id=cycle_id,
+                    ),
+                    evidence_judge=_v7_select_judge(role="evidence_judgment", base_dir=root, cycle_id=cycle_id),
+                    adversarial_judge=_v7_select_judge(role="adversarial_judgment", base_dir=root, cycle_id=cycle_id),
                     sandbox_runner=_v7_select_sandbox_runner(),
                 )
                 cycle_summary["skill_genesis"] = _v7_genesis_result

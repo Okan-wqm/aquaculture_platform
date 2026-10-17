@@ -40,14 +40,22 @@ WHAT, in order (kernel code; the adapter arrives as DATA on stdin):
    (``code.__new__`` — ``CodeType``, ``code.replace`` — and
    ``marshal.load(s)``: CPython does not verify bytecode, and an
    out-of-bounds ``LOAD_CONST`` is a segfault and a road to native code no
-   hook sees); and opening any file for writing (an adapter is a read-only
+   hook sees); opening any file for writing (an adapter is a read-only
    scanner, and a writable ``/proc/self/mem`` would let it patch the
-   interpreter past this hook). Its conditions read only literals and the
-   interpreter's own arguments, so rebinding a builtin cannot turn a
-   refusal into a pass. ``compile()`` raises ``compile``, not
-   ``code.__new__``, so step 5 and the stdlib's own ``exec`` (dataclasses)
-   keep working.
-5. Compile the verified bytes and run them as ``__main__``; the rest of stdin
+   interpreter past this hook); and every audited call that changes the
+   filesystem without opening a file (ARIA-MEDIUM-560: ``os`` is preloaded,
+   so ``import os`` raises no import event and ``os.remove``, ``rename``,
+   ``rmdir``, ``mkdir``, ``chmod``, ``chown``, ``symlink``, ``link``,
+   ``truncate``, ``utime`` and the xattr writers were reachable). Its
+   conditions read only literals and the interpreter's own arguments, so
+   rebinding a builtin cannot turn a refusal into a pass. ``compile()``
+   raises ``compile``, not ``code.__new__``, so step 5 and the stdlib's own
+   ``exec`` (dataclasses) keep working.
+5. Remove the filesystem constructors that raise NO audit event
+   (``mkfifo``, ``mknod``: measured, python3.12) from ``os`` and ``posix``
+   and from the ``os.supports_*`` sets that also hold them, so no hook has
+   to see them: nothing can call them.
+6. Compile the verified bytes and run them as ``__main__``; the rest of stdin
    is the adapter's own input.
 
 The room remains the OS boundary (no network, read-only workspace, no
@@ -66,6 +74,9 @@ _LAZY_STDLIB_HELPERS = ("_strptime",)
 _MODULE_BUILDERS = (
     "create_builtin", "exec_builtin", "create_dynamic", "exec_dynamic", "init_frozen", "get_frozen_object",
 )
+# Filesystem constructors CPython audits nowhere (docstring, step 5); the
+# audited mutations are refused by the hook instead.
+_UNAUDITED_FS_CONSTRUCTORS = ("mkfifo", "mknod")
 
 
 def _refuse(reason):
@@ -85,6 +96,15 @@ def _audit(event, args):
     # the open flags as a plain int for open(), io.FileIO and os.open alike.
     if event == "open" and args[2] & 0o3103:
         raise PermissionError("genesis_adapter_capability_refused:open_for_write")
+    # Every audited call that changes the filesystem without an open: the
+    # path, fd and *at forms of each raise the same event (os.unlink ->
+    # os.remove, os.replace -> os.rename, os.fchmod -> os.chmod, os.ftruncate
+    # -> os.truncate, os.makedirs -> os.mkdir).
+    if event in (
+        "os.remove", "os.rename", "os.rmdir", "os.mkdir", "os.chmod", "os.chown", "os.chflags",
+        "os.symlink", "os.link", "os.truncate", "os.utime", "os.setxattr", "os.removexattr",
+    ):
+        raise PermissionError("genesis_adapter_capability_refused:" + event)
     if event.startswith((
         "os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty",
         "os.kill", "os.killpg", "subprocess.", "ctypes.", "socket.", "_thread.start_new_thread",
@@ -125,6 +145,16 @@ def main():
     for builder in _MODULE_BUILDERS:
         if hasattr(machinery, builder):
             delattr(machinery, builder)
+    posix = sys.modules["posix"]
+    os_module = sys.modules["os"]
+    for name in _UNAUDITED_FS_CONSTRUCTORS:
+        constructor = getattr(posix, name, None)
+        for holder in (posix, os_module):
+            if hasattr(holder, name):
+                delattr(holder, name)
+        for capability_set in (os_module.supports_dir_fd, os_module.supports_fd,
+                               os_module.supports_effective_ids, os_module.supports_follow_symlinks):
+            capability_set.discard(constructor)
     sys.addaudithook(_audit)
     code = compile(source, "<genesis-adapter " + expected[:12] + ">", "exec", dont_inherit=True)
     sys.argv = ["genesis-adapter"]

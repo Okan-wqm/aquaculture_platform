@@ -14,12 +14,10 @@ from .agent_contract import CONTRACT_ENFORCED_ROLES, REQUEST_SCHEMA, validate_re
 from .agent_surface import (
     DERIVED_REQUEST_STATES,
     INVOCATION_ROLES,
-    PLANNER_BRIDGE_ROLES,
     allowed_targets_for_role,
 )
 from .bridge_exceptions import BridgeContractViolation
 from .checkout_root import is_git_worktree_marker as _is_git_worktree_marker
-from .evidence_trust import is_self_output_ref
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
@@ -1383,6 +1381,14 @@ def create_agent_invocation_request(
     # written. The 2026-10-06 store held 606 never-claimed and 836
     # anchor-stale rows minted by eleven producers that never asked.
     admission: Admission,
+    # ARIA-MEDIUM-385 — the stable name of WHAT the request is about, for a
+    # producer whose subject outlives the cycle that asks (a merged PR, one
+    # gold-corpus state: ``pr_tracking.change_intelligence_subject_ref``,
+    # ``goldset.curation_subject_ref``). It keys ``minted_subject_refs``; it
+    # is never evidence, because no agent can cite it. Those producers used
+    # to spell it into ``evidence_refs``, where the agent cited it and the
+    # submit law refused the answer (agent_evidence_ref_malformed).
+    subject_ref: str | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1426,20 +1432,8 @@ def create_agent_invocation_request(
         )
     if not suggested_prompt.strip():
         raise GovernanceError("suggested_prompt is required")
-    # ARIA-HIGH-194 (ARIA-HIGH-181 made impossible) — a planning envelope
-    # whose only evidence is ARIA's own output can never be answered: the
-    # planner must cite the repository and those paths resolve at no SHA.
-    # Both live round-1 challengers were minted that way, refused, and burned
-    # their budget to HUMAN_REQUIRED. The mint refuses it for every caller.
-    if (
-        role in PLANNER_BRIDGE_ROLES
-        and evidence_refs
-        and all(is_self_output_ref(ref) for ref in evidence_refs)
-    ):
-        raise GovernanceError(
-            f"request_evidence_self_output_only: role {role!r} cannot be answered "
-            f"on ARIA's own output alone ({sorted(evidence_refs)[:3]})"
-        )
+    if subject_ref is not None and (not isinstance(subject_ref, str) or not subject_ref.strip()):
+        raise GovernanceError("create_agent_invocation_request_subject_ref_must_be_a_non_empty_string")
     # Plan 024 §B-2 — strict fields enforcement at write-side. The legacy
     # request schema lacked must_satisfy / allowed_scope, so a request
     # written without them entered the queue, was claimed via the strict
@@ -1550,6 +1544,7 @@ def create_agent_invocation_request(
             "shadow_eval_proof": shadow_eval_proof or {},
             "tool_id": tool_id,
             "target_sha": target_sha,
+            **({"subject_ref": subject_ref} if subject_ref is not None else {}),
             **({"plan_contract": plan_contract} if plan_contract is not None else {}),
             **({"forbidden_scope": list(forbidden_scope)} if forbidden_scope else {}),
             **({"commit_contract": commit_contract} if commit_contract is not None else {}),
@@ -1579,6 +1574,29 @@ def create_agent_invocation_request(
                 f"request_evidence_state_store_record: role {role!r} cannot cite ARIA's "
                 f"state store {store_refs[:3]}; name a kernel record by its ledger pointer"
             )
+    # ARIA-MEDIUM-385 (ARIA-HIGH-384 for every role; ARIA-HIGH-194's
+    # self-output-only refusal is the planner case of it) — an agent cites
+    # the refs its envelope hands it, and the submit law refuses a ref of the
+    # wrong shape: a kernel pointer (cycle:, plan:, seed:, merged-pr:,
+    # goldset-proposal:), a path outside the repository, ARIA's own output.
+    # Such an envelope can only buy a refused answer (the 2026-10-13..16
+    # verification and change-intelligence runs on aria/state were refused
+    # for citing exactly that pointer). What a pointer named rides on its
+    # own field — cycle_id, convergence_id, round_number, subject_ref — or
+    # in the prompt as data. Judged for a NEW identity only, as above.
+    from .evidence_validator import agent_ref_mint_refusal
+
+    uncitable = [
+        f"{ref}:{code}" for ref in evidence_refs or []
+        if (code := agent_ref_mint_refusal(ref, role=role)) is not None
+    ]
+    if uncitable:
+        raise GovernanceError(
+            f"request_evidence_not_agent_citable: role {role!r} cannot be handed "
+            f"{uncitable[:3]}; the submit law refuses an answer that cites them. A kernel "
+            f"record rides on its own field (cycle_id, convergence_id, round_number, "
+            f"subject_ref) or in the prompt as data"
+        )
     # A sealed request owns its original context and audit. Only a new
     # identity acquires current optional inputs or captures budget costs.
     evidence_excerpts = _evidence_excerpts_for_refs(
@@ -1638,6 +1656,10 @@ def create_agent_invocation_request(
         "cycle_id": cycle_id,
         "pressure_source_type": pressure_source_type,
         "remint_of": remint_of,
+        # ARIA-MEDIUM-385 — written on every new row (None when the producer
+        # names no subject), so its presence tells a row minted under the
+        # subject channel from one minted before it (``minted_subject_refs``).
+        "subject_ref": subject_ref,
         "shadow_eval": bool(shadow_eval),
         "shadow_eval_proof": shadow_eval_proof,
         "target_sha": target_sha,
@@ -2082,12 +2104,15 @@ def minted_subject_refs(
     target_agent: str,
     base_dir: str | Path | None = None,
 ) -> set[str]:
-    """Every evidence ref already carried by a request for this role+target.
+    """Every subject already asked about by a request for this role+target.
 
-    WHAT: one pass over the request ledger, returning the union of
-    ``evidence_refs`` on rows with the same ``role`` and ``target_agent``. A
-    producer names its subject (a merged PR, one gold-corpus state) as an
-    evidence ref and asks this set whether it has already minted for it.
+    WHAT: one pass over the request ledger, returning the ``subject_ref`` of
+    every row with the same ``role`` and ``target_agent``. A producer names
+    its subject (a merged PR, one gold-corpus state) on that field and asks
+    this set whether it has already minted for it. A row minted before the
+    field existed (ARIA-MEDIUM-385) spelled its subject as an evidence ref;
+    the ledger is append-only, so that row's subject is read where it was
+    written: its ``evidence_refs``.
 
     WHY the ``request_id`` collapse is not enough on its own: that identity
     hash folds ``cycle_id`` and the rendered prompt in (see ``_request_id``
@@ -2104,6 +2129,11 @@ def minted_subject_refs(
     refs: set[str] = set()
     for row in load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests"):
         if row.get("role") != role or row.get("target_agent") != target_agent:
+            continue
+        if "subject_ref" in row:
+            subject = row["subject_ref"]
+            if isinstance(subject, str) and subject:
+                refs.add(subject)
             continue
         row_refs = row.get("evidence_refs")
         if isinstance(row_refs, list):

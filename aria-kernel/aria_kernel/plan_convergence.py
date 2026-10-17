@@ -3958,19 +3958,29 @@ def resolve_converged_plan_observation(
     return observation
 
 
+class PlanBodyUnprovable(GovernanceError):
+    """:func:`plan_body_from_state`'s refusal: the ledger holds no body that
+    proves the plan's latest revision (ARIA-MEDIUM-552).
+
+    A fact of the append-only plan ledger, so it does not change for the
+    plan's lifetime: a caller that offers the plan again learns the same
+    refusal. Its own type, so a caller can tell it from a fault."""
+
+
 def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
     """``converged_plan_body`` for a fold the caller already has.
 
     Split out because both callers that need the body (staging, the
     envelope mint) already fold the plan for their own state precondition;
-    re-folding would read the same ledger twice per mint.
+    re-folding would read the same ledger twice per mint. A body the ledger
+    cannot prove is :class:`PlanBodyUnprovable`.
     """
     _require_started(state, "read plan body")
     latest = state.get("latest_revision") or {}
     revision_id = str(latest.get("revision_id") or "")
     target_hash = str(latest.get("content_hash") or "")
     if not target_hash:
-        raise GovernanceError(
+        raise PlanBodyUnprovable(
             "plan_body_no_revision_hash: the plan has no "
             "latest_revision.content_hash, so no body can be proven to be "
             "the one it converged on"
@@ -3982,7 +3992,7 @@ def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
             "revision_id": revision_id,
             "content_hash": target_hash,
         }
-    raise GovernanceError(
+    raise PlanBodyUnprovable(
         f"plan_body_unavailable_for_revision: no recorded body hashes to "
         f"{target_hash} (revision_id={revision_id!r}); the ledger holds the "
         f"revision's identity but not a body that reproduces it"

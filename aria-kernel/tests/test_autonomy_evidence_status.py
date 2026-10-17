@@ -3018,9 +3018,13 @@ class NativeProofContractTests(unittest.TestCase):
         self.assertEqual(candidates[0].evidence_target_sha, "a" * 40)
 
     def test_fixture_native_schema_reaches_declared_non_live_target_gate(self) -> None:
+        # The producer's current row (ARIA-MEDIUM-400: schema version 2 names
+        # the workspace commit and the argv scripts digest it measured).
         base = {
             "$schema": "aria/agent-eval-fixture-run/v1",
-            "schema_version": 1,
+            "schema_version": 2,
+            "workspace_commit_sha": "c" * 40,
+            "argv_scripts_hash": "sha256:" + "8" * 64,
             "at": "2026-08-23T00:00:00Z",
             "tool_id": "fixture-adapter",
             "tool_version": "1.0.0",

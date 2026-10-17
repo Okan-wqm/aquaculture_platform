@@ -191,6 +191,7 @@ describe('AlertResolver.alertHistory', () => {
       where: jest.Mock;
       andWhere: jest.Mock;
       orderBy: jest.Mock;
+      addOrderBy: jest.Mock;
       skip: jest.Mock;
       take: jest.Mock;
       getManyAndCount: jest.Mock;
@@ -202,6 +203,7 @@ describe('AlertResolver.alertHistory', () => {
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
         skip: jest.fn().mockReturnThis(),
         take: jest.fn().mockReturnThis(),
         getManyAndCount: jest.fn().mockResolvedValue([[{ id: 'alert-1' }], 1]),

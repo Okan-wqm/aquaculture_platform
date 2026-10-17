@@ -31,6 +31,7 @@ describe('AlertRuleService — site and module scope', () => {
     | 'groupBy'
     | 'addGroupBy'
     | 'orderBy'
+    | 'addOrderBy'
     | 'skip'
     | 'take',
     jest.Mock
@@ -49,6 +50,7 @@ describe('AlertRuleService — site and module scope', () => {
       groupBy: chained(),
       addGroupBy: chained(),
       orderBy: chained(),
+      addOrderBy: chained(),
       skip: chained(),
       take: chained(),
       getRawMany: jest.fn().mockResolvedValue([]),

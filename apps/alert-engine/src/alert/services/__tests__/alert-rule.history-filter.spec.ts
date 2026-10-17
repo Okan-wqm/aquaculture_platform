@@ -127,23 +127,29 @@ describe('AlertRuleService.getAlertHistory — severities filter', () => {
     expect(query.andWhere).toHaveBeenCalledWith('alert.resolved = :resolved', { resolved: true });
   });
 
-  it('pages the newest first unless asked for the most severe first', async () => {
+  it('pages the newest first unless asked for the most severe first, the id breaking every tie', async () => {
     await service.getAlertHistory(tenantId, { resolved: false }, { page: 1, limit: 50 });
     expect(query.orderBy).toHaveBeenLastCalledWith('alert.triggeredAt', 'DESC');
-    expect(query.addOrderBy).not.toHaveBeenCalled();
+    expect(query.addOrderBy.mock.calls).toEqual([['alert.id', 'DESC']]);
 
+    query.addOrderBy.mockClear();
     await service.getAlertHistory(
       tenantId,
       { resolved: false },
       { page: 1, limit: 50 },
       AlertHistoryOrder.MOST_SEVERE_FIRST,
     );
+    // A severity the rank does not know (a value the database enum gained
+    // before this code did) ranks below INFO, never above CRITICAL.
     expect(query.orderBy).toHaveBeenLastCalledWith(
       "CASE alert.severity WHEN 'info' THEN 0 WHEN 'low' THEN 1 WHEN 'warning' THEN 2 " +
-        "WHEN 'medium' THEN 3 WHEN 'high' THEN 4 WHEN 'critical' THEN 5 END",
+        "WHEN 'medium' THEN 3 WHEN 'high' THEN 4 WHEN 'critical' THEN 5 ELSE -1 END",
       'DESC',
     );
-    expect(query.addOrderBy).toHaveBeenLastCalledWith('alert.triggeredAt', 'DESC');
+    expect(query.addOrderBy.mock.calls).toEqual([
+      ['alert.triggeredAt', 'DESC'],
+      ['alert.id', 'DESC'],
+    ]);
   });
 
   it('answers an empty set with no alarms, without querying', async () => {

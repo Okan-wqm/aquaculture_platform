@@ -288,6 +288,9 @@ export class AlertRuleService {
     } else {
       query.orderBy('alert.triggeredAt', 'DESC');
     }
+    // A unique last key: OFFSET paging over rows that tie on every other key
+    // is otherwise free to repeat one row and skip another between pages.
+    query.addOrderBy('alert.id', 'DESC');
 
     const MAX_LIMIT = 500;
     const page = pagination?.page || 1;

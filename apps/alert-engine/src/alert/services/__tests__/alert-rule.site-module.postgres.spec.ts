@@ -357,6 +357,86 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
     await history.delete(seeded.map((row) => row.id));
   });
 
+  it('pages alarms that tie on severity and time by id, so no row repeats or goes missing across pages', async () => {
+    const tied = await history.save(
+      Array.from({ length: 6 }, () => ({
+        ...alarm({
+          severity: AlertSeverity.WARNING,
+          acknowledged: false,
+          module: AlertModule.FARM,
+          siteId: SITE_B,
+          tenantId: PANEL_TENANT,
+        }),
+        triggeredAt: new Date('2026-10-17T09:00:00.000Z'),
+      })),
+    );
+    const byIdDescending = tied.map((row) => row.id).sort((a, b) => b.localeCompare(a));
+    try {
+      for (const order of [AlertHistoryOrder.NEWEST_FIRST, AlertHistoryOrder.MOST_SEVERE_FIRST]) {
+        const paged: string[] = [];
+        for (let page = 1; page <= 3; page += 1) {
+          const { items } = await service.getAlertHistory(
+            PANEL_TENANT,
+            { siteId: SITE_B },
+            { page, limit: 2 },
+            order,
+          );
+          paged.push(...items.map((row) => row.id));
+        }
+        expect(paged).toEqual(byIdDescending);
+      }
+    } finally {
+      await history.delete(tied.map((row) => row.id));
+    }
+  });
+
+  it('ranks a severity the code does not know below INFO, never above CRITICAL', async () => {
+    // Blue-green: a migration adds a severity to the database enum while pods
+    // that predate it still serve the list. Unranked, CASE yields NULL, and
+    // Postgres sorts NULL first under DESC — above every CRITICAL.
+    await history.query(
+      `ALTER TYPE alert.alert_history_severity_enum ADD VALUE IF NOT EXISTS 'emergency'`,
+    );
+    const critical = await history.save({
+      ...alarm({
+        severity: AlertSeverity.CRITICAL,
+        acknowledged: false,
+        module: AlertModule.FARM,
+        siteId: SITE_B,
+        tenantId: PANEL_TENANT,
+      }),
+      triggeredAt: new Date('2026-10-17T05:00:00.000Z'),
+    });
+    const info = await history.save({
+      ...alarm({
+        severity: AlertSeverity.INFO,
+        acknowledged: false,
+        module: AlertModule.FARM,
+        siteId: SITE_B,
+        tenantId: PANEL_TENANT,
+      }),
+      triggeredAt: new Date('2026-10-17T05:30:00.000Z'),
+    });
+    const [{ id: unknown }] = await history.query(
+      `INSERT INTO alert.alert_history
+         (rule_id, rule_name, tenant_id, severity, message, triggering_data, triggered_at, site_id, module)
+       VALUES ('rule-future', 'Rule', $1, 'emergency', 'alarm', '{}', '2026-10-17T10:00:00Z', $2, 'farm')
+       RETURNING id`,
+      [PANEL_TENANT, SITE_B],
+    );
+    try {
+      const { items } = await service.getAlertHistory(
+        PANEL_TENANT,
+        { siteId: SITE_B },
+        { page: 1, limit: 10 },
+        AlertHistoryOrder.MOST_SEVERE_FIRST,
+      );
+      expect(items.map((row) => row.id)).toEqual([critical.id, info.id, unknown]);
+    } finally {
+      await history.delete([critical.id, info.id, unknown]);
+    }
+  });
+
   it('refuses a site that is not a UUID; the origin helper records it as no site (ALERT-MEDIUM-013)', async () => {
     const label = 'Hatchery North';
     const asGiven = history.create({

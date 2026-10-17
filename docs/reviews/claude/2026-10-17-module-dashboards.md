@@ -118,6 +118,31 @@ The real-SQL spec (6 tests) and the farm `rollup-reconciliation.postgres.spec.ts
 drives `sweepTenant`) ran on this host. `feeding-cron-v2.sweep.spec.ts` adds the orphan meal: it
 stays scheduled, nothing is enqueued and its unit is not locked.
 
+## ALERT-LOW-017
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan. Raised by the security
+re-review of PR #1999.
+
+### Symptom (ALERT-LOW-017)
+
+`alertHistory` paged by trigger time, or by severity rank then trigger time, with no unique last
+key. OFFSET paging over rows that tie on every key may repeat one row and skip another between
+pages. `severityRankSql` had no `ELSE`, so a severity it does not name ranked NULL, which Postgres
+sorts first under `DESC`, above every CRITICAL.
+
+### Fix (ALERT-LOW-017)
+
+Both orders end on `alert.id DESC`. The rank's `ELSE` is -1, below INFO. Today the column's enum
+and `ALERT_SEVERITY_RANK` hold the same six values. The `ELSE` covers a value the database enum
+gains before every pod that serves the list ranks it (blue-green).
+
+### Tests (ALERT-LOW-017)
+
+`alert-rule.site-module.postgres.spec.ts` (real Postgres): six alarms with one severity and one
+trigger time, paged two at a time in both orders, come back once each in id order. After `ALTER
+TYPE … ADD VALUE 'emergency'`, an alarm with that severity ranks after INFO. Both tests failed
+before the fix. `alert-rule.history-filter.spec.ts` pins the ORDER BY clauses.
+
 ## ALERT-MEDIUM-011
 
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline

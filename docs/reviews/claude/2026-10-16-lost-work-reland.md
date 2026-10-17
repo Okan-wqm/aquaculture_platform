@@ -258,3 +258,33 @@ the FCR sweep judges the D-10 weighing. The FARM-CRITICAL-444 window stays consi
 and the day come from one sample, and the count on that day from the ledger), so its alerts are
 older, not wrong; the defect is in the writers. A fix makes both writers refuse to move
 `weight.actual` backwards inside their locked update. Owner okan/claude, deadline 2027-01-15.
+
+## FARM-CRITICAL-454
+
+A growth weighing never reaches the feeding ration. Lost-work item 2, half 600; the old branch
+`feat/aquamobil-v4-merge` (commit 826690623, never on main) carried it as ORPHAN-CRITICAL-600.
+On main that id names a different defect, an ARIA prompt-hash mismatch.
+
+- `apps/farm-service/src/growth/handlers/record-growth-sample.handler.ts:224-242` and
+  `update-batch-weight-from-sample.handler.ts:64-78`: both writers put the sample on
+  `Batch.weight.actual` and stop. Nothing writes `tank_batches`.
+- `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts:525-527`,
+  `day-plan-recalc.service.ts:135-137` and `protocol-feed-forecast.service.ts:529-536`: the
+  06:00 plan, the intra-day recalc and the feed forecast size the ration from the tank's
+  `tank_batches` count, biomass and average weight.
+- `apps/farm-service/src/feeding-protocol/services/biomass-growth-applier.service.ts:152-165`:
+  the FCR projection (`biomass += fed / expected FCR`) is the only writer of a stocked unit's
+  weight, and it never reads a measurement.
+- `apps/farm-service/src/batch/entities/tank-batch.entity.ts:210-212`: `lastSamplingAt` has no
+  writer.
+
+Failure scenario: a tank holds 1000 fish stocked at 10 g (10 kg) on a protocol whose band below
+25 g feeds 3% a day. The fish are weighed at 30 g. The batch says 30 g, the tank still says 10 g
+and 10 kg, so today's remaining meals stay at 0.3 kg a day, the band never moves to the grower
+feed, and tomorrow's 06:00 plan is 0.3 kg again instead of 0.45 kg. The fish are fed for a third
+of their weight until the projection happens to catch up, and nothing ever corrects it.
+
+Planned fix: both writers apply a weighing through one service. It re-bases the weighed batch's
+share of its tank onto the measured average through the unit growth writer, under the unit lock,
+and reprices the tank's live day plan in the same transaction. The old branch's weight-provenance
+column, branded band weight and legacy-writer deletion are not part of this root cause.

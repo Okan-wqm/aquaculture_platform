@@ -24,7 +24,7 @@ from .ledger import (
 )
 from .cycle_runtime_status import is_integrity_class, runtime_status
 from .state_manifest import resolve_surface_path, surface_by_name, surface_for_path
-from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, is_dispatchable, tools_dir, utc_now
 
 
 RUN_LEDGER_FORMAT_ENV = "ARIA_RUN_LEDGER_FORMAT"
@@ -943,7 +943,7 @@ def classify_cycle_evidence(
     registry_issues: list[dict[str, Any]] = []
     runnable_tools = [
         tool for tool in _load_registry_tools(root, issues=registry_issues)
-        if tool.get("status") in {"ACTIVE", "SHADOW", "CALIBRATE"}
+        if is_dispatchable(tool)
     ]
     expected_tool_count = len(runnable_tools)
     ok_runs = [row for row in run_rows if row.get("status") == "ok"]

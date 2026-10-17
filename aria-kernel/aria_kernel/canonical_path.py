@@ -230,6 +230,24 @@ def expand_repo_glob(pattern: str) -> tuple[str, ...]:
     return tuple(_expand_braces(lexical_repo_path(pattern)))
 
 
+def typed_alternatives(glob: str) -> tuple[str, ...]:
+    """The brace alternatives of ``glob`` whose last segment names a file type.
+
+    ARIA-HIGH-531 — a scope glob is read two ways. As a READ allowlist every
+    alternative counts; as a claim that an adapter can PARSE what it matches,
+    only an alternative whose file name fixes a type does. A last segment
+    made of ``*``, ``?`` and ``.`` alone (``**``, ``*``, ``*.*``) matches any
+    file: it says where an adapter may look, never what it can read.
+    ``*.rs``, ``jest.config.*``, ``Dockerfile*`` and ``registry.json`` name
+    one; ``web/**/*.{ts,*}`` keeps ``web/**/*.ts`` only. Braces expand
+    through :func:`expand_repo_glob`, the one expander.
+    """
+    return tuple(
+        alternative for alternative in expand_repo_glob(glob)
+        if any(character not in "*?." for character in alternative.rsplit("/", 1)[-1])
+    )
+
+
 def _expand_braces(pattern: str) -> list[str]:
     """Expand ``{a,b,c}`` alternations into a list of patterns.
 
@@ -379,4 +397,5 @@ __all__ = [
     "matches_repo_glob",
     "normalize_repo_relpath",
     "resolve_repo_relpath",
+    "typed_alternatives",
 ]

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .canonical_path import typed_alternatives
 from .ledger import (
     StateTransaction,
     append_declared_jsonl,
@@ -1185,6 +1186,30 @@ def get_tool(
         if tool.get("tool_id") == tool_id:
             return deepcopy(tool)
     raise GovernanceError(f"tool not found: {tool_id}")
+
+
+def is_dispatchable(tool: dict[str, Any]) -> bool:
+    """A row the runner runs: its lifecycle status is one of RUNNER_REQUIRED_STATUSES."""
+    return tool.get("status") in RUNNER_REQUIRED_STATUSES
+
+
+def observing_globs(tool: dict[str, Any]) -> tuple[str, ...]:
+    """The globs by which this registry row OBSERVES the tree (ARIA-HIGH-531).
+
+    The one owner of "this row counts as observation": only an adapter the
+    runner dispatches observes anything, and only through the typed
+    alternatives of its ``declared_scope``
+    (``canonical_path.typed_alternatives``). A type-less glob (``**``) is a
+    read allowlist, not a claim to parse every file it matches; a quarantined
+    or non-adapter row observes nothing.
+    """
+    if tool.get("kind") != "adapter" or not is_dispatchable(tool):
+        return ()
+    return tuple(
+        alternative
+        for glob in tool.get("declared_scope") or []
+        for alternative in typed_alternatives(str(glob))
+    )
 
 
 def list_tools(

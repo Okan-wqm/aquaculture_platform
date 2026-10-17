@@ -52,7 +52,7 @@ from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
-from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, ensure_tools_dir, list_tools, register_tool, utc_now, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, ensure_tools_dir, is_dispatchable, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .turn_budget import (
     JOB_DEADLINE_CLOSE_OUT_MARGIN_SECONDS as _JOB_DEADLINE_PHASE_MARGIN_SECONDS,
@@ -1363,7 +1363,7 @@ def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     decisions: list[Any] = []
     pressure_summary: dict[str, Any] = {}
     for tool in list_tools(base_dir=context.base_dir):
-        if tool.get("status") not in ("ACTIVE", "SHADOW", "CALIBRATE"):
+        if not is_dispatchable(tool):
             continue
         # The manifest's default_input is merged by run_tool, the one owner
         # (ARIA-MEDIUM-516); the cycle hands over only its own keys.

@@ -21,7 +21,7 @@ from .observation_coverage import (
 )
 from .pressure import effective_workspace_pressures
 from .tool_health import runs_path
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 
 
 # Plan 026R §E.9 — closed-enum of capability_gap types emitted by
@@ -122,7 +122,9 @@ GENESIS_ADJUDICATION_BLOCK_TOKEN = GENESIS_ADJUDICATION_REQUIRED
 # payload stops being readable. The cap bounds the ledger row; the full list
 # stays on the RootCoverage the gap was minted from. The adapter directory and
 # observation policy the gap cites are observation_coverage's own paths
-# (ADAPTER_DIR, POLICY_RELATIVE_PATH), the ones its measurement read.
+# (ADAPTER_DIR, POLICY_RELATIVE_PATH): where a manifest's typed scope is
+# declared, and the policy the measurement read. The measurement itself reads
+# the live registry rows those manifests register (ARIA-HIGH-531).
 UNPARSED_TYPES_IN_PAYLOAD = 12
 
 
@@ -406,7 +408,10 @@ def _gaps_from_unobserved_surface(
       dates, so a re-run cannot buy a night of evidence.
     """
     try:
-        verdict = evaluate_observation_coverage(paths.repo_root)
+        # ARIA-HIGH-531 — the live registry rows, not the committed manifests:
+        # a genesis adapter exists only there, and a row's status is the one
+        # the runner obeys. No rows read is an unknown night.
+        verdict = evaluate_observation_coverage(paths.repo_root, tools=list_tools(base_dir=root))
     except Exception:
         # An unreadable tree is unknown, never an assertion of sight — and
         # never a reason to take the whole learning hook down with it.

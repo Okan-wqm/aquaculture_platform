@@ -228,6 +228,10 @@ def validate_request(
     # unenforced list is the appearance of a contract without one.
     if "repository_map" in envelope and not isinstance(envelope["repository_map"], dict):
         raise GovernanceError("agent-request.repository_map must be an object")
+    # ARIA-MEDIUM-385 — what the request is about, never evidence.
+    subject_ref = envelope.get("subject_ref")
+    if subject_ref is not None and (not isinstance(subject_ref, str) or not subject_ref.strip()):
+        raise GovernanceError("agent-request.subject_ref must be a non-empty string")
     if "context_source_paths" in envelope:
         from .plan_convergence import MAX_AFFECTED_PATHS
         from .snapshot import _scoped_input_path

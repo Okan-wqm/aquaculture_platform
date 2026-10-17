@@ -158,10 +158,13 @@ class GoldsetCurationMinterTest(_ToolsDirTest):
             target_known_false_positives=1, target_sha="a" * 40,
         )
         [request] = self._requests(GOLDSET_CURATION_ROLE)
-        self.assertEqual(request["evidence_refs"][1:], [
+        # ARIA-MEDIUM-385 — the corpus state is the request's subject, never
+        # a citation; the evidence is the repository refs the items cite.
+        self.assertEqual(request["evidence_refs"], [
             "apps/hr-service/src/leave/leave.service.ts:1",
             "apps/hr-service/src/leave/leave.service.ts:2",
         ])
+        self.assertTrue(request["subject_ref"].startswith("goldset-proposal:tool-a:"))
         self.assertFalse([ref for ref in request["evidence_refs"] if "goldsets/" in ref])
         self.assertIn('"finding_id": "F-1"', request["suggested_prompt"])
         self.assertIn('"verdict": "false_positive"', request["suggested_prompt"])
@@ -205,8 +208,10 @@ class GoldsetCurationMinterTest(_ToolsDirTest):
                       admission=admit_request("operator_cli.request", GOLDSET_CURATION_ROLE, base_dir=self.tools))
         with self.assertRaisesRegex(Exception, "request_evidence_state_store_record"):
             create_agent_invocation_request(**kwargs)
-        # Seal the row the way a pre-guard kernel did, then ask for it again.
-        with mock.patch("aria_kernel.evidence_validator.state_store_record_refs", return_value=[]):
+        # Seal the row the way a pre-guard kernel did, then ask for it again
+        # (before ARIA-HIGH-354 and ARIA-MEDIUM-385 both refused its refs).
+        with mock.patch("aria_kernel.evidence_validator.state_store_record_refs", return_value=[]), \
+                mock.patch("aria_kernel.evidence_validator.agent_ref_mint_refusal", return_value=None):
             sealed = create_agent_invocation_request(**kwargs)
         self.assertEqual(create_agent_invocation_request(**kwargs)["request_id"], sealed["request_id"])
 
@@ -272,10 +277,12 @@ class ChangeIntelligenceMinterTest(_ToolsDirTest):
         # Anchored to the merged head, not the workspace head: the question is
         # what THAT merge invalidated.
         self.assertEqual(request["target_sha"], "c" * 40)
-        self.assertIn(
+        # ARIA-MEDIUM-385 — the merge is the subject, never a citation.
+        self.assertEqual(
+            request["subject_ref"],
             change_intelligence_subject_ref(pr_number=7, head_sha="c" * 40),
-            request["evidence_refs"],
         )
+        self.assertEqual(request["evidence_refs"], ["apps/farm-service/src/batch/batch.service.ts"])
 
     def test_re_running_the_phase_asks_about_the_merge_once(self) -> None:
         self._merge()
@@ -479,7 +486,7 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
             suggested_prompt="analyse merge",
             must_satisfy=[{"id": "MS-1", "description": "impact map"}],
             allowed_scope=["**"],
-            evidence_refs=["merged-pr:1:abc"],
+            subject_ref="merged-pr:1:abc",
             cycle_id="cyc-1",
             base_dir=self.tools,
             admission=admit_request("operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools),
@@ -490,7 +497,7 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
             suggested_prompt="analyse merge",
             must_satisfy=[{"id": "MS-1", "description": "impact map"}],
             allowed_scope=["**"],
-            evidence_refs=["merged-pr:1:abc"],
+            subject_ref="merged-pr:1:abc",
             cycle_id="cyc-2",
             base_dir=self.tools,
             admission=admit_request("operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools),

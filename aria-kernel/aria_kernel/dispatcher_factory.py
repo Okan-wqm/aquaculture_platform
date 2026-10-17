@@ -172,7 +172,9 @@ def select_drafter(
             suggested_prompt=prompt,
             must_satisfy=list(must_satisfy or []),
             allowed_scope=[f"convergent/{seed_id}"],
-            evidence_refs=[f"seed:{seed_id}", f"round:{round_number}"],
+            # ARIA-MEDIUM-385 — the seed is named in the prompt and the round
+            # rides on its field; neither is a ref an agent can cite.
+            round_number=round_number,
             base_dir=base_dir,
             # ARIA-HIGH-364 — a round of an authoring run the drainer already
             # admitted (skill_genesis.authoring_run): critical path.
@@ -224,7 +226,8 @@ def select_judge(
         )
         prompt = (
             f"V6.2 judge verdict for seed "
-            f"{evidence_pack.get('seed_id', 'unknown')}. Read the "
+            f"{evidence_pack.get('seed_id', 'unknown')}; sandbox_result "
+            f"precision {sandbox_result.get('precision')}. Read the "
             f"sandbox_result + primary_draft + evidence_pack; "
             f"return verdict in {{no_gaps, gaps_open}}. Ground "
             f"verdict ONLY in sandbox stdout/stderr + emitted findings."
@@ -241,10 +244,8 @@ def select_judge(
                 ),
             }],
             allowed_scope=[f"convergent/{evidence_pack.get('seed_id')}"],
-            evidence_refs=[
-                f"seed:{evidence_pack.get('seed_id')}",
-                f"sandbox_result:precision={sandbox_result.get('precision')}",
-            ],
+            # ARIA-MEDIUM-385 — the seed and the sandbox precision are named
+            # in the prompt; neither is a ref an agent can cite.
             base_dir=base_dir,
             # ARIA-HIGH-364 — a judge of an admitted authoring run: critical path.
             admission=admit_request(

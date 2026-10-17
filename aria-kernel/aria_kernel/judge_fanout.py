@@ -141,6 +141,14 @@ def judge_request_fields(item: dict[str, Any], contract: RuleContract) -> dict[s
 
 
 def _evidence_refs(item: dict[str, Any]) -> list[str]:
+    """The finding's path and evidence a judge envelope hands out.
+
+    ARIA-MEDIUM-385 — only refs the agent law admits by shape
+    (``pressure_evidence.split_citable_refs``): the mint refuses any other,
+    and the finding row the sampler read keeps every ref it reported.
+    """
+    from .pressure_evidence import split_citable_refs
+
     refs: list[str] = []
     path = str(item.get("path") or "")
     if path:
@@ -148,7 +156,7 @@ def _evidence_refs(item: dict[str, Any]) -> list[str]:
     for ev in item.get("evidence") or []:
         if isinstance(ev, str) and ev.strip():
             refs.append(ev)
-    return refs
+    return split_citable_refs(refs)[0]
 
 
 def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:

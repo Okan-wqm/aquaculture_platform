@@ -498,6 +498,37 @@ class PreMergeObservationTests(_Fixture):
                                                    "payload": {}}]
         self.assertTrue(self._observe(plan_events=merged_self)["operator_feedback_verified"])
 
+    def test_a_plan_for_another_subject_cannot_spend_the_request(self) -> None:
+        # ARIA-LOW-265 — check 12 matched the request to the plan by content
+        # hash, provenance id and signature only; the signed finding_id and
+        # grounding_digest were compared with the plan's start nowhere after
+        # synthesis, so a synthesis that bound the request to a plan for
+        # another finding (or another grounding) merged under its signature.
+        self.assertEqual((self.content["finding_id"], self.content["grounding_digest"]),
+                         (self.signed["finding_id"], self.signed["grounding_digest"]))
+        self.fx.seed_finding("F-008", refs=[f"{GROUNDED_FILE}:12"])
+        candidate = {"source_type": "operator_feedback", "candidate_id": "OP-obs",
+                     "row_ledger_hash": self.signed["ledger_hash"], "signer": self.fx.principal,
+                     "subject_digest": ors.request_subject_digest(self.signed)}
+        for field, value in (("finding_id", "F-008"), ("grounding_digest", "sha256:" + "0" * 64)):
+            with self.subTest(field=field):
+                plan_id = f"plan-retarget-{field}"
+                content = dict(self.content, **{field: value})
+                ingestion.bind_plan_synthesis(base_dir=self.tools, cycle_id="cyc-obs",
+                                              plan_content=content, candidate=candidate)
+                start_plan(plan_id=plan_id, plan_content=content, initial_revision_id=f"{plan_id}-r1",
+                           base_dir=self.tools, workspace_root=self.fx.repo)
+                observation = observe_operator_feedback_for_plan(
+                    plan_id=plan_id,
+                    plan_started=fold_plan_state(plan_id=plan_id, base_dir=self.tools)["plan_started"],
+                    ingestion_rows=_ingestion_rows(self.tools), feedback_rows=_feedback_rows(self.tools),
+                    plan_events=_plan_events(self.tools), allowed_signers=self.anchor,
+                )
+                self.assertFalse(observation["operator_feedback_verified"])
+                self.assertEqual(observation["operator_feedback_unavailable_reason"],
+                                 f"operator_feedback_plan_subject_mismatch:{field}")
+        self.assertTrue(self._observe()["operator_feedback_verified"], "the signed plan itself still merges")
+
     def test_every_gap_is_a_named_reason(self) -> None:
         hand_started = {"plan_content": dict(self.content, title="hand-authored"),
                         "content_hash": content_hash(dict(self.content, title="hand-authored"))}

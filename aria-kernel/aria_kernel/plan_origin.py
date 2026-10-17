@@ -185,40 +185,56 @@ def validate_commit_contract(contract: Any) -> None:
 # the way to CONVERGED, and the commit contract and K-A closure lost the
 # finding they were about.
 PLAN_ORIGIN_CHANGED = "plan_origin_changed"
+# The origin's fields. ARIA-LOW-265 — an operator plan answers the finding
+# AND the grounding the operator signed (``grounding_digest``, stamped by the
+# synthesizer from the admission that matched the signature), and check 12
+# (``operator_feedback_observation``) compares both with the signed request
+# at merge. The grounding is fixed and carried like the finding, so no
+# revision drops it and a re-plan successor (a copy of the converged body,
+# ``implementation_replan``) starts with it.
+ORIGIN_FIELDS: tuple[str, ...] = ("finding_id", "grounding_digest")
+
+
+def started_origin(state: Any) -> dict[str, Any]:
+    """The :data:`ORIGIN_FIELDS` the plan's ``plan_started`` body carried (absent ones omitted)."""
+    started = state.get("plan_started") if isinstance(state, dict) else None
+    content = started.get("plan_content") if isinstance(started, dict) else None
+    if not isinstance(content, dict):
+        return {}
+    return {name: content[name] for name in ORIGIN_FIELDS if content.get(name) is not None}
 
 
 def started_origin_finding_id(state: Any) -> Any:
     """The ``finding_id`` the plan's ``plan_started`` body carried, or None."""
-    started = state.get("plan_started") if isinstance(state, dict) else None
-    content = started.get("plan_content") if isinstance(started, dict) else None
-    return content.get("finding_id") if isinstance(content, dict) else None
+    return started_origin(state).get("finding_id")
 
 
 def require_origin_unchanged(state: Any, body: Any) -> None:
-    """Refuse a submitted body whose ``finding_id`` differs from, adds to or drops the start's."""
-    started = started_origin_finding_id(state)
-    submitted = body.get("finding_id") if isinstance(body, dict) else None
-    if submitted != started:
-        raise GovernanceError(
-            f"{PLAN_ORIGIN_CHANGED}: the plan started with finding_id {started!r} and this "
-            f"body carries {submitted!r}; a plan's origin is fixed when it starts"
-        )
+    """Refuse a submitted body whose origin field differs from, adds to or drops the start's."""
+    started = started_origin(state)
+    for name in ORIGIN_FIELDS:
+        submitted = body.get(name) if isinstance(body, dict) else None
+        if submitted != started.get(name):
+            raise GovernanceError(
+                f"{PLAN_ORIGIN_CHANGED}: the plan started with {name} {started.get(name)!r} and this "
+                f"body carries {submitted!r}; a plan's origin is fixed when it starts"
+            )
 
 
 def carry_started_origin(plan_content: Any, state: Any) -> Any:
-    """Stamp the started origin onto a planner body that names none.
+    """Stamp each started origin field onto a planner body that names none.
 
     The origin is a kernel fact a planner cannot read — the challenger
     never sees the primary body, and the first revision's request carries
     no body at all — exactly like the round and parent hash the bridge
-    already fills from kernel state. A body that names an origin keeps it
-    and is judged by :func:`require_origin_unchanged`; an agent can omit the
-    origin, never replace it.
+    already fills from kernel state. A body that names an origin field keeps
+    it and is judged by :func:`require_origin_unchanged`; an agent can omit
+    the origin, never replace it.
     """
-    started = started_origin_finding_id(state)
-    if started is None or not isinstance(plan_content, dict) or "finding_id" in plan_content:
+    if not isinstance(plan_content, dict):
         return plan_content
-    return {**plan_content, "finding_id": started}
+    missing = {name: value for name, value in started_origin(state).items() if name not in plan_content}
+    return {**plan_content, **missing} if missing else plan_content
 
 
 # ADR-0021 (ARIA-MEDIUM-261) — the write bound of a finding-sourced plan.
@@ -626,6 +642,7 @@ __all__ = [
     "COMMIT_CONTRACT_SCHEMA_VERSION",
     "COMMIT_TYPES",
     "F_AUTO_FINDING_ID_RE",
+    "ORIGIN_FIELDS",
     "ORIGIN_F_FINDING",
     "ORIGIN_KINDS",
     "ORIGIN_ORPHAN_FINDING",
@@ -657,6 +674,7 @@ __all__ = [
     "render_commit_contract_section",
     "require_origin_unchanged",
     "require_within_admission_scope",
+    "started_origin",
     "started_origin_finding_id",
     "validate_admission_scope",
     "validate_commit_contract",

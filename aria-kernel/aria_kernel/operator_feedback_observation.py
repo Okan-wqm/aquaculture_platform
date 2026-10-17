@@ -15,6 +15,10 @@ names → every consumed request row, and for each consumed row
   (``…_consumed_row_unsigned:<reason>``);
 * re-checks the signed terms at merge time — expiry, audience, grounding
   digest present (``…_consumed_row_refused:<reason>``);
+* requires the plan's start to name the signed ``finding_id`` and
+  ``grounding_digest`` (``…_plan_subject_mismatch:<field>``, ARIA-LOW-265):
+  synthesis matches them at admission, and the merge proves the plan it
+  merges is still the one the operator signed for;
 * matches the signed subject the binding recorded, so a row swapped under
   the same id and position is refused;
 * refuses when the same request id is bound to another plan whose
@@ -38,6 +42,10 @@ from .operator_request_spend import INGESTION_ROW_TYPE, SYNTHESIS_BOUND_ROW_TYPE
 from .tool_registry import GovernanceError
 
 ALREADY_MERGED = "operator_feedback_request_already_merged"
+# ARIA-LOW-265 — the plan_started content names another finding or grounding
+# than the request row it consumed signs.
+PLAN_SUBJECT_MISMATCH = "operator_feedback_plan_subject_mismatch"
+_SIGNED_PLAN_SUBJECT: tuple[str, ...] = ("finding_id", "grounding_digest")
 
 
 def _consumed_refs(plan_content: Any) -> set[str]:
@@ -147,6 +155,11 @@ def observe_operator_feedback_for_plan(
             terms = operator_request_schema_reason(matches[0], now=moment, anchor=allowed_signers)
             if terms is not None:
                 raise GovernanceError("operator_feedback_consumed_row_refused:" + terms)
+            # ARIA-LOW-265 — the plan this merge starts from targets the
+            # subject the operator signed: same finding, same grounding.
+            for field in _SIGNED_PLAN_SUBJECT:
+                if started_content.get(field) != matches[0].get(field):
+                    raise GovernanceError(f"{PLAN_SUBJECT_MISMATCH}:{field}")
             if _merged_elsewhere(str(entry["id"]), plan_id=plan_id,
                                  ingestion_rows=ingestion_rows, plan_events=plan_events):
                 raise GovernanceError(ALREADY_MERGED)
@@ -164,4 +177,4 @@ def observe_operator_feedback_for_plan(
         return observation
 
 
-__all__ = ["ALREADY_MERGED", "observe_operator_feedback_for_plan"]
+__all__ = ["ALREADY_MERGED", "PLAN_SUBJECT_MISMATCH", "observe_operator_feedback_for_plan"]

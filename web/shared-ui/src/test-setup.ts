@@ -10,11 +10,17 @@ import { vi, beforeEach, afterEach } from 'vitest';
 // so every spec that used them had to import the entry point itself.
 import '@testing-library/jest-dom/vitest';
 
+// A spec that drives a build tool opts into `@vitest-environment node`
+// (federation/__tests__/unresolvedAssetUrlGate.spec.ts runs Vite, whose esbuild
+// refuses jsdom's realm). It has no DOM, so the DOM setup below is for the rest.
+const HAS_DOM = typeof window !== 'undefined';
+
 // ============================================================================
 // localStorage mock (jsdom provides a basic one, but we ensure it's clean)
 // ============================================================================
 
 beforeEach(() => {
+  if (!HAS_DOM) return;
   localStorage.clear();
   const authState = (window as any).__AQUACULTURE_AUTH_STATE_V2__;
   if (authState && typeof authState === 'object') {
@@ -86,8 +92,10 @@ if (!globalThis.ResizeObserver) {
   };
 }
 
-Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, value: 900 });
-Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 700 });
+if (HAS_DOM) {
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, value: 900 });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 700 });
+}
 
 // ============================================================================
 // Suppress console.warn / console.error in tests (optional, keep errors visible)

@@ -415,6 +415,10 @@
   --shadow-sd-sm: 0 1px 2px rgb(43 43 45 / 0.14);
   --shadow-sd-md: 0 3px 10px rgb(43 43 45 / 0.16);
   --shadow-sd-lg: 0 12px 32px rgb(43 43 45 / 0.22);
+  /* The workspace motif's strength (FE-MEDIUM-348): suderra.css paints the
+     workspace accent through the motif at this opacity. The dark block lifts
+     it a step — a line reads fainter on the dark ground than on the light. */
+  --sd-motif-opacity: 0.07;
 }
 
 /* SUDERRA tokens under the dark theme — Industry "Control room" (FE-HIGH-313).
@@ -463,13 +467,26 @@
   --shadow-sd-sm: 0 0 0 1px rgb(236 238 240 / 0.06);
   --shadow-sd-md: 0 0 0 1px rgb(236 238 240 / 0.08), 0 8px 24px rgb(0 0 0 / 0.45);
   --shadow-sd-lg: 0 0 0 1px rgb(236 238 240 / 0.1), 0 18px 48px rgb(0 0 0 / 0.6);
+  --sd-motif-opacity: 0.09;
 }
 
-/* Workspace accents (README §6, §7.3). The console's module menu sets
-   `data-ws` on <body> (or <html>); each block swaps the accent for that
+/* Workspace accents and grounds (README §6, §7.3; FE-MEDIUM-348). The
+   console's shell sets `data-ws` on <html> for the workspace on screen (the
+   design's prototype set it on <body>); each block swaps the accent for that
    module: the semantic ramp, the two text accents and the absolute teal ramp
-   the scope maps primary to. `aqua` (steel) is the default above and has no
-   block. Hex of the prototype's OKLCH ramps (helmet `body[data-ws=…]`).
+   the scope maps primary to. `aqua` (steel) is the accent default above, so
+   its block carries the ground only. Hex of the prototype's OKLCH ramps
+   (helmet `body[data-ws=…]`).
+
+   The ground (owner decision, 2026-10-17): the whole console takes on the
+   workspace's domain, not only its accent. The page (`sd-paper`), the rail
+   and the header (`sd-parchment`) and the text on the solid accent
+   (`sd-mint-paper`, the ground colour) lean slightly to the domain, at the
+   neutral ground's OKLCH lightness so no contrast moves: Production a
+   deep-sea teal-blue (hue 224), Greenhouse leaf green (148), Control &
+   sensors an industrial purple-grey (295), Company a corporate
+   navy-graphite (258, the least chroma). Where no workspace is set — the
+   SUPER_ADMIN console, the auth pages — the neutral graphite above holds.
 
    A dark block repeats every theme-flipping token and lists every way an
    element can be dark inside a workspace: the theme on an ancestor of the
@@ -480,7 +497,22 @@
    while the absolute teal ramp, and with it primary, stayed the
    workspace's. web-theme-token-parity.spec.ts resolves every token through
    this cascade in each of those placements and requires one answer. */
+[data-ws='aqua'] {
+  --color-sd-paper: #ebf4f8; /* oklch(0.961 0.011 224) */
+  --color-sd-parchment: #dfecf1; /* oklch(0.934 0.015 224) */
+  --color-sd-mint-paper: #ebf4f8;
+}
+[data-theme='dark'] [data-ws='aqua'],
+[data-ws='aqua'] [data-theme='dark'],
+[data-theme='dark'][data-ws='aqua'] {
+  --color-sd-paper: #192428; /* oklch(0.251 0.017 224) */
+  --color-sd-parchment: #1e2b30; /* oklch(0.281 0.02 224) */
+  --color-sd-mint-paper: #192428;
+}
 [data-ws='gh'] {
+  --color-sd-paper: #edf5ee; /* oklch(0.961 0.012 148) */
+  --color-sd-parchment: #e2ece3; /* oklch(0.934 0.016 148) */
+  --color-sd-mint-paper: #edf5ee;
   --color-sd-accent: #5c8e67;
   --color-sd-accent-100: #e4f3e6;
   --color-sd-accent-200: #c9e3cd;
@@ -507,6 +539,9 @@
 [data-theme='dark'] [data-ws='gh'],
 [data-ws='gh'] [data-theme='dark'],
 [data-theme='dark'][data-ws='gh'] {
+  --color-sd-paper: #1d241e; /* oklch(0.251 0.015 148) */
+  --color-sd-parchment: #232c24; /* oklch(0.281 0.018 148) */
+  --color-sd-mint-paper: #1d241e;
   --color-sd-accent: #71a37b;
   --color-sd-accent-100: #1e2a20;
   --color-sd-accent-200: #293e2d;
@@ -521,6 +556,9 @@
   --color-sd-teal-deep: #b8dcbe;
 }
 [data-ws='ctl'] {
+  --color-sd-paper: #f2f1f8; /* oklch(0.961 0.01 295) */
+  --color-sd-parchment: #eae8f2; /* oklch(0.934 0.014 295) */
+  --color-sd-mint-paper: #f2f1f8;
   --color-sd-accent: #8377a9;
   --color-sd-accent-100: #efecfc;
   --color-sd-accent-200: #dcd6f1;
@@ -547,6 +585,9 @@
 [data-theme='dark'] [data-ws='ctl'],
 [data-ws='ctl'] [data-theme='dark'],
 [data-theme='dark'][data-ws='ctl'] {
+  --color-sd-paper: #222028; /* oklch(0.251 0.015 295) */
+  --color-sd-parchment: #292731; /* oklch(0.281 0.018 295) */
+  --color-sd-mint-paper: #222028;
   --color-sd-accent: #988cbf;
   --color-sd-accent-100: #272430;
   --color-sd-accent-200: #393449;
@@ -561,6 +602,9 @@
   --color-sd-teal-deep: #d3cbf0;
 }
 [data-ws='org'] {
+  --color-sd-paper: #f0f2f6; /* oklch(0.961 0.006 258) */
+  --color-sd-parchment: #e6eaef; /* oklch(0.934 0.009 258) */
+  --color-sd-mint-paper: #f0f2f6;
   --color-sd-accent: #78818e;
   --color-sd-accent-100: #ebeff3;
   --color-sd-accent-200: #d6dbe2;
@@ -587,6 +631,9 @@
 [data-theme='dark'] [data-ws='org'],
 [data-ws='org'] [data-theme='dark'],
 [data-theme='dark'][data-ws='org'] {
+  --color-sd-paper: #1f2227; /* oklch(0.251 0.01 258) */
+  --color-sd-parchment: #25292f; /* oklch(0.281 0.012 258) */
+  --color-sd-mint-paper: #1f2227;
   --color-sd-accent: #8c96a3;
   --color-sd-accent-100: #24272a;
   --color-sd-accent-200: #34383e;

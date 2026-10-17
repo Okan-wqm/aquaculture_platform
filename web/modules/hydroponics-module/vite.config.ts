@@ -4,6 +4,7 @@ import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
 import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
+import { unresolvedAssetUrlGate } from '../../shared-ui/src/federation/unresolvedAssetUrlGate';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
@@ -15,6 +16,7 @@ import createVitestTestPolicy from '@aquaculture/testing/vitest';
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
+    unresolvedAssetUrlGate(),
     federation({
       dts: false,
       name: 'hydroponicsModule',

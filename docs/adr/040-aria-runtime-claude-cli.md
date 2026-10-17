@@ -6,6 +6,14 @@ Accepted (2026-06-29). Reverses the 2026-05-25 Codex CLI runtime decision
 (`DEBT-2026-05-25-CODEX-MIGRATION`, `tools/aria-poc/ci_executor_contract_proven.md`
 pre-migration). Tracking finding: `docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-253`.
 
+Amended 2026-10-17 by ARIA-MEDIUM-563: the credential is no longer a managed
+login on the runner but the kernel's own `claude setup-token` token, read by
+`aria_kernel.provider_credentials` and injected by the kernel's provider gateway
+(`aria_kernel.provider_gateway`); no agent room holds a login or a token. The
+"Auth" bullet below records the 2026-06-29 decision; the contract
+(`tools/aria-poc/ci_executor_contract_proven.md` §Auth And Billing Policy) is
+current.
+
 ## Context
 
 ARIA's autonomous executor runs its agents through an external LLM CLI on a
@@ -30,7 +38,7 @@ ARIA's live LLM runtime is the Claude Code CLI. The executor-side contract is
 `tools/aria-poc/ci_executor_contract_proven.md`:
 
 - Invocation: `claude -p --output-format stream-json --verbose --model <model>
-  --dangerously-skip-permissions`, prompt on stdin; stream-json parsed to the
+--dangerously-skip-permissions`, prompt on stdin; stream-json parsed to the
   final message + token usage. The per-agent `--model` resolves from the agent
   frontmatter via `aria_kernel.agent_runtime_profile.resolve_claude_model`
   (fail-safe `opus`).

@@ -55,9 +55,12 @@ OUTAGE_SCHEMA_VERSION = 1
 # The closed outage vocabulary (``provider_cooldown.PROVIDER_EXHAUSTION_SIGNATURES``
 # maps every detection signature onto one of these).
 OUTAGE_KINDS: tuple[str, ...] = ("quota", "auth", "logged_out", "unreachable")
-# Restores an admission may record: it observes the login, nothing else. An
-# expired OAuth token still reads "logged in" to `claude auth status`
-# (2026-08-04..08), so an admission closing `auth` would flap the item.
+# Restores an admission may record: it observes the kernel's credential
+# boundary (`provider_credentials`: a well-formed 0600 token file is
+# configured), nothing else. A revoked or expired token still passes that
+# boundary — as an expired OAuth token still read "logged in" to the retired
+# `claude auth status` (2026-08-04..08) — so an admission closing `auth`
+# would flap the item.
 ADMISSION_RESTORABLE_KINDS: frozenset[str] = frozenset({"logged_out"})
 # Bound on the clock (design item 2): an outage open this long is surfaced
 # once more as its own HUMAN_REQUIRED item. Work is never killed by it; the

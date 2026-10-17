@@ -263,9 +263,12 @@ API-key mode is rejected by both lanes' preflight.
 2. Mint the kernel's token AS `gharunner` with the subscription account:
    `sudo -u gharunner -i claude setup-token`. Write the printed token, and
    nothing else, to `/home/gharunner/.config/aria/claude_oauth_token`
-   (one line), then `chmod 0600` it, owned by `gharunner`. The file must
-   lie outside every checkout: the kernel refuses a token inside one
-   (`credential_file_in_room_tree`).
+   (one line), then `chmod 0600` it, owned by `gharunner`. The kernel
+   refuses (`credential_file_in_room_tree`) a token inside any tree a room
+   is given: its own checkout, the spawn's workspace, and the host roots
+   every room binds read-only (`/usr`, `/etc/ssl`, `/lib`, `/bin`, … and the
+   kernel's interpreter prefix). It also refuses a symlink, a file another
+   account owns, and anything but one line of printable ASCII.
 3. Add `ARIA_CLAUDE_OAUTH_TOKEN_FILE=/home/gharunner/.config/aria/claude_oauth_token`
    to the runner `.env` and restart the runner service.
 4. Confirm no API-key variables anywhere in the runner environment or

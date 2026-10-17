@@ -560,7 +560,10 @@ describe('ARIA live runtime/documentation SSoT', () => {
     ).claude_code_floor;
     expect(contract).toContain(`claude_cli_version_minimum: claude-code ${floor}`);
     expect(contract).toContain('verification_mode: runtime-preflight');
-    expect(contract).toContain('managed Claude Code login');
+    // ARIA-MEDIUM-563 — the kernel's own token behind the provider gateway, not a host login.
+    expect(contract).toContain("Auth is the kernel's own Claude token");
+    expect(contract).toContain('provider gateway');
+    expect(contract).not.toContain('managed Claude Code login');
     expect(contract).not.toMatch(
       /PENDING-CLAUDE-CONTRACT-TESTS|claude_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/,
     );

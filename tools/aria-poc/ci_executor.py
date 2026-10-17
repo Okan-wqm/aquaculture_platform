@@ -25,8 +25,9 @@ Account-budget discipline:
 Invocation contract: see tools/aria-poc/ci_executor_contract_proven.md
 for the load-bearing contract — argv shape locked by Plan ARIA-V3
 invariant I-V3-21. `CLAUDE_CLI_MOCK=1` wires the test fixture path;
-`CLAUDE_CLI_MOCK=0` requires a live `claude` binary on $PATH and a
-managed Claude Code login on a trusted/private runner.
+`CLAUDE_CLI_MOCK=0` requires a live `claude` binary on $PATH and the
+kernel's Claude token (ARIA_CLAUDE_OAUTH_TOKEN_FILE, injected by the provider
+gateway — ARIA-MEDIUM-563) on a trusted/private runner.
 """
 from __future__ import annotations
 
@@ -4612,11 +4613,13 @@ def _pre_claim_environment_gate(
             f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
     if kind is None and _egress_boundary_probe is not None:
-        # ARIA-HIGH-143 — the spawn's room has its own network namespace and
-        # one road out, the kernel's allowlist proxy. The probe asks a real
-        # managed room, from inside, whether that holds on this host (no
-        # route out, an off-allowlist target refused by name); when it does
-        # not, the request stays PENDING until the host can build one.
+        # ARIA-HIGH-143 / ARIA-MEDIUM-563 — the spawn's room has its own
+        # network namespace and one road out, its provider route: for the
+        # managed Claude room, the kernel's provider gateway. The probe asks
+        # a real managed room, from inside, whether that holds on this host
+        # (no route out, no proxy, no credential but the placeholder, an
+        # unpinned request refused by name); when it does not, the request
+        # stays PENDING until the host can build one.
         egress_gap = _egress_boundary_probe()
         if egress_gap is not None:
             kind, detail = "egress_boundary_unavailable", egress_gap

@@ -235,6 +235,29 @@ through `sensorOrigin` to the uuid `alert_history.site_id`.
 - `apps/alert-engine/src/alert/services/alert-evaluation.service.ts:299`, `:319`, `:348`
 - `apps/alert-engine/src/alert/entities/alert-history.entity.ts:74`
 
+### Fix (ALERT-MEDIUM-013)
+
+Both sides parse the site; a site is placement, never a reason to drop an alarm.
+
+- sensor-service: `siteOfSensor` (`apps/sensor-service/src/sensor/utils/sensor-site.util.ts`)
+  gives the sensor's site when it is a UUID and nothing otherwise. The four SensorReading builders
+  and the pre-meal oxygen guard read the site through it.
+- alert-engine: `farmOrigin`, `sensorOrigin` and `siteOfScopeKey` (`alert-origin.ts`) pass every
+  site through one `storableSite`. A value that is not a UUID is recorded as no site, so an event
+  from an older producer, or any other one, cannot fail the alarm insert either.
+
+The column stays varchar; converting it is SENSOR-MEDIUM-187.
+
+### Tests (ALERT-MEDIUM-013)
+
+- `alert-evaluation.service.spec.ts` reproduces the loss with a Redis-like cooldown and a `save`
+  that refuses a non-UUID site as Postgres does (`22P02`). The first delivery must record the
+  alarm with `siteId: null` and enqueue one AlertTriggered; the redelivery is suppressed. Before
+  the fix the first delivery failed and no alarm was recorded.
+- `alert-origin.spec.ts` pins the parse for both families and the scope key.
+- `sensor-site.util.spec.ts` and the NATS, GraphQL-ingest and MQTT producer specs publish no site
+  for a label. All of them failed before the fix.
+
 ## SENSOR-MEDIUM-187
 
 **State:** OPEN. Deadline 2026-11-14, owner okan.

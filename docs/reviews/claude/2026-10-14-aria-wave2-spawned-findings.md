@@ -811,6 +811,123 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   regression lint as every other changed file. `affected-target-quarantine-ssot.spec.ts` fails when
   a baseline entry lies inside a lint-quarantined project. Deadline: 2026-10-31.
 
+### INFRA-MEDIUM-228 — the integration lane runs twice, and a duplicated policy key is read silently
+
+- **Wave-2 key:** ci-surface-3 (designs G042-S §1 and G042 §1, bucket
+  `G041-G042-reviewed-exception`).
+- **Already fixed on main, not in this row:** the duplicated `test:integration` key in
+  `affected-target-policy.json` (deleted by 508b44849), and the writer refusing the whole policy
+  file over an expired entry of another target (579a34c71, INFRA-MEDIUM-222).
+- **Problem:** `ci-affected.yml` runs `affected-target-policy.sh --target test:integration` from
+  two steps of the `test` job (:533 and :594), so every PR that touches farm-service or
+  auth-service runs their Testcontainers suites twice inside a 45-minute job budget.
+  `test-target-ci-reachability.spec.ts` sees the target twice and checks only that it is driven.
+  The policy file, the npm exceptions file and the lint-debt renewal are all read with
+  `JSON.parse`, which keeps the last of two equal keys. A second block for a target therefore
+  shadows the first without a signal, and `lint-debt-measure.mjs --renew` drops it from the file
+  when it rewrites the policy.
+- **Planned fix:** one strict JSON reader (`scripts/ci/lib/strict-json.mjs`) that refuses a
+  duplicated key, used by every reader of those files; a repo-wide spec over every tracked `*.json`;
+  the second integration step deleted; and a reachability test that each target is driven at most
+  once per workflow. Deadline: 2027-01-15.
+- **Landed (ARIA order chain, `G041-G042-reviewed-exception`):** `scripts/ci/lib/strict-json.mjs`
+  refuses a repeated key; the affected-target writer, `lint-debt-measure.mjs` (verify and renew)
+  and `npm-audit-gate.mjs` read through it, and `json-duplicate-keys.spec.ts` runs it over every
+  tracked `*.json`. The second `test:integration` step is gone, and `test-target-ci-reachability`
+  fails on a target driven twice. Red first: the writer, the renewal and the gate each accepted a
+  duplicated key, and the reachability test reported `test:integration: ci-affected.yml x2`.
+
+### INFRA-LOW-229 — the reviewed-exception rules have four copies
+
+- **Wave-2 key:** ci-surface-9 (designs G041-S §4 and G041 §4, bucket
+  `G041-G042-reviewed-exception`).
+- **Problem:** `scripts/ci/lib/reviewed-exception.mjs` owns the shape of a reviewed exception
+  (owner, a reason of at least 30 characters, an ISO expiry, a registry-shaped finding id). Three
+  invariant specs restate it, because a jest spec cannot import an `.mjs` module.
+  `invariant-reachability.spec.ts` accepts a dormant waiver with reason `tbd` and finding_id `TODO`,
+  which the lib refuses. `affected-target-quarantine-ssot.spec.ts` (`isEntry`) and
+  `npm-audit-exception-ssot.spec.ts` copy the rules and regexes, so tightening the lib leaves them
+  behind. `npm-audit-gate.mjs` says the exceptions file is empty and the ratchet is at 0; five
+  advisories are active.
+- **Planned fix:** each committed exception file is checked by the code that owns its rules: the
+  dormant manifest through the lib, the quarantine policy through the writer for every target it
+  names, and the npm file through the gate. The copies and the stale prose are deleted. Deadline:
+  2027-04-15.
+- **Landed (ARIA order chain, `G041-G042-reviewed-exception`):** the dormant manifest goes through
+  the lib's new `validateReviewedExceptions` (called from the spec by `helpers/esm-export.ts`, which
+  also replaces the quarantine spec's private module shim). The quarantine spec runs the writer
+  over the committed bytes for every target instead of `isEntry`'s copy, and the npm spec runs the
+  gate on the committed file instead of its re-declared constants. Red first: the dormant check
+  accepted `{reason: "tbd", finding_id: "TODO"}`.
+- **Scope, after the independent verification (round 1):** this row names the copies of the
+  three files whose shape the lib already owns, and those are what it closes. Two more lists are
+  reviewed exceptions outside the lib, and each has its own row: the full lint lane's
+  `lint-all-exclusions.json` (INFRA-LOW-231) and the seven `.claude/allowlists` ratchets whose
+  specs carry their own rules (INFRA-LOW-232). The same round pinned the owner's refusals that
+  the deleted copies used to restate: a non-GHSA key, a string `packages`, an empty or missing
+  `scopes`, and an expiry that is not an ISO date.
+
+### INFRA-LOW-231 — the full lint lane's exclusions carry no owner, expiry or finding
+
+- **Raised by:** the independent verification of the `G041-G042-reviewed-exception` fix
+  (round 1).
+- **Problem:** `scripts/ci/lint-all-exclusions.json` maps backend-common, event-bus, storage and
+  outbox to bare reason strings, and `lint-all.mjs` excludes every key from `lint:all` (ci-full:
+  the weekly schedule, workflow_dispatch and release tags) with no date.
+  `lint-quarantine-ssot.spec.ts` checks a reason length, a ceiling of 6 and that each key is
+  also a key of the affected lane's lint quarantine. It compares keys only, so after the
+  affected-lane entries lapse (event-bus, outbox and storage on 2026-11-06), the affected lane
+  gates those projects while `lint:all` keeps skipping them. The reason floor is now read from the
+  lib, not re-typed. Two docstrings still say `build-status` depends on `lint:all`
+  (`lint-all.mjs:7`, `lint-quarantine-ssot.spec.ts:16`), but ci-full has no `pull_request`
+  trigger.
+- **Planned fix:** `{owner, reason, expires_on, finding_id}` entries checked through
+  `validateReviewedExceptions`. What an expired full-lane entry does is the operator's decision,
+  as in INFRA-MEDIUM-222: a lapsed date must not turn the whole lane red. Deadline: 2027-04-15.
+
+### INFRA-LOW-232 — seven allowlist specs carry their own reviewed-exception rules
+
+- **Raised by:** the independent verification of the `G041-G042-reviewed-exception` fix
+  (round 1).
+- **Problem:** `no-dead-guards.spec.ts:177`, `retention-authority-ssot.spec.ts:102`,
+  `admin-mutation-audit-coverage.spec.ts:74`, `platform-capability-coverage.spec.ts:73`,
+  `plan-catalog-ssot.spec.ts:101`, `scheduled-jobs-leased.spec.ts:136` and
+  `web-design-system-ratchet.spec.ts:387` each check `{owner, reason, expiry, findingId}` entries
+  under `.claude/allowlists/` with rules of their own. They disagree with the lib and with each
+  other on the expiry boundary (`<=`, `>` or `>=` today), the reason floor (non-empty, over 20, at
+  least 30) and the id grammar. A waiver with reason `tbd` and findingId `X-Y-1` passes four of
+  them. Measured 2026-10-17: all 72 governed entries meet the lib's rules, so no live entry is
+  weaker today.
+- **Planned fix:** the lib's field names (or one field mapping in the lib), and each spec checks
+  its entries through `validateReviewedException` via `tests/invariants/helpers/esm-export.ts`.
+  Deadline: 2027-04-15.
+
+### PROC-LOW-055 — the finding-id grammar is stated in many places
+
+- **Raised by:** design G041-S §1 ("register as its own finding at implementation time"), at the
+  `G041-G042-reviewed-exception` fix, which leaves the lib's `FINDING_ID` as it is.
+- **Problem:** the registry schema (`findings.jsonl.schema.json:24`) admits a closed prefix list,
+  the `CVE` classifier and three digits. `reviewed-exception.mjs` admits any letters-only prefix
+  and no `CVE`, so it refuses `P0-CRITICAL-001` and `RUST-CVE-001`. The `Closes:` trailer pattern
+  (`commit-msg-validator.ts:117`) admits no `CVE`, so a CVE-classified row cannot be closed by a
+  trailer. `banned-phrase-excuse.ts:66` admits `NIT` and two-digit ids that no row can carry.
+  Measured 2026-10-17: 9 of 2767 registry ids fail the lib, all RESOLVED, so no live exception is
+  affected today.
+- **More copies (independent verification, round 1):** the row's title says "four ways"; the row
+  is hash-chained, so the count is corrected here. Besides the four cited in the row, the grammar
+  is restated at `tools/gates/banned-phrase.ts:169`, `tests/invariants/claude-md-accuracy.spec.ts:143`,
+  `plan-catalog-ssot.spec.ts:104`, `scheduled-jobs-leased.spec.ts:137` and `:208`,
+  `admin-mutation-audit-coverage.spec.ts:75`, `platform-capability-coverage.spec.ts:74`,
+  `web-design-system-ratchet.spec.ts:392`, `finding-id-aliases.spec.ts:144`,
+  `aria-kernel/aria_kernel/plan_origin.py:57` (the `Closes:` trailer, a Python copy),
+  `adapter_quarantine.py:31`, `plan_convergence.py:35`, `twin.py:982`, and the kernel tests
+  `test_control_reachability.py:109` and `test_surface_reachability.py:159`. Purpose-narrow forms
+  also exist: `tools/gates/finding-registry.ts:826` and `plan_origin.py:78` (ORPHAN ids only) and
+  `three-store-invariants.spec.ts:1319` (P0 ids only). The fix covers every one of them, so this
+  row cannot close while any copy remains.
+- **Planned fix:** one exported grammar derived from the registry schema, and every gate's
+  pattern built from it. Deadline: 2027-04-15.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

@@ -39,6 +39,8 @@ import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 import * as YAML from 'yaml';
 
+import { canonicalOwner, LEGACY_OWNER_SPELLINGS } from '../../tools/gates/finding-registry-owners';
+
 import { DEAD_EVIDENCE_PATH_PREFIXES } from './_constants';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -69,11 +71,7 @@ function canonicalJson(value: unknown): string {
   }
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
-  return (
-    '{' +
-    keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') +
-    '}'
-  );
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
 }
 
 function sha256hex(input: string): string {
@@ -157,6 +155,29 @@ describe('finding registry integrity invariant', () => {
     const ids = entries.map((e) => e.id);
     const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
     expect(duplicates).toEqual([]);
+  });
+
+  /**
+   * ARIA-MEDIUM-535 — one identity per owner. owner_user is the CODEOWNERS
+   * handle accountable for the finding, stored in its CODEOWNERS spelling
+   * (tools/gates/finding-registry-owners.ts). The registry writers store it so;
+   * this judges the whole ledger, merged rows included. LEGACY_OWNER_SPELLINGS
+   * are spellings whose identity awaits the operator's mapping; the list only
+   * shrinks, so a spelling that no longer occurs must leave it.
+   */
+  it('every owner_user is a .github/CODEOWNERS handle in its CODEOWNERS spelling (ARIA-MEDIUM-535)', () => {
+    const stray = entries
+      .filter((entry) => typeof entry.owner_user === 'string')
+      .map((entry) => ({ id: entry.id, owner: String(entry.owner_user) }))
+      .filter(({ owner }) => {
+        if (LEGACY_OWNER_SPELLINGS.includes(owner)) return false;
+        const resolved = canonicalOwner(owner);
+        return !resolved.ok || resolved.owner !== owner;
+      })
+      .map(({ id, owner }) => `${id}: ${owner}`);
+    expect(stray).toEqual([]);
+    const occurring = new Set(entries.map((entry) => entry.owner_user));
+    expect(LEGACY_OWNER_SPELLINGS.filter((spelling) => !occurring.has(spelling))).toEqual([]);
   });
 
   /**
@@ -279,8 +300,7 @@ describe('finding registry integrity invariant', () => {
         const evidence = (entry as { evidence?: unknown }).evidence;
         if (!Array.isArray(evidence)) continue;
         const anyDead = evidence.some(
-          (e) =>
-            typeof e === 'string' && deadPrefixes.some((p) => e.startsWith(p)),
+          (e) => typeof e === 'string' && deadPrefixes.some((p) => e.startsWith(p)),
         );
         if (anyDead) hits.push(entry.id);
       }

@@ -86,6 +86,11 @@ import {
   ZERO_HASH,
 } from './finding-registry-chain';
 import {
+  applyOwnerCanonicalization,
+  canonicalOwner,
+  type OwnerCanonicalizationRequest,
+} from './finding-registry-owners';
+import {
   RegistryWriteRefused,
   refuseInvalidChangedRows,
   rowContractViolations,
@@ -432,6 +437,16 @@ function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
       return null;
     }
   }
+  // ARIA-MEDIUM-535: the owner is stored as its CODEOWNERS handle, or refused.
+  let ownerUser: string | null = null;
+  if (stub.owner_user !== undefined && stub.owner_user !== null) {
+    const resolved = canonicalOwner(stub.owner_user);
+    if (!resolved.ok) {
+      process.stderr.write(`Stub ${resolved.reason}\n\n`);
+      return null;
+    }
+    ownerUser = resolved.owner;
+  }
 
   return {
     id,
@@ -448,7 +463,7 @@ function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
     closed_at: stub.closed_at ?? null,
     closing_commits: stub.closing_commits ?? [],
     deadline: stub.deadline ?? null,
-    owner_user: stub.owner_user ?? null,
+    owner_user: ownerUser,
     override_of: stub.override_of ?? null,
     notes: stub.notes ?? '',
     ...(stub.narrative ? { narrative: stub.narrative } : {}),
@@ -1192,6 +1207,59 @@ export function assignFinding(
     `Assigned: ${id} at position ${index} → ${outcome.fields.join(', ')}\nChain tip: ${chainTip(entries)}\n`,
   );
   return 0;
+}
+
+/**
+ * `canonicalize-owner <spelling> [--to=<handle>] --reason=<why>` — rewrites
+ * every row whose owner_user is exactly `spelling` to its CODEOWNERS handle
+ * (ARIA-MEDIUM-535, `applyOwnerCanonicalization`). Without `--to` the spelling
+ * must name a handle by itself (`@okan-wqm`, `Okan-Wqm`); with it, the caller
+ * states which person a legacy spelling means. The chain is restitched from the
+ * first changed row and `writeRegistry` holds the result to the row contract.
+ */
+export function canonicalizeOwnerSpelling(
+  request: OwnerCanonicalizationRequest,
+  lease: RegistryLockLease,
+  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
+): number {
+  const entries = loadRegistry(paths.registryPath);
+  const outcome = applyOwnerCanonicalization(entries, request);
+  if (!outcome.ok) {
+    process.stderr.write(`canonicalize-owner refused: ${outcome.reason}\n`);
+    return 1;
+  }
+  const [first] = outcome.indexes;
+  if (first === undefined) {
+    process.stdout.write(`No-op: no row carries owner_user ${JSON.stringify(request.spelling)}.\n`);
+    return 0;
+  }
+  rechain(entries, first);
+  const post = verify(entries);
+  if (!post.ok) {
+    process.stderr.write(`Post-canonicalize integrity check FAILED: ${post.reason}\n`);
+    return 1;
+  }
+  writeRegistry(entries, lease, paths);
+  process.stdout.write(
+    `Canonicalized: ${outcome.indexes.length} row(s) owner_user ${request.spelling} -> ${outcome.owner}\nChain tip: ${chainTip(entries)}\n`,
+  );
+  return 0;
+}
+
+function cmdCanonicalizeOwner(args: readonly string[], lease: RegistryLockLease): number {
+  const [spelling] = args;
+  const flag = (name: string): string | undefined =>
+    args.find((a) => a.startsWith(`--${name}=`))?.slice(`--${name}=`.length);
+  if (!spelling || spelling.startsWith('--')) {
+    process.stderr.write(
+      'canonicalize-owner requires a spelling: finding-registry canonicalize-owner <spelling> [--to=<handle>] --reason=<why>\n',
+    );
+    return 2;
+  }
+  return canonicalizeOwnerSpelling(
+    { spelling, to: flag('to'), reason: flag('reason') ?? '', now: new Date() },
+    lease,
+  );
 }
 
 function cmdAssign(args: readonly string[], lease: RegistryLockLease): number {
@@ -1955,7 +2023,7 @@ function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
     console.error(
-      'Usage: finding-registry <verify|add|add-explicit|import-narrative|close|reopen|assign|sweep|export|list|rechain-from|dedupe> [args]',
+      'Usage: finding-registry <verify|add|add-explicit|import-narrative|close|reopen|assign|canonicalize-owner|sweep|export|list|rechain-from|dedupe> [args]',
     );
     console.error('  verify');
     console.error('  add <domain> <stub.json>  — atomically allocate id + append');
@@ -1966,6 +2034,9 @@ function main(): void {
     console.error('  close <finding-id> <short-sha>');
     process.stderr.write(
       '  assign <finding-id> [--owner-user=<handle>] [--deadline=<YYYY-MM-DD>] --reason=<why>  — fill a missing owner/deadline\n',
+    );
+    process.stderr.write(
+      '  canonicalize-owner <spelling> [--to=<handle>] --reason=<why>  — rewrite an owner_user spelling to its CODEOWNERS handle\n',
     );
     console.error('  sweep [--dry-run] [--stale-after=<days>]');
     console.error('  export <json-array|csv>');
@@ -2042,6 +2113,8 @@ function main(): void {
     exitCode = runRegistryMutation((lease) => cmdReopen(id, lease, rejection));
   } else if (sub === 'assign') {
     exitCode = runRegistryMutation((lease) => cmdAssign(args, lease));
+  } else if (sub === 'canonicalize-owner') {
+    exitCode = runRegistryMutation((lease) => cmdCanonicalizeOwner(args, lease));
   } else if (sub === 'export') {
     const format = args[0];
     if (!format) {

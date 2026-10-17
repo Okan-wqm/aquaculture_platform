@@ -18,9 +18,14 @@
  * sweep would already call lapsed is refused: writing one is a
  * mis-registration, not a commitment. Any state is accepted, RESOLVED
  * included, so a reopen of an ownerless RESOLVED CRITICAL has a path.
+ *
+ * WHO MAY OWN (ARIA-MEDIUM-535). The owner is stored as its .github/CODEOWNERS
+ * handle (`canonicalOwner`): `@okan-wqm` is written `Okan-wqm`, and a value no
+ * handle names is refused.
  */
 
 import { type Finding, isDeadlineLapsed } from './finding-registry-chain';
+import { canonicalOwner } from './finding-registry-owners';
 
 export interface AssignmentRequest {
   readonly ownerUser?: string;
@@ -53,8 +58,14 @@ export function applyAssignment(entry: Finding, request: AssignmentRequest): Ass
     return { ok: false, reason: 'assign requires --reason=<why this owner and date>' };
   }
 
+  let ownerUser: string | undefined;
+  if (request.ownerUser !== undefined) {
+    const resolved = canonicalOwner(request.ownerUser);
+    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    ownerUser = resolved.owner;
+  }
   const requested: [AccountabilityField, string | undefined][] = [
-    ['owner_user', request.ownerUser],
+    ['owner_user', ownerUser],
     ['deadline', request.deadline],
   ];
   const writes: [AccountabilityField, string][] = [];

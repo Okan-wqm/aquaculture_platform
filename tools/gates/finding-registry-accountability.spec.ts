@@ -30,6 +30,7 @@ import {
   appendAllocatedFinding,
   appendExplicitFinding,
   assignFinding,
+  canonicalizeOwnerSpelling,
   type Finding,
   validateRegistrySuffixForRechain,
   writeRegistry,
@@ -77,7 +78,7 @@ function row(overrides: Partial<Finding>): Finding {
     closed_at: null,
     closing_commits: [],
     deadline: '2026-10-31',
-    owner_user: 'okan',
+    owner_user: 'Okan-wqm',
     override_of: null,
     notes: '',
     prev_hash: ZERO_HASH,
@@ -238,27 +239,27 @@ void test('applyAssignment fills missing accountability and refuses everything e
 
   const filled = ownerless();
   const outcome = applyAssignment(filled, {
-    ownerUser: 'okan',
+    ownerUser: 'Okan-wqm',
     deadline: '2026-10-31',
     reason,
     now: NOW,
   });
   assert.deepEqual(outcome, { ok: true, changed: true, fields: ['owner_user', 'deadline'] });
-  assert.equal(filled.owner_user, 'okan');
+  assert.equal(filled.owner_user, 'Okan-wqm');
   assert.equal(filled.deadline, '2026-10-31');
   assert.equal(
     filled.notes,
-    `n [assign 2026-10-17: owner_user=okan, deadline=2026-10-31 — ${reason}]`,
+    `n [assign 2026-10-17: owner_user=Okan-wqm, deadline=2026-10-31 — ${reason}]`,
   );
 
   // Same value again: a no-op that touches nothing, notes included.
-  const again = applyAssignment(filled, { ownerUser: 'okan', reason, now: NOW });
+  const again = applyAssignment(filled, { ownerUser: 'Okan-wqm', reason, now: NOW });
   assert.deepEqual(again, { ok: true, changed: false, fields: [] });
   assert.equal(filled.notes?.match(/\[assign /g)?.length, 1);
 
   const refusals: [string, Parameters<typeof applyAssignment>[1], Finding][] = [
     ['no field', { reason, now: NOW }, ownerless()],
-    ['empty reason', { ownerUser: 'okan', reason: '  ', now: NOW }, ownerless()],
+    ['empty reason', { ownerUser: 'Okan-wqm', reason: '  ', now: NOW }, ownerless()],
     ['overwrite owner', { ownerUser: 'someone', reason, now: NOW }, row({})],
     ['re-date deadline', { deadline: '2026-11-30', reason, now: NOW }, row({})],
     // The sweep calls a calendar date lapsed from the start of its UTC day.
@@ -281,7 +282,7 @@ void test('applyAssignment fills missing accountability and refuses everything e
     closed_at: '2026-10-17T00:00:00Z',
     closing_commits: ['0a8f4887f'],
   });
-  assert.equal(applyAssignment(resolved, { ownerUser: 'okan', reason, now: NOW }).ok, true);
+  assert.equal(applyAssignment(resolved, { ownerUser: 'Okan-wqm', reason, now: NOW }).ok, true);
 });
 
 void test('assign gives a legacy row its owner and deadline and keeps the chain valid', () => {
@@ -291,7 +292,7 @@ void test('assign gives a legacy row its owner and deadline and keeps the chain 
   ]);
   const paths = { registryPath, schemaPath: SCHEMA_PATH };
   const request = {
-    ownerUser: 'okan',
+    ownerUser: 'Okan-wqm',
     deadline: '2026-10-31',
     reason: 'ARIA-HIGH-044 legacy row',
     now: NOW,
@@ -304,7 +305,7 @@ void test('assign gives a legacy row its owner and deadline and keeps the chain 
   const entries = parseRegistryJsonl(readFileSync(registryPath, 'utf8'));
   assert.equal(verify(entries).ok, true);
   const assigned = entries.find((entry) => entry.id === 'ARIA-CRITICAL-905');
-  assert.equal(assigned?.owner_user, 'okan');
+  assert.equal(assigned?.owner_user, 'Okan-wqm');
   assert.equal(assigned?.deadline, '2026-10-31');
 
   const after = readFileSync(registryPath, 'utf8');
@@ -327,5 +328,131 @@ void test('assign gives a legacy row its owner and deadline and keeps the chain 
     ),
     1,
   );
+  assert.equal(readFileSync(registryPath, 'utf8'), after);
+});
+
+// --- ARIA-MEDIUM-535: owner_user is a CODEOWNERS handle --------------------------------------
+
+void test('ARIA-MEDIUM-535: add stores owner_user as its CODEOWNERS handle and refuses a non-identity', () => {
+  const registryPath = seedRegistry('owner-add', [row({ id: 'ARIA-HIGH-900', severity: 'HIGH' })]);
+  const paths = { registryPath, schemaPath: SCHEMA_PATH };
+
+  const variant = writeStub(
+    'owner-variant',
+    stubFields({ id: 'ARIA-CRITICAL-910', owner_user: '@okan-wqm' }),
+  );
+  assert.equal(
+    withRegistryFileLock(registryPath, (lease) => appendExplicitFinding(variant, lease, paths)),
+    0,
+  );
+  const added = parseRegistryJsonl(readFileSync(registryPath, 'utf8')).find(
+    (entry) => entry.id === 'ARIA-CRITICAL-910',
+  );
+  assert.equal(added?.owner_user, 'Okan-wqm');
+
+  const before = readFileSync(registryPath, 'utf8');
+  for (const [name, owner] of [
+    ['owner-role', 'farm-module maintainer'],
+    ['owner-first-name', 'okan'],
+    ['owner-email', 'someone@example.com'],
+  ] as const) {
+    const stub = writeStub(name, stubFields({ id: 'ARIA-CRITICAL-911', owner_user: owner }));
+    const exit = (() => {
+      try {
+        return withRegistryFileLock(registryPath, (lease) =>
+          appendExplicitFinding(stub, lease, paths),
+        );
+      } catch (error) {
+        assert.ok(error instanceof RegistryWriteRefused, String(error));
+        return 1;
+      }
+    })();
+    assert.notEqual(exit, 0, `${owner} is not a CODEOWNERS handle`);
+    assert.equal(readFileSync(registryPath, 'utf8'), before, `${owner}: nothing written`);
+  }
+});
+
+void test('ARIA-MEDIUM-535: assign stores the handle; a write that sets a non-identity owner is refused', () => {
+  const registryPath = seedRegistry('owner-sink', [
+    row({ id: 'ARIA-HIGH-912', severity: 'HIGH', owner_user: null }),
+    row({ id: 'ARIA-HIGH-913', severity: 'HIGH', owner_user: 'by-okan@live.com' }),
+  ]);
+  const paths = { registryPath, schemaPath: SCHEMA_PATH };
+  assert.equal(
+    withRegistryFileLock(registryPath, (lease) =>
+      assignFinding(
+        'ARIA-HIGH-912',
+        { ownerUser: '@OKAN-WQM', reason: 'ARIA-MEDIUM-535', now: NOW },
+        lease,
+        paths,
+      ),
+    ),
+    0,
+  );
+  const entries = parseRegistryJsonl(readFileSync(registryPath, 'utf8'));
+  assert.equal(entries.find((entry) => entry.id === 'ARIA-HIGH-912')?.owner_user, 'Okan-wqm');
+
+  // A write that sets an owner no CODEOWNERS handle names is refused, whole.
+  const before = readFileSync(registryPath, 'utf8');
+  const renamed = parseRegistryJsonl(before).map((entry) =>
+    entry.id === 'ARIA-HIGH-912' ? { ...entry, owner_user: 'someone' } : entry,
+  );
+  rechain(renamed, 0);
+  assert.throws(
+    () => withRegistryFileLock(registryPath, (lease) => writeRegistry(renamed, lease, paths)),
+    (error: unknown) =>
+      error instanceof RegistryWriteRefused &&
+      error.violations.some((line) => line.startsWith('ARIA-HIGH-912 /owner_user')),
+  );
+  assert.equal(readFileSync(registryPath, 'utf8'), before);
+
+  // A write that only carries a legacy owner (a sweep of that row) is not refused for it.
+  const swept = parseRegistryJsonl(before).map((entry) =>
+    entry.id === 'ARIA-HIGH-913' ? { ...entry, state: 'STALE' as const } : entry,
+  );
+  rechain(swept, 0);
+  withRegistryFileLock(registryPath, (lease) => writeRegistry(swept, lease, paths));
+  assert.match(readFileSync(registryPath, 'utf8'), /"id":"ARIA-HIGH-913"[^\n]*"state":"STALE"/);
+});
+
+void test('ARIA-MEDIUM-535: canonicalize-owner rewrites one spelling to its handle, records why, keeps the chain', () => {
+  const registryPath = seedRegistry('owner-canonicalize', [
+    row({ id: 'ARIA-HIGH-914', severity: 'HIGH', owner_user: 'okan', notes: 'n' }),
+    row({ id: 'ARIA-HIGH-915', severity: 'HIGH', owner_user: 'Okan-Wqm' }),
+    row({ id: 'ARIA-HIGH-916', severity: 'HIGH', owner_user: 'okan' }),
+    row({ id: 'ARIA-HIGH-917', severity: 'HIGH', owner_user: 'by-okan@live.com' }),
+  ]);
+  const paths = { registryPath, schemaPath: SCHEMA_PATH };
+  const run = (spelling: string, to?: string, reason = 'ARIA-MEDIUM-535'): number =>
+    withRegistryFileLock(registryPath, (lease) =>
+      canonicalizeOwnerSpelling({ spelling, to, reason, now: NOW }, lease, paths),
+    );
+
+  // A first name names no handle by itself: the identity must be stated.
+  const untouched = readFileSync(registryPath, 'utf8');
+  assert.equal(run('okan'), 1);
+  assert.equal(run('okan', 'someone-else'), 1, 'the target must be a CODEOWNERS handle');
+  assert.equal(run('okan', 'Okan-wqm', '  '), 1, 'a reason is required');
+  assert.equal(readFileSync(registryPath, 'utf8'), untouched);
+
+  assert.equal(run('okan', 'Okan-wqm'), 0);
+  assert.equal(run('Okan-Wqm'), 0, 'a case variant of the handle resolves by itself');
+  const entries = parseRegistryJsonl(readFileSync(registryPath, 'utf8'));
+  assert.equal(verify(entries).ok, true);
+  const owners = Object.fromEntries(entries.map((entry) => [entry.id, entry.owner_user]));
+  assert.deepEqual(owners, {
+    'ARIA-HIGH-914': 'Okan-wqm',
+    'ARIA-HIGH-915': 'Okan-wqm',
+    'ARIA-HIGH-916': 'Okan-wqm',
+    'ARIA-HIGH-917': 'by-okan@live.com',
+  });
+  assert.equal(
+    entries.find((entry) => entry.id === 'ARIA-HIGH-914')?.notes,
+    'n [canonicalize-owner 2026-10-17: owner_user okan -> Okan-wqm — ARIA-MEDIUM-535]',
+  );
+
+  // Nothing left to rewrite: a no-op that writes nothing.
+  const after = readFileSync(registryPath, 'utf8');
+  assert.equal(run('okan', 'Okan-wqm'), 0);
   assert.equal(readFileSync(registryPath, 'utf8'), after);
 });

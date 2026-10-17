@@ -40,6 +40,7 @@ import {
   requiresCanonicalFindingEvidence,
 } from './finding-evidence-shape';
 import { canonicalJson, type Finding } from './finding-registry-chain';
+import { ownerViolations } from './finding-registry-owners';
 
 /**
  * Ajv-compiled validator for the finding schema, compiled once per schema
@@ -125,14 +126,19 @@ export class RegistryWriteRefused extends Error {
   }
 }
 
-/** Throws `RegistryWriteRefused` when a row this write changes breaks the row contract. */
+/**
+ * Throws `RegistryWriteRefused` when a row this write changes breaks the row
+ * contract, or when the write sets an owner_user that is not a CODEOWNERS
+ * handle (ARIA-MEDIUM-535, finding-registry-owners.ts).
+ */
 export function refuseInvalidChangedRows(
   previous: readonly Finding[],
   next: readonly Finding[],
   schemaPath: string,
 ): void {
-  const violations: string[] = [];
-  for (const row of changedRows(previous, next)) {
+  const changed = changedRows(previous, next);
+  const violations: string[] = [...ownerViolations(previous, changed)];
+  for (const row of changed) {
     const found = rowContractViolations(row, schemaPath, 'post-cutover');
     for (const message of found.schema) violations.push(`${row.id} ${message}`);
     for (const item of found.evidence) {

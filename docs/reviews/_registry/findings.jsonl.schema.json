@@ -118,7 +118,7 @@
     },
     "owner_user": {
       "type": ["string", "null"],
-      "description": "GitHub handle accountable for closing. Required when state is BLOCKED, and non-blank on every unresolved CRITICAL (`$defs/accountable`)."
+      "description": "GitHub handle accountable for closing, in its .github/CODEOWNERS spelling without the @ (tools/gates/finding-registry-owners.ts canonicalOwner; the registry writers store it so and refuse a value no handle names, ARIA-MEDIUM-535). Required when state is BLOCKED, and non-blank on every unresolved CRITICAL (`$defs/accountable`)."
     },
     "override_of": {
       "type": ["string", "null"],

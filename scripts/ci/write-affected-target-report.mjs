@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { partitionAffectedProjects } from './lib/affected-target-policy.mjs';
+import { readStrictJson } from './lib/strict-json.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -70,7 +71,9 @@ function projectNames(path) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  const policy = JSON.parse(readFileSync(args.policy, 'utf8'));
+  // Strict: a repeated key would let the second block shadow the first
+  // without a word (INFRA-MEDIUM-228), so the lane refuses the file instead.
+  const policy = readStrictJson(args.policy);
   const affectedProjects = projectNames(args.affectedProjects);
   // Which affected project is gated, quarantined or lapsed back to strict is
   // owned by scripts/ci/lib/affected-target-policy.mjs: a malformed policy is

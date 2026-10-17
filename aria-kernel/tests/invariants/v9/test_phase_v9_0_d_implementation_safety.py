@@ -1153,6 +1153,12 @@ class TestV9PublicApi(unittest.TestCase):
             "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
             "VALIDATION_SANDBOX_CONTAINMENT_FLAGS",
             "VALIDATION_OBSERVATION_CHILD",
+            # ARIA-MEDIUM-563 review — the host trees every room binds
+            # read-only, built from the same tuple as the binds. The
+            # kernel's credential-file reader refuses a token under one
+            # (rooms run as the kernel's uid), so it reads the room
+            # builder's list instead of keeping a copy.
+            "room_host_roots",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

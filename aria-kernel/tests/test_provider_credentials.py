@@ -57,10 +57,53 @@ class TheCredentialBoundary(unittest.TestCase):
                          "credential_file_permissions")
         self.assertEqual(self.refused("anthropic", {name: str(self.token(mode=0o640))}).reason,
                          "credential_file_permissions")
-        for content in ("", "\n", "one\ntwo\n"):
+        for content in ("", "\n"):
             with self.subTest(content=repr(content)):
                 self.assertEqual(self.refused("anthropic", {name: str(self.token(content))}).reason,
                                  "credential_file_empty")
+        # One line of printable ASCII, nothing else: a second line, a space or
+        # a CR would be header text the gateway writes upstream.
+        for content in ("one\ntwo\n", SECRET + " x\n", SECRET + "\r\nx-a: 1\n", SECRET + "\u00e7\n"):
+            with self.subTest(content=repr(content)):
+                self.assertEqual(self.refused("anthropic", {name: str(self.token(content))}).reason,
+                                 "credential_file_malformed")
+        self.assertEqual(self.refused("anthropic", {name: str(self.token("a" * (pc.MAX_CREDENTIAL_FILE_BYTES + 1)))})
+                         .reason, "credential_file_too_large")
+
+    def test_the_file_is_opened_as_itself(self) -> None:
+        # Opened without following a symlink and judged on the descriptor
+        # it read (no window between the check and the read).
+        target = self.token()
+        link = self.tmp / "link"
+        link.symlink_to(target)
+        self.assertEqual(self.refused("anthropic", {"ARIA_CLAUDE_OAUTH_TOKEN_FILE": str(link)}).reason,
+                         "credential_file_unreadable")
+        fifo = self.tmp / "fifo"
+        os.mkfifo(fifo, 0o600)
+        self.assertEqual(self.refused("anthropic", {"ARIA_CLAUDE_OAUTH_TOKEN_FILE": str(fifo)}).reason,
+                         "credential_file_unreadable")
+
+    @unittest.skipUnless(os.geteuid() == 0, "changing a file's owner needs root")
+    def test_a_file_another_account_owns_is_refused(self) -> None:
+        path = self.token()
+        os.chown(path, 65534, -1)
+        self.assertEqual(self.refused("anthropic", {"ARIA_CLAUDE_OAUTH_TOKEN_FILE": str(path)}).reason,
+                         "credential_file_owner")
+
+    def test_a_file_under_a_root_every_room_binds_is_refused(self) -> None:
+        # Rooms run as the kernel's uid and ro-bind the system roots and the
+        # kernel's interpreter: a 0600 token under /usr/local/etc or
+        # /etc/ssl/private would be readable inside every room. The refused
+        # trees are the room builder's own bind list, not a copy of it.
+        from aria_kernel import implementation_safety
+
+        roots = implementation_safety.room_host_roots()
+        for root in implementation_safety._SANDBOX_SYSTEM_ROOTS:
+            self.assertIn(Path(root), roots)
+        for root in roots:
+            with self.subTest(root=str(root)):
+                refusal = self.refused("anthropic", {"ARIA_CLAUDE_OAUTH_TOKEN_FILE": str(root / "aria-token")})
+                self.assertEqual(refusal.reason, "credential_file_in_room_tree")
 
     def test_the_anthropic_credential_is_never_a_value_in_the_environment(self) -> None:
         # The fleet row names a file only: a token in a variable is not read,
@@ -112,6 +155,21 @@ class TheCredentialBoundary(unittest.TestCase):
         self.assertEqual(refused.returncode, 1)
         self.assertTrue(refused.stdout.startswith("refused:credential_file_permissions"), refused.stdout)
         self.assertNotIn(SECRET, ok.stdout + ok.stderr + refused.stdout + refused.stderr)
+
+
+class TheJevTransportReadsTheSameFileRules(unittest.TestCase):
+    def test_jev_runtime_reads_its_key_through_the_one_file_reader(self) -> None:
+        from aria_kernel import jev_runtime
+
+        source = Path(jev_runtime.__file__).read_text(encoding="utf-8")
+        self.assertIn("read_secret_file(", source)
+        for copy in ("S_ISREG", "0o077", "O_NOFOLLOW", "st_uid"):
+            self.assertNotIn(copy, source, f"a second copy of the file boundary: {copy}")
+        # The rules the one reader adds reach Jev too: a key under a root
+        # every room binds is refused by name.
+        result = jev_runtime.post_systemone({}, environ={"ARIA_JEV_API_KEY_FILE": "/etc/ssl/aria-jev-key"},
+                                            opener=lambda *_: (500, b""), breaker=jev_runtime.CircuitBreaker())
+        self.assertEqual(result, jev_runtime.JevUnavailable("credential_file_in_room_tree"))
 
 
 class TheZaiTransportReadsTheSameBoundary(unittest.TestCase):

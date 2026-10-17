@@ -802,6 +802,22 @@ def _system_ro_binds() -> list[str]:
     return flags
 
 
+def room_host_roots() -> tuple[Path, ...]:
+    """The host trees every room is given read-only whatever its spawn: the
+    system roots and the kernel's interpreter prefix (``_system_ro_binds``).
+
+    ARIA-MEDIUM-563 — rooms run as the kernel's uid, so a file under one of
+    these is readable inside every room whatever its mode; the kernel's
+    credential reader (``provider_credentials.read_secret_file``) refuses a
+    credential file there. Read from the same tuple the binds are built
+    from, so the two cannot drift."""
+    roots = [Path(root) for root in _SANDBOX_SYSTEM_ROOTS]
+    interpreter = _interpreter_ro_binds()
+    if interpreter:
+        roots.append(Path(interpreter[1]))
+    return tuple(roots)
+
+
 def _interpreter_ro_binds(base_prefix: str | None = None) -> list[str]:
     """``--ro-bind`` for the kernel's OWN interpreter when it lives outside
     the system roots.
@@ -3574,6 +3590,7 @@ __all__ = (
     "MANAGED_SPAWN_PROVIDER",
     "sandbox_backend",
     "sandbox_unavailable_detail",
+    "room_host_roots",
     "wrap_bash_in_sandbox",
     "ResourceLimitsUnavailable",
     "apply_resource_limits",

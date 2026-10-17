@@ -996,8 +996,9 @@ jobs:
       - name: Run REAL observe burn-in + L1 ladder bridge
         if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.mode == 'burn-in-observe'
         env:
-          # REAL mode by design: no ARIA_DRY_RUN / CLAUDE_CODE_MOCK here
-          # (the mock variant lives in aria-operational-proof.yml).
+          # REAL mode by design: no ARIA_DRY_RUN here (the dry-run variant
+          # lives in aria-operational-proof.yml); CLAUDE_CLI_MOCK is the
+          # preflight's resolved value.
           # Observe cycles are LLM-free (NoOp cost hook) — near-zero cost.
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
         run: |

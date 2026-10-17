@@ -1,6 +1,6 @@
 """Plan ARIA-V3 §B0 + INFRA-CRITICAL-001 — cost circuit breaker.
 
-GAP: after B1 flips ``CLAUDE_CODE_MOCK=false``, every daily
+GAP: after B1 flips ``CLAUDE_CLI_MOCK=false``, every daily
 ``aria-agent-executor.yml`` cron run hits the real Claude API. The
 existing failure breaker (``circuit_breaker.py``, Phase B2) trips
 on validator rejections / sandbox-red / CI-red etc. — but NOT on

@@ -71,7 +71,7 @@ const BUS = [
 
 const IMPORTS = [
   "import { buildWildcardEventSubject, EventHandler, type IEventBus, SubscribeTo } from '../../../platform/libs/event-bus/src/event-bus';",
-  "import type { NatsConnection } from 'nats';",
+  "import type { NatsConnection } from '@nats-io/nats-core';",
   "import { EventPattern } from '@nestjs/microservices';",
 ].join('\n');
 
@@ -160,8 +160,9 @@ function lineOf(text: string, needle: string): number {
 function fixtureRepo(): string {
   return writeTree(mkdtempSync(join(scratch, 'repo-')), {
     'platform/libs/event-bus/src/event-bus.ts': BUS,
-    'node_modules/nats/package.json': '{"name":"nats","types":"index.d.ts"}',
-    'node_modules/nats/index.d.ts':
+    'node_modules/@nats-io/nats-core/package.json':
+      '{"name":"@nats-io/nats-core","types":"index.d.ts"}',
+    'node_modules/@nats-io/nats-core/index.d.ts':
       'export interface NatsConnection { subscribe(subject: string, opts?: object): object; }\n',
     'node_modules/@nestjs/microservices/package.json':
       '{"name":"@nestjs/microservices","types":"index.d.ts"}',

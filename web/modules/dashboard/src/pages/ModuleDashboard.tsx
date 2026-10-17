@@ -31,9 +31,10 @@ export function ModuleDashboard({
   siteTable,
 }: ModuleDashboardProps): ReactElement {
   const sites = useActiveSites();
+  // Null until the site list answers (or when it failed): no site can be named yet.
   const siteNames = useMemo(
-    (): ReadonlyMap<string, string> =>
-      new Map((sites.data ?? []).map((site) => [site.id, site.name])),
+    (): ReadonlyMap<string, string> | null =>
+      sites.data === undefined ? null : new Map(sites.data.map((site) => [site.id, site.name])),
     [sites.data],
   );
   // Ages ("12 min ago") are read against the render's clock; every panel

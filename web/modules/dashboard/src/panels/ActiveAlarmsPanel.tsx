@@ -68,8 +68,8 @@ const ROW_BODY_CLASS = 'flex min-w-0 flex-1 items-center gap-4 py-3.5 pl-6';
 
 export interface ActiveAlarmsPanelProps {
   readonly module: AlertModule;
-  /** Names of the sites the viewer sees, to say where an alarm is. */
-  readonly siteNames: ReadonlyMap<string, string>;
+  /** Names of the sites the viewer sees, to say where an alarm is; null while the list is unavailable. */
+  readonly siteNames: ReadonlyMap<string, string> | null;
   readonly now: Date;
 }
 
@@ -84,9 +84,13 @@ export function ActiveAlarmsPanel({
   const acknowledge = useAcknowledgeAlert();
   const headingId = `dashboard-alarms-${module.toLowerCase()}`;
   const opensList = hasModuleAccess('sensor');
-  /** Where the alarm is: one of the viewer's sites by name, another site, or none recorded. */
+  /**
+   * Where the alarm is: one of the viewer's sites by name, another site, or
+   * none recorded — and, while the site list is unavailable, that its name is.
+   */
   const siteLabel = (siteId: string | null | undefined): string => {
     if (siteId === null || siteId === undefined) return t('dashboard.alarms.noSite');
+    if (siteNames === null) return t('dashboard.alarms.siteUnavailable');
     return siteNames.get(siteId) ?? t('dashboard.alarms.otherSite');
   };
 

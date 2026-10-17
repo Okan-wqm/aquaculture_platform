@@ -501,6 +501,10 @@ describe('Production dashboard (/dashboard)', () => {
     });
     renderAt('/dashboard');
     expect(await screen.findByText('Site status could not be loaded.')).toBeInTheDocument();
+    // Without the site list no site can be named — and none is called "outside your list".
+    expect(
+      await within(alarmPanel()).findByText('DO low · site name unavailable'),
+    ).toBeInTheDocument();
   });
 });
 

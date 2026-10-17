@@ -1843,6 +1843,7 @@ export const en = {
   'dashboard.alarms.loadError': 'Alarms could not be loaded.',
   'dashboard.alarms.noSite': 'no site',
   'dashboard.alarms.otherSite': 'a site outside your list',
+  'dashboard.alarms.siteUnavailable': 'site name unavailable',
   'dashboard.alarms.state.unack': 'UNACK',
   'dashboard.alarms.state.cleared': 'CLEARED',
   'dashboard.alarms.state.acked': 'ACKED',

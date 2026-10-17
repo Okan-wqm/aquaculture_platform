@@ -1833,6 +1833,7 @@ export const tr: Record<MessageKey, string> = {
   'dashboard.alarms.loadError': 'Alarmlar yüklenemedi.',
   'dashboard.alarms.noSite': 'saha yok',
   'dashboard.alarms.otherSite': 'listenizde olmayan bir saha',
+  'dashboard.alarms.siteUnavailable': 'saha adı alınamadı',
   'dashboard.alarms.state.unack': 'ONAYSIZ',
   'dashboard.alarms.state.cleared': 'NORMALE DÖNDÜ',
   'dashboard.alarms.state.acked': 'ONAYLI',

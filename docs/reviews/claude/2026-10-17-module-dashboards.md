@@ -110,3 +110,193 @@ Static evidence; not reproduced against a database.
 Read the DO sensor's latest value from the tenant `sensor_metrics` hypertable (its dissolved
 oxygen channel), inside the same tenant-bound read. Found while adding the guard's site to
 `FeedingWindowReadiness`; not fixed there.
+
+## Independent review of PR #1997
+
+An independent review of the ALERT-MEDIUM-010 change raised the findings below. Each is
+registered with its own section; the ones fixed in PR #1997 are resolved by the commit that
+carries `Closes:` for the ID, the others stay open with an owner and a deadline.
+
+## ALERT-MEDIUM-011
+
+**State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
+2026-10-24.
+
+### Symptom (ALERT-MEDIUM-011)
+
+Migration `1801200000000` keeps the live alarm table locked for as long as its backfill runs. On
+a tenant with a long alarm history every alarm insert, acknowledgement and list read waits for
+it, and nothing bounds the wait.
+
+### Root cause (ALERT-MEDIUM-011)
+
+The runners give each migration one transaction. `up()` adds both columns (ACCESS EXCLUSIVE
+until commit), builds two indexes without `CONCURRENTLY` and then runs up to seven full-table
+UPDATEs in the same transaction. It sets no `lock_timeout` or `statement_timeout`, which 77 of
+the repository's migrations do.
+
+### Evidence (ALERT-MEDIUM-011)
+
+- `apps/alert-engine/src/database/migrations/1801200000000-AddAlertHistorySiteAndModule.ts:81-108`
+- `apps/alert-engine/src/database/migrations/1801200000000-AddAlertHistorySiteAndModule.ts:146-190`
+- `libs/backend-common/src/database/migration-runner/migration-runner.service.ts:600`
+
+## ALERT-LOW-012
+
+**State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
+2026-10-24.
+
+### Symptom (ALERT-LOW-012)
+
+The backfill is documented as exact or nothing, but two of its site sources are not the live
+path's. A sensor moved since an old alarm puts that alarm on its new site. An oxygen-guard alarm
+gets its day plan's site, while a new one gets its DO sensor's site.
+
+### Root cause (ALERT-LOW-012)
+
+No history of a sensor's site exists: the sensor join can only read the current binding. The
+oxygen guard's triggering data names its day plan but not its DO sensor, so the backfill used
+the day plan's site, a different source from the live stamp.
+
+### Evidence (ALERT-LOW-012)
+
+- `apps/alert-engine/src/database/migrations/1801200000000-AddAlertHistorySiteAndModule.ts:162-169`
+- `apps/alert-engine/src/database/migrations/1801200000000-AddAlertHistorySiteAndModule.ts:67-72`
+- `apps/alert-engine/src/alert/services/feeding-execution-alert.service.ts:244`
+
+## ALERT-MEDIUM-013
+
+**State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
+2026-10-24.
+
+### Symptom (ALERT-MEDIUM-013)
+
+A sensor whose `site_id` holds anything but a UUID raises no rule alarm. The alarm insert fails
+with `22P02` (invalid uuid). The Redis cooldown was claimed before the insert, so the redelivered
+reading is suppressed as in cooldown and the alarm is lost.
+
+### Root cause (ALERT-MEDIUM-013)
+
+`sensors.site_id` is varchar (SENSOR-MEDIUM-187). Four SensorReading builders stamp it on the
+event unchecked; only the oxygen guard parsed it. alert-engine forwards the event's `siteId`
+through `sensorOrigin` to the uuid `alert_history.site_id`.
+
+### Evidence (ALERT-MEDIUM-013)
+
+- `apps/sensor-service/src/database/entities/sensor.entity.ts:234`
+- `apps/sensor-service/src/ingestion/nats-ingestion-consumer.service.ts:365`
+- `apps/sensor-service/src/sensor/services/sensor-ingestion.service.ts:1005`
+- `apps/sensor-service/src/ingestion/data-ingestion.service.ts:437`
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1864`
+- `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:126`
+- `apps/alert-engine/src/alert/services/alert-evaluation.service.ts:299`, `:319`, `:348`
+- `apps/alert-engine/src/alert/entities/alert-history.entity.ts:74`
+
+## SENSOR-MEDIUM-187
+
+**State:** OPEN. Deadline 2026-11-14, owner okan.
+
+### Symptom (SENSOR-MEDIUM-187)
+
+The database accepts any label as a sensor's site. Every reader that stores or compares the
+site as a uuid has to parse it first, and a reader that does not fails (ALERT-MEDIUM-013).
+
+### Root cause (SENSOR-MEDIUM-187)
+
+`sensors.site_id` was created `character varying` and the entity declares no type. Every site id
+is a farm site UUID, and the columns it is copied into (`sensor_metrics.site_id`,
+`alert_history.site_id`) are uuid.
+
+### Evidence (SENSOR-MEDIUM-187)
+
+- `apps/sensor-service/src/database/entities/sensor.entity.ts:234`
+- `apps/sensor-service/src/database/migrations/1800000000000-Baseline.ts:25`
+- `apps/sensor-service/src/database/entities/sensor-metric.entity.ts:153`
+- `apps/alert-engine/src/alert/entities/alert-history.entity.ts:74`
+
+### Fix needed (SENSOR-MEDIUM-187)
+
+A per-tenant audit of non-UUID values (reported, then cleared), `ALTER COLUMN site_id TYPE uuid`
+and the entity's `@Column('uuid')`. The parse in `siteOfSensor` then reduces to the column's
+type. PR #1997 adds that parse at every reader (ALERT-MEDIUM-013) and leaves the column as it is.
+Related: SENSOR-MEDIUM-161 (the site is never checked against farm).
+
+## SENSOR-MEDIUM-188
+
+**State:** OPEN. Deadline 2026-10-31, owner okan.
+
+### Symptom (SENSOR-MEDIUM-188)
+
+With a PLC alarm or a SCADA runtime alarm active, the console's annunciator and the workspace
+menu's Control & sensors column show no alarm.
+
+### Root cause (SENSOR-MEDIUM-188)
+
+PLC alarms and SCADA runtime alarms live in sensor-service's own stores and never reach
+`alert_history`. The annunciator and the menu count `activeAlertCounts`, which reads
+`alert_history` only. The menu's per-module column came with ALERT-MEDIUM-010; the annunciator's
+gap predates it.
+
+### Evidence (SENSOR-MEDIUM-188)
+
+- `apps/sensor-service/src/plc-control/resolvers/plc-control.resolver.ts:538-586`
+- `apps/sensor-service/src/scada-runtime/services/alarm-engine.service.ts:138`
+- `web/shell/src/console/rail/alarmWorkspaces.ts:28-32`
+- `web/shell/src/console/data/useActiveAlertCounts.ts:33-35`
+
+### Fix needed (SENSOR-MEDIUM-188)
+
+A design decision: PLC and SCADA alarm transitions recorded in alert-engine as sensor-module
+alarms, or the console reading both sources. Until then the menu says what its counts hold
+(FE-LOW-347).
+
+## FE-LOW-347
+
+**State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
+2026-10-24.
+
+### Symptom (FE-LOW-347)
+
+The workspace menu describes Control & sensors as devices, PLC and SCADA and draws an alarm count
+beside it. Nothing on the menu says the count holds alert-engine alarms only, so with a PLC or
+SCADA alarm active the row reads as no alarms.
+
+### Evidence (FE-LOW-347)
+
+- `web/shared-ui/src/i18n/locales/en.ts:1383`
+- `web/shared-ui/src/components/Layout/console/WorkspaceMenu.tsx:175-178`
+- `web/shell/src/console/rail/alarmWorkspaces.ts:4`
+
+## ALERT-LOW-014
+
+**State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
+2026-10-24.
+
+### Symptom (ALERT-LOW-014)
+
+`alertHistory(siteId: "x")` and `activeAlertCounts(siteId: "x")` answer with a database error
+(`22P02`, invalid uuid) instead of a validation error.
+
+### Evidence (ALERT-LOW-014)
+
+- `apps/alert-engine/src/alert/resolvers/alert.resolver.ts:103`
+- `apps/alert-engine/src/alert/resolvers/alert.resolver.ts:137`
+- `apps/alert-engine/src/alert/services/alert-history-scope.ts:26`
+
+## ALERT-LOW-015
+
+**State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
+2026-10-24.
+
+### Symptom (ALERT-LOW-015)
+
+The grouped alarm count (`getRawMany` aliases, the null group, enum values) is proven only
+against mocks. A spec casts a `FeedingWindowReadiness` literal, another adds the site inside an
+`as any` event, and the missed meal's site is read through `?.` on a Map lookup.
+
+### Evidence (ALERT-LOW-015)
+
+- `apps/alert-engine/src/alert/services/alert-rule.service.ts:306-341`
+- `apps/alert-engine/src/alert/services/__tests__/feeding-execution-alert.service.spec.ts:205`
+- `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts:256-257`
+- `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts:874`

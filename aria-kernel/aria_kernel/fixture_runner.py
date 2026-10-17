@@ -31,7 +31,14 @@ from .ledger import (
 )
 from .ledger_inline import spill_evidence_validation
 from .state_manifest import surface_for_path
-from .tool_registry import GovernanceError, declared_bound_repo_root, ensure_tools_dir, get_tool, utc_now
+from .tool_registry import (
+    GovernanceError,
+    declared_bound_repo_root,
+    ensure_tools_dir,
+    get_tool,
+    missing_repo_local_dependencies,
+    utc_now,
+)
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
 from .workspace_view import hermetic_git
 
@@ -779,6 +786,15 @@ def run_fixture_case(
     genesis = verify_genesis_dispatch(tool, base_dir=store)
     cwd = (workspace_root / runner["cwd"]).resolve()
     input_bytes = _canonical_json_bytes(input_payload)
+    # ARIA-MEDIUM-570 — the same registry predicate `tool_runner.run_tool`
+    # asks (ARIA-MEDIUM-508): a workspace without a file the runner executes
+    # cannot run the tool at all, so the suite is refused by name before
+    # anything spawns — `refresh_fixture_suites` records a blocked refresh —
+    # instead of pricing the adapter's `unavailable` exit as a `crash` case,
+    # a suite verdict on the tool that CALIBRATE -> SHADOW then reads.
+    missing_dependencies = missing_repo_local_dependencies(runner, workspace_root=workspace_root)
+    if missing_dependencies:
+        raise GovernanceError("runner_dependency_missing:" + ",".join(missing_dependencies))
     # ARIA-CRITICAL-399 — a fixture case runs the SAME adapter code the
     # night runs, so it runs in the same room (`adapter_room`); it used to
     # pass no `env=` at all and inherit the whole job. Without a room the

@@ -339,6 +339,30 @@ rows of a tenant without the module.
 - `web/shell/src/console/{data,rail}/__tests__` pin the per-module tallies, the shared request and
   the menu slot without a preview.
 
+## FARM-LOW-448
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan. Raised by the security
+re-review of PR #1999.
+
+### Symptom (FARM-LOW-448)
+
+`resolveMeasurementUnits`, the classifier of a many-unit read, read `Equipment`, `Tank` and
+`Department` with raw `manager.find`. Each call filtered by tenant by hand. The site step was a
+second copy of the bulk unit-site lookup `resolveUnitSiteIds`.
+
+### Fix (FARM-LOW-448)
+
+Equipment and legacy tanks are read through `tenantManagerRepo`, which adds the tenant to every
+`where`. The sites come from `resolveUnitSiteIds`, the lookup a single point's read authorizes by
+(`siteOfPoint`), so a unit has one site on either read.
+
+### Tests (FARM-LOW-448)
+
+`measurement-unit.spec.ts`: each read goes through the tenant-scoped repository with the tenant in
+its `where`; only ids not found as equipment are asked of the legacy tanks; the sites come from one
+`resolveUnitSiteIds` call over the found units; an inactive id is absent. The test failed before
+the fix. `water-chemistry-reading.postgres.spec.ts` covers the many-unit read on real Postgres.
+
 ## FARM-MEDIUM-443
 
 **State:** OPEN. Deadline 2026-10-31, owner okan. Replaces PRODUCT-MEDIUM-001 (see there): the

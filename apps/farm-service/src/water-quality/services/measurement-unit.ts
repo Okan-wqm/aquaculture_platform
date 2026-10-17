@@ -1,10 +1,11 @@
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { type EntityManager, In } from 'typeorm';
 
 import {
   findTankOrEquipmentWithManager,
   resolveSiteIdFromDepartment,
+  resolveUnitSiteIds,
 } from '../../batch/utils/tank-lookup.util';
-import { Department } from '../../department/entities/department.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 
@@ -59,8 +60,11 @@ export async function resolveMeasurementUnit(
  * Bulk counterpart of {@link resolveMeasurementUnit} for a read over many
  * units (the dashboard's per-site oxygen read), so it is not N lookups: the
  * same rule in three queries — an active, undeleted equipment row first (a
- * tank when flagged `isTank`), else an active legacy tank; the site through
- * the found row's department. A unit with no active row is absent.
+ * tank when flagged `isTank`), else an active legacy tank, each read through
+ * the tenant-scoped repository; the site from {@link resolveUnitSiteIds}, the
+ * bulk unit-site lookup a single point's read authorizes by
+ * (measurement-point-lookup.ts siteOfPoint), so one unit resolves to the same
+ * site on either read. A unit with no active row is absent.
  */
 export async function resolveMeasurementUnits(
   manager: EntityManager,
@@ -68,51 +72,38 @@ export async function resolveMeasurementUnits(
   tenantId: string,
 ): Promise<Map<string, MeasurementUnit>> {
   const asked = [...new Set(unitIds)];
-  const found = new Map<string, { kind: MeasurementUnitKind; departmentId: string | null }>();
   if (asked.length === 0) {
     return new Map();
   }
-  const equipment = await manager.find(Equipment, {
-    where: { id: In(asked), tenantId, isActive: true, isDeleted: false },
-    select: { id: true, isTank: true, departmentId: true },
+  const kinds = new Map<string, MeasurementUnitKind>();
+  const equipment = await tenantManagerRepo(manager, Equipment, tenantId).find({
+    where: { id: In(asked), isActive: true, isDeleted: false },
+    select: { id: true, isTank: true },
   });
   for (const row of equipment) {
-    found.set(row.id, {
-      kind: row.isTank === true ? 'tank' : 'equipment',
-      departmentId: row.departmentId ?? null,
-    });
+    kinds.set(row.id, row.isTank === true ? 'tank' : 'equipment');
   }
-  const legacy = asked.filter((id) => !found.has(id));
+  const legacy = asked.filter((id) => !kinds.has(id));
   if (legacy.length > 0) {
-    const tanks = await manager.find(Tank, {
-      where: { id: In(legacy), tenantId, isActive: true },
-      select: { id: true, departmentId: true },
+    const tanks = await tenantManagerRepo(manager, Tank, tenantId).find({
+      where: { id: In(legacy), isActive: true },
+      select: { id: true },
     });
     for (const tank of tanks) {
-      found.set(tank.id, { kind: 'tank', departmentId: tank.departmentId });
+      kinds.set(tank.id, 'tank');
     }
   }
-  const departmentIds = [
-    ...new Set(
-      [...found.values()]
-        .map((unit) => unit.departmentId)
-        .filter((id): id is string => id !== null),
-    ),
-  ];
-  const departments =
-    departmentIds.length === 0
-      ? []
-      : await manager.find(Department, {
-          where: { id: In(departmentIds), tenantId },
-          select: { id: true, siteId: true },
-        });
-  const siteOfDepartment = new Map(
-    departments.map((department) => [department.id, department.siteId ?? null]),
-  );
+  const found = asked.filter((id) => kinds.has(id));
+  const sites =
+    found.length === 0
+      ? new Map<string, string>()
+      : await resolveUnitSiteIds(manager, found, tenantId);
   const units = new Map<string, MeasurementUnit>();
-  for (const [id, { kind, departmentId }] of found) {
-    const siteId = departmentId === null ? null : (siteOfDepartment.get(departmentId) ?? null);
-    units.set(id, { kind, id, siteId });
+  for (const id of found) {
+    const kind = kinds.get(id);
+    if (kind !== undefined) {
+      units.set(id, { kind, id, siteId: sites.get(id) ?? null });
+    }
   }
   return units;
 }

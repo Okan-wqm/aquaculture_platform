@@ -96,7 +96,12 @@ export {
   type AlarmPriorityCountsProps,
   type AlarmPriorityTally,
 } from './AlarmPriorityCounts';
-export { CONSOLE_RAIL_ICONS, type ConsoleRailIconName } from './railIcons';
+export {
+  CONSOLE_ICON_FALLBACK,
+  CONSOLE_RAIL_ICONS,
+  consoleIconFor,
+  type ConsoleRailIconName,
+} from './railIcons';
 export { RAIL_AUTO_COLLAPSE_QUERY } from './useRailCollapsed';
 export {
   CONSOLE_WORKSPACE_IDS,

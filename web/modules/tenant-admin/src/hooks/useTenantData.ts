@@ -18,7 +18,7 @@ import {
   assignModuleManager,
   removeModuleManager,
   updateTenant,
-  getMyModuleIds,
+  getMyModuleRefs,
   getModuleUsageStats,
   getEdgeDevices,
   getDeviceEvents,
@@ -52,6 +52,7 @@ import type {
   Tenant,
   TenantStats,
   TenantModule,
+  MyModuleRef,
   User,
   TenantDatabaseInfo,
   TableSchemaInfo,
@@ -100,7 +101,7 @@ export const tenantKeys = {
   tenant: () => createTenantQueryKey(getTenantId(), 'info'),
   stats: () => createTenantQueryKey(getTenantId(), 'stats'),
   modules: () => createTenantQueryKey(getTenantId(), 'modules'),
-  moduleIds: () => createTenantQueryKey(getTenantId(), 'moduleIds'),
+  moduleRefs: () => createTenantQueryKey(getTenantId(), 'moduleRefs'),
   moduleUsageStats: () => createTenantQueryKey(getTenantId(), 'moduleUsageStats'),
   users: (filters?: Record<string, unknown>) =>
     createTenantQueryKey(getTenantId(), 'users', filters),
@@ -709,16 +710,17 @@ export function useUserEffectivePermissions(
 // ============================================================================
 
 /**
- * Hook to fetch real module UUIDs (BUG-019)
+ * Hook to fetch each assigned module's real UUID (BUG-019) and icon name,
+ * keyed by module code.
  */
-export function useModuleIds() {
+export function useModuleRefs(): UseQueryResult<Record<string, MyModuleRef>> {
   return useQuery({
-    queryKey: tenantKeys.moduleIds(),
+    queryKey: tenantKeys.moduleRefs(),
     queryFn: async () => {
-      const modules = await getMyModuleIds();
-      const map: Record<string, string> = {};
-      (modules || []).forEach((m: { id: string; code: string }) => {
-        if (m.code) map[m.code] = m.id;
+      const modules = await getMyModuleRefs();
+      const map: Record<string, MyModuleRef> = {};
+      (modules || []).forEach((m) => {
+        if (m.code) map[m.code] = m;
       });
       return map;
     },

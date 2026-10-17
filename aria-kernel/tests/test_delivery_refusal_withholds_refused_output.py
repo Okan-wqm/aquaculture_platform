@@ -48,6 +48,7 @@ from aria_kernel.implementation_delivery import RESULT_ADMISSIBLE_STAGE, Impleme
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.runtime_artifacts import verify_runtime_artifacts
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.sandbox_pins import require_sandbox_backend
 from tests.test_implementation_delivery import _DeliveredBranch
 
 _POC_DIR = Path(__file__).resolve().parents[2] / "tools" / "aria-poc"
@@ -71,11 +72,9 @@ class _RefusedDeliveryFixture(_DeliveredBranch):
     def setUp(self) -> None:
         from aria_kernel.agent_invocations import claim_request
         from aria_kernel.change_ledger import emit_change_planned
-        from aria_kernel.implementation_safety import sandbox_backend
         from tests._helpers.production_shaped import production_implementation_request
 
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host")
+        require_sandbox_backend()
         super().setUp()
         operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         self.request = production_implementation_request(

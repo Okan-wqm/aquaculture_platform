@@ -58,6 +58,7 @@ from aria_kernel.containment_probe import (
     probe_git_containment,
 )
 from aria_kernel.git_containment import GitContainment, QuarantinePublication
+from tests._helpers.sandbox_pins import require_bwrap_namespaces
 
 
 def _builder(*, allow_network: bool, drop_ro_binds: tuple[str, ...] = ()):
@@ -97,8 +98,7 @@ def _with_flags_before_separator(build, flags_for):
 class _NeedsBwrap(unittest.TestCase):
     def setUp(self) -> None:
         impl._bwrap_available.cache_clear()
-        if not impl._sandbox_probe_succeeds(impl._bwrap_probe_argv()):
-            self.skipTest("bwrap cannot build its namespaces on this host")
+        require_bwrap_namespaces()
 
     def tearDown(self) -> None:
         impl._bwrap_available.cache_clear()

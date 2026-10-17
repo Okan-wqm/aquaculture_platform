@@ -17,6 +17,7 @@ from unittest import mock
 from aria_kernel import implementation_safety as impl
 from aria_kernel.workspace_view import WorkspaceViewRefused, build_workspace_view
 from tests._helpers.git_fixtures import _git, commit_files, make_local_git_repo
+from tests._helpers.sandbox_pins import require_bwrap_installed
 
 
 def _pairs(flags: tuple[str, ...] | list[str], flag: str, width: int) -> list[tuple[str, ...]]:
@@ -160,9 +161,7 @@ class VerifiedBwrapTests(unittest.TestCase):
     name the child's PATH resolves again."""
 
     def test_every_room_execs_the_resolved_absolute_path(self) -> None:
-        found = shutil.which("bwrap")
-        if found is None:
-            self.skipTest("bwrap is not installed on this host")
+        found = require_bwrap_installed()
         with tempfile.TemporaryDirectory() as tmp:
             argv = impl._sandbox_argv(["true"], workspace_root=tmp, allow_network=False)
         self.assertEqual(argv[0], os.path.realpath(found))

@@ -23,6 +23,7 @@ from pathlib import Path
 from aria_kernel import implementation_safety as impl
 from aria_kernel.dependency_tree import DependencyMount, dependency_mounts
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+from tests._helpers.sandbox_pins import require_sandbox_backend
 
 
 def _write(path: Path, text: str) -> None:
@@ -85,9 +86,7 @@ class LayoutTests(_InstalledCheckout):
 
 class SandboxResolutionTests(_InstalledCheckout):
     def _inside(self, script: str, *, write_scope: list[str] | None = None) -> subprocess.CompletedProcess[str]:
-        impl._bwrap_available.cache_clear()
-        if impl.sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host; the sandbox refuses rather than degrading")
+        require_sandbox_backend(fresh_probe=True)
         argv = impl.wrap_bash_in_sandbox(["sh", "-c", script], workspace_root=self.worktree,
                                          allow_network=False, write_scope=write_scope)
         return subprocess.run(argv, capture_output=True, text=True, timeout=60)

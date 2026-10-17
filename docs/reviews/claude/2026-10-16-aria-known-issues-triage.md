@@ -812,3 +812,138 @@ Evidence:
   body, prefix aria-ep-)
 - aria-kernel/aria_kernel/autonomy_orchestrator.py:1559-1578 the startup sweep calls each copy by
   name
+
+## Operator decisions (2026-10-17)
+
+Okan gave both decisions on 2026-10-17 in Turkish. The learning agent relayed them to the main
+session.
+
+- ARIA-HIGH-272: raw LLM prompts and responses may stay on the public aria/state branch and in its
+  Actions artifacts while ARIA is being tested ("we are testing anyway"). The repository is not made
+  private. The 2026-10-02 plan to make it private is superseded. The credential scrub stays: the one
+  table in `secret_scrub.CREDENTIAL_SHAPES` and the scrubbing transcript writer. The decision says
+  nothing about tenant or personal data, so that constraint is not lifted.
+- ARIA-HIGH-425 (RESOLVED on 2026-10-15 by `79b82c8d3`: a spent Claude window cools anthropic until
+  its reset and the read seats run on Z.ai): capacity is paced by pausing and resuming, not by
+  buying more. When the quota runs out, ARIA holds where it is and starts no cycle over. When the
+  quota returns, it continues from where it stopped. The cycle-level part is new and is tracked as
+  ARIA-HIGH-579.
+
+## ARIA-HIGH-572 — resolved by evidence (2026-10-17)
+
+The finding asked for three steps: scan every sealed transcript with the current redaction table,
+rotate any credential found, and purge aria/state history. The scan found no credential, so nothing
+was rotated and nothing was purged.
+
+Scan:
+
+- Coverage: every blob ever reachable from `origin/aria/state` at tip `8e39b2eeb`, not only the tip
+  tree: 286 commits and 11,848 unique blobs (18.9 GB). Each blob was streamed once; JSONL and gzip
+  files were read per line, other text whole, and each unit also in its JSON-unescaped form.
+- Detection: every credential row of every view of `secret_scrub.CREDENTIAL_SHAPES`, plus an
+  independent loose-shape pass and base64-encoded prefixes of every token family at all three
+  alignments.
+- Values were never printed or stored. Each match was recorded as the sha256 of the matched value,
+  in a 0600 file outside the repository.
+
+Result:
+
+- No real credential in any blob. Every token family had zero hits: GitHub
+  `ghs_`/`ghp_`/`gho_`/`ghu_`/`ghr_`/`github_pat_`, Anthropic API and OAuth (`sk-ant-`), PEM private
+  keys, Z.ai, AWS, JWT, Stripe, Slack, npm, GitLab and Google. The names `CLAUDE_CODE_OAUTH_TOKEN`
+  and `ZAI_API_KEY` occur tens of thousands of times, never with a value.
+- The 331 kept matches are of three kinds. 304 are `sk-` inside a word (task, risk and disk ids;
+  that defect is ARIA-MEDIUM-576 below). 22 are code or prose words after `Bearer`, `password:` and
+  similar. 5 are values already public on main (spec fixtures, an example bearer in
+  `.env.production.example`, and the throwaway CI Postgres password in
+  `.github/workflows/db-migration-check.yml`).
+- The publication boundary fired before publication: `<secret-redacted>` occurs 7,029 times in 274
+  blobs.
+
+Cross-check against live credentials: the sha256 of every value in the production `.env`, the runner
+`.env` and the runner's key files (120 values) matches none of the 331 fingerprints. No live
+credential, the CI database password included, appears on aria/state. No rotation is needed.
+
+Why history is not purged:
+
+- No credential was ever published.
+- Under the ARIA-HIGH-272 decision above, the raw prompt and response text may stay public while
+  ARIA is tested.
+- A purge is a large change with its own risk. Every host holds the old lineage. Memory surfaces are
+  append-only. The commit verifier and the evidence checkpoints bind every ledger prefix. A governed
+  purge would need a kernel-owned redaction ledger, an epoch reset with a pinned lineage, and
+  lifting the `aria-state-protection` ruleset for one force push. That design is recorded in the
+  session's investigation, but it buys nothing once no credential is exposed.
+- The ruleset is active today: it blocks non-fast-forward pushes and deletion on aria/state,
+  aria/state-lease and aria/state-cold.
+
+Two lineage defects the investigation found are tracked below as ARIA-LOW-577 and ARIA-LOW-578.
+
+## Findings raised by the ARIA-HIGH-572 investigation and the 2026-10-17 decisions
+
+### ARIA-MEDIUM-576 — The sk- credential rows had no left boundary
+
+Full title: The sk- credential rows had no left boundary, so the publication boundary redacted
+task-, risk- and disk- ids as keys and the refuse view could refuse a diff that only names such an
+id.
+
+- Evidence: `aria-kernel/aria_kernel/secret_scrub.py:300-309` (anthropic_api_key, openai_api_key and
+  generic_sk_key matched `sk-` inside a word).
+  `scrub_text('follow-up for task-0123456789abcdefghij0123 done')` returned
+  `'follow-up for ta<secret-redacted> done'`.
+- Effect: openai_api_key is also in the refuse view, so an implementer diff naming such an id would
+  have been refused as a secret.
+- Fixed on `fix/aria-572-closeout`:
+  - The three rows start with `_KEY_START`, a left boundary, so a key prefix must start a token.
+  - REFERENCE_SHAPES gains a task id and a risk id, so the import-time proof refuses any later row
+    that rewrites them.
+  - Red first: the new tests fail on the previous table, and adding the reference shapes alone
+    raised `CredentialTableError redact_view_rewrites_reference:23:openai_api_key`.
+
+### ARIA-LOW-577 — A checkout lineage refusal is reported as a transport failure
+
+Full title: A checkout whose remote aria/state tip does not descend from the host's tracking ref
+raises StateStoreError, not StateStoreRefusal, so the restore action reports a lineage refusal as a
+failure to reach the remote.
+
+- Evidence: `aria-kernel/aria_kernel/state_store.py:1506` and `:1511` raise StateStoreError.
+  `aria-kernel/aria_kernel/cli.py:661` maps only StateStoreRefusal to exit 3.
+  `.github/actions/restore-aria-state/action.yml:343` and `:370` then print "failed to reach the
+  remote" and "wrote no verdict".
+- Lab-proven by the purge investigation with a replacement tip that has a new root.
+- Fix: raise StateStoreRefusal with the named reason, and pin both the exit code and the action's
+  message.
+
+### ARIA-LOW-578 — A host with no tracking ref adopts any replacement aria/state tip
+
+Full title: A host without a tracking ref for aria/state adopts any replacement tip, including a new
+root, because nothing pins the store's lineage outside the host's own refs.
+
+- Evidence: `aria-kernel/aria_kernel/state_store.py:1484-1527` compares only against the host's own
+  `refs/remotes/origin/aria/state`. `.github/workflows/aria-state-maintenance.yml:99` runs on a
+  fresh GitHub-hosted clone with no such ref. In the lab, a new-root tip was adopted with exit 0.
+- Mitigation today: the `aria-state-protection` ruleset blocks force pushes and deletion.
+- Fix: a pinned lineage on main, either the GENESIS root sha or a signed lineage record, so that a
+  replaced lineage is refused on every host.
+
+### ARIA-HIGH-579 — The cycle holds in place when every provider is out of quota
+
+Full title: when every provider a night needs is out of quota, ARIA holds where it is, starts no new
+cycle work, and resumes from where it stopped at the reset. This is the operator's 2026-10-17
+decision (pacing by pause and resume). Today the nightly auto-cycle still fires unconditionally, and
+no test proves that a night with every provider cooled mints, claims and spends nothing and leaves
+the next night to continue.
+
+- Evidence:
+  - `.github/workflows/aria-auto-cycle.yml:76`: the cron fires whatever the quota state.
+  - `aria-kernel/aria_kernel/provider_outage.py:1-17`: a request whose every provider is cooled
+    waits. This works per request, not per cycle.
+  - `aria-kernel/aria_kernel/autonomy_orchestrator.py:1947-1952`: a prolonged outage is escalated,
+    but the cycle still runs its phases.
+- Steps:
+  1. Prove today's behaviour with a production-shaped test of a night with anthropic and zai both
+     cooled.
+  2. Gate every phase that mints, claims or rebuilds model work on `provider_outage`, its one owner,
+     so that the night records a hold and the next night continues.
+  3. Pin that behaviour with a test.
+- Owner claude. Deadline 2026-10-24, before ARIA is re-enabled.

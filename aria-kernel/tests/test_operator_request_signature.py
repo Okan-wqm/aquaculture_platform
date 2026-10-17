@@ -306,7 +306,8 @@ class OperatorRequestRecorderTests(unittest.TestCase):
                     signers[f"{path.name}:{node.name}"] = bool(checked) and min(checked) < first
         self.assertEqual(set(signers), {"operator_feedback_signature.py:record_operator_request",
                                         "operator_request_signature.py:record_enrolment",
-                                        "mcp_server.py:sign_mcp_write_approval"})
+                                        "mcp_server.py:sign_mcp_write_approval",
+                                        "ack_ledger.py:mint_operator_ack"})
         self.assertEqual([name for name, checked in signers.items() if not checked], [])
 
     def test_the_recorder_refuses_what_ingestion_would_refuse(self) -> None:

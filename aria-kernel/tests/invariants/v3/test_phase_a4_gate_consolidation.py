@@ -127,18 +127,12 @@ class PhaseA4GateConsolidation(unittest.TestCase):
         self.assertTrue(g6.human_ack_required)
 
     def test_i_v3_15_gate_rejects_unknown_ack_token(self) -> None:
-        from aria_kernel.ack_ledger import init_ack_ledger
         from aria_kernel.ack_row import AckScope
         from aria_kernel.auto_action_gate import gate_from_test_fixture
         from aria_kernel.tool_registry import GovernanceError
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-15-") as tmp:
             base = Path(tmp)
-            init_ack_ledger(
-                base_dir=base,
-                reason="invariant 15 test setup",
-                operator_approval_ref="RFC-T",
-            )
             gate = gate_from_test_fixture()
             # Token id never minted — consume should raise.
             with self.assertRaises(GovernanceError) as ctx:
@@ -149,6 +143,7 @@ class PhaseA4GateConsolidation(unittest.TestCase):
                         draft_id="drf-15", intent_id="", target_path=".claude/agents/aria-15.md",
                         kind="agent", body_sha256="0" * 64,
                     ),
+                    workspace_root=base,
                     commit_sha_at_mint="test-head",
                     profile_state_at_mint="standard:v1",
                 )
@@ -199,7 +194,6 @@ class PhaseA4GateConsolidation(unittest.TestCase):
         fires 2 of 3 events: ack_consumed + materialize_committed).
         """
         from unittest.mock import patch
-        from aria_kernel.ack_ledger import init_ack_ledger, mint_operator_ack, review_draft
         from aria_kernel.agent_genesis import materialize_agent_draft
         from aria_kernel.auto_action_gate import gate_from_test_fixture
         from aria_kernel.runtime_profile import set_profile
@@ -207,11 +201,10 @@ class PhaseA4GateConsolidation(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-17a-") as tmp:
             base = Path(tmp) / "aria-tools"
             set_profile("standard", operator_approval_ref="t", base_dir=base)
-            init_ack_ledger(
-                base_dir=base,
-                reason="3-event chain invariant test",
-                operator_approval_ref="RFC-3EV",
-            )
+            # ARIA-MEDIUM-254 — the operator signs the ack; the signer's
+            # checkout on main verifies it (no HMAC key).
+            from tests._helpers.operator_acks import OperatorAckSigner
+            signer = OperatorAckSigner(Path(tmp) / "operator")
             worktree = Path(tmp) / "wt"
             worktree.mkdir()
             gate = gate_from_test_fixture(
@@ -244,21 +237,12 @@ class PhaseA4GateConsolidation(unittest.TestCase):
             ):
                 # ARIA-MEDIUM-254 slice A — the mint derives its scope
                 # from the same draft row materialize writes.
-                ack = mint_operator_ack(
-                    base_dir=base,
-                    draft_id="drf-evt",
-                    kind="agent",
-                    operator_user_id="test-operator",
-                    reason="explicit ack for materialize chain invariant",
-                    profile_name="autonomous",
-                    profile_state_at_mint="autonomous:v1",
-                    commit_sha_at_mint="test-head",
-                    reviewed_body_sha256=review_draft(base_dir=base, draft_id="drf-evt", kind="agent")["scope"]["body_sha256"],
-                )
+                ack = signer.mint(base_dir=base, draft_id="drf-evt", kind="agent",
+                                  reason="explicit ack for materialize chain invariant")
                 result = materialize_agent_draft(
                     draft_id="drf-evt",
                     assignment_id="as-evt",
-                    workspace_root=Path(tmp),
+                    workspace_root=signer.repo,
                     gate=gate,
                     base_dir=base,
                     ack_id=ack.ack_id,

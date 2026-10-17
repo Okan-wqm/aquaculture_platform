@@ -606,8 +606,10 @@ def materialize_agent_draft(
       * The ack-token consumption (operator-minted via
         ``aria-kernel ack mint`` for this draft's scope —
         :func:`ack_scope_for_draft` — and refused for any other draft,
-        intent, target or body. Autonomous auto-mint has no live lane
-        in current mainline authority).
+        intent, target or body; signed with the operator's key and verified
+        against the allowed-signers file committed at ``workspace_root``'s
+        commit on main, ARIA-MEDIUM-254. Autonomous auto-mint has no live
+        lane in current mainline authority).
       * The ``materialize_event_id`` UUID that links the
         three-event audit chain (draft_validated → ack_consumed
         → materialize_committed).
@@ -777,6 +779,7 @@ def materialize_agent_draft(
         ack_id=ack_id,
         base_dir=ensure_tools_dir(base_dir),
         scope=_ack_scope(draft),
+        workspace_root=workspace_root,
         commit_sha_at_mint=_git_head(worktree),
         profile_state_at_mint=f"{gate.profile}:v1",
     )

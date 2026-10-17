@@ -863,6 +863,7 @@ def materialize_skill(
         ack_id=ack_id,
         base_dir=ensure_tools_dir(base_dir),
         scope=_ack_scope(draft),
+        workspace_root=workspace_root,
         commit_sha_at_mint=_git_head(worktree),
         profile_state_at_mint=f"{gate.profile}:v1",
     )

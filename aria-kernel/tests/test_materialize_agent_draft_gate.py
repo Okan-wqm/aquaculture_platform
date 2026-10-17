@@ -26,15 +26,11 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
         self.base = self.tmp / "aria-tools"
         from aria_kernel.runtime_profile import set_profile
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
-        # Plan ARIA-V3 §A4 + §A5 — gate.acquire_or_consume calls
-        # ack_ledger which needs an HMAC key. Initialise here so
-        # the test materialise path can auto-mint + consume.
-        from aria_kernel.ack_ledger import init_ack_ledger
-        init_ack_ledger(
-            base_dir=self.base,
-            reason="materialize gate test ledger init",
-            operator_approval_ref="RFC-MAT-TEST",
-        )
+        # Plan ARIA-V3 §A4 + §A5 — gate.acquire_or_consume consumes an
+        # operator ack; ARIA-MEDIUM-254 — the operator signs it with their
+        # key and the signer's checkout on main verifies it (no HMAC key).
+        from tests._helpers.operator_acks import OperatorAckSigner
+        self.signer = OperatorAckSigner(self.tmp / "operator")
         self.worktree = self.tmp / "worktree"
         self.worktree.mkdir()
 
@@ -63,7 +59,6 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
         }
 
     def _materialize(self, sandbox_state, **kwargs):
-        from aria_kernel.ack_ledger import mint_operator_ack, review_draft
         from aria_kernel.auto_action_gate import gate_from_test_fixture
 
         gate = gate_from_test_fixture(
@@ -86,21 +81,11 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
             # gone; construct a Gate and consume an explicit operator ack.
             # ARIA-MEDIUM-254 slice A — the mint derives its scope from
             # the same draft row materialize writes.
-            ack = mint_operator_ack(
-                base_dir=self.base,
-                draft_id="drf-e6",
-                kind="agent",
-                operator_user_id="test-operator",
-                reason="materialize gate test ack",
-                profile_name="autonomous",
-                profile_state_at_mint="autonomous:v1",
-                commit_sha_at_mint="test-head",
-                reviewed_body_sha256=review_draft(base_dir=self.base, draft_id="drf-e6", kind="agent")["scope"]["body_sha256"],
-            )
+            ack = self.signer.mint(base_dir=self.base, draft_id="drf-e6", kind="agent")
             return materialize_agent_draft(
                 draft_id="drf-e6",
                 assignment_id="as-e6",
-                workspace_root=self.tmp,
+                workspace_root=self.signer.repo,
                 gate=gate,
                 base_dir=self.base,
                 ack_id=ack.ack_id,

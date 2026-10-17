@@ -3096,8 +3096,10 @@ def build_parser() -> argparse.ArgumentParser:
     # docs/runbooks/aria-ack-key-rotation.md (Phase A0 deliverable).
     ack_parser = add_subparser(sub, "ack")
     ack_sub = ack_parser.add_subparsers(dest="ack_command", required=True)
+    # ARIA-MEDIUM-254 — the HMAC key seals autonomous acks only; an operator
+    # ack is signed with the operator's own key (``ack mint --signing-key``).
     ack_init = add_subparser(ack_sub, "init",
-        help="Mint the first HMAC key (Plan ARIA-V3 §A5).")
+        help="Mint the first HMAC key for autonomous acks (Plan ARIA-V3 §A5); operator acks need none.")
     ack_init.add_argument("--reason", required=True, type=_validate_reason)
     ack_init.add_argument("--operator-approval-ref", required=True)
     ack_init.add_argument("--force", action="store_true",
@@ -3112,8 +3114,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print a draft's body and the ack scope that digests it (read before `ack mint`).")
     ack_scope.add_argument("--draft-id", required=True)
     ack_scope.add_argument("--kind", required=True, choices=["agent", "skill"])
+    # ARIA-MEDIUM-254 — the mint is the operator's signed act (as
+    # ``feedback request``): ssh-keygen signs it with the operator's key, the
+    # allowed-signers file committed on main at --workspace-root verifies it
+    # here and again at materialize, in any later job.
     ack_mint = add_subparser(ack_sub, "mint",
-        help="Operator-mint an ack token for the draft body you reviewed with `ack scope`.")
+        help="Operator-sign an ack token for the draft body you reviewed with `ack scope`.")
     ack_mint.add_argument("--draft-id", required=True)
     ack_mint.add_argument("--kind", required=True, choices=["agent", "skill"])
     ack_mint.add_argument("--body-sha256", required=True,
@@ -3121,8 +3127,17 @@ def build_parser() -> argparse.ArgumentParser:
     ack_mint.add_argument("--reason", required=True, type=_validate_reason)
     ack_mint.add_argument("--operator-user-id", required=True)
     ack_mint.add_argument("--profile-state", default="standard")
+    ack_mint.add_argument("--signing-key", required=True,
+        help="Operator ed25519 private key (or its .pub with the key in ssh-agent); never stored")
+    ack_mint.add_argument("--signer-principal", required=True,
+        help="Principal the committed .github/manifests/aria-operator-signers names for that key")
+    ack_mint.add_argument("--actor-class", required=True, choices=["T0", "T1"],
+        help="ADR-0023 signed declaration: T0 the operator at a terminal, T1 a root session for the operator")
+    ack_mint.add_argument("--expires-in-hours", type=int, default=None,
+        help="Signed expiry (default and maximum: the operator-act lifetime, 168h); materialize refuses after it")
     ack_mint.add_argument("--workspace-root", default=".",
-        help="Checkout whose --commit-sha revision is recorded.")
+        help="Checkout on main: its committed allowed-signers file verifies the signature, "
+             "and its --commit-sha revision is recorded.")
     ack_mint.add_argument("--commit-sha", default="HEAD",
         help="Revision resolved to the full commit SHA recorded on the row.")
     ack_mint.add_argument("--parent-observation-id", default=None)
@@ -3133,9 +3148,11 @@ def build_parser() -> argparse.ArgumentParser:
     ack_rotate.add_argument("--emergency", action="store_true",
         help="Mark as emergency rotation (separate audit event).")
     ack_verify = add_subparser(ack_sub, "verify",
-        help="Recompute HMAC over the rolling key list for last N rows.")
+        help="Verify the last N rows: operator acks against the committed allowed-signers file, HMAC rows over the rolling key list.")
     ack_verify.add_argument("--range", default="last-50",
         help="``last-N`` or ``full``.")
+    ack_verify.add_argument("--workspace-root", default=".",
+        help="Checkout on main whose committed allowed-signers file verifies operator acks.")
     ack_list_keys = add_subparser(ack_sub, "list-keys",
         help="Print the rolling key list (secrets redacted).")
 
@@ -6337,6 +6354,11 @@ def _main(argv: list[str] | None = None) -> int:
                 profile_state_at_mint=args.profile_state,
                 commit_sha_at_mint=commit_sha,
                 reviewed_body_sha256=args.body_sha256,
+                signing_key=args.signing_key,
+                signer_principal=args.signer_principal,
+                actor_class=args.actor_class,
+                workspace_root=args.workspace_root,
+                expires_in_hours=args.expires_in_hours,
                 parent_observation_id=args.parent_observation_id,
             )
             result = row.to_dict()
@@ -6365,7 +6387,7 @@ def _main(argv: list[str] | None = None) -> int:
                     f"--range must be 'full' or 'last-N'; got {raw_range!r}"
                 )
                 return 2
-            result = verify_range(base_dir=args.tools_dir, last_n=last_n)
+            result = verify_range(base_dir=args.tools_dir, last_n=last_n, workspace_root=args.workspace_root)
         elif args.ack_command == "list-keys":
             result = {"keys": list_keys(base_dir=args.tools_dir)}
         else:

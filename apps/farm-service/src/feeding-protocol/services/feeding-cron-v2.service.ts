@@ -1168,48 +1168,56 @@ export class FeedingCronV2Service {
    * birebir; HEDEF ise artık P-14 zincirinden gelir (kullanıcı override →
    * v2 protokol → legacy program → species → endüstri → 1.5), yani alert
    * motorun fiilen beslediği hedefe karşı ölçülür.
-   */
-  /**
-   * 07:00 — stok kapsama değerlendirmesi (plan §5): her tenant'ın forecast
-   * snapshot'ı MAKS ufukta yeniden hesaplanır (K-10); `protocolFeedForecast`
-   * sorgusu ve mobil warehouseSummary bu satırı diler. Legacy scheduler'ın
-   * 10:00 checkFeedStock + weeklyFeedForecast görevlerinin varisi. Durable
-   * kapsama event'leri (FeedStockoutForecast/FeedTransitionUpcoming) GraphQL
-   * + alert-engine dilimiyle birlikte bağlanır (görev #8 takipte).
+   *
+   * WHY the work query selects on lifecycle alone (FARM-CRITICAL-444): it used
+   * to add `(fcr->>'actual')::numeric > 0`. `batches_v2.fcr.actual` starts at
+   * 0 and its only writer is CloseBatchHandler, which sets `isActive = false`
+   * in the same block, so no live batch ever passed and no FCRAlert was ever
+   * emitted. The running FCR now comes from the single FCR authority
+   * (`calculateCumulativeFCRMany`), computed in this pass, so the sweep reads
+   * no stored copy that could go stale.
    */
   async sweepFcrForTenant(tenantId: string): Promise<void> {
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const rows: Array<{ id: string; actual: string | number | null }> = await manager.query(
-        `SELECT b.id, (b.fcr->>'actual')::numeric AS actual
+      const rows: Array<{ id: string }> = await manager.query(
+        `SELECT b.id
            FROM "batches_v2" b
           WHERE b."tenantId" = $1
             AND b."isActive" = true
-            AND b.status IN ('ACTIVE', 'GROWING')
-            AND (b.fcr->>'actual')::numeric > 0`,
+            AND b.status IN ('ACTIVE', 'GROWING')`,
         [tenantId],
       );
 
       if (rows.length === 0) return;
 
-      // TOPLU hedef + TOPLU trend (FARM-LOW-291): eskiden batch BAŞINA iki
-      // ek round-trip atılıyordu; 400 batch'lik bir tenant süpürmesi 800+
-      // sorgu demekti. Okumalar withTenantContext ALS çerçevesi içinde koşar
+      // TOPLU FCR + TOPLU hedef + TOPLU trend (FARM-LOW-291): batch başına
+      // round-trip yok; süpürme batch sayısından bağımsız sabit sayıda sorgu
+      // atar. Okumalar withTenantContext ALS çerçevesi içinde koşar
       // (runInTenantTransaction sarmalar) — repo checkout'ları tenant
       // şemasına yönlenir.
-      const targets = await this.fcrCalculation.getTargetFCRForBatches(
+      const running = await this.fcrCalculation.calculateCumulativeFCRMany(
         tenantId,
         rows.map((row) => row.id),
       );
+      // FCR 0 means no realized growth yet (no weighing above stocking
+      // weight): there is nothing to judge, not a perfect conversion.
+      const measured = [...running].filter(([, cumulative]) => cumulative.fcr > 0);
+      if (measured.length === 0) return;
 
-      const alerting = rows
-        .map((row) => {
-          const currentFCR = Number(row.actual);
-          const targetFCR = targets.get(row.id) ?? 0;
+      const targets = await this.fcrCalculation.getTargetFCRForBatches(
+        tenantId,
+        measured.map(([batchId]) => batchId),
+      );
+
+      const alerting = measured
+        .map(([batchId, cumulative]) => {
+          const currentFCR = cumulative.fcr;
+          const targetFCR = targets.get(batchId) ?? 0;
           if (!targetFCR || targetFCR <= 0) return null;
           const variancePercent = ((currentFCR - targetFCR) / targetFCR) * 100;
           if (variancePercent <= FCR_WARNING_VARIANCE_PERCENT) return null;
-          return { batchId: row.id, currentFCR, targetFCR, variancePercent };
+          return { batchId, currentFCR, targetFCR, variancePercent };
         })
         .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
       if (alerting.length === 0) return;

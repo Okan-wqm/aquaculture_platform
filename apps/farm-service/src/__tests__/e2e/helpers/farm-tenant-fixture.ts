@@ -88,8 +88,11 @@ import { Pond } from '../../../farm/entities/pond.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { FeedTypeSpecies } from '../../../feed/entities/feed-type-species.entity';
 import { FeedingProtocol } from '../../../feed/entities/feeding-protocol.entity';
+import { FeedingProgram } from '../../../feeding/entities/feeding-program.entity';
+import { FeedingProgramTank } from '../../../feeding/entities/feeding-program-tank.entity';
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 import { GrowthMeasurement } from '../../../growth/entities/growth-measurement.entity';
+import { FCRCalculationService } from '../../../growth/services/fcr-calculation.service';
 import { SiteContact } from '../../../site/entities/site-contact.entity';
 import { Supplier } from '../../../supplier/entities/supplier.entity';
 import { SupplierSite } from '../../../supplier/entities/supplier-site.entity';
@@ -203,6 +206,33 @@ export const FIXTURE_ENTITIES = [
  */
 export function createFixtureAuditLogService(dataSource: DataSource): AuditLogService {
   return new AuditLogService(dataSource.getRepository(AuditLog));
+}
+
+/**
+ * The entities the FCR authority reads on top of FIXTURE_ENTITIES: its target
+ * chain falls back to the legacy feeding program of the batch's tank.
+ */
+export const FCR_AUTHORITY_ENTITIES = [FeedingProgram, FeedingProgramTank] as const;
+
+/**
+ * The production FCR authority over the fixture DataSource, with every
+ * repository it reads. It lives beside the other writers for the same reason:
+ * the raw repository wiring exists once per service's test tree, and specs
+ * never name a repository. The DataSource must register FIXTURE_ENTITIES and
+ * FCR_AUTHORITY_ENTITIES.
+ */
+export function createFixtureFcrCalculationService(dataSource: DataSource): FCRCalculationService {
+  return new FCRCalculationService(
+    dataSource.getRepository(FeedingRecord),
+    dataSource.getRepository(GrowthMeasurement),
+    dataSource.getRepository(Batch),
+    dataSource.getRepository(Species),
+    dataSource.getRepository(BatchLocation),
+    dataSource.getRepository(FeedingProgram),
+    dataSource.getRepository(FeedingProgramTank),
+    dataSource.getRepository(TankOperation),
+    new ProtocolRateService(),
+  );
 }
 
 /** The production command handlers a fixture needs to stock a tank. */

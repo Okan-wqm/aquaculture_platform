@@ -177,6 +177,26 @@ export interface BatchFCRSummary {
   recommendations: string[];
 }
 
+/**
+ * One batch's cumulative FCR, as the single FCR authority computes it
+ * (`calculateCumulativeFCR` / `calculateCumulativeFCRMany`).
+ */
+export interface CumulativeFcr {
+  /** totalFeed / totalGrowth. 0 means no realized growth yet, not perfect conversion. */
+  fcr: number;
+  totalFeed: number;
+  totalGrowth: number;
+  removedBiomassKg: number;
+}
+
+/** The result for a batch that does not exist in the tenant: nothing fed, nothing grown. */
+const NO_CUMULATIVE_FCR: CumulativeFcr = {
+  fcr: 0,
+  totalFeed: 0,
+  totalGrowth: 0,
+  removedBiomassKg: 0,
+};
+
 // ============================================================================
 // SERVICE
 // ============================================================================
@@ -329,33 +349,66 @@ export class FCRCalculationService {
    *
    *   realized growth = (current biomass + net removed biomass) − start
    *   net removed     = Σ(mortality + cull + harvest + transfer_out) − Σ(transfer_in)
+   *
+   * Delegates to {@link calculateCumulativeFCRMany}: there is one cumulative
+   * FCR computation, so the single-batch and the bulk path cannot drift apart.
    */
   async calculateCumulativeFCR(
     batchId: string,
     tenantId: string,
     endDate?: Date,
-  ): Promise<{ fcr: number; totalFeed: number; totalGrowth: number; removedBiomassKg: number }> {
-    const batch = await this.batchRepository.findOne({
-      where: { id: batchId, tenantId },
+  ): Promise<CumulativeFcr> {
+    const results = await this.calculateCumulativeFCRMany(tenantId, [batchId], endDate);
+    return results.get(batchId) ?? NO_CUMULATIVE_FCR;
+  }
+
+  /**
+   * Cumulative FCR for many batches of one tenant, in three queries whatever
+   * the batch count: the batches, the feed totals grouped by batch, and the
+   * ledger totals grouped by batch.
+   *
+   * WHY it exists: the 18:00 FCR sweep needs the running FCR of every live
+   * batch of a tenant (FARM-CRITICAL-444). It used to read the stored
+   * `batches_v2.fcr.actual` instead, which only CloseBatchHandler writes, so a
+   * live batch always read 0 and no alert ever fired. Calling the single-batch
+   * method per batch would bring back the per-batch round trips FARM-LOW-291
+   * removed from that sweep.
+   *
+   * Every requested id gets an entry; an id with no batch row in the tenant
+   * maps to zeros.
+   */
+  async calculateCumulativeFCRMany(
+    tenantId: string,
+    batchIds: readonly string[],
+    endDate?: Date,
+  ): Promise<Map<string, CumulativeFcr>> {
+    const ids = [...new Set(batchIds)];
+    const results = new Map<string, CumulativeFcr>(ids.map((id) => [id, NO_CUMULATIVE_FCR]));
+    if (ids.length === 0) return results;
+
+    const batches = await this.batchRepository.find({
+      where: { tenantId, id: In(ids) },
     });
+    if (batches.length === 0) return results;
+    const foundIds = batches.map((batch) => batch.id);
 
-    if (!batch) {
-      return { fcr: 0, totalFeed: 0, totalGrowth: 0, removedBiomassKg: 0 };
-    }
-
-    // Tüm yemleme kayıtlarını al
+    // Feed given, per batch.
     const feedQuery = this.feedingRecordRepository
       .createQueryBuilder('fr')
       .where('fr.tenantId = :tenantId', { tenantId })
-      .andWhere('fr.batchId = :batchId', { batchId });
+      .andWhere('fr.batchId IN (:...batchIds)', { batchIds: foundIds });
 
     if (endDate) {
       feedQuery.andWhere('fr.feedingDate <= :endDate', { endDate });
     }
 
-    const feedResult = await feedQuery.select('SUM(fr.actualAmount)', 'totalFeed').getRawOne();
-
-    const totalFeed = Number(feedResult?.totalFeed || 0);
+    const feedRows = await feedQuery
+      .select('fr.batchId', 'batchId')
+      .addSelect('SUM(fr.actualAmount)', 'totalFeed')
+      .groupBy('fr.batchId')
+      .getRawMany<{ batchId: string; totalFeed: string | number | null }>();
+    // A batch with no feeding record has no group row: it was fed 0 kg.
+    const totalFeedByBatch = new Map(feedRows.map((row) => [row.batchId, Number(row.totalFeed)]));
 
     // NOTE: the latest growth measurement is no longer queried here. Current
     // biomass is the derive-on-read value (batch.getCurrentBiomass), so the
@@ -369,7 +422,7 @@ export class FCRCalculationService {
     const ledgerQuery = this.tankOperationRepository
       .createQueryBuilder('op')
       .where('op.tenantId = :tenantId', { tenantId })
-      .andWhere('op.batchId = :batchId', { batchId })
+      .andWhere('op.batchId IN (:...batchIds)', { batchIds: foundIds })
       .andWhere('op.isDeleted = false')
       .andWhere('op.operationType IN (:...ledgerTypes)', {
         ledgerTypes: [
@@ -385,33 +438,43 @@ export class FCRCalculationService {
       ledgerQuery.andWhere('op.operationDate <= :endDate', { endDate });
     }
 
-    const ledgerResult = await ledgerQuery
-      .select(
+    const ledgerRows = await ledgerQuery
+      .select('op.batchId', 'batchId')
+      .addSelect(
         `COALESCE(SUM(CASE WHEN op.operationType = :transferIn THEN -COALESCE(op.biomassKg, 0) ELSE COALESCE(op.biomassKg, 0) END), 0)`,
         'netRemovedKg',
       )
       .setParameter('transferIn', OperationType.TRANSFER_IN)
-      .getRawOne<{ netRemovedKg: string | number | null }>();
+      .groupBy('op.batchId')
+      .getRawMany<{ batchId: string; netRemovedKg: string | number | null }>();
+    // A batch with no ledger row lost and gained no biomass: net removed is 0.
+    const netRemovedByBatch = new Map(
+      ledgerRows.map((row) => [row.batchId, Number(row.netRemovedKg)]),
+    );
 
-    const removedBiomassKg = Number(ledgerResult?.netRemovedKg ?? 0);
+    for (const batch of batches) {
+      const totalFeed = totalFeedByBatch.get(batch.id) ?? 0;
+      const removedBiomassKg = netRemovedByBatch.get(batch.id) ?? 0;
 
-    // Başlangıç biomass (initialQuantity * initial avgWeight)
-    const initialWeight = batch.weight?.initial?.avgWeight || 0;
-    const startBiomass = (batch.initialQuantity * initialWeight) / 1000; // kg
-    // Current biomass is the single derive-on-read value (currentQuantity ×
-    // effectiveAvgWeightG / 1000) — the SAME source the GraphQL resolver and
-    // removal handlers read. Sourcing it from the stored measurement snapshot
-    // (GrowthMeasurement.estimatedBiomass) would let FCR growth and the
-    // displayed biomass diverge, because that snapshot goes stale on every
-    // removal while the derived value tracks the live count. When no count is
-    // available yet, fall back to the start biomass.
-    const currentBiomass = batch.currentQuantity > 0 ? batch.getCurrentBiomass() : startBiomass;
-    // Realized growth includes the growth of biomass that exited the system.
-    const totalGrowth = currentBiomass + removedBiomassKg - startBiomass;
+      // Başlangıç biomass (initialQuantity * initial avgWeight)
+      const initialWeight = batch.weight?.initial?.avgWeight || 0;
+      const startBiomass = (batch.initialQuantity * initialWeight) / 1000; // kg
+      // Current biomass is the single derive-on-read value (currentQuantity ×
+      // effectiveAvgWeightG / 1000) — the SAME source the GraphQL resolver and
+      // removal handlers read. Sourcing it from the stored measurement snapshot
+      // (GrowthMeasurement.estimatedBiomass) would let FCR growth and the
+      // displayed biomass diverge, because that snapshot goes stale on every
+      // removal while the derived value tracks the live count. When no count is
+      // available yet, fall back to the start biomass.
+      const currentBiomass = batch.currentQuantity > 0 ? batch.getCurrentBiomass() : startBiomass;
+      // Realized growth includes the growth of biomass that exited the system.
+      const totalGrowth = currentBiomass + removedBiomassKg - startBiomass;
 
-    const fcr = totalGrowth > 0 ? totalFeed / totalGrowth : 0;
+      const fcr = totalGrowth > 0 ? totalFeed / totalGrowth : 0;
 
-    return { fcr, totalFeed, totalGrowth, removedBiomassKg };
+      results.set(batch.id, { fcr, totalFeed, totalGrowth, removedBiomassKg });
+    }
+    return results;
   }
 
   /**
@@ -821,6 +884,11 @@ export class FCRCalculationService {
     // aynı kuralı taşır: batch'in GÜNCEL lokasyonu → o ekipmanın AKTİF program
     // bağlantısı → ACTIVE program. `fcrTable` yoksa satır null olarak yazılır,
     // böylece zincir yine tekil sorguya düşmez.
+    //
+    // The program status is BOUND from FeedingProgramStatus.ACTIVE, never typed
+    // as a literal (FARM-HIGH-445): the enum's database values are lowercase
+    // ('active'), and a hand-typed 'ACTIVE' made PostgreSQL reject the whole
+    // query — invisible to the unit spec, which mocks manager.query.
     const legacyRows: LegacyProgramFcrRow[] = await this.batchRepository.manager.query(
       `SELECT b.id::text AS "batchId", x."fcrTable" AS "fcrTable"
          FROM unnest($2::uuid[]) AS b(id)
@@ -834,14 +902,14 @@ export class FCRCalculationService {
              JOIN "feeding_programs" fp
                ON fp."id" = fpt."feedingProgramId"
               AND fp."tenantId" = fpt."tenantId"
-              AND fp."status" = 'ACTIVE'
+              AND fp."status" = $3
             WHERE bl."tenantId" = $1
               AND bl."batchId" = b.id
               AND bl."isCurrentLocation" = true
               AND bl."tankId" IS NOT NULL
             LIMIT 1
          ) x ON true`,
-      [tenantId, batchIds],
+      [tenantId, batchIds, FeedingProgramStatus.ACTIVE],
     );
     const legacyProgramByBatch = new Map<string, LegacyProgramFcrRow['fcrTable']>(
       batchIds.map((batchId) => [batchId, null]),

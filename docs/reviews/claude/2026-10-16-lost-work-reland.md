@@ -31,6 +31,10 @@ closed and inactive by construction, so the query matches nothing in any tenant.
 Planned fix: the sweep selects live batches by lifecycle alone and takes each running FCR from
 the single authority, `FCRCalculationService.calculateCumulativeFCR`, in one bulk pass.
 
+Landed: the sweep selects ACTIVE and GROWING live batches by lifecycle and takes each running FCR
+from `calculateCumulativeFCRMany` (three queries per tenant; `calculateCumulativeFCR` delegates to
+it). `fcr-alert-sweep.postgres.spec.ts` runs it on real PostgreSQL; it was red on main.
+
 ## FARM-HIGH-445
 
 The bulk FCR target query throws on PostgreSQL. Found while re-landing FARM-CRITICAL-444: with
@@ -49,6 +53,9 @@ sweep fails and emits no `FCRAlert`. On main this was hidden behind FARM-CRITICA
 unit spec mocks `manager.query`. Introduced by f4d5a39fb (W5, FARM-LOW-291).
 
 Planned fix: bind the status from `FeedingProgramStatus.ACTIVE` as a query parameter.
+
+Landed: the legacy leg binds `FeedingProgramStatus.ACTIVE` as `$3`. The same PostgreSQL spec
+failed with the enum error before this line changed, and the unit spec pins the bound value.
 
 ## FARM-MEDIUM-446
 

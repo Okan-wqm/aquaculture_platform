@@ -4,10 +4,17 @@
  * Pinlenen sözleşme:
  *  - Eşikler legacy analyzeFCR ile birebir: varyans >%10 warning, >%20
  *    critical; eşik altı batch event üretmez.
+ *  - Güncel FCR tek otoriteden TOPLU hesaplanır
+ *    (FCRCalculationService.calculateCumulativeFCRMany) — saklı
+ *    `batches_v2.fcr.actual` kopyası değil (FARM-CRITICAL-444).
  *  - Hedef P-14 zincirinden okunur (FCRCalculationService.getTargetFCRForBatch)
  *    — batch.fcr.target kopyası değil.
  *  - Trend YALNIZ eşiği aşan batch'ler için sorgulanır (ölçek disiplini).
  *  - Event outbox'a AYNI tenant transaction manager'ıyla yazılır.
+ *
+ * Bu spec `manager.query`'yi taklit eder; iş sorgusunun GERÇEK satırları
+ * seçtiğini yalnız gerçek Postgres kanıtlar:
+ * `src/__tests__/e2e/fcr-alert-sweep.postgres.spec.ts`.
  */
 const managerQuery = jest.fn();
 
@@ -32,7 +39,10 @@ import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/sche
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
-import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
+import {
+  CumulativeFcr,
+  FCRCalculationService,
+} from '../../growth/services/fcr-calculation.service';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 import type { FCRAlertEvent } from '@platform/event-contracts';
@@ -43,6 +53,7 @@ const TENANT = '11111111-1111-4111-8111-111111111111';
 describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   const enqueue = jest.fn().mockResolvedValue(undefined);
   // W5 (FARM-LOW-291): süpürme artık batch başına değil TOPLU okur.
+  const calculateCumulativeFCRMany = jest.fn();
   const getTargetFCRForBatches = jest.fn();
   const analyzeFCRTrendMany = jest.fn();
 
@@ -56,7 +67,11 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     stub<MealPlanGeneratorService>({}),
     growthApplier,
     stub<WaterTemperatureService>({}),
-    stub<FCRCalculationService>({ getTargetFCRForBatches, analyzeFCRTrendMany }),
+    stub<FCRCalculationService>({
+      calculateCumulativeFCRMany,
+      getTargetFCRForBatches,
+      analyzeFCRTrendMany,
+    }),
     outboxPublisher,
     stub<ProtocolFeedForecastService>({}),
     recalcService,
@@ -65,6 +80,24 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     stub<FeedingJobRunService>({}),
     stub<SiteTimeZoneService>({}),
   );
+
+  /**
+   * The live batches the work query returns, with the running FCR the single
+   * authority computes for each. The work query returns ids only: the FCR is
+   * never read from a stored column.
+   */
+  function givenLiveBatches(runningFcrById: Record<string, number>): void {
+    const entries = Object.entries(runningFcrById);
+    managerQuery.mockResolvedValueOnce(entries.map(([id]) => ({ id })));
+    calculateCumulativeFCRMany.mockResolvedValueOnce(
+      new Map<string, CumulativeFcr>(
+        entries.map(([id, fcr]) => [
+          id,
+          { fcr, totalFeed: 0, totalGrowth: 0, removedBiomassKg: 0 },
+        ]),
+      ),
+    );
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -79,11 +112,11 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   });
 
   it('emits warning (>%10) ve critical (>%20) — eşik altı batch event üretmez', async () => {
-    managerQuery.mockResolvedValueOnce([
-      { id: 'b-warning', actual: 1.72 }, // +14.7% → warning
-      { id: 'b-ok', actual: 1.55 }, // +3.3% → eşik altı
-      { id: 'b-critical', actual: 2.0 }, // +33.3% → critical
-    ]);
+    givenLiveBatches({
+      'b-warning': 1.72, // +14.7% → warning
+      'b-ok': 1.55, // +3.3% → eşik altı
+      'b-critical': 2.0, // +33.3% → critical
+    });
 
     await service.sweepFcrForTenant(TENANT);
 
@@ -102,8 +135,14 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     expect(warning!.variancePercent).toBeCloseTo(14.667, 3);
     expect(critical).toMatchObject({ alertLevel: 'critical', currentFCR: 2 });
 
-    // Trend TEK toplu çağrıyla ve yalnız eşiği aşan iki batch için sorgulandı
-    // (FARM-LOW-291: batch başına round-trip yok).
+    // FCR, hedef ve trend TEK toplu çağrıyla; trend yalnız eşiği aşan iki
+    // batch için sorgulandı (FARM-LOW-291: batch başına round-trip yok).
+    expect(calculateCumulativeFCRMany).toHaveBeenCalledTimes(1);
+    expect(calculateCumulativeFCRMany).toHaveBeenCalledWith(TENANT, [
+      'b-warning',
+      'b-ok',
+      'b-critical',
+    ]);
     expect(analyzeFCRTrendMany).toHaveBeenCalledTimes(1);
     expect(analyzeFCRTrendMany).toHaveBeenCalledWith(TENANT, ['b-warning', 'b-critical']);
     expect(getTargetFCRForBatches).toHaveBeenCalledTimes(1);
@@ -111,11 +150,34 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     expect(enqueue.mock.calls[0]![1]).toMatchObject({ query: managerQuery });
   });
 
+  it('selects live batches by lifecycle only, never by the stored fcr.actual', async () => {
+    // FARM-CRITICAL-444: the stored column is 0 for every live batch, so a
+    // work query gated on it selects nothing. The real-Postgres spec proves
+    // the rows; this pins the shape the regression would take.
+    managerQuery.mockResolvedValueOnce([]);
+
+    await service.sweepFcrForTenant(TENANT);
+
+    const workQuery = String(managerQuery.mock.calls[0]?.[0]);
+    expect(workQuery).toContain('"isActive" = true');
+    expect(workQuery).not.toContain('fcr');
+    expect(calculateCumulativeFCRMany).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('skips a batch with no realized growth yet (running FCR 0)', async () => {
+    givenLiveBatches({ 'b-unweighed': 0, 'b-1': 2.0 });
+
+    await service.sweepFcrForTenant(TENANT);
+
+    // FCR 0 is "nothing to judge yet": no target lookup, no event.
+    expect(getTargetFCRForBatches).toHaveBeenCalledWith(TENANT, ['b-1']);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect((enqueue.mock.calls[0]![0] as FCRAlertEvent).batchId).toBe('b-1');
+  });
+
   it('hedefi P-14 zincirinden okur; hedef çözülemeyen batch atlanır', async () => {
-    managerQuery.mockResolvedValueOnce([
-      { id: 'b-1', actual: 2.0 },
-      { id: 'b-no-target', actual: 2.0 },
-    ]);
+    givenLiveBatches({ 'b-1': 2.0, 'b-no-target': 2.0 });
     getTargetFCRForBatches.mockImplementation(
       async (_tenantId: string, batchIds: string[]) =>
         new Map(batchIds.map((batchId) => [batchId, batchId === 'b-no-target' ? 0 : 1.5])),
@@ -129,7 +191,7 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   });
 
   it('hiç ihlal yoksa hiçbir event yazılmaz', async () => {
-    managerQuery.mockResolvedValueOnce([{ id: 'b-ok', actual: 1.5 }]);
+    givenLiveBatches({ 'b-ok': 1.5 });
 
     await service.sweepFcrForTenant(TENANT);
 

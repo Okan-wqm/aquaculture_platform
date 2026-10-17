@@ -64,28 +64,20 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-// The .js extension on the ajv specifier survives both module systems
-// (it is a real file in node_modules); ts-jest interop in the Jest
-// invariant test omits it.
-import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
-
 // PROC-HIGH-001 structural guard — close ceremony refuses branch-local
 // SHAs (see cmdClose). The shared SSOT helper is import-safe for
 // node:test specs, which use the same extensionless CJS specifier.
-import {
-  findNonCanonicalFindingEvidence,
-  requiresCanonicalFindingEvidence,
-} from './finding-evidence-shape';
 import {
   findingIdAliasesBeside,
   loadAliasReviewFiles,
   loadCanonicalToAliases,
 } from './finding-id-aliases';
+import { applyAssignment, type AssignmentRequest } from './finding-registry-assign';
 import {
   canonicalJson,
   chainTip,
   type Finding,
+  isDeadlineLapsed,
   isUnresolvedFindingState,
   parseRegistryJsonl,
   rechain,
@@ -93,6 +85,11 @@ import {
   verify,
   ZERO_HASH,
 } from './finding-registry-chain';
+import {
+  RegistryWriteRefused,
+  refuseInvalidChangedRows,
+  rowContractViolations,
+} from './finding-registry-rows';
 import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,
@@ -112,8 +109,6 @@ import {
   type FindingTrailerTarget,
 } from './finding-traceability';
 import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
-
-const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
 // __dirname (CommonJS, per tools/gates/tsconfig.json) — this file
 // previously derived REPO_ROOT from import.meta.url, which forced the
@@ -215,28 +210,6 @@ export function resolveGitFindingAllocationAuthority(
       return [...new Set(paths)].sort();
     },
   };
-}
-
-/**
- * Ajv-compiled validator for the finding schema. Compiled once at
- * first-use; exits 1 if the stub fails validation. This is the
- * add-time half of the Tier-1 defence (companion to the
- * finding-registry-integrity Jest invariant that validates the whole
- * ledger in CI). Before this existed, historical seed scripts wrote
- * entries with free-text evidence and over-long titles that violated
- * the schema; those entries survived until the invariant ran post-hoc.
- * Now every append is schema-checked before the hash chain advances.
- */
-const cachedValidators = new Map<string, ValidateFunction>();
-function loadStubValidator(schemaPath = SCHEMA_PATH): ValidateFunction {
-  const cached = cachedValidators.get(schemaPath);
-  if (cached) return cached;
-  const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
-  const ajv = new Ajv2020({ allErrors: true, strict: false });
-  addFormats(ajv);
-  const validator = ajv.compile(schema);
-  cachedValidators.set(schemaPath, validator);
-  return validator;
 }
 
 /**
@@ -406,12 +379,20 @@ function reserveFindingId(
   );
 }
 
-function writeRegistry(
+/**
+ * The registry's only write. Every row this write changes is held to the row
+ * contract first (`refuseInvalidChangedRows`, ARIA-HIGH-044), so no mutator —
+ * add, close, reopen, sweep, reconcile, dedupe, assign, or one written later —
+ * can persist a row the schema refuses. A refusal throws before the atomic
+ * write; `runRegistryMutation` reports it and exits 1.
+ */
+export function writeRegistry(
   entries: readonly Finding[],
   lease: RegistryLockLease,
-  registryPath = REGISTRY_PATH,
+  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
 ): void {
-  atomicWriteRegistryFile(registryPath, serializeRegistryJsonl(entries), lease);
+  refuseInvalidChangedRows(loadRegistry(paths.registryPath), entries, paths.schemaPath);
+  atomicWriteRegistryFile(paths.registryPath, serializeRegistryJsonl(entries), lease);
 }
 
 function cmdVerify(): number {
@@ -494,18 +475,16 @@ function validateAndAppendFinding(
   // pre-rechain. This guarantees no schema-violating entry ever hits
   // the JSONL — the invariant test becomes a belt-and-suspenders
   // check rather than the primary defence.
-  const validate = loadStubValidator(paths.schemaPath);
-  if (!validate(newEntry)) {
+  const contract = rowContractViolations(newEntry, paths.schemaPath, 'always');
+  if (contract.schema.length > 0) {
     process.stderr.write('Stub failed schema validation:\n');
-    for (const err of validate.errors ?? []) {
-      process.stderr.write(
-        `  ${err.instancePath || '<root>'}: ${err.message} (${err.keyword})\n\n`,
-      );
+    for (const message of contract.schema) {
+      process.stderr.write(`  ${message}\n\n`);
     }
     return 1;
   }
 
-  const invalidEvidence = findNonCanonicalFindingEvidence(newEntry.evidence);
+  const invalidEvidence = contract.evidence;
   if (invalidEvidence.length > 0) {
     process.stderr.write(
       'Stub evidence must use canonical file/path citation shapes; move diagnostic prose to narrative:\n',
@@ -528,7 +507,7 @@ function validateAndAppendFinding(
   }
 
   beforeRegistryWrite?.();
-  writeRegistry(entries, lease, paths.registryPath);
+  writeRegistry(entries, lease, paths);
   process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n\n`);
   process.stdout.write(`Chain tip: ${newEntry.content_hash}\n\n`);
   return 0;
@@ -544,23 +523,15 @@ export function validateRegistrySuffixForRechain(
   startIndex: number,
   schemaPath = SCHEMA_PATH,
 ): string[] {
-  const validate = loadStubValidator(schemaPath);
   const violations: string[] = [];
 
   for (let index = startIndex; index < entries.length; index += 1) {
     const entry = entries[index];
-    if (!validate(entry)) {
-      for (const error of validate.errors ?? []) {
-        violations.push(
-          `entry ${index} schema ${error.instancePath || '<root>'}: ${error.message} (${error.keyword})`,
-        );
-      }
-      continue;
-    }
+    const contract = rowContractViolations(entry, schemaPath, 'post-cutover');
+    for (const message of contract.schema) violations.push(`entry ${index} schema ${message}`);
 
-    const finding = entry as { id?: string; created_at?: unknown; evidence?: unknown[] };
-    if (!requiresCanonicalFindingEvidence(finding.created_at)) continue;
-    for (const violation of findNonCanonicalFindingEvidence(finding.evidence)) {
+    const finding = entry as { id?: string };
+    for (const violation of contract.evidence) {
       violations.push(
         `entry ${index} (${String(finding.id ?? '<unknown>')}) evidence[${violation.index}]: ${JSON.stringify(violation.evidence)}`,
       );
@@ -1181,6 +1152,70 @@ function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureReje
   return 0;
 }
 
+/**
+ * `assign <id> [--owner-user=<handle>] [--deadline=<date>] --reason=<why>` —
+ * gives a row its missing accountability fields (ARIA-HIGH-044). The rules
+ * are `applyAssignment`'s (fill, never change; a reason; no lapsed deadline);
+ * the chain is restitched like `close`, and `writeRegistry` holds the result
+ * to the row contract.
+ */
+export function assignFinding(
+  id: string,
+  request: AssignmentRequest,
+  lease: RegistryLockLease,
+  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
+): number {
+  const entries = loadRegistry(paths.registryPath);
+  const index = entries.findIndex((e) => e.id === id);
+  const entry = entries[index];
+  if (entry === undefined) {
+    process.stderr.write(`assign refused: ${id} is not in the registry\n`);
+    return 1;
+  }
+  const outcome = applyAssignment(entry, request);
+  if (!outcome.ok) {
+    process.stderr.write(`assign refused: ${outcome.reason}\n`);
+    return 1;
+  }
+  if (!outcome.changed) {
+    process.stdout.write(`No-op: ${id} already carries the requested owner_user/deadline.\n`);
+    return 0;
+  }
+  rechain(entries, index);
+  const post = verify(entries);
+  if (!post.ok) {
+    process.stderr.write(`Post-assign integrity check FAILED: ${post.reason}\n`);
+    return 1;
+  }
+  writeRegistry(entries, lease, paths);
+  process.stdout.write(
+    `Assigned: ${id} at position ${index} → ${outcome.fields.join(', ')}\nChain tip: ${chainTip(entries)}\n`,
+  );
+  return 0;
+}
+
+function cmdAssign(args: readonly string[], lease: RegistryLockLease): number {
+  const [id] = args;
+  const flag = (name: string): string | undefined =>
+    args.find((a) => a.startsWith(`--${name}=`))?.slice(`--${name}=`.length);
+  if (!id || id.startsWith('--')) {
+    process.stderr.write(
+      'assign requires an id: finding-registry assign <id> [--owner-user=<handle>] [--deadline=<YYYY-MM-DD>] --reason=<why>\n',
+    );
+    return 2;
+  }
+  return assignFinding(
+    id,
+    {
+      ownerUser: flag('owner-user'),
+      deadline: flag('deadline'),
+      reason: flag('reason') ?? '',
+      now: new Date(),
+    },
+    lease,
+  );
+}
+
 interface SweepConfig {
   readonly staleAfterDays: number;
   readonly dryRun: boolean;
@@ -1221,19 +1256,16 @@ export function planSweep(entries: readonly Finding[], config: SweepConfig): Swe
     if (!isUnresolvedFindingState(entry.state)) continue;
 
     // Deadline check (stronger signal) runs first.
-    if (entry.deadline) {
-      const deadlineDate = new Date(entry.deadline);
-      if (!Number.isNaN(deadlineDate.getTime()) && deadlineDate < config.now) {
-        if (entry.state !== 'BLOCKED') {
-          actions.push({
-            id: entry.id,
-            fromState: entry.state,
-            toState: 'BLOCKED',
-            reason: `past deadline ${entry.deadline}`,
-          });
-        }
-        continue;
+    if (entry.deadline && isDeadlineLapsed(entry.deadline, config.now)) {
+      if (entry.state !== 'BLOCKED') {
+        actions.push({
+          id: entry.id,
+          fromState: entry.state,
+          toState: 'BLOCKED',
+          reason: `past deadline ${entry.deadline}`,
+        });
       }
+      continue;
     }
 
     // Staleness check (OPEN + IN-PROGRESS only, not BLOCKED/STALE).
@@ -1923,7 +1955,7 @@ function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
     console.error(
-      'Usage: finding-registry <verify|add|add-explicit|import-narrative|close|sweep|export|list|rechain-from|dedupe> [args]',
+      'Usage: finding-registry <verify|add|add-explicit|import-narrative|close|reopen|assign|sweep|export|list|rechain-from|dedupe> [args]',
     );
     console.error('  verify');
     console.error('  add <domain> <stub.json>  — atomically allocate id + append');
@@ -1932,6 +1964,9 @@ function main(): void {
       '  import-narrative <stub.json>  — import one exact ORPHAN heading as OPEN\n',
     );
     console.error('  close <finding-id> <short-sha>');
+    process.stderr.write(
+      '  assign <finding-id> [--owner-user=<handle>] [--deadline=<YYYY-MM-DD>] --reason=<why>  — fill a missing owner/deadline\n',
+    );
     console.error('  sweep [--dry-run] [--stale-after=<days>]');
     console.error('  export <json-array|csv>');
     console.error(
@@ -2005,6 +2040,8 @@ function main(): void {
         ? { shas: rejectedShas, reason: reasonArg ? reasonArg.slice('--reason='.length) : '' }
         : undefined;
     exitCode = runRegistryMutation((lease) => cmdReopen(id, lease, rejection));
+  } else if (sub === 'assign') {
+    exitCode = runRegistryMutation((lease) => cmdAssign(args, lease));
   } else if (sub === 'export') {
     const format = args[0];
     if (!format) {
@@ -2041,6 +2078,10 @@ function runRegistryMutation(
   } catch (error) {
     if (error instanceof RegistryLockError) {
       process.stderr.write(`Registry mutation refused [${error.code}]: ${error.message}\n\n`);
+      return 1;
+    }
+    if (error instanceof RegistryWriteRefused) {
+      process.stderr.write(`${error.message}\n`);
       return 1;
     }
     process.stderr.write(

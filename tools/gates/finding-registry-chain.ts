@@ -61,6 +61,19 @@ export function isUnresolvedFindingState(state: string): boolean {
   return (UNRESOLVED_FINDING_STATES as readonly string[]).includes(state);
 }
 
+/**
+ * The sweep's clock: a deadline has lapsed once `new Date(deadline)` is
+ * before `now`, so a calendar date lapses at the start of its UTC day. An
+ * unparseable deadline never lapses here (the schema's `format` refuses it at
+ * every write). `planSweep` blocks on it and `assign` refuses to write a
+ * deadline it would already call lapsed (ARIA-HIGH-044), so the two cannot
+ * disagree by a day.
+ */
+export function isDeadlineLapsed(deadline: string, now: Date): boolean {
+  const due = new Date(deadline).getTime();
+  return !Number.isNaN(due) && due < now.getTime();
+}
+
 export interface Finding {
   id: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';

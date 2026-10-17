@@ -630,7 +630,8 @@ class SourceEnumAndAssets(_Store):
         self.assertIn("location /aria/webhook/", nginx)
         self.assertIn("proxy_pass http://127.0.0.1:8787", nginx)
         self.assertIn("zone=aria_webhook", nginx)
-        self.assertIn("aria-gateway.service", (_REPO_ROOT / "scripts/aria/provision_runner.sh").read_text(encoding="utf-8"))
+        # ARIA-HIGH-247 — the gateway's own provisioner, not the runner habitat's.
+        self.assertIn("aria-gateway.service", (_REPO_ROOT / "scripts/aria/provision_gateway.sh").read_text(encoding="utf-8"))
         runbook = (_REPO_ROOT / "docs/runbooks/aria-gateway.md").read_text(encoding="utf-8")
         for name in (gsrv.GITHUB_SECRET_ENV, gsrv.ALERTMANAGER_BEARER_ENV, gsrv.OPERATOR_BEARER_ENV, gsrv.ACTOR_ALLOWLIST_ENV):
             self.assertIn(name, runbook)

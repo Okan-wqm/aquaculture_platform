@@ -87,6 +87,12 @@ SKIP_HOLDS_SLOT = "already_holds_the_slot"
 SKIP_WAITING_EXTERNAL = "waiting_on_something_outside_aria"
 SKIP_WAITING_UNTIL = "waiting_until"
 SKIP_NOT_SELECTED = "outranked"
+# ARIA-HIGH-245 — the drain could not plan it (`mission_dispatch.drain_can_plan`):
+# no kernel contract and no ref an agent can cite. Selected, it was consumed
+# `next_cycle_queue_item_unevidenced` and held the slot every cycle. It waits
+# for evidence, which its producer's next sighting records (`open_mission`'s
+# evidence heal).
+SKIP_UNEVIDENCED = "unevidenced"
 
 # Reasons nothing was selected. Distinct on purpose: an empty queue, a busy
 # slot and a fully-blocked queue are three different mornings.
@@ -245,6 +251,8 @@ def select_next_mission(
     missions = list_open_missions(base_dir=root)
     holders = active_wip_missions(base_dir=root)
 
+    from .mission_dispatch import drain_can_plan
+
     skipped: list[SkippedMission] = []
     eligible: list[dict[str, Any]] = []
     for mission in missions:
@@ -266,6 +274,11 @@ def select_next_mission(
             # comment states the other half of this rule: a mission waiting on
             # a human must not hold the slot either.
             skipped.append(SkippedMission(mission_id, SKIP_WAITING_EXTERNAL, state))
+            continue
+        if not drain_can_plan(mission):
+            # A mission without evidence waits for it, so a queue of only
+            # these is ALL_MISSIONS_WAITING below — the skip row says which.
+            skipped.append(SkippedMission(mission_id, SKIP_UNEVIDENCED))
             continue
         eligible.append(mission)
 
@@ -332,6 +345,7 @@ __all__ = [
     "SCHEDULER_SCHEMA",
     "SELECTED",
     "SOURCE_RANK",
+    "SKIP_UNEVIDENCED",
     "SchedulerDecision",
     "SkippedMission",
     "WIP_SLOT_HELD",

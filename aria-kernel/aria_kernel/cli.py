@@ -1989,6 +1989,11 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
     )
+    # ARIA-HIGH-245 — the evidence the contract names (repo path[:line]),
+    # repeatable. Without one the scheduler skips the mission as unevidenced
+    # (`mission_dispatch.drain_can_plan`) unless its next action is a
+    # kernel contract.
+    mission_open.add_argument("--evidence-ref", action="append", default=[])
     mission_open.add_argument("--capability", default=None)
     mission_open.add_argument("--priority", type=int, default=None)
     mission_contract = add_subparser(
@@ -5318,6 +5323,7 @@ def _main(argv: list[str] | None = None) -> int:
                 wake_condition=json.loads(
                     Path(args.wake_file).read_text(encoding="utf-8")
                 ),
+                evidence_refs=args.evidence_ref,
                 capability=args.capability,
                 priority=args.priority,
                 base_dir=args.tools_dir,

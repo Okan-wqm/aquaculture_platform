@@ -147,6 +147,7 @@ class ReportSectionsTest(unittest.TestCase):
                     "kind": "evidence", "key": "orphan_finding:ORPHAN-HIGH-618",
                 },
                 priority=2,
+                evidence_refs=["docs/reviews/orphan-findings.md"],
                 base_dir=root,
             )
             lines = "\n".join(_render_mission_section(root))

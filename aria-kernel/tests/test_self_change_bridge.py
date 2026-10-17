@@ -110,7 +110,7 @@ class _Store(unittest.TestCase):
         # The live shape: a mission `open_self_improvement_missions` mints.
         row = open_mission(source_kind=SELF_IMPROVEMENT_SOURCE_KIND, source_id=key, repo_hash=canonical_identity(self.ws),
                            title=f"Doctor organ {key} failing", next_action=SELF_CHANGE_NEXT_ACTION,
-                           wake_condition={"kind": "evidence", "key": key}, priority=1, base_dir=self.tools)
+                           wake_condition={"kind": "evidence", "key": key}, evidence_refs=(), priority=1, base_dir=self.tools)
         return str(row["mission_id"])
 
 
@@ -150,7 +150,7 @@ class TheMissionBranchMintsTheContract(_Store):
     def test_every_other_mission_keeps_the_queue_contract(self) -> None:
         row = open_mission(source_kind="service_hardening", source_id="auth-service", repo_hash="rh-1", title="Harden auth-service",
                            next_action="Harden auth-service against finding F-1", wake_condition={"kind": "evidence", "key": "finding:F-1"},
-                           target_project="auth-service", base_dir=self.tools)
+                           evidence_refs=(), target_project="auth-service", base_dir=self.tools)
         # The generic projection mints only with evidence (ARIA-HIGH-243), and
         # only with refs the agent law admits at the checkout (ARIA-HIGH-384),
         # so the cited file is committed.
@@ -173,7 +173,7 @@ class TheMissionBranchMintsTheContract(_Store):
         # instead of handing the planner the generic contract.
         row = open_mission(source_kind="service_hardening", source_id="farm-service", repo_hash="rh-1", title="Harden farm-service",
                            next_action=SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "x"},
-                           target_project="farm-service", base_dir=self.tools)
+                           evidence_refs=(), target_project="farm-service", base_dir=self.tools)
         disclosed: list[tuple[str, dict]] = []
         item = {"queue_item_id": "qi-f1", "pressure_id": f"mission:{row['mission_id']}", "source_cycle_id": "cyc-1",
                 "recommended_action": SELF_CHANGE_NEXT_ACTION, "candidate_tools": []}
@@ -514,7 +514,7 @@ class EveryNextActionHasADispatcher(unittest.TestCase):
                 tools = ensure_tools_dir(workspace / "aria-tools")
                 row = open_mission(source_kind=entry.source_kind, source_id=f"consumer-proof:{pointer}", repo_hash=canonical_identity(workspace),
                                    title=f"consumer proof for {pointer}", next_action=pointer,
-                                   wake_condition={"kind": "evidence", "key": "consumer-proof"}, base_dir=tools)
+                                   wake_condition={"kind": "evidence", "key": "consumer-proof"}, evidence_refs=(), base_dir=tools)
                 candidates = consumer(workspace)
                 self.assertIn(str(row["mission_id"]), {str(c.get("candidate_id")) for c in candidates},
                               f"{pointer}: {entry.consumer} does not read a {entry.source_kind} mission carrying the pointer")

@@ -224,8 +224,13 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
         if (lockedBatch.weight?.actual) {
           lockedBatch.weight.actual.avgWeight = saved.averageWeight;
           // totalBiomass is the at-sample snapshot of the JSONB provenance
-          // block; current biomass is derived on read from the live count ×
-          // avgWeight, so this stored figure is provenance, not authority.
+          // block (the typed or entry-time populationSize × average); current
+          // biomass is derived on read from the live count × avgWeight, so
+          // this stored figure is provenance, not authority. The FCR authority
+          // (FCRCalculationService.calculateFcrAtLastWeighingMany) reads
+          // avgWeight, lastMeasuredAt and sampleSize as the weighing it judges
+          // and takes the count on that day from the removal ledger, so these
+          // three must stay one sample's values, written together here.
           lockedBatch.weight.actual.totalBiomass = saved.estimatedBiomass;
           lockedBatch.weight.actual.lastMeasuredAt = saved.measurementDate;
           lockedBatch.weight.actual.sampleSize = saved.sampleSize;

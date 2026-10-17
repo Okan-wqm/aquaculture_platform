@@ -49,6 +49,7 @@ import { withTenantContext } from '@aquaculture/backend-common';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { ConfigService } from '@nestjs/config';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
@@ -61,9 +62,12 @@ import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { TankOperation } from '../../../batch/entities/tank-operation.entity';
 import { AllocateToTankHandler } from '../../../batch/handlers/allocate-to-tank.handler';
 import { CreateBatchHandler } from '../../../batch/handlers/create-batch.handler';
+import { RecordMortalityHandler } from '../../../batch/handlers/record-mortality.handler';
 import { TransferBatchHandler } from '../../../batch/handlers/transfer-batch.handler';
 import { GetBatchHandler } from '../../../batch/query-handlers/get-batch.handler';
+import { MortalityCullPolicyService } from '../../../batch/services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../../batch/services/removal-quantity-policy.service';
+import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-plan.entity';
 import { FeedingMeal } from '../../../feeding-protocol/entities/feeding-meal.entity';
 import { FeedingProtocolV2 } from '../../../feeding-protocol/entities/feeding-protocol-v2.entity';
@@ -88,8 +92,12 @@ import { Pond } from '../../../farm/entities/pond.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { FeedTypeSpecies } from '../../../feed/entities/feed-type-species.entity';
 import { FeedingProtocol } from '../../../feed/entities/feeding-protocol.entity';
+import { FeedingProgram } from '../../../feeding/entities/feeding-program.entity';
+import { FeedingProgramTank } from '../../../feeding/entities/feeding-program-tank.entity';
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 import { GrowthMeasurement } from '../../../growth/entities/growth-measurement.entity';
+import { RecordGrowthSampleHandler } from '../../../growth/handlers/record-growth-sample.handler';
+import { FCRCalculationService } from '../../../growth/services/fcr-calculation.service';
 import { SiteContact } from '../../../site/entities/site-contact.entity';
 import { Supplier } from '../../../supplier/entities/supplier.entity';
 import { SupplierSite } from '../../../supplier/entities/supplier-site.entity';
@@ -117,12 +125,16 @@ import {
   WaterType,
 } from '../../../tank/entities/tank.entity';
 
-export interface FarmTenantFixture {
+/** A tank stocked with one batch. */
+export interface StockedTank {
+  tank: Tank;
+  batch: Batch;
+}
+
+export interface FarmTenantFixture extends StockedTank {
   site: Site;
   department: Department;
   species: Species;
-  tank: Tank;
-  batch: Batch;
 }
 
 export interface FarmTenantFixtureParams {
@@ -203,6 +215,98 @@ export const FIXTURE_ENTITIES = [
  */
 export function createFixtureAuditLogService(dataSource: DataSource): AuditLogService {
   return new AuditLogService(dataSource.getRepository(AuditLog));
+}
+
+/**
+ * The entities the FCR authority reads on top of FIXTURE_ENTITIES: its target
+ * chain falls back to the legacy feeding program of the batch's tank.
+ */
+export const FCR_AUTHORITY_ENTITIES = [FeedingProgram, FeedingProgramTank] as const;
+
+/**
+ * The production FCR authority over the fixture DataSource, with every
+ * repository it reads. It lives beside the other writers for the same reason:
+ * the raw repository wiring exists once per service's test tree, and specs
+ * never name a repository. The DataSource must register FIXTURE_ENTITIES and
+ * FCR_AUTHORITY_ENTITIES.
+ */
+export function createFixtureFcrCalculationService(dataSource: DataSource): FCRCalculationService {
+  return new FCRCalculationService(
+    dataSource.getRepository(FeedingRecord),
+    dataSource.getRepository(GrowthMeasurement),
+    dataSource.getRepository(Batch),
+    dataSource.getRepository(Species),
+    dataSource.getRepository(BatchLocation),
+    dataSource.getRepository(FeedingProgram),
+    dataSource.getRepository(FeedingProgramTank),
+    dataSource.getRepository(TankOperation),
+    new ProtocolRateService(),
+  );
+}
+
+/**
+ * The production handlers that weigh a stocked batch and remove fish from it.
+ *
+ * WHY they are built here: a weighing is more than `weight.actual.avgWeight`.
+ * RecordGrowthSampleHandler also writes the provenance the FCR authority reads
+ * with it (`lastMeasuredAt`, `sampleSize`), the `totalBiomass` it derives from
+ * the typed `populationSize`, and a GrowthMeasurement row, and
+ * RecordMortalityHandler writes the ledger row (count and the biomass
+ * RemovalQuantityPolicy rounds) that the FCR authority cuts by day and counts
+ * the head count at a weighing from. A suite that patched the JSON or the
+ * ledger by hand would miss exactly the fields a window or provenance defect
+ * lives in.
+ *
+ * Every collaborator is the real one, as in createFixtureBatchWriters. The
+ * DataSource must register FIXTURE_ENTITIES and FCR_AUTHORITY_ENTITIES, and the
+ * suite must create the farm-stock read model (which carries the mobile
+ * command receipts table the mortality path writes).
+ */
+export interface FixtureBatchRecorders {
+  recordGrowthSample: RecordGrowthSampleHandler;
+  recordMortality: RecordMortalityHandler;
+}
+
+export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatchRecorders {
+  const outboxPublisher = new OutboxPublisher(FarmOutbox);
+  // No backdate env override: the production defaults (growth 30 days,
+  // mortality 14 days) apply.
+  const backdatePolicy = new BackdatePolicyService(new ConfigService());
+
+  const recordGrowthSample = new RecordGrowthSampleHandler(
+    dataSource,
+    dataSource.getRepository(GrowthMeasurement),
+    dataSource.getRepository(Batch),
+    createFixtureFcrCalculationService(dataSource),
+    backdatePolicy,
+    outboxPublisher,
+  );
+
+  const recordMortality = new RecordMortalityHandler(
+    dataSource,
+    dataSource.getRepository(Batch),
+    dataSource.getRepository(MortalityRecord),
+    dataSource.getRepository(TankOperation),
+    dataSource.getRepository(TankBatch),
+    dataSource.getRepository(Equipment),
+    dataSource.getRepository(Tank),
+    dataSource.getRepository(EquipmentType),
+    outboxPublisher,
+    new DayPlanRecalcService(
+      outboxPublisher,
+      new ProtocolResolutionService(new ProtocolRateService()),
+    ),
+    new RemovalQuantityPolicyService(),
+    backdatePolicy,
+    new AuditLogService(dataSource.getRepository(AuditLog)),
+    new SiteAuthorizationService(),
+    new TankBatchService(),
+    new MortalityCullPolicyService(),
+    new FarmStockProjectionService(),
+    new MobileCommandReceiptService(),
+  );
+
+  return { recordGrowthSample, recordMortality };
 }
 
 /** The production command handlers a fixture needs to stock a tank. */
@@ -308,8 +412,6 @@ export async function createFarmTenantFixture(
   params: FarmTenantFixtureParams,
 ): Promise<FarmTenantFixture> {
   const { tenantId, codePrefix, userId } = params;
-  const initialQuantity = params.initialQuantity ?? 100;
-  const initialAvgWeightG = params.initialAvgWeightG ?? 10;
   const manager = dataSource.manager;
 
   const site = await withTenantContext(tenantId, () =>
@@ -364,30 +466,44 @@ export async function createFarmTenantFixture(
     ),
   );
 
-  const tank = await withTenantContext(tenantId, () =>
-    manager.save(
-      manager.create(Tank, {
-        tenantId,
-        name: `${codePrefix} Tank`,
-        code: `${codePrefix}-TANK`,
-        departmentId: department.id,
-        tankType: TankType.CIRCULAR,
-        material: TankMaterial.FIBERGLASS,
-        waterType: WaterType.SALTWATER,
-        diameter: 5,
-        depth: 2,
-        waterDepth: 2,
-        maxBiomass: 1500,
-        currentBiomass: (initialQuantity * initialAvgWeightG) / 1000,
-        currentCount: initialQuantity,
-        maxDensity: 30,
-        status: TankStatus.ACTIVE,
-        isActive: true,
-        createdBy: userId,
-        updatedBy: userId,
-      }),
-    ),
+  const { tank, batch } = await stockFixtureTank(
+    dataSource,
+    writers,
+    { department, species },
+    params,
   );
+
+  return { site, department, species, tank, batch };
+}
+
+/**
+ * Creates tank → batch → allocation in an existing tenant fixture's department
+ * and species, through the same production writers.
+ *
+ * WHY it is separate: a tenant holds one species per scientific name (unique
+ * per tenant), so a suite that needs two batches in one tenant (one sweep over
+ * both) cannot create a second tenant fixture; it stocks a second tank here.
+ * `params.codePrefix` names the new tank and batch and must differ from the
+ * fixture's.
+ */
+export async function stockFixtureTank(
+  dataSource: DataSource,
+  writers: FixtureBatchWriters,
+  base: Pick<FarmTenantFixture, 'department' | 'species'>,
+  params: FarmTenantFixtureParams,
+): Promise<StockedTank> {
+  const { tenantId, codePrefix, userId } = params;
+  const initialQuantity = params.initialQuantity ?? 100;
+  const initialAvgWeightG = params.initialAvgWeightG ?? 10;
+  const { department, species } = base;
+
+  const tank = await createFixtureTank(dataSource, department, {
+    tenantId,
+    code: `${codePrefix}-TANK`,
+    userId,
+    count: initialQuantity,
+    biomassKg: (initialQuantity * initialAvgWeightG) / 1000,
+  });
 
   const batch = await withTenantContext(tenantId, () =>
     writers.createBatch.execute(
@@ -427,5 +543,55 @@ export async function createFarmTenantFixture(
     ),
   );
 
-  return { site, department, species, tank, batch };
+  return { tank, batch };
+}
+
+/** What createFixtureTank builds: a tank's code and the totals it starts with. */
+export interface FixtureTankParams {
+  tenantId: string;
+  /** Unique per tenant; the tank's name is derived from it. */
+  code: string;
+  userId: string;
+  /** Fish the tank's stored totals start with; 0 for an empty tank. */
+  count: number;
+  /** Biomass the tank's stored totals start with, kg; 0 for an empty tank. */
+  biomassKg: number;
+}
+
+/**
+ * Creates one tank in a fixture department. stockFixtureTank stocks it
+ * through the production allocation; a suite that moves fish between tanks
+ * creates an empty one (count and biomass 0) as the destination.
+ */
+export async function createFixtureTank(
+  dataSource: DataSource,
+  department: Department,
+  params: FixtureTankParams,
+): Promise<Tank> {
+  const { tenantId, code, userId } = params;
+  const manager = dataSource.manager;
+  return withTenantContext(tenantId, () =>
+    manager.save(
+      manager.create(Tank, {
+        tenantId,
+        name: `${code} Tank`,
+        code,
+        departmentId: department.id,
+        tankType: TankType.CIRCULAR,
+        material: TankMaterial.FIBERGLASS,
+        waterType: WaterType.SALTWATER,
+        diameter: 5,
+        depth: 2,
+        waterDepth: 2,
+        maxBiomass: 1500,
+        currentBiomass: params.biomassKg,
+        currentCount: params.count,
+        maxDensity: 30,
+        status: TankStatus.ACTIVE,
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      }),
+    ),
+  );
 }

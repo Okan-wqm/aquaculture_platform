@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" width="960" height="640" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<!-- Greenhouse workspace motif (FE-MEDIUM-348): two NFT channels with net pots and leaf sprigs, and a few loose leaves. A mask: coverage only, no colour. Every line that reaches a tile edge leaves it at the height it enters, so the tile repeats without a seam. -->
+<defs>
+<g id="sprig"><path d="M0 0V-40"/><g fill="currentColor" stroke="none"><path d="M0 -12C-8 -24 -22 -30 -34 -28C-26 -16 -12 -10 0 -12Z"/><path d="M0 -22C8 -34 22 -40 34 -38C26 -26 12 -20 0 -22Z"/><path d="M0 -38C-7 -48 -6 -60 0 -68C6 -60 7 -48 0 -38Z"/></g></g>
+<path id="leaf" fill="currentColor" stroke="none" d="M0 0C10 -10 28 -12 40 -4C28 6 10 8 0 0Z"/>
+</defs>
+<path d="M0 196H960M0 214H960"/>
+<circle cx="60" cy="205" r="6"/>
+<circle cx="180" cy="205" r="6"/>
+<circle cx="300" cy="205" r="6"/>
+<circle cx="420" cy="205" r="6"/>
+<circle cx="540" cy="205" r="6"/>
+<circle cx="660" cy="205" r="6"/>
+<circle cx="780" cy="205" r="6"/>
+<circle cx="900" cy="205" r="6"/>
+<path d="M0 516H960M0 534H960"/>
+<circle cx="60" cy="525" r="6"/>
+<circle cx="180" cy="525" r="6"/>
+<circle cx="300" cy="525" r="6"/>
+<circle cx="420" cy="525" r="6"/>
+<circle cx="540" cy="525" r="6"/>
+<circle cx="660" cy="525" r="6"/>
+<circle cx="780" cy="525" r="6"/>
+<circle cx="900" cy="525" r="6"/>
+<use href="#sprig" transform="translate(60 196) scale(1)"/>
+<use href="#sprig" transform="translate(180 196) scale(0.8)"/>
+<use href="#sprig" transform="translate(420 196) scale(1.15)"/>
+<use href="#sprig" transform="translate(540 196) scale(0.9)"/>
+<use href="#sprig" transform="translate(780 196) scale(1)"/>
+<use href="#sprig" transform="translate(60 516) scale(0.85)"/>
+<use href="#sprig" transform="translate(300 516) scale(1.1)"/>
+<use href="#sprig" transform="translate(420 516) scale(0.75)"/>
+<use href="#sprig" transform="translate(660 516) scale(1)"/>
+<use href="#sprig" transform="translate(900 516) scale(0.9)"/>
+<use href="#leaf" transform="translate(250 330) rotate(-20)"/>
+<use href="#leaf" transform="translate(610 300) rotate(25)"/>
+<use href="#leaf" transform="translate(840 380) rotate(-40)"/>
+<use href="#leaf" transform="translate(130 60) rotate(15)"/>
+<use href="#leaf" transform="translate(500 40) rotate(-10)"/>
+<use href="#leaf" transform="translate(900 70) rotate(35)"/>
+<use href="#leaf" transform="translate(360 600) rotate(20)"/>
+<use href="#leaf" transform="translate(720 590) rotate(-25)"/>
+</svg>

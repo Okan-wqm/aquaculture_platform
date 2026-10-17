@@ -35,15 +35,20 @@ import {
   SUDERRA_SOURCE,
   THEME_CSS,
   THEME_SOURCE,
+  THEMES,
   WORKSPACES,
+  bare,
   cascade,
   contrast,
   luminance,
+  oklch,
   over,
   page,
   placements,
   resolver,
+  suderraRule,
   themeBlock,
+  workspaceMotifs,
 } from './lib/web-console-theme';
 
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -353,7 +358,9 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
   /** Every console property theme.css declares — the tokens a placement must agree on. */
   const SD_PROPERTIES = [
     ...new Set(
-      [...THEME_SOURCE.matchAll(/(--(?:color|shadow)-sd-[a-z0-9-]+)\s*:/g)].map(([, p = '']) => p),
+      [...THEME_SOURCE.matchAll(/(--(?:(?:color|shadow)-)?sd-[a-z0-9-]+)\s*:/g)].map(
+        ([, p = '']) => p,
+      ),
     ),
   ];
 
@@ -662,6 +669,174 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
         flips: true,
       });
     }
+  });
+});
+
+/**
+ * INVARIANT (FE-MEDIUM-348): each workspace carries its domain on the console's ground.
+ *
+ * Owner decision (2026-10-17): switching the workspace moves the whole console
+ * into that domain, not only its accent ramp. theme.css re-assigns the ground
+ * per workspace and theme — the page (`sd-paper`), the rail and the header
+ * (`sd-parchment`) — to a slight tint of the domain: Production deep-sea
+ * teal-blue, Greenhouse leaf green, Control & sensors industrial purple-grey,
+ * Company corporate navy-graphite. suderra.css draws a static motif of the
+ * domain behind the tenant console at a low opacity (reef fish; hydroponic
+ * channels and leaves; circuit and P&ID lines; Company keeps the plain grid).
+ *
+ * Every contrast row of FE-HIGH-321 already resolves `sd-paper` and
+ * `sd-parchment` per workspace, so the tints are measured there. This block
+ * holds what is new: that the tints exist, lean the right way and stay
+ * slight, that the neutral ground stays where no workspace is set, and that
+ * text and icons still read on the two surfaces the change creates — the
+ * ground under the motif and the frosted header over it.
+ */
+describe('INVARIANT (FE-MEDIUM-348): each workspace carries its domain on the console ground', () => {
+  const GROUND = ['sd-paper', 'sd-parchment'];
+  /** Where each domain's tint points (OKLCH hue, degrees) and how far it may go ("slight"). */
+  const DOMAIN: Readonly<Record<string, { hue: readonly [number, number]; maxChroma: number }>> = {
+    aqua: { hue: [200, 240], maxChroma: 0.025 }, // deep-sea blue / teal water
+    gh: { hue: [125, 165], maxChroma: 0.025 }, // leaf green
+    ctl: { hue: [280, 310], maxChroma: 0.025 }, // industrial purple-grey
+    org: { hue: [240, 275], maxChroma: 0.015 }, // corporate navy / graphite
+  };
+  /** Below this chroma a tint is not seen; above DOMAIN's it is no longer slight. */
+  const PERCEPTIBLE = 0.005;
+  const TEXT = [
+    'sd-ink',
+    'sd-ink-soft',
+    'sd-ink-muted',
+    'sd-ink-hint',
+    'sd-teal',
+    'sd-teal-deep',
+    'sd-danger-ink',
+    'sd-neutral-700',
+    'sd-neutral-800',
+    'sd-neutral-900',
+    'sd-accent-700',
+    'sd-accent-800',
+    'sd-accent-900',
+    'sd-hz-amber-ink',
+  ];
+  const ICONS = ['sd-accent', 'sd-neutral-600', 'sd-hz-red', 'sd-danger', 'sd-violet-ink'];
+
+  /** The motif layer's paint, read from suderra.css: a token colour at a token opacity. */
+  const motifLayer = suderraRule('.sd-content::after');
+  const motifColour = /background-color:\s*var\(--color-([a-z0-9-]+)\)/.exec(motifLayer)?.[1];
+  /** The header's frost: sd-parchment at this share over whatever scrolls under it. */
+  const headerShare = Number(
+    /var\(--color-sd-parchment\)_(\d+)%/.exec(
+      readFileSync(
+        resolve(REPO_ROOT, 'web/shared-ui/src/components/Layout/console/ConsoleHeader.tsx'),
+        'utf8',
+      ),
+    )?.[1],
+  );
+
+  it('reads the motif layer and the header frost', () => {
+    // A selector or regex slip would otherwise measure nothing below.
+    expect(motifColour).toBe('sd-accent');
+    expect(headerShare).toBeGreaterThan(50);
+    expect(headerShare).toBeLessThan(100);
+    expect([...workspaceMotifs().keys()].sort()).toEqual(['aqua', 'ctl', 'gh']);
+  });
+
+  it('every workspace moves the ground off the neutral and off every other workspace, in both themes', () => {
+    const same: string[] = [];
+    for (const theme of THEMES) {
+      const neutral = resolver(bare(theme));
+      const seen = new Map<string, string>();
+      for (const ws of WORKSPACES) {
+        const t = resolver(page(theme, ws));
+        for (const name of GROUND) {
+          if (t(name) === neutral(name)) same.push(`${theme}/${ws} ${name} is the neutral ground`);
+          const key = `${name} ${t(name)}`;
+          const other = seen.get(key);
+          if (other !== undefined) same.push(`${theme}: ${ws} and ${other} share ${key}`);
+          seen.set(key, ws);
+        }
+      }
+    }
+    expect(same).toEqual([]);
+  });
+
+  it("each tint leans to its domain and stays slight, at the neutral ground's lightness", () => {
+    const off: string[] = [];
+    for (const theme of THEMES) {
+      const neutral = resolver(bare(theme));
+      for (const ws of WORKSPACES) {
+        const domain = DOMAIN[ws];
+        if (domain === undefined) throw new Error(`no domain for workspace ${ws}`);
+        const t = resolver(page(theme, ws));
+        for (const name of GROUND) {
+          const tint = oklch(t(name));
+          const at = `${theme}/${ws} ${name} ${t(name)}`;
+          if (tint.c < PERCEPTIBLE || tint.c > domain.maxChroma)
+            off.push(`${at}: chroma ${tint.c.toFixed(4)}`);
+          if (tint.h < domain.hue[0] || tint.h > domain.hue[1])
+            off.push(`${at}: hue ${tint.h.toFixed(1)}`);
+          // Same lightness as the neutral ground: the tint changes the hue, never the contrast.
+          if (Math.abs(tint.l - oklch(neutral(name)).l) > 0.006)
+            off.push(`${at}: lightness ${tint.l.toFixed(4)}`);
+        }
+      }
+    }
+    expect(off).toEqual([]);
+  });
+
+  it('with no workspace set the ground stays neutral graphite (the SUPER_ADMIN console, the auth pages)', () => {
+    for (const theme of THEMES)
+      for (const name of GROUND)
+        expect({ theme, name, chroma: oklch(resolver(bare(theme))(name)).c < PERCEPTIBLE }).toEqual(
+          { theme, name, chroma: true },
+        );
+  });
+
+  it('mint-paper, the text on the solid accent, stays the ground colour in every workspace', () => {
+    for (const theme of THEMES)
+      for (const ws of WORKSPACES) {
+        const t = resolver(page(theme, ws));
+        expect({ theme, ws, mint: t('sd-mint-paper') }).toEqual({ theme, ws, mint: t('sd-paper') });
+      }
+  });
+
+  it('the motif is subtle: one opacity per theme, at most 0.12', () => {
+    for (const theme of THEMES) {
+      const opacity = Number(cascade(page(theme, 'aqua'))('--sd-motif-opacity'));
+      expect({ theme, subtle: opacity > 0 && opacity <= 0.12 }).toEqual({ theme, subtle: true });
+    }
+  });
+
+  it('text holds 4.5:1 and icons 3:1 on the ground under the motif and on the frosted header over it', () => {
+    if (motifColour === undefined) throw new Error('suderra.css motif layer names no colour token');
+    const motifs = workspaceMotifs();
+    const failures: string[] = [];
+    for (const theme of THEMES) {
+      for (const ws of WORKSPACES) {
+        const t = resolver(page(theme, ws));
+        const opacity = Number(cascade(page(theme, ws))('--sd-motif-opacity'));
+        // Where the motif's mask is solid, the accent lies over the paper at the layer's opacity.
+        const ground = motifs.has(ws)
+          ? over(t(motifColour), opacity, t('sd-paper'))
+          : t('sd-paper');
+        const header = over(t('sd-parchment'), headerShare / 100, ground);
+        const at = `${theme}/${ws}`;
+        for (const [surface, bg] of [
+          ['ground under the motif', ground],
+          ['frosted header', header],
+        ] as const) {
+          for (const name of TEXT)
+            if (contrast(t(name), bg) < 4.5)
+              failures.push(`${at} ${name} on the ${surface}: ${contrast(t(name), bg).toFixed(2)}`);
+          for (const name of ICONS)
+            if (contrast(t(name), bg) < 3)
+              failures.push(
+                `${at} icon ${name} on the ${surface}: ${contrast(t(name), bg).toFixed(2)}`,
+              );
+        }
+      }
+    }
+    expect(failures).toEqual([]);
   });
 });
 

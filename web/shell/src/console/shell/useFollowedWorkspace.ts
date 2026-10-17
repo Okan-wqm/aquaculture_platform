@@ -7,8 +7,9 @@
  * link — while a page the current workspace shares keeps it), derived on
  * every render so the rail never shows a stale workspace for a frame. The
  * choice is stored per tenant once followed, and `data-ws` on <html> switches
- * the accent ramp (theme.css `[data-ws]`) for as long as the console is
- * mounted; unmounting it (sign-out, the SUPER_ADMIN console) removes it.
+ * the accent ramp and the ground tint (theme.css `[data-ws]`) and the motif
+ * behind the column (suderra.css, FE-MEDIUM-348) for as long as the console
+ * is mounted; unmounting it (sign-out, the SUPER_ADMIN console) removes it.
  *
  * A role preview's narrower nav may move the rail too: the context keeps that
  * workspace apart from the admin's own and stores only the latter

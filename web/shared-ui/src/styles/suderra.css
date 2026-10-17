@@ -17,8 +17,8 @@
  *      Input inside the scope therefore render Industry with no per-component
  *      skin, and their own `dark:` classes keep working because the dark theme
  *      re-assigns the same scales to the Control-room ramp.
- *   2. The content column: the engineering-grid ground and the `page`
- *      container the console's layout queries.
+ *   2. The content column: the engineering-grid ground, the workspace's
+ *      motif over it, and the `page` container the console's layout queries.
  *   3. The blueprint frame: `sd-card`, and `sd-corners` for any other box.
  *   4. The `sd-*` page classes messaging-module's pages are written against
  *      (page head, banner, empty state, the chat surface).
@@ -289,8 +289,54 @@
     opacity: 0.5;
     mix-blend-mode: screen;
   }
+
+  /* The workspace motif (FE-MEDIUM-348; owner decision 2026-10-17): over the
+     grid, a static drawing of the workspace's domain — the login reef's fish
+     for Production, hydroponic channels and leaves for Greenhouse, circuit
+     and P&ID lines for Control & sensors. Company keeps the plain grid.
+     WHAT: the column's second pseudo-element, laid out as the grid's (fixed
+     to the viewport, the column's width, z-index -1 inside the column's
+     stacking context, so after the grid and under every child), painting
+     the workspace accent through the motif file as a mask at the theme's
+     `--sd-motif-opacity`. The files carry no colour (a mask reads coverage
+     only), so the motif follows the workspace and the theme with the tokens.
+     WHY it costs nothing where it is not drawn: the base rule sets no
+     `content`, so no box exists until a workspace rule gives it one — and a
+     browser fetches a mask only for a box that uses it. Every workspace rule
+     needs `.sd-content`, the tenant console's column, which the SUPER_ADMIN
+     console and the auth pages never render. It never moves: no animation,
+     no transition (styles/__tests__/suderra-workspace-motif.spec.ts). */
+  .sd-content::after {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-end: 0;
+    width: 100cqw;
+    z-index: -1;
+    pointer-events: none;
+    background-color: var(--color-sd-accent);
+    opacity: var(--sd-motif-opacity);
+    mask-repeat: repeat;
+    mask-position: 0 0;
+  }
+  [data-ws='aqua'] .sd-content::after {
+    content: '';
+    mask-image: url('./motifs/aqua.svg');
+    mask-size: 1200px 800px;
+  }
+  [data-ws='gh'] .sd-content::after {
+    content: '';
+    mask-image: url('./motifs/gh.svg');
+    mask-size: 960px 640px;
+  }
+  [data-ws='ctl'] .sd-content::after {
+    content: '';
+    mask-image: url('./motifs/ctl.svg');
+    mask-size: 960px 640px;
+  }
+
   @media print {
-    .sd-content::before {
+    .sd-content::before,
+    .sd-content::after {
       display: none;
     }
   }

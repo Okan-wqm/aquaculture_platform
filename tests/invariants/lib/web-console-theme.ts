@@ -31,7 +31,8 @@ export const SUDERRA_SOURCE = readFileSync(resolve(REPO_ROOT, SUDERRA_CSS), 'utf
 
 export type Theme = 'light' | 'dark';
 export const THEMES: readonly Theme[] = ['light', 'dark'];
-/** The console's workspaces (README §6): aqua is the default and carries no `data-ws`. */
+/** The console's workspaces (README §6). The shell sets `data-ws` for each one, aqua included
+ *  (useFollowedWorkspace); aqua's accent is the theme default, its ground is its own block. */
 export const WORKSPACES: readonly string[] = ['aqua', 'gh', 'ctl', 'org'];
 
 /** The `@theme { … }` block alone — a `[data-theme='dark']` override further down
@@ -64,6 +65,28 @@ export function luminance(hex: string): number {
 export function contrast(a: string, b: string): number {
   const [la, lb] = [luminance(a), luminance(b)];
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** OKLCH lightness, chroma and hue (degrees) of a `#rrggbb` colour — how far a tint leans and
+ *  which way (Björn Ottosson's OKLab, the space theme.css's comments give their values in). */
+export function oklch(hex: string): { l: number; c: number; h: number } {
+  const linear = (value: number): number => {
+    const c = value / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const [sr, sg, sb] = hexToRgb(hex);
+  const [r, g, b] = [linear(sr), linear(sg), linear(sb)];
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  const hue = (Math.atan2(bb, a) * 180) / Math.PI;
+  return {
+    l: 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    c: Math.hypot(a, bb),
+    h: hue < 0 ? hue + 360 : hue,
+  };
 }
 
 /** `fg` drawn at `alpha` over `bg` — a tinted surface such as a chat bubble. */
@@ -168,11 +191,19 @@ export function cascade(path: readonly Attrs[]): (property: string) => string | 
 }
 
 const DARK: Attrs = { 'data-theme': 'dark' };
-const wsAttrs = (ws: string): Attrs => (ws === 'aqua' ? {} : { 'data-ws': ws });
+// Every workspace, aqua included, as the shell writes it (FE-MEDIUM-348): modelling aqua as
+// the absence of the attribute measured a page nobody sees once aqua has a block of its own.
+const wsAttrs = (ws: string): Attrs => ({ 'data-ws': ws });
 
 /** The page: the theme on <html>, the workspace on <body>, a console element under them. */
 export function page(theme: Theme, ws: string): Attrs[] {
   return [theme === 'dark' ? DARK : {}, wsAttrs(ws), {}];
+}
+
+/** A page with no workspace — the SUPER_ADMIN console and the auth pages, where the console
+ *  shell (and with it `data-ws`) is not mounted. */
+export function bare(theme: Theme): Attrs[] {
+  return [theme === 'dark' ? DARK : {}, {}, {}];
 }
 
 /** Every other placement of the same theme and workspace — the attributes on one element,
@@ -224,6 +255,18 @@ export function suderraRule(selector: string): string {
   const body = SUDERRA_RULES.find(([list]) => list === normalize(selector))?.[1];
   if (body === undefined) throw new Error(`suderra.css has no rule \`${selector}\``);
   return body;
+}
+
+/** The workspace motif behind the tenant console (FE-MEDIUM-348): the workspaces suderra.css
+ *  draws one for — a `[data-ws='…'] .sd-content::after` rule naming a mask — and its file. */
+export function workspaceMotifs(): Map<string, string> {
+  const motifs = new Map<string, string>();
+  for (const [selector, body] of SUDERRA_RULES) {
+    const ws = /^\[data-ws='([a-z]+)'\] \.sd-content::after$/.exec(selector)?.[1];
+    const file = /mask-image:\s*url\('([^']+)'\)/.exec(body)?.[1];
+    if (ws !== undefined && file !== undefined) motifs.set(ws, file);
+  }
+  return motifs;
 }
 
 /** The scope's re-assignments, both themes. */

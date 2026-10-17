@@ -32,11 +32,11 @@ from aria_kernel.genesis_adapter_custody import (
 )
 from aria_kernel.tool_registry import GovernanceError, get_tool, list_tools, register_tool, transition_tool
 from aria_kernel.tool_runner import run_tool
+from tests._helpers.sandbox_pins import require_sandbox_backend
 from tests.test_genesis_adapter_custody import (
     GOOD_SOURCE,
     _git_workspace,
     _manifest,
-    _requires_backend,
     accept_drafter_result,
 )
 
@@ -62,7 +62,7 @@ def _drafted_manifest(**overrides) -> dict:
 
 class _MaterializeLayout(unittest.TestCase):
     def setUp(self) -> None:
-        _requires_backend(self)
+        require_sandbox_backend()
         base = Path(tempfile.mkdtemp(prefix="aria-genesis-mat-", dir="/var/tmp"))
         self.addCleanup(shutil.rmtree, base, True)
         self.base = base

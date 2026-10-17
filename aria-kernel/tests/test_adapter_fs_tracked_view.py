@@ -23,9 +23,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel import implementation_safety as impl
 from aria_kernel.adapter_room import prepare_adapter_spawn, run_adapter
 from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+from tests._helpers.sandbox_pins import require_sandbox_backend
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ADAPTER_FS = REPO_ROOT / "tools" / "aria-adapters" / "adapter-fs.ts"
@@ -60,8 +60,7 @@ def _node_strips_types() -> bool:
 
 class UntrackedEntryUnderAScanRootTests(unittest.TestCase):
     def setUp(self) -> None:
-        if impl.sandbox_backend() is None:
-            self.skipTest(f"bwrap is not usable on this host: {impl.sandbox_unavailable_detail()}")
+        require_sandbox_backend()
         if not _node_strips_types():
             self.skipTest("the node on PATH cannot run TypeScript (--experimental-strip-types needs Node >= 22.6)")
         # Under /var/tmp, not /tmp: the room mounts its own /tmp.

@@ -19,6 +19,13 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 FEEDBACK_VERDICTS = ("true_positive", "false_positive")
+# ARIA-MEDIUM-276 — what a labeler answers when the evidence decides neither
+# verdict. It is not a verdict: it mints no feedback row (FEEDBACK_VERDICTS
+# stays the ground-truth vocabulary the judges and the calibration share).
+# The label queue's batch lane records it on the sample as non-response, so
+# a forced choice no longer stands in for "cannot tell" and the sample still
+# says which drawn items yielded no label.
+LABEL_ABSTENTION = "cannot_judge"
 
 # ORPHAN-MEDIUM-785 — how far back the judgment sampler looks when the
 # current cycle's own runs are thin or absent. The exact-cycle filter
@@ -742,11 +749,12 @@ def record_operator_feedback_batch(
 
     stratified = sample.get("strategy") == CALIBRATION_STRATIFIED_STRATEGY
     rows = []
+    abstained: list[dict[str, Any]] = []
     for verdict, item in normalized:
         if stratified:
             # The label queue's law: nothing is pre-filled, everything is
             # confirmed. An unchanged verdict file mints no ground truth.
-            if verdict.get("verdict") not in FEEDBACK_VERDICTS:
+            if verdict.get("verdict") not in (*FEEDBACK_VERDICTS, LABEL_ABSTENTION):
                 raise GovernanceError(
                     f"label queue verdict is not decided for {item.get('run_id')} {item.get('finding_id')}: "
                     f"{verdict.get('verdict')!r}"
@@ -755,6 +763,14 @@ def record_operator_feedback_batch(
                 raise GovernanceError(
                     f"label queue verdict is not confirmed by the operator for {item.get('run_id')} {item.get('finding_id')}"
                 )
+            if verdict.get("verdict") == LABEL_ABSTENTION:
+                # ARIA-MEDIUM-276 — non-response, recorded on the sample, never
+                # a feedback row.
+                abstained.append({
+                    "run_id": item.get("run_id"), "finding_id": item.get("finding_id"),
+                    "judgment_group_id": item.get("judgment_group_id"), "stratum": item.get("stratum"),
+                })
+                continue
         rows.append(
             record_operator_feedback(
                 tool_id=str(item.get("tool_id") or sample.get("tool_id") or ""),
@@ -774,8 +790,12 @@ def record_operator_feedback_batch(
                     verdict.get("judgment_group_id") or item.get("judgment_group_id") or sample_id
                 ),
                 finding_fingerprint=str(item.get("finding_fingerprint") or ""),
+                # ARIA-MEDIUM-276 — and the item's inclusion probability under
+                # the queue's sampling design, so an estimate built from the
+                # labels can weight each by the chance it had to be drawn.
                 label_provenance=(
-                    {"queue_id": sample_id, "stratum": str(item.get("stratum") or "")} if stratified else None
+                    {"queue_id": sample_id, "stratum": str(item.get("stratum") or ""),
+                     "inclusion_probability": item.get("inclusion_probability")} if stratified else None
                 ),
                 base_dir=base_dir,
             ),
@@ -783,6 +803,8 @@ def record_operator_feedback_batch(
     stored_sample = dict(sample)
     stored_sample["status"] = "recorded"
     stored_sample["recorded_feedback_count"] = len(rows)
+    if stratified:
+        stored_sample["abstained"] = abstained
     stored_sample["recorded_at_status"] = utc_now()
     # ARIA-HIGH-165 (F13) — the status used to be built and dropped: 125
     # `pending` / 65 `empty` samples on the live store, none ever recorded.

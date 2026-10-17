@@ -5,10 +5,13 @@
  * (@RequireTenantPermission) is the real enforcement; these guards only decide
  * what a user can REACH in the SPA.
  *
- * Two layers:
- *  - RequireTenantAdmin — outer gate on the whole module: may this user ENTER the
- *    tenant panel at all? A global tenant admin, or a delegate holding any
- *    delegatable panel capability (hasTenantPanelAccess).
+ * Three gates:
+ *  - RequireTenantMember — the company dashboard (the panel's index): any
+ *    authenticated tenant member. The page itself shows the account's cards to
+ *    a tenant admin and only a member's own notices to anyone else.
+ *  - RequireTenantAdmin — outer gate on every other panel page: may this user
+ *    ENTER the tenant panel at all? A global tenant admin, or a delegate
+ *    holding any delegatable panel capability (hasTenantPanelAccess).
  *  - RequireTenantCapability — per-page gate: TENANT_ADMIN/SUPER_ADMIN bypass;
  *    a delegate needs the page's specific capability; admin-only pages accept
  *    only a global tenant admin (adminOnly).
@@ -25,6 +28,25 @@ import {
   hasResourcePermission,
   hasTenantPanelAccess,
 } from '@aquaculture/shared-ui';
+
+/**
+ * Any signed-in member. The shell's route guard (ProtectedRoute, via
+ * TenantPanelRoute) has already required a web-panel account with a tenant;
+ * this repeats only the session check, as every gate here does.
+ */
+export const RequireTenantMember: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading } = useAuthContext();
+
+  if (isLoading) {
+    return <GuardLoading />;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+};
 
 export const RequireTenantAdmin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, isLoading } = useAuthContext();

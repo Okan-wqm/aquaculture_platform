@@ -1,5 +1,6 @@
 /**
- * Alarm priority counts — alert-engine alarms as the annunciator's four tiles.
+ * Alarm priority counts — alert-engine alarms as the annunciator's four tiles
+ * and as each module workspace's P1/P2/P3 in the workspace menu.
  *
  * WHY: the annunciator shows three priority tiles plus "awaiting
  * acknowledgement" and lights a tile whenever its count is above zero (design
@@ -18,14 +19,19 @@
  * the way to stop it that WCAG 2.2.2 asks of a flash lasting over 5 s.
  *
  * WHAT: summariseAlarms(), which folds the server's per-(severity,
- * acknowledged) counts of unresolved alarms into the count of each tile and
- * the unacknowledged P1 count. Advisories (LOW, INFO) count nowhere.
+ * acknowledged, module) counts of unresolved alarms into the count of each
+ * tile and the unacknowledged P1 count — every module's, an alarm recorded
+ * without one included; workspaceAlarmTallies(), the same P1/P2/P3 split per
+ * module workspace (ALERT-MEDIUM-010). Advisories (LOW, INFO) count nowhere.
  */
-import { isOnTile, type AnnunciatorFilter } from '@aquaculture/shared-ui';
+import { isOnTile, type AlarmPriorityTally, type AnnunciatorFilter } from '@aquaculture/shared-ui';
 import type { ActiveAlertCount } from '@platform/shared-ui/generated/graphql-types';
 
-/** One row of activeAlertCounts: unresolved alarms of a severity, acknowledged or not. */
-export type AlarmCountRow = Pick<ActiveAlertCount, 'severity' | 'acknowledged' | 'count'>;
+import { ALARM_WORKSPACE_MODULE, type AlarmWorkspaceId } from '../rail/alarmWorkspaces';
+
+/** One row of activeAlertCounts: unresolved alarms of a severity, acknowledged or not, of a module. */
+export type AlarmCountRow = Pick<ActiveAlertCount, 'severity' | 'acknowledged' | 'count'> &
+  Partial<Pick<ActiveAlertCount, 'module'>>;
 
 /** Open alarms per annunciator tile, keyed by its id — a tile added in shared-ui must be counted. */
 export interface AlarmCounts extends Record<AnnunciatorFilter, number> {
@@ -33,17 +39,38 @@ export interface AlarmCounts extends Record<AnnunciatorFilter, number> {
   readonly p1Unack: number;
 }
 
-export function summariseAlarms(rows: readonly AlarmCountRow[]): AlarmCounts {
-  const total = (counted: (row: AlarmCountRow) => boolean): number =>
-    rows.reduce((sum, row) => (counted(row) ? sum + row.count : sum), 0);
-  // activeAlertCounts counts unresolved alarms only, so every row is open.
-  const onTile = (tile: AnnunciatorFilter, row: AlarmCountRow): boolean =>
-    isOnTile(tile, { ...row, resolved: false });
+/** Each module workspace's open alarms per priority. */
+export type WorkspaceAlarmTallies = Readonly<Record<AlarmWorkspaceId, AlarmPriorityTally>>;
+
+function totalOf(rows: readonly AlarmCountRow[], counted: (row: AlarmCountRow) => boolean): number {
+  return rows.reduce((sum, row) => (counted(row) ? sum + row.count : sum), 0);
+}
+
+// activeAlertCounts counts unresolved alarms only, so every row is open.
+function onTile(tile: AnnunciatorFilter, row: AlarmCountRow): boolean {
+  return isOnTile(tile, { ...row, resolved: false });
+}
+
+function tallyOf(rows: readonly AlarmCountRow[]): AlarmPriorityTally {
   return {
-    p1: total((row) => onTile('p1', row)),
-    p2: total((row) => onTile('p2', row)),
-    p3: total((row) => onTile('p3', row)),
-    unack: total((row) => onTile('unack', row)),
-    p1Unack: total((row) => onTile('p1', row) && !row.acknowledged),
+    p1: totalOf(rows, (row) => onTile('p1', row)),
+    p2: totalOf(rows, (row) => onTile('p2', row)),
+    p3: totalOf(rows, (row) => onTile('p3', row)),
   };
+}
+
+export function summariseAlarms(rows: readonly AlarmCountRow[]): AlarmCounts {
+  return {
+    ...tallyOf(rows),
+    unack: totalOf(rows, (row) => onTile('unack', row)),
+    p1Unack: totalOf(rows, (row) => onTile('p1', row) && !row.acknowledged),
+  };
+}
+
+export function workspaceAlarmTallies(rows: readonly AlarmCountRow[]): WorkspaceAlarmTallies {
+  // Spelled per workspace: a workspace added to ALARM_WORKSPACES does not
+  // compile until it is counted here.
+  const of = (workspace: AlarmWorkspaceId): AlarmPriorityTally =>
+    tallyOf(rows.filter((row) => row.module === ALARM_WORKSPACE_MODULE[workspace]));
+  return { aqua: of('aqua'), gh: of('gh'), ctl: of('ctl') };
 }

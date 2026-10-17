@@ -86,6 +86,8 @@ function under(pathname: string, prefix: string): boolean {
 function routeAdmits(viewer: Viewer, path: string): boolean {
   const { pathname } = parseNavLocation(path);
   const isAdmin = viewer.role === 'TENANT_ADMIN';
+  // The company dashboard (/tenant index) admits every tenant member.
+  if (pathname === '/tenant') return true;
   if (under(pathname, '/tenant')) {
     const capability = TENANT_ROUTE_CAPABILITY[pathname];
     return isAdmin || (capability !== undefined && viewer.permissions.includes(capability));
@@ -163,7 +165,11 @@ describe('buildConsoleNav — every role × module set × capability set', () =>
         const moduleServes =
           entry.brokenUnless === undefined || viewer.modules.includes(entry.brokenUnless);
         const pageAdmits = entry.refusedRoles?.includes(viewer.role) !== true;
-        const reachable = (moduleServes || viewer.role === 'TENANT_ADMIN') && pageAdmits;
+        const workspaceServes =
+          entry.onlyWith === undefined ||
+          entry.onlyWith.some((module) => viewer.modules.includes(module));
+        const reachable =
+          (moduleServes || viewer.role === 'TENANT_ADMIN') && pageAdmits && workspaceServes;
         const offered =
           entry.reachedAs === 'tab'
             ? offersTab(built, entry.lands)
@@ -193,17 +199,32 @@ describe('buildConsoleNav — every role × module set × capability set', () =>
     }
   });
 
-  it('gives every viewer the Company workspace (dashboard, messages and profile at least)', () => {
+  it('gives every viewer the Company workspace (company dashboard, messages and profile at least)', () => {
     for (const viewer of VIEWERS) {
       const org = nav(viewer).find((workspace) => workspace.id === 'org');
       expect(org, describeViewer(viewer)).toBeDefined();
-      for (const path of [
-        '/dashboard',
-        '/dashboard/analytics',
-        '/messaging',
-        '/settings/profile',
-      ]) {
+      for (const path of ['/tenant', '/messaging', '/settings/profile']) {
         expect(offersEntry(org === undefined ? [] : [org], path)).toBe(true);
+      }
+    }
+  });
+
+  it('opens each module workspace on its own dashboard; Company lists none of them', () => {
+    const own: Readonly<Record<string, string>> = {
+      aqua: '/dashboard',
+      gh: '/dashboard/greenhouse',
+      ctl: '/dashboard/control',
+    };
+    for (const viewer of VIEWERS) {
+      for (const workspace of nav(viewer)) {
+        const paths = pagesOf([workspace]).map((page) => page.path);
+        const dashboards = paths.filter((path) => path.startsWith('/dashboard'));
+        if (workspace.id === 'org') {
+          expect(dashboards, describeViewer(viewer)).toEqual([]);
+        } else {
+          expect(workspace.areas[0]?.groups[0]?.pages[0]?.path).toBe(own[workspace.id]);
+          expect(dashboards).toEqual([own[workspace.id], '/dashboard/analytics']);
+        }
       }
     }
   });
@@ -268,9 +289,11 @@ describe('buildConsoleNav — representative viewers', () => {
   it('shows a module user tenant pages only through the capabilities their role delegates', () => {
     const plain: Viewer = { role: 'MODULE_USER', modules: ['farm'], permissions: [] };
     const delegate: Viewer = { ...plain, permissions: ['roles:view'] };
-    expect(ids(plain).filter((id) => id.startsWith('tenant-'))).toEqual([]);
+    // The company dashboard is every member's; the rest needs a capability.
+    expect(ids(plain).filter((id) => id.startsWith('tenant-'))).toEqual(['tenant-dashboard']);
     expect([...new Set(ids(delegate).filter((id) => id.startsWith('tenant-')))]).toEqual([
       'tenant-roles',
+      'tenant-dashboard',
     ]);
   });
 
@@ -386,7 +409,8 @@ describe('buildConsoleNav — pruning on given definitions', () => {
           groups: [
             {
               id: 'open',
-              pages: [{ id: 'dashboard', labelKey: 'nav.dashboard', path: '/dashboard' }],
+              // Trends: open to every member (the module dashboards are gated by module).
+              pages: [{ id: 'trends', labelKey: 'nav.dashboard', path: '/dashboard/analytics' }],
             },
             {
               id: 'admin-only',

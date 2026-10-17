@@ -17,6 +17,7 @@ import {
 } from './parameter-source-query.handlers';
 import {
   ResolveParameterValueHandler,
+  ResolveUnitParameterValuesHandler,
   ResolveWaterChemistryInputsHandler,
 } from './reading-query.handlers';
 // Measurement read handlers (fail-closed tenant boundary — FARM-HIGH-076)
@@ -63,6 +64,7 @@ export const WaterQualityQueryHandlers = [
   ListParameterSourcesAtPointHandler,
   ListParameterQuantityDeclarationsHandler,
   ResolveParameterValueHandler,
+  ResolveUnitParameterValuesHandler,
   ResolveWaterChemistryInputsHandler,
   GetWaterQualityHandler,
   ListWaterQualityHandler,

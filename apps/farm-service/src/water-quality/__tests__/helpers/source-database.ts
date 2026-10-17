@@ -9,7 +9,7 @@ import {
   type HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
-import { DataSource } from 'typeorm';
+import { DataSource, type Logger } from 'typeorm';
 
 import { FIXTURE_ENTITIES } from '../../../__tests__/e2e/helpers/farm-tenant-fixture';
 import {
@@ -39,7 +39,14 @@ export interface SourceDatabase {
   readonly schema: string;
 }
 
-export async function bootSourceDatabase(tenantId: string): Promise<SourceDatabase> {
+/**
+ * `logger` sees every statement the data source sends (a spec counting the
+ * round trips a read costs passes a StatementLog); none is logged otherwise.
+ */
+export async function bootSourceDatabase(
+  tenantId: string,
+  options: { readonly logger?: Logger } = {},
+): Promise<SourceDatabase> {
   const pg = await bootPostgresContainer({ startTimeoutMs: 120_000 });
   await pg.dataSource.query('CREATE SCHEMA farm');
   await pg.dataSource.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
@@ -59,6 +66,7 @@ export async function bootSourceDatabase(tenantId: string): Promise<SourceDataba
     ],
     synchronize: true,
     logging: false,
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
     extra: { options: '-c search_path=farm,public' },
   });
   await dataSource.initialize();

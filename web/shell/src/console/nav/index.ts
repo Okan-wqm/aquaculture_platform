@@ -46,3 +46,4 @@ export {
 export { CONSOLE_WORKSPACES } from './workspaces';
 export { findNavPage } from './findNavPage';
 export { workspaceHome, type HomeableWorkspace } from './workspaceHome';
+export { COMPANY_DASHBOARD_PATH, rootLanding } from './rootLanding';

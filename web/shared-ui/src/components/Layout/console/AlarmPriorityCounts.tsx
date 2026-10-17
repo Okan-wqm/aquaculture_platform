@@ -9,9 +9,9 @@
  * in words — "1 critical (P1) alarm", "2 … alarms" — the shape and the bare
  * number being visual.
  *
- * WHY presentational: the workspace menu shows per-module counts, which no
- * backend serves yet (ALERT-MEDIUM-010) — the shell feeds this component from
- * its preview path, and from the real alarm summary once that finding lands.
+ * WHY presentational: the workspace menu shows per-module counts that the
+ * shell reads from alert-engine (activeAlertCounts grouped by module,
+ * ALERT-MEDIUM-010); this component only draws a tally it is handed.
  */
 import type { ReactElement } from 'react';
 

@@ -27,6 +27,7 @@ import type {
 
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { farmOrigin, sensorOrigin } from './alert-origin';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
 
 @Injectable()
@@ -55,6 +56,7 @@ export class FeedingExecutionAlertService {
         ruleId,
         ruleName,
         tenantId: event.tenantId,
+        ...farmOrigin(event.siteId),
         severity: AlertSeverity.WARNING,
         message,
         triggeringData: {
@@ -107,6 +109,7 @@ export class FeedingExecutionAlertService {
         ruleId,
         ruleName,
         tenantId: event.tenantId,
+        ...farmOrigin(event.siteId),
         severity: AlertSeverity.WARNING,
         message,
         triggeringData: {
@@ -165,6 +168,7 @@ export class FeedingExecutionAlertService {
         ruleId,
         ruleName,
         tenantId: event.tenantId,
+        ...farmOrigin(event.siteId),
         severity: AlertSeverity.CRITICAL,
         message,
         triggeringData: {
@@ -236,6 +240,8 @@ export class FeedingExecutionAlertService {
         ruleId,
         ruleName,
         tenantId: event.tenantId,
+        // sensor-service raises the oxygen guard from the unit's DO sensor.
+        ...sensorOrigin(event.siteId),
         severity: AlertSeverity.WARNING,
         message,
         triggeringData: {
@@ -283,6 +289,7 @@ export class FeedingExecutionAlertService {
         ruleId: `system:feed-transition:${event.unitId}`,
         ruleName: 'Feed Type Transitioned',
         tenantId: event.tenantId,
+        ...farmOrigin(event.siteId),
         severity: AlertSeverity.INFO,
         message:
           `${event.unitCode} ünitesi ${event.toFeedCode} yemine geçti ` +

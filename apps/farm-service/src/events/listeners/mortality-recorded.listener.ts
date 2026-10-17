@@ -415,6 +415,9 @@ export class MortalityRecordedListener
         }),
         batchId: event.batchId,
         tankId: event.tankId,
+        // The tank's site, as MortalityRecorded carries it — the alarm's site
+        // in alert-engine (ALERT-MEDIUM-010).
+        siteId: event.siteId,
         alertType: alert.type,
         severity: alert.severity,
         message: alert.message,

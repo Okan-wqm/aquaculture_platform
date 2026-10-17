@@ -19,6 +19,7 @@ import type { WaterQualityCriticalEvent } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../../entities/alert-history.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
 import {
   FarmSignalIncidentService,
   FarmSignalIncidentSpec,
@@ -95,6 +96,26 @@ describe('WaterQualityCriticalAlertService', () => {
     const triggering = saved.triggeringData as { source: string; criticalParameters: unknown[] };
     expect(triggering.source).toBe('farm.water-quality');
     expect(triggering.criticalParameters).toHaveLength(2);
+  });
+
+  it('records the alarm as the farm module’s, on the measurement’s site (ALERT-MEDIUM-010)', async () => {
+    const { service, historyRepo } = makeService();
+    const siteId = '44444444-4444-4444-8444-444444444444';
+
+    await service.recordCriticalWaterQuality(makeEvent({ siteId }));
+    await service.recordCriticalWaterQuality(makeEvent({ siteId: null }));
+    await service.recordCriticalWaterQuality(makeEvent());
+
+    const origins = historyRepo.save.mock.calls.map(([row]) => {
+      const saved = row as AlertHistory;
+      return [saved.module, saved.siteId];
+    });
+    expect(origins).toEqual([
+      [AlertModule.FARM, siteId],
+      [AlertModule.FARM, null],
+      // An event minted before the field existed carries no site.
+      [AlertModule.FARM, null],
+    ]);
   });
 
   it('falls back to equipmentId scoping and count-only message on malformed JSON', async () => {

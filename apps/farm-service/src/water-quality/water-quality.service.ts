@@ -421,6 +421,8 @@ export class WaterQualityService {
             criticalParametersJson: JSON.stringify(criticalParams),
             criticalParameterCount: criticalParams.length,
             measuredAt: saved.measuredAt.toISOString(),
+            // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+            siteId: saved.siteId ?? null,
           };
           await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
         }
@@ -629,6 +631,8 @@ export class WaterQualityService {
               criticalParametersJson: JSON.stringify(criticalParams),
               criticalParameterCount: criticalParams.length,
               measuredAt: measurement.measuredAt.toISOString(),
+              // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+              siteId: measurement.siteId ?? null,
             };
             await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
           }

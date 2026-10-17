@@ -103,7 +103,12 @@ describe('INVARIANT (FE-MEDIUM-349): one loading screen, from the first paint on
       /export const PageLoading\b/,
     );
     expect(read('web/shared-ui/src/components/guards/GuardLoading.tsx')).toMatch(/<BrandLoader\b/);
-    for (const file of ['web/shell/src/App.tsx', 'web/shell/src/layouts/AuthLayout.tsx'])
+    // The shell's session checks: the protected routes' guard (routing/, where
+    // App.tsx mounts it from) and the auth layout's.
+    for (const file of [
+      'web/shell/src/routing/ProtectedRoute.tsx',
+      'web/shell/src/layouts/AuthLayout.tsx',
+    ])
       expect({ file, screen: /<BrandLoader\s+variant="screen"/.test(read(file)) }).toEqual({
         file,
         screen: true,

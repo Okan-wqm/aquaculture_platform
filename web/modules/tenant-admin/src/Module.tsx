@@ -4,24 +4,31 @@
  * Tenant Admin Panel for managing users, modules, settings, and communication.
  * NOT: Layout is handled by Shell's MainLayout, only page routes defined here.
  *
- * SEC-007: All routes are wrapped with RequireTenantAdmin guard for defense-in-depth.
- * Shell already checks TENANT_ADMIN at /tenant/* level, but this module-internal
- * guard prevents MODULE_USER/MODULE_MANAGER from seeing the tenant admin UI even
- * if the shell guard is bypassed or misconfigured.
+ * SEC-007: every panel page is wrapped with the RequireTenantAdmin guard for
+ * defense-in-depth. The shell checks TENANT_ADMIN or a panel capability at
+ * /tenant/* (TenantPanelRoute), and this module-internal guard prevents a
+ * MODULE_USER/MODULE_MANAGER without one from seeing the tenant admin UI even
+ * if the shell guard is bypassed or misconfigured. The one exception is the
+ * company dashboard (the index): every member opens it (RequireTenantMember),
+ * and CompanyHome shows the account's cards only to a tenant admin.
  */
 
 import { BrandLoader } from '@aquaculture/shared-ui';
 import React, { Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 
 // Route Guard (LOW-15: extracted to own component for reuse / unit testing)
-import { RequireTenantAdmin, RequireTenantCapability } from './components/common/RequireTenantAdmin';
+import {
+  RequireTenantAdmin,
+  RequireTenantCapability,
+  RequireTenantMember,
+} from './components/common/RequireTenantAdmin';
 
 // Error Boundary
 import { PageErrorBoundary } from './components/ErrorBoundary';
 
 // LOW-01: Lazy-loaded pages — each chunk is loaded on-demand to reduce initial bundle size
-const TenantDashboard = React.lazy(() => import('./pages/TenantDashboard'));
+const CompanyHome = React.lazy(() => import('./pages/CompanyHome'));
 const TenantUsers = React.lazy(() => import('./pages/TenantUsers'));
 const TenantModules = React.lazy(() => import('./pages/TenantModules'));
 const TenantSettings = React.lazy(() => import('./pages/TenantSettings'));
@@ -46,7 +53,8 @@ const ArchitectureReviewPage = React.lazy(() => import('./pages/ArchitectureRevi
  * Tenant Admin Module
  *
  * Routes:
- * - /tenant (index) - Dashboard with stats and modules overview
+ * - /tenant (index) - Company dashboard: the account's cards for a tenant admin,
+ *   a member's own notices for anyone else
  * - /tenant/users - User management for tenant
  * - /tenant/modules - Module assignments and manager assignment
  * - /tenant/messages - Messages with platform support
@@ -62,10 +70,22 @@ const ArchitectureReviewPage = React.lazy(() => import('./pages/ArchitectureRevi
  */
 const TenantAdminModule: React.FC = () => {
   return (
-    <RequireTenantAdmin>
-      {/* A page chunk loading is the one loading screen (FE-MEDIUM-349). */}
-      <Suspense fallback={<BrandLoader />}>
-        <Routes>
+    // A page chunk loading is the one loading screen (FE-MEDIUM-349).
+    <Suspense fallback={<BrandLoader />}>
+      <Routes>
+        {/* Company dashboard — every tenant member (CompanyHome decides what
+            each sees); the one route outside the panel gate below. */}
+        <Route index element={<RequireTenantMember><PageErrorBoundary pageName="Dashboard"><CompanyHome /></PageErrorBoundary></RequireTenantMember>} />
+
+        {/* Every other page: TENANT_ADMIN or a panel delegate (SEC-007), then
+            the page's own capability gate. */}
+        <Route
+          element={
+            <RequireTenantAdmin>
+              <Outlet />
+            </RequireTenantAdmin>
+          }
+        >
           {/*
            * Per-page capability gates (MT-HIGH-060). TENANT_ADMIN bypasses every
            * gate; a delegate reaches only the pages their tenant role grants.
@@ -73,9 +93,6 @@ const TenantAdminModule: React.FC = () => {
            * so a delegate who entered the panel with e.g. `users:view` still
            * cannot open billing/database/audit/etc. (backend enforces too).
            */}
-          {/* Dashboard - default route (admin-only) */}
-          <Route index element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Dashboard"><TenantDashboard /></PageErrorBoundary></RequireTenantCapability>} />
-
           {/* User Management — delegatable */}
           <Route path="users" element={<RequireTenantCapability capability="users:view"><PageErrorBoundary pageName="Users"><TenantUsers /></PageErrorBoundary></RequireTenantCapability>} />
 
@@ -111,9 +128,9 @@ const TenantAdminModule: React.FC = () => {
 
           {/* Catch-all redirect to dashboard */}
           <Route path="*" element={<Navigate to="/tenant" replace />} />
-        </Routes>
-      </Suspense>
-    </RequireTenantAdmin>
+        </Route>
+      </Routes>
+    </Suspense>
   );
 };
 

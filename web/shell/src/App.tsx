@@ -5,18 +5,13 @@
  * Loads remote modules with lazy loading.
  */
 
-import React, { Suspense, lazy, memo } from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import {
-  BrandLoader,
-  useAuthContext,
-  useI18n,
-  RouteAnnouncer,
-  hasResourcePermission,
-  TENANT_PANEL_CAPABILITIES,
-} from '@aquaculture/shared-ui';
-import type { UserRole } from '@aquaculture/shared-ui';
+import { BrandLoader, RouteAnnouncer } from '@aquaculture/shared-ui';
 import MainLayout from './layouts/MainLayout';
+import { ProtectedRoute } from './routing/ProtectedRoute';
+import { RoleBasedRedirect } from './routing/RoleBasedRedirect';
+import { TenantPanelRoute } from './routing/TenantPanelRoute';
 import AuthLayout from './layouts/AuthLayout';
 import LoginPage from './pages/LoginPage';
 import SettingsPage from './pages/SettingsPage';
@@ -62,100 +57,6 @@ const AdminPanelModule = lazy(() => import('adminPanel/Module'));
  * Tenant Admin module (Remote) - TENANT_ADMIN Only
  */
 const TenantAdminModule = lazy(() => import('tenantAdmin/Module'));
-
-// ============================================================================
-// Route Guard Component
-// ============================================================================
-
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-  requiredRoles?: string[];
-  // MT-HIGH-060 delegation: any-of tenant-RBAC capabilities that also satisfy
-  // this route. A user passes if they hold a required ROLE *or* a required
-  // CAPABILITY — letting a tenant admin delegate panel access to a custom role.
-  requiredCapabilities?: string[];
-  requiredModule?: string;
-}
-
-/**
- * Protected route component
- * Handles authentication and role checks
- */
-const ProtectedRoute: React.FC<ProtectedRouteProps> = memo(({ children, requiredRoles, requiredCapabilities, requiredModule }) => {
-  const { isAuthenticated, isLoading, user, isSuperAdmin, hasRoleOrHigher, hasModuleAccess } = useAuthContext();
-  const { t } = useI18n();
-
-  // The session check is the first screen React draws on a refresh: the
-  // full-screen BrandLoader, the boot splash's twin, so the hand-off from
-  // index.html shows no swap (FE-MEDIUM-349).
-  if (isLoading) {
-    return <BrandLoader variant="screen" label={t('guards.checkingSession')} />;
-  }
-
-  // Authentication required
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  // SECURITY: Block MOBILE_ONLY users from web panel
-  if (user?.accessType === 'MOBILE_ONLY') {
-    return <Navigate to="/unauthorized" replace />;
-  }
-
-  // Authorization — a user passes if they hold a required ROLE (via hierarchy, so
-  // SUPER_ADMIN reaches TENANT_ADMIN routes) OR a required tenant-RBAC CAPABILITY
-  // (delegation, MT-HIGH-060). Fail-closed: when either requirement is declared
-  // and neither is satisfied, deny.
-  if ((requiredRoles?.length ?? 0) > 0 || (requiredCapabilities?.length ?? 0) > 0) {
-    const hasRequiredRole =
-      requiredRoles?.some((role) => hasRoleOrHigher(role as UserRole)) ?? false;
-    const hasRequiredCapability =
-      requiredCapabilities?.some((cap) => hasResourcePermission(user, cap)) ?? false;
-    if (!hasRequiredRole && !hasRequiredCapability) {
-      return <Navigate to="/unauthorized" replace />;
-    }
-  }
-
-  // Module access check — SUPER_ADMIN bypasses (system-level access)
-  if (requiredModule && !isSuperAdmin()) {
-    if (!hasModuleAccess(requiredModule)) {
-      return <Navigate to="/unauthorized" replace />;
-    }
-  }
-
-  // Tenant check - SUPER_ADMIN doesn't need a tenant
-  if (!user?.tenantId && !isSuperAdmin()) {
-    return <Navigate to="/unauthorized" replace />;
-  }
-
-  return <>{children}</>;
-});
-
-/**
- * Role-based redirect component
- * Redirects users to their appropriate dashboard based on role
- */
-const RoleBasedRedirect: React.FC = () => {
-  const { user, isLoading, isAuthenticated } = useAuthContext();
-
-  // Inside the layout, so the loader takes the outlet's area, not the screen.
-  if (isLoading) {
-    return <BrandLoader />;
-  }
-
-  if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  switch (user.role) {
-    case 'SUPER_ADMIN':
-      return <Navigate to="/admin" replace />;
-    case 'TENANT_ADMIN':
-      return <Navigate to="/tenant" replace />;
-    default:
-      return <Navigate to="/dashboard" replace />;
-  }
-};
 
 // ============================================================================
 // Main Application Component
@@ -292,17 +193,19 @@ const App: React.FC = () => {
           }
         />
 
-        {/* Tenant Admin Module (TENANT_ADMIN Only) */}
+        {/* Tenant Admin Module: the company dashboard (index) for every
+            member, every other page for TENANT_ADMIN or a panel delegate
+            (TenantPanelRoute). */}
         <Route
           path="/tenant/*"
           element={
-            <ProtectedRoute requiredRoles={['TENANT_ADMIN']} requiredCapabilities={[...TENANT_PANEL_CAPABILITIES]}>
+            <TenantPanelRoute>
               <ErrorBoundary moduleName="Tenant Admin">
                 <Suspense fallback={<BrandLoader />}>
                   <TenantAdminModule />
                 </Suspense>
               </ErrorBoundary>
-            </ProtectedRoute>
+            </TenantPanelRoute>
           }
         />
 

@@ -1,9 +1,13 @@
-import type { EntityManager } from 'typeorm';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { type EntityManager, In } from 'typeorm';
 
 import {
   findTankOrEquipmentWithManager,
   resolveSiteIdFromDepartment,
+  resolveUnitSiteIds,
 } from '../../batch/utils/tank-lookup.util';
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { Tank } from '../../tank/entities/tank.entity';
 
 /**
  * The unit a water-quality measurement was taken at, resolved from the one id
@@ -50,6 +54,58 @@ export async function resolveMeasurementUnit(
     id: unitId,
     siteId: await resolveSiteIdFromDepartment(manager, lookup.equipment.departmentId, tenantId),
   };
+}
+
+/**
+ * Bulk counterpart of {@link resolveMeasurementUnit} for a read over many
+ * units (the dashboard's per-site oxygen read), so it is not N lookups: the
+ * same rule in three queries — an active, undeleted equipment row first (a
+ * tank when flagged `isTank`), else an active legacy tank, each read through
+ * the tenant-scoped repository; the site from {@link resolveUnitSiteIds}, the
+ * bulk unit-site lookup a single point's read authorizes by
+ * (measurement-point-lookup.ts siteOfPoint), so one unit resolves to the same
+ * site on either read. A unit with no active row is absent.
+ */
+export async function resolveMeasurementUnits(
+  manager: EntityManager,
+  unitIds: readonly string[],
+  tenantId: string,
+): Promise<Map<string, MeasurementUnit>> {
+  const asked = [...new Set(unitIds)];
+  if (asked.length === 0) {
+    return new Map();
+  }
+  const kinds = new Map<string, MeasurementUnitKind>();
+  const equipment = await tenantManagerRepo(manager, Equipment, tenantId).find({
+    where: { id: In(asked), isActive: true, isDeleted: false },
+    select: { id: true, isTank: true },
+  });
+  for (const row of equipment) {
+    kinds.set(row.id, row.isTank === true ? 'tank' : 'equipment');
+  }
+  const legacy = asked.filter((id) => !kinds.has(id));
+  if (legacy.length > 0) {
+    const tanks = await tenantManagerRepo(manager, Tank, tenantId).find({
+      where: { id: In(legacy), isActive: true },
+      select: { id: true },
+    });
+    for (const tank of tanks) {
+      kinds.set(tank.id, 'tank');
+    }
+  }
+  const found = asked.filter((id) => kinds.has(id));
+  const sites =
+    found.length === 0
+      ? new Map<string, string>()
+      : await resolveUnitSiteIds(manager, found, tenantId);
+  const units = new Map<string, MeasurementUnit>();
+  for (const id of found) {
+    const kind = kinds.get(id);
+    if (kind !== undefined) {
+      units.set(id, { kind, id, siteId: sites.get(id) ?? null });
+    }
+  }
+  return units;
 }
 
 /** The measurement columns a unit is recorded in: a tank's id or an equipment id, never both. */

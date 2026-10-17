@@ -7,24 +7,18 @@
  * annunciator does not count (INFO feed transitions nobody acknowledges,
  * alarms resolved without acknowledgement) filled the page, and capped every
  * count at the page size while presenting it as exact. The grouped count has
- * no page. What alert-engine still lacks is the same count per module
- * (ALERT-MEDIUM-010, docs/reviews/claude/2026-10-16-tenant-console-d6.md),
- * which the workspace menu previews.
+ * no page. The rows also carry each alarm's module; the annunciator sums all
+ * of them, the workspace menu splits them (useWorkspaceAlarmCounts), both
+ * from the same request (useActiveAlertCounts).
  *
  * WHAT: StatusResult<AlarmCounts> (the four tiles' counts and the
- * unacknowledged P1 count the CRIT flash reads), refreshed every 15 s, for viewers whose
- * tenant holds the sensor module — the alarm list (/sensor/alerts) and the
- * annunciator that opens it exist only then, for a tenant admin too;
- * 'unavailable', with no request, for anyone else.
+ * unacknowledged P1 count the CRIT flash reads), refreshed every 15 s, for
+ * viewers whose tenant holds the sensor module; 'unavailable', with no
+ * request, for anyone else.
  */
-import { graphqlClient, useTenantQuery } from '@aquaculture/shared-ui';
-
-import { summariseAlarms, type AlarmCountRow, type AlarmCounts } from './alarmPriority';
-import { ACTIVE_ALERT_COUNTS_QUERY } from './console.operations';
-import { resultOf, type Nulled, type StatusResult } from './dataStatus';
-import { useConsoleDataAccess } from './useConsoleDataAccess';
-
-export const ALARM_REFRESH_MS = 15_000;
+import { summariseAlarms, type AlarmCounts } from './alarmPriority';
+import { resultFrom, type Nulled, type StatusResult } from './dataStatus';
+import { useActiveAlertCounts } from './useActiveAlertCounts';
 
 export type AlarmSummary = StatusResult<AlarmCounts>;
 
@@ -37,23 +31,6 @@ const NO_COUNTS: Nulled<AlarmCounts> = {
 };
 
 export function useAlarmSummary(): AlarmSummary {
-  const access = useConsoleDataAccess();
-  const query = useTenantQuery(
-    ['console', 'alarmSummary'],
-    async ({ signal }): Promise<AlarmCounts> => {
-      const data = await graphqlClient.request<{ activeAlertCounts: AlarmCountRow[] }>(
-        ACTIVE_ALERT_COUNTS_QUERY,
-        undefined,
-        { signal },
-      );
-      return summariseAlarms(data.activeAlertCounts);
-    },
-    {
-      enabled: access.alarms,
-      staleTime: ALARM_REFRESH_MS,
-      refetchInterval: ALARM_REFRESH_MS,
-    },
-  );
-
-  return resultOf(query, access.alarms, NO_COUNTS);
+  const { query, enabled } = useActiveAlertCounts();
+  return resultFrom(query, enabled, NO_COUNTS, summariseAlarms);
 }

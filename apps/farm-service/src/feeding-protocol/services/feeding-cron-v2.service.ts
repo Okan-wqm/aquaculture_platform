@@ -232,6 +232,16 @@ export interface DryRunUnitPlan {
   computed?: ComputedDayPlan;
 }
 
+/**
+ * An overdue meal with the day plan it belongs to (ALERT-LOW-015): the sweep
+ * pairs them once, so every step reads the plan's unit code, site and
+ * protocol from a value that is there by type.
+ */
+interface PlannedMeal {
+  readonly meal: FeedingMeal;
+  readonly plan: FeedingDayPlan;
+}
+
 /** Paylaşılan sayfa-döngüsü bağlamı (06:00 üretimi + K-3 dry-run). */
 interface AssignmentPlanContext {
   assignment: ProtocolAssignment;
@@ -828,6 +838,23 @@ export class FeedingCronV2Service {
           })
         : [];
       const dayPlanById = new Map(sweepDayPlans.map((dp) => [dp.id, dp]));
+      // Each overdue meal with its day plan, paired once. The plans were loaded
+      // for exactly these meals, and the retention purge deletes a plan's meals
+      // before the plan in one transaction (purgeTenantRetention), so a meal
+      // without its plan is corrupt data: it is logged and left out of the
+      // sweep, never swept without the unit code and site its plan carries.
+      const withPlan = (meals: readonly FeedingMeal[]): PlannedMeal[] =>
+        meals.flatMap((meal) => {
+          const plan = dayPlanById.get(meal.dayPlanId);
+          if (plan !== undefined) return [{ meal, plan }];
+          this.logger.error(
+            `Overdue meal ${meal.id} of tenant ${tenantId} names day plan ${meal.dayPlanId}, ` +
+              'which does not exist; it is left out of the morning sweep.',
+          );
+          return [];
+        });
+      const plannedMissed = withPlan(overdueMissed);
+      const plannedPartials = withPlan(overduePartials);
       const sweepProtocolIds = [...new Set(sweepDayPlans.map((dp) => dp.protocolId))];
       const sweepProtocols = sweepProtocolIds.length
         ? await manager.find(FeedingProtocolV2, {
@@ -837,11 +864,11 @@ export class FeedingCronV2Service {
       const sweepProtocolById = new Map(sweepProtocols.map((p) => [p.id, p]));
 
       const sweepUnitIds = [
-        ...new Set([...overdueMissed, ...overduePartials].map((meal) => meal.unitId)),
+        ...new Set([...plannedMissed, ...plannedPartials].map(({ meal }) => meal.unitId)),
       ].sort();
       for (const unitId of sweepUnitIds) {
-        const unitMissed = overdueMissed.filter((meal) => meal.unitId === unitId);
-        const unitPartials = overduePartials.filter((meal) => meal.unitId === unitId);
+        const unitMissed = plannedMissed.filter(({ meal }) => meal.unitId === unitId);
+        const unitPartials = plannedPartials.filter(({ meal }) => meal.unitId === unitId);
 
         // Kanonik kilit sırası (FARM-MEDIUM-276): ünite kilidi öğün
         // yazımlarından ÖNCE, büyüme gerekip gerekmediğine BAKILMADAN alınır.
@@ -852,24 +879,28 @@ export class FeedingCronV2Service {
         const locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, unitId);
 
         // (a) Hiç döküm görmemiş, penceresi geçmiş öğünler → missed + event.
-        const missedKgByPlan = new Map<string, number>();
-        for (const meal of unitMissed) {
+        const missedByPlan = new Map<string, { plan: FeedingDayPlan; missedKg: number }>();
+        for (const { meal, plan } of unitMissed) {
           meal.status = FeedingMealStatus.MISSED;
           await manager.save(meal);
-          missedKgByPlan.set(
-            meal.dayPlanId,
-            (missedKgByPlan.get(meal.dayPlanId) ?? 0) + Number(meal.plannedKg),
-          );
+          const missed = missedByPlan.get(plan.id);
+          if (missed === undefined) {
+            missedByPlan.set(plan.id, { plan, missedKg: Number(meal.plannedKg) });
+          } else {
+            missed.missedKg += Number(meal.plannedKg);
+          }
           const event: MealMissedEvent = {
             ...createBaseEvent<MealMissedEvent>('MealMissed', tenantId, {
               aggregateId: meal.id,
               aggregateType: 'FeedingMeal',
             }),
             unitId: meal.unitId,
-            unitCode: dayPlanById.get(meal.dayPlanId)?.unitCode ?? '',
+            unitCode: plan.unitCode,
             mealId: meal.id,
             dayPlanId: meal.dayPlanId,
             scheduledAt: toEventIso(meal.scheduledAt),
+            // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+            siteId: plan.siteId,
           };
           await this.outboxPublisher.enqueue(event, manager);
         }
@@ -877,11 +908,8 @@ export class FeedingCronV2Service {
         // W5 (kullanıcı kararı 3): kaçan öğünün kg'ı kalan öğünlere OTOMATİK
         // dağıtılmaz. Tenant açıkça telafi yüzdesi tanımladıysa yalnız o kadarı
         // dağıtılır — varsayılan 0'da bu çağrı hiçbir şeyi değiştirmez.
-        for (const [dayPlanId, missedKg] of missedKgByPlan) {
-          const plan = dayPlanById.get(dayPlanId);
-          if (plan) {
-            await this.recalcService.applyMissedCatchUp(manager, tenantId, plan, missedKg);
-          }
+        for (const { plan, missedKg } of missedByPlan.values()) {
+          await this.recalcService.applyMissedCatchUp(manager, tenantId, plan, missedKg);
         }
 
         // (b) Bayat partially_fed → otomatik finalize (D-8 pencere kapanışı).
@@ -891,12 +919,10 @@ export class FeedingCronV2Service {
         // öğünle AYNI koddan geçer. Bunu eskiden bir kopya + "SİMETRİ" yorumu
         // sağlıyordu; yorum iki gövdenin aynı kalacağını garanti etmez ve
         // etmemişti de — eşiğin `?? 15` varsayılanı iki ayrı ifadedeydi.
-        for (const meal of unitPartials) {
-          const sweepPlan = dayPlanById.get(meal.dayPlanId);
-          if (!sweepPlan) continue;
+        for (const { meal, plan } of unitPartials) {
           const mealPersisted = await this.finalization.finalize(manager, {
             tenantId,
-            dayPlan: sweepPlan,
+            dayPlan: plan,
             meal,
             locked,
             // Tick'in anı (D-B4). Eski kopya öğün başına `new Date()`
@@ -905,7 +931,7 @@ export class FeedingCronV2Service {
             finalizedAt: at,
             // Pencere kapandı; kimse kapatmadı — `fedBy` boş kalır.
             fedBy: null,
-            protocol: sweepProtocolById.get(sweepPlan.protocolId) ?? null,
+            protocol: sweepProtocolById.get(plan.protocolId) ?? null,
           });
           if (!mealPersisted) await manager.save(meal);
         }
@@ -913,14 +939,11 @@ export class FeedingCronV2Service {
         // Plan durumu: süpürme sonrası açık öğün kalmadıysa plan kapanır —
         // eski hâl planı `in_progress`'te asılı bırakıyordu. Karar aynı
         // servisten: kopyası koşulsuz UPDATE atıyordu.
-        const touchedPlanIds = [
-          ...new Set([...unitMissed, ...unitPartials].map((meal) => meal.dayPlanId)),
-        ];
-        for (const dayPlanId of touchedPlanIds) {
-          const plan = dayPlanById.get(dayPlanId);
-          if (plan) {
-            await this.finalization.settleDayPlanStatus(manager, tenantId, plan);
-          }
+        const touchedPlans = new Map(
+          [...unitMissed, ...unitPartials].map(({ plan }) => [plan.id, plan]),
+        );
+        for (const plan of touchedPlans.values()) {
+          await this.finalization.settleDayPlanStatus(manager, tenantId, plan);
         }
       }
 
@@ -1051,6 +1074,7 @@ export class FeedingCronV2Service {
         id: string;
         unitId: string;
         unitCode: string;
+        siteId: string;
         planDate: string;
         status: FeedingDayPlanStatus;
         plannedTotalKg: string | number;
@@ -1064,7 +1088,7 @@ export class FeedingCronV2Service {
         //
         // `cancelled` planlar HARİÇ (FARM-MEDIUM-256): tam hasat edilen tankın
         // iptal edilmiş planı her akşam "%100 az beslendi" alarmı üretiyordu.
-        `SELECT dp.id, dp."unitId", dp."unitCode", dp."planDate", dp.status,
+        `SELECT dp.id, dp."unitId", dp."unitCode", dp."siteId", dp."planDate", dp.status,
                 dp."plannedTotalKg", dp."unplannedActualKg",
                 (SELECT COALESCE(SUM(m."actualKg"), 0) FROM "feeding_meals" m
                   WHERE m."tenantId" = dp."tenantId" AND m."dayPlanId" = dp.id) AS "actualKg",
@@ -1136,6 +1160,8 @@ export class FeedingCronV2Service {
               actualKg: round3(actual),
               variancePercent: round3(dayVariancePercent),
               thresholdPercent: threshold,
+              // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+              siteId: row.siteId,
             };
             await this.outboxPublisher.enqueue(underfed, manager);
           }

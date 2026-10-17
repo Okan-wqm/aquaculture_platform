@@ -1373,7 +1373,8 @@ def build_parser() -> argparse.ArgumentParser:
     # PR) or in a PR review, whose gh: ref the granting verb then takes.
     operator_parser = add_subparser(
         sub, "operator",
-        help="Operator approval helpers (an authority grant is an operator's GitHub act).",
+        help=("Operator helpers: the approval line for an authority grant (an operator's GitHub act), "
+              "and the inbox of every decision ARIA waits on the operator for."),
     )
     operator_sub = operator_parser.add_subparsers(dest="operator_command", required=True)
     approval_template = add_subparser(
@@ -1392,6 +1393,15 @@ def build_parser() -> argparse.ArgumentParser:
         "fields", nargs="*", metavar="KEY=VALUE",
         help="every scope field of the surface, e.g. lane=L1 expires=2026-10-10T00:00:00Z",
     )
+    # ARIA-MEDIUM-127 — every decision ARIA waits on a person for, on one
+    # surface (operator_inbox); the answers stay with each owner's verb.
+    operator_inbox = add_subparser(
+        operator_sub, "inbox",
+        help="List every decision ARIA is waiting on the operator for, each with the command that answers it.",
+    )
+    operator_inbox.add_argument("--workspace-root", default=".")
+    operator_inbox.add_argument("--limit", type=int, default=None, help="items shown per section (counts cover all)")
+    operator_inbox.add_argument("--json", action="store_true")
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -4361,6 +4371,17 @@ def _main(argv: list[str] | None = None) -> int:
         except OperatorApprovalUnrecorded as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+        return 0
+
+    if args.command == "operator" and args.operator_command == "inbox":
+        from .operator_inbox import DEFAULT_ITEM_LIMIT, read_operator_inbox, render_operator_inbox
+
+        inbox = read_operator_inbox(
+            tools_dir=args.tools_dir, workspace_root=args.workspace_root,
+            limit=DEFAULT_ITEM_LIMIT if args.limit is None else args.limit,
+        )
+        print(json.dumps(inbox, indent=2, sort_keys=True, default=str) if args.json else render_operator_inbox(inbox),
+              end="\n" if args.json else "")
         return 0
 
     if args.command == "merge-lane" and args.merge_command == "unfreeze":

@@ -222,7 +222,8 @@ class RefusedOutputIsWithheldTests(_RefusedSubmitFixture):
         result = self._submit()
 
         self.assertEqual(result["status"], "rejected", result)
-        self.assertEqual(result["rejection_codes"], ["secret_in_envelope"])
+        # The fixture's transcript carries the password too (ARIA-HIGH-524).
+        self.assertEqual(result["rejection_codes"], ["secret_in_envelope", "secret_in_transcript"])
         row = result["row"]
         self.assertIsNone(row["output_path"])
         self.assertEqual(row["output_withheld"], "credential_refusal")
@@ -647,6 +648,67 @@ class PublishGateRefusesRefusedBytesTests(_RefusedSubmitFixture):
 
         self.assertIn("state_publish_runtime_artifacts_unverified", str(caught.exception))
         self.assertIn("refused_output_present", str(caught.exception))
+
+
+class ATranscriptCarryingACredentialIsWithheldTests(_RefusedSubmitFixture):
+    """ARIA-HIGH-524 — the submit sealed a transcript after checking only its
+    hash, onto the published outputs surface (``content-addressed/transcripts``).
+    The executor scrubs every transcript at its one writer (ARIA-HIGH-448), but
+    the kernel is the last line for any producer: the transcript's bytes are
+    now scanned with the one refusal owner before anything is sealed, and a
+    hit is a credential refusal (``secret_in_transcript``, in
+    ``CREDENTIAL_REFUSAL_CODES``) withheld by the same owner as an envelope's."""
+
+    def _sealed_transcripts(self) -> list[str]:
+        sealed = self.tools / "agent-invocations" / "outputs" / "content-addressed" / "transcripts"
+        return sorted(path.name for path in sealed.glob("*")) if sealed.exists() else []
+
+    def test_a_clean_envelope_with_a_credential_in_its_transcript_is_withheld_and_never_sealed(self) -> None:
+        self._write(self.output, json.dumps(self._envelope(note="clean")).encode("utf-8"))
+        self._write(self.transcript, ('{"type":"tool_result","content":"' + _DB_PASSWORD + '"}\n').encode("utf-8"))
+
+        result = self._submit()
+
+        self.assertEqual(result["status"], "rejected", result)
+        self.assertEqual(result["rejection_codes"], ["secret_in_transcript"])
+        row = result["row"]
+        self.assertIsNone(row["output_path"])
+        self.assertEqual(row["output_withheld"], "credential_refusal")
+        self.assertEqual(
+            sorted(source["path"] for source in row["withheld_sources"]),
+            sorted(p.relative_to(self.tools).as_posix() for p in (self.output, self.transcript)),
+        )
+        self.assertEqual(self._sealed_transcripts(), [])
+        self.assertEqual(self._outputs_files(), [])
+        self.assertEqual(self._store_files_holding_the_credential(), [])
+        self.assertFalse(any(marker.decode() in json.dumps(result) for marker in _MARKERS))
+        self.assertTrue(verify_runtime_artifacts(base_dir=self.tools, workspace_root=self.repo)["valid"])
+
+    def test_a_rejected_envelope_with_a_credential_in_its_transcript_is_withheld_with_both_codes(self) -> None:
+        self._write(self.output, json.dumps(self._envelope(note="clean", evidence_ref="missing.txt:1")).encode("utf-8"))
+        self._write(self.transcript, ('{"content":"' + _KEY_HEADER + '"}\n').encode("utf-8"))
+
+        result = self._submit()
+
+        self.assertEqual(result["status"], "rejected", result)
+        self.assertIn("secret_in_transcript", result["rejection_codes"])
+        self.assertGreater(len(result["rejection_codes"]), 1)
+        # Every other reason is reduced to its code, as for an envelope's leak.
+        for reason, code in zip(result["reasons"], result["rejection_codes"]):
+            if code != "secret_in_transcript":
+                self.assertEqual(reason, f"{code}: detail withheld with the refused output")
+        self.assertEqual(result["row"]["output_withheld"], "credential_refusal")
+        self.assertEqual(self._outputs_files(), [])
+        self.assertEqual(self._store_files_holding_the_credential(), [])
+
+    def test_a_clean_transcript_is_still_sealed(self) -> None:
+        self._write(self.output, json.dumps(self._envelope(note="clean")).encode("utf-8"))
+        self._write(self.transcript, b'{"type":"tool_result","content":"no secret here"}\n')
+
+        result = self._submit()
+
+        self.assertEqual(result["status"], "accepted", result)
+        self.assertEqual(len(self._sealed_transcripts()), 1)
 
 
 if __name__ == "__main__":

@@ -235,15 +235,19 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
     # The LIVE managed-session failure mode (proven 2026-07-03: ARIA's Fable
     # pool ran dry). The CLI returns its limit notice as ASSISTANT CONTENT on
     # a CLEAN exit (returncode 0, zero tokens) — a returncode!=0 gate misses
-    # it, which is exactly why #849's first markers did not fire.
+    # it, which is exactly why #849's first markers did not fire. That
+    # assistant message is the CLI's own (model "<synthetic>"), which is what
+    # lets it be read at all (ARIA-HIGH-536).
     _LIVE_LIMIT = (
         "You've reached your Fable 5 limit. Run /usage-credits to continue "
         "or switch models with /model."
     )
+    _LIVE_LIMIT_EVENT = {"type": "assistant", "error": "rate_limit",
+                         "message": {"model": "<synthetic>", "content": [{"type": "text", "text": _LIVE_LIMIT}]}}
 
     def test_detects_live_usage_limit_message_on_clean_exit(self) -> None:
         marker = claude_runtime.extract_credit_exhaustion(
-            returncode=0, stderr="", events=(), final_message=self._LIVE_LIMIT,
+            returncode=0, stderr="", events=(self._LIVE_LIMIT_EVENT,),
         )
         self.assertIsNotNone(marker)
         self.assertEqual(marker["source"], "cli_usage_limit_message")
@@ -251,20 +255,20 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
 
     def test_detects_live_usage_limit_in_assistant_event(self) -> None:
         events = (
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": self._LIVE_LIMIT}]}},
+            self._LIVE_LIMIT_EVENT,
             {"type": "result", "subtype": "success", "result": self._LIVE_LIMIT},
         )
         self.assertIsNotNone(claude_runtime.extract_credit_exhaustion(returncode=0, stderr="", events=events))
 
     def test_clean_plan_mentioning_billing_is_not_credit(self) -> None:
-        # An API credit-error marker in CONTENT on a clean exit must NOT fire —
-        # only the (returncode!=0) error path matches those.
-        self.assertIsNone(
-            claude_runtime.extract_credit_exhaustion(
-                returncode=0, stderr="", events=(),
-                final_message="This plan refactors the billing-service quota module.",
-            ),
-        )
+        # An API credit-error marker in the MODEL's content must NOT fire, on a
+        # clean exit or a failed one: only the CLI's own channel is read.
+        plan = "This plan refactors the billing-service quota module."
+        events = ({"type": "assistant", "message": {"model": "claude-opus-5",
+                                                    "content": [{"type": "text", "text": plan}]}},
+                  {"type": "result", "subtype": "success", "is_error": False, "result": plan})
+        for returncode in (0, 1):
+            self.assertIsNone(claude_runtime.extract_credit_exhaustion(returncode=returncode, stderr="", events=events))
 
     def test_detects_credit_balance_in_stderr(self) -> None:
         marker = claude_runtime.extract_credit_exhaustion(
@@ -278,7 +282,8 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
 
     def test_detects_quota_in_result_event(self) -> None:
         events = (
-            {"type": "result", "subtype": "error_during_execution", "result": "quota exceeded for this account"},
+            {"type": "result", "subtype": "error_during_execution", "is_error": True,
+             "result": "quota exceeded for this account"},
         )
         marker = claude_runtime.extract_credit_exhaustion(returncode=2, stderr="", events=events)
         self.assertIsNotNone(marker)
@@ -460,9 +465,15 @@ class WriteContainmentTests(unittest.TestCase):
         # By the absolute path the kernel resolved (ARIA-MEDIUM-432).
         self.assertEqual((os.path.isabs(wrapped[0]), os.path.basename(wrapped[0])), (True, "bwrap"))
         self.assertEqual(wrapped[-len(self._ARGV):], self._ARGV)
-        # The agent must reach the Claude API, so the network is NOT unshared —
-        # the property bought here is filesystem containment.
-        self.assertNotIn("--unshare-net", wrapped)
+        # The agent must reach the Claude API, and reaches nothing else: the
+        # room has its own network namespace whose one road out is the
+        # kernel's allowlist proxy, through the relay it starts under
+        # (ARIA-HIGH-143).
+        separator = wrapped.index("--")
+        self.assertIn("--unshare-net", wrapped[:separator])
+        self.assertEqual(wrapped[separator + 1:separator + 6],
+                         [implementation_safety.sandbox_interpreter(), "-I", implementation_safety.SANDBOX_EGRESS_RELAY,
+                          implementation_safety.SANDBOX_EGRESS_PROXY_SOCKET, "--"])
         # READONLY_PATHS that exist are ro-bind, so a write under them EROFSes.
         ro_targets = {
             wrapped[i + 1] for i, tok in enumerate(wrapped) if tok == "--ro-bind"
@@ -507,7 +518,12 @@ class WriteContainmentTests(unittest.TestCase):
                           "a read-only spawn sees the shared heads read-only like any other entry")
             self.assertIn(("--ro-bind", str(common / "worktrees" / "req-1")), pairs)
             self.assertIn(("--tmpfs", str(common / "worktrees")), pairs)
-            self.assertEqual([source for flag, source in pairs if flag == "--bind"], [str(worktree), str(broker_socket)])
+            # The writable binds: the workspace, the hook broker's socket and
+            # the egress proxy's socket (ARIA-HIGH-143) — never a store.
+            from aria_kernel.egress_proxy import kernel_egress_socket
+
+            self.assertEqual([source for flag, source in pairs if flag == "--bind"],
+                             [str(worktree), str(broker_socket), str(kernel_egress_socket())])
             self.assertEqual(wrapped[wrapped.index(HOOK_BROKER_SOCKET_ENV) + 1], SANDBOX_HOOK_BROKER_SOCKET)
             self.assertNotIn("tools_dir", claude_runtime._apply_write_containment.__code__.co_varnames)
 

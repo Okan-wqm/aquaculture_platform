@@ -47,10 +47,14 @@ the sha256 of this file at V9.1 land time, and any drift will fire
 ## Network Egress Prohibition
 
 Your process runs under `bwrap` (`implementation_safety.wrap_managed_claude_in_sandbox`)
-sharing the host's network namespace — the Claude CLI must reach its
-provider (`MANAGED_SPAWN_ALLOW_NETWORK`) — so egress is refused by the
-command policy, not by the namespace: `curl`, `wget`, `nc`, `ssh`, `scp`
-and every network primitive are DENY rules the PreToolUse hook enforces.
+in its own network namespace. The Claude CLI must reach its provider
+(`MANAGED_SPAWN_ALLOW_NETWORK`), and that is the only road out: the room
+holds loopback and the kernel's allowlist proxy (`egress_proxy`), reached
+through the `HTTPS_PROXY` the room starts with. A direct connection to any
+address, the host's own loopback services included, finds no route, and the
+proxy refuses every host that is not a provider endpoint by name. On top
+of that, `curl`, `wget`, `nc`, `ssh`, `scp` and every network primitive
+are DENY rules the PreToolUse hook enforces.
 If you find yourself needing one, the task is OUT OF SCOPE — refuse with
 `reason_class=bash_command_denylist_hit`.
 
@@ -95,11 +99,11 @@ it, plus the plan's declared recipes.
 
 ```yaml
 validation_commands:
-  - cmd: nx affected --target=test    # canonical (required)
-  - cmd: nx affected --target=lint    # canonical (required)
-  - cmd: npm run type-check           # canonical (required)
-  - cmd: node tools/quality/quality.mjs format check-changed   # canonical (required)
-  - recipe_id: recipe-farm-feeding    # additional (a registered recipe)
+  - cmd: nx affected --target=test # canonical (required)
+  - cmd: nx affected --target=lint # canonical (required)
+  - cmd: npm run type-check # canonical (required)
+  - cmd: node tools/quality/quality.mjs format check-changed # canonical (required)
+  - recipe_id: recipe-farm-feeding # additional (a registered recipe)
 ```
 
 A `validation_commands[]` missing any canonical command →
@@ -208,6 +212,7 @@ Refusal envelope shape mirrors the V8.13 contract:
   verify_no_path_escape("../../etc/passwd", workspace_root)
   # → PathEscape
   ```
+
 - `Read` / `Grep` / `Glob` are unrestricted within
   `allowed_scope[]`. Reading READONLY_PATHS is permitted (you must
   understand the architecture even if you cannot modify it); writing
@@ -232,20 +237,25 @@ Emit `aria/agent-response/v1` where:
     "base_branch_sha": "<implementation_ids.base_sha>",
     "validation_gate_ref": "<the apply gate's ledger hash>",
     "validation_results": [
-      {"command": "npx nx affected --target=test", "exit_code": 0, "timed_out": false,
-       "validation_run_id": "<ledger id>", "log_hash": "sha256:...",
-       "output_head_tail": "<≤ MAX_VALIDATION_RESULT_BYTES of the recorded log>"}
+      {
+        "command": "npx nx affected --target=test",
+        "exit_code": 0,
+        "timed_out": false,
+        "validation_run_id": "<ledger id>",
+        "log_hash": "sha256:...",
+        "output_head_tail": "<≤ MAX_VALIDATION_RESULT_BYTES of the recorded log>"
+      }
     ],
     "signer_key_fp": "SHA256:<the executor-held key>",
     "completed_at": "<ISO-8601 UTC, stamped by the bridge>"
   }
   ```
   Every field above is a kernel fact (`implementation_delivery
-  .KERNEL_STAMPED_DELIVERY_FIELDS`, plus the two below): a value you write
+.KERNEL_STAMPED_DELIVERY_FIELDS`, plus the two below): a value you write
   is replaced and the difference recorded (`implementation_delivery_overridden`).
   The ONE field of this record that is yours:
   `uncovered_intended_dispositions` — `{path: "reviewed, no change needed:
-  <why>"}` for every intended file you left untouched (step 5b). The
+<why>"}` for every intended file you left untouched (step 5b). The
   executor writes it on the change ledger's commit row
   (`change_ledger.emit_change_committed`, `implementation_delivery` stage
   `change_ledger`) beside the diff's own file list; the ledger refuses an

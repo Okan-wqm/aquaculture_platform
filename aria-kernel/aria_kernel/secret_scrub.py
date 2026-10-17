@@ -41,17 +41,28 @@ one character of the value is refused, not just one that keeps all of it).
 ``validate_credential_table`` runs at import: the redact view, applied in
 order by ``_redact_counted`` (the one loop every scrubber runs, with either
 marker), leaves no refusal hit and no four-character run of the secret on the
-fixture of any redact or refuse row. So for raw text, the publication
-boundary covers the refusal set by construction.
+fixture of EVERY credential row, whichever view detects it, and on a token of
+every prefix in ``GITHUB_TOKEN_CLASSES``. So for raw text, the publication
+boundary removes every credential any consumer detects by construction
+(ARIA-MEDIUM-546: the proof had covered only the redact and refuse rows, and
+24 rows that the dlp, harness, ``system_one`` and vault views detect, Stripe,
+SendGrid, DigitalOcean, Google, Slack, npm and GitLab tokens, JWTs and
+password lines among them, left the boundary unredacted). A detect-view row
+joins the redact view when its ``redact`` is the family's redactor; a row whose
+family another redact row already removes stays out of it. The negative half
+of the proof is ``REFERENCE_SHAPES``: what a finding or a record cites (a
+path:line, a digest, a fingerprint, a commit, a diagnostic) comes out of the
+redact view unchanged, so no row redacts by over-reach.
 ``artifact_safety.write_sanitized_json`` still scans the bytes it writes:
 JSON escaping can form a refusal hit the raw text did not hold (an escape such
 as ``\\u00ea`` ends in ``a``), and a mapping key is never rewritten. Both are
 refused, not written.
 
 Order inside the redact view is load-bearing: the key block runs first so no
-shorter row splits a PEM body, and specific families (``sk-ant-``, ``ghp_``)
+shorter row splits a PEM body, specific families (``sk-ant-``, ``ghp_``)
 precede their generic supersets (``generic_sk_key``, ``github_token_family``)
-so a match is named by its most specific type.
+so a match is named by its most specific type, and the personal-data rows run
+last so a credential that holds an ``@`` (a URL's password) is named as one.
 
 Fixtures are assembled from parts, so the text of this file matches no
 detection shape: the harness adapter scans ``aria_kernel/**``, and the DLP
@@ -61,7 +72,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final, Literal, get_args
+from typing import Callable, Final, Literal, get_args
 
 CredentialView = Literal["redact", "refuse", "dlp", "harness", "system_one", "habitat", "vault"]
 ShapeKind = Literal["credential", "pii"]
@@ -186,15 +197,73 @@ def _pem(label: str, *, newline: str = "\n") -> str:
     return newline.join((f"-----BEGIN {label}-----", _PEM_BODY, f"-----END {label}-----"))
 
 
+# GitHub's token format (2021): the prefix names the credential's class. Every
+# class but the installation token's (``ghs_``) acts as a user account; a
+# refresh token (``ghr_``) is exchanged for a user-to-server token. The one
+# list: ``github_writes`` classifies a write's credential by it, the habitat
+# view flags its user-acting prefixes, and the table proves the redact view
+# removes a token of each.
+GITHUB_INSTALLATION_TOKEN_CLASS: Final = "installation"
+GITHUB_TOKEN_CLASSES: Final[tuple[tuple[str, str], ...]] = (
+    ("ghs_", GITHUB_INSTALLATION_TOKEN_CLASS),
+    ("ghp_", "personal_access_token"),
+    ("github_pat_", "fine_grained_personal_access_token"),
+    ("gho_", "oauth_user_token"),
+    ("ghu_", "user_to_server_token"),
+    ("ghr_", "refresh_token"),
+)
+_GITHUB_USER_TOKEN: Final = (
+    r"\b(?:"
+    + "|".join(re.escape(prefix) for prefix, token_class in GITHUB_TOKEN_CLASSES
+               if token_class != GITHUB_INSTALLATION_TOKEN_CLASS)
+    + r")[A-Za-z0-9_]{20,}"
+)
+_GITHUB_TOKEN_BODY: Final = "Gt5" * 12
+
 _REDACT_REFUSE: Final = frozenset({"redact", "refuse"})
 _REDACT: Final = frozenset({"redact"})
 _REFUSE: Final = frozenset({"refuse"})
 _DLP: Final = frozenset({"dlp"})
+_DLP_REDACT: Final = frozenset({"dlp", "redact"})
 _HARNESS: Final = frozenset({"harness"})
+_HARNESS_REDACT: Final = frozenset({"harness", "redact"})
 _SYSTEM_ONE: Final = frozenset({"system_one"})
+_SYSTEM_ONE_REDACT: Final = frozenset({"system_one", "redact"})
+# The value of a secret assignment: quoted (spaces included), or one bare
+# token. A value that starts with ``$`` or ``<`` is a variable reference, a
+# placeholder or an earlier redaction marker, not a secret, and stays.
+# The value is a named group, so the one redaction loop replaces the value
+# alone and keeps the name, its quotes and the delimiter: a quoted JSON or
+# compose value stays parseable after redaction. A bare JSON literal (true,
+# false, null) is no secret: an env-presence probe prints
+# ``"GH_TOKEN": false``. A bare number still is (a PIN), and a bare value
+# still runs to the next space or quote, because a secret may contain ``,``
+# or ``}``, and stopping there would publish its tail.
+_ASSIGNED_VALUE: Final = (
+    r"""(?:"(?![$<])(?P<value>[^"\n]+)"|'(?![$<])(?P<value_sq>[^'\n]+)'"""
+    r"""|(?![$<"'])(?!(?:true|false|null)(?:[\s,}\]]|$))(?P<value_bare>[^\s"']+))"""
+)
+# The group names a row's ``redact`` may use to confine its replacement.
+_VALUE_GROUPS: Final[tuple[str, ...]] = ("value", "value_sq", "value_bare")
+# An environment-style name that ends in a secret word: the words the
+# system_one view knows, and the key and pass-phrase names an env file, a
+# compose file or a CI secret carries (``JWT_PRIVATE_KEY``,
+# ``STRIPE_SECRET_KEY``, ``SMTP_PASS``; ARIA-HIGH-448). A name merely holding
+# the word (``MAX_TOKENS``, ``TOKEN_BUDGET``, ``BYPASS``) is no secret.
+_SECRET_NAME: Final = (
+    r"(?:[A-Z0-9_]*(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|(?:SECRET|PRIVATE|ACCESS)_?KEY)"
+    r"|[A-Z0-9_]*_PASS)"
+)
+# Mapping keys whose string value is a credential (``artifact_safety.scrub_json``
+# masks it whatever its shape): a key naming a token, a secret, an API key, a
+# password or a private key. A number under such a key is a counter and stays.
+CREDENTIAL_KEY_WORDS: Final[tuple[str, ...]] = (
+    "token", "secret", "api_key", "apikey", "password", "passwd", "passphrase", "private_key",
+)
 
 CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
-    # --- the redact view, in application order; refuse rows ride with it ---
+    # --- the redact view, in application order (table order across every
+    # section below); refuse rows ride with it ---
     _shape("private_key_block", "credential", _REDACT_REFUSE,
            detect=r"-----BEGIN (RSA|EC|OPENSSH|DSA) PRIVATE KEY-----",
            redact=_PRIVATE_KEY_BLOCK, redact_flags=re.DOTALL,
@@ -214,9 +283,11 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     _shape("github_pat", "credential", _REDACT,
            detect=r"ghp_[A-Za-z0-9]{36,}", redact=_DETECT,
            fixture="ghp" + "_" + "d4" * 18, secret="d4" * 18),
+    # The refusal fires on 50+ characters; the redaction removes the 20+ the
+    # dlp and habitat views detect.
     _shape("github_pat_long", "credential", _REDACT_REFUSE,
            detect=r"github_pat_[A-Za-z0-9_]{50,}",
-           redact=r"github_pat_[A-Za-z0-9_]{40,}",
+           redact=r"github_pat_[A-Za-z0-9_]{20,}",
            fixture="github_pat" + "_" + "e5" * 26, secret="e5" * 26),
     _shape("github_token_family", "credential", _REDACT_REFUSE,
            detect=r"gh[pousr]_[A-Za-z0-9]{36,}",
@@ -249,9 +320,15 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
            detect=r"(JWT_SECRET|API_SECRET|DATABASE_PASSWORD)\s*[:=]\s*['\"]?[A-Za-z0-9+/=_-]{16,}",
            redact=r"(?:JWT_SECRET|API_SECRET|DATABASE_PASSWORD)\s*[:=]\s*['\"]?[A-Za-z0-9+/=_-]{16,}[^\s'\"]*",
            fixture="DATABASE_PASSWORD" + "=" + "Zq7" * 6 + "!x9", secret="Zq7" * 6 + "!x9"),
+    # The redaction reads the scheme in any case, as the vault does, and takes
+    # a token of 20+ characters or one of 8+ that holds a digit: a credential,
+    # never the word after "bearer" in prose.
     _shape("bearer_token", "credential", _REDACT_REFUSE,
            detect=r"Bearer\s+[A-Za-z0-9_.-]{32,}",
-           redact=r"Bearer\s+[A-Za-z0-9._\-]{20,}",
+           redact=(
+               r"(?i:bearer)\s+(?:[A-Za-z0-9._~+/\-]{20,}"
+               r"|(?=[A-Za-z._~+/\-]*[0-9])[A-Za-z0-9._~+/\-]{8,})=*"
+           ),
            fixture="Authorization: Bearer" + " " + "m3" * 20, secret="m3" * 20),
     _shape("basic_auth_password", "credential", _REDACT,
            detect=r"password\s*=\s*['\"][^'\"]{4,}['\"]", redact=_DETECT,
@@ -259,14 +336,8 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     _shape("token_assignment", "credential", _REDACT,
            detect=r"token\s*=\s*['\"][^'\"]{8,}['\"]", redact=_DETECT,
            fixture="token" + '="' + "p5" * 5 + '"', secret="p5" * 5),
-    _shape("ipv4_octet", "pii", _REDACT,
-           detect=r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b",
-           redact=_DETECT,
-           fixture="host " + ".".join(("198", "51", "100", "23")), secret=".".join(("198", "51", "100", "23"))),
-    _shape("email", "pii", _REDACT,
-           detect=r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", redact=_DETECT,
-           fixture="mail " + "ops" + "@" + "example.org", secret="ops" + "@" + "example.org"),
-    # --- the readiness DLP scanner (names and order are its proof's) ---
+    # --- the readiness DLP scanner (names and order are its proof's); a row
+    # whose family no redact row above removes joins the redact view ---
     _shape("private_key_block", "credential", _DLP,
            detect=r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
            redact=_PRIVATE_KEY_BLOCK, redact_flags=re.DOTALL,
@@ -286,14 +357,14 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     _shape("slack_token", "credential", _DLP,
            detect=r"\bxox[baprs]-[A-Za-z0-9-]{10,}", redact=_DETECT,
            fixture="xoxb" + "-" + "u1" * 8, secret="u1" * 8),
-    _shape("npm_auth_token", "credential", _DLP,
+    _shape("npm_auth_token", "credential", _DLP_REDACT,
            detect=r"_authToken\s*=\s*\S+", redact=_DETECT,
            fixture="//registry.npmjs.org/:_authToken" + "=" + "v2" * 10, secret="v2" * 10),
     _shape("jwt_like", "credential", _DLP,
            detect=r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.",
            redact=r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*",
            fixture="eyJ" + "w3" * 6 + ".eyJ" + "x4" * 6 + "." + "y5" * 8, secret="y5" * 8),
-    _shape("credential_assignment", "credential", _DLP,
+    _shape("credential_assignment", "credential", _DLP_REDACT,
            detect=r"(?i)\b(?:api[_-]?key|secret|password|token)\b\s*[:=]\s*['\"][^'\"\s]{16,}['\"]",
            redact=_DETECT,
            fixture="api_key" + ": '" + "z6" * 9 + "'", secret="z6" * 9),
@@ -304,13 +375,15 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     _shape("anthropic_api_key", "credential", _HARNESS,
            detect=r"\bsk-ant-(?:api|admin)?-?[A-Za-z0-9_\-]{20,}\b", redact=_DETECT,
            fixture="sk-ant" + "-admin-" + "b8" * 12, secret="b8" * 12),
-    _shape("hardcoded_password", "credential", _HARNESS,
-           detect=r"(?i)\bpassword\s*=\s*['\"][^'\"]{4,}", redact=_DETECT,
+    _shape("hardcoded_password", "credential", _HARNESS_REDACT,
+           detect=r"(?i)\bpassword\s*=\s*['\"][^'\"]{4,}",
+           redact=r"(?i)\bpassword\s*=\s*['\"][^'\"]{4,}['\"]?",
            fixture="PASSWORD" + ' = "' + "c9" * 4 + '"', secret="c9" * 4),
     _shape("hardcoded_token", "credential", _HARNESS,
            detect=r"(?i)\btoken\s*=\s*['\"][^'\"<{][^'\"]{4,}", redact=_DETECT,
            fixture="token" + " = '" + "d1" * 4 + "'", secret="d1" * 4),
-    # --- the Jev egress backstop, read as one alternation in this order ---
+    # --- the Jev egress backstop, read as one alternation in this order; a
+    # row whose family no redact row above removes joins the redact view ---
     _shape("private_key_header", "credential", _SYSTEM_ONE,
            detect=r"-----BEGIN [A-Z ]*PRIVATE KEY",
            redact=_PRIVATE_KEY_BLOCK, redact_flags=re.DOTALL,
@@ -318,75 +391,123 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     _shape("jwt", "credential", _SYSTEM_ONE,
            detect=r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", redact=_DETECT,
            fixture="eyJ" + "e2" * 5 + ".eyJ" + "f3" * 5 + "." + "g4" * 5, secret="g4" * 5),
-    _shape("stripe_key", "credential", _SYSTEM_ONE,
+    _shape("stripe_key", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}", redact=_DETECT,
            fixture="rk_test" + "_" + "h5" * 9, secret="h5" * 9),
-    _shape("stripe_webhook_secret", "credential", _SYSTEM_ONE,
+    _shape("stripe_webhook_secret", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bwhsec_[A-Za-z0-9]{16,}", redact=_DETECT,
            fixture="whsec" + "_" + "i6" * 9, secret="i6" * 9),
-    _shape("url_userinfo", "credential", _SYSTEM_ONE,
-           detect=r"\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@", redact=_DETECT,
+    # The redaction also takes an empty user name (``redis://:password@``,
+    # ARIA-HIGH-448), which the detection does not.
+    _shape("url_userinfo", "credential", _SYSTEM_ONE_REDACT,
+           detect=r"\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@",
+           redact=r"\b[a-z][a-z0-9+.-]*://[^\s/:@]*:[^\s/@]+@",
            fixture="https://" + "deploy:" + "j7" * 5 + "@" + "example.invalid/x", secret="j7" * 5),
-    _shape("digitalocean_token", "credential", _SYSTEM_ONE,
+    _shape("digitalocean_token", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bdop_v1_[a-f0-9]{64}", redact=_DETECT,
            fixture="dop_v1" + "_" + "ab" * 32, secret="ab" * 32),
-    _shape("sendgrid_key", "credential", _SYSTEM_ONE,
+    _shape("sendgrid_key", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}", redact=_DETECT,
            fixture="SG" + "." + "k8" * 9 + "." + "l9" * 9, secret="l9" * 9),
-    _shape("npm_token", "credential", _SYSTEM_ONE,
+    _shape("npm_token", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bnpm_[A-Za-z0-9]{36}", redact=_DETECT,
            fixture="npm" + "_" + "m1" * 18, secret="m1" * 18),
-    _shape("gitlab_pat", "credential", _SYSTEM_ONE,
+    _shape("gitlab_pat", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bglpat-[A-Za-z0-9_-]{20,}", redact=_DETECT,
            fixture="glpat" + "-" + "n2" * 11, secret="n2" * 11),
-    _shape("google_api_key", "credential", _SYSTEM_ONE,
+    _shape("google_api_key", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bAIza[0-9A-Za-z_-]{35}", redact=_DETECT,
            fixture="AIza" + "o3" * 17 + "p", secret="o3" * 17 + "p"),
-    _shape("slack_token", "credential", _SYSTEM_ONE,
+    _shape("slack_token", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bxox[abposr]-[A-Za-z0-9-]{10,}", redact=_DETECT,
            fixture="xoxp" + "-" + "q4" * 7, secret="q4" * 7),
-    _shape("slack_webhook", "credential", _SYSTEM_ONE,
+    _shape("slack_webhook", "credential", _SYSTEM_ONE_REDACT,
            detect=r"hooks\.slack\.com/services/",
            redact=r"hooks\.slack\.com/services/[^\s'\"]*",
            fixture="https://hooks.slack.com/" + "services/" + "T0/B0/" + "r5" * 12, secret="r5" * 12),
-    _shape("apikey_hex", "credential", _SYSTEM_ONE,
+    _shape("apikey_hex", "credential", _SYSTEM_ONE_REDACT,
            detect=r"\bapikey_[0-9a-f]{20,}", redact=_DETECT,
            fixture="apikey" + "_" + "0f" * 11, secret="0f" * 11),
-    _shape("aws_secret_in_context", "credential", _SYSTEM_ONE,
+    _shape("aws_secret_in_context", "credential", _SYSTEM_ONE_REDACT,
            detect=r"(?i:aws.{0,20}?(?:secret|access).{0,20}?[\"'=:\s][A-Za-z0-9/+=]{40}\b)", redact=_DETECT,
            fixture="AWS_SECRET_ACCESS_KEY" + "=" + "s6" * 20, secret="s6" * 20),
-    _shape("password_quoted", "credential", _SYSTEM_ONE,
+    _shape("password_quoted", "credential", _SYSTEM_ONE_REDACT,
            detect=r"(?i:\bpass(?:word|wd)?\s*[:=]\s*[\"'][^\"'\s]{4,}[\"'])", redact=_DETECT,
            fixture="passwd" + ': "' + "t7" * 3 + '"', secret="t7" * 3),
     _shape("secret_env_line", "credential", _SYSTEM_ONE,
            detect=r"(?m:^[+\- \t]*(?:export\s+)?[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|API_?KEY)\s*[=:]\s*\S{6,})",
            redact=_DETECT,
            fixture="export STRIPE_API_KEY" + "=" + "u8" * 4, secret="u8" * 4),
-    _shape("password_yaml_line", "credential", _SYSTEM_ONE,
+    _shape("password_yaml_line", "credential", _SYSTEM_ONE_REDACT,
            detect=(
                r"(?im:^[+\- \t]*[A-Za-z_]*pass(?:word|wd)?\s*:\s*"
                r"(?!string\b|number\b|boolean\b|undefined\b|null\b|any\b)[^\s'\"{(<|][^\s]{3,}\s*$)"
            ),
            redact=_DETECT,
            fixture="db_password" + ": " + "v9" * 4, secret="v9" * 4),
-    # --- the T2 probe: a token that acts as a user account (ghs_ is T2's own) ---
+    # --- the T2 probe: a token that acts as a user account (ghs_ is T2's own),
+    # every user-acting prefix of GITHUB_TOKEN_CLASSES ---
     _shape("github_personal_token", "credential", frozenset({"habitat"}),
-           detect=r"\b(?:ghp_|github_pat_|gho_|ghu_)[A-Za-z0-9_]{20,}", redact=_DETECT,
+           detect=_GITHUB_USER_TOKEN, redact=_DETECT,
            fixture="gho" + "_" + "w1" * 11, secret="w1" * 11),
     # --- the evidence vault's value redactor, read as one alternation; each
     # row scopes the case-insensitive flag the vault applied to both ---
     _shape("bearer_value", "credential", frozenset({"vault"}),
            detect=r"(?i:\bbearer\s+\S+)", redact=_DETECT,
            fixture="authorization: " + "BEARER" + " " + "x2" * 6, secret="x2" * 6),
-    _shape("jwt_value", "credential", frozenset({"vault"}),
+    # The redact view's JWT row: one dot after the header is enough, so it
+    # removes the dlp, system_one and vault shapes alike.
+    _shape("jwt_value", "credential", frozenset({"vault", "redact"}),
            detect=r"(?i:eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_.-]+)", redact=_DETECT,
            fixture="eyJ" + "y3" * 4 + "." + "z4" * 4 + "." + "a5" * 4, secret="a5" * 4),
+    # --- the redact view's catch-all, after every specific family: a secret
+    # assigned to an environment-style name, wherever it sits (an env file, a
+    # ``cat -n`` listing, ``docker run -e``, a compose or JSON key). It removes
+    # the system_one view's line-anchored secret_env_line and its quoted
+    # values whole. No consumer reads its detect, which needs only to anchor
+    # the fixture (and so leaves source text such as ``NAME=" + x`` alone). ---
+    _shape("secret_assignment", "credential", _REDACT,
+           detect=_SECRET_NAME + r"[ \t]*[=:][ \t]*[A-Za-z0-9]{6,}",
+           redact=_SECRET_NAME + r"[\"']?[ \t]*[=:][ \t]*" + _ASSIGNED_VALUE,
+           fixture="env " + "DB_PASSWORD" + "=" + "Qm4" * 4, secret="Qm4" * 4),
+    # A lower-case parameter: a libpq DSN, a CLI flag, a URL query
+    # (``password=``, ``--password=``, ``?access_token=``; ARIA-HIGH-448).
+    # ``=`` with no space, so ``password = hashPassword(x)`` in code stays; a
+    # token-like name needs a value of 8+ so a diagnostic code stays.
+    _shape("password_parameter", "credential", _REDACT,
+           detect=r"(?i:\b[a-z0-9_.-]*pass(?:word|wd)=[A-Za-z0-9]{6,})",
+           redact=r"(?i:\b[a-z0-9_.-]*pass(?:word|wd))=" + _ASSIGNED_VALUE,
+           fixture="host=db " + "pass" + "word=" + "Rt5" * 4 + " dbname=x", secret="Rt5" * 4),
+    _shape("credential_parameter", "credential", _REDACT,
+           detect=r"(?i:\b[a-z0-9_.-]*(?:secret|token|api_?key|access_?key)=[A-Za-z0-9]{8,})",
+           redact=r"(?i:\b[a-z0-9_.-]*(?:secret|token|api_?key|access_?key))=(?![$<])[^\s&'\"]{8,}",
+           fixture="GET /cb?state=1&access_" + "token=" + "Wp6" * 4 + "&x=2", secret="Wp6" * 4),
+    # --- personal data, redacted last so a credential holding an "@" is named as one ---
+    _shape("ipv4_octet", "pii", _REDACT,
+           detect=r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b",
+           redact=_DETECT,
+           fixture="host " + ".".join(("198", "51", "100", "23")), secret=".".join(("198", "51", "100", "23"))),
+    _shape("email", "pii", _REDACT,
+           detect=r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", redact=_DETECT,
+           fixture="mail " + "ops" + "@" + "example.org", secret="ops" + "@" + "example.org"),
 )
 
 
 # The uniform marker of the publication boundary; typed scrubbers write
 # ``<REDACTED:{name}>`` instead.
 UNIFORM_MARKER: Final = "<secret-redacted>"
+
+
+def _value_only(marker: str, groups: list[str]) -> Callable[[re.Match[str]], str]:
+    """A replacement that swaps only the matched value group for ``marker``."""
+    def replace(match: re.Match[str]) -> str:
+        for name in groups:
+            if match.group(name) is not None:
+                start, end = match.span(name)
+                whole, base = match.group(0), match.start()
+                return whole[:start - base] + marker + whole[end - base:]
+        return marker
+    return replace
 
 
 def _redact_counted(rows: tuple[CredentialShape, ...], text: str, *, typed: bool) -> tuple[str, dict[str, int]]:
@@ -398,20 +519,60 @@ def _redact_counted(rows: tuple[CredentialShape, ...], text: str, *, typed: bool
     """
     counts: dict[str, int] = {}
     for row in rows:
-        text, matched = row.redact.subn(f"<REDACTED:{row.name}>" if typed else UNIFORM_MARKER, text)
+        marker = f"<REDACTED:{row.name}>" if typed else UNIFORM_MARKER
+        groups = [name for name in _VALUE_GROUPS if name in row.redact.groupindex]
+        text, matched = row.redact.subn(_value_only(marker, groups) if groups else marker, text)
         if matched:
             counts[row.name] = matched
     return text, counts
 
 
+# What a finding, an envelope or a record cites, which the redact view must
+# leave exactly as written: the negative fixtures of the proof. A row that
+# reaches past a credential into one of these cannot load. Phrases a detect
+# view would flag are assembled from parts, like the fixtures.
+REFERENCE_SHAPES: Final[tuple[str, ...]] = (
+    "apps/x.ts:12",
+    "aria-kernel/aria_kernel/cost_budget" + ".py:263-267",
+    "0123456789abcdef" * 4,
+    "sha256:" + "0123456789abcdef" * 4,
+    "SHA256:" + "U3ludGhldGljRmluZ2VycHJpbnRGb3JBVGVzdE9ubHkx"[:43],
+    "commit 99689e46b8f1d3c1e4a5b6c7d8e9f0a1b2c3d4e5",
+    "integrity sha512-" + "U3ludGhldGljSW50ZWdyaXR5" * 3 + "==",
+    "run 123e4567-e89b-12d3-a456-426614174000 at 2026-10-16T09:45:00Z",
+    "ARIA-MEDIUM-546 PR#1756",
+    "github_write_requires_installation_token:absent",
+    "usage input_tokens=48213 output_tokens=1921 CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000",
+    "ARIA_TOKEN_BUDGET=1000 token_budget=1000",
+    "the gateway accepts a " + "bear" + "er token without a scope check",
+    "Authorization: " + "Bear" + "er <token>",
+    "GH_TOKEN: " + "${{ github.token }}",
+    "GH_TOKEN=" + UNIFORM_MARKER + " gh pr list",
+    "token <REDACTED:github_pat> end",
+    "PASSWORD=$DB_PASSWORD SECRET=${JWT_SECRET} TOKEN=<value>",
+    "psql --password-file=/run/secrets/db -h db",
+    "https://example.org:8443/path?q=1",
+    "password = hashPassword(input)",
+    "resolve_token=absent",
+    # A JSON record naming secret-shaped environment variables with values
+    # that cannot be secrets (booleans, null): the env-presence probe of a
+    # validation log. ARIA-MEDIUM-546's assignment rows once replaced each
+    # name with its value here, and the record no longer parsed.
+    '{"GH_TOKEN": false, "PROBE_SECRET_TOKEN": null, "DB_PASSWORD": true}',
+)
+
+
 def validate_credential_table(rows: tuple[CredentialShape, ...]) -> None:
     """Raise ``CredentialTableError`` unless ``rows`` form a usable table.
 
-    Each view is non-empty with unique names, and the redact view, applied in
-    order with either marker, leaves on the fixture of every redact or refuse
-    row no refusal hit and no run of its secret longer than
-    ``_SURVIVING_RUN`` characters (an earlier row that cuts into a later
-    row's value is caught here, where each row alone looked whole).
+    Each view is non-empty with unique names. The redact view, applied in
+    order with either marker, leaves on the fixture of every credential row,
+    whichever view detects it, and of every redact or refuse row, no refusal
+    hit and no run of its secret longer than ``_SURVIVING_RUN`` characters (an
+    earlier row that cuts into a later row's value is caught here, where each
+    row alone looked whole); it leaves no such run of a token of any
+    ``GITHUB_TOKEN_CLASSES`` prefix; and it leaves every ``REFERENCE_SHAPES``
+    text unchanged.
     """
     for view in sorted(CREDENTIAL_VIEWS):
         names = [row.name for row in rows if view in row.views]
@@ -422,7 +583,7 @@ def validate_credential_table(rows: tuple[CredentialShape, ...]) -> None:
             raise CredentialTableError(f"credential_view_duplicate_names:{view}:{','.join(duplicates)}")
     redact_rows = tuple(row for row in rows if "redact" in row.views)
     refuse_rows = tuple(row for row in rows if "refuse" in row.views)
-    for row in tuple(row for row in rows if row.views & {"redact", "refuse"}):
+    for row in tuple(row for row in rows if row.kind == "credential" or row.views & {"redact", "refuse"}):
         for typed in (False, True):
             out = _redact_counted(redact_rows, row.fixture, typed=typed)[0]
             if _secret_run_survives(out, row.fixture_secret):
@@ -430,6 +591,16 @@ def validate_credential_table(rows: tuple[CredentialShape, ...]) -> None:
             fired = sorted(other.name for other in refuse_rows if other.detect.search(out))
             if fired:
                 raise CredentialTableError(f"redact_view_leaves_refusal_hit:{row.name}:{','.join(fired)}")
+    for prefix, _token_class in GITHUB_TOKEN_CLASSES:
+        for typed in (False, True):
+            out = _redact_counted(redact_rows, f"token {prefix}{_GITHUB_TOKEN_BODY} end", typed=typed)[0]
+            if _secret_run_survives(out, _GITHUB_TOKEN_BODY):
+                raise CredentialTableError(f"redact_view_leaves_github_token:{prefix}")
+    for index, text in enumerate(REFERENCE_SHAPES):
+        for typed in (False, True):
+            out, counts = _redact_counted(redact_rows, text, typed=typed)
+            if out != text:
+                raise CredentialTableError(f"redact_view_rewrites_reference:{index}:{','.join(counts)}")
 
 
 validate_credential_table(CREDENTIAL_SHAPES)

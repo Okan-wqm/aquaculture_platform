@@ -64,8 +64,22 @@ def _result_event(text: str, *, is_error: bool = True) -> dict:
     return {"type": "result", "subtype": "success", "is_error": is_error, "result": text}
 
 
-def _assistant(text: str) -> dict:
-    return {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}
+def _model_said(text: str) -> dict:
+    """An assistant frame the MODEL wrote: the API's model id is on it."""
+    return {"type": "assistant", "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": text}]}}
+
+
+def _tool_said(text: str) -> dict:
+    """A tool result: bytes a command in the workspace printed, relayed by the CLI."""
+    return {"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "toolu_1", "content": text}]}}
+
+
+def _cli_said(text: str, error: str) -> dict:
+    """The CLI's own API-error message (CLI 2.1.278, `Eo`/`KDn`): model "<synthetic>", zero
+    usage, and the typed `error` the stream-json assistant message carries."""
+    return {"type": "assistant", "error": error,
+            "message": {"model": "<synthetic>", "content": [{"type": "text", "text": text}]}}
 
 
 class _Tools(unittest.TestCase):
@@ -90,16 +104,17 @@ class ClaudeWordingsNameASignature(unittest.TestCase):
 
     def test_the_august_weekly_limit_on_a_clean_exit_is_caught_as_content(self) -> None:
         # 2026-08-22: the notice arrived as the assistant's whole answer on exit 0
-        # and was sealed as a judge verdict's evidence.
+        # and was sealed as a judge verdict's evidence. It is the CLI's message
+        # (model "<synthetic>"), which is why it is read at all (ARIA-HIGH-536).
         record = claude_runtime.extract_credit_exhaustion(
-            returncode=0, stderr="", events=(_assistant(_WEEKLY_2026_08_22),), final_message=_WEEKLY_2026_08_22,
+            returncode=0, stderr="", events=(_cli_said(_WEEKLY_2026_08_22, "rate_limit"),),
         )
         self.assertEqual((record["signature"], record["reset_hint"]),
                          ("claude_usage_limit_notice", _WEEKLY_2026_08_22))
 
     def test_the_july_credit_notice_keeps_its_marker_and_names_its_signature(self) -> None:
         record = claude_runtime.extract_credit_exhaustion(
-            returncode=0, stderr="", events=(), final_message=_FABLE_2026_07_03,
+            returncode=0, stderr="", events=(_cli_said(_FABLE_2026_07_03, "rate_limit"),),
         )
         self.assertEqual((record["signature"], record["matched_marker"]),
                          ("claude_usage_credits_hint", "usage-credits"))
@@ -112,7 +127,7 @@ class ClaudeWordingsNameASignature(unittest.TestCase):
 
     def test_an_expired_session_is_an_auth_signature(self) -> None:
         record = claude_runtime.extract_auth_failure(
-            returncode=1, stdout="", stderr="OAuth session expired and could not be refreshed", final_message="",
+            returncode=1, stderr="OAuth session expired and could not be refreshed", events=(),
         )
         self.assertEqual(record["signature"], "claude_auth_failure")
 
@@ -120,12 +135,66 @@ class ClaudeWordingsNameASignature(unittest.TestCase):
         plan = ("The planner keeps running when you've hit your weekly limit, because the provider "
                 "cooldown routes the request; the sentence is prose, not the CLI's notice line.")
         self.assertIsNone(claude_runtime.extract_credit_exhaustion(
-            returncode=0, stderr="", events=(_assistant(plan),), final_message=plan,
+            returncode=0, stderr="", events=(_model_said(plan),),
         ))
 
     def test_every_claude_signature_is_a_kernel_table_member_for_anthropic(self) -> None:
         for signature in claude_runtime.CLAUDE_EXHAUSTION_SIGNATURES:
             self.assertEqual(PROVIDER_EXHAUSTION_SIGNATURES[signature][0], "anthropic", signature)
+
+
+def _credit(*, returncode: int, stderr: str = "", events: tuple = ()) -> dict | None:
+    return claude_runtime.extract_credit_exhaustion(returncode=returncode, stderr=stderr, events=events)
+
+
+def _auth(*, returncode: int, stderr: str = "", events: tuple = ()) -> dict | None:
+    return claude_runtime.extract_auth_failure(returncode=returncode, stderr=stderr, events=events)
+
+
+class VendorFactsComeOnlyFromTheClisOwnChannel(unittest.TestCase):
+    """ARIA-HIGH-536 — a provider fact (quota, credential) is read only from what the CLI
+    itself wrote: its stderr, the terminal ``result`` it marks ``is_error``, and the
+    assistant messages it synthesizes for an API error. Never from the model's text or a
+    tool's output: this repository has a billing-service, so an agent that writes "billing"
+    and then times out would cool Anthropic for the whole fleet and be requeued uncharged."""
+
+    def test_model_text_naming_billing_on_a_timeout_is_no_quota_fact(self) -> None:
+        events = (_model_said("Fixing the billing-service invoice handler"),)
+        self.assertIsNone(_credit(returncode=124, events=events))
+
+    def test_a_tool_result_saying_not_authenticated_is_no_credential_fact(self) -> None:
+        events = (_model_said("Running the auth-service suite."), _tool_said("Error: Not authenticated"))
+        self.assertIsNone(_auth(returncode=1, events=events))
+
+    def test_a_model_quoting_the_clis_limit_wording_is_no_quota_fact(self) -> None:
+        for returncode, text in (
+            (0, "USAGE_LIMIT_MARKERS = ('usage-credits', 'switch models with /model')"),
+            (1, f"The fixture reads:\n{_WEEKLY_2026_10_01}\nand the parser takes its reset."),
+            (1, "credit balance: the invoice total must not go negative"),
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(_credit(returncode=returncode, events=(_model_said(text),)))
+
+    def test_the_clis_own_limit_and_credit_messages_are_quota_facts(self) -> None:
+        self.assertEqual(_credit(returncode=0, events=(_cli_said(_FABLE_2026_07_03, "rate_limit"),))["signature"],
+                         "claude_usage_credits_hint")
+        self.assertEqual(_credit(returncode=1, events=(_cli_said(_WEEKLY_2026_10_01, "rate_limit"),))["reset_hint"],
+                         _WEEKLY_2026_10_01)
+        self.assertEqual(
+            _credit(returncode=1, events=(_cli_said("Credit balance is too low", "billing_error"),))["signature"],
+            "claude_credit_error")
+        self.assertEqual(_credit(returncode=1, stderr="Error: Your credit balance is too low")["signature"],
+                         "claude_credit_error")
+
+    def test_the_clis_own_credential_messages_are_credential_facts(self) -> None:
+        for stderr, events in (
+            ("Failed to authenticate: OAuth session expired and could not be refreshed", ()),
+            ("", (_cli_said("Not logged in · Please run /login", "authentication_failed"),)),
+            ("", (_result_event("Failed to authenticate. API Error: 401 authentication_error"),)),
+        ):
+            with self.subTest(stderr=stderr, events=events):
+                self.assertEqual(_auth(returncode=1, stderr=stderr, events=events)["signature"],
+                                 "claude_auth_failure")
 
 
 class ZaiRefusalsNameASignature(unittest.TestCase):
@@ -249,7 +318,7 @@ class AnExhaustionIsNeverARetryableFailure(unittest.TestCase):
         return claude_runtime.ClaudeRunResult(
             **base,
             credit_exhaustion=claude_runtime.extract_credit_exhaustion(
-                returncode=base["returncode"], stderr=base["stderr"], events=events, final_message=""),
+                returncode=base["returncode"], stderr=base["stderr"], events=events),
         )
 
     def test_the_2026_10_01_result_classifies_as_credit_exhausted_not_retryable(self) -> None:

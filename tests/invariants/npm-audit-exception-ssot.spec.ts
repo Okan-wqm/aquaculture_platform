@@ -37,12 +37,12 @@ const GATE = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-gate.mjs');
 const REGISTRY = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 
 /**
- * RATCHET — only ever goes DOWN. Zero entries today. The one it was born with,
- * GHSA-528h-pc64-c93x (minio@8.0.7 -> stream-json@1.9.1), left with minio when
- * libs/storage moved to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) — exactly the
- * re-review condition the entry's own reason named. The mechanism stays: the
- * next advisory with no safe remediation gets a dated, reviewed entry and the
- * ratchet moves to 1 in the same commit, never silently.
+ * RATCHET — only ever goes DOWN, except in the same commit as the reviewed
+ * entries a raise admits; the dated log below records every change and the
+ * count it left. The entry it was born with, GHSA-528h-pc64-c93x
+ * (minio@8.0.7 -> stream-json@1.9.1), left with minio when libs/storage moved
+ * to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) — exactly the re-review condition
+ * the entry's own reason named.
  */
 const MAX_EXCEPTIONS = 5;
 
@@ -71,10 +71,6 @@ const MAX_EXCEPTIONS = 5;
 // postcss-selector-parser 6; tailwind 4 is the fix — SUPPLY-MEDIUM-020). Every
 // production leg is clean. The ratchet returns to 1 when vitest 4 and tailwind
 // 4 land.
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const ADVISORY_ID = /^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$/;
-const MIN_REASON_LENGTH = 30;
 
 interface ExceptionEntry {
   owner?: unknown;
@@ -110,12 +106,21 @@ function runGate(
   exceptionDoc: unknown,
   args: { level: string; scope: string },
 ): { status: number; output: string } {
+  return runGateText(audit, JSON.stringify(exceptionDoc), args);
+}
+
+/** The gate over exceptions-file TEXT, so a fixture can carry a duplicated key. */
+function runGateText(
+  audit: unknown,
+  exceptionsText: string,
+  args: { level: string; scope: string },
+): { status: number; output: string } {
   const dir = mkdtempSync(join(tmpdir(), 'npm-audit-gate-'));
   try {
     const auditPath = join(dir, 'audit.json');
     const exceptionsPath = join(dir, 'exceptions.json');
     writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
-    writeFileSync(exceptionsPath, JSON.stringify(exceptionDoc), 'utf8');
+    writeFileSync(exceptionsPath, exceptionsText, 'utf8');
     try {
       const output = execFileSync(
         process.execPath,
@@ -166,20 +171,19 @@ const AUDIT_FIXTURE = {
   },
 };
 
+const FIXTURE_ENTRY: ExceptionEntry = {
+  owner: 'supply-chain-auditor',
+  reason: 'no remediation keeps minio working; the vulnerable filters are unreachable here',
+  expires_on: '2099-01-01',
+  finding_id: 'SUPPLY-CRITICAL-002',
+  packages: ['minio', 'stream-json'],
+  scopes: ['root-production'],
+};
+
 function exceptionFixture(overrides: Partial<ExceptionEntry> = {}): unknown {
   return {
     version: 1,
-    advisories: {
-      'GHSA-528h-pc64-c93x': {
-        owner: 'supply-chain-auditor',
-        reason: 'no remediation keeps minio working; the vulnerable filters are unreachable here',
-        expires_on: '2099-01-01',
-        finding_id: 'SUPPLY-CRITICAL-002',
-        packages: ['minio', 'stream-json'],
-        scopes: ['root-production'],
-        ...overrides,
-      },
-    },
+    advisories: { 'GHSA-528h-pc64-c93x': { ...FIXTURE_ENTRY, ...overrides } },
   };
 }
 
@@ -188,34 +192,21 @@ describe('INVARIANT (SUPPLY-CRITICAL-002): npm audit exceptions are reviewed, tr
     expect(Object.keys(exceptions()).length).toBeLessThanOrEqual(MAX_EXCEPTIONS);
   });
 
-  it('keys every exception by a real GHSA advisory id', () => {
-    const malformed = Object.keys(exceptions()).filter((id) => !ADVISORY_ID.test(id));
-    expect(malformed).toEqual([]);
-  });
-
-  it('carries owner, a substantive reason, an unexpired date, packages and scopes', () => {
-    const today = new Date().toISOString().slice(0, 10);
-    const problems: string[] = [];
-    for (const [id, entry] of Object.entries(exceptions())) {
-      if (typeof entry.owner !== 'string' || entry.owner.trim().length === 0) {
-        problems.push(`${id}: owner is required`);
-      }
-      if (typeof entry.reason !== 'string' || entry.reason.trim().length < MIN_REASON_LENGTH) {
-        problems.push(`${id}: reason must be at least ${MIN_REASON_LENGTH} characters`);
-      }
-      if (typeof entry.expires_on !== 'string' || !ISO_DATE.test(entry.expires_on)) {
-        problems.push(`${id}: expires_on must be YYYY-MM-DD`);
-      } else if (entry.expires_on < today) {
-        problems.push(`${id}: expired ${entry.expires_on} — fix the advisory or re-argue the case`);
-      }
-      if (!Array.isArray(entry.packages) || entry.packages.length === 0) {
-        problems.push(`${id}: packages must name what this was reviewed against`);
-      }
-      if (!Array.isArray(entry.scopes) || entry.scopes.length === 0) {
-        problems.push(`${id}: scopes must name the audit legs this applies to`);
-      }
-    }
-    expect(problems).toEqual([]);
+  it('the gate accepts the committed exceptions file', () => {
+    // The gate validates every entry before it reads the audit — GHSA key,
+    // owner, reason, an unexpired date and a registry-shaped finding id
+    // through scripts/ci/lib/reviewed-exception.mjs, packages and scopes
+    // itself — and refuses the file on any problem, including a repeated
+    // key. An empty audit therefore exits 0 only when every committed entry
+    // is well formed and live, judged by the code CI runs rather than by a
+    // copy of its rules (INFRA-LOW-229).
+    const { status, output } = runGateText(
+      { vulnerabilities: {} },
+      readFileSync(EXCEPTIONS_PATH, 'utf8'),
+      { level: 'low', scope: 'root-production' },
+    );
+    expect(output).not.toContain('exceptions are invalid');
+    expect(status).toBe(0);
   });
 
   it('points every exception at a registry finding that is still open', () => {
@@ -303,6 +294,21 @@ describe('INVARIANT (SUPPLY-CRITICAL-002): npm audit exceptions are reviewed, tr
       );
       expect(status).toBe(1);
       expect(output).toContain('a non-breaking fix is available');
+    });
+
+    it('blocks an exceptions file with a duplicated advisory key instead of keeping the last entry', () => {
+      // JSON.parse keeps the last of two equal keys, so the entry a reviewer
+      // read first would not be the one the gate applied (INFRA-MEDIUM-228).
+      const entry = JSON.stringify(FIXTURE_ENTRY);
+      const text =
+        `{"version":1,"advisories":{"GHSA-528h-pc64-c93x":${entry},` +
+        `"GHSA-528h-pc64-c93x":${entry}}}`;
+      const { status, output } = runGateText(AUDIT_FIXTURE, text, {
+        level: 'moderate',
+        scope: 'root-production',
+      });
+      expect(status).toBe(1);
+      expect(output).toContain('duplicate key(s) $.advisories.GHSA-528h-pc64-c93x');
     });
 
     it('ignores advisories below the requested level', () => {

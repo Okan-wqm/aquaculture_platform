@@ -42,21 +42,34 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
 
+import { esmExportResult } from './helpers/esm-export';
+
 const REPO_ROOT = process.cwd();
 const INVARIANT_DIR = join(REPO_ROOT, 'tests', 'invariants');
 const CONFIG_PATH = join(INVARIANT_DIR, 'jest.config.ts');
 const DORMANT_MANIFEST_PATH = join(INVARIANT_DIR, 'invariant-reachability.dormant.json');
 
-type DormantEntry = {
-  owner: string;
-  reason: string;
-  expires_on: string;
-  finding_id: string;
-};
+const REVIEWED_EXCEPTION_LIB = join(REPO_ROOT, 'scripts', 'ci', 'lib', 'reviewed-exception.mjs');
 
-function readDormantManifest(): Record<string, DormantEntry> {
+/** Each entry is a reviewed exception `{ owner, reason, expires_on, finding_id }`, keyed by spec file. */
+function readDormantManifest(): Record<string, unknown> {
   if (!existsSync(DORMANT_MANIFEST_PATH)) return {};
-  return JSON.parse(readFileSync(DORMANT_MANIFEST_PATH, 'utf8')) as Record<string, DormantEntry>;
+  return JSON.parse(readFileSync(DORMANT_MANIFEST_PATH, 'utf8')) as Record<string, unknown>;
+}
+
+/**
+ * Every problem with the waivers, shape and expiry, as scripts/ci/lib/reviewed-exception.mjs
+ * states them. The rules are not restated here: the copy this spec used to carry accepted any
+ * non-empty reason and finding id (INFRA-LOW-229). Expiry is compared as ISO strings, so a waiver
+ * is expired the day after the date it names, everywhere — the assertion that did not exist
+ * before 2026-07-31 (see the header).
+ */
+function waiverProblems(manifest: Record<string, unknown>): string[] {
+  const today = new Date().toISOString().slice(0, 10);
+  return esmExportResult<string[]>(REVIEWED_EXCEPTION_LIB, 'validateReviewedExceptions', [
+    manifest,
+    today,
+  ]);
 }
 
 function specsOnDisk(): string[] {
@@ -83,28 +96,28 @@ describe('invariant spec reachability', () => {
     expect(unreachable.sort()).toEqual(Object.keys(dormant).sort());
   });
 
-  it('dormant invariant specs carry owner, reason, expiry and a finding id', () => {
-    const invalid = Object.entries(readDormantManifest())
-      .filter(
-        ([, entry]) =>
-          !entry.owner ||
-          !entry.reason ||
-          !entry.finding_id ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(entry.expires_on),
-      )
-      .map(([name]) => name);
-    expect(invalid).toEqual([]);
+  it('dormant invariant specs carry owner, reason, expiry and a finding id, and none is past its expiry', () => {
+    expect(waiverProblems(readDormantManifest())).toEqual([]);
   });
 
-  it('no dormancy waiver is past its expiry', () => {
-    // THE ASSERTION THAT DID NOT EXIST. Compared as ISO strings, which sort
-    // lexicographically for this format, so no timezone reasoning is involved —
-    // a waiver is expired the day after the date it names, everywhere.
-    const today = new Date().toISOString().slice(0, 10);
-    const expired = Object.entries(readDormantManifest())
-      .filter(([, entry]) => entry.expires_on < today)
-      .map(([name, entry]) => `${name} expired ${entry.expires_on} (${entry.finding_id})`);
-    expect(expired).toEqual([]);
+  it('refuses a waiver the reviewed-exception lib refuses', () => {
+    const problems = waiverProblems({
+      'x.spec.ts': { owner: 'x', reason: 'tbd', expires_on: '2999-01-01', finding_id: 'TODO' },
+    });
+    expect(problems.some((problem) => problem.includes('x.spec.ts: reason'))).toBe(true);
+    expect(problems.some((problem) => problem.includes('x.spec.ts: finding_id'))).toBe(true);
+  });
+
+  it('refuses a waiver past its expiry', () => {
+    const problems = waiverProblems({
+      'x.spec.ts': {
+        owner: 'x',
+        reason: 'a reason long enough to be an argument rather than a label',
+        expires_on: '2000-01-01',
+        finding_id: 'INFRA-LOW-001',
+      },
+    });
+    expect(problems).toEqual(['x.spec.ts: expired 2000-01-01 (INFRA-LOW-001)']);
   });
 
   it('every dormant spec still exists', () => {

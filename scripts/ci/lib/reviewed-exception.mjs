@@ -20,6 +20,16 @@
  * PROC-MEDIUM-025 is what this shape is for: nineteen `test` projects sat
  * downgraded to warnings for four months behind bare strings with no owner, no
  * clock and no finding.
+ *
+ * This module is the ONE statement of these rules. Each committed exception
+ * file is checked through it, never through a copy: the npm advisories by
+ * npm-audit-gate.mjs, the affected-target quarantine by
+ * lib/affected-target-policy.mjs (both run on the committed file by their
+ * invariant specs), and the dormant-invariant manifest, which has no runtime
+ * consumer, by validateReviewedExceptions below, called from
+ * tests/invariants/invariant-reachability.spec.ts. The specs used to re-type
+ * the rules, and the dormant copy accepted a waiver with reason "tbd" and
+ * finding_id "TODO" (INFRA-LOW-229).
  */
 
 export const FINDING_ID = /^[A-Z]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$/;
@@ -41,6 +51,23 @@ export function validateReviewedException(entry, where, today) {
     problems.push(`${where}: expired ${entry.expires_on} (${entry.finding_id ?? 'no finding'})`);
   }
   return problems;
+}
+
+/**
+ * Validate every entry of a `{ where: entry }` map, shape and expiry, the way
+ * validateReviewedException validates one.
+ *
+ * @param {unknown} entries the parsed exception file, keyed by location
+ * @param {string}  today   ISO date
+ * @returns {string[]}      empty when every entry is well formed and live
+ */
+export function validateReviewedExceptions(entries, today) {
+  if (entries === null || typeof entries !== 'object' || Array.isArray(entries)) {
+    return ['the exception file must be an object {where: entry}'];
+  }
+  return Object.entries(entries).flatMap(([where, entry]) =>
+    validateReviewedException(entry, where, today),
+  );
 }
 
 /**

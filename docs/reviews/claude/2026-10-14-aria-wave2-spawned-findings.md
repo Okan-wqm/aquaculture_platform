@@ -830,6 +830,12 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   duplicated key, used by every reader of those files; a repo-wide spec over every tracked `*.json`;
   the second integration step deleted; and a reachability test that each target is driven at most
   once per workflow. Deadline: 2027-01-15.
+- **Landed (ARIA order chain, `G041-G042-reviewed-exception`):** `scripts/ci/lib/strict-json.mjs`
+  refuses a repeated key; the affected-target writer, `lint-debt-measure.mjs` (verify and renew)
+  and `npm-audit-gate.mjs` read through it, and `json-duplicate-keys.spec.ts` runs it over every
+  tracked `*.json`. The second `test:integration` step is gone, and `test-target-ci-reachability`
+  fails on a target driven twice. Red first: the writer, the renewal and the gate each accepted a
+  duplicated key, and the reachability test reported `test:integration: ci-affected.yml x2`.
 
 ### INFRA-LOW-229 — the reviewed-exception rules have four copies
 
@@ -847,6 +853,26 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   dormant manifest through the lib, the quarantine policy through the writer for every target it
   names, and the npm file through the gate. The copies and the stale prose are deleted. Deadline:
   2027-04-15.
+- **Landed (ARIA order chain, `G041-G042-reviewed-exception`):** the dormant manifest goes through
+  the lib's new `validateReviewedExceptions` (called from the spec by `helpers/esm-export.ts`, which
+  also replaces the quarantine spec's private module shim). The quarantine spec runs the writer
+  over the committed bytes for every target instead of `isEntry`'s copy, and the npm spec runs the
+  gate on the committed file instead of its re-declared constants. Red first: the dormant check
+  accepted `{reason: "tbd", finding_id: "TODO"}`.
+
+### PROC-LOW-055 — the finding-id grammar is stated four ways
+
+- **Raised by:** design G041-S §1 ("register as its own finding at implementation time"), at the
+  `G041-G042-reviewed-exception` fix, which leaves the lib's `FINDING_ID` as it is.
+- **Problem:** the registry schema (`findings.jsonl.schema.json:24`) admits a closed prefix list,
+  the `CVE` classifier and three digits. `reviewed-exception.mjs` admits any letters-only prefix
+  and no `CVE`, so it refuses `P0-CRITICAL-001` and `RUST-CVE-001`. The `Closes:` trailer pattern
+  (`commit-msg-validator.ts:117`) admits no `CVE`, so a CVE-classified row cannot be closed by a
+  trailer. `banned-phrase-excuse.ts:66` admits `NIT` and two-digit ids that no row can carry.
+  Measured 2026-10-17: 9 of 2767 registry ids fail the lib, all RESOLVED, so no live exception is
+  affected today.
+- **Planned fix:** one exported grammar derived from the registry schema, and every gate's
+  pattern built from it. Deadline: 2027-04-15.
 
 ## Registry amendments recorded at the L1 registry step
 

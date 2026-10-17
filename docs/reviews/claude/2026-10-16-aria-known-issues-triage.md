@@ -150,7 +150,10 @@ HIGH findings judged already fixed.
 Each section below is the account of one observation the repair session made but never registered.
 Its registry row points here.
 
-### ARIA-MEDIUM-548 (NOTE-1) — bridge_replay_required night gets inconsistent treatment (cycle failure accounting vs notify)
+### ARIA-MEDIUM-548 (NOTE-1) — bridge_replay_required night gets inconsistent treatment (cycle…
+
+Full title: bridge_replay_required night gets inconsistent treatment (cycle failure accounting vs
+notify)
 
 A bridge_replay_required night sends a cycle_failed notice and writes a failed phase. The same cycle
 is still counted in cycles_completed, the run returns exits_clean=True, and the CLI exits 0. The
@@ -209,7 +212,9 @@ Evidence:
   is a dead host daemon
 - No registry row covers host organs (ARIA-MEDIUM-417 routed only notifications/deadlines)
 
-### ARIA-LOW-551 (NOTE-4) — auto-cycle job margin leaves ~16 min slack, never measured on real post-work durations
+### ARIA-LOW-551 (NOTE-4) — auto-cycle job margin leaves ~16 min slack
+
+Full title: auto-cycle job margin leaves ~16 min slack, never measured on real post-work durations
 
 The close-out margin leaves 16 of 100 minutes of slack. The 57-minute close-out figure comes from
 one #1371 measurement, not from nights that did real post-work, and the doctor runs twice (NOTE-12).
@@ -229,7 +234,9 @@ Evidence:
 - aria-auto-cycle.yml:446-455: writer lease TTL 440 min > 360 min job cap, so a timeout does not
   strand the lease
 
-### ARIA-MEDIUM-552 (NOTE-5) — legacy plans with no content_hash leave attempt_unrecorded rows that never stop
+### ARIA-MEDIUM-552 (NOTE-5) — legacy plans with no content_hash leave attempt_unrecorded rows…
+
+Full title: legacy plans with no content_hash leave attempt_unrecorded rows that never stop
 
 A CONVERGED plan whose latest revision has no content_hash fails body proof inside the attempt
 claim. The failure is recorded as an uncounted attempt_unrecorded withhold that never reaches
@@ -250,7 +257,9 @@ Evidence:
   stays CONVERGED and redeliver_stranded_converged_plans (autonomy_orchestrator.py ~1932) offers it
   every cycle
 
-### ARIA-LOW-553 (NOTE-6) — if channel_check fails, the workflow steps after it are skipped (dispatch only)
+### ARIA-LOW-553 (NOTE-6) — if channel_check fails
+
+Full title: if channel_check fails, the workflow steps after it are skipped (dispatch only)
 
 On an operator dispatch with channel_check=true, a failed notification check skips the whole night
 (provisioning and the cycle), while the always() close-out steps still run and publish. Scheduled
@@ -268,7 +277,10 @@ Evidence:
 - aria-auto-cycle.yml:1081-1316: doctor/self_improve/deliver/integrity/publish/lease release run
   under always(), so state is still verified and published
 
-### ARIA-LOW-554 (NOTE-7) — GhCliIssueWriter.\_find_open uses --limit 100: with >100 open aria issues a fixed-title issue is missed and duplicated
+### ARIA-LOW-554 (NOTE-7) — GhCliIssueWriter.\_find_open uses --limit 100
+
+Full title: GhCliIssueWriter.\_find_open uses --limit 100: with >100 open aria issues a fixed-title
+issue is missed and duplicated
 
 The lookup sees only the 100 newest open 'aria'-labelled issues. With more than 100 open, an older
 fixed-title issue (cycle_failed, breaker, daily report) is missed and a duplicate is opened. The
@@ -284,7 +296,9 @@ Evidence:
 - github_adapters.py:331/350/374: upsert/comment paths create a new issue when \_find_open returns
   None
 
-### ARIA-MEDIUM-555 (NOTE-8) — aria-auto-cycle job-level contents:write permission broader than needed
+### ARIA-MEDIUM-555 (NOTE-8) — aria-auto-cycle job-level contents:write permission broader than…
+
+Full title: aria-auto-cycle job-level contents:write permission broader than needed
 
 The job token that the whole nightly-cycle process carries has contents:write on the repository, but
 only the final publish step needs it. agent_env strips GH_TOKEN from agent children and the
@@ -302,7 +316,10 @@ Evidence:
   do not inherit it
 - No registry row (grep 'contents: write' over findings.jsonl found none)
 
-### ARIA-MEDIUM-556 (NOTE-9) — cost-breaker amounts and CRITICAL human-required reasons appear in public GitHub issue bodies
+### ARIA-MEDIUM-556 (NOTE-9) — cost-breaker amounts and CRITICAL human-required reasons appear in…
+
+Full title: cost-breaker amounts and CRITICAL human-required reasons appear in public GitHub issue
+bodies
 
 Cost-breaker dollar amounts and the free-text reasons of CRITICAL human-required records are posted
 verbatim into public GitHub issue bodies. Credential shapes are scrubbed, and much of the same data
@@ -321,7 +338,10 @@ Evidence:
   comment)
 - published_text scrubs credential shapes only; dollar amounts and free-text CRITICAL reasons pass
 
-### ARIA-LOW-557 (NOTE-10) — judge-backlog count uses a 4-day wall-clock window, under-counting after a long provider outage
+### ARIA-LOW-557 (NOTE-10) — judge-backlog count uses a 4-day wall-clock window
+
+Full title: judge-backlog count uses a 4-day wall-clock window, under-counting after a long provider
+outage
 
 The judge-backlog gate counts live judge envelopes only within 4 wall-clock days. Requests now age
 on provider-available time and stay live through a long outage, so after an outage longer than 4
@@ -366,7 +386,10 @@ Evidence:
 - aria-auto-cycle.yml:950-953 comment: doctor 229 s and self_improve 245 s measured on the
   2026-10-10 store
 
-### NOTE-13 — first CI self_improve opens doctor_fail:deadlines as a SELF_CHANGE mission driven by lapsed HR SLAs (ARIA-MEDIUM-128 pin)
+### NOTE-13 — first CI self_improve opens doctor_fail:deadlines as a SELF_CHANGE mission driven by…
+
+Full title: first CI self_improve opens doctor_fail:deadlines as a SELF_CHANGE mission driven by
+lapsed HR SLAs (ARIA-MEDIUM-128 pin)
 
 At 4535de11a the deadlines organ is routed to deadline_due (announce only), so a lapsed HR SLA no
 longer mints a SELF_CHANGE mission. A test pins this, and production mission-events holds no such
@@ -383,7 +406,11 @@ Evidence:
 - origin/aria/state:tools/missions/mission-events.jsonl: 0 rows mentioning deadlines (no stale
   mission minted)
 
-### NOTE-14 — test_request_admission AThrottledPanelReMintIsDeferredNotResolved::test_deferred_this_sweep_reminted_the_next was red on a pre-fix snapshot
+### NOTE-14 — test_request_admission…
+
+Full title: test_request_admission
+AThrottledPanelReMintIsDeferredNotResolved::test_deferred_this_sweep_reminted_the_next was red on a
+pre-fix snapshot
 
 The test passes at the fixed commit 4535de11a: the class alone once, and the whole file twice in a
 row. The red result belonged to the pre-fix snapshot and does not reproduce on the code under
@@ -397,7 +424,10 @@ Evidence:
   202 s)
 - aria-kernel/tests/test_request_admission.py:441-444 is the test class/method in question
 
-### ARIA-MEDIUM-560 (NOTE-15) — genesis launcher: a drafted adapter may reach a capability through an already-loaded allowlisted module
+### ARIA-MEDIUM-560 (NOTE-15) — genesis launcher
+
+Full title: genesis launcher: a drafted adapter may reach a capability through an already-loaded
+allowlisted module
 
 Confirmed by repro: a drafted adapter can import preloaded modules such as os and use audited but
 unrefused calls (os.remove/rename/rmdir/mkdir/chmod/symlink/truncate) that the launcher hook lets
@@ -418,7 +448,10 @@ Evidence:
 - Registry ARIA-MEDIUM-507 (OPEN): skill genesis has no working path today; ARIA-HIGH-414 (OPEN) is
   the dynamic-import half, a different bypass
 
-### ARIA-LOW-561 (NOTE-16) — implementers that append '2>&1 | tail' to validation commands now get refused turns by the Bash gate
+### ARIA-LOW-561 (NOTE-16) — implementers that append '2>&1 | tail' to validation commands now get…
+
+Full title: implementers that append '2>&1 | tail' to validation commands now get refused turns by
+the Bash gate
 
 The refusal is the correct security behaviour, but the implementer contract never tells the agent
 that pipes and redirects are refused. Habitual '2>&1 | tail' validation commands therefore burn
@@ -435,7 +468,9 @@ Evidence:
   'BashDenylistHit:shell_control_operator', plus many BashAllowlistMiss for grep/sed/cat/wc; stored
   rows carry no command text, so the '2>&1|tail' form itself is not countable
 
-### ARIA-LOW-562 (NOTE-17) — each lease reap with an expired claim parses the full 25.7 MB governance.jsonl
+### ARIA-LOW-562 (NOTE-17) — each lease reap with an expired claim parses the full 25.7 MB…
+
+Full title: each lease reap with an expired claim parses the full 25.7 MB governance.jsonl
 
 Each reap sweep that finds an expired claim parses and verifies the whole 25.8 MB governance ledger
 (once per sweep, not per claim) just to find each claim's attempt route. That is avoidable CPU and
@@ -482,7 +517,11 @@ operator action. It is registered as ARIA-HIGH-572.
 
 ## Findings raised while fixing wave A
 
-### ARIA-HIGH-572 — Agent transcripts sealed on aria/state before 4535de11a stay unredacted: the scrubbing writer only covers new runs, and no purge or credential-rotation step exists for the 607 content-addressed transcripts already published
+### ARIA-HIGH-572 — Agent transcripts sealed on aria/state before 4535de11a stay unredacted
+
+Full title: Agent transcripts sealed on aria/state before 4535de11a stay unredacted: the scrubbing
+writer only covers new runs, and no purge or credential-rotation step exists for the 607
+content-addressed transcripts already published
 
 Remaining half of ARIA-HIGH-448 that a code fix cannot close: it needs an operator-run scan of every
 sealed transcript with the current redact view (secret_scrub.scrub_text over each JSON line),
@@ -500,7 +539,10 @@ Evidence:
 - aria-kernel/aria_kernel/artifact_safety.py:114-120 write_sanitized_transcript scrubs only at write
   time; nothing re-reads sealed transcripts
 
-### ARIA-LOW-573 — A failed cycle's public GitHub issue still carries its crash reason text (cycle_failed notices are not pointer-only)
+### ARIA-LOW-573 — A failed cycle's public GitHub issue still carries its crash reason text…
+
+Full title: A failed cycle's public GitHub issue still carries its crash reason text (cycle_failed
+notices are not pointer-only)
 
 published_text strips credentials and host paths, so this is a discoverability concern, not a
 credential leak. Fix: add cycle_failed to notify.POINTER_ONLY_SUMMARIES and pass the cycle record
@@ -514,7 +556,11 @@ Evidence:
 - .github/workflows/aria-auto-cycle.yml:909-910: ARIA_NOTIFY_CHANNELS=github_issue on the public
   repository
 
-### ARIA-MEDIUM-574 — A credential refusal the kernel withheld turns the executor job red: the 'Upload response envelope' step uploads exactly the two files the withholding deleted, with if-no-files-found: error
+### ARIA-MEDIUM-574 — A credential refusal the kernel withheld turns the executor job red
+
+Full title: A credential refusal the kernel withheld turns the executor job red: the 'Upload
+response envelope' step uploads exactly the two files the withholding deleted, with
+if-no-files-found: error
 
 Found while fixing ARIA-HIGH-540 (cluster withhold-refused); not fixed, not registered. Reasoned
 from the workflow text, not reproduced in Actions: on a targeted run whose request is refused as a
@@ -537,7 +583,10 @@ Evidence:
   credential refusal deletes the raw envelope and transcript before its journal; ARIA-HIGH-540 now
   reaches it from the delivery path too)
 
-### ARIA-LOW-575 — A delivery refused for a secret-shaped diff never asks the result's verdict, so an envelope or transcript that carries a credential at the same time is not withheld
+### ARIA-LOW-575 — A delivery refused for a secret-shaped diff never asks the result's verdict
+
+Full title: A delivery refused for a secret-shaped diff never asks the result's verdict, so an
+envelope or transcript that carries a credential at the same time is not withheld
 
 Found while fixing ARIA-HIGH-540 and ARIA-HIGH-524 (cluster withhold-refused); not fixed, not
 registered. Reasoned from the code order, not reproduced. A diff carrying a secret refuses at 1a by
@@ -557,7 +606,10 @@ Evidence:
 - tools/aria-poc/ci_executor.py \_close_refused_delivery (submits for withholding only when
   exc.withholds_output, i.e. when the refusal carries the verdict's credential codes)
 
-### ARIA-LOW-569 — Quarantine publication reads every agent-written ref file and the replica HEAD whole into executor memory, with no size bound
+### ARIA-LOW-569 — Quarantine publication reads every agent-written ref file and the replica HEAD…
+
+Full title: Quarantine publication reads every agent-written ref file and the replica HEAD whole
+into executor memory, with no size bound
 
 Found while fixing ARIA-HIGH-527 and deliberately not fixed there. That commit made every one of
 these reads no-follow and regular-file only, which already rules out a FIFO, a /dev/zero link and
@@ -579,7 +631,11 @@ Evidence:
 - aria-kernel/aria_kernel/git_containment.py:269 (\_MAX_LOOSE_OBJECT_BYTES bounds loose objects
   only; refs and HEAD have no bound)
 
-### ARIA-LOW-566 — Every governance append re-verifies and re-reads the whole governance chain, so the lease reaper pays two full parses of the 25.9 MB ledger per expired claim on top of its one lookup parse
+### ARIA-LOW-566 — Every governance append re-verifies and re-reads the whole governance chain
+
+Full title: Every governance append re-verifies and re-reads the whole governance chain, so the
+lease reaper pays two full parses of the 25.9 MB ledger per expired claim on top of its one lookup
+parse
 
 Found while fixing ARIA-LOW-562 (provider-classifier cluster, branch
 fix/aria-ka-provider-classifier). _append_rows_locked_body runs
@@ -598,7 +654,11 @@ Evidence:
 - measured 2026-10-16 on a copy of origin/aria/state tools/governance.jsonl (25,898,936 bytes,
   29,056 rows): load_jsonl_verified 1.1-1.5 s per parse on the droplet
 
-### ARIA-LOW-567 — A spawn-lane child's dispatch summary names the declared ladder head as its provider, not the rung that failed, so the drain's standing-outage check can excuse a new outage of the failover rung as a re-probe of the head's
+### ARIA-LOW-567 — A spawn-lane child's dispatch summary names the declared ladder head as its…
+
+Full title: A spawn-lane child's dispatch summary names the declared ladder head as its provider,
+not the rung that failed, so the drain's standing-outage check can excuse a new outage of the
+failover rung as a re-probe of the head's
 
 Found while fixing ARIA-MEDIUM-438. invoke_claude_cli writes every summary with \_dispatch_route =
 \_dispatch_route_for(request), i.e. resolve_dispatch_route without the cooled set: the ladder head.
@@ -620,7 +680,10 @@ Evidence:
 - tools/aria-poc/ci_executor_drain.py:971
 - tools/aria-poc/ci_executor_drain.py:998
 
-### ARIA-LOW-568 — reap_stale_claims parses the governance ledger while holding the claims and results ledger lock
+### ARIA-LOW-568 — reap_stale_claims parses the governance ledger
+
+Full title: reap_stale_claims parses the governance ledger while holding the claims and results
+ledger lock
 
 Found while fixing ARIA-LOW-562, which reduced the reaper's lookup to one governance parse per sweep
 but left it where it was: on the first expired claim, inside
@@ -633,7 +696,10 @@ Evidence:
 - aria-kernel/aria_kernel/agent_invocations.py:7063
 - aria-kernel/aria_kernel/agent_invocations.py:7104
 
-### ARIA-MEDIUM-570 — fixture_runner prices a workspace without a runner's repo-local dependency as a failed fixture case ('crash') instead of refusing the suite by name
+### ARIA-MEDIUM-570 — fixture_runner prices a workspace without a runner's repo-local dependency…
+
+Full title: fixture_runner prices a workspace without a runner's repo-local dependency as a failed
+fixture case ('crash') instead of refusing the suite by name
 
 Found while fixing ARIA-MEDIUM-508 on fix/aria-ka-run-ledger-size. The fixture lane spawns the same
 adapter in the same room but never asks the registry predicate, so in a checkout without
@@ -656,7 +722,10 @@ Evidence:
 - aria-kernel/aria_kernel/promotion.py:35 (CALIBRATE -> SHADOW needs a passing fixture suite, so a
   suite verdict written in a workspace without node_modules blocks the way back)
 
-### ARIA-LOW-571 — state_compact.\_compact_runs persists a read_paths slim only when the same pass also stripped evidence envelopes, and its count omits read_paths-only rows
+### ARIA-LOW-571 — state_compact.\_compact_runs persists a read_paths slim only
+
+Full title: state_compact.\_compact_runs persists a read_paths slim only when the same pass also
+stripped evidence envelopes, and its count omits read_paths-only rows
 
 Found while fixing ARIA-HIGH-523 on fix/aria-ka-run-ledger-size. Latent in production: every ok row
 carries evidence_envelopes, so a pass that slims read_paths also strips envelopes. After
@@ -672,7 +741,11 @@ Evidence:
 - aria-kernel/aria_kernel/state_compact.py:761 (if stripped == 0 the pass returns without
   rewrite_declared_jsonl, so the in-memory slim is dropped and the archive is never written)
 
-### ARIA-MEDIUM-563 — The egress allowlist admits provider hosts by host:port only, so an injected agent can still exfiltrate through an allowlisted provider under a credential it chooses (its own login file is readable in the room)
+### ARIA-MEDIUM-563 — The egress allowlist admits provider hosts by host:port only
+
+Full title: The egress allowlist admits provider hosts by host:port only, so an injected agent can
+still exfiltrate through an allowlisted provider under a credential it chooses (its own login file
+is readable in the room)
 
 Residual of the netns+allowlist-proxy fix, not a regression: before it the room had the whole
 network. Closing it needs the provider traffic bound to the kernel's credential (e.g. the proxy
@@ -693,7 +766,10 @@ Evidence:
   managed room tunnelled to api.anthropic.com:443 with an arbitrary (bogus) API key and the provider
   answered 401, i.e. any key the agent supplies reaches the provider
 
-### ARIA-MEDIUM-564 — The pre-claim environment gate is skipped whenever the adaptive native runtime admits a route, so production never runs the egress, git-availability or node_modules checks before a claim
+### ARIA-MEDIUM-564 — The pre-claim environment gate is skipped whenever the adaptive native…
+
+Full title: The pre-claim environment gate is skipped whenever the adaptive native runtime admits a
+route, so production never runs the egress, git-availability or node_modules checks before a claim
 
 After ARIA-HIGH-143 (684c63955) the egress boundary is structural (every room unshares the network;
 sandbox_backend()'s git containment probe builds the egress room argv), so the missing egress probe
@@ -714,7 +790,11 @@ Evidence:
   git_unavailable rows ever, and only 2 env_deps_missing (last 2026-08-11) although the adaptive
   policy (B8) has been declared since 2026-09-12
 
-### ARIA-LOW-565 — The killed-holder socket-directory sweep is copied verbatim into four modules (hook broker, MCP broker, signing agent, egress proxy) instead of one helper the orchestrator calls with each holder's prefix
+### ARIA-LOW-565 — The killed-holder socket-directory sweep is copied verbatim into four modules…
+
+Full title: The killed-holder socket-directory sweep is copied verbatim into four modules (hook
+broker, MCP broker, signing agent, egress proxy) instead of one helper the orchestrator calls with
+each holder's prefix
 
 Each copy differs only in (prefix, regex, socket name, answer probe). One helper, e.g.
 prune_stale_socket_dirs(prefix_re, socket_name), with each holder declaring its pattern and the

@@ -39,6 +39,12 @@ cycle (:func:`redeliver_stranded_converged_plans`, origin
   claimed. The refusal is the plan body's, the same on every offer, and each
   offer used to pay a full staging (proposal, apply action, baseline suite)
   and a counted attempt to learn it.
+* **Never mergeable** (ARIA-HIGH-529). Under merge-class authority, a plan whose
+  started content no ``synthesis_bound`` row names (``plan start``, skill
+  authoring, the V7 fallback) is refused by the merge gate's
+  ``operator_feedback_signature`` check whatever is implemented. It is
+  parked the same way (``implementation_envelope_unbound_plan``), before an
+  attempt is claimed.
 * **The bound.** After ``MAX_DELIVERY_ATTEMPTS`` counted attempts the plan
   moves, under the plan lock and only from CONVERGED with no live request
   (review M3), to ``HUMAN_REQUIRED`` with reason code
@@ -110,6 +116,12 @@ WITHHELD_INDEPENDENCE_UNJUDGED: str = "independence_unjudged"
 WITHHELD_NO_WRITABLE_SCOPE: str = "no_writable_scope"
 NO_WRITABLE_SCOPE_REASON: str = "implementation_envelope_no_writable_scope"
 NO_WRITABLE_SCOPE_KIND: str = "converged_delivery_no_writable_scope"
+# ARIA-HIGH-529 — a CONVERGED plan the envelope mint must refuse because the
+# merge gate can never pass it (no synthesis binding, under merge-class authority):
+# moved to HUMAN_REQUIRED before staging, never offered. The reason code is
+# the mint's own token (cross_review_bridge.UNBOUND_PLAN_REASON).
+WITHHELD_UNBOUND_PLAN: str = "unbound_plan"
+UNBOUND_PLAN_KIND: str = "converged_delivery_unbound_plan"
 
 
 def authority_absent_request_id(plan_id: str) -> str:
@@ -270,26 +282,23 @@ def _mint_scope_refusal(plan_id: str, *, state: dict[str, Any], base_dir: Path) 
     return None
 
 
-def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
-    """Why ``plan_id`` is not offered when the mint would refuse its scope, else None (ARIA-HIGH-416).
-
-    The refusal depends on the plan body alone, so no later cycle changes it.
-    The plan moves CONVERGED → HUMAN_REQUIRED here, under the plan lock and
-    only from CONVERGED, with one governance row carrying the mint's refusal
-    and the plan's one operator item: the ARIA-HIGH-375 move. The mint keeps
-    its own check as the second line.
-    """
+def _park_unmintable(
+    plan_id: str, *, state: dict[str, Any], base_dir: Path, refusal: str,
+    reason_code: str, kind: str, withheld: str,
+) -> str:
+    """Move a plan the mint must refuse CONVERGED → HUMAN_REQUIRED, before
+    any staging: the ARIA-HIGH-375 move, under the plan lock and only from
+    CONVERGED, with one governance row carrying the mint's refusal and the
+    plan's one operator item. Returns ``withheld``, or
+    ``WITHHELD_NOT_CONVERGED`` when the plan left CONVERGED under the lock."""
     from .convergence_outcome import record_parked_plan
     from .plan_convergence import PlanStateRefused, force_plan_human_required
     from .tool_registry import append_tools_governance
 
-    refusal = _mint_scope_refusal(plan_id, state=state, base_dir=base_dir)
-    if refusal is None:
-        return None
     round_number = max(1, int(state.get("current_round") or 1))
     try:
         force_plan_human_required(
-            plan_id=plan_id, round_number=round_number, reason_codes=[NO_WRITABLE_SCOPE_REASON],
+            plan_id=plan_id, round_number=round_number, reason_codes=[reason_code],
             from_states=frozenset({"CONVERGED"}), base_dir=base_dir, forced_by="kernel:converged_delivery",
         )
     except PlanStateRefused:
@@ -297,13 +306,46 @@ def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir:
         # not a plan this path parked.
         return WITHHELD_NOT_CONVERGED
     append_tools_governance(
-        base_dir, NO_WRITABLE_SCOPE_KIND,
+        base_dir, kind,
         {"plan_id": plan_id, "round_number": round_number, "refusal": refusal},
         bypass_profile_gate=True,
     )
-    record_parked_plan(plan_id=plan_id, base_dir=base_dir, verdict=WITHHELD_NO_WRITABLE_SCOPE,
-                       origin="converged_delivery")
-    return WITHHELD_NO_WRITABLE_SCOPE
+    record_parked_plan(plan_id=plan_id, base_dir=base_dir, verdict=withheld, origin="converged_delivery")
+    return withheld
+
+
+def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
+    """Why ``plan_id`` is not offered when the mint would refuse its scope, else None (ARIA-HIGH-416).
+
+    The refusal depends on the plan body alone, so no later cycle changes it;
+    the plan is parked (:func:`_park_unmintable`). The mint keeps its own
+    check as the second line.
+    """
+    refusal = _mint_scope_refusal(plan_id, state=state, base_dir=base_dir)
+    if refusal is None:
+        return None
+    return _park_unmintable(plan_id, state=state, base_dir=base_dir, refusal=refusal,
+                            reason_code=NO_WRITABLE_SCOPE_REASON, kind=NO_WRITABLE_SCOPE_KIND,
+                            withheld=WITHHELD_NO_WRITABLE_SCOPE)
+
+
+def _withhold_unbound_plan(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
+    """Why ``plan_id`` is not offered when the merge gate could never pass it, else None (ARIA-HIGH-529).
+
+    Asked through the mint's own gate (``cross_review_bridge.
+    implementation_binding_refusal``), so the door and the mint cannot
+    disagree. Only the provider binds a synthesis and nothing binds one
+    later, so while merge-class authority holds no later cycle changes the answer:
+    the plan is parked (:func:`_park_unmintable`) and the operator decides.
+    """
+    from .cross_review_bridge import UNBOUND_PLAN_REASON, implementation_binding_refusal
+
+    refusal = implementation_binding_refusal(state, base_dir=base_dir)
+    if refusal is None:
+        return None
+    return _park_unmintable(plan_id, state=state, base_dir=base_dir, refusal=refusal,
+                            reason_code=UNBOUND_PLAN_REASON, kind=UNBOUND_PLAN_KIND,
+                            withheld=WITHHELD_UNBOUND_PLAN)
 
 
 def _withheld(plan_id: str, origin: str, reason: str, **extra: Any) -> dict[str, Any]:
@@ -349,6 +391,11 @@ def _claim_attempt(
     unwritable = _withhold_unwritable_scope(plan_id, state=state, base_dir=base_dir)
     if unwritable is not None:
         return None, unwritable
+    # ARIA-HIGH-529 — at the same point and for the same reason: a plan the
+    # merge gate can never pass costs no staging and no counted attempt.
+    unbound = _withhold_unbound_plan(plan_id, state=state, base_dir=base_dir)
+    if unbound is not None:
+        return None, unbound
     if worktree_is_dirty(workspace_root):
         return None, WITHHELD_WORKSPACE_DIRTY
     attempt = len(attempts) + 1
@@ -773,7 +820,9 @@ __all__ = [
     "ORIGIN_EXECUTOR",
     "ORIGIN_REDELIVERY",
     "REDELIVERIES_PER_CYCLE",
+    "UNBOUND_PLAN_KIND",
     "WITHHELD_NO_WRITABLE_SCOPE",
+    "WITHHELD_UNBOUND_PLAN",
     "authority_absent_request_id",
     "converged_plan_ids",
     "deliver_converged_plan",

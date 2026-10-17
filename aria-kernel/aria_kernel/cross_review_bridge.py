@@ -797,6 +797,42 @@ def implementation_envelope_scope(
     return allowed_scope, refused_surfaces
 
 
+# ARIA-HIGH-529 — the mint's refusal token for a plan the merge gate can
+# never pass; the delivery door parks on the same token.
+UNBOUND_PLAN_REASON = "implementation_envelope_unbound_plan"
+
+
+def implementation_binding_refusal(state: dict[str, Any], *, base_dir: str | Path | None) -> str | None:
+    """``implementation_envelope_unbound_plan:<merge walk reason>`` when the
+    mint must refuse ``state``'s plan for its synthesis binding, else None.
+
+    ARIA-HIGH-529 — the merge gate's ``operator_feedback_signature`` check
+    walks ``plan_started.content_hash`` to a ``synthesis_bound`` row and the
+    ingestion it names, and only the provider writes that row. A plan started
+    by ``plan start``, by skill authoring or by the V7 fallback carries none.
+    Under merge-class authority (a profile holding ``pr_merge`` in
+    ``runtime_profile.ACTION_PERMISSIONS``: ARIA's merge lane is what lands
+    every PR, with no person between it and ``main``) such a plan can never
+    merge, and learning that at merge cost staging, the implementer and the
+    expert panel. The answer is the merge walk's own structural half
+    (``operator_feedback_observation.plan_synthesis_binding_refusal``), so
+    the door (``converged_delivery``), the mint and the merge name one cause.
+
+    A proposal-class profile is not asked, merge-lane grant or not: its PR
+    reaches a person, who is not held to the binding (an L1 grant covers
+    only the lanes measured on the PR's diff, and the merge lane leaves a
+    blocked PR open). That is the path ``plan_source`` sends the V7 fallback
+    down under exactly these profiles, so the door must not close it.
+    """
+    from .operator_feedback_observation import plan_synthesis_binding_refusal
+    from .runtime_profile import get_profile, permitted_actions
+
+    if "pr_merge" not in permitted_actions(get_profile(base_dir=base_dir)):
+        return None
+    reason = plan_synthesis_binding_refusal(state, base_dir=base_dir)
+    return None if reason is None else f"{UNBOUND_PLAN_REASON}:{reason}"
+
+
 def issue_implementation_envelope(
     *,
     plan_id: str,
@@ -900,6 +936,17 @@ def issue_implementation_envelope(
             f"(plan_id={plan_id}); the V9 transition graph permits "
             f"exactly one escape from CONVERGED — into "
             f"IMPLEMENTATION_REQUESTED via this mint."
+        )
+
+    # ARIA-HIGH-529 — a plan the merge gate can never pass mints nothing and
+    # stays CONVERGED; the delivery door parks it before staging, and this is
+    # the second line.
+    unbound = implementation_binding_refusal(state_dict, base_dir=base_dir)
+    if unbound is not None:
+        raise BridgeContractViolation(
+            f"{unbound}: plan {plan_id!r} has no synthesis binding the merge gate "
+            f"can walk, and the profile holds merge-class authority; an implementation of it "
+            f"would be refused at merge after spending the implementer and the panel"
         )
 
     body = plan_body_from_state(state_dict)

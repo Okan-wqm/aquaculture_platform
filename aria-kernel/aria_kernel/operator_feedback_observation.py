@@ -29,13 +29,15 @@ predicate never infers a pass from an empty field.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from .operator_feedback_ingestion import PROVENANCE_REF_PREFIX
+from .ledger import load_declared_jsonl
+from .operator_feedback_ingestion import INGESTION_SURFACE, PROVENANCE_REF_PREFIX, ingestion_ledger_path
 from .operator_feedback_signature import operator_request_schema_reason
 from .operator_request_signature import AllowedSigners, request_subject_digest, verify_operator_request
 from .operator_request_spend import INGESTION_ROW_TYPE, SYNTHESIS_BOUND_ROW_TYPE
-from .tool_registry import GovernanceError
+from .tool_registry import GovernanceError, ensure_tools_dir_readonly
 
 ALREADY_MERGED = "operator_feedback_request_already_merged"
 
@@ -72,19 +74,20 @@ def _merged_elsewhere(
     return any(other != plan_id and started.get(other) in bound_hashes for other in merged)
 
 
-def observe_operator_feedback_for_plan(
-    *,
-    plan_id: str,
+def _walk_synthesis_binding(
     plan_started: dict[str, Any] | None,
     ingestion_rows: list[dict[str, Any]],
-    feedback_rows: list[dict[str, Any]],
-    plan_events: list[dict[str, Any]],
-    allowed_signers: AllowedSigners | None,
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    """The pre-merge observation; see the module docstring for every refusal it names."""
-    moment = now or datetime.now(timezone.utc)
-    observation: dict[str, Any] = {}
+    observation: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """The structural half of the walk: ``plan_started`` → its ``synthesis_bound``
+    row → the ingestion it names → the consumption the plan declares.
+
+    Fills ``observation`` stage by stage and returns the consumed entries, or
+    raises ``GovernanceError`` naming the first stage that failed. It reads no
+    signature and no clock, so its answer is a property of the plan and the
+    ingestion ledger alone: the merge reads it, and so does the
+    implementation mint before anything is spent (:func:`synthesis_binding_refusal`).
+    """
     reason = "operator_feedback_plan_start_unavailable"
     try:
         if not isinstance(plan_started, dict):
@@ -129,6 +132,54 @@ def observe_operator_feedback_for_plan(
         for entry in consumed:
             if tuple(entry.get(key) for key in identity) not in admitted_keys:
                 raise GovernanceError(reason)
+        return consumed
+    except (KeyError, TypeError, ValueError) as exc:
+        raise GovernanceError(reason) from exc
+
+
+def synthesis_binding_refusal(
+    plan_started: dict[str, Any] | None, ingestion_rows: list[dict[str, Any]],
+) -> str | None:
+    """ARIA-HIGH-529 — the reason the merge walk refuses ``plan_started``
+    before it reads a single signature, or None when its synthesis is bound.
+
+    Only the provider binds a synthesis (``bind_plan_synthesis``); a plan
+    started by ``plan start``, by skill authoring or by the V7 fallback has
+    no ``synthesis_bound`` row, and nothing appends one later, so this answer
+    does not change for the plan's lifetime."""
+    try:
+        _walk_synthesis_binding(plan_started, ingestion_rows, {})
+    except GovernanceError as exc:
+        return str(exc)
+    return None
+
+
+def plan_synthesis_binding_refusal(state: dict[str, Any], *, base_dir: str | Path | None) -> str | None:
+    """:func:`synthesis_binding_refusal` of a folded plan, read against the
+    store's hash-chained ingestion ledger (an absent ledger binds nothing)."""
+    root = ensure_tools_dir_readonly(base_dir)
+    path = None if root is None else ingestion_ledger_path(root)
+    rows = (load_declared_jsonl(path, expected_surface=INGESTION_SURFACE)
+            if path is not None and path.exists() else [])
+    return synthesis_binding_refusal(state.get("plan_started"), rows)
+
+
+def observe_operator_feedback_for_plan(
+    *,
+    plan_id: str,
+    plan_started: dict[str, Any] | None,
+    ingestion_rows: list[dict[str, Any]],
+    feedback_rows: list[dict[str, Any]],
+    plan_events: list[dict[str, Any]],
+    allowed_signers: AllowedSigners | None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """The pre-merge observation; see the module docstring for every refusal it names."""
+    moment = now or datetime.now(timezone.utc)
+    observation: dict[str, Any] = {}
+    reason = "operator_feedback_plan_start_unavailable"
+    try:
+        consumed = _walk_synthesis_binding(plan_started, ingestion_rows, observation)
         reason = "operator_feedback_consumed_row_unavailable"
         row_hashes: list[str] = []
         signers: list[str] = []
@@ -164,4 +215,9 @@ def observe_operator_feedback_for_plan(
         return observation
 
 
-__all__ = ["ALREADY_MERGED", "observe_operator_feedback_for_plan"]
+__all__ = [
+    "ALREADY_MERGED",
+    "observe_operator_feedback_for_plan",
+    "plan_synthesis_binding_refusal",
+    "synthesis_binding_refusal",
+]

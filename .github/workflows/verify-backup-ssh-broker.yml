@@ -403,7 +403,7 @@ jobs:
           printf 'source_sha256=%s\n' "${SOURCE_SHA256}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload verified release authority
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: broker-release-authority-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/broker-release-authority/release-authority.json
@@ -780,7 +780,7 @@ jobs:
           chmod 0600 "${ARTIFACT_DIR}/attestation.json"
 
       - name: Upload immutable backup broker attestation
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backup-broker-attestation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/backup-broker-attestation/attestation.json
@@ -1156,7 +1156,7 @@ jobs:
           chmod 0600 "${ARTIFACT_DIR}/attestation.json"
 
       - name: Upload immutable PITR broker attestation
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pitr-broker-attestation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/pitr-broker-attestation/attestation.json
@@ -1533,7 +1533,7 @@ jobs:
           chmod 0600 "${ARTIFACT_DIR}/attestation.json"
 
       - name: Upload immutable WAL-freshness broker attestation
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wal-freshness-broker-attestation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/wal-freshness-broker-attestation/attestation.json

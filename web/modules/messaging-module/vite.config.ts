@@ -12,7 +12,7 @@ import { defineConfig } from 'vitest/config';
 // vite.config does the same (the nx-boundary is relaxed for vite configs in
 // eslint.config.mjs, since a build config cannot go through the npm scope).
 import { getSharedConfigWithLucide } from '../../shared-ui/src/federation/federationSharedConfig';
-import { resolveSharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
+import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 
 /**
  * Vite config — Messaging Panel microfrontend.
@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      '@aquaculture/shared-ui': resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
+      ...sharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
       // Zero-dependency cross-stack constants (AI persona catalogue) — path-
       // aliased, not npm-installed, exactly as aquamobil does (MSG-MEDIUM-057).
       '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),

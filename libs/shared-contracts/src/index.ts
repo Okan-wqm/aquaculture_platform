@@ -205,3 +205,7 @@ export type {
   BindableParameter,
   DescribedChannel,
 } from './measurement/channel-binding';
+
+// ── Many-unit reads ──
+// The most units one many-unit farm read takes; clients batch by it.
+export { MAX_UNITS_PER_READ } from './measurement/unit-reads';

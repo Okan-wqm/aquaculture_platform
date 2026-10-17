@@ -38,6 +38,9 @@ export default defineConfig(({ mode }) => ({
     alias: {
       '@': resolve(__dirname, 'src'),
       ...sharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
+      // Zero-dependency cross-stack contracts (the many-unit read bound the
+      // site rows batch by) — path-aliased, as sensor-module and shared-ui do.
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
     },
     // The federation shares these as singletons at runtime; specs resolve
     // shared-ui from source, so they must see the one copy too — a second

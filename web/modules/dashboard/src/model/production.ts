@@ -9,8 +9,11 @@
  *    unit, skipped when older than OXYGEN_MAX_AGE_SECONDS), against the
  *    tenant's dissolved-oxygen parameter (`dissolved_oxygen`: criticalMin,
  *    warningMin, unit). The cell says where the value came from (live or
- *    manual) and how old it is. Water-quality measurements are not read: the
- *    app writes only manual entries there, so they never held a live value.
+ *    manual) and how old it is. A unit farm no longer has (retired since its
+ *    plan) is answered as not found and counts nowhere; the units are asked
+ *    in batches farm's many-unit reads take (unitBatches). Water-quality
+ *    measurements are not read: the app writes only manual entries there, so
+ *    they never held a live value.
  *  - data freshness: the newest of the site's gateways' reports and those
  *    oxygen readings; a site whose gateways are all offline and whose newest
  *    reading is older than STALE_AFTER_MS is stale, and its values are greyed.
@@ -26,6 +29,7 @@
  * WHAT: buildProductionRow's parts, pure over the fetched records, whose
  * shapes are the supergraph's generated types.
  */
+import { MAX_UNITS_PER_READ } from '@aquaculture/shared-contracts';
 import type { AlarmPriorityTally } from '@aquaculture/shared-ui';
 import type {
   EdgeDevice,
@@ -34,10 +38,10 @@ import type {
   FeedingDayPlanStatus,
   FeedingMeal,
   FeedingMealStatus,
-  MeasurementPointRef,
   ParameterReading,
   SiteType,
   SystemResponse,
+  UnitParameterReading,
   WaterQualityParameterConfig,
 } from '@platform/shared-ui/generated/graphql-types';
 
@@ -69,10 +73,13 @@ export type UnitTemperatureRecord = Pick<
   'unitId' | 'celsius' | 'measuredAt'
 >;
 
-export type UnitReadingRecord = Pick<
-  ParameterReading,
-  'value' | 'unit' | 'sourceKind' | 'observedAt' | 'unresolved'
-> & { readonly point: Pick<MeasurementPointRef, 'id'> };
+/** One asked unit's answer: its reading, or null when farm has no active unit with its id. */
+export type UnitReadingRecord = Pick<UnitParameterReading, 'unitId'> & {
+  readonly reading?: Pick<
+    ParameterReading,
+    'value' | 'unit' | 'sourceKind' | 'observedAt' | 'unresolved'
+  > | null;
+};
 
 export type SystemRecord = Pick<SystemResponse, 'id' | 'tankCount'>;
 
@@ -195,20 +202,24 @@ export function oxygenLevel(
   return 'normal';
 }
 
-/** The lowest value among the units' resolved readings; units without a value count nowhere. */
+/**
+ * The lowest value among the units' resolved readings; a unit without a value,
+ * or one farm answered as not found, counts nowhere.
+ */
 export function lowestOxygen(
-  readings: readonly UnitReadingRecord[],
+  entries: readonly UnitReadingRecord[],
   unitCodes: ReadonlyMap<string, string>,
   parameter: OxygenParameter,
 ): OxygenState {
   let lowest: OxygenReading | null = null;
-  for (const reading of readings) {
+  for (const { unitId, reading } of entries) {
+    if (reading === null || reading === undefined) continue;
     const { value, observedAt, sourceKind } = reading;
     if (value === null || value === undefined) continue;
     if (observedAt === null || observedAt === undefined) continue;
     if (sourceKind === null || sourceKind === undefined) continue;
     // Only the units asked for (today's plans) are answered; anything else counts nowhere.
-    const unitCode = unitCodes.get(reading.point.id);
+    const unitCode = unitCodes.get(unitId);
     if (unitCode === undefined) continue;
     if (lowest !== null && value >= lowest.value) continue;
     lowest = {
@@ -306,4 +317,26 @@ export function unitCodesOf(plans: readonly DayPlanRecord[]): ReadonlyMap<string
 /** The units today's plans name, sorted (a stable query key). */
 export function plannedUnitIds(plans: readonly DayPlanRecord[]): string[] {
   return [...new Set(plans.map((plan) => plan.unitId))].sort();
+}
+
+/**
+ * A site's units in the batches one many-unit read takes, in order: farm
+ * refuses more than MAX_UNITS_PER_READ units in one request, and a site's
+ * day plans may name more.
+ */
+export function unitBatches(unitIds: readonly string[]): string[][] {
+  const batches: string[][] = [];
+  for (let start = 0; start < unitIds.length; start += MAX_UNITS_PER_READ) {
+    batches.push(unitIds.slice(start, start + MAX_UNITS_PER_READ));
+  }
+  return batches;
+}
+
+/** When each answered unit's reading was observed (a not-found unit has none). */
+export function observedTimesOf(
+  entries: readonly UnitReadingRecord[],
+): (string | null | undefined)[] {
+  return entries.flatMap(({ reading }) =>
+    reading === null || reading === undefined ? [] : [reading.observedAt],
+  );
 }

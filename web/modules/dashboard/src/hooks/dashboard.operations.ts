@@ -190,19 +190,20 @@ export const PARAMETER_LIMITS_QUERY = `
 /**
  * One parameter (dissolved oxygen) at each of a site's fed units, read by
  * farm's one reading resolver: a live channel first, else a person's latest
- * sample, in the parameter's unit, none older than the window.
+ * sample, in the parameter's unit, none older than the window. One entry per
+ * asked unit; a unit farm no longer has comes back with no reading.
  */
 export const UNIT_OXYGEN_QUERY = `
   query DashboardUnitOxygen($input: ResolvedUnitParameterValuesInput!) {
     resolvedUnitParameterValues(input: $input) {
-      point {
-        id
+      unitId
+      reading {
+        value
+        unit
+        sourceKind
+        observedAt
+        unresolved
       }
-      value
-      unit
-      sourceKind
-      observedAt
-      unresolved
     }
   }
 `;

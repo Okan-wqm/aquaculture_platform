@@ -110,25 +110,25 @@ export const FIXTURES: Answers = {
     },
   }),
   DashboardUnitOxygen: (variables) => ({
-    resolvedUnitParameterValues: unitIdsOf(variables).map((unitId) =>
-      unitId === TANK_A1
-        ? {
-            point: { id: TANK_A1 },
-            value: 5.8,
-            unit: 'mg/L',
-            sourceKind: 'CHANNEL_PRIMARY',
-            observedAt: minutesAgo(5),
-            unresolved: null,
-          }
-        : {
-            point: { id: unitId },
-            value: 7.4,
-            unit: 'mg/L',
-            sourceKind: 'MANUAL',
-            observedAt: minutesAgo(120),
-            unresolved: null,
-          },
-    ),
+    resolvedUnitParameterValues: unitIdsOf(variables).map((unitId) => ({
+      unitId,
+      reading:
+        unitId === TANK_A1
+          ? {
+              value: 5.8,
+              unit: 'mg/L',
+              sourceKind: 'CHANNEL_PRIMARY',
+              observedAt: minutesAgo(5),
+              unresolved: null,
+            }
+          : {
+              value: 7.4,
+              unit: 'mg/L',
+              sourceKind: 'MANUAL',
+              observedAt: minutesAgo(120),
+              unresolved: null,
+            },
+    })),
   }),
   DashboardParameterLimits: () => ({
     parameterConfigs: [

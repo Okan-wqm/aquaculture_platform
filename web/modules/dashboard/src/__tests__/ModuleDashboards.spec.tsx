@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_UNITS_PER_READ } from '@aquaculture/shared-contracts';
 import { I18nProvider } from '@aquaculture/shared-ui';
 
 import { fakeGateway, SITE_A, SITE_B, TANK_A1, TANK_A2, type RecordedRequest } from './fakeGateway';
@@ -163,6 +164,104 @@ describe('Production dashboard (/dashboard)', () => {
     expect(asked).toHaveLength(1);
   });
 
+  it('reads the others when a planned unit was retired: farm answers it as not found', async () => {
+    state.gateway = fakeGateway({
+      DashboardUnitOxygen: () => ({
+        resolvedUnitParameterValues: [
+          { unitId: TANK_A1, reading: null },
+          {
+            unitId: TANK_A2,
+            reading: {
+              value: 7.4,
+              unit: 'mg/L',
+              sourceKind: 'MANUAL',
+              observedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+              unresolved: null,
+            },
+          },
+        ],
+      }),
+    });
+    renderAt('/dashboard');
+    const cells = within(await siteRow('Ayvalık Grow-out'));
+    expect(await cells.findByText('DO min · 7.4 mg/L')).toBeInTheDocument();
+    expect(cells.getByText('B-03 · limit ≥ 6.5')).toBeInTheDocument();
+  });
+
+  it('asks a site’s units in batches farm’s many-unit reads take, and reads them as one', async () => {
+    const units = Array.from(
+      { length: 2 * MAX_UNITS_PER_READ + 1 },
+      (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+    );
+    const lowest = units[units.length - 1];
+    state.gateway = fakeGateway({
+      DashboardSiteDayPlans: (variables) => ({
+        feedingDayPlans:
+          variables?.['siteId'] === SITE_A
+            ? units.map((unitId, index) => ({
+                id: `plan-${index}`,
+                unitId,
+                unitCode: unitId === lowest ? 'LAST' : `U-${index}`,
+                status: 'IN_PROGRESS',
+                plannedTotalKg: 10,
+                unplannedActualKg: 0,
+                meals: [],
+              }))
+            : [],
+      }),
+      DashboardUnitOxygen: (variables) => {
+        const input = variables?.['input'];
+        const asked =
+          typeof input === 'object' &&
+          input !== null &&
+          'unitIds' in input &&
+          Array.isArray(input.unitIds)
+            ? input.unitIds.filter((id): id is string => typeof id === 'string')
+            : [];
+        return {
+          resolvedUnitParameterValues: asked.map((unitId) => ({
+            unitId,
+            reading: {
+              value: unitId === lowest ? 6.1 : 8,
+              unit: 'mg/L',
+              sourceKind: 'MANUAL',
+              observedAt: new Date(Date.now() - 3_600_000).toISOString(),
+              unresolved: null,
+            },
+          })),
+        };
+      },
+    });
+    renderAt('/dashboard');
+    const cells = within(await siteRow('Ayvalık Grow-out'));
+    // The lowest unit is the only one in the last batch.
+    expect(await cells.findByText('DO min · 6.1 mg/L')).toBeInTheDocument();
+    expect(cells.getByText('LAST · limit ≥ 6.5')).toBeInTheDocument();
+    const batchesOf = (
+      operation: string,
+      ids: (variables: RecordedRequest['variables']) => unknown,
+    ) =>
+      state
+        .gateway!.requests.filter((request) => request.operation === operation)
+        .map((request) => ids(request.variables));
+    const oxygenBatches = batchesOf('DashboardUnitOxygen', (variables) => {
+      const input = variables?.['input'];
+      return typeof input === 'object' && input !== null && 'unitIds' in input ? input.unitIds : [];
+    });
+    const temperatureBatches = batchesOf(
+      'DashboardUnitTemperatures',
+      (variables) => variables?.['unitIds'],
+    );
+    for (const batches of [oxygenBatches, temperatureBatches]) {
+      expect(batches.map((batch) => (Array.isArray(batch) ? batch.length : 0))).toEqual([
+        MAX_UNITS_PER_READ,
+        MAX_UNITS_PER_READ,
+        1,
+      ]);
+      expect(batches.flat()).toEqual([...units].sort());
+    }
+  });
+
   it('says where a manual value came from, in the configured unit', async () => {
     state.gateway = fakeGateway({
       DashboardParameterLimits: () => ({
@@ -179,12 +278,14 @@ describe('Production dashboard (/dashboard)', () => {
       DashboardUnitOxygen: () => ({
         resolvedUnitParameterValues: [
           {
-            point: { id: TANK_A2 },
-            value: 7.4,
-            unit: 'ppm',
-            sourceKind: 'MANUAL',
-            observedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
-            unresolved: null,
+            unitId: TANK_A2,
+            reading: {
+              value: 7.4,
+              unit: 'ppm',
+              sourceKind: 'MANUAL',
+              observedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+              unresolved: null,
+            },
           },
         ],
       }),
@@ -276,12 +377,14 @@ describe('Production dashboard (/dashboard)', () => {
       DashboardUnitOxygen: () => ({
         resolvedUnitParameterValues: [
           {
-            point: { id: TANK_A1 },
-            value: 7.9,
-            unit: 'mg/L',
-            sourceKind: 'MANUAL',
-            observedAt: hoursAgo(2),
-            unresolved: null,
+            unitId: TANK_A1,
+            reading: {
+              value: 7.9,
+              unit: 'mg/L',
+              sourceKind: 'MANUAL',
+              observedAt: hoursAgo(2),
+              unresolved: null,
+            },
           },
         ],
       }),

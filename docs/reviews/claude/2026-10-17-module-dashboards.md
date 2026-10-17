@@ -529,6 +529,46 @@ says "a site outside your list"; while that list is loading or failed, an alarm 
 seat, maintenance or audit request) and a `roles:view` delegate (the access-request preview, no
 admin request). Test: `ModuleDashboards.spec.tsx`.
 
+## FE-LOW-365
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan. Raised by the security
+re-review of PR #1999.
+
+### Symptom (FE-LOW-365)
+
+The Production dashboard sent every unit a site's day plans name in one `resolvedUnitParameterValues`
+request and one `effectiveUnitTemperatures` request. Neither was capped, but farm refuses more than
+200 units, so a larger site's oxygen and temperature cells failed. One unit retired or deleted
+since its plan was made answered the whole oxygen read with a 404, and the site lost every unit's
+value.
+
+### Fix (FE-LOW-365)
+
+Decided at the server. `resolvedUnitParameterValues` returns one `UnitParameterReading`
+(`unitId`, `reading`) per asked unit, in the asked order. A unit with no active row is answered
+with `reading: null`, and the other units are still read. For a module user, one found unit at an
+unassigned site, or at no site, still refuses the whole read (403). A not-found answer means the
+id has no active row, so it says nothing about any site. The field was added in this PR, so no
+client outside it reads the old shape.
+
+The bound is one number, `MAX_UNITS_PER_READ` (`@aquaculture/shared-contracts`). farm's input
+validation and `effectiveUnitTemperatures` refuse more than it, and the dashboard batches by it
+(`unitBatches`). Each site's oxygen and temperature reads send one request per batch, in parallel,
+and join the answers. The client cannot send a larger batch than the server takes.
+
+### Tests (FE-LOW-365)
+
+- `water-chemistry-reading.postgres.spec.ts` (real Postgres): a deactivated unit and an unknown id
+  are answered as not found beside a read unit, and with nothing active nothing is resolved. An
+  inactive parameter is a 404. A unit at an unassigned site is a 403, even beside a not-found
+  unit. The old test asserted the whole-read 404 this replaces.
+- `ModuleDashboards.spec.tsx`: a retired planned unit leaves the oxygen cell reading the others.
+  401 planned units are asked in batches of 200, 200 and 1 for oxygen and for temperature, and the
+  lowest value, alone in the last batch, is the one shown. The batching test failed against the
+  previous hook.
+- `production.spec.ts`: `unitBatches`; a not-found unit counts nowhere in `lowestOxygen` or the
+  freshness times.
+
 ## FE-MEDIUM-346
 
 **State:** OPEN until the module-dashboards change merges with `Closes:` for this ID. Deadline

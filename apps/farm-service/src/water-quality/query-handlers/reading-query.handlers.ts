@@ -22,6 +22,7 @@ import { engineUnit, WATER_CHEMISTRY_INPUT_SETS } from '../data/water-chemistry-
 import {
   type ParameterReading,
   parameterReadingOf,
+  type UnitParameterReading,
   type WaterChemistryInputsResult,
   waterChemistryInputsOf,
 } from '../dto/water-chemistry-reading.response';
@@ -91,12 +92,15 @@ export class ResolveParameterValueHandler
  * point is (live channel first, then a person's sample, in the parameter's
  * unit), in one request: the units classified and authorized in one tenant
  * read (assertUnitsReadable, the rule assertPointReadable applies to one),
- * then the one resolver across all of them.
+ * then the one resolver across the active ones. Each asked unit gets an entry
+ * in the asked order; one with no active row is answered as not found
+ * (`reading: null`), so a unit retired since a plan named it does not fail
+ * the others (FE-LOW-365).
  */
 @Injectable()
 @QueryHandler(ResolveUnitParameterValuesQuery)
 export class ResolveUnitParameterValuesHandler
-  implements IQueryHandler<ResolveUnitParameterValuesQuery, ParameterReading[]>
+  implements IQueryHandler<ResolveUnitParameterValuesQuery, UnitParameterReading[]>
 {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -104,7 +108,7 @@ export class ResolveUnitParameterValuesHandler
     private readonly resolver: ParameterReadingResolver,
   ) {}
 
-  async execute(query: ResolveUnitParameterValuesQuery): Promise<ParameterReading[]> {
+  async execute(query: ResolveUnitParameterValuesQuery): Promise<UnitParameterReading[]> {
     const { tenantId, parameterConfigId, unitIds, maxAgeMs, caller } = query;
     const asOf = new Date();
     const { parameter, points } = await runInTenantRead(
@@ -126,20 +130,29 @@ export class ResolveUnitParameterValuesHandler
         return { parameter: found, points: readable };
       },
     );
-    const locations = points.map(representativeLocation);
-    const readings = await this.resolver.resolveAcross(
-      tenantId,
-      locations,
-      { parameter, unit: parameter.unit, maxAgeMs },
-      asOf,
+    const locations = points.flatMap((point) =>
+      point === null ? [] : [representativeLocation(point)],
     );
-    return readings.map((reading, index) => {
-      const location = locations[index];
-      if (location === undefined) {
-        throw new Error('The reading resolver answered more locations than it was asked');
+    const readings =
+      locations.length === 0
+        ? []
+        : await this.resolver.resolveAcross(
+            tenantId,
+            locations,
+            { parameter, unit: parameter.unit, maxAgeMs },
+            asOf,
+          );
+    if (readings.length !== locations.length) {
+      throw new Error('The reading resolver answered a different number of locations than asked');
+    }
+    const answered = new Map<string, ParameterReading>();
+    for (const [index, location] of locations.entries()) {
+      const reading = readings[index];
+      if (reading !== undefined) {
+        answered.set(location.point.id, parameterReadingOf(parameter, location, reading));
       }
-      return parameterReadingOf(parameter, location, reading);
-    });
+    }
+    return unitIds.map((unitId) => ({ unitId, reading: answered.get(unitId) ?? null }));
   }
 }
 

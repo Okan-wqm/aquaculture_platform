@@ -16083,7 +16083,7 @@ export type Query = {
   reportPrefill: ReportPrefillOutput;
   resolveTagRefs: TagResolutionResultType;
   resolvedParameterValue: ParameterReading;
-  resolvedUnitParameterValues: Array<ParameterReading>;
+  resolvedUnitParameterValues: Array<UnitParameterReading>;
   /** All retention policies for current tenant. */
   retentionPolicies: Array<RetentionPolicy>;
   reviewCycleStatus: ReviewCycleStatus;
@@ -23312,6 +23312,14 @@ export type UnitMeasurementPlanEntry = {
   parameter: WaterQualityParameterConfig;
   /** Whether a measurement at this unit must carry this parameter */
   required: Scalars['Boolean']['output'];
+};
+
+/** One asked unit of a many-unit read, and its reading */
+export type UnitParameterReading = {
+  /** Null when no active tank or water equipment has this id in the tenant (retired or deleted since it was named): the other units are still read */
+  reading?: Maybe<ParameterReading>;
+  /** The unit id as asked */
+  unitId: Scalars['ID']['output'];
 };
 
 export type UnresolvedTagRefType = {

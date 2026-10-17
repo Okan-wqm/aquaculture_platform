@@ -130,26 +130,28 @@ function readsEverySite(caller: SiteScopeCaller): boolean {
 }
 
 /**
- * The units of a many-unit read (resolveMeasurementUnits), each checked as
- * assertPointReadable checks one: every asked unit is live (else 404, naming
- * the first that is not), and a caller below MODULE_MANAGER reads only units
- * at a site assigned to them — a unit whose site resolves to none is denied.
- * Returns each unit's point, in the asked order.
+ * The units of a many-unit read (resolveMeasurementUnits), in the asked order,
+ * each checked as assertPointReadable checks one: an asked id with no active
+ * unit is answered as not found (null) rather than failing the read — a unit
+ * retired since a day plan named it must not cost the site its other units'
+ * answers (FE-LOW-365) — and a caller below MODULE_MANAGER reads only units at
+ * a site assigned to them: one found unit elsewhere, or at no site, refuses the
+ * whole read (403), whatever else was asked. A not-found id has no active row,
+ * so its answer says nothing about any site.
  */
 export function assertUnitsReadable(
   siteAuth: SiteAuthorizationService,
   unitIds: readonly string[],
   units: ReadonlyMap<string, MeasurementUnit>,
   caller: SiteScopeCaller,
-): MeasurementPoint[] {
-  return unitIds.map((unitId) => {
-    const unit = units.get(unitId);
-    if (unit === undefined) {
-      throw new NotFoundException(`No active tank or water equipment '${unitId}' in this tenant`);
+): (MeasurementPoint | null)[] {
+  const asked = unitIds.map((unitId) => units.get(unitId) ?? null);
+  if (!readsEverySite(caller)) {
+    for (const unit of asked) {
+      if (unit !== null) {
+        siteAuth.assertSiteAssignment({ caller, siteId: unit.siteId });
+      }
     }
-    if (!readsEverySite(caller)) {
-      siteAuth.assertSiteAssignment({ caller, siteId: unit.siteId });
-    }
-    return { kind: unit.kind, id: unit.id };
-  });
+  }
+  return asked.map((unit) => (unit === null ? null : { kind: unit.kind, id: unit.id }));
 }

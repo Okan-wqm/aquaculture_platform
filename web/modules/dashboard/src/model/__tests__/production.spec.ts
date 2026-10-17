@@ -6,6 +6,7 @@
  * plans count nowhere — on the wire values the API sends), and the tank count
  * only where a system declares one.
  */
+import { MAX_UNITS_PER_READ } from '@aquaculture/shared-contracts';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -14,11 +15,13 @@ import {
   dataFreshness,
   feedProgress,
   lowestOxygen,
+  observedTimesOf,
   oxygenLevel,
   oxygenParameterOf,
   plannedUnitIds,
   tankCountOf,
   temperatureOf,
+  unitBatches,
   type DayPlanRecord,
   type OxygenParameter,
   type UnitReadingRecord,
@@ -66,19 +69,24 @@ describe('lowestOxygen', () => {
     criticalMin: 6,
     warningMin: 6.5,
   };
+  type Resolved = NonNullable<UnitReadingRecord['reading']>;
   const reading = (
     unitId: string,
     value: number | null,
-    sourceKind: UnitReadingRecord['sourceKind'],
+    sourceKind: Resolved['sourceKind'],
     observedAt: string | null,
   ): UnitReadingRecord => ({
-    point: { id: unitId },
-    value,
-    unit: 'mg/L',
-    sourceKind,
-    observedAt,
-    unresolved: value === null ? 'NO_SOURCE' : null,
+    unitId,
+    reading: {
+      value,
+      unit: 'mg/L',
+      sourceKind,
+      observedAt,
+      unresolved: value === null ? 'NO_SOURCE' : null,
+    },
   });
+  /** A unit farm has no active row for: retired or deleted since today's plan named it. */
+  const notFound = (unitId: string): UnitReadingRecord => ({ unitId, reading: null });
   const codes = new Map([
     ['a', 'B-12'],
     ['b', 'B-03'],
@@ -123,6 +131,19 @@ describe('lowestOxygen', () => {
     expect(lowestOxygen([reading('stranger', 1, 'MANUAL', ago(HOUR))], codes, parameter)).toEqual({
       kind: 'noReading',
     });
+  });
+
+  it('counts a unit farm no longer has nowhere, and still reads the others', () => {
+    const state = lowestOxygen(
+      [notFound('a'), reading('b', 7.1, 'MANUAL', ago(2 * HOUR))],
+      codes,
+      parameter,
+    );
+    expect(state.kind === 'reading' && state.reading.unitCode).toBe('B-03');
+    expect(lowestOxygen([notFound('a')], codes, parameter)).toEqual({ kind: 'noReading' });
+    expect(observedTimesOf([notFound('a'), reading('b', 7.1, 'MANUAL', ago(2 * HOUR))])).toEqual([
+      ago(2 * HOUR),
+    ]);
   });
 
   it('judges against the critical limit first, then the warning limit', () => {
@@ -250,6 +271,21 @@ describe('feedProgress', () => {
       plannedByNowRatio: null,
       behind: false,
     });
+  });
+});
+
+describe('unitBatches', () => {
+  it('splits a site’s units into batches farm’s many-unit reads take, in order', () => {
+    const ids = Array.from({ length: 2 * MAX_UNITS_PER_READ + 50 }, (_, index) => `u-${index}`);
+    const batches = unitBatches(ids);
+    expect(batches.map((batch) => batch.length)).toEqual([
+      MAX_UNITS_PER_READ,
+      MAX_UNITS_PER_READ,
+      50,
+    ]);
+    expect(batches.flat()).toEqual(ids);
+    expect(unitBatches(ids.slice(0, MAX_UNITS_PER_READ))).toHaveLength(1);
+    expect(unitBatches([])).toEqual([]);
   });
 });
 

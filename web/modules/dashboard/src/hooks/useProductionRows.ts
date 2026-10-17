@@ -5,7 +5,8 @@
  * WHAT: the viewer's active sites, then per site — in parallel — its gateways,
  * its day plans of the site's local day and its systems; once the plans name
  * the units, the units' effective temperatures and their dissolved oxygen
- * (farm's reading resolver, one request per site for all its units); plus the
+ * (farm's reading resolver), each one query per site whose requests carry at
+ * most MAX_UNITS_PER_READ units (unitBatches), answered as one list; plus the
  * tenant's dissolved-oxygen parameter and the farm module's open alarms per
  * site. Each cell keeps its own source's state, and a cell read after another
  * source fails with it (flatMapCell). Every query refreshes with the site
@@ -24,11 +25,13 @@ import {
   dataFreshness,
   feedProgress,
   lowestOxygen,
+  observedTimesOf,
   OXYGEN_MAX_AGE_SECONDS,
   oxygenParameterOf,
   plannedUnitIds,
   tankCountOf,
   temperatureOf,
+  unitBatches,
   unitCodesOf,
   type DayPlanRecord,
   type GatewayRecord,
@@ -62,6 +65,19 @@ export interface SiteRows<Row> {
 }
 
 const REFRESH = { staleTime: SITE_REFRESH_MS, refetchInterval: SITE_REFRESH_MS } as const;
+
+/**
+ * A many-unit read over all of a site's units: one request per batch farm
+ * takes (unitBatches), in parallel, the answers joined in the units' order.
+ * One failed batch fails the read, as one request would.
+ */
+async function readInBatches<Answer>(
+  unitIds: readonly string[],
+  read: (batch: string[]) => Promise<readonly Answer[]>,
+): Promise<readonly Answer[]> {
+  const answers = await Promise.all(unitBatches(unitIds).map(read));
+  return answers.flat();
+}
 
 export function useSiteGateways(
   sites: readonly DashboardSite[],
@@ -169,13 +185,17 @@ export function useProductionRows(): SiteRows<ProductionSiteRow> {
         }: {
           signal: AbortSignal;
         }): Promise<readonly UnitTemperatureRecord[]> =>
-          (
-            await graphqlClient.request<DashboardOperationResults['DashboardUnitTemperatures']>(
-              UNIT_TEMPERATURES_QUERY,
-              { unitIds },
-              { signal },
-            )
-          ).effectiveUnitTemperatures,
+          readInBatches(
+            unitIds,
+            async (batch) =>
+              (
+                await graphqlClient.request<DashboardOperationResults['DashboardUnitTemperatures']>(
+                  UNIT_TEMPERATURES_QUERY,
+                  { unitIds: batch },
+                  { signal },
+                )
+              ).effectiveUnitTemperatures,
+          ),
         enabled: session && unitIds.length > 0,
         ...REFRESH,
       };
@@ -195,19 +215,23 @@ export function useProductionRows(): SiteRows<ProductionSiteRow> {
         }: {
           signal: AbortSignal;
         }): Promise<readonly UnitReadingRecord[]> =>
-          (
-            await graphqlClient.request<DashboardOperationResults['DashboardUnitOxygen']>(
-              UNIT_OXYGEN_QUERY,
-              {
-                input: {
-                  parameterConfigId: parameterId,
-                  unitIds,
-                  maxAgeSeconds: OXYGEN_MAX_AGE_SECONDS,
-                },
-              },
-              { signal },
-            )
-          ).resolvedUnitParameterValues,
+          readInBatches(
+            unitIds,
+            async (batch) =>
+              (
+                await graphqlClient.request<DashboardOperationResults['DashboardUnitOxygen']>(
+                  UNIT_OXYGEN_QUERY,
+                  {
+                    input: {
+                      parameterConfigId: parameterId,
+                      unitIds: batch,
+                      maxAgeSeconds: OXYGEN_MAX_AGE_SECONDS,
+                    },
+                  },
+                  { signal },
+                )
+              ).resolvedUnitParameterValues,
+          ),
         enabled: session && parameterId !== null && unitIds.length > 0,
         ...REFRESH,
       };
@@ -248,11 +272,7 @@ export function useProductionRows(): SiteRows<ProductionSiteRow> {
       type: site.type,
       tankCount: cellAt(systems, index, tankCountOf),
       data: bothOf(gatewayCell, oxygenSource, (gatewayList, source) =>
-        dataFreshness(
-          gatewayList,
-          source.readings.map((reading) => reading.observedAt),
-          now,
-        ),
+        dataFreshness(gatewayList, observedTimesOf(source.readings), now),
       ),
       alarms: cellOf(tallies, (map) => tallyOf(map, site.id)),
       oxygen: mapCell(oxygenSource, (source) => oxygenStateOf(source, unitIds, codes)),

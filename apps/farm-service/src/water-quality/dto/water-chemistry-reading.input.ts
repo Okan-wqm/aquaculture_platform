@@ -3,6 +3,7 @@
  *
  * @module WaterQuality/DTO
  */
+import { MAX_UNITS_PER_READ } from '@aquaculture/shared-contracts';
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
 import {
@@ -25,9 +26,6 @@ import { MeasurementPointInput } from './parameter-channel-binding.input';
 
 /** A year: a window longer than this asks for nothing a window should mean. */
 const MAX_AGE_SECONDS_LIMIT = 31_536_000;
-
-/** Units in one many-unit read: a site's units, as effectiveUnitTemperatures bounds them. */
-export const MAX_RESOLVED_UNITS = 200;
 
 @InputType({ description: 'A parameter to read at a measurement point, now' })
 export class ResolvedParameterValueInput {
@@ -77,10 +75,10 @@ export class ResolvedUnitParameterValuesInput {
   parameterConfigId!: string;
 
   @Field(() => [ID], {
-    description: `Tank or water-equipment ids, 1 to ${MAX_RESOLVED_UNITS}; farm decides which each is`,
+    description: `Tank or water-equipment ids, 1 to ${MAX_UNITS_PER_READ}; farm decides which each is`,
   })
   @ArrayMinSize(1)
-  @ArrayMaxSize(MAX_RESOLVED_UNITS)
+  @ArrayMaxSize(MAX_UNITS_PER_READ)
   @ArrayUnique()
   @IsUUID('all', { each: true })
   unitIds!: string[];

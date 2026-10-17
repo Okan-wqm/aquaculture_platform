@@ -3125,6 +3125,17 @@ enum ReadingUnresolved {
   NO_USABLE_SOURCE
 }
 
+"""One asked unit of a many-unit read, and its reading"""
+type UnitParameterReading {
+  """The unit id as asked"""
+  unitId: ID!
+
+  """
+  Null when no active tank or water equipment has this id in the tenant (retired or deleted since it was named): the other units are still read
+  """
+  reading: ParameterReading
+}
+
 """One input of a water-chemistry calculation, resolved at the point"""
 type WaterChemistryInputStatus {
   """The WaterChemistryInputs field it feeds, e.g. tempC, h2sUgL"""
@@ -6178,7 +6189,7 @@ type Query {
   parameterSourcesAtPoint(point: MeasurementPointInput!): [ParameterSourceStatus!]!
   parameterQuantityDeclarations(parameterConfigId: ID!): [ParameterQuantityDeclaration!]!
   resolvedParameterValue(input: ResolvedParameterValueInput!): ParameterReading!
-  resolvedUnitParameterValues(input: ResolvedUnitParameterValuesInput!): [ParameterReading!]!
+  resolvedUnitParameterValues(input: ResolvedUnitParameterValuesInput!): [UnitParameterReading!]!
   waterChemistryInputs(point: MeasurementPointInput!, set: WaterChemistryInputSet!): WaterChemistryInputsResult!
   parameterConfigs(filter: ParameterConfigFilterInput): [WaterQualityParameterConfig!]!
   parameterConfig(id: ID!): WaterQualityParameterConfig

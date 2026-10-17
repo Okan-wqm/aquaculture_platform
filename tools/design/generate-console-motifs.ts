@@ -1,21 +1,38 @@
 /**
- * Writes the Production workspace's console motif from the login reef art
+ * Writes the console's workspace motifs into suderra.css as data URIs
  * (FE-MEDIUM-348).
  *
- * WHAT: a static tile of fish silhouettes — the reef scene's own species on
- * its three depth planes, a far fish fainter than a near one — that
- * suderra.css uses as the mask of the Production workspace's motif layer
- * (`[data-ws='aqua'] .sd-content::after`). The layer paints the workspace
- * accent through it at the theme's motif opacity, so the file carries no
- * colour: a mask reads coverage only, and every filled shape of a fish keeps
- * its geometry and drops its paint.
+ * WHAT: the three drawings the tenant console shows behind its pages —
+ * Production's reef fish, derived here from the login scene's art, and the
+ * Greenhouse and Control & sensors line drawings, hand-drawn in
+ * `web/shared-ui/src/styles/motifs/` — as custom properties of the motif
+ * layer (`.sd-content::after` in suderra.css), between BEGIN/END GENERATED
+ * sentinels: `--sd-motif-<ws>` is the drawing as a `data:image/svg+xml` URI
+ * and `--sd-motif-<ws>-size` its tile. Each workspace rule masks with the
+ * pair. The layer paints the workspace accent through the mask at the
+ * theme's motif opacity, so a drawing carries no colour: a mask reads
+ * coverage only.
  *
- * WHY generated rather than drawn: the fish are drawn once, in
- * `web/shell/src/components/reef/art/*.svg`, for the login scene. A
- * hand-copied silhouette file would be a second drawing that drifts the
+ * WHY inlined: the drawings were files the stylesheet named with
+ * `url('./motifs/*.svg')`. The shell's entry stylesheet `@import`s suderra.css
+ * from shared-ui; Tailwind inlines it, Vite then resolved the `url()` against
+ * the shell's own styles directory, found nothing and left it as written, and
+ * production requested `/assets/motifs/*.svg`, which nginx 404s — the mask
+ * stayed transparent. A data URI has no path to resolve: the drawing travels
+ * inside whichever stylesheet imports suderra.css, and the CSP allows
+ * `img-src data:`. The unresolved-`url()` warning now fails the build
+ * (web/shared-ui/src/federation/unresolvedAssetUrlGate.ts).
+ *
+ * WHY Production's drawing is generated rather than drawn: the fish are
+ * drawn once, in `web/shell/src/components/reef/art/*.svg`, for the login
+ * scene. A hand-copied silhouette would be a second drawing that drifts the
  * first time an artist touches a fish; derived, the console's reef is the
- * login's reef. `tests/invariants/web-console-motif-generated.spec.ts`
- * regenerates and diffs, so a hand edit or a stale tile fails the build.
+ * login's reef. Every filled shape of a fish keeps its geometry and drops its
+ * paint.
+ *
+ * `tests/invariants/web-console-motif-generated.spec.ts` regenerates and
+ * diffs the block, so a hand edit, an edited source or a stale block fails the
+ * build.
  *
  *   npx tsx tools/design/generate-console-motifs.ts [--check]
  */
@@ -25,7 +42,18 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 export const REEF_ART_DIR = 'web/shell/src/components/reef/art';
-export const AQUA_MOTIF_PATH = 'web/shared-ui/src/styles/motifs/aqua.svg';
+/** The hand-drawn motifs: the generator's sources, which no stylesheet names. */
+export const MOTIF_SOURCE_DIR = 'web/shared-ui/src/styles/motifs';
+export const SUDERRA_CSS_PATH = 'web/shared-ui/src/styles/suderra.css';
+
+/** The workspaces that draw a motif; Company keeps the plain engineering grid. */
+export const MOTIF_WORKSPACES = ['aqua', 'gh', 'ctl'] as const;
+export type MotifWorkspace = (typeof MOTIF_WORKSPACES)[number];
+
+/** The block sits among the motif layer's declarations, inside `@layer components`. */
+const INDENT = '    ';
+export const MOTIF_BLOCK_BEGIN = `${INDENT}/* BEGIN GENERATED MOTIFS (tools/design/generate-console-motifs.ts) */`;
+export const MOTIF_BLOCK_END = `${INDENT}/* END GENERATED MOTIFS */`;
 
 /** The reef's species, the baitfish school included — every one appears in the tile. */
 export const MOTIF_SPECIES = [
@@ -40,7 +68,7 @@ export const MOTIF_SPECIES = [
 ] as const;
 type Species = (typeof MOTIF_SPECIES)[number];
 
-/** The tile, in px; suderra.css repeats it at this size (its `mask-size`). */
+/** The tile, in px; the layer repeats it at this size (`--sd-motif-aqua-size`). */
 const TILE = { width: 1200, height: 800 } as const;
 
 /** The login scene's depth planes as coverage: a far fish is fainter, as it is there. */
@@ -140,16 +168,17 @@ function num(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
-function readArt(species: Species): string {
-  return readFileSync(resolve(REPO_ROOT, REEF_ART_DIR, `${species}.svg`), 'utf8');
+function readRepoFile(path: string): string {
+  return readFileSync(resolve(REPO_ROOT, path), 'utf8');
 }
 
-/** The motif file's full text, from the reef art (`read` is the art loader, swappable in tests). */
-export function renderAquaMotif(read: (species: Species) => string = readArt): string {
+/** Production's drawing, from the reef art (`read` is the art loader, swappable in tests). */
+export function renderAquaMotif(
+  read: (species: Species) => string = (species) => readRepoFile(`${REEF_ART_DIR}/${species}.svg`),
+): string {
   const art = new Map(MOTIF_SPECIES.map((species) => [species, silhouette(read(species))]));
   const lines = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${TILE.width} ${TILE.height}" width="${TILE.width}" height="${TILE.height}">`,
-    `<!-- Generated by tools/design/generate-console-motifs.ts from ${REEF_ART_DIR} (FE-MEDIUM-348). Do not edit. -->`,
   ];
   for (const fish of PLACEMENTS) {
     const shape = art.get(fish.species);
@@ -166,28 +195,95 @@ export function renderAquaMotif(read: (species: Species) => string = readArt): s
   return lines.join('\n');
 }
 
-function main(): void {
-  const file = resolve(REPO_ROOT, AQUA_MOTIF_PATH);
-  const next = renderAquaMotif();
-  let current = '';
-  try {
-    current = readFileSync(file, 'utf8');
-  } catch {
-    // First run: the file does not exist yet.
+/** Every workspace's drawing as SVG text (`read` loads a repo file, swappable in tests). */
+export function renderMotifs(
+  read: (path: string) => string = readRepoFile,
+): Record<MotifWorkspace, string> {
+  return {
+    aqua: renderAquaMotif((species) => read(`${REEF_ART_DIR}/${species}.svg`)),
+    gh: read(`${MOTIF_SOURCE_DIR}/gh.svg`),
+    ctl: read(`${MOTIF_SOURCE_DIR}/ctl.svg`),
+  };
+}
+
+/** A drawing's tile: its `viewBox`, which its `width` and `height` must repeat. */
+export function tileSize(svg: string): { width: number; height: number } {
+  const root = /<svg\b[^>]*>/.exec(svg)?.[0] ?? '';
+  const viewBox = /\sviewBox="0 0 (\d+) (\d+)"/.exec(root);
+  const width = /\swidth="(\d+)"/.exec(root)?.[1];
+  const height = /\sheight="(\d+)"/.exec(root)?.[1];
+  if (
+    viewBox?.[1] === undefined ||
+    viewBox[2] === undefined ||
+    width !== viewBox[1] ||
+    height !== viewBox[2]
+  )
+    throw new Error('a motif needs `viewBox="0 0 w h"` with the same `width` and `height`');
+  return { width: Number(width), height: Number(height) };
+}
+
+/**
+ * Characters a `data:` URL inside a double-quoted CSS string may not carry raw:
+ * `%` (it starts an escape), `#` (it starts a fragment, and the browser would
+ * cut the drawing there), `<` `>` (escaped by convention, as the grid's noise
+ * is), braces and the backslash (CSS block and escape syntax), and anything
+ * outside printable ASCII.
+ */
+const UNSAFE = /[%#<>{}\\]|[^\x20-\x7e]/gu;
+
+/**
+ * The drawing as a `data:image/svg+xml` URI: comments dropped, whitespace
+ * collapsed, attribute quotes made single so the CSS string can be double,
+ * and the unsafe characters percent-encoded.
+ */
+export function motifDataUri(svg: string): string {
+  const compact = svg
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/>\s+</g, '><')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (compact.includes("'"))
+    throw new Error("a motif may not contain `'`: its quotes become the URI's single quotes");
+  return `data:image/svg+xml,${compact.replace(/"/g, "'").replace(UNSAFE, (c) => encodeURIComponent(c))}`;
+}
+
+/** The generated block: each workspace's data URI and tile size. */
+export function renderMotifBlock(motifs: Record<MotifWorkspace, string>): string {
+  const lines = [MOTIF_BLOCK_BEGIN];
+  for (const ws of MOTIF_WORKSPACES) {
+    const { width, height } = tileSize(motifs[ws]);
+    lines.push(`${INDENT}--sd-motif-${ws}: url("${motifDataUri(motifs[ws])}");`);
+    lines.push(`${INDENT}--sd-motif-${ws}-size: ${width}px ${height}px;`);
   }
+  lines.push(MOTIF_BLOCK_END);
+  return lines.join('\n');
+}
+
+/** `css` with its generated block replaced by `block`. */
+export function spliceMotifBlock(css: string, block: string): string {
+  const begin = css.indexOf(MOTIF_BLOCK_BEGIN);
+  const end = css.indexOf(MOTIF_BLOCK_END);
+  if (begin === -1 || end < begin)
+    throw new Error(`${SUDERRA_CSS_PATH} is missing the BEGIN/END GENERATED MOTIFS sentinels`);
+  return css.slice(0, begin) + block + css.slice(end + MOTIF_BLOCK_END.length);
+}
+
+function main(): void {
+  const current = readRepoFile(SUDERRA_CSS_PATH);
+  const next = spliceMotifBlock(current, renderMotifBlock(renderMotifs()));
   if (process.argv.includes('--check')) {
     if (current !== next) {
       process.stderr.write(
-        `${AQUA_MOTIF_PATH} is stale — run \`npx tsx tools/design/generate-console-motifs.ts\`.\n`,
+        `${SUDERRA_CSS_PATH}'s motif block is stale — run \`npx tsx tools/design/generate-console-motifs.ts\`.\n`,
       );
       process.exit(1);
     }
-    process.stdout.write('Console motif is up to date.\n');
+    process.stdout.write('Console motifs are up to date.\n');
     return;
   }
-  if (current !== next) writeFileSync(file, next);
+  if (current !== next) writeFileSync(resolve(REPO_ROOT, SUDERRA_CSS_PATH), next);
   process.stdout.write(
-    current === next ? 'Console motif unchanged.\n' : `Wrote ${AQUA_MOTIF_PATH}\n`,
+    current === next ? 'Console motifs unchanged.\n' : `Wrote ${SUDERRA_CSS_PATH}'s motif block\n`,
   );
 }
 

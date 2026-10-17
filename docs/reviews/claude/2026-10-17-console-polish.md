@@ -46,16 +46,21 @@ the domain the user switched to.
   console shadows). It sits after the grid and under every child (z-index -1 in the column's
   stacking context), takes no pointer events, is fixed to the viewport and is not printed. The
   base rule sets no `content`; a box exists only under `[data-ws='aqua' | 'gh' | 'ctl']
-.sd-content`, so Company, the SUPER_ADMIN console and the auth pages draw and fetch nothing.
-  - Production: `motifs/aqua.svg`, the login reef's fish (salmon, bass, bream, trout,
-    mackerel, turbot, tuna and a baitfish school) on its three depth planes. It is generated
-    from `web/shell/src/components/reef/art/*.svg` by `tools/design/generate-console-motifs.ts`,
-    so the console's reef is the login's reef and not a second drawing.
-  - Greenhouse: `motifs/gh.svg`, two NFT channels with net pots, leaf sprigs and loose leaves.
-  - Control & sensors: `motifs/ctl.svg`, P&ID process lines with valves, a pump, a vessel and
-    instrument bubbles, and circuit traces with pads, vias and a chip.
-  - The files carry no colour (`currentColor` or no paint at all). A mask reads coverage only,
-    so the motif follows the workspace and the theme with the tokens. Nothing animates.
+.sd-content`, so Company, the SUPER_ADMIN console and the auth pages draw nothing.
+  - Production: the login reef's fish (salmon, bass, bream, trout, mackerel, turbot, tuna and a
+    baitfish school) on its three depth planes, generated from
+    `web/shell/src/components/reef/art/*.svg`, so the console's reef is the login's reef and not
+    a second drawing.
+  - Greenhouse: two NFT channels with net pots, leaf sprigs and loose leaves (source
+    `web/shared-ui/src/styles/motifs/gh.svg`).
+  - Control & sensors: P&ID process lines with valves, a pump, a vessel and instrument bubbles,
+    and circuit traces with pads, vias and a chip (source `motifs/ctl.svg`).
+  - The drawings are inlined. `tools/design/generate-console-motifs.ts` writes each one as a
+    `data:image/svg+xml` URI (`--sd-motif-<ws>`) with its tile size (`--sd-motif-<ws>-size`)
+    into a generated block on the layer's rule in suderra.css; each workspace rule masks with
+    `var(--sd-motif-<ws>)`. The drawings carry no colour (`currentColor` or no paint at all). A
+    mask reads coverage only, so the motif follows the workspace and the theme with the tokens.
+    Nothing animates.
 - **Model.** The cascade model writes `data-ws` for every workspace, as the shell does, and
   gains `bare(theme)` (no workspace), an OKLCH reading and the motif rules.
 
@@ -75,10 +80,47 @@ the domain the user switched to.
     pair they measure is measured on the tinted grounds too. The placement row holds the new
     tokens to one value wherever the theme and workspace attributes sit (dark islands included).
 - `web/shared-ui/src/styles/__tests__/suderra-workspace-motif.spec.ts`: switching `data-ws` on
-  `<html>` swaps the motif under the column (aqua, gh, ctl, none for org). No workspace means no
-  motif. The layer takes no input, sits at z-index -1, is fixed, paints from the accent token at
-  the motif opacity, has no animation or transition and is hidden in print. Each motif file is
-  colourless, static (no SMIL, script or style) and tiled at its viewBox size.
-- `tests/invariants/web-console-motif-generated.spec.ts`: the committed Production motif equals
-  the generator's output from the reef art, every species contributes, and the file keeps
-  geometry only.
+  `<html>` swaps the mask under the column (three distinct data URIs for aqua, gh and ctl, none
+  for org). No workspace means no motif, and suderra.css names no file in any `url()`. The layer
+  takes no input, sits at z-index -1, is fixed (and the column declares nothing that would make
+  it a containing block for a fixed box), paints from the accent token at the motif opacity, has
+  no animation or transition and is hidden in print. Each mask, decoded as a browser decodes it
+  (`fetch` of the data URI) and parsed as an SVG image, is well-formed, colourless, static and
+  tiled at its viewBox size.
+- `tests/invariants/web-console-motif-generated.spec.ts`: the committed block equals the
+  generator's output, every URI decodes to the drawing it was made from (the reef-derived tile,
+  the gh and ctl sources), every species contributes, and the Production drawing keeps geometry
+  only.
+- `web/shell/src/console/shell/__tests__/useFollowedWorkspace.spec.tsx`: the first frame after
+  entering the console, and after a move to another workspace, already carries the new `data-ws`.
+
+### Independent review (FE-MEDIUM-348)
+
+An independent review of the first version found:
+
+- **HIGH: the motifs never loaded in the production build.** suderra.css named the drawings as
+  files, `url('./motifs/*.svg')`. The shell's `styles/index.css` `@import`s suderra.css;
+  `@tailwindcss/postcss` inlines it, and Vite then resolved the `url()` against
+  `web/shell/src/styles/`, found nothing, and kept the reference as written with only a warning
+  ("… didn't resolve at build time, it will remain unchanged to be resolved at runtime", Frontend
+  Lighthouse run 39058917903). The built `/assets/bootstrap-*.css` asked for
+  `/assets/motifs/*.svg`, which nginx (`try_files $uri =404`) does not have: the mask was
+  transparent in every workspace. Fixed by the inlined data URIs above, and made a build error:
+  `web/shared-ui/src/federation/unresolvedAssetUrlGate.ts` is a plugin whose build-only `config`
+  hook wraps the logger Vite would use, so that warning throws while the stylesheet is
+  transformed. The shell and all eight remotes mount it.
+  `federation/__tests__/unresolvedAssetUrlGate.spec.ts` builds a stylesheet with Vite (without
+  the gate the unresolved `url()` ships; with it the build fails naming the url and the file; an
+  inlined drawing passes), and `tests/invariants/web-vite-unresolved-asset-gate.spec.ts` reads
+  each federation config's resolved build pipeline and requires the plugin. With the gate and
+  the old CSS, `vite build` of the shell failed on `./motifs/aqua.svg`; with the data URIs it
+  passes with no such warning and no motif file in `dist/`.
+- **LOW: one frame of the previous ground.** `useFollowedWorkspace` wrote `data-ws` from a
+  passive effect, after the browser had painted the route change. It writes it from a layout
+  effect now.
+- **Comment check: "fixed to the viewport".** The column declares `container-type: inline-size`.
+  That applies size and style containment, not layout containment, so the column is no
+  containing block for a fixed box: measured in Chromium 149, a fixed child of such a column
+  keeps the viewport's top and height at a 1000 px scroll offset, while `100cqw` resolves to the
+  column's width. The comment was accurate; suderra.css now states the mechanism and the
+  measurement.

@@ -258,13 +258,21 @@ export function suderraRule(selector: string): string {
 }
 
 /** The workspace motif behind the tenant console (FE-MEDIUM-348): the workspaces suderra.css
- *  draws one for — a `[data-ws='…'] .sd-content::after` rule naming a mask — and its file. */
+ *  draws one for — a `[data-ws='…'] .sd-content::after` rule masking with `var(--sd-motif-…)` —
+ *  and the data URI that property holds on the motif layer (`.sd-content::after`). */
 export function workspaceMotifs(): Map<string, string> {
+  const layer = suderraRule('.sd-content::after');
   const motifs = new Map<string, string>();
   for (const [selector, body] of SUDERRA_RULES) {
     const ws = /^\[data-ws='([a-z]+)'\] \.sd-content::after$/.exec(selector)?.[1];
-    const file = /mask-image:\s*url\('([^']+)'\)/.exec(body)?.[1];
-    if (ws !== undefined && file !== undefined) motifs.set(ws, file);
+    const property = /mask-image:\s*var\((--[a-z0-9-]+)\)/.exec(body)?.[1];
+    if (ws === undefined || property === undefined) continue;
+    const uri = new RegExp(`(?:^|[\\s;])${property}:\\s*url\\("([^"]+)"\\)`).exec(layer)?.[1];
+    if (uri === undefined)
+      throw new Error(
+        `suderra.css masks [data-ws='${ws}'] with ${property}, which the layer lacks`,
+      );
+    motifs.set(ws, uri);
   }
   return motifs;
 }

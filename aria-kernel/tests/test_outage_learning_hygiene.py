@@ -417,5 +417,83 @@ class L562OneSweepParsesTheGovernanceLedgerOnce(M1ALeaseAnOutageAteIsNotCharged)
         self.assertEqual(len(self.parses), 1, self.parses)
 
 
+class L568TheSweepParsesGovernanceOutsideTheClaimsLock(M1ALeaseAnOutageAteIsNotCharged):
+    """ARIA-LOW-568 — the lease rule's context (each claim's route and the outage
+    intervals, one parse of governance.jsonl; the request roles) does not need the claims
+    and results lock, and the sweep parsed it on the first expired claim INSIDE that lock,
+    holding every claim, heartbeat and submit behind a 25.9 MB parse. It is read before the
+    lock when a lease looks expired on the unlocked read, and each claim is re-checked under
+    the lock as before; every M1 answer above still holds with the reads instrumented."""
+
+    def _instrumented(self, reap):  # noqa: ANN001, ANN202
+        from contextlib import contextmanager
+        from unittest.mock import patch
+
+        from aria_kernel import agent_invocations
+
+        self.locked = False
+        self.context_reads_locked: list[bool] = []
+        real_transaction, real_context = agent_invocations.state_transaction, agent_invocations._lease_routes_and_clock
+
+        @contextmanager
+        def transaction(paths, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+            with real_transaction(paths, *args, **kwargs) as held:
+                self.locked = True
+                try:
+                    yield held
+                finally:
+                    self.locked = False
+
+        def context(root):  # noqa: ANN001, ANN202
+            self.context_reads_locked.append(self.locked)
+            return real_context(root)
+
+        with patch.object(agent_invocations, "state_transaction", transaction), \
+                patch.object(agent_invocations, "_lease_routes_and_clock", context):
+            return reap()
+
+    def _reap(self) -> dict:
+        return self._instrumented(super()._reap)
+
+    def _held_claim(self) -> None:
+        self.request("AIR-1")
+        self.claim_row(event="claimed", claim_id="CL-1", request_id="AIR-1", agent_id="a",
+                       claimed_at=_iso(_T0), lease_expires_at=_iso(_T0 + timedelta(hours=1)))
+
+    def test_the_lease_context_is_read_once_and_before_the_lock(self) -> None:
+        self.outage(_T0 + timedelta(minutes=10), None)
+        followup = self._reap()["requeued"][0]
+        self.assertEqual(followup["reason"], "lease_expired_during_provider_outage:anthropic")
+        self.assertEqual(self.context_reads_locked, [False])
+
+    def test_a_held_claim_whose_lease_is_live_reads_no_context(self) -> None:
+        from aria_kernel.agent_invocations import reap_stale_claims
+
+        self._held_claim()
+        reaped = self._instrumented(lambda: reap_stale_claims(base_dir=self.tools, now=_T0 + timedelta(minutes=30)))
+        self.assertEqual(reaped["stale"], [])
+        self.assertEqual(self.context_reads_locked, [])
+
+    def test_a_lease_that_ran_out_between_the_look_and_the_lock_is_decided_with_its_context_read_unlocked(
+        self,
+    ) -> None:
+        # The unlocked look and the locked check read the clock separately
+        # (no injected `now`): a lease that expired in between leaves the
+        # lock unwritten, reads its context outside it and is decided again.
+        from unittest.mock import patch
+
+        from aria_kernel import agent_invocations
+
+        self.outage(_T0 + timedelta(minutes=10), None)
+        self._held_claim()
+        clock = iter([_T0 + timedelta(minutes=59), _T0 + timedelta(hours=2), _T0 + timedelta(hours=2)])
+        with patch.object(agent_invocations, "_utc_now_dt", side_effect=lambda: next(clock)):
+            reaped = self._instrumented(lambda: agent_invocations.reap_stale_claims(base_dir=self.tools))
+        self.assertEqual([row["reason"] for row in reaped["requeued"]],
+                         ["lease_expired_during_provider_outage:anthropic"])
+        self.assertEqual(len(reaped["stale"]), 1)
+        self.assertEqual(self.context_reads_locked, [False])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -115,6 +115,19 @@ on:
         options:
           - 'true'
           - 'false'
+      # ARIA-MEDIUM-271 — a kernel-owned runtime signal, by name
+      # (runtime_signal_bridge.STANDING_RUNTIME_SIGNALS), that this cycle
+      # ingests into its own store before it runs. The dataflow watchdog
+      # dispatches with it: the watchdog's own checkout is thrown away with
+      # its job, and this lane owns the store's publish.
+      runtime_signal:
+        description: 'A standing runtime signal to ingest before the cycle (none = no signal)'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - 'none'
+          - 'dataflow_integrity_critical'
 
 # Z1 (ORPHAN-712) — shared self-hosted workspace group; see
 # dataflow-integrity-watchdog.yml for the measured wipe this prevents.
@@ -678,6 +691,19 @@ jobs:
               --fixture-update-ref "n/a: no fixture change; environment fault" \
               --tools-dir "${ARIA_TOOLS}"
           done
+
+      # ARIA-MEDIUM-271 — the signal the dispatching watchdog names lands in
+      # THIS store, before the cycle reads its pressure, and the same publish
+      # step carries it. The name is a closed vocabulary twice over: the
+      # input's choice options and the kernel's standing-signal table.
+      - name: Runtime signal from the dispatching watchdog (dispatch-gated)
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle' && (github.event.inputs.runtime_signal || 'none') != 'none'
+        env:
+          RUNTIME_SIGNAL: ${{ github.event.inputs.runtime_signal }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir "$ARIA_TOOLS_DIR" \
+            runtime signal ingest-standing --name "${RUNTIME_SIGNAL}"
 
       # A2 — one definition, both lanes (RC-9): the inline copy that used to
       # sit here is now .github/actions/ensure-node-deps, shared with the

@@ -1638,6 +1638,10 @@ def build_parser() -> argparse.ArgumentParser:
     rs_ingest.add_argument("--summary", required=True)
     rs_ingest.add_argument("--code-ref", action="append", required=True, dest="code_refs")
     rs_ingest.add_argument("--severity", default="high")
+    # ARIA-MEDIUM-271 — a kernel-owned signal by name: what the dataflow
+    # watchdog's dispatch asks the cycle to ingest into the store it owns.
+    rs_standing = add_subparser(runtime_signal_sub, "ingest-standing")
+    rs_standing.add_argument("--name", required=True)
     rs_resolve = add_subparser(runtime_signal_sub, "resolve")
     rs_resolve.add_argument("--signal-id", required=True)
     rs_resolve.add_argument("--resolution-note", required=True)
@@ -4743,6 +4747,7 @@ def _main(argv: list[str] | None = None) -> int:
         # without importing the kernel. These verbs are the missing mouth.
         from .runtime_signal_bridge import (
             ingest_runtime_signal,
+            ingest_standing_runtime_signal,
             load_open_runtime_signals,
             resolve_runtime_signal,
         )
@@ -4752,6 +4757,8 @@ def _main(argv: list[str] | None = None) -> int:
                 summary=args.summary, code_refs=args.code_refs,
                 severity=args.severity, base_dir=args.tools_dir,
             )
+        elif args.runtime_signal_command == "ingest-standing":
+            row = ingest_standing_runtime_signal(name=args.name, base_dir=args.tools_dir)
         elif args.runtime_signal_command == "resolve":
             row = resolve_runtime_signal(
                 signal_id=args.signal_id,

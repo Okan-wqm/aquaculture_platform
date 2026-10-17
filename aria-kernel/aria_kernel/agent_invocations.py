@@ -50,6 +50,7 @@ from .runtime_profile import enforce_profile_for_action
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
+    append_tools_governance_rows,
     ensure_tools_dir,
     tools_dir,
     utc_now,
@@ -7144,6 +7145,28 @@ def _lease_routes_and_clock(root: Path) -> tuple[dict[str, str], "ProviderClock"
     return attempt_providers_by_claim(rows), ProviderClock(fold_outage_intervals(rows))
 
 
+def _expired_live_lease(
+    claims: list[dict[str, Any]], results: list[dict[str, Any]], claim_id: str, *, at: datetime,
+) -> datetime | None:
+    """The lease expiry of a claim still held — a ``claimed`` row, no
+    terminal event, no result, no prepared submission — that ran out before
+    ``at``; None for every other claim.
+
+    ARIA-LOW-568 — the reaper asks it twice with one meaning: on the
+    unlocked read, to decide whether the lease rule's context is worth
+    parsing before the lock, and under the lock, to decide the claim.
+    """
+    if (
+        _claim_terminal_event(claims, claim_id) is not None
+        or _claim_has_result(results, claim_id)
+        or _claim_has_prepared_submission(claims, claim_id)
+        or not any(row.get("claim_id") == claim_id and row.get("event") == "claimed" for row in claims)
+    ):
+        return None
+    expires = _latest_lease_expiry(claims, claim_id)
+    return expires if expires < at else None
+
+
 def reap_stale_claims(
     *,
     base_dir: str | Path | None = None,
@@ -7172,121 +7195,149 @@ def reap_stale_claims(
         "human_required": [],
     }
     # ARIA-HIGH-367 (M1) — read only when some lease has actually expired.
+    # ARIA-LOW-568 — and outside the claims/results lock: the routes and the
+    # outage intervals (one parse of governance.jsonl, 25.9 MB on aria/state)
+    # and the request roles are not guarded by it, and the sweep used to parse
+    # them on the first expired claim INSIDE it, holding every claim,
+    # heartbeat and submit behind the parse. The unlocked read decides
+    # whether to read them; the lock re-checks each claim as before.
     lease_clock: "ProviderClock | None" = None
+    routed: dict[str, str] = {}
     request_roles: dict[str, str] = {}
-    for cid in candidate_ids:
+
+    def _read_lease_context() -> None:
+        nonlocal routed, lease_clock, request_roles
+        routed, lease_clock = _lease_routes_and_clock(root)
+        request_roles = {str(row.get("request_id")): str(row.get("role") or "")
+                         for row in load_segments(root, "agent_invocation_requests")}
+
+    looked_at = now if now is not None else _utc_now_dt()
+    unlocked_results = load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
+    if any(_expired_live_lease(claims, unlocked_results, cid, at=looked_at) is not None for cid in candidate_ids):
+        _read_lease_context()
+
+    def _reap_one(cid: str) -> tuple[str, dict[str, Any]] | None:
+        """Decide ``cid`` under the claims/results lock; its governance row
+        (kind, details) when it was reaped, else None."""
         governance_details: dict[str, Any] | None = None
-        with state_transaction([claims_path, results_path]) as transaction:
-            # The reference clock is read UNDER the lock (an injected `now`
-            # is the caller's clock and stays): the expiry it is compared
-            # against may have been extended by a heartbeat that landed
-            # while this reaper waited, and the `stale_at` / `at` it stamps
-            # must be the append time — `release_claim` and
-            # `heartbeat_claim` follow the same rule.
-            ts = now if now is not None else _utc_now_dt()
-            locked_claims = transaction.load_declared_jsonl(
-                claims_path,
-                expected_surface="agent_invocation_claims",
-            )
-            locked_results = transaction.load_declared_jsonl(
-                results_path,
-                expected_surface="agent_invocation_results",
-            )
-            if (
-                _claim_terminal_event(locked_claims, cid) is not None
-                or _claim_has_result(locked_results, cid)
-                or _claim_has_prepared_submission(locked_claims, cid)
-            ):
-                continue
-            claim_event = next(
-                (
-                    row
-                    for row in locked_claims
-                    if row.get("claim_id") == cid
-                    and row.get("event") == "claimed"
-                ),
-                None,
-            )
-            if claim_event is None:
-                continue
-            expires = _latest_lease_expiry(locked_claims, cid)
-            if expires >= ts:
-                continue
-            request_id = str(claim_event.get("request_id") or "")
-            agent_id = claim_event.get("agent_id")
-            if lease_clock is None:
+        read_context_first = False
+        while True:
+            if read_context_first:
+                _read_lease_context()
+            with state_transaction([claims_path, results_path]) as transaction:
+                # The reference clock is read UNDER the lock (an injected `now`
+                # is the caller's clock and stays): the expiry it is compared
+                # against may have been extended by a heartbeat that landed
+                # while this reaper waited, and the `stale_at` / `at` it stamps
+                # must be the append time — `release_claim` and
+                # `heartbeat_claim` follow the same rule.
+                ts = now if now is not None else _utc_now_dt()
+                locked_claims = transaction.load_declared_jsonl(
+                    claims_path,
+                    expected_surface="agent_invocation_claims",
+                )
+                locked_results = transaction.load_declared_jsonl(
+                    results_path,
+                    expected_surface="agent_invocation_results",
+                )
+                expires = _expired_live_lease(locked_claims, locked_results, cid, at=ts)
+                if expires is None:
+                    break
+                if lease_clock is None:
+                    # A lease that ran out between the unlocked look and this
+                    # lock (the clock is read again here): the lock is left
+                    # with nothing written, the context is read outside it,
+                    # and the claim is decided again — never without its
+                    # context, never with the parse inside the lock.
+                    read_context_first = True
+                    continue
+                claim_event = next(
+                    row for row in locked_claims if row.get("claim_id") == cid and row.get("event") == "claimed"
+                )
+                request_id = str(claim_event.get("request_id") or "")
+                agent_id = claim_event.get("agent_id")
                 from .provider_clock import lease_expiry_reason, role_head_providers
 
-                routed, lease_clock = _lease_routes_and_clock(root)
-                request_roles = {str(row.get("request_id")): str(row.get("role") or "")
-                                 for row in load_segments(root, "agent_invocation_requests")}
-            # ARIA-HIGH-367 (M1) — the one lease-outage rule (the worker lane
-            # asks it too, ARIA-MEDIUM-437). ARIA-MEDIUM-444 — over the
-            # provider the claim RAN on (its newest native attempt): since
-            # ARIA-HIGH-434 a Claude-headed seat runs on Z.ai while Claude is
-            # cooled, and the head's outage waived a Z.ai run that hung, so it
-            # was re-run uncharged for as long as Claude stayed out. A claim
-            # that never reached a route waited on its ladder: the head.
-            role = request_roles.get(request_id, "")
-            reason = lease_expiry_reason(
-                lease_clock, _parse_iso(claim_event.get("claimed_at")), expires,
-                frozenset({routed[cid]}) if cid in routed
-                else role_head_providers([role]) if role else frozenset(),
-            )
-            stale_row = {
-                "schema_version": 1,
-                "event": "stale",
-                "claim_id": cid,
-                "request_id": request_id,
-                "agent_id": agent_id,
-                "stale_at": _iso(ts),
-                "lease_expires_at": _iso(expires),
-            }
-            transaction.append_declared_jsonl(
-                claims_path,
-                stale_row,
-                expected_surface="agent_invocation_claims",
-            )
-            # The SAME counting rule as derivation and release (ARIA-MEDIUM-225):
-            # a lease that ran out inside a provider outage is not charged.
-            requeue_count = _request_fault_requeue_count(
-                [*locked_claims, {"request_id": request_id, "event": "requeued", "reason": reason}],
-                request_id,
-            )
-            kind = (
-                "requeued"
-                if requeue_count <= DEFAULT_MAX_REQUEUES
-                else "human_required"
-            )
-            followup = {
-                "schema_version": 1,
-                "event": kind,
-                "claim_id": cid,
-                "request_id": request_id,
-                "at": _iso(ts),
-                "requeue_count": requeue_count,
-                "reason": reason,
-            }
-            transaction.append_declared_jsonl(
-                claims_path,
-                followup,
-                expected_surface="agent_invocation_claims",
-            )
-            reaped["stale"].append(stale_row)
-            reaped[kind].append(followup)
-            governance_details = {
-                "claim_id": cid,
-                "request_id": request_id,
-                "requeue_count": requeue_count,
-                "reason": reason,
-                "kind": kind,
-            }
+                # ARIA-HIGH-367 (M1) — the one lease-outage rule (the worker lane
+                # asks it too, ARIA-MEDIUM-437). ARIA-MEDIUM-444 — over the
+                # provider the claim RAN on (its newest native attempt): since
+                # ARIA-HIGH-434 a Claude-headed seat runs on Z.ai while Claude is
+                # cooled, and the head's outage waived a Z.ai run that hung, so it
+                # was re-run uncharged for as long as Claude stayed out. A claim
+                # that never reached a route waited on its ladder: the head.
+                role = request_roles.get(request_id, "")
+                reason = lease_expiry_reason(
+                    lease_clock, _parse_iso(claim_event.get("claimed_at")), expires,
+                    frozenset({routed[cid]}) if cid in routed
+                    else role_head_providers([role]) if role else frozenset(),
+                )
+                stale_row = {
+                    "schema_version": 1,
+                    "event": "stale",
+                    "claim_id": cid,
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "stale_at": _iso(ts),
+                    "lease_expires_at": _iso(expires),
+                }
+                transaction.append_declared_jsonl(
+                    claims_path,
+                    stale_row,
+                    expected_surface="agent_invocation_claims",
+                )
+                # The SAME counting rule as derivation and release (ARIA-MEDIUM-225):
+                # a lease that ran out inside a provider outage is not charged.
+                requeue_count = _request_fault_requeue_count(
+                    [*locked_claims, {"request_id": request_id, "event": "requeued", "reason": reason}],
+                    request_id,
+                )
+                kind = (
+                    "requeued"
+                    if requeue_count <= DEFAULT_MAX_REQUEUES
+                    else "human_required"
+                )
+                followup = {
+                    "schema_version": 1,
+                    "event": kind,
+                    "claim_id": cid,
+                    "request_id": request_id,
+                    "at": _iso(ts),
+                    "requeue_count": requeue_count,
+                    "reason": reason,
+                }
+                transaction.append_declared_jsonl(
+                    claims_path,
+                    followup,
+                    expected_surface="agent_invocation_claims",
+                )
+                reaped["stale"].append(stale_row)
+                reaped[kind].append(followup)
+                governance_details = {
+                    "claim_id": cid,
+                    "request_id": request_id,
+                    "requeue_count": requeue_count,
+                    "reason": reason,
+                    "kind": kind,
+                }
+            break
         if governance_details is None:
-            continue
+            return None
         kind = str(governance_details.pop("kind"))
-        append_tools_governance(
-            root,
-            f"agent_claim_{kind}",
-            governance_details,
-        )
+        return f"agent_claim_{kind}", governance_details
+
+    # ARIA-LOW-566 — the sweep's governance rows, one per reaped claim, are
+    # ONE append (`append_tools_governance_rows`, ARIA-HIGH-237's batch):
+    # every append verifies and re-reads the whole governance chain, so a
+    # row per claim cost two full parses of governance.jsonl (25.9 MB on
+    # aria/state) per expired claim. The batch is appended on every exit of
+    # the sweep, so a later claim's failure cannot take an earlier claim's
+    # row with it (each used to be appended right after its claim).
+    governance_rows: list[tuple[str, dict[str, Any]]] = []
+    try:
+        for cid in candidate_ids:
+            governance_row = _reap_one(cid)
+            if governance_row is not None:
+                governance_rows.append(governance_row)
+    finally:
+        append_tools_governance_rows(root, governance_rows)
     return reaped

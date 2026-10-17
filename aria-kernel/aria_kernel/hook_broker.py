@@ -35,32 +35,27 @@ One broker per spawn: created before the spawn's environment is built
 (``claude_runtime.run_claude_exec``), gone when the spawn returns —
 ``serve_hook_broker`` is a context manager whose exit shuts the listener
 down and removes the socket directory; the orphan sweep
-(``prune_stale_hook_brokers``) removes directories a killed executor left
-behind.
+(``socket_holders.prune_stale_holder_sockets``, ARIA-LOW-565, over the
+``socket_holders.HOOK_BROKER`` declaration) removes directories a killed
+executor left behind.
 """
 from __future__ import annotations
 
 import json
-import re
 import shutil
-import socket
 import socketserver
-import tempfile
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 from .hook_client import EXIT_ALLOW, EXIT_BLOCK, HOOK_BROKER_SOCKET_ENV, HOOK_VERBS
+from .socket_holders import HOOK_BROKER as _SOCKET_HOLDER
 
 # Where the broker's socket appears INSIDE the sandbox: under the sandbox's
 # private /tmp tmpfs, like the signing agent's.
 SANDBOX_HOOK_BROKER_SOCKET = "/tmp/aria-hook-broker.sock"
-_SOCKET_DIR_PREFIX = "aria-hb-"
-_SOCKET_NAME = "sock"
-# The shape of a directory THIS module made (the sweep removes nothing else).
-_SOCKET_DIR_RE = re.compile(r"^aria-hb-[A-Za-z0-9_]{8}$")
 # Linux `sun_path` is 108 bytes including the terminator.
 _UNIX_SOCKET_PATH_MAX = 107
 # A hook payload carries the tool input (a Write's whole file) and the
@@ -160,8 +155,8 @@ def serve_hook_broker(
     kernel's facts, fixed for the broker's life. The listener is shut down
     and the socket directory removed on every exit of the body.
     """
-    socket_dir = Path(tempfile.mkdtemp(prefix=_SOCKET_DIR_PREFIX))
-    socket_path = socket_dir / _SOCKET_NAME
+    socket_dir = _SOCKET_HOLDER.make_directory()
+    socket_path = socket_dir / _SOCKET_HOLDER.socket_name
     server: _Server | None = None
     thread: threading.Thread | None = None
     try:
@@ -187,49 +182,11 @@ def serve_hook_broker(
         shutil.rmtree(socket_dir, ignore_errors=True)
 
 
-def _broker_answers(socket_path: Path) -> bool:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        client.settimeout(1.0)
-        client.connect(str(socket_path))
-        return True
-    except OSError:
-        return False
-    finally:
-        client.close()
-
-
-def prune_stale_hook_brokers(*, temp_root: str | Path | None = None) -> dict[str, Any]:
-    """Remove the socket directories of brokers that no longer answer (an
-    executor killed outright never reached ``serve_hook_broker``'s exit)."""
-    root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
-    swept: list[str] = []
-    live: list[str] = []
-    errors: list[str] = []
-    for entry in sorted(root.glob(f"{_SOCKET_DIR_PREFIX}*")):
-        if not entry.is_dir() or not _SOCKET_DIR_RE.match(entry.name):
-            continue
-        socket_path = entry / _SOCKET_NAME
-        if socket_path.is_socket() and _broker_answers(socket_path):
-            live.append(entry.name)
-            continue
-        try:
-            if any(child.name != _SOCKET_NAME for child in entry.iterdir()):
-                continue
-            shutil.rmtree(entry)
-        except OSError as exc:
-            errors.append(f"{entry.name}:{type(exc).__name__}")
-        else:
-            swept.append(entry.name)
-    return {"scanned": len(swept) + len(live) + len(errors), "swept": swept, "live": live, "errors": errors}
-
-
 __all__ = [
     "HOOK_BROKER_SOCKET_ENV",
     "MAX_REQUEST_BYTES",
     "SANDBOX_HOOK_BROKER_SOCKET",
     "HookBroker",
     "HookBrokerUnavailable",
-    "prune_stale_hook_brokers",
     "serve_hook_broker",
 ]

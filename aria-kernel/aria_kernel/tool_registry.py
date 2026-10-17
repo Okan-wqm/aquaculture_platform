@@ -11,6 +11,7 @@ from typing import Any
 from .ledger import (
     StateTransaction,
     append_declared_jsonl,
+    append_declared_jsonl_rows,
     append_jsonl,
     atomic_write_json,
     file_hash,
@@ -680,6 +681,35 @@ def append_tools_governance(
         bypass_profile_gate=bypass_profile_gate,
     )
 
+
+
+def append_tools_governance_rows(
+    base_dir: str | os.PathLike[str] | Path,
+    events: list[tuple[str, dict[str, Any]]],
+    *,
+    bypass_profile_gate: bool = False,
+) -> list[dict[str, Any]]:
+    """Append several governance rows, each ``(kind, details)``, as ONE batch.
+
+    The same gates and row shape as ``append_tools_governance`` for every
+    row, paid once: ``append_declared_jsonl_rows`` verifies the chain and
+    reads its tail once under the held lock (ARIA-HIGH-237). ARIA-LOW-566 —
+    a producer that records one row per item of a pass (the lease reaper,
+    one per expired claim) uses this; ``append_tools_governance`` in a loop
+    verified and re-read the whole ledger (25.9 MB on aria/state) per row.
+    """
+    if not events:
+        return []
+    if not bypass_profile_gate:
+        from .runtime_profile import enforce_profile_for_write
+        enforce_profile_for_write("tool_governance", base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
+    return append_declared_jsonl_rows(
+        root / "governance.jsonl",
+        [governance_event(kind=kind, details=details) for kind, details in events],
+        expected_surface="tools_governance",
+        bypass_profile_gate=bypass_profile_gate,
+    )
 
 def disclosure_fingerprint(kind: str, claim: dict[str, Any]) -> str:
     """The identity of what a disclosure ASSERTS, ignoring when it was said.

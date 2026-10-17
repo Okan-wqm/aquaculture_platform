@@ -1548,33 +1548,29 @@ def run_autonomy_orchestrator(
                         )
                 # ARIA-HIGH-123 — the same net for the sockets the executor
                 # holds for an implementer's window: the ssh-agent that
-                # signs for the sandbox (`signing_agent`) and the hook
-                # broker the sandbox's hooks talk to (`hook_broker`). Each
-                # dies with its holder (PR_SET_PDEATHSIG; a daemon thread of
-                # the executor), but the socket directory a killed holder
-                # left behind stays until swept; a directory whose socket
-                # still answers belongs to a live holder and is left alone.
-                # Nothing swept, nothing said.
+                # signs for the sandbox (`signing_agent`), the hook broker
+                # the sandbox's hooks talk to (`hook_broker`), the MCP
+                # broker (ARIA-HIGH-124) and the kernel egress proxy, one
+                # per process that built a room (ARIA-HIGH-143). Each dies
+                # with its holder (PR_SET_PDEATHSIG; a daemon thread of the
+                # executor; atexit), but the socket directory a killed
+                # holder left behind stays until swept; a directory whose
+                # socket still answers belongs to a live holder and is left
+                # alone. ARIA-LOW-565 — ONE sweep over every holder
+                # `socket_holders` declares, keyed by the holder's name; a
+                # new holder is swept by being declared there. Nothing
+                # swept, nothing said.
                 try:
                     from .delivery_credentials import prune_stale_delivery_credential_dirs
-                    from .egress_proxy import prune_stale_egress_proxies
-                    from .hook_broker import prune_stale_hook_brokers
-                    from .mcp_broker import prune_stale_mcp_brokers
-                    from .signing_agent import prune_stale_signing_agents
+                    from .socket_holders import prune_stale_holder_sockets
                     _sockets_pruned = {
-                        "signing_agents": prune_stale_signing_agents(),
-                        "hook_brokers": prune_stale_hook_brokers(),
-                        # ARIA-HIGH-124 — the MCP broker's socket, the same class.
-                        "mcp_brokers": prune_stale_mcp_brokers(),
+                        **prune_stale_holder_sockets(),
                         # ARIA-HIGH-124 (round 6) — the delivery credential's
                         # private directory: a killed executor leaves it
                         # (with the token file, if the kill fell between the
                         # mint's write and the hold's read); older than the
                         # provider's hour it is nobody's.
                         "delivery_credential_dirs": prune_stale_delivery_credential_dirs(),
-                        # ARIA-HIGH-143 — the kernel egress proxy's socket
-                        # directory, one per process that built a room.
-                        "egress_proxies": prune_stale_egress_proxies(),
                     }
                 except Exception as _sweep_exc:
                     append_tools_governance(

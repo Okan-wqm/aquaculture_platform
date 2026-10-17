@@ -36,10 +36,10 @@ from aria_kernel import mcp_broker
 from aria_kernel.mcp_broker import (
     MCP_BROKER_SOCKET_ENV,
     SANDBOX_MCP_BROKER_SOCKET,
-    prune_stale_mcp_brokers,
     serve_mcp_broker,
 )
 from aria_kernel.mcp_server import READ_TOOLS, WRITE_TOOLS
+from aria_kernel.socket_holders import MCP_BROKER, prune_stale_socket_dirs
 from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
 from tests._helpers.git_fixtures import make_repo_with_initial_commit
 
@@ -194,11 +194,11 @@ class RelayThroughTheBrokerTests(unittest.TestCase):
         unrelated.mkdir()
         with mock.patch.object(tempfile, "tempdir", str(temp_root)):
             with serve_mcp_broker(base_dir=self.tools, workspace_root=self.repo, request_id="AIR-124") as broker:
-                swept = prune_stale_mcp_brokers(temp_root=temp_root)
+                swept = prune_stale_socket_dirs(MCP_BROKER, temp_root=temp_root)
                 self.assertEqual(swept["swept"], ["aria-mb-deadbeef"])
                 self.assertEqual(swept["live"], [broker.socket_path.parent.name])
         self.assertTrue(unrelated.exists(), "a directory this module did not make is left alone")
-        self.assertEqual(prune_stale_mcp_brokers(temp_root=temp_root)["swept"], [])
+        self.assertEqual(prune_stale_socket_dirs(MCP_BROKER, temp_root=temp_root)["swept"], [])
         # The broker's own socket directory is gone once the body has exited,
         # not merely scheduled for removal.
         self.assertFalse(broker.socket_path.parent.exists())

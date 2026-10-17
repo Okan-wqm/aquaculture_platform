@@ -485,10 +485,15 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         source = _REPO_ROOT / "aria-kernel/aria_kernel/model_fleet.py"
         agent = _REPO_ROOT / ".claude/agents/aria-evidence-judge.md"
         self.repo = make_repo_with_initial_commit(self.root, {
-            ".gitignore": "aria-tools/\n__pycache__/\n",
+            ".gitignore": "aria-tools/\n__pycache__/\nnode_modules/\n",
             "src/model_fleet.py": source.read_text(encoding="utf-8"),
             ".claude/agents/aria-evidence-judge.md": agent.read_text(encoding="utf-8"),
         })
+        # A healthy executor host: the checkout's node_modules resolves from
+        # the workspace. The pre-claim gate's host checks run on the native
+        # lane too (ARIA-MEDIUM-564), so an entry that reaches its claim here
+        # is asked them like the spawn lane always was.
+        (self.repo / "node_modules").mkdir()
         self.assertEqual((self.repo / "src/model_fleet.py").read_bytes(), source.read_bytes())
         self.assertEqual((self.repo / ".claude/agents/aria-evidence-judge.md").read_bytes(), agent.read_bytes())
         self.tools = ensure_tools_binding(self.repo / "aria-tools", workspace_root=self.repo)

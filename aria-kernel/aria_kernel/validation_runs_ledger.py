@@ -198,6 +198,7 @@ def record_validation_run(
     base_dir: str | Path | None = None,
     input_binding: dict[str, Any] | None = None,
     spawn_environment: dict[str, Any] | None = None,
+    output_secret_scan: str | None = None,
 ) -> dict[str, Any]:
     """Plan 026R §D.1 — record an executed validation command on the
     append-only ``validation-runs.jsonl`` ledger.
@@ -231,6 +232,14 @@ def record_validation_run(
     always passes it; a caller recording a run executed elsewhere may not
     know it, so the column is optional on the surface and REQUIRED at the
     spawn seam. A value is never accepted: the column carries names.
+
+    ``output_secret_scan`` (ARIA-MEDIUM-539) is the kernel's refusal-set
+    verdict on the command's RAW output, taken by the one log writer
+    (``validation._write_run_log``) before it redacted that output into the
+    log: the scanner's counts-only message, or None when nothing fired. The
+    log on the published surface never holds the bytes; this column is how a
+    reader (the delivery's ``gate_output_secret_shaped`` refusal) still knows
+    the run printed them. Every row carries the column.
 
     Self-attestation reject (Plan 026R §D.1 round-1 fix):
 
@@ -288,6 +297,10 @@ def record_validation_run(
             f"the change's author (operator/agent that emitted "
             f"change_planned)"
         )
+    if output_secret_scan is not None and (
+        not isinstance(output_secret_scan, str) or not output_secret_scan.strip() or len(output_secret_scan) > 4096
+    ):
+        raise GovernanceError("validation_run_output_secret_scan_invalid")
     log = Path(log_path)
     binding = _validated_input_binding(input_binding) if input_binding is not None else None
     environment = _validated_spawn_environment(spawn_environment) if spawn_environment is not None else None
@@ -311,6 +324,7 @@ def record_validation_run(
         "started_at": started_at,
         "completed_at": completed_at,
         "recorded_at": utc_now(),
+        "output_secret_scan": output_secret_scan,
     }
     if environment is not None:
         row["spawn_environment"] = environment

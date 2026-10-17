@@ -28,6 +28,10 @@ def main(argv: list[str] | None = None) -> int:
     # time so a test changes what the adapter finds by editing the workspace
     # (tests/_helpers/spine_fixture.py). Every path a finding cites is read.
     parser.add_argument("--findings-file")
+    # A workspace-relative directory whose every file the run reports as read,
+    # sorted, citing nothing: the read set of a tree-walking adapter (test-gap
+    # read 7,818 files on 2026-10-15), too large for --output-b64's argv.
+    parser.add_argument("--read-tree")
     args = parser.parse_args(argv)
 
     if args.sleep_seconds:
@@ -50,6 +54,16 @@ def main(argv: list[str] | None = None) -> int:
             "read_paths": read,
             "evidence_sources": read,
             "cost_units": 0,
+            "metadata": {"fixture": True},
+        }))
+    elif args.read_tree:
+        read = sorted(path.as_posix() for path in Path(args.read_tree).rglob("*") if path.is_file())
+        print(json.dumps({
+            "observations": [{"id": "obs-1", "type": "fixture"}],
+            "findings": [],
+            "read_paths": read,
+            "evidence_sources": [],
+            "cost_units": 1,
             "metadata": {"fixture": True},
         }))
     elif args.echo_input or args.require_input_key:

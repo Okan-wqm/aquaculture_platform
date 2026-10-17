@@ -62,6 +62,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -421,6 +422,40 @@ class UnderRealBwrapTests(_HeldIdentity):
         again = publish_quarantine(self.containment)
         self.assertEqual((again.loose_objects_migrated, again.refs_published), (0, ()))
 
+    def test_links_planted_inside_the_sandbox_are_refused_by_name_and_follow_nothing(self) -> None:
+        """ARIA-HIGH-527 — measured from inside the real sandbox, not assumed:
+        the agent replaces the quarantine's pack dir and the replica's
+        `refs/heads` with links to a directory outside the replica (both
+        succeed inside). The host's publication refuses by the first planted
+        entry's name, publishes nothing, and the directory the links name is
+        untouched — the link-following walk deleted every file in it."""
+        self.containment = gc.stand_on_implementation_branch(self.containment, branch=BRANCH, base_sha=self.base)
+        sentinel = self.root / "outside"
+        sentinel.mkdir()
+        (sentinel / "sentinel.pack").write_bytes(b"PACK but not one\n")
+        (sentinel / "sentinel.idx").write_bytes(b"index\n")
+        (sentinel / "aria-impl-0000f00d").write_text(self.base + "\n", encoding="utf-8")
+        before = _snapshot(sentinel)
+        quarantine = f'"${GIT_OBJECT_DIRECTORY_ENV}"'
+        heads = self.private / "refs" / "heads"
+        done = self._run(
+            "set -e; git commit -q --allow-empty -m planted; "
+            f"rm -rf {quarantine}/pack; ln -s {sentinel} {quarantine}/pack; "
+            f"mv {heads} {heads}.agent; ln -s {sentinel} {heads}; echo PLANTED",
+            self.containment,
+        )
+        self.assertEqual(done.stdout.split(), ["PLANTED"], done.stderr)
+        self.assertTrue((self.replica / "objects" / "pack").is_symlink())
+        self.assertTrue((self.replica / "refs" / "heads").is_symlink())
+        publication = publish_quarantine(self.containment)
+        self.assertEqual(_snapshot(sentinel), before, "the directory the planted links name changed")
+        self.assertEqual(publication.refusal, "replica_entry_refused:symlink:objects/pack")
+        self.assertEqual((publication.loose_objects_migrated, publication.refs_published, publication.head_adopted),
+                         (0, (), None))
+        self.assertNotEqual(_git(["rev-parse", "--verify", "-q", BRANCH], cwd=self.repo, check=False).returncode, 0)
+        self.assertEqual(sorted(path.name for path in (self.common / "objects" / "pack").iterdir()), self.packs_before)
+        self.assertEqual(self._shared_objects(), self.objects_before)
+
     def test_read_only_containment_answers_reads_and_refuses_writes_by_erofs(self) -> None:
         read_only = derive_git_containment(self.worktree, commit_capable=False)
         done = self._run("git status --short && git log --oneline -1 && git rev-parse HEAD", read_only)
@@ -714,9 +749,9 @@ class StoreOutsideTheSandboxTests(_HeldIdentity):
         self.assertIn("forged", self.requests.read_text(encoding="utf-8"))
 
 
-class PublicationTests(_Checkout):
-    """The kernel-side publication, exercised on the host with git pointed at
-    the quarantine the way the sandbox's git is."""
+class _Quarantine(_Checkout):
+    """A commit-capable containment whose quarantine the test fills on the
+    host, with git pointed at it the way the sandbox's git is."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -735,6 +770,11 @@ class PublicationTests(_Checkout):
                              text=True, check=True).stdout.strip()
         (self.replica / "refs" / "heads" / branch).write_text(sha + "\n", encoding="utf-8")
         return sha
+
+
+class PublicationTests(_Quarantine):
+    """The kernel-side publication, exercised on the host with git pointed at
+    the quarantine the way the sandbox's git is."""
 
     def test_verified_objects_move_and_only_the_seeded_branch_is_published(self) -> None:
         objects_before = self._shared_objects()
@@ -818,6 +858,174 @@ class PublicationTests(_Checkout):
                          (0, 0, ()))
         read_only = derive_git_containment(self.worktree, commit_capable=False)
         self.assertEqual(publish_quarantine(read_only).refs_published, ())
+
+
+def _snapshot(root: Path) -> dict[str, tuple[str, bytes]]:
+    """Every entry under ``root`` by its own kind, never through a link (a
+    link is its target string, a file its bytes, a FIFO is never opened)."""
+    state: dict[str, tuple[str, bytes]] = {}
+    for path in sorted(root.rglob("*")):  # rglob does not descend a linked directory
+        mode = path.lstat().st_mode
+        key = path.relative_to(root).as_posix()
+        if stat.S_ISLNK(mode):
+            state[key] = ("symlink", os.readlink(path).encode())
+        elif stat.S_ISREG(mode):
+            state[key] = ("file", path.read_bytes())
+        else:
+            state[key] = (oct(stat.S_IFMT(mode)), b"")
+    return state
+
+
+class PlantedLinkPublicationTests(_Quarantine):
+    """ARIA-HIGH-527 — the replica is the AGENT's tree, and the host walks it.
+
+    The sandbox binds the replica writable, so anything in it — a fan-out
+    directory, ``objects/pack``, ``refs/heads``, ``objects`` or ``refs``
+    themselves, one object or ref file, ``HEAD`` — can be a symlink when the
+    kernel publishes it. Walked with link-following calls, a fan-out linked
+    at a directory had its object-named files read, refused and UNLINKED, a
+    pack dir linked at the shared ``objects/pack`` had every shared pack
+    unpacked and DELETED, a ``refs/heads`` linked anywhere had every file
+    under its target deleted, and a link to a valid object file was renamed
+    INTO the shared store. Each test plants one real link (or FIFO) at one
+    place, aimed at a sentinel directory and file outside the replica shaped
+    so the old walk acts on them: the publication is refused by the
+    entry's name before it touches anything — the sentinels, the shared
+    store and the agent's own quarantine are byte-for-byte what they were,
+    and nothing is published."""
+
+    SENTINEL_REF = "aria-impl-0000f00d"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.containment = gc.replace(self.containment, seeded_refs=((BRANCH, self.base),))
+        # The agent's real work: a refused publication must not have moved,
+        # published or deleted any of it.
+        self.head = self._quarantined_commit(BRANCH)
+        self.outside = self.root / "outside"
+        self.sentinel_dir = self.outside / "sentinel-dir"
+        (self.sentinel_dir / "heads").mkdir(parents=True)
+        # A loose-object name (the old walk verified it, refused it, unlinked it) …
+        (self.sentinel_dir / ("0" * 38)).write_bytes(b"not an object\n")
+        # … a pack and its sibling (unpack refused, every `sentinel.*` unlinked) …
+        (self.sentinel_dir / "sentinel.pack").write_bytes(b"PACK but not one\n")
+        (self.sentinel_dir / "sentinel.idx").write_bytes(b"index\n")
+        # … and ref files at both depths a linked `refs/heads` or `refs` reaches (read, then unlinked).
+        (self.sentinel_dir / self.SENTINEL_REF).write_text(self.base + "\n", encoding="utf-8")
+        (self.sentinel_dir / "heads" / self.SENTINEL_REF).write_text(self.base + "\n", encoding="utf-8")
+        # A VALID loose object outside the replica: linked under its own
+        # name, the old walk verified its bytes and renamed the LINK into
+        # the shared store.
+        payload = b"blob 9\0sentinel\n"
+        self.sentinel_object = hashlib.sha1(payload).hexdigest()
+        self.sentinel_file = self.outside / "sentinel-file"
+        self.sentinel_file.write_bytes(zlib.compress(payload))
+        self.outside_before = _snapshot(self.outside)
+        self.store_before = _snapshot(self.common / "objects")
+
+    def _free_fan_out(self) -> str:
+        return next(name for name in (f"{index:02x}" for index in range(256)) if not (self.quarantine / name).exists())
+
+    def _assert_refused_before_touching_anything(self, relative: str, kind: str = "symlink") -> None:
+        replica_before = _snapshot(self.replica)
+        publication = publish_quarantine(self.containment)
+        self.assertEqual(_snapshot(self.outside), self.outside_before, "a sentinel outside the replica changed")
+        self.assertEqual(_snapshot(self.common / "objects"), self.store_before, "the shared store changed")
+        self.assertEqual(publication.refusal, f"replica_entry_refused:{kind}:{relative}")
+        self.assertEqual((publication.loose_objects_migrated, publication.packs_unpacked, publication.objects_refused,
+                          publication.refs_published, publication.refs_discarded, publication.head_adopted),
+                         (0, 0, (), (), (), None))
+        self.assertEqual(_snapshot(self.replica), replica_before, "the replica was touched before the refusal")
+        self.assertNotEqual(_git(["rev-parse", "--verify", "-q", BRANCH], cwd=self.repo, check=False).returncode, 0,
+                            "the agent's branch was published past a planted entry")
+        # (Not `git fsck`: the host worktree's HEAD and index already name the
+        # quarantine's objects, which an unpublished quarantine never moved.)
+        self.assertEqual(_git(["cat-file", "-t", "main"], cwd=self.repo).stdout.strip(), "commit")
+
+    def test_a_fan_out_directory_linked_outside_is_refused_and_its_target_survives(self) -> None:
+        fan_out = self._free_fan_out()
+        (self.quarantine / fan_out).symlink_to(self.sentinel_dir, target_is_directory=True)
+        self._assert_refused_before_touching_anything(f"objects/{fan_out}")
+
+    def test_a_loose_object_linked_outside_is_refused_and_never_enters_the_store(self) -> None:
+        fan_out = self.quarantine / self.sentinel_object[:2]
+        fan_out.mkdir(exist_ok=True)
+        (fan_out / self.sentinel_object[2:]).symlink_to(self.sentinel_file)
+        self._assert_refused_before_touching_anything(f"objects/{self.sentinel_object[:2]}/{self.sentinel_object[2:]}")
+
+    def test_the_pack_directory_linked_outside_is_refused_and_its_target_survives(self) -> None:
+        shutil.rmtree(self.quarantine / "pack")
+        (self.quarantine / "pack").symlink_to(self.sentinel_dir, target_is_directory=True)
+        self._assert_refused_before_touching_anything("objects/pack")
+
+    def test_a_pack_file_linked_outside_is_refused(self) -> None:
+        (self.quarantine / "pack" / "planted.pack").symlink_to(self.sentinel_dir / "sentinel.pack")
+        self._assert_refused_before_touching_anything("objects/pack/planted.pack")
+
+    def test_the_pack_directory_linked_at_the_shared_packs_deletes_none_of_them(self) -> None:
+        shutil.rmtree(self.quarantine / "pack")
+        (self.quarantine / "pack").symlink_to(self.common / "objects" / "pack", target_is_directory=True)
+        self._assert_refused_before_touching_anything("objects/pack")
+        self.assertEqual(sorted(path.name for path in (self.common / "objects" / "pack").iterdir()), self.packs_before)
+
+    def test_the_quarantine_linked_at_the_shared_store_deletes_none_of_it(self) -> None:
+        # A loose object in the shared store: the old walk found it valid, found
+        # it already in the store (the same file) and unlinked the "source".
+        (self.root / "loose.txt").write_text("a loose object of the shared store\n", encoding="utf-8")
+        loose = _git(["hash-object", "-w", str(self.root / "loose.txt")], cwd=self.repo).stdout.strip()
+        self.store_before = _snapshot(self.common / "objects")
+        self.assertIn(loose[2:], {key.split("/")[-1] for key in self.store_before})
+        self.quarantine.rename(self.replica / "objects.agent")
+        self.quarantine.symlink_to(self.common / "objects", target_is_directory=True)
+        self._assert_refused_before_touching_anything("objects")
+        self.assertEqual(_git(["cat-file", "-t", loose], cwd=self.repo).stdout.strip(), "blob")
+
+    def test_the_refs_heads_directory_linked_outside_is_refused_and_its_target_survives(self) -> None:
+        heads = self.replica / "refs" / "heads"
+        shutil.rmtree(heads)
+        heads.symlink_to(self.sentinel_dir, target_is_directory=True)
+        self._assert_refused_before_touching_anything("refs/heads")
+
+    def test_the_refs_directory_linked_outside_is_refused_and_its_target_survives(self) -> None:
+        refs = self.replica / "refs"
+        refs.rename(self.replica / "refs.agent")
+        refs.symlink_to(self.sentinel_dir, target_is_directory=True)
+        self._assert_refused_before_touching_anything("refs")
+
+    def test_a_ref_file_linked_outside_is_refused(self) -> None:
+        (self.replica / "refs" / "heads" / self.SENTINEL_REF).symlink_to(self.sentinel_dir / self.SENTINEL_REF)
+        self._assert_refused_before_touching_anything(f"refs/heads/{self.SENTINEL_REF}")
+
+    def test_head_linked_outside_is_refused(self) -> None:
+        (self.replica / "HEAD").unlink()
+        (self.replica / "HEAD").symlink_to(self.sentinel_file)
+        self._assert_refused_before_touching_anything("HEAD")
+
+    def test_a_fifo_ref_is_refused_by_name_and_never_opened(self) -> None:
+        os.mkfifo(self.replica / "refs" / "heads" / "aria-impl-0000f1f0")
+        self._assert_refused_before_touching_anything("refs/heads/aria-impl-0000f1f0", kind="fifo")
+
+    def test_a_fifo_head_is_refused_by_name_and_never_opened(self) -> None:
+        # The old reader opened HEAD for reading: a FIFO with no writer
+        # blocked the executor's publication forever.
+        (self.replica / "HEAD").unlink()
+        os.mkfifo(self.replica / "HEAD")
+        self._assert_refused_before_touching_anything("HEAD", kind="fifo")
+
+    def test_a_stale_replica_full_of_links_is_removed_without_following_one(self) -> None:
+        """The other host-side walk of the agent's tree: the next derivation
+        removes the replica a previous spawn left (`_prepare_sandbox_git_dir`),
+        through the standard library's fd-based, no-follow removal."""
+        self.assertTrue(shutil.rmtree.avoids_symlink_attacks)
+        (self.quarantine / self._free_fan_out()).symlink_to(self.sentinel_dir, target_is_directory=True)
+        shutil.rmtree(self.replica / "refs" / "heads")
+        (self.replica / "refs" / "heads").symlink_to(self.sentinel_dir, target_is_directory=True)
+        (self.replica / "aria-planted").symlink_to(self.sentinel_file)
+        derive_git_containment(self.worktree, commit_capable=True)
+        self.assertEqual(_snapshot(self.outside), self.outside_before)
+        self.assertFalse((self.replica / "aria-planted").exists())
+        self.assertFalse((self.replica / "refs" / "heads").is_symlink())
+        self.assertEqual(list((self.replica / "refs" / "heads").iterdir()), [])
 
 
 class MutationTests(_HeldIdentity):

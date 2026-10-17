@@ -259,5 +259,132 @@ class M444TheLeaseIsJudgedByTheProviderTheClaimRanOn(M1ALeaseAnOutageAteIsNotCha
             self.assertIn(field, source)
 
 
+class _SpawnRungHung(Exception):
+    """The spawn lane's Z.ai rung never returned: its lease will run out."""
+
+
+class L445TheSpawnLaneRecordsTheRouteItsClaimRanOn(_Store):
+    """ARIA-LOW-445 — the native and worker lanes record the provider a claim ran on
+    (ARIA-MEDIUM-444); the spawn lane (adaptive runtime off) recorded nothing, so
+    `attempt_providers_by_claim` fell back to the ladder head. A spawn-lane run on the Z.ai
+    rung that hung while Claude was cooled was waived as Claude's outage and re-run
+    uncharged for as long as Claude stayed out. Driven through the real `invoke_claude_cli`
+    with only the rung's transport replaced."""
+
+    def setUp(self) -> None:
+        import os
+        import sys
+        from unittest.mock import patch
+
+        super().setUp()
+        poc = Path(__file__).resolve().parents[2] / "tools" / "aria-poc"
+        if str(poc) not in sys.path:
+            sys.path.insert(0, str(poc))
+        import ci_executor
+
+        self.repo = self.root / "workspace"
+        (self.repo / "aria-config").mkdir(parents=True)
+        (self.repo / "aria-config" / "genesis_policy.json").write_text(
+            '{"cost_caps_usd": {"daily": 1000.0, "monthly": 10000.0, "per_run": 1000.0}}\n', encoding="utf-8")
+        self.tools = ensure_tools_dir(self.repo / "aria-tools")
+        self.prompt = self.root / "prompt.md"
+        self.prompt.write_text("# request\n", encoding="utf-8")
+        runner_temp = self.root / "runner-temp"
+        runner_temp.mkdir()
+        environment = patch.dict(os.environ, {"RUNNER_TEMP": str(runner_temp)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop("GITHUB_OUTPUT", None)
+        for name, value in (("_REPO_ROOT", self.repo), ("_MOCK_MODE_AT_ENTRY", False)):
+            patcher = patch.object(ci_executor, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.ci_executor = ci_executor
+
+    def _spawn_on_the_zai_rung(self) -> None:
+        from unittest.mock import patch
+
+        def ladder(*, run, model, failover, effort, write_capable, on_credit):  # noqa: ANN001, ANN202, ARG001
+            return run("glm-5.3", effort)  # Claude is cooled: the Z.ai rung runs first
+
+        def hung(**_kwargs):  # noqa: ANN003, ANN202
+            raise _SpawnRungHung()
+
+        with patch.object(self.ci_executor, "run_with_model_fallback", side_effect=ladder), \
+                patch.object(self.ci_executor, "_run_zai_as_claude_result", side_effect=hung), \
+                self.assertRaises(_SpawnRungHung):
+            self.ci_executor.invoke_claude_cli(
+                request_id="AIR-1", subagent_type="aria-evidence-judge", prompt_file=self.prompt,
+                output_path=self.tools / "agent-invocations" / "outputs" / "AIR-1.json", timeout_seconds=60,
+                claim_id="CL-1", agent_id="ci-executor:gha-test", role="evidence_judgment", must_satisfy=[],
+                request_envelope={"role": "evidence_judgment", "target_agent": "aria-evidence-judge"},
+                tools_dir=self.tools,
+            )
+
+    def test_a_zai_spawn_run_that_hung_while_claude_was_out_is_charged(self) -> None:
+        from aria_kernel.agent_invocations import reap_stale_claims
+
+        self.outage(_T0 + timedelta(minutes=10), None)
+        self.request("AIR-1", role="evidence_judgment")
+        self.claim_row(event="claimed", claim_id="CL-1", request_id="AIR-1", agent_id="ci-executor:gha-test",
+                       claimed_at=_iso(_T0), lease_expires_at=_iso(_T0 + timedelta(hours=1)))
+        self._spawn_on_the_zai_rung()
+        followup = reap_stale_claims(base_dir=self.tools, now=_T0 + timedelta(hours=2))["requeued"][0]
+        self.assertEqual((followup["reason"], followup["requeue_count"]), ("lease_expired", 1))
+
+    def test_the_rung_writes_its_route_before_it_runs(self) -> None:
+        from aria_kernel.independence_check import CLAIM_ROUTE_STARTED_KIND
+        from aria_kernel.ledger import load_declared_jsonl
+
+        self._spawn_on_the_zai_rung()
+        rows = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+        self.assertEqual([(row["details"]["claim_id"], row["details"]["provider"], row["details"]["model"],
+                           row["details"]["lane"]) for row in rows if row["kind"] == CLAIM_ROUTE_STARTED_KIND],
+                         [("CL-1", "zai", "glm-5.3", "spawn")])
+
+    def test_no_rung_runs_without_its_route_on_the_ledger(self) -> None:
+        from unittest.mock import patch
+
+        from aria_kernel import independence_check
+        from aria_kernel.tool_registry import GovernanceError
+
+        refused = patch.object(independence_check, "record_claim_route",
+                               side_effect=GovernanceError("tool_governance_write_refused"))
+        with refused, self.assertRaisesRegex(self.ci_executor.ClaudeCliUnavailable, "claim_route_record_unavailable"):
+            self._spawn_on_the_zai_rung()
+
+
+class L562OneSweepParsesTheGovernanceLedgerOnce(M1ALeaseAnOutageAteIsNotCharged):
+    """ARIA-LOW-562 — the sweep's lease rule needs two things from governance.jsonl: each
+    claim's attempt route and the providers' outage intervals. It parsed and verified the
+    whole ledger (25.8 MB on aria/state) for the first, and the provider clock parsed it
+    again for the second. One parse serves both; every M1/M444 answer above still holds."""
+
+    def _reap(self) -> dict:
+        from unittest.mock import patch
+
+        from aria_kernel import agent_invocations, provider_outage_ledger
+
+        self.parses: list[str] = []
+        declared, raw = agent_invocations.load_declared_jsonl, provider_outage_ledger.load_jsonl
+
+        def counted(loader):  # noqa: ANN001, ANN202 — wraps either loader's signature
+            def load(path, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+                if Path(path).name == "governance.jsonl":
+                    self.parses.append(loader.__name__)
+                return loader(path, *args, **kwargs)
+            return load
+
+        with patch.object(agent_invocations, "load_declared_jsonl", counted(declared)), \
+                patch.object(provider_outage_ledger, "load_jsonl", counted(raw)):
+            return super()._reap()
+
+    def test_an_expired_claim_under_an_outage_parses_the_ledger_once(self) -> None:
+        self.outage(_T0 + timedelta(minutes=10), None)
+        followup = self._reap()["requeued"][0]
+        self.assertEqual(followup["reason"], "lease_expired_during_provider_outage:anthropic")
+        self.assertEqual(len(self.parses), 1, self.parses)
+
+
 if __name__ == "__main__":
     unittest.main()

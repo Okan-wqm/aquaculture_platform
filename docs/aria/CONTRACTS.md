@@ -883,7 +883,15 @@ record` CHILD passed the reason through the operator CLI's free-text `--reason` 
   named, each with the digest it was judged at, deleted before the journal; a symlinked component
   refuses the submit), and the hashes. The verdict (`judge_claim_submission`) reduces every other
   reason to its code for all its consumers. `integrity verify` and every publish refuse
-  `refused_output_present`: a file under `outputs/` whose bytes hash to a refused digest.
+  `refused_output_present`: a file under `outputs/` whose bytes hash to a refused digest. The
+  implementation delivery reaches the same owner (ARIA-HIGH-540): a `result_admissible` refusal
+  whose verdict carries one of those codes (`ImplementationDeliveryRefusal.rejection_codes`,
+  `withholds_output`) is submitted by the executor before it escalates, so the row is recorded
+  and its sources deleted; that row, not a release, ends the claim. The transcript is judged
+  with the same set (ARIA-HIGH-524): `judge_claim_submission(transcript=...)` refuses
+  `secret_in_transcript` (in `CREDENTIAL_REFUSAL_CODES`) for a transcript that carries a
+  credential shape — the submit passes the bytes bound to the declared `transcript_hash`, the
+  delivery the lane's file — so no accepted row's transcript is sealed unscanned.
 
 ---
 
@@ -2722,7 +2730,11 @@ own key>` (below). (0b, round 3) the admission
   carry) and a secret-shaped string in the suite's output refuses
   `apply_gate:gate_output_secret_shaped` before the push — the executor's artifact scrub
   hides such a string from the SUBMITTED envelope while the ledger's log keeps it raw, so the
-  submit's scan never saw what the ledger carried; (3) the change ledger's commit row;
+  submit's scan never saw what the ledger carried. Since ARIA-MEDIUM-539 the log's one writer
+  (`validation._write_run_log`) judges the raw output with the refusal set, records the verdict on
+  the run's row (`output_secret_scan`, counts only) and writes the output redacted: the refusal is
+  decided from that verdict and the published `validation_run_logs` surface never holds the
+  string; (3) the change ledger's commit row;
   (4) `git push
 origin refs/heads/<branch>` with the
   delivery credential's environment (`GH_TOKEN` + the env-only `gh auth git-credential` helper)

@@ -56,7 +56,7 @@ from tests.test_ci_executor_native_zai import _Vendor  # noqa: E402
 
 SECRET = "zai-e2e-secret-7b2e19c4-not-a-real-key"
 _BORROWED = (
-    "_start_egress_proxy", "_suite_fixture_body", "_install_fixture_executable", "_suite_calls", "_run_child",
+    "_suite_fixture_body", "_install_fixture_executable", "_suite_calls", "_run_child",
     "_run_in_request_worktree", "_signing_config", "_governance_rows", "_governance", "_plan_state", "_plan_fold",
     "_change_committed", "_claim_id", "_apply_action", "_human_required", "_submitted_envelope", "_registered",
     "_verify_against_registry", "_diagnostic", "_gate_calls", "_gh_calls", "_push_calls", "_claim_rows",

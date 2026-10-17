@@ -13,7 +13,10 @@ now runs them after the cycle. Pinned here, against the live YAML:
 * they and the cycle step name the one channel (`github_issue` on this
   repository, the job token); the executor lane names none;
 * each is bounded, and the close-out margin of the cycle step still covers
-  every step after it;
+  every step after it: the margin and its one unbounded term (the basis) are
+  the job env's, no step without a timeout sits between the cycle and the
+  publish outside the measured stretch, and every night measures that
+  stretch against the basis (ARIA-LOW-551);
 * the dispatch-gated channel check reaches a verdict without failing its step,
   so a failed check no longer skips the night; the run turns red after the
   publish instead (ARIA-LOW-553).
@@ -26,6 +29,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -53,15 +57,21 @@ _NOTIFY_ENV = {
     "ARIA_NOTIFY_CHANNELS": "github_issue",
     "ARIA_NOTIFY_GITHUB_REPO": "${{ github.repository }}",
 }
-# The close-out steps that carry no timeout of their own, at their measured
-# worst (#1371, 842 MB of state): handoff 5 + integrity verify 40 + mint 2 +
-# publish 10 minutes.
-_UNBOUNDED_CLOSE_OUT_MINUTES = 57
+_ANCHOR_STEP = "Anchor the unbounded close-out"
+_MEASURE_STEP = "Measure the unbounded close-out"
+_HANDOFF_STOP_STEP = "Handoff snapshot - session_stop"
+_CLOSE_OUT_PUBLISH_STEP = "Publish ARIA state to the aria/state branch"
+_CYCLE_ONLY_IF = (
+    "always() && steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'"
+)
+
+
+def _job() -> dict[str, Any]:
+    return yaml.safe_load((_REPO_ROOT / _WORKFLOW).read_text(encoding="utf-8"))["jobs"]["cycle"]
 
 
 def _steps() -> list[dict[str, Any]]:
-    jobs = yaml.safe_load((_REPO_ROOT / _WORKFLOW).read_text(encoding="utf-8"))["jobs"]
-    return jobs["cycle"]["steps"]
+    return _job()["steps"]
 
 
 def _names() -> list[str]:
@@ -115,15 +125,32 @@ class TheObservationStepsRunInTheLiveLane(unittest.TestCase):
         self.assertLess(_names().index(step["name"]), _names().index(_WORK_STEP))
 
     def test_the_close_out_margin_covers_every_step_after_the_cycle(self) -> None:
+        # ARIA-LOW-551 — the margin and the basis (the one term no timeout
+        # bounds) have one owner, the job env; the spawn deadline reads it.
+        env = _job()["env"]
+        margin = int(env["ARIA_CLOSE_OUT_MARGIN_SECONDS"])
+        basis = int(env["ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS"])
         run = _step(_WORK_STEP)["run"]
-        match = re.search(r"JOB_TIMEOUT_MINUTES \* 60 - (\d+) \)\)", run)
-        self.assertIsNotNone(match, "the margin literal moved; re-derive this pin")
-        margin_minutes = int(match.group(1)) // 60
+        self.assertIn("JOB_TIMEOUT_MINUTES * 60 - ARIA_CLOSE_OUT_MARGIN_SECONDS ))", run)
+        self.assertIsNone(re.search(r"JOB_TIMEOUT_MINUTES \* 60 - \d", run), "the margin has one owner, the job env")
         names = _names()
         after = [step for step in _steps()[names.index(_WORK_STEP) + 1:] if step.get("name") != _BURN_IN_STEP]
-        bounded = sum(int(step["timeout-minutes"]) for step in after if "timeout-minutes" in step)
-        self.assertLessEqual(_UNBOUNDED_CLOSE_OUT_MINUTES + bounded, margin_minutes,
-                             f"{_UNBOUNDED_CLOSE_OUT_MINUTES} + {bounded} > {margin_minutes}")
+        bounded = sum(int(step["timeout-minutes"]) * 60 for step in after if "timeout-minutes" in step)
+        self.assertLessEqual(basis + bounded, margin, f"{basis} + {bounded} > {margin}")
+
+    def test_every_unbounded_step_before_the_publish_is_inside_the_measured_stretch(self) -> None:
+        # The basis prices the stretch from the anchor to the end of the
+        # publish; a step with no timeout added between the cycle and the
+        # anchor would spend the margin unmeasured and unpriced.
+        names = _names()
+        between = _steps()[names.index(_WORK_STEP) + 1:names.index(_ANCHOR_STEP)]
+        unbounded = [step.get("name") for step in between
+                     if "timeout-minutes" not in step and step.get("name") != _BURN_IN_STEP]
+        self.assertEqual(unbounded, [])
+        self.assertLess(names.index(_OBSERVATION_STEPS[-1]), names.index(_ANCHOR_STEP))
+        self.assertEqual(names.index(_HANDOFF_STOP_STEP), names.index(_ANCHOR_STEP) + 1)
+        self.assertEqual(names.index(_MEASURE_STEP), names.index(_CLOSE_OUT_PUBLISH_STEP) + 1)
+        self.assertEqual((_step(_ANCHOR_STEP)["if"], _step(_MEASURE_STEP)["if"]), (_CYCLE_ONLY_IF, _CYCLE_ONLY_IF))
 
 
 _CHANNEL_CHECK_STEP = "Notification channel check (dispatch-gated)"
@@ -224,6 +251,62 @@ class TheChannelCheckProvesTheChannelWithoutSkippingTheNight(unittest.TestCase):
         )
         self.assertIn("exit 1", step["run"])
         self.assertGreater(_names().index(_CHANNEL_CHECK_FAIL_STEP), _names().index(_PUBLISH_STEP))
+
+
+class EveryNightMeasuresTheUnboundedCloseOut(unittest.TestCase):
+    """ARIA-LOW-551 — the margin's unbounded basis was one measurement (#1371)
+    and no night that did real post-work had checked it. The anchor and the
+    measurement run here as GitHub runs them (`bash -e`), the measurement
+    after a stretch below and above the basis."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-low-551-"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _bash(self, script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        path = self.tmp / "step.sh"
+        path.write_text(script, encoding="utf-8")
+        return subprocess.run(["bash", "-e", str(path)], cwd=self.tmp, capture_output=True, text=True, timeout=60,
+                              check=False, env={"PATH": os.environ.get("PATH", os.defpath), **env})
+
+    def _measure(self, spent_seconds: int) -> tuple[subprocess.CompletedProcess[str], str]:
+        job_env = _job()["env"]
+        summary = self.tmp / "summary"
+        summary.write_text("", encoding="utf-8")
+        done = self._bash(_step(_MEASURE_STEP)["run"], {
+            "ARIA_UNBOUNDED_CLOSE_OUT_START_EPOCH": str(int(time.time()) - spent_seconds),
+            "ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS": job_env["ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS"],
+            "ARIA_CLOSE_OUT_MARGIN_SECONDS": job_env["ARIA_CLOSE_OUT_MARGIN_SECONDS"],
+            "GITHUB_STEP_SUMMARY": str(summary),
+        })
+        return done, summary.read_text(encoding="utf-8")
+
+    def test_the_anchor_exports_the_start_to_the_later_steps(self) -> None:
+        github_env = self.tmp / "github-env"
+        github_env.write_text("", encoding="utf-8")
+        before = int(time.time())
+        done = self._bash(_step(_ANCHOR_STEP)["run"], {"GITHUB_ENV": str(github_env)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        name, value = github_env.read_text(encoding="utf-8").strip().split("=", 1)
+        self.assertEqual(name, "ARIA_UNBOUNDED_CLOSE_OUT_START_EPOCH")
+        self.assertGreaterEqual(int(value), before)
+
+    def test_a_stretch_within_the_basis_is_recorded_without_a_warning(self) -> None:
+        basis = int(_job()["env"]["ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS"])
+        done, summary = self._measure(basis - 600)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("::warning", done.stdout)
+        self.assertIn(f"of the {basis}s basis", summary)
+
+    def test_a_stretch_over_the_basis_warns_by_name_and_does_not_fail_the_step(self) -> None:
+        basis = int(_job()["env"]["ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS"])
+        done, summary = self._measure(basis + 600)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("::warning title=ARIA close-out margin::", done.stdout)
+        self.assertIn(f"over the {basis}s basis", done.stdout)
+        self.assertIn("unbounded close-out", summary)
 
 
 class TheGuardSatisfiesTheAbortGate(unittest.TestCase):

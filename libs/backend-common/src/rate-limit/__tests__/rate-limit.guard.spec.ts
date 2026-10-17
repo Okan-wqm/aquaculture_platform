@@ -8,6 +8,8 @@ import { RateLimitRouteConfig, RateLimitStore } from '../rate-limit.types';
 
 interface MockRequest {
   ip?: string;
+  /** Express always provides a header bag; the guard reads it (SEC-HIGH-202). */
+  headers: Record<string, string>;
   user?: { sub?: string; tenantId?: string };
   body?: Record<string, unknown>;
   res: { setHeader: jest.Mock };
@@ -28,14 +30,17 @@ const buildContext = (type: 'http' | 'graphql', args: unknown[]): ExecutionConte
 };
 
 describe('RateLimitGuard', () => {
-  const buildHttpContext = (options: {
-    ip?: string;
-    user?: { sub?: string; tenantId?: string };
-    body?: Record<string, unknown>;
-  } = {}): { context: ExecutionContext; setHeader: jest.Mock } => {
+  const buildHttpContext = (
+    options: {
+      ip?: string;
+      user?: { sub?: string; tenantId?: string };
+      body?: Record<string, unknown>;
+    } = {},
+  ): { context: ExecutionContext; setHeader: jest.Mock } => {
     const setHeader = jest.fn();
     const request: MockRequest = {
       ip: options.ip ?? '203.0.113.1',
+      headers: {},
       user: options.user,
       body: options.body,
       res: { setHeader },
@@ -43,13 +48,16 @@ describe('RateLimitGuard', () => {
     return { context: buildContext('http', [request, request.res]), setHeader };
   };
 
-  const buildGqlContext = (options: {
-    ip?: string;
-    args?: Record<string, unknown>;
-    user?: { sub?: string };
-  } = {}): ExecutionContext => {
+  const buildGqlContext = (
+    options: {
+      ip?: string;
+      args?: Record<string, unknown>;
+      user?: { sub?: string };
+    } = {},
+  ): ExecutionContext => {
     const request: MockRequest = {
       ip: options.ip ?? '203.0.113.2',
+      headers: {},
       user: options.user,
       res: { setHeader: jest.fn() },
     };

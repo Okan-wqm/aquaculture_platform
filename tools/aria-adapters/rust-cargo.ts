@@ -20,8 +20,9 @@
  *    nx input, so a PR that touches only Rust runs that pin too).
  *  - `upstreamVendoredFiles`: files whose bytes equal a vendored crate's
  *    `UPSTREAM-MANIFEST.sha256` line (that manifest is owned by
- *    tools/gates/local-rumqttc-fork-hygiene.spec.ts; this module reads it with
- *    the gate's grammar, `parseUpstreamManifest`).
+ *    tools/gates/local-rumqttc-fork-hygiene.spec.ts, which reads it and
+ *    FORK-EDITS.sha256 through `parseUpstreamManifest`, the grammar's one copy,
+ *    ARIA-LOW-544).
  *  - `cargoTargetDirSkip`: cargo's build directory, for `collectFiles`.
  *
  * Paths are workspace-relative and POSIX throughout. Containment is
@@ -785,12 +786,13 @@ export interface RustUpstreamFiles {
 }
 
 /**
- * An `UPSTREAM-MANIFEST.sha256` as its owning gate
- * (tools/gates/local-rumqttc-fork-hygiene.spec.ts) reads it: one
- * `<sha256>  ./<path>` per line, every other line ignored. Keys are the paths
- * as written (`./src/lib.rs`), values the digests. The grammar is the gate's
- * exactly, so a line the gate ignores never makes a file upstream here; it is
- * also linear (no backtracking over a long whitespace run).
+ * A `<sha256>  ./<path>` manifest (`UPSTREAM-MANIFEST.sha256`,
+ * `FORK-EDITS.sha256`): one entry per line, every other line ignored. Keys are
+ * the paths as written (`./src/lib.rs`), values the digests. This is the
+ * grammar's one copy (ARIA-LOW-544): the owning gate
+ * (tools/gates/local-rumqttc-fork-hygiene.spec.ts) imports it, so a line the
+ * gate ignores never makes a file upstream here. It is linear (no
+ * backtracking over a long whitespace run).
  */
 export function parseUpstreamManifest(text: string): ReadonlyMap<string, string> {
   const entries = new Map<string, string>();

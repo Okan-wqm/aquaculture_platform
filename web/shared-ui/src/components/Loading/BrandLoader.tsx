@@ -15,8 +15,9 @@
  * this component before React — the same markup, painted before any bundle
  * loads — and the two are one visual only with one stylesheet. Every
  * surface that shows a BrandLoader renders in the shell's document. The
- * colours are the console tokens, with a copy generated from theme.css
- * standing in until the design system's CSS arrives
+ * colours are the console tokens once the theme is resolved (`data-theme`
+ * on <html>), with a copy generated from theme.css standing in before that
+ * and until the design system's CSS arrives
  * (tools/design/generate-boot-splash.ts). web/shell/src/__tests__/
  * bootSplash.spec.tsx holds the splash to this markup; useBootSplashTurn
  * carries the splash's turn across the hand-off.

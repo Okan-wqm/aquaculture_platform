@@ -8,13 +8,20 @@
  * is `lang="tr"`) and holds the splash to it element by element, and holds
  * the loader stylesheet in index.html to the owner's decision: the mark
  * turns slowly and steadily, and under reduced motion it only fades.
+ *
+ * It also holds the splash to one theme from first paint to hand-off. The
+ * console tokens arrive with the design system's stylesheet, in light values
+ * until `data-theme` says otherwise; a splash that read them before the theme
+ * was applied went dark → light → dark for a dark-OS user. So the splash reads
+ * them only under `:root[data-theme]`, and the entry (main.tsx) applies the
+ * theme before it imports the bootstrap chunk that requests the stylesheet.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { BrandLoader, I18nProvider } from '@aquaculture/shared-ui';
 import { render } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const INDEX_HTML = readFileSync(resolve(__dirname, '../../index.html'), 'utf8');
 const BOOT_DOCUMENT = new DOMParser().parseFromString(INDEX_HTML, 'text/html');
@@ -112,11 +119,15 @@ describe('index.html boot splash (FE-MEDIUM-349)', () => {
     expect(keyframes).not.toMatch(/transform|rotate|scale|translate/);
   });
 
-  it('paints its ground and text from the console tokens, the generated copy standing in before they load', () => {
-    expect(rule('.brand-loader--screen')).toMatch(
+  it('paints from the console tokens once the theme is resolved, from the generated copy before', () => {
+    // Before `data-theme` is on <html>: the generated copy only.
+    expect(rule('.brand-loader--screen')).toMatch(/background:\s*var\(--brand-loader-ground\);/);
+    expect(rule('.brand-loader')).toMatch(/color:\s*var\(--brand-loader-ink\);/);
+    // Once the shell has resolved the theme: the console tokens, the copy standing in until they load.
+    expect(rule(':root[data-theme] .brand-loader--screen')).toMatch(
       /background:\s*var\(--color-sd-paper,\s*var\(--brand-loader-ground\)\);/,
     );
-    expect(rule('.brand-loader')).toMatch(
+    expect(rule(':root[data-theme] .brand-loader')).toMatch(
       /color:\s*var\(--color-sd-ink-muted,\s*var\(--brand-loader-ink\)\);/,
     );
     // The resolved theme, once the shell has set it, decides; before that, the OS scheme.
@@ -126,10 +137,62 @@ describe('index.html boot splash (FE-MEDIUM-349)', () => {
     );
   });
 
+  it('reads no console token before the theme is resolved, so their light values cannot flash', () => {
+    // Every rule that names a design-system token is scoped to a resolved theme. The tokens
+    // arrive in light values until `data-theme` picks one; unscoped, they repainted a dark-OS
+    // user's splash light between the stylesheet and the theme.
+    const unscoped = [...STYLE.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map(([, selector = '', body = '']) => ({ selector: selector.trim(), body }))
+      .filter(({ body }) => /var\(--(?!brand-loader-)/.test(body))
+      .filter(({ selector }) => !selector.startsWith(':root[data-theme] '))
+      .map(({ selector }) => selector);
+    expect(unscoped).toEqual([]);
+  });
+
   it('keeps the screen-reader label off screen and the page edge where React leaves it', () => {
     expect(rule('.brand-loader .sr-only')).toMatch(/position:\s*absolute;/);
     expect(rule('.brand-loader .sr-only')).toMatch(/clip:\s*rect\(0,\s*0,\s*0,\s*0\);/);
     // Tailwind's preflight zeroes the body margin once the bundle loads; the splash already has.
     expect(rule('body')).toMatch(/margin:\s*0;/);
+  });
+});
+
+describe('the entry applies the theme before it loads the bootstrap chunk (FE-MEDIUM-349)', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+    vi.doUnmock('../bootstrap');
+    vi.doUnmock('../utils/remoteIntegrity');
+    vi.resetModules();
+    const root = document.documentElement;
+    delete root.dataset.theme;
+    delete root.dataset.themePreference;
+    root.style.colorScheme = '';
+  });
+
+  it("puts a dark-OS user's theme on <html> before the stylesheet is requested", async () => {
+    // Importing the bootstrap chunk is what requests the design system's stylesheet.
+    const atBootstrap: Array<string | undefined> = [];
+    vi.resetModules();
+    vi.doMock('../utils/remoteIntegrity', () => ({ installRemoteIntegrityGuard: vi.fn() }));
+    vi.doMock('../bootstrap', () => {
+      atBootstrap.push(document.documentElement.dataset.theme);
+      return {};
+    });
+    window.matchMedia = (query: string): MediaQueryList =>
+      ({
+        matches: query === '(prefers-color-scheme: dark)',
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(() => false),
+      }) satisfies MediaQueryList;
+
+    await import('../main');
+    await vi.waitFor(() => expect(atBootstrap).toEqual(['dark']));
   });
 });

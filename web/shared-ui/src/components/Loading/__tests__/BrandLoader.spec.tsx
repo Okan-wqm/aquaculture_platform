@@ -97,13 +97,47 @@ describe('BrandLoader', () => {
     Reflect.deleteProperty(HTMLElement.prototype, 'getAnimations');
   });
 
-  it('without a splash to continue, keeps its own turn', () => {
+  it('without a splash to continue, keeps its own turn', async () => {
+    // A fresh module instance holds no turn at all, so nothing an earlier case left in
+    // bootSplashTurn's module state can stand in for "there was no splash".
+    vi.resetModules();
+    const [{ BrandLoader: FreshLoader }, { I18nProvider: FreshI18n }, fresh] = await Promise.all([
+      import('../BrandLoader'),
+      import('../../../i18n'),
+      import('../bootSplashTurn'),
+    ]);
     const loaderTurn = { startTime: 9876 };
     Object.defineProperty(HTMLElement.prototype, 'getAnimations', {
       configurable: true,
       value: () => [loaderTurn],
     });
+    fresh.holdBootSplashTurn(document);
+    render(
+      <FreshI18n locale="en">
+        <FreshLoader />
+      </FreshI18n>,
+    );
+    expect(loaderTurn.startTime).toBe(9876);
+    Reflect.deleteProperty(HTMLElement.prototype, 'getAnimations');
+  });
+
+  it('drops a turn held from an earlier splash once there is no splash to hold', () => {
+    // Held first, in this case, so the outcome does not depend on what ran before it.
+    const splash = document.createElement('div');
+    splash.innerHTML = '<img class="brand-loader__mark" alt="" />';
+    document.body.append(splash);
+    const loaderTurn = { startTime: 9876 };
+    const getAnimations = vi.fn<() => Array<{ startTime: number }>>();
+    Object.defineProperty(HTMLElement.prototype, 'getAnimations', {
+      configurable: true,
+      value: getAnimations,
+    });
+    getAnimations.mockReturnValueOnce([{ startTime: 1234 }]);
     holdBootSplashTurn(document);
+    splash.remove();
+    holdBootSplashTurn(document);
+
+    getAnimations.mockReturnValue([loaderTurn]);
     renderIn('en', <BrandLoader />);
     expect(loaderTurn.startTime).toBe(9876);
     Reflect.deleteProperty(HTMLElement.prototype, 'getAnimations');

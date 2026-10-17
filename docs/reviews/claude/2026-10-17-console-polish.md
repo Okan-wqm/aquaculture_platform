@@ -67,8 +67,9 @@ were typed into the HTML and had drifted from the tokens.
   (screen variant, Turkish, as the document is `lang="tr"`). Its `<style>` is the loader's only
   stylesheet: every surface that shows a BrandLoader renders in the shell's document. Colours
   and face are the console tokens (`var(--color-sd-paper, …)`,
-  `var(--color-sd-ink-muted, …)`, `var(--font-body-sd, …)`). Before the design system's CSS
-  arrives, a copy of those tokens stands in. `tools/design/generate-boot-splash.ts` generates
+  `var(--color-sd-ink-muted, …)`, `var(--font-body-sd, …)`), read only under
+  `:root[data-theme]`. Before the theme is resolved, and until the design system's CSS arrives,
+  a copy of those tokens stands in. `tools/design/generate-boot-splash.ts` generates
   that copy from theme.css between BEGIN/END GENERATED sentinels, for the light theme, the dark
   theme by `data-theme` and, before the shell has resolved it, by the OS scheme. The same
   generator owns the `theme-color` meta (`--color-primary-500`), so no colour is typed into the
@@ -93,17 +94,43 @@ were typed into the HTML and had drifted from the tokens.
     fade with no transform, token colours with the generated fallback, an off-screen label and
     a zero body margin.
 
-  A splash that loses `aria-hidden` on its text fails it.
+  A splash that loses `aria-hidden` on its text fails it. It also requires every rule that
+  reads a console token to be scoped to `:root[data-theme]`, and it imports `main.tsx` with the
+  bootstrap chunk mocked and a dark OS scheme: `data-theme` must already be `dark` when the
+  bootstrap chunk is imported.
 
 - `web/shared-ui/src/components/Loading/__tests__/BrandLoader.spec.tsx` covers the component:
-  the status and its label, the visible word in both locales, the mark, both variants, and the
-  turn carried over from a held splash (and left alone without one).
+  the status and its label, the visible word in both locales, the mark, both variants, the turn
+  carried over from a held splash, the turn left alone without one (in a fresh module instance),
+  and a held turn dropped once there is no splash to hold.
 - `tests/invariants/web-brand-loader.spec.ts`:
   - `index.html` equals the generator's output from theme.css and spells no colour of its own;
   - every `Suspense` fallback in a file that declares routes is `<BrandLoader`, across the shell
     and every remote;
   - `RemoteModuleLoader` and `PageLoading` are gone;
   - `GuardLoading`, the shell's session check and the auth layout render the BrandLoader.
+
+### Independent review (FE-MEDIUM-349)
+
+An independent review of the first version found:
+
+- **MEDIUM: a dark-OS user's splash went dark → light → dark.** The splash read
+  `var(--color-sd-paper, var(--brand-loader-ground))` everywhere. Those tokens arrive with the
+  bootstrap chunk's stylesheet in their light values, and `data-theme` was set only when the
+  bootstrap chunk itself ran (`applyThemePreference` in `bootstrap.tsx`), after about 1.2 MB of
+  JS. Between the two, the generated dark copy lost to the light tokens. Two changes, each
+  closing it alone:
+  - `web/shell/src/main.tsx` applies the stored preference (`applyThemePreference`,
+    `followSystemThemePreference`, `getStoredThemePreference` from `utils/theme.ts`, which stays
+    the one owner) before `import('./bootstrap')`, the import that requests the stylesheet.
+    `bootstrap.tsx` no longer applies it. No inline script, so the CSP is unchanged.
+  - `web/shell/index.html` reads the console tokens only under `:root[data-theme]`. Before the
+    theme is resolved, only the generated copy paints the loader, whatever has loaded.
+- **LOW: the "without a splash" BrandLoader test depended on module state.** `bootSplashTurn.ts`
+  keeps the held turn in module scope, so the case passed or failed by what earlier cases left.
+  It now renders from a fresh module instance (`vi.resetModules`). A new case holds a splash's
+  turn itself, then holds again with no splash, and requires the turn to be dropped. Making
+  `holdBootSplashTurn` keep a stale turn fails that case.
 
 ## FE-LOW-350
 
@@ -117,15 +144,18 @@ stored theme differs from the OS colour scheme, or the stored or browser languag
 document's static `tr`. That user sees the splash in the default theme and language until the
 React hand-off applies theirs. FE-MEDIUM-349 makes the hand-off itself seamless, because the
 splash and the BrandLoader share markup and stylesheet. This first-paint difference remains.
+For the theme it now lasts until the shell's entry module runs, before the bootstrap chunk is
+requested, rather than until the bootstrap chunk has loaded.
 
 ### Root cause (FE-LOW-350)
 
 Applying a stored preference before first paint needs a script that runs before the body is
 painted. The meta CSP in `web/shell/index.html` and the edge CSP
 (`infrastructure/docker/nginx/nginx.prod.conf:147`) allow `script-src 'self'` only: no inline
-script and no hash. The shell applies the theme when the bootstrap chunk runs
-(`web/shell/src/bootstrap.tsx:34`) and the language when React mounts
-(`web/shared-ui/src/i18n/I18nProvider.tsx:98-100`).
+script and no hash. The shell applies the theme when its entry module runs
+(`web/shell/src/main.tsx`, before it imports the bootstrap chunk), and the language when React
+mounts (`web/shared-ui/src/i18n/I18nProvider.tsx:98-100`). The entry module is an external
+module script, which the browser may run after it has painted the body.
 
 ### Why it is not in the FE-MEDIUM-349 change (FE-LOW-350)
 

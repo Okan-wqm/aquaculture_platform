@@ -40,9 +40,9 @@
          stylesheet as shared-ui's BrandLoader, so React's first loader takes over from this one
          with nothing changing on screen. This is the loader's only stylesheet — it has to paint
          before any bundle loads — and every page that shows a BrandLoader renders in this
-         document. Its colours and face are the console tokens once the design system's CSS has
-         loaded; before that, the generated copy of them below (theme.css is the source; edit
-         the tokens there, then run tools/design/generate-boot-splash.ts). -->
+         document. Its colours and face are the console tokens once the theme is resolved and the
+         design system's CSS has loaded; before that, the generated copy of them below (theme.css
+         is the source; edit the tokens there, then run tools/design/generate-boot-splash.ts). -->
     <style>
       /* BEGIN GENERATED BRAND LOADER TOKENS (tools/design/generate-boot-splash.ts) */
       :root { --brand-loader-ground: #f2f2f3; --brand-loader-ink: #5d5d60; --brand-loader-rule: rgba(29, 31, 32, 0.16); --brand-loader-plate: #f5f5f8; --brand-loader-font: 'Barlow', system-ui, -apple-system, sans-serif; }
@@ -50,12 +50,19 @@
       :root[data-theme='dark'] { --brand-loader-ground: #202224; --brand-loader-ink: #a8aaad; --brand-loader-rule: rgba(236, 238, 240, 0.15); }
       /* END GENERATED BRAND LOADER TOKENS */
       body { margin: 0; }
-      .brand-loader { box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; margin: 0; padding: 24px; color: var(--color-sd-ink-muted, var(--brand-loader-ink)); font: 500 15px/1.4 var(--font-body-sd, var(--brand-loader-font)); letter-spacing: 0.02em; }
-      .brand-loader--screen { min-height: 100vh; min-height: 100dvh; background: var(--color-sd-paper, var(--brand-loader-ground)); }
+      .brand-loader { box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; margin: 0; padding: 24px; color: var(--brand-loader-ink); font: 500 15px/1.4 var(--brand-loader-font); letter-spacing: 0.02em; }
+      .brand-loader--screen { min-height: 100vh; min-height: 100dvh; background: var(--brand-loader-ground); }
       .brand-loader--region { min-height: min(60vh, 480px); }
       /* The mark stands on the cream plate it has on the rail, so the navy fish reads on the dark ground too. */
-      .brand-loader__plate { box-sizing: border-box; display: grid; place-items: center; width: 104px; height: 104px; border: 1px solid var(--color-sd-rule, var(--brand-loader-rule)); background: var(--color-sd-cream, var(--brand-loader-plate)); }
+      .brand-loader__plate { box-sizing: border-box; display: grid; place-items: center; width: 104px; height: 104px; border: 1px solid var(--brand-loader-rule); background: var(--brand-loader-plate); }
       .brand-loader__mark { display: block; width: 72px; height: auto; animation: brand-loader-turn 1.8s linear infinite; }
+      /* Once the shell has resolved the theme (data-theme on <html>, which main.tsx sets before it
+         loads the bundle that brings the design system's CSS), the console tokens paint the loader.
+         Not before: they arrive in light values until data-theme picks one, and read early they
+         turned a dark-OS user's splash light between the stylesheet and the theme. */
+      :root[data-theme] .brand-loader { color: var(--color-sd-ink-muted, var(--brand-loader-ink)); font-family: var(--font-body-sd, var(--brand-loader-font)); }
+      :root[data-theme] .brand-loader--screen { background: var(--color-sd-paper, var(--brand-loader-ground)); }
+      :root[data-theme] .brand-loader__plate { border-color: var(--color-sd-rule, var(--brand-loader-rule)); background: var(--color-sd-cream, var(--brand-loader-plate)); }
       .brand-loader .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }
       @keyframes brand-loader-turn { to { transform: rotate(360deg); } }
       @keyframes brand-loader-breathe { 50% { opacity: 0.55; } }

@@ -3,6 +3,7 @@ import { CheckCircle, XCircle } from 'lucide-react';
 import { Modal, Button } from '@aquaculture/shared-ui';
 import { UserAvatar } from '../ui/UserAvatar';
 import type { DisplayModule } from './ModuleCard';
+import ModuleIcon from './ModuleIcon';
 
 /**
  * Module Details Modal -- shows full module info in a dialog.
@@ -21,8 +22,8 @@ const ModuleDetailsModal: React.FC<{
       size="md"
       title={
         <span className="flex items-center gap-3">
-          <span className="w-12 h-12 rounded-xl bg-success-50 dark:bg-success-900/20 flex items-center justify-center text-2xl">
-            {module.icon}
+          <span className="w-12 h-12 rounded-xl bg-success-50 dark:bg-success-900/20 flex items-center justify-center text-success-600 dark:text-success-400">
+            <ModuleIcon name={module.icon} className="w-6 h-6" />
           </span>
           <span>{module.name}</span>
         </span>

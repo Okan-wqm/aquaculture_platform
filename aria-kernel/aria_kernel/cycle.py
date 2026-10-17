@@ -688,9 +688,18 @@ def run_enterprise_cycle(
             emit_progress("state_gap_recovered", cycle_id=cycle_id, reason=recovery.reason)
         else:
             freeze_autonomous_writes(diagnosed, base_dir=root, cycle_id=cycle_id)
-            emit_progress("cycle_aborted", cycle_id=cycle_id, reason="state_integrity_gap")
+            emit_progress("cycle_aborted", cycle_id=cycle_id, reason=_STATE_INTEGRITY_GAP)
             event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)
             append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+            # ARIA-LOW-549 — the gate that aborted the cycle is its failed
+            # phase, in the row shape the seal writes, so the summary, the
+            # doctor's cause key and the notice name it (see
+            # `_first_blocking_pre_phase`).
+            gap = {
+                "phase": _STATE_CONTINUITY_PHASE,
+                "status": "failed",
+                "error": _published_error(context, _state_integrity_gap_error(continuity, recovery.reason)),
+            }
             return {
                 "schema_version": 2,
                 "cycle_id": cycle_id,
@@ -699,6 +708,8 @@ def run_enterprise_cycle(
                 "event": event,
                 "learning": learning,
                 "state_continuity": continuity,
+                "aborted_by_phase": gap["phase"],
+                "failed_phases": [gap],
             }
 
     _run_phase_stage("discovery", context, phase_filter=_phase_filter)
@@ -729,8 +740,9 @@ def run_enterprise_cycle(
     # pre-tool gate cannot be demoted to a post-tool observation by a
     # caller's choice of argument.
     _run_phase_stage("pre_tool", context, phase_filter=_phase_filter)
-    aborted_by = _first_blocking_pre_phase(context)
-    if aborted_by is not None:
+    aborted = _first_blocking_pre_phase(context)
+    if aborted is not None:
+        aborted_by = aborted["phase"]
         # Plan 024 §E — pre-fix this path called _complete_event which
         # appended a row with event="completed" even though the cycle was
         # being aborted, AND the in-memory state.status was "aborted" —
@@ -752,6 +764,7 @@ def run_enterprise_cycle(
             "event": {**event, "reason": f"cycle_aborted_by_pre_phase:{aborted_by}"},
             "phases": dict(context.outcomes),
             "aborted_by_phase": aborted_by,
+            "failed_phases": [aborted],
         }
 
     _run_phase_stage("tools", context, phase_filter=_phase_filter)
@@ -4098,26 +4111,53 @@ def _refusal_summary(rows: list[dict[str, Any]], *, total: int, noun: str) -> st
     return f"{len(refused)} of {total} {noun} refused: {first}"
 
 
-def _first_blocking_pre_phase(context: PhaseContext) -> str | None:
-    """Plan 023 v3 §R-1 — the pre_tool phase, if any, that aborts the cycle.
+def _first_blocking_pre_phase(context: PhaseContext) -> dict[str, Any] | None:
+    """Plan 023 v3 §R-1 — the pre_tool phase, if any, that aborts the cycle,
+    as the failed-phase row the cycle seal writes (``phase``, ``status``,
+    ``error``).
 
     Two ways a pre-tool phase blocks: it raised (an outcome of
     ``failed``), or it returned a payload declaring itself failed,
     blocked or a regression. The second is how the architecture spine
     gate reports a regression — it returns rather than raises — and
     missing it would let a detected regression proceed to tool dispatch.
+
+    ARIA-LOW-549 — the row, not the name: an aborted cycle returns before the
+    seal, so this row is the only failed phase its summary carries. With the
+    name alone (``aborted_by_phase``, which the orchestrator's closed summary
+    does not keep) the doctor keyed the night ``cycle:unrecorded`` and the
+    cycle-failed notice said ``status=aborted runtime_status=aborted``.
     """
     for phase in CYCLE_PHASES:
         if phase.stage != "pre_tool":
             continue
-        if context.outcomes.get(phase.name, {}).get("outcome") == "failed":
-            return phase.name
+        outcome = context.outcomes.get(phase.name, {})
+        if outcome.get("outcome") == "failed":
+            return {"phase": phase.name, "status": "failed", "error": _published_error(context, outcome.get("error"))}
         payload = context.result(phase.name)
         if not isinstance(payload, dict):
             continue
-        if (payload.get("status") or payload.get("decision")) in ("failed", "blocked", "regression"):
-            return phase.name
+        verdict = payload.get("status") or payload.get("decision")
+        if verdict in ("failed", "blocked", "regression"):
+            return {
+                "phase": phase.name, "status": "failed",
+                "error": _published_error(context, payload.get("error") or payload.get("reason") or verdict),
+            }
     return None
+
+
+# ARIA-LOW-549 — the preflight gate whose blocking verdict aborts a cycle
+# (the ``state_continuity`` row of CYCLE_PHASES), and the reason that abort is
+# announced under.
+_STATE_CONTINUITY_PHASE = "state_continuity"
+_STATE_INTEGRITY_GAP = "state_integrity_gap"
+
+
+def _state_integrity_gap_error(continuity: dict[str, Any], recovery_reason: str) -> str:
+    """Why the continuity gate aborted the cycle: its reasons (else its
+    status) and why recovery did not resolve the gap."""
+    reasons = "; ".join(str(reason) for reason in continuity.get("reasons") or ()) or str(continuity.get("status"))
+    return f"{_STATE_INTEGRITY_GAP}: {reasons}; recovery: {recovery_reason}"
 
 
 def _non_ok_runs(context: PhaseContext) -> list[dict[str, Any]]:

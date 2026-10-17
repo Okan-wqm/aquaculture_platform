@@ -859,6 +859,51 @@ class PublicationTests(_Quarantine):
         read_only = derive_git_containment(self.worktree, commit_capable=False)
         self.assertEqual(publish_quarantine(read_only).refs_published, ())
 
+    def _bounded_reads(self) -> tuple[list[tuple[str, int]], object]:
+        """Record every (path, limit) the publication reads from the replica."""
+        from aria_kernel.untrusted_tree import UntrustedTree
+
+        reads: list[tuple[str, int]] = []
+        real_read = UntrustedTree.read
+
+        def recording(tree: UntrustedTree, relative: str, limit: int = -1) -> bytes:
+            reads.append((relative, limit))
+            return real_read(tree, relative, limit)
+
+        return reads, mock.patch.object(UntrustedTree, "read", recording)
+
+    def test_an_oversized_ref_file_is_discarded_by_name_and_never_read_whole(self) -> None:
+        # ARIA-LOW-569 — a ref holds an object id and a newline. A ref file
+        # the agent padded inside its own replica (here: the commit's real
+        # id, then whitespace) was read whole into the executor's memory,
+        # and `strip()` made the padding vanish: the branch was published.
+        # It is discarded by name instead, never truncated into an id.
+        self.containment = gc.replace(self.containment, seeded_refs=((BRANCH, self.base),))
+        sha = self._quarantined_commit(BRANCH)
+        (self.replica / "refs" / "heads" / BRANCH).write_text(sha + "\n" + " " * (64 * 1024), encoding="utf-8")
+        reads, recording = self._bounded_reads()
+        with recording:
+            publication = publish_quarantine(self.containment)
+        self.assertIsNone(publication.refusal)
+        self.assertEqual(publication.refs_published, ())
+        self.assertEqual(publication.refs_discarded, ((BRANCH, "ref_file_too_large"),))
+        self.assertNotEqual(_git(["rev-parse", "--verify", "-q", BRANCH], cwd=self.repo, check=False).returncode, 0)
+        self.assertEqual(list((self.replica / "refs" / "heads").iterdir()), [])
+        ref_reads = [limit for relative, limit in reads if relative.startswith("refs/heads/") or relative == "HEAD"]
+        self.assertTrue(ref_reads, reads)
+        self.assertTrue(all(0 < limit <= gc._MAX_REPLICA_REF_BYTES + 1 for limit in ref_reads), reads)
+
+    def test_an_oversized_replica_head_names_no_branch(self) -> None:
+        # The replica's HEAD is the agent's file too: padded past any
+        # `ref: refs/heads/aria-impl-<hex>`, it adopts nothing (the branch
+        # itself, a well-formed ref, is still published).
+        self.containment = gc.replace(self.containment, seeded_refs=((BRANCH, self.base),))
+        self._quarantined_commit(BRANCH)
+        (self.replica / "HEAD").write_text(f"ref: refs/heads/{BRANCH}\n" + " " * (64 * 1024), encoding="utf-8")
+        publication = publish_quarantine(self.containment)
+        self.assertEqual((publication.refusal, publication.refs_published, publication.head_adopted),
+                         (None, (BRANCH,), None))
+
 
 def _snapshot(root: Path) -> dict[str, tuple[str, bytes]]:
     """Every entry under ``root`` by its own kind, never through a link (a

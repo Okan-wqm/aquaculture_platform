@@ -267,6 +267,12 @@ _OBJECT_FORMATS: dict[str, str] = {"sha1": "sha1", "sha256": "sha256"}
 # without end; git's own loose-object reader has the same bound in spirit
 # (`core.bigFileThreshold` and the unpack limit).
 _MAX_LOOSE_OBJECT_BYTES = 512 * 1024 * 1024
+# ARIA-LOW-569 — a ref file holds an object id (64 hex at most) and a
+# newline; the replica's HEAD `ref: refs/heads/aria-impl-<hex>`. Both are the
+# agent's files, so they are read with this bound (`_read_replica_ref`) and a
+# longer one is refused by name, never read whole and never truncated (a
+# truncation could cut an over-long file down to a valid object id).
+_MAX_REPLICA_REF_BYTES = 4096
 
 
 class GitContainmentRefusal(Exception):
@@ -859,7 +865,19 @@ def _migrate_objects(
     return loose, packs, refused
 
 
-def _ref_name_refusal(name: str, content: str) -> str | None:
+def _read_replica_ref(replica: UntrustedTree, relative: str) -> str | None:
+    """The stripped text of a ref-shaped replica file (a ref under
+    ``refs/heads``, ``HEAD``), or None when it is longer than
+    ``_MAX_REPLICA_REF_BYTES``: at most that many bytes plus one are read."""
+    raw = replica.read(relative, _MAX_REPLICA_REF_BYTES + 1)
+    if len(raw) > _MAX_REPLICA_REF_BYTES:
+        return None
+    return raw.decode("utf-8", errors="replace").strip()
+
+
+def _ref_name_refusal(name: str, content: str | None) -> str | None:
+    if content is None:
+        return "ref_file_too_large"
     if not _ARIA_IMPL_BRANCH_RE.match(name):
         return "not_an_aria_implementation_branch"
     if not content:
@@ -942,8 +960,8 @@ def _publish_walked_replica(
     try:
         for ref_file in listing[_QUARANTINE_HEADS]:
             name = ref_file.removeprefix(heads_prefix)
-            content = replica.read(ref_file).decode("utf-8", errors="replace").strip()
-            if not content and name in placeholders:
+            content = _read_replica_ref(replica, ref_file)
+            if content == "" and name in placeholders:
                 replica.unlink(ref_file)
                 continue
             refusal = _ref_name_refusal(name, content)
@@ -990,13 +1008,14 @@ def _adopt_head(
     (the working tree already carries the agent's files): the kernel-made
     branch the agent committed on inside (ARIA-HIGH-124), adopted outside.
     A HEAD that is not text names no published branch (decoded with
-    replacement, never raised out of the publication)."""
+    replacement, never raised out of the publication), and neither does one
+    longer than any ref can be (ARIA-LOW-569)."""
     try:
-        head = replica.read("HEAD").decode("utf-8", errors="replace").strip()
+        head = _read_replica_ref(replica, "HEAD")
     except OSError:
         return None
     prefix = "ref: refs/heads/"
-    if not head.startswith(prefix):
+    if head is None or not head.startswith(prefix):
         return None
     name = head[len(prefix):]
     if name not in published:

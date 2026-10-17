@@ -387,8 +387,10 @@ class CopyAndRollbackTests(_Fixture):
         # aria/state rolled back past the spend: the kernel's history is gone.
         ingestion.ingestion_ledger_path(self.tools).unlink()
         (self.tools / "plans" / "events.jsonl").unlink()
-        # Inside the signed window the history was the only memory: that is
-        # the bound the expiry sets, and check 12's merged-once proof backs it.
+        # Inside the signed window ingestion's history was its only memory, so
+        # the request is admitted again; check 12 refuses its merge from main's
+        # history (ARIA-MEDIUM-264,
+        # test_a_request_main_already_carries_cannot_merge_from_a_rolled_back_store).
         self.assertEqual([e["id"] for e in self._ingest("c2").admitted], ["OP-rollback"])
         later = datetime.now(timezone.utc) + timedelta(hours=3)
         result = self._ingest("c3", now=later)
@@ -452,6 +454,7 @@ class PreMergeObservationTests(_Fixture):
             feedback_rows=_feedback_rows(self.tools) if feedback_rows is None else feedback_rows,
             plan_events=_plan_events(self.tools) if plan_events is None else plan_events,
             allowed_signers=self.anchor if allowed_signers == b"default" else allowed_signers,
+            main_request_ids=frozenset(),
             now=now,
         )
 
@@ -523,11 +526,72 @@ class PreMergeObservationTests(_Fixture):
                     plan_started=fold_plan_state(plan_id=plan_id, base_dir=self.tools)["plan_started"],
                     ingestion_rows=_ingestion_rows(self.tools), feedback_rows=_feedback_rows(self.tools),
                     plan_events=_plan_events(self.tools), allowed_signers=self.anchor,
+                    main_request_ids=frozenset(),
                 )
                 self.assertFalse(observation["operator_feedback_verified"])
                 self.assertEqual(observation["operator_feedback_unavailable_reason"],
                                  f"operator_feedback_plan_subject_mismatch:{field}")
         self.assertTrue(self._observe()["operator_feedback_verified"], "the signed plan itself still merges")
+
+    def test_a_request_main_already_carries_cannot_merge_from_a_rolled_back_store(self) -> None:
+        # ARIA-MEDIUM-264 — the merged-once proof read only the plan and
+        # ingestion ledgers, the two an aria/state rollback erases. The store
+        # here holds no merge of OP-obs anywhere, as after such a rollback,
+        # while main's history carries the request line an earlier delivery
+        # of OP-obs landed: the merge lane reads main, and refuses.
+        from aria_kernel.merge_authority import _capture_pre_merge_operator_feedback
+
+        rows = {"operator_feedback_ingestion": _ingestion_rows(self.tools),
+                "operator_feedback": _feedback_rows(self.tools),
+                "plan_convergence_events": _plan_events(self.tools)}
+        self.assertNotIn("implementation_merged", {e["event_type"] for e in rows["plan_convergence_events"]})
+
+        def capture(trust_sha: str) -> dict:
+            return _capture_pre_merge_operator_feedback(
+                plan_id="plan-obs", state=self.state, rows=rows, workspace=self.fx.repo, trust_sha=trust_sha,
+                tools=self.fx.tools,
+            )
+
+        before = git(self.fx.repo, "rev-parse", "HEAD").strip()
+        self.assertTrue(capture(before)["operator_feedback_verified"], capture(before))
+        neighbour = self.fx.commit_files(
+            {"docs/neighbour.md": "x\n"},
+            message="refactor(hr): another request (#1)\n\nAria-Operator-Request: OP-obs2",
+        )
+        self.assertTrue(capture(neighbour)["operator_feedback_verified"], "an id is matched whole, never by prefix")
+        # The squash commit's body lists the branch commits, so the line may
+        # sit indented under a bullet; it still spends the request.
+        merged = self.fx.commit_files(
+            {"docs/merged.md": "x\n"},
+            message="refactor(hr): first delivery (#2)\n\n* refactor(hr): first delivery\n\n  Aria-Operator-Request: OP-obs",
+        )
+        refused = capture(merged)
+        self.assertFalse(refused["operator_feedback_verified"])
+        self.assertEqual(refused["operator_feedback_unavailable_reason"], "operator_feedback_request_merged_on_main")
+
+    def test_an_unreadable_main_history_refuses_a_plan_that_spends_a_request(self) -> None:
+        # ARIA-MEDIUM-264 — no history, no merged-once proof: refused by name,
+        # never read as "not merged".
+        observation = observe_operator_feedback_for_plan(
+            plan_id="plan-obs", plan_started=self.state["plan_started"],
+            ingestion_rows=_ingestion_rows(self.tools), feedback_rows=_feedback_rows(self.tools),
+            plan_events=_plan_events(self.tools), allowed_signers=self.anchor, main_request_ids=None,
+        )
+        self.assertFalse(observation["operator_feedback_verified"])
+        self.assertEqual(observation["operator_feedback_unavailable_reason"],
+                         "operator_feedback_main_history_unavailable")
+        head = git(self.fx.repo, "rev-parse", "HEAD").strip()
+        key = "Aria-Operator-Request"
+        self.assertEqual(main_anchor.messages_naming(self.fx.repo, commit=head, key=key), ())
+        # The hardened reader answers None, never an empty history, for what it cannot read.
+        for commit, named in (("--output=/tmp/x", key), ("0" * 40, key), (head, "--all"), (head, "a b")):
+            with self.subTest(commit=commit, key=named):
+                self.assertIsNone(main_anchor.messages_naming(self.fx.repo, commit=commit, key=named))
+        common = Path(git(self.fx.repo, "rev-parse", "--git-common-dir").strip())
+        alternates = (common if common.is_absolute() else self.fx.repo / common) / "objects" / "info" / "alternates"
+        alternates.write_text(str(self.fx.repo / ".git" / "objects") + "\n", encoding="utf-8")
+        self.addCleanup(alternates.unlink)
+        self.assertIsNone(main_anchor.messages_naming(self.fx.repo, commit=head, key=key))
 
     def test_every_gap_is_a_named_reason(self) -> None:
         hand_started = {"plan_content": dict(self.content, title="hand-authored"),

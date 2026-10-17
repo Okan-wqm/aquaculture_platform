@@ -31,6 +31,14 @@ The contract rides on the implementation envelope as a structured field
 (``commit_contract``), the prompt prints it verbatim, and the pre-PR-open
 perimeter (``implementation_safety._check_commit_contract_honoured``) reads
 the branch's commits against the same derivation.
+
+ARIA-MEDIUM-264 — a plan that spends operator requests (its
+``provenance_refs``, ``operator_feedback_ingestion.plan_request_ids``) also
+gets ``request_lines``: one ``operator_request_spend.merged_request_line``
+per request, which every commit (and the PR body) carries, so main's history
+records the spend where a rollback of aria/state cannot erase it. A plan
+that spends none has no ``request_lines`` key, and its commits carry no such
+line.
 """
 from __future__ import annotations
 
@@ -139,11 +147,14 @@ def commit_contract_for_plan(plan_content: Any, *, plan_id: str) -> dict[str, An
     the subject types those commits may open with. Never a trailer the gate
     would refuse, never a guess for the agent to fill in.
     """
+    from .operator_feedback_ingestion import plan_request_ids
+    from .operator_request_spend import merged_request_line
+
     origin = plan_origin(plan_content)
     trailer: str | None = None
     if origin.kind == ORIGIN_ORPHAN_FINDING:
         trailer = f"Closes: {ORPHAN_FINDINGS_DOCUMENT}#{origin.finding_id}"
-    contract = {
+    contract: dict[str, Any] = {
         "schema_version": COMMIT_CONTRACT_SCHEMA_VERSION,
         "plan_id": plan_id,
         "origin_kind": origin.kind,
@@ -151,6 +162,9 @@ def commit_contract_for_plan(plan_content: Any, *, plan_id: str) -> dict[str, An
         "trailer": trailer,
         "commit_types": list(COMMIT_TYPES if trailer is not None else TRAILERLESS_COMMIT_TYPES),
     }
+    requests = sorted(plan_request_ids(plan_content))
+    if requests:
+        contract["request_lines"] = [merged_request_line(request_id) for request_id in requests]
     validate_commit_contract(contract)
     return contract
 
@@ -174,6 +188,20 @@ def validate_commit_contract(contract: Any) -> None:
         raise GovernanceError(f"commit_contract.commit_types must be a non-empty subset of {COMMIT_TYPES}")
     if trailer is None and any(REQUIRE_CLOSES_SUBJECT_RE.match(f"{kind}(scope): s") for kind in types):
         raise GovernanceError("commit_contract without a trailer admits a commit type the gate requires one for")
+    if "request_lines" in contract:
+        from .operator_request_spend import merged_request_ids, merged_request_line
+
+        lines = contract["request_lines"]
+        if (
+            not isinstance(lines, list) or not lines
+            or any(not isinstance(line, str) for line in lines)
+            or lines != sorted(set(lines))
+            or [merged_request_line(request_id) for request_id in sorted(merged_request_ids(lines))] != lines
+        ):
+            raise GovernanceError(
+                "commit_contract.request_lines must be the sorted, non-empty merged_request_line of "
+                f"each request the plan spends: {lines!r}"
+            )
 
 
 # ADR-0018 D4 — a plan's origin is fixed when it starts. Every body later
@@ -562,6 +590,13 @@ def _trailer_lines(message: str) -> list[str]:
     return [line.rstrip() for line in message.splitlines() if line.startswith("Closes:")]
 
 
+def _request_lines(message: str) -> list[str]:
+    """Every line of ``message`` main's history would read as a merged request."""
+    from .operator_request_spend import merged_request_ids
+
+    return sorted(line.rstrip() for line in message.splitlines() if merged_request_ids([line]))
+
+
 def verify_commits_honour_contract(
     commits: list[dict[str, str]], contract: dict[str, Any],
 ) -> CommitContractVerdict:
@@ -571,9 +606,14 @@ def verify_commits_honour_contract(
     trailer: every commit carries exactly that trailer line and no other. Without
     one: no commit carries any ``Closes:`` line (the agent never invents a
     trailer) and no subject opens with a type the gate requires one for.
+    ARIA-MEDIUM-264 — every commit carries exactly the contract's
+    ``request_lines`` (none when it has none): a missing line would merge an
+    operator request main never records, an extra one would spend a request
+    this plan did not.
     """
     validate_commit_contract(contract)
     trailer = contract.get("trailer")
+    request_lines = list(contract.get("request_lines", []))
     violations: list[str] = []
     if not commits:
         return CommitContractVerdict(honoured=False, violations=("no_commits_on_branch",))
@@ -589,6 +629,9 @@ def verify_commits_honour_contract(
                 violations.append(f"{sha}:invented_trailer:{lines!r}")
             if REQUIRE_CLOSES_SUBJECT_RE.match(subject):
                 violations.append(f"{sha}:subject_type_requires_trailer:{subject[:80]!r}")
+        found = _request_lines(f"{subject}\n{commit.get('body') or ''}")
+        if found != request_lines:
+            violations.append(f"{sha}:request_lines_mismatch:expected={request_lines!r} found={found!r}")
     return CommitContractVerdict(honoured=not violations, violations=tuple(violations))
 
 
@@ -608,6 +651,10 @@ def render_commit_contract_section(contract: Any) -> str:
         lines.append(f"- Every commit ends with exactly this trailer line, verbatim: `{trailer}`")
     else:
         lines.append("- No `Closes:` trailer exists for this origin; write none. Never invent one.")
+    request_lines = contract.get("request_lines") or []
+    for request_line in request_lines:
+        lines.append(f"- Every commit also carries this line, verbatim, on a line of its own: `{request_line}` "
+                     "(the operator request this plan spends; main's history records it)")
     lines.append(f"- Commit subject types admitted: {types}")
     # ARIA-HIGH-371 — the two lines above were the whole section, while the
     # repository CLAUDE.md the agent also reads demands `fix(...)` plus a
@@ -630,6 +677,8 @@ def render_commit_contract_section(contract: Any) -> str:
     example = f'git commit -m "{first}(<scope>): <subject>" -m "<why>"'
     if trailer is not None:
         example += f' -m "{trailer}"'
+    for request_line in request_lines:
+        example += f' -m "{request_line}"'
     lines.append(f"- Exactly: `{example}`")
     return "\n".join(lines) + "\n\n"
 

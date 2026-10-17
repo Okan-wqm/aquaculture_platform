@@ -165,6 +165,7 @@ class AScopeRefusalInsideTheSignedRootsReplans(_ConvergedOperatorPlan):
             ingestion_rows=load_jsonl(ingestion_ledger_path(self.tools)),
             feedback_rows=load_declared_jsonl(self.tools / "operator-feedback.jsonl", expected_surface="operator_feedback"),
             plan_events=load_jsonl(events_path(self.tools)), allowed_signers=signers,
+            main_request_ids=frozenset(),
         )
         self.assertNotIn("operator_feedback_unavailable_reason", observed, observed)
         self.assertTrue(observed["operator_feedback_verified"])

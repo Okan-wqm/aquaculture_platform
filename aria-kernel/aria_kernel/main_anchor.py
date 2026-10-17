@@ -23,6 +23,10 @@ WHAT.
   rewritten loose object is caught rather than trusted.
 * :func:`tracked_files_at` answers "is this a tracked file" from the commit's
   tree (``git ls-tree``), not from the index a process can edit.
+* :func:`messages_naming` returns the message of every commit reachable from
+  a named commit that mentions a key, case-insensitively: the merge lane
+  reads main's history for the request lines a merged operator plan left
+  (ARIA-MEDIUM-264).
 * a checkout whose directories, pointers and config only root can change is
   read by a non-root caller (the T2 probe as ``gharunner``) through a
   command-line ``safe.directory`` naming exactly that checkout
@@ -315,6 +319,31 @@ def tracked_files_at(repo_root: str | Path, *, commit: str, paths: list[str]) ->
     return {path for path in paths if path in listed}
 
 
+_MESSAGE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,62}$")
+
+
+def messages_naming(repo_root: str | Path, *, commit: str, key: str) -> tuple[str, ...] | None:
+    """The message of every commit reachable from ``commit`` that mentions ``key``, or None.
+
+    None when nothing can be read: no git, an alternates store, a commit that
+    is not a full object id or does not resolve. A caller treats None as "no
+    history", never as "no match". ``key`` is a trailer-style token, so it is
+    a fixed string to git's grep; the caller parses the lines it needs out of
+    each message. ``log.showSignature`` and friends cannot change the output:
+    the format is explicit and signatures are switched off.
+    """
+    if _SHA_RE.fullmatch(commit or "") is None or _MESSAGE_KEY_RE.fullmatch(key or "") is None:
+        return None
+    if _declares_alternates(repo_root) is not False or _resolve_commit(repo_root, commit) != commit:
+        return None
+    proc = _git(repo_root, "log", "--no-show-signature", "--fixed-strings", "--regexp-ignore-case",
+                f"--grep={key}", "--format=%B%x00", commit, "--")
+    if proc is None or proc.returncode != 0:
+        return None
+    text = proc.stdout.decode("utf-8", errors="replace")
+    return tuple(message for message in text.split("\0") if message.strip())
+
+
 __all__ = [
     "ANCHOR_ALTERNATES_PRESENT",
     "ANCHOR_GIT_UNAVAILABLE",
@@ -327,6 +356,7 @@ __all__ = [
     "MainAnchor",
     "committed_blob",
     "main_tip",
+    "messages_naming",
     "resolve_main_anchor",
     "scrubbed_git_env",
     "tracked_files_at",

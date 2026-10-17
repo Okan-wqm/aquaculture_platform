@@ -130,13 +130,13 @@ class PrBodyTests(WeaveTestBase):
     }
 
     def test_a_body_without_a_mission_carries_no_trailer(self) -> None:
-        body = build_pr_body(proposal=self.PROPOSAL, action=self.ACTION)
+        body = build_pr_body(proposal=self.PROPOSAL, action=self.ACTION, request_lines=())
         self.assertIsNone(MISSION_TRAILER_PATTERN.search(body))
 
     def test_a_body_with_a_mission_carries_the_trailer(self) -> None:
         mission_id = self._mission()
         body = build_pr_body(
-            proposal=self.PROPOSAL, action=self.ACTION, mission_id=mission_id
+            proposal=self.PROPOSAL, action=self.ACTION, request_lines=(), mission_id=mission_id
         )
         match = MISSION_TRAILER_PATTERN.search(body)
         self.assertIsNotNone(match)
@@ -146,7 +146,7 @@ class PrBodyTests(WeaveTestBase):
         from aria_kernel.pr_manager import REQUIRED_PR_SECTIONS, _validate_pr_body
 
         body = build_pr_body(
-            proposal=self.PROPOSAL, action=self.ACTION, mission_id=self._mission()
+            proposal=self.PROPOSAL, action=self.ACTION, request_lines=(), mission_id=self._mission()
         )
         _validate_pr_body(body)
         for section in REQUIRED_PR_SECTIONS:
@@ -285,6 +285,7 @@ class ProducerReachesConsumerTests(WeaveTestBase):
         body = build_pr_body(
             proposal={"proposal_id": "P-1", "title": "t", "problem": "p", "evidence": []},
             action={"base_sha": "a" * 40, "worktree_path": "/tmp/wt"},
+            request_lines=(),
             mission_id=mission_id,
         )
         result = reconcile_missions(

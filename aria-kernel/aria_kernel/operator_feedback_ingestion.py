@@ -91,6 +91,24 @@ LEDGER_CHAIN_BROKEN = "ledger_chain_broken"
 # consumed exactly what the ingestion admitted. Provenance, never evidence:
 # the row is ARIA's own ledger, which no challenger may cite (ORPHAN-HIGH-519).
 PROVENANCE_REF_PREFIX = "aria-tools/operator-feedback.jsonl:"
+
+
+def plan_request_ids(plan_content: Any) -> frozenset[str]:
+    """The request ids a plan names as its provenance — the requests it spends.
+
+    The one reader of :data:`PROVENANCE_REF_PREFIX` refs: check 12 compares
+    them with what the synthesis consumed, and the commit contract
+    (``plan_origin.commit_contract_for_plan``) records them on main
+    (ARIA-MEDIUM-264).
+    """
+    refs = plan_content.get("provenance_refs") if isinstance(plan_content, dict) else None
+    return frozenset(
+        ref[len(PROVENANCE_REF_PREFIX):]
+        for ref in (refs if isinstance(refs, list) else [])
+        if isinstance(ref, str) and ref.startswith(PROVENANCE_REF_PREFIX)
+    )
+
+
 # 4 — the scan row carries ``spent_count`` instead of the spent list (ARIA-LOW-268).
 _INGESTION_SCHEMA_VERSION = 4
 
@@ -446,6 +464,7 @@ __all__ = [
     "ingest_operator_feedback",
     "ingestion_ledger_path",
     "latest_ingestion_for_cycle",
+    "plan_request_ids",
     "record_request_refused",
     "request_history_for",
 ]

@@ -31,6 +31,9 @@ WHAT.
   read by a non-root caller (the T2 probe as ``gharunner``) through a
   command-line ``safe.directory`` naming exactly that checkout
   (:func:`_root_owned_trusted`); any other owner stays refused.
+  :func:`root_only_checkout` answers that question for any caller, so the
+  operator's root signer (``operator_request_signature``) asks it too
+  (ARIA-LOW-266).
 
 The merge lane's check 12 runs on a fresh GitHub-hosted clone; that is the
 backstop for a process that could rewrite ``.git`` wholesale, including
@@ -105,7 +108,7 @@ def _root_only(path: str, file_type: int, *, may_be_absent: bool = False) -> boo
             and not seen.st_mode & _GROUP_OR_OTHER_WRITE)
 
 
-def _root_only_dir(path: str) -> bool:
+def root_only_dir(path: str) -> bool:
     """A root-only directory no other account can swap out: every ancestor is root's and either
     writable by root alone or sticky (only an entry's owner or root may move it)."""
     if not _root_only(path, stat.S_IFDIR):
@@ -115,6 +118,30 @@ def _root_only_dir(path: str) -> bool:
         if (not stat.S_ISDIR(seen.st_mode) or seen.st_uid != 0
                 or (seen.st_mode & _GROUP_OR_OTHER_WRITE and not seen.st_mode & stat.S_ISVTX)):
             return False
+    return True
+
+
+def root_only_tree(top: str | Path) -> bool:
+    """``top`` passes :func:`root_only_dir` and so does everything under it.
+
+    Every directory and regular file below is root's with no group/other
+    write bit; any other kind of entry (a symlink included) fails, and so
+    does a directory the walk cannot read.
+    """
+    def refuse(error: OSError) -> None:
+        raise error
+
+    try:
+        resolved = os.path.realpath(top)
+        if not root_only_dir(resolved):
+            return False
+        for directory, subdirectories, files in os.walk(resolved, onerror=refuse, followlinks=False):
+            if not all(_root_only(os.path.join(directory, name), stat.S_IFDIR) for name in subdirectories):
+                return False
+            if not all(_root_only(os.path.join(directory, name), stat.S_IFREG) for name in files):
+                return False
+    except OSError:
+        return False
     return True
 
 
@@ -135,7 +162,7 @@ def _pointed_dir(pointer: str, *, base: str, prefix: str) -> str | None:
 
 
 def _root_owned_trusted(repo_root: str | Path) -> str | None:
-    """The checkout's real path when it passes the trust question below for root and the caller is not root.
+    """The checkout's real path when it passes :func:`root_only_checkout` and the caller is not root.
 
     WHY (ARIA-HIGH-281). The hourly T2 probe runs as ``gharunner`` and reads
     its anchor from ``/var/lib/aria/code``, a checkout root owns so the account
@@ -160,9 +187,20 @@ def _root_owned_trusted(repo_root: str | Path) -> str | None:
     """
     if os.geteuid() == 0:
         return None
+    return root_only_checkout(repo_root)
+
+
+def root_only_checkout(repo_root: str | Path) -> str | None:
+    """The checkout's real path when only root can change what git would act on in it, else None.
+
+    The stat walk :func:`_root_owned_trusted` documents, for any caller: the
+    work tree, its ``.git``, the gitdir, ``commondir``, the common dir and
+    both config files are root's with no group/other write bit, and so is
+    every ancestor of each directory (or it is sticky).
+    """
     worktree = os.path.realpath(repo_root)
     try:
-        if not _root_only_dir(worktree):
+        if not root_only_dir(worktree):
             return None
         dot_git = os.path.join(worktree, ".git")
         if stat.S_ISDIR(os.lstat(dot_git).st_mode):
@@ -171,7 +209,7 @@ def _root_owned_trusted(repo_root: str | Path) -> str | None:
             gitdir = _pointed_dir(dot_git, base=worktree, prefix="gitdir: ")
         else:
             return None
-        if gitdir is None or not _root_only_dir(gitdir):
+        if gitdir is None or not root_only_dir(gitdir):
             return None
         pointer = os.path.join(gitdir, "commondir")
         if not os.path.lexists(pointer):
@@ -180,7 +218,7 @@ def _root_owned_trusted(repo_root: str | Path) -> str | None:
             common = _pointed_dir(pointer, base=gitdir, prefix="")
         else:
             return None
-        if common is None or not _root_only_dir(common):
+        if common is None or not root_only_dir(common):
             return None
         configs = (os.path.join(common, "config"), os.path.join(gitdir, "config.worktree"))
         if not all(_root_only(path, stat.S_IFREG, may_be_absent=True) for path in configs):
@@ -358,6 +396,9 @@ __all__ = [
     "main_tip",
     "messages_naming",
     "resolve_main_anchor",
+    "root_only_checkout",
+    "root_only_dir",
+    "root_only_tree",
     "scrubbed_git_env",
     "tracked_files_at",
 ]

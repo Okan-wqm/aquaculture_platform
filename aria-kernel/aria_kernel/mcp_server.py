@@ -39,6 +39,7 @@ from .operator_request_signature import (
     allowed_signers_for_checkout,
     operator_act_terms_reason,
     request_subject_digest,
+    refuse_untrusted_signing_environment,
     sign_operator_subject,
     verify_operator_signature,
 )
@@ -111,6 +112,7 @@ def sign_mcp_write_approval(
     subject_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     """The operator half of the gate: sign one write, and refuse what the gate would refuse."""
+    refuse_untrusted_signing_environment(workspace_root, act="mcp_write")
     if tool not in WRITE_TOOLS:
         raise GovernanceError(f"mcp_write_tool_unknown: {tool!r}")
     if not isinstance(arguments, dict) or APPROVAL_ARGUMENT in arguments:

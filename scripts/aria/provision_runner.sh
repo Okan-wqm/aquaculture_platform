@@ -266,20 +266,25 @@ done
 # not). python3, not jq: an earlier section reports a missing jq and continues,
 # and under `set -e` a jq read here would abort the dry-run report.
 CLAUDE_FLOOR="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${REPO_ROOT}/aria-kernel" python3 -c 'import sys; from aria_kernel.doctor import claude_cli_version_floor; print(claude_cli_version_floor(sys.argv[1]))' "${REPO_ROOT}")"
-section "Claude Code CLI (managed login required; floor ${CLAUDE_FLOOR})"
+section "Claude Code CLI (kernel token required; floor ${CLAUDE_FLOOR})"
 if claude_ver="$(sudo -n -u "$RUNNER_USER" claude --version 2>/dev/null | awk '{print $1}')" && [ -n "$claude_ver" ]; then
   ok "claude present as ${RUNNER_USER}: ${claude_ver} (floor ${CLAUDE_FLOOR} — workflows enforce it)"
 else
-  bad "claude CLI not runnable as ${RUNNER_USER} (install + login per runbook step 4)"
+  bad "claude CLI not runnable as ${RUNNER_USER} (install per runbook step 4)"
 fi
-cred_dir="/home/${RUNNER_USER}/.claude"
-if [ -f "${cred_dir}/.credentials.json" ] || [ -f "${cred_dir}/config.json" ]; then
-  # Presence != a live session (OAuth expires — ORPHAN-CRITICAL-591); the real
-  # smoke is `sudo -u gharunner claude -p "say OK"`, deliberately not run here
-  # because a drift check must not spawn an LLM call.
-  ok "managed-login evidence present (${cred_dir}) — presence only; smoke-test per runbook step 4 if a lane reported auth failure"
+# ARIA-MEDIUM-563 — Claude's credential is the kernel's own token, which the
+# provider gateway injects; no spawn holds a login. The path (not the value)
+# comes from the runner .env, and the boundary is the kernel's one reader, run
+# as the runner user. Presence != a live token (it expires after a year); the
+# real smoke is the runbook's, deliberately not run here because a drift
+# check must not spawn an LLM call.
+claude_token_file="$(grep -m1 '^ARIA_CLAUDE_OAUTH_TOKEN_FILE=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+if [ -z "$claude_token_file" ]; then
+  bad "ARIA_CLAUDE_OAUTH_TOKEN_FILE missing from ${env_file} (mint per runbook step 4, then restart ${SERVICE_NAME})"
+elif claude_boundary="$(sudo -n -u "$RUNNER_USER" env ARIA_CLAUDE_OAUTH_TOKEN_FILE="$claude_token_file" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${REPO_ROOT}/aria-kernel" python3 -m aria_kernel.provider_credentials check anthropic 2>&1)"; then
+  ok "kernel Claude token boundary holds (${claude_boundary}) — presence only; smoke-test per runbook step 4 if a lane reported auth failure"
 else
-  bad "no managed-login evidence in ${cred_dir} (run the login checklist, runbook step 4)"
+  bad "kernel Claude token boundary refused: ${claude_boundary} (runbook step 4)"
 fi
 
 section "Policy override — both roots (genesis_policy resolves ${POLICY_REL} per repo root)"

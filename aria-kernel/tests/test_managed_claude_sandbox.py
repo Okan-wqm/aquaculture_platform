@@ -7,16 +7,16 @@ document the spawn had written under `/tmp` was hidden by the sandbox's
 fresh tmpfs ("Settings file not found"); and the operator's whole login
 directory was bound read-only, which the CLI stalls on while it tries to
 write its own state there. `wrap_managed_claude_in_sandbox` is the mirror of
-the Codex lane's runtime-state wrapper.
+the Codex lane's runtime-state wrapper. ARIA-MEDIUM-563: no login file
+enters the room at all — the kernel's provider gateway holds the credential.
 
 What this pins, one property per test:
 
 * The executable is bound read-only and run by its resolved absolute path.
 * The spawn documents' directories are bound read-only, after the /tmp tmpfs.
-* Only the credential file of the login directory enters the sandbox, into
-  the private home's `.claude`, which becomes the CLI's config dir.
-* A login without a credential file binds nothing and still names the
-  private config dir.
+* No login enters the sandbox: the private home's `.claude` is the CLI's
+  config dir, empty but for the session store, and the room's credential is
+  the gateway route's placeholder.
 * A spawn document inside the workspace (or a workspace inside a document
   directory) is refused by name: the two mounts would shadow each other.
 * The wrapper keeps the base sandbox's own properties (READONLY_PATHS,
@@ -32,7 +32,6 @@ from unittest import mock
 
 from aria_kernel import implementation_safety as impl
 from aria_kernel.implementation_safety import (
-    CLAUDE_LOGIN_CREDENTIALS_FILENAME,
     SANDBOX_HOME,
     SandboxUnavailable,
     wrap_managed_claude_in_sandbox,
@@ -62,10 +61,6 @@ class _Fixture(unittest.TestCase):
         self.mcp_dir.mkdir()
         self.mcp = self.mcp_dir / "aria-mcp-judge.json"
         self.mcp.write_text("{}", encoding="utf-8")
-        self.login = self.root / "login"
-        self.login.mkdir()
-        (self.login / CLAUDE_LOGIN_CREDENTIALS_FILENAME).write_text('{"fixture": "managed"}\n', encoding="utf-8")
-        (self.login / ".claude.json").write_text("{}", encoding="utf-8")
         patcher = mock.patch.object(impl, "_bwrap_available", return_value=True)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -73,7 +68,7 @@ class _Fixture(unittest.TestCase):
     def _wrap(self, **overrides) -> list[str]:
         arguments = dict(
             workspace_root=self.workspace, write_scope=(), executable=self.root / "claude",
-            spawn_files=(self.settings, self.mcp), managed_login_dir=self.login,
+            spawn_files=(self.settings, self.mcp),
         )
         arguments.update(overrides)
         return wrap_managed_claude_in_sandbox(["claude", "-p", "--model", "opus"], **arguments)
@@ -83,23 +78,30 @@ class TheExecutableIsTheOneResolved(_Fixture):
     def test_it_is_bound_read_only_and_run_by_absolute_path(self) -> None:
         command = self._wrap()
         real = str((self.install / "2.1.269").resolve())
-        # ARIA-HIGH-143 — the room's first process is the egress relay, which
-        # execs the CLI in its own place: by absolute path, after the relay's
-        # own separator.
-        door = [impl.sandbox_interpreter(), "-I", impl.SANDBOX_EGRESS_RELAY, impl.SANDBOX_EGRESS_PROXY_SOCKET, "--"]
-        self.assertEqual(command[command.index("--") + 1:], [*door, real, "-p", "--model", "opus"])
+        # ARIA-MEDIUM-563 — the CLI is the room's first process, by absolute
+        # path: the gateway room has no relay in front of it.
+        self.assertEqual(command[command.index("--") + 1:], [real, "-p", "--model", "opus"])
         self.assertIn((real, real), _pairs(command, "--ro-bind"))
         # ARIA-HIGH-143 — the spawn is isolated from the host's PID, IPC,
         # UTS and NETWORK namespaces and its controlling session, not just
         # reaped with its parent: the CLI reaches its provider through the
-        # kernel's allowlist proxy, whose socket is the room's one road out.
+        # kernel's provider gateway, whose socket is the room's one road out.
+        from aria_kernel.provider_routes import ROOM_CREDENTIAL_PLACEHOLDER, route
+
         prefix = command[:command.index("--")]
         for flag in ("--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--new-session",
                      "--die-with-parent"):
             self.assertIn(flag, prefix, flag)
+        gateway = route("anthropic")
         self.assertEqual([target for _, target in _pairs(prefix, "--bind")
-                          if target == impl.SANDBOX_EGRESS_PROXY_SOCKET], [impl.SANDBOX_EGRESS_PROXY_SOCKET])
-        self.assertIn((str(impl.EGRESS_RELAY_SOURCE), impl.SANDBOX_EGRESS_RELAY), _pairs(prefix, "--ro-bind"))
+                          if target == gateway.room_socket], [gateway.room_socket])
+        self.assertNotIn(impl.SANDBOX_EGRESS_PROXY_SOCKET, prefix)
+        self.assertNotIn(impl.SANDBOX_EGRESS_RELAY, prefix)
+        self.assertIn(("ANTHROPIC_UNIX_SOCKET", gateway.room_socket), _pairs(prefix, "--setenv"))
+        self.assertIn(("CLAUDE_CODE_OAUTH_TOKEN", ROOM_CREDENTIAL_PLACEHOLDER), _pairs(prefix, "--setenv"))
+        unset = [prefix[i + 1] for i, token in enumerate(prefix) if token == "--unsetenv"]
+        for name in (*gateway.room_unset, "HTTPS_PROXY", "https_proxy"):
+            self.assertIn(name, unset)
         self.assertNotIn("/etc/resolv.conf", [source for source, _ in _pairs(prefix, "--ro-bind")])
 
 
@@ -121,24 +123,22 @@ class TheSpawnDocumentsAreVisible(_Fixture):
         self.assertIn("spawn_document_directory_overlaps_workspace", str(caught.exception))
 
 
-class OnlyTheCredentialFileEntersThePrivateHome(_Fixture):
-    def test_the_credential_file_lands_in_the_private_config_dir_writable(self) -> None:
-        # ARIA-HIGH-157 — writable, so the CLI's OAuth refresh persists where
-        # the next spawn reads it; read-only, one refresh inside the sandbox
-        # retired the host's refresh token and every later run failed auth.
+class NoLoginEntersThePrivateHome(_Fixture):
+    def test_the_login_file_is_never_bound(self) -> None:
+        # ARIA-MEDIUM-563 — the room used to receive the managed login's
+        # `.credentials.json` (writable, ARIA-HIGH-157), so any process in it
+        # could read the operator's token. The wrapper takes no login at all;
+        # the private config dir is the CLI's, empty.
+        import inspect
+
+        self.assertNotIn("managed_login_dir", inspect.signature(wrap_managed_claude_in_sandbox).parameters)
         command = self._wrap()
         private = f"{SANDBOX_HOME}/.claude"
-        credential = (str(self.login / CLAUDE_LOGIN_CREDENTIALS_FILENAME), f"{private}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}")
-        self.assertIn(credential, _pairs(command, "--bind"))
-        self.assertNotIn(credential, _pairs(command, "--ro-bind"))
         self.assertIn(("CLAUDE_CONFIG_DIR", private), _pairs(command, "--setenv"))
-        for flag in ("--ro-bind", "--bind"):
-            self.assertNotIn(str(self.login), [target for _, target in _pairs(command, flag)],
-                             "the login directory itself never enters the sandbox")
-        self.assertNotIn(str(self.login / ".claude.json"), command)
-        # Still the ONE file: nothing else under the login directory is bound.
-        bound_from_login = [src for src, _ in _pairs(command, "--bind") + _pairs(command, "--ro-bind") if str(self.login) in src]
-        self.assertEqual(bound_from_login, [credential[0]])
+        targets = [target for _, target in _pairs(command, "--bind") + _pairs(command, "--ro-bind")]
+        self.assertFalse([target for target in targets if target.startswith(private)])
+        self.assertFalse([arg for arg in command if arg.endswith((".credentials.json", "auth.json"))])
+        self.assertFalse([arg for arg in command if str(Path.home() / ".claude") in arg])
 
     def test_the_session_store_projects_dir_is_the_private_config_dirs_projects_writable(self) -> None:
         # ARIA-HIGH-179 — the tmpfs HOME loses every conversation with the
@@ -152,20 +152,13 @@ class OnlyTheCredentialFileEntersThePrivateHome(_Fixture):
         self.assertNotIn(projects, _pairs(command, "--ro-bind"))
         self.assertTrue((store / "projects").is_dir(), "the store is created for the first spawn")
         self.assertLess(command.index("--tmpfs"), command.index(projects[0]), "bound after the tmpfs it lives under")
-        # Without a store nothing under the private home is bound but the credential.
+        # Without a store nothing under the private home is bound.
         bare = self._wrap()
         self.assertNotIn(f"{private}/projects", bare)
         # A store inside the workspace is refused by name.
         with self.assertRaises(impl.SandboxUnavailable) as refused:
             self._wrap(session_store_dir=self.workspace / "sessions")
         self.assertEqual(str(refused.exception), "session_store_overlaps_workspace")
-
-    def test_a_login_without_a_credential_file_binds_nothing(self) -> None:
-        (self.login / CLAUDE_LOGIN_CREDENTIALS_FILENAME).unlink()
-        command = self._wrap()
-        self.assertFalse([pair for pair in _pairs(command, "--ro-bind") + _pairs(command, "--bind") if str(self.login) in pair[0]])
-        self.assertIn(("CLAUDE_CONFIG_DIR", f"{SANDBOX_HOME}/.claude"), _pairs(command, "--setenv"))
-        self.assertIn(("CLAUDE_CONFIG_DIR", f"{SANDBOX_HOME}/.claude"), _pairs(self._wrap(managed_login_dir=None), "--setenv"))
 
 
 class TheBaseSandboxIsKept(_Fixture):
@@ -198,15 +191,13 @@ class TheBaseSandboxIsKept(_Fixture):
             managed = self._wrap(workspace_root=worktree, git=containment, hook_broker_socket=broker_socket)
             base = impl.wrap_bash_in_sandbox(
                 [str(self.root / "claude"), "-p", "--model", "opus"], workspace_root=worktree,
-                allow_network=impl.MANAGED_SPAWN_ALLOW_NETWORK, write_scope=(),
+                provider=impl.MANAGED_SPAWN_PROVIDER, write_scope=(),
                 extra_ro_binds=(self.root / "claude", self.documents, self.mcp_dir),
                 git=containment, hook_broker_socket=broker_socket,
             )
-        # ARIA-HIGH-157 — the one writable mount the managed route adds of
-        # its own is the login file; every other --bind is the base's.
-        credential = f"{SANDBOX_HOME}/.claude/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"
-        self.assertEqual([pair for pair in _pairs(managed, "--bind") if pair[1] != credential],
-                         [pair for pair in _pairs(base, "--bind")])
+        # ARIA-MEDIUM-563 — the managed route adds no writable mount of its
+        # own (no login file any more): every --bind is the base's.
+        self.assertEqual(_pairs(managed, "--bind"), _pairs(base, "--bind"))
         self.assertIn((str(broker_socket), SANDBOX_HOOK_BROKER_SOCKET), _pairs(managed, "--bind"))
         common = (repo / ".git").resolve()
         replica = containment.sandbox_git_dir

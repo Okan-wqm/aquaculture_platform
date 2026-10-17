@@ -104,7 +104,7 @@ PROVIDER_EXHAUSTION_SIGNATURES: dict[str, tuple[str, str]] = {
     "zai_auth_refusal": ("zai", "auth"),                  # HTTP 401/403, vendor codes 1000-1004
     "codex_quota_marker": ("openai", "quota"),
     "codex_auth_marker": ("openai", "auth"),
-    "claude_logged_out": ("anthropic", "logged_out"),    # `claude auth status`: loggedIn false
+    "claude_logged_out": ("anthropic", "logged_out"),    # the kernel's Claude credential boundary refused
     "codex_logged_out": ("openai", "logged_out"),        # `codex login status`: Not logged in
     "claude_unreachable": ("anthropic", "unreachable"),  # API 429 / 529 overload / connection error
     "zai_unreachable": ("zai", "unreachable"),           # HTTP transport timeout / DNS / connection

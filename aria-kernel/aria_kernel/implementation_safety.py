@@ -732,18 +732,24 @@ _SANDBOX_SYSTEM_ROOTS: tuple[str, ...] = (
     "/etc/group",
 )
 
-# ARIA-HIGH-143 / ARIA-HIGH-528 — the EGRESS ROOM. Every room has its own
-# network namespace (`--unshare-net`): there is no host-network room to ask
-# for. A room that must reach its provider (`allow_network=True`: the managed
-# Claude route, the Codex runtime route) gets one road out on top of that:
+# ARIA-HIGH-143 / ARIA-HIGH-528 / ARIA-MEDIUM-563 — the PROVIDER ROOM. Every
+# room has its own network namespace (`--unshare-net`): there is no
+# host-network room to ask for. A room that must reach its provider
+# (`provider=<route key>`, `provider_routes`) gets one road out on top of
+# that, the route's:
 #
-# * the unix socket of the kernel's allowlist proxy (`egress_proxy`, served
-#   by the process that builds the room, `PROVIDER_ENDPOINTS` only), bound
-#   in at `SANDBOX_EGRESS_PROXY_SOCKET`;
-# * the relay (`egress_relay.py`, this one file bound read-only at
-#   `SANDBOX_EGRESS_RELAY`) as the room's first process: it opens a
-#   loopback listener inside the namespace, names it in `HTTPS_PROXY` /
-#   `HTTP_PROXY`, and execs the command in its own place.
+# * a `gateway` route (the managed Claude route): the kernel's provider
+#   gateway socket bound in at the route's `room_socket`, its variables set
+#   (the socket's name, the base URL, a placeholder credential) and every
+#   real credential variable unset. No relay, no CONNECT socket: the room
+#   reaches the provider only through requests the gateway pins, under the
+#   kernel's credential, never one the room brings (ARIA-MEDIUM-563);
+# * a `tunnel` route (the Codex runtime route): the unix socket of the
+#   kernel's CONNECT proxy for that route's targets alone, bound in at
+#   `SANDBOX_EGRESS_PROXY_SOCKET`, and the relay (`egress_relay.py`, this
+#   one file bound read-only at `SANDBOX_EGRESS_RELAY`) as the room's first
+#   process: it opens a loopback listener inside the namespace, names it in
+#   `HTTPS_PROXY` / `HTTP_PROXY`, and execs the command in its own place.
 #
 # Until this the managed rooms shared the host's namespace (so the CLI could
 # reach its provider) with the host's `/etc/resolv.conf` bound in, and the
@@ -911,28 +917,28 @@ def _sandbox_probe_succeeds(
     return completed.returncode == 0
 
 
-# The network setting of the one route that hosts a commit-capable spawn
+# The provider route of the one route that hosts a commit-capable spawn
 # (`wrap_managed_claude_in_sandbox`): the Claude CLI talks to its provider,
-# so the managed room is an EGRESS room — its own network namespace whose
-# only road out is the kernel's allowlist proxy (ARIA-HIGH-143; see
-# `SANDBOX_EGRESS_PROXY_SOCKET`). The containment probe builds with the SAME
-# value, so what it proves is the argv the implementer gets — relay
-# included — not a smaller one.
-MANAGED_SPAWN_ALLOW_NETWORK = True
+# so the managed room is a PROVIDER room — its own network namespace whose
+# only road out is the kernel's provider gateway (ARIA-HIGH-143,
+# ARIA-MEDIUM-563; see `provider_routes`). The containment probe builds with
+# the SAME value, so what it proves is the argv the implementer gets —
+# gateway bind included — not a smaller one.
+MANAGED_SPAWN_PROVIDER = "anthropic"
 
 
 def _git_containment_probe_reason() -> str | None:
     """ARIA-HIGH-123 — why the sandbox cannot host the implementer's git
     contract, or ``None``. The probe builds its argv through the SAME
     builder the wrapper uses (``_sandbox_argv``) with the managed route's
-    network setting, so what it proves is what a commit-capable spawn gets;
+    provider route, so what it proves is what a commit-capable spawn gets;
     recorded on the process for the refusal message
     (``_LAST_CONTAINMENT_PROBE_REASON``)."""
     from .containment_probe import probe_git_containment
 
     def build(command: list[str], workspace: Path, containment: Any) -> list[str]:
         return _sandbox_argv(
-            command, workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK, git=containment,
+            command, workspace_root=workspace, provider=MANAGED_SPAWN_PROVIDER, git=containment,
         )
 
     return probe_git_containment(build)
@@ -978,21 +984,26 @@ class SandboxUnavailable(RuntimeError):
     """
 
 
-# ARIA-HIGH-143 — the egress boundary, proved in a real room before a claim.
-# The boundary is structural (every room unshares the network; the managed
-# room's one road out is the kernel's proxy), so this probe does not ask an
-# operator-configured variable whether a proxy exists: it builds the managed
-# room's own argv and asks the ROOM, from inside, the two things the boundary
-# is — a direct connect to a TEST-NET address (RFC 5737, never routable,
-# never allowlisted) finds no route at all, and the same target through the
-# room's HTTPS_PROXY is refused BY NAME by the allowlist.
+# ARIA-HIGH-143 / ARIA-MEDIUM-563 — the egress boundary, proved in a real room
+# before a claim. The boundary is structural (every room unshares the
+# network; the managed room's one road out is the kernel's provider gateway),
+# so this probe does not ask an operator-configured variable whether a proxy
+# exists: it builds the managed room's own argv, hands it an environment
+# carrying a probe credential under every credential name, and asks the ROOM,
+# from inside, what the boundary is — a direct connect to a TEST-NET address
+# (RFC 5737, never routable) finds no route at all; no proxy variable names a
+# road; no credential variable but the placeholder survives, and no login
+# file is reachable; and the gateway refuses, by name and before any
+# upstream, a request it does not pin that carries a credential. No provider
+# is contacted.
 EGRESS_PROBE_TARGET = "203.0.113.1:443"
-EGRESS_REFUSAL_MARKER = b"egress_refused:target_not_allowlisted"
+EGRESS_PROBE_ROOM_CREDENTIAL = "aria-egress-probe-room-credential"
+GATEWAY_REFUSAL_MARKER = b"gateway_refused:request_not_pinned"
 _EGRESS_PROBE_TIMEOUT_SECONDS = 30
 _EGRESS_PROBE_PROGRAM = r"""
-import errno, os, socket, sys
-from urllib.parse import urlsplit
-host, port, marker = sys.argv[1], int(sys.argv[2]), sys.argv[3].encode()
+import errno, json, os, socket, sys
+host, port, marker, expected, room_key = sys.argv[1], int(sys.argv[2]), sys.argv[3].encode(), json.loads(sys.argv[4]), sys.argv[5]
+unset, proxies, socket_env, credential_header = json.loads(sys.argv[6]), json.loads(sys.argv[7]), sys.argv[8], sys.argv[9]
 direct = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 direct.settimeout(5)
 try:
@@ -1003,46 +1014,74 @@ except OSError as exc:
         print("direct_connect_not_unroutable:%r" % (exc,)); sys.exit(0)
 finally:
     direct.close()
-proxy = urlsplit(os.environ.get("HTTPS_PROXY", ""))
-if proxy.scheme != "http" or proxy.hostname != "127.0.0.1" or not proxy.port:
-    print("room_proxy_not_the_relay:%r" % (os.environ.get("HTTPS_PROXY"),)); sys.exit(0)
+named = sorted(name for name in proxies if os.environ.get(name))
+if named:
+    print("room_names_a_proxy:%s" % ",".join(named)); sys.exit(0)
+held = sorted(name for name in unset if name in os.environ)
+held += sorted(name for name, value in os.environ.items() if value == room_key)
+if held:
+    print("room_holds_a_credential_variable:%s" % ",".join(held)); sys.exit(0)
+differs = sorted(name for name, value in expected.items() if os.environ.get(name) != value)
+if differs:
+    print("room_route_variables_differ:%s" % ",".join(differs)); sys.exit(0)
+for root in sorted({os.environ.get("HOME", ""), os.environ.get("CLAUDE_CONFIG_DIR", ""), "/tmp"} - {""}):
+    for directory, _dirs, files in os.walk(root):
+        found = [name for name in files if name in (".credentials.json", "auth.json")]
+        if found:
+            print("room_holds_a_login_file:%s" % os.path.join(directory, found[0])); sys.exit(0)
 answer = b""
 try:
-    with socket.create_connection((proxy.hostname, proxy.port), timeout=10) as sock:
-        sock.sendall(("CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n" % (host, port, host, port)).encode())
-        while len(answer) < 4096 and marker not in answer and not answer.startswith(b"HTTP/1.1 200"):
-            chunk = sock.recv(1024)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as gateway:
+        gateway.settimeout(10)
+        gateway.connect(os.environ[socket_env])
+        gateway.sendall(("POST /v1/files HTTP/1.1\r\nhost: localhost\r\n%s\r\n"
+                         "content-length: 2\r\n\r\n{}" % credential_header).encode())
+        while len(answer) < 4096:
+            chunk = gateway.recv(1024)
             if not chunk:
                 break
             answer += chunk
-except OSError as exc:
-    print("room_proxy_did_not_answer:%r" % (exc,)); sys.exit(0)
-if answer.startswith(b"HTTP/1.1 200"):
-    print("proxy_admits_off_allowlist_target"); sys.exit(0)
-print("ok" if marker in answer else "proxy_did_not_refuse_by_name:%r" % (answer[:120],))
+except (OSError, KeyError) as exc:
+    print("room_gateway_did_not_answer:%r" % (exc,)); sys.exit(0)
+if not answer.startswith(b"HTTP/1.1 403") or marker not in answer:
+    print("gateway_did_not_refuse_an_unpinned_request_by_name:%r" % (answer[:120],)); sys.exit(0)
+print("ok")
 """
 
 
 def egress_boundary_probe() -> str | None:
     """Why the managed room's egress boundary does not hold on this host, or
-    ``None`` when the room itself reports no route out and a refusal by name
-    for an off-allowlist target through its proxy."""
+    ``None`` when the room itself reports no route out, no proxy, no
+    credential but the placeholder, and a refusal by name from its gateway."""
+    import json as _json
     import tempfile
 
+    from .egress_relay import PROXY_ENV_NAMES
+    from .provider_routes import gateway_environment, room_route
+
+    route = room_route(MANAGED_SPAWN_PROVIDER)
+    expected = gateway_environment(route.key, str(route.room_socket))
     host, _, port = EGRESS_PROBE_TARGET.rpartition(":")
+    # The environment a careless caller could hand the room: a credential
+    # under every name the room must not keep, and a proxy.
+    handed = {"PATH": os.environ.get("PATH", os.defpath), "LANG": "C.UTF-8",
+              **{name: EGRESS_PROBE_ROOM_CREDENTIAL for name in (*route.room_unset, *expected)},
+              **{name: "http://127.0.0.1:9" for name in PROXY_ENV_NAMES}}
     with tempfile.TemporaryDirectory(prefix="aria-egress-probe-") as workspace:
         try:
             argv = wrap_bash_in_sandbox(
                 [sandbox_interpreter(), "-I", "-c", _EGRESS_PROBE_PROGRAM, host, port,
-                 EGRESS_REFUSAL_MARKER.decode()],
-                workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK, write_scope=(),
+                 GATEWAY_REFUSAL_MARKER.decode(), _json.dumps(expected), EGRESS_PROBE_ROOM_CREDENTIAL,
+                 _json.dumps(list(route.room_unset)), _json.dumps(list(PROXY_ENV_NAMES)),
+                 str(route.socket_env), f"{route.auth_header}: {route.auth_scheme}{EGRESS_PROBE_ROOM_CREDENTIAL}"],
+                workspace_root=workspace, provider=MANAGED_SPAWN_PROVIDER, write_scope=(),
             )
         except SandboxUnavailable as exc:
             return f"the managed room cannot be built: {exc}"
         try:
             completed = subprocess.run(
                 argv, capture_output=True, text=True, timeout=_EGRESS_PROBE_TIMEOUT_SECONDS, check=False,
-                env={"PATH": os.environ.get("PATH", os.defpath), "LANG": "C.UTF-8"},
+                env=handed,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             return f"the managed room did not run the egress probe: {exc}"
@@ -1231,7 +1270,7 @@ def wrap_bash_in_sandbox(
     argv: list[str],
     *,
     workspace_root: str | Path,
-    allow_network: bool = False,
+    provider: str | None = None,
     write_scope: Sequence[str] | None = None,
     extra_ro_binds: Sequence[str | Path] = (),
     git: GitContainment | None = None,
@@ -1264,14 +1303,15 @@ def wrap_bash_in_sandbox(
     re-bound writable (``**`` / ``.`` means the whole workspace, the legacy
     shape). READONLY_PATHS are ro-bound on top either way, so a scope can
     never re-open the kernel. ``extra_ro_binds`` mounts host paths read-only
-    (the managed Claude login directory is the one caller today).
+    (the managed CLI's binary and its spawn documents).
 
     Returns the argv prefixed with bwrap flags pinning:
       * Workspace mounted writable
       * READONLY_PATHS mounted ro-bind
       * ``--unshare-net`` always: the room's own network namespace, which
-        names only loopback; with ``allow_network=True`` its one road out
-        is the kernel's allowlist proxy (the egress room, ARIA-HIGH-143)
+        names only loopback; with ``provider=<route key>`` its one road out
+        is that route's kernel listener (the provider room, ARIA-HIGH-143,
+        ARIA-MEDIUM-563)
       * ``/tmp`` mounted as tmpfs
       * No /root, /home, /etc/secrets bind
 
@@ -1283,19 +1323,23 @@ def wrap_bash_in_sandbox(
     implementer's agent file — instructions addressed to the very process
     being contained.
 
-    ``allow_network=True`` is the correct setting when wrapping an agent
-    process that must reach an API, and it grants exactly that API: the
-    command starts under the egress relay, whose ``HTTPS_PROXY`` leads to
-    the kernel's allowlist proxy (``egress_proxy.PROVIDER_ENDPOINTS``) and
-    nowhere else — a direct connect from anything in the room finds no
-    route, the host's loopback services and abstract sockets included
-    (ARIA-HIGH-143, ARIA-HIGH-528). READONLY_PATHS stay ro-bind either way,
+    ``provider=<route key>`` (``provider_routes``) is the setting when
+    wrapping an agent process that must reach its provider, and it grants
+    exactly that route: a ``gateway`` route binds the kernel's provider
+    gateway and nothing else (the room holds a placeholder credential and
+    no proxy; the gateway forwards pinned requests under the kernel's
+    credential), a ``tunnel`` route starts the command under the egress
+    relay, whose ``HTTPS_PROXY`` leads to the kernel's CONNECT proxy for that
+    route's targets alone. A direct connect from anything in the room finds
+    no route, the host's loopback services and abstract sockets included
+    (ARIA-HIGH-143, ARIA-HIGH-528, ARIA-MEDIUM-563). READONLY_PATHS stay
+    ro-bind either way,
     so a write under them fails with EROFS at the syscall level rather than
     by the agent choosing to obey.
     """
     if _bwrap_available():
         return _sandbox_argv(
-            argv, workspace_root=workspace_root, allow_network=allow_network, write_scope=write_scope,
+            argv, workspace_root=workspace_root, provider=provider, write_scope=write_scope,
             extra_ro_binds=extra_ro_binds, git=git, hook_broker_socket=hook_broker_socket,
             mcp_broker_socket=mcp_broker_socket, chdir=chdir, workspace_view=workspace_view,
         )
@@ -1314,7 +1358,7 @@ def _sandbox_argv(
     argv: list[str],
     *,
     workspace_root: str | Path,
-    allow_network: bool,
+    provider: str | None = None,
     write_scope: Sequence[str] | None = None,
     extra_ro_binds: Sequence[str | Path] = (),
     git: GitContainment | None = None,
@@ -1374,9 +1418,9 @@ def _sandbox_argv(
         # An EPHEMERAL home rather than a bind of the real one, and that is
         # the stronger choice: the agent gets a fresh empty directory each
         # run, so it can neither read the operator's real ~/.claude.json nor
-        # leave anything behind in it. Credentials arrive through
-        # CLAUDE_CODE_OAUTH_TOKEN in the environment, which is the
-        # documented mechanism and does not require the config file.
+        # leave anything behind in it. No credential arrives at all: a
+        # provider room holds a placeholder, and the kernel's gateway
+        # supplies the credential outside (ARIA-MEDIUM-563).
         #
         # It lives under the /tmp tmpfs mounted just above, so it costs no
         # extra mount and cannot shadow the workspace bind the way a tmpfs
@@ -1443,13 +1487,13 @@ def _sandbox_argv(
         wrap.extend(git.bwrap_flags())
     if workspace_view is not None:
         wrap.extend(["--remount-ro", str(workspace)])
-    # ARIA-HIGH-143 / ARIA-HIGH-528 — every room has its own network
-    # namespace and names only loopback; there is no branch that shares the
-    # host's. A room that reaches its provider is handed the proxy's socket
-    # and starts under the relay (`SANDBOX_EGRESS_PROXY_SOCKET`).
+    # ARIA-HIGH-143 / ARIA-HIGH-528 / ARIA-MEDIUM-563 — every room has its
+    # own network namespace and names only loopback; there is no branch that
+    # shares the host's. A room that reaches its provider is handed its
+    # route's kernel listener (`_provider_room`).
     egress_door: list[str] = []
-    if allow_network:
-        egress_binds, egress_door = _egress_room()
+    if provider is not None:
+        egress_binds, egress_door = _provider_room(provider)
         wrap.extend(egress_binds)
     wrap.extend(_loopback_name_binds())
     wrap.append("--unshare-net")
@@ -1457,22 +1501,43 @@ def _sandbox_argv(
     return wrap + egress_door + list(argv)
 
 
-def _egress_room() -> tuple[list[str], list[str]]:
-    """The binds and the command prefix of the egress room: the kernel
-    proxy's socket and the relay file, read-only, at their fixed in-room
-    paths, and the relay as the room's first process. Refused by name when
-    the proxy cannot be served — a room that needs its provider is never
-    built without its road, nor with another one."""
-    from .egress_proxy import EgressProxyUnavailable, kernel_egress_socket
+def _provider_room(provider: str) -> tuple[list[str], list[str]]:
+    """The binds and the command prefix of a provider room, by its route
+    (``provider_routes``). Refused by name when the kernel's listener cannot
+    be served — a room that needs its provider is never built without its
+    road, nor with another one.
+
+    A ``gateway`` route: the gateway's socket at the route's in-room path,
+    the route's variables set, every real credential variable and every
+    proxy variable unset, and no door — the command is the room's first
+    process. A ``tunnel`` route: the CONNECT proxy's socket for that route
+    and the relay file, read-only, at their fixed in-room paths, and the
+    relay as the room's first process.
+    """
+    from .egress_proxy import EgressProxyUnavailable, kernel_egress_sockets
+    from .egress_relay import PROXY_ENV_NAMES
+    from .provider_routes import GATEWAY, gateway_environment, room_route
 
     try:
-        proxy_socket = kernel_egress_socket()
+        route = room_route(provider)
+    except KeyError as exc:
+        raise SandboxUnavailable(f"provider_route_unavailable: {exc.args[0]}") from exc
+    try:
+        listener = kernel_egress_sockets()[route.key]
     except EgressProxyUnavailable as exc:
         raise SandboxUnavailable(f"egress_proxy_unavailable: {exc}") from exc
-    if not _is_socket(proxy_socket):
-        raise SandboxUnavailable(f"egress_proxy_socket_missing: {proxy_socket} is not a listening socket")
+    if not _is_socket(listener):
+        raise SandboxUnavailable(f"egress_proxy_socket_missing: {listener} is not a listening socket")
+    if route.kind == GATEWAY:
+        binds = ["--bind", str(listener), str(route.room_socket)]
+        # Unset first: bwrap applies its environment flags in order.
+        for name in (*route.room_unset, *PROXY_ENV_NAMES):
+            binds.extend(["--unsetenv", name])
+        for name, value in gateway_environment(route.key, str(route.room_socket)).items():
+            binds.extend(["--setenv", name, value])
+        return binds, []
     binds = [
-        "--bind", str(proxy_socket), SANDBOX_EGRESS_PROXY_SOCKET,
+        "--bind", str(listener), SANDBOX_EGRESS_PROXY_SOCKET,
         "--ro-bind", str(EGRESS_RELAY_SOURCE), SANDBOX_EGRESS_RELAY,
     ]
     door = [sandbox_interpreter(), "-I", SANDBOX_EGRESS_RELAY, SANDBOX_EGRESS_PROXY_SOCKET, "--"]
@@ -1486,8 +1551,9 @@ def _wrap_runtime_state_in_sandbox(
     """Bind only the managed auth file into a writable private Codex home.
 
     The existing sandbox still owns system, network and workspace containment.
-    The network is the egress room's (ARIA-HIGH-528): the Codex CLI reaches
-    its provider through the kernel's allowlist proxy and nothing else — the
+    The network is the ``openai`` tunnel route's (ARIA-HIGH-528,
+    ARIA-MEDIUM-563): the Codex CLI reaches its provider through the
+    kernel's CONNECT proxy for the OpenAI hosts alone and nothing else — the
     relay names its proxy after this wrapper's ``--clearenv``, so the
     caller's environment cannot carry a proxy the room cannot reach, and a
     host loopback service is out of reach whatever Codex's own inner sandbox
@@ -1508,7 +1574,7 @@ def _wrap_runtime_state_in_sandbox(
             or runtime.is_relative_to(auth) or auth.is_relative_to(runtime)):
         raise SandboxUnavailable("native_runtime_mount_identity_invalid")
     command = wrap_bash_in_sandbox(
-        argv, workspace_root=workspace, allow_network=True, write_scope=(),
+        argv, workspace_root=workspace, provider="openai", write_scope=(),
         # Preserve the system requirements and managed configuration. The
         # existing wrapper conditionally binds existing paths without reading
         # their contents; conflicting requirements remain the CLI's refusal.
@@ -1528,13 +1594,9 @@ def _wrap_runtime_state_in_sandbox(
             + child_environment + command[separator:])
 
 
-CLAUDE_LOGIN_CREDENTIALS_FILENAME = ".credentials.json"
-"""The one file of the managed login directory a contained Claude spawn receives."""
-
-
 def wrap_managed_claude_in_sandbox(
     argv: list[str], *, workspace_root: Path, write_scope: Sequence[str] | None,
-    executable: Path, spawn_files: Sequence[Path], managed_login_dir: Path | None,
+    executable: Path, spawn_files: Sequence[Path],
     git: GitContainment | None = None, hook_broker_socket: str | Path | None = None,
     mcp_broker_socket: str | Path | None = None, session_store_dir: Path | None = None,
 ) -> list[str]:
@@ -1546,10 +1608,10 @@ def wrap_managed_claude_in_sandbox(
     handed straight to :func:`wrap_bash_in_sandbox`, so both routes derive
     one set of binds.
 
-    On top of :func:`wrap_bash_in_sandbox` (system, the egress room's network
-    — its own namespace, the kernel's allowlist proxy its one road out —
-    workspace, READONLY_PATHS, private /tmp and home) this binds exactly
-    three things the spawn depends on and the sandbox would otherwise hide:
+    On top of :func:`wrap_bash_in_sandbox` (system, the provider room's
+    network — its own namespace, the kernel's provider gateway its one road
+    out — workspace, READONLY_PATHS, private /tmp and home) this binds the
+    things the spawn depends on and the sandbox would otherwise hide:
 
     * ``executable`` — the CLI resolved OUTSIDE the sandbox, bound read-only
       and run by that absolute path. Measured 2026-09-11 (ARIA-HIGH-077):
@@ -1560,27 +1622,18 @@ def wrap_managed_claude_in_sandbox(
     * the parent directories of ``spawn_files`` — the settings and MCP
       documents the spawn wrote for THIS run. They lived under ``/tmp``, and
       the sandbox mounts a fresh tmpfs there: ``Settings file not found``.
-    * ``managed_login_dir/.credentials.json`` alone, into the private home's
-      ``.claude``, which becomes the CLI's config dir. The mirror of the
-      Codex lane's single auth-file mount: the operator's sessions, history
-      and ``.claude.json`` stay hidden, and the CLI writes its own state into
-      the ephemeral home instead of stalling on a read-only login directory
-      (37 s against 2.7 s for the same one-turn run, measured the same day).
-      A login carried by ``CLAUDE_CODE_OAUTH_TOKEN`` needs no file; nothing
-      is bound then.
 
-      ARIA-HIGH-157 — that one file is bound WRITABLE, not read-only. The
-      managed login is an OAuth session: when its access token has expired
-      the CLI refreshes it, and the provider rotates the refresh token as it
-      does. Read-only, the CLI could obtain the new pair and not persist it
-      — the run failed with "OAuth session expired and could not be
-      refreshed", the host's copy now named a refresh token the provider had
-      already retired, and every later run on the host, sandboxed or not,
-      failed the same way until an operator logged in again (the first
-      production executor drain, 2026-09-18 16:44Z: one attempt, then the
-      runbook's own smoke on the host: "could not be refreshed"). The agent
-      already reads this file; writing it adds nothing it could not already
-      exfiltrate, and lets the refresh land where the next spawn reads it.
+    ``CLAUDE_CONFIG_DIR`` names the private home's ``.claude``: the
+    operator's sessions, history, settings and ``.claude.json`` stay hidden,
+    and the CLI writes its own state into the ephemeral home.
+
+    ARIA-MEDIUM-563 — no login is bound. The room used to receive the
+    managed login's ``.credentials.json`` (writable, so the CLI could persist
+    a refreshed OAuth pair, ARIA-HIGH-157), and so held the operator's token
+    for any process in it to read and use. The room's credential is now the
+    route's placeholder, and the kernel's gateway injects the real one per
+    request; nothing in the room refreshes a token, so nothing needs to be
+    written back.
     """
     workspace = Path(workspace_root).resolve(strict=True)
     binary = Path(executable).resolve(strict=True)
@@ -1590,18 +1643,13 @@ def wrap_managed_claude_in_sandbox(
     if any(directory.is_relative_to(workspace) or workspace.is_relative_to(directory) for directory in documents):
         raise SandboxUnavailable("spawn_document_directory_overlaps_workspace")
     command = wrap_bash_in_sandbox(
-        [str(binary), *argv[1:]], workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK,
+        [str(binary), *argv[1:]], workspace_root=workspace, provider=MANAGED_SPAWN_PROVIDER,
         write_scope=write_scope, extra_ro_binds=(binary, *documents), git=git,
         hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
     )
     separator = command.index("--")
     private_config_dir = f"{SANDBOX_HOME}/.claude"
     mounts = [*MANAGED_SPAWN_ISOLATION_FLAGS, "--setenv", "CLAUDE_CONFIG_DIR", private_config_dir]
-    if managed_login_dir is not None:
-        credentials = Path(managed_login_dir) / CLAUDE_LOGIN_CREDENTIALS_FILENAME
-        if credentials.is_file():
-            mounts.extend(["--bind", str(credentials.resolve(strict=True)),
-                           f"{private_config_dir}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"])
     if session_store_dir is not None:
         # ARIA-HIGH-179 — the CLI's conversation files outlive the tmpfs HOME:
         # the durable store's `projects` directory IS the private config
@@ -1680,7 +1728,7 @@ def wrap_managed_claude_in_sandbox(
 # the exit code from the contained child and records them on the
 # validation-runs ledger itself; the promotion to `ready_for_pr`, the push
 # and the PR stay outside, exactly as before.
-VALIDATION_SANDBOX_ALLOW_NETWORK = False
+VALIDATION_SANDBOX_PROVIDER: str | None = None
 # ARIA-HIGH-124 (round 4) — the flags that make a contained validation
 # command STOPPABLE, and its `/proc` its own:
 #
@@ -1714,8 +1762,9 @@ VALIDATION_SANDBOX_CONTAINMENT_FLAGS: tuple[str, ...] = ("--unshare-pid", "--die
 # mirrors them so a host that cannot build these namespaces is refused
 # before a claim (ORPHAN-MEDIUM-452's rule). The network namespace is not
 # here because no room is built without it: `_sandbox_argv` unshares it for
-# every room, and the managed room's one road out is the kernel's allowlist
-# proxy (ARIA-HIGH-143, proved in the room by `egress_boundary_probe`).
+# every room, and the managed room's one road out is the kernel's provider
+# gateway (ARIA-HIGH-143, ARIA-MEDIUM-563, proved in the room by
+# `egress_boundary_probe`).
 MANAGED_SPAWN_ISOLATION_FLAGS: tuple[str, ...] = (
     "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--new-session", "--die-with-parent",
 )
@@ -1914,7 +1963,7 @@ def wrap_validation_in_sandbox(
     for directory in _VALIDATION_HOST_SHAPE_DIRS:
         shape_dirs.extend(["--dir", directory])
     command = wrap_bash_in_sandbox(
-        argv, workspace_root=workspace, allow_network=VALIDATION_SANDBOX_ALLOW_NETWORK,
+        argv, workspace_root=workspace, provider=VALIDATION_SANDBOX_PROVIDER,
         write_scope=None, extra_ro_binds=(*binds, *host_roots, VALIDATION_OBSERVATION_CHILD), git=git,
     )
     separator = command.index("--")
@@ -3522,13 +3571,12 @@ __all__ = (
     "implementation_allowed_scope",
     "is_gh_api_path_forbidden",
     "SandboxUnavailable",
-    "MANAGED_SPAWN_ALLOW_NETWORK",
+    "MANAGED_SPAWN_PROVIDER",
     "sandbox_backend",
     "sandbox_unavailable_detail",
     "wrap_bash_in_sandbox",
     "ResourceLimitsUnavailable",
     "apply_resource_limits",
-    "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
     "wrap_managed_claude_in_sandbox",
     "LIMITER_CONTROL_ENV_NAMES",
     "limiter_control_environment",

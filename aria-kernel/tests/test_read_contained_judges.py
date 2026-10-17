@@ -122,9 +122,6 @@ class TheReadContainment(unittest.TestCase):
         (install / "2.1.278").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         (install / "2.1.278").chmod(0o755)
         (self.root / "claude").symlink_to(install / "2.1.278")
-        self.login = self.root / "login"
-        self.login.mkdir()
-        (self.login / impl.CLAUDE_LOGIN_CREDENTIALS_FILENAME).write_text('{"fixture": "managed"}\n', encoding="utf-8")
         patcher = mock.patch.object(impl, "_bwrap_available", return_value=True)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -132,7 +129,7 @@ class TheReadContainment(unittest.TestCase):
     def _contain(self, **overrides) -> list[str]:
         arguments = dict(skip_permissions=False, permission_mode=None, workspace_root=self.workspace,
                          write_scope=(), executable=self.root / "claude", spawn_files=(),
-                         managed_login_dir=self.login, read_containment=True)
+                         read_containment=True)
         arguments.update(overrides)
         return cr._apply_write_containment(["claude", "-p", "--restricted"], **arguments)
 
@@ -142,9 +139,12 @@ class TheReadContainment(unittest.TestCase):
         self.assertIn((str(self.workspace), str(self.workspace)), _pairs(command, "--ro-bind"))
         writable = [src for src, _dst in _pairs(command, "--bind")]
         self.assertFalse(any(Path(src).is_relative_to(self.workspace) for src in writable), writable)
-        # ARIA-HIGH-157 — the managed login stays writable for the OAuth refresh.
-        self.assertTrue(any(Path(src) == self.login / impl.CLAUDE_LOGIN_CREDENTIALS_FILENAME or Path(src) == self.login
-                            for src in writable), writable)
+        # ARIA-MEDIUM-563 — no login enters the read shape either: the only
+        # writable mounts are the private home's and the gateway's socket.
+        from aria_kernel.egress_proxy import kernel_egress_sockets
+
+        self.assertEqual(writable, [str(kernel_egress_sockets()["anthropic"])])
+        self.assertFalse([arg for arg in command if arg.endswith(".credentials.json")])
         sources = [src for src, _dst in _pairs(command, "--bind") + _pairs(command, "--ro-bind")]
         self.assertFalse(any("mcp" in src.lower() for src in sources), "no MCP broker socket in the read shape")
 

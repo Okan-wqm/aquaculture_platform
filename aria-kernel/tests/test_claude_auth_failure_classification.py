@@ -58,7 +58,10 @@ class AuthFailureDetectionTest(unittest.TestCase):
         self.assertEqual(detected["kind"], "auth_failure")
         # The remedy travels with the detection: a human clears this one, and
         # 03:00 is the wrong time to go looking for which runbook says how.
-        self.assertIn("re-authenticate", detected["remedy"])
+        # ARIA-MEDIUM-563 — the credential is the kernel's gateway token, so
+        # the act is re-minting it into its file.
+        self.assertIn("claude setup-token", detected["remedy"])
+        self.assertIn("ARIA_CLAUDE_OAUTH_TOKEN_FILE", detected["remedy"])
 
     def test_a_clean_exit_is_never_an_auth_failure(self) -> None:
         # An agent writing ABOUT authentication must not be read as the runtime

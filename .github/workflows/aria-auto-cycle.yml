@@ -353,14 +353,15 @@ jobs:
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
           if [ "${EFFECTIVE_MOCK}" = "false" ]; then
             if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then
-              echo "::error::API-key Claude mode is disallowed for ARIA; use a managed Claude Code login on the trusted runner." >&2
+              echo "::error::API-key Claude mode is disallowed for ARIA; use the kernel's Claude token (`claude setup-token` into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names) on the trusted runner." >&2
               exit 1
             fi
             claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \
               || { echo "::error::Claude Code CLI preflight failed" >&2; cat /tmp/aria-claude-auth.err >&2; exit 1; }
-            CLAUDE_AUTH_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-            if [ ! -f "${CLAUDE_AUTH_DIR}/.credentials.json" ] && [ ! -f "${CLAUDE_AUTH_DIR}/config.json" ]; then
-              echo "::error::Claude Code managed-auth session not found on the trusted runner" >&2
+            # ARIA-MEDIUM-563 — the kernel's own Claude token, read by the
+            # kernel's one credential reader (the gateway injects it).
+            if ! CLAUDE_CREDENTIAL="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.provider_credentials check anthropic)"; then
+              echo "::error::the kernel's Claude credential boundary refused (${CLAUDE_CREDENTIAL})" >&2
               exit 1
             fi
           fi

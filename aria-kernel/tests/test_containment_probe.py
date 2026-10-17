@@ -60,9 +60,9 @@ from aria_kernel.containment_probe import (
 from aria_kernel.git_containment import GitContainment, QuarantinePublication
 
 
-def _builder(*, allow_network: bool, drop_ro_binds: tuple[str, ...] = ()):
+def _builder(*, provider: str | None = None, drop_ro_binds: tuple[str, ...] = ()):
     def build(command: list[str], workspace: Path, containment: GitContainment) -> list[str]:
-        argv = impl._sandbox_argv(command, workspace_root=workspace, allow_network=allow_network, git=containment)
+        argv = impl._sandbox_argv(command, workspace_root=workspace, provider=provider, git=containment)
         for source in drop_ro_binds:
             for index in range(len(argv) - 2):
                 if argv[index] == "--ro-bind" and argv[index + 1] == source:
@@ -74,7 +74,7 @@ def _builder(*, allow_network: bool, drop_ro_binds: tuple[str, ...] = ()):
     return build
 
 
-_real_builder = _builder(allow_network=impl.MANAGED_SPAWN_ALLOW_NETWORK)
+_real_builder = _builder(provider=impl.MANAGED_SPAWN_PROVIDER)
 
 
 def _tmpfs_index(argv: list[str], common: str) -> int:
@@ -112,13 +112,13 @@ class ProbeTests(_NeedsBwrap):
         # The production runner's shape: no `/etc/passwd` inside and no
         # nss-systemd to synthesize the account (network off binds no
         # nsswitch). ssh-keygen dies on getpwuid before it signs.
-        reason = probe_git_containment(_builder(allow_network=False, drop_ro_binds=("/etc/passwd", "/etc/group")))
+        reason = probe_git_containment(_builder(drop_ro_binds=("/etc/passwd", "/etc/group")))
         self.assertIsNotNone(reason)
         self.assertTrue(reason.startswith("git_in_sandbox_failed:rc=128"), reason)
         self.assertIn("No user exists for uid", reason)
         self.assertIn("failed to write commit object", reason)
         # With the two binds present the same argv signs.
-        self.assertIsNone(probe_git_containment(_builder(allow_network=False)))
+        self.assertIsNone(probe_git_containment(_builder()))
 
     def test_the_account_database_is_a_system_bind_of_the_wrapper(self) -> None:
         self.assertIn("/etc/passwd", impl._SANDBOX_SYSTEM_ROOTS)
@@ -284,16 +284,18 @@ class AvailabilityFoldsTheProbeTests(_NeedsBwrap):
             self.assertIsNone(impl._git_containment_probe_reason())
         self.assertEqual(len(seen), 1)
         self.assertEqual((os.path.isabs(seen[0][0]), os.path.basename(seen[0][0])), (True, "bwrap"))
-        # The managed route's network setting, not a smaller argv: the probe
-        # proves what the implementer gets — the egress room (ARIA-HIGH-143),
-        # its own network namespace with the relay as its first process, so
-        # the git commands the probe runs ran through the relay's exec.
-        self.assertTrue(impl.MANAGED_SPAWN_ALLOW_NETWORK)
+        # The managed route's provider route, not a smaller argv: the probe
+        # proves what the implementer gets — the provider room (ARIA-HIGH-143,
+        # ARIA-MEDIUM-563), its own network namespace with the kernel's
+        # gateway bound in and no relay, so the git commands the probe runs
+        # ran in exactly that room.
+        from aria_kernel.provider_routes import route
+
+        self.assertEqual(impl.MANAGED_SPAWN_PROVIDER, "anthropic")
         separator = seen[0].index("--")
         self.assertIn("--unshare-net", seen[0][:separator])
-        self.assertEqual(seen[0][separator + 1:separator + 6],
-                         [impl.sandbox_interpreter(), "-I", impl.SANDBOX_EGRESS_RELAY,
-                          impl.SANDBOX_EGRESS_PROXY_SOCKET, "--"])
+        self.assertIn(route("anthropic").room_socket, seen[0][:separator])
+        self.assertNotIn(impl.SANDBOX_EGRESS_RELAY, seen[0])
         for path in ("/etc/passwd", "/etc/group"):
             if Path(path).exists():
                 self.assertIn(path, seen[0])

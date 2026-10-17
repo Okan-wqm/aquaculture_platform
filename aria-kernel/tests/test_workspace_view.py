@@ -111,7 +111,7 @@ class SandboxViewModeTests(CheckoutFixture):
         (self.ws / "infrastructure").mkdir()
         (self.ws / "infrastructure" / "server.pem").write_text("k\n", encoding="utf-8")
         view = build_workspace_view(self.ws)
-        argv = impl._sandbox_argv(["true"], workspace_root=self.ws, allow_network=False, write_scope=(), workspace_view=view)
+        argv = impl._sandbox_argv(["true"], workspace_root=self.ws, write_scope=(), workspace_view=view)
         separator = argv.index("--")
         ws = str(self.ws)
         binds = _pairs(argv[:separator], "--ro-bind", 2)
@@ -129,9 +129,9 @@ class SandboxViewModeTests(CheckoutFixture):
         view = build_workspace_view(self.ws)
         for kwargs in ({"write_scope": None}, {"write_scope": ("src",)}):
             with self.subTest(**kwargs), self.assertRaisesRegex(impl.SandboxUnavailable, "workspace_view_mismatch"):
-                impl._sandbox_argv(["true"], workspace_root=self.ws, allow_network=False, workspace_view=view, **kwargs)
+                impl._sandbox_argv(["true"], workspace_root=self.ws, workspace_view=view, **kwargs)
         with self.assertRaisesRegex(impl.SandboxUnavailable, "workspace_view_mismatch"):
-            impl._sandbox_argv(["true"], workspace_root=self.base, allow_network=False, write_scope=(), workspace_view=view)
+            impl._sandbox_argv(["true"], workspace_root=self.base, write_scope=(), workspace_view=view)
 
 
 class ViewDependencyTreeTests(CheckoutFixture):
@@ -164,7 +164,7 @@ class VerifiedBwrapTests(unittest.TestCase):
         if found is None:
             self.skipTest("bwrap is not installed on this host")
         with tempfile.TemporaryDirectory() as tmp:
-            argv = impl._sandbox_argv(["true"], workspace_root=tmp, allow_network=False)
+            argv = impl._sandbox_argv(["true"], workspace_root=tmp)
         self.assertEqual(argv[0], os.path.realpath(found))
         self.assertEqual(impl._bwrap_probe_argv()[0], os.path.realpath(found))
 
@@ -180,7 +180,7 @@ class VerifiedBwrapTests(unittest.TestCase):
                 with mock.patch.dict(os.environ, {"PATH": "bin"}):
                     self.assertIsNone(impl._bwrap_executable())
                     with self.assertRaisesRegex(impl.SandboxUnavailable, "bwrap is not on PATH"):
-                        impl._sandbox_argv(["true"], workspace_root=tmp, allow_network=False)
+                        impl._sandbox_argv(["true"], workspace_root=tmp)
             finally:
                 os.chdir(cwd)
 

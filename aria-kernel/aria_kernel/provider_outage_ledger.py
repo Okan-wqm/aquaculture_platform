@@ -97,10 +97,13 @@ def outage_remedy(provider: str, kind: str) -> str:
         return (f"renew the {provider} subscription or credit, or wait for its quota reset; "
                 "ARIA resumes on its own at the next successful spawn")
     if kind in ("auth", "logged_out") and key_env:
-        return f"replace the {provider} key file at {os.environ.get(key_env) or '$' + key_env}"
+        # ARIA-MEDIUM-563 — anthropic's credential is the kernel's own token
+        # (the gateway injects it), minted by `claude setup-token`.
+        mint = " (mint it with `claude setup-token` as the runner user)" if provider == "anthropic" else ""
+        return f"replace the {provider} credential file at {os.environ.get(key_env) or '$' + key_env}{mint}"
     if kind in ("auth", "logged_out"):
         return (f"re-login the {provider} runtime on the runner host as the runner user "
-                "(`claude` then /login for anthropic, `codex login` for openai)")
+                "(`codex login` for openai)")
     return (f"check the runner host's network and the {provider} status page; "
             "ARIA resumes on its own at the next successful spawn")
 

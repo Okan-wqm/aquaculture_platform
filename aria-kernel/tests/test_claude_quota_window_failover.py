@@ -556,8 +556,6 @@ class TheNativeClaudeLaneReadsTheReading(unittest.TestCase):
         NativeClaudeLane.setUp(self)
         self.reset = int(time.time()) // 3600 * 3600 + 3 * 86400
         self.reset_iso = datetime.fromtimestamp(self.reset, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self.status = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
-                       "subscriptionType": "max"}
 
     def _install(self, script: str) -> None:
         executable = self.fixture_bin / "claude"
@@ -580,9 +578,6 @@ class TheNativeClaudeLaneReadsTheReading(unittest.TestCase):
             "argv = sys.argv[1:]\n"
             "if argv == ['--version']:\n"
             "    print('2.1.278 (Claude Code)'); raise SystemExit(0)\n"
-            "if argv[:3] == ['auth', 'status', '--json']:\n"
-            f"    status = {self.status!r}\n"
-            "    print(json.dumps(status)); raise SystemExit(0)\n"
             "sys.stdin.read()\n"
             f"sys.stderr.write({_TRUST_NOTICE!r})\n"
             f"print(json.dumps({_rejected(self.reset)!r}))\n"
@@ -613,7 +608,7 @@ class TheNativeClaudeLaneReadsTheReading(unittest.TestCase):
 
         reading = _with_utilization(_SEVEN_DAY_0_98, "seven_day", 0.98, self.reset)
         reading["rate_limit_info"]["resetsAt"] = self.reset
-        script = _fake_claude(self.status, self.response, self.host_login_dir).replace(
+        script = _fake_claude(self.response, self.host_login_dir).replace(
             "prompt = sys.stdin.read()\n", f"prompt = sys.stdin.read()\nprint(json.dumps({reading!r}))\n", 1)
         self._install(script)
         completed = self._run(self.request["request_id"])

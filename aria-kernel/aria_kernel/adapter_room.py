@@ -251,7 +251,7 @@ def wrap_adapter_in_sandbox(
     except GitContainmentRefusal as exc:
         raise SandboxUnavailable(f"git_containment_refused:{exc.reason}") from exc
     command = wrap_bash_in_sandbox(
-        list(argv), workspace_root=workspace, allow_network=False, write_scope=(),
+        list(argv), workspace_root=workspace, write_scope=(),
         extra_ro_binds=tuple(binds), git=git, chdir=run_dir, workspace_view=view,
     )
     separator = command.index("--")

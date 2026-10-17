@@ -89,7 +89,7 @@ class SandboxResolutionTests(_InstalledCheckout):
         if impl.sandbox_backend() is None:
             self.skipTest("bwrap is not usable on this host; the sandbox refuses rather than degrading")
         argv = impl.wrap_bash_in_sandbox(["sh", "-c", script], workspace_root=self.worktree,
-                                         allow_network=False, write_scope=write_scope)
+                                         write_scope=write_scope)
         return subprocess.run(argv, capture_output=True, text=True, timeout=60)
 
     def test_a_workspace_link_resolves_to_the_worktrees_own_code(self) -> None:

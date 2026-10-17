@@ -114,18 +114,20 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
     def test_i_v9_impl_01_network_egress_prohibition_present(self):
         # ARIA-HIGH-124 — the contract states the sandbox's REAL network
         # setting, not a flag name; and the PR is the executor's, so no push
-        # is the agent's. ARIA-HIGH-143 — that setting is now the egress
-        # room: its own namespace, the kernel's allowlist proxy the one road
-        # out; the contract must not still describe the host's namespace.
-        from aria_kernel.implementation_safety import MANAGED_SPAWN_ALLOW_NETWORK
+        # is the agent's. ARIA-HIGH-143 — that setting is now the provider
+        # room: its own namespace, the kernel's provider gateway the one road
+        # out (ARIA-MEDIUM-563); the contract must not still describe the
+        # host's namespace or a proxy.
+        from aria_kernel.implementation_safety import MANAGED_SPAWN_PROVIDER
 
-        self.assertTrue(MANAGED_SPAWN_ALLOW_NETWORK)
+        self.assertEqual(MANAGED_SPAWN_PROVIDER, "anthropic")
         self.assertIn("## Network Egress Prohibition", self.contract_body)
         self.assertNotIn("--unshare-net", self.contract_body)
         self.assertNotIn("firejail", self.contract_body)
-        self.assertIn("MANAGED_SPAWN_ALLOW_NETWORK", self.contract_body)
+        self.assertIn("MANAGED_SPAWN_PROVIDER", self.contract_body)
         self.assertIn("own network namespace", self.contract_body)
-        self.assertIn("allowlist proxy", self.contract_body)
+        self.assertIn("provider gateway", self.contract_body)
+        self.assertNotIn("HTTPS_PROXY", self.contract_body)
         self.assertNotIn("sharing the host's network namespace", self.contract_body)
         self.assertIn("opened by the EXECUTOR", self.contract_body)
         self.assertNotIn("`gh pr merge\n--squash`", self.contract_body)

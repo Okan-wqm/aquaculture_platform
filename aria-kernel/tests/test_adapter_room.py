@@ -580,24 +580,24 @@ class SandboxChdirTests(unittest.TestCase):
         (self.workspace / "tools" / "aria-poc").mkdir(parents=True)
 
     def test_the_default_argv_is_unchanged_for_every_existing_caller(self) -> None:
-        default = impl._sandbox_argv(["true"], workspace_root=self.workspace, allow_network=False)
-        explicit = impl._sandbox_argv(["true"], workspace_root=self.workspace, allow_network=False, chdir=self.workspace)
+        default = impl._sandbox_argv(["true"], workspace_root=self.workspace)
+        explicit = impl._sandbox_argv(["true"], workspace_root=self.workspace, chdir=self.workspace)
         self.assertEqual(default, explicit)
         index = default.index("--chdir")
         self.assertEqual(default[index + 1], str(self.workspace))
         self.assertEqual(default.count("--chdir"), 1)
 
     def test_a_subdirectory_changes_only_the_chdir_value(self) -> None:
-        default = impl._sandbox_argv(["true"], workspace_root=self.workspace, allow_network=False)
+        default = impl._sandbox_argv(["true"], workspace_root=self.workspace)
         sub = self.workspace / "tools" / "aria-poc"
-        moved = impl._sandbox_argv(["true"], workspace_root=self.workspace, allow_network=False, chdir=sub)
+        moved = impl._sandbox_argv(["true"], workspace_root=self.workspace, chdir=sub)
         index = default.index("--chdir")
         self.assertEqual(moved[:index + 1] + moved[index + 2:], default[:index + 1] + default[index + 2:])
         self.assertEqual(moved[index + 1], str(sub))
 
     def test_a_chdir_outside_the_workspace_is_refused(self) -> None:
         with self.assertRaisesRegex(impl.SandboxUnavailable, "sandbox_chdir_outside_workspace"):
-            impl._sandbox_argv(["true"], workspace_root=self.workspace, allow_network=False, chdir=self.workspace.parent)
+            impl._sandbox_argv(["true"], workspace_root=self.workspace, chdir=self.workspace.parent)
 
 
 if __name__ == "__main__":

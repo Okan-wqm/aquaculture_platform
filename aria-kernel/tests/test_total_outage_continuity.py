@@ -154,8 +154,8 @@ class _Scenario:
                 reason, auth, decided = (
                     ("cli_reported_not_logged_in", "unavailable", "unavailable") if answer == "logged_out"
                     else ("cli_reported_logged_in", "available", "available"))
-            else:  # `claude auth status` sees the login, never a quota or a lapsed subscription
-                reason, auth, decided = "managed_session_logged_in", "available", "available"
+            else:  # the kernel's Claude credential boundary: present, never a quota or a lapsed subscription
+                reason, auth, decided = "claude_gateway_credential_present", "available", "available"
             rows.append({"provider": provider, "model": f"{provider}-model", "status_reason": reason,
                          "auth_observation": auth, "decision": decided})
             if decided == "available" and chosen is None:

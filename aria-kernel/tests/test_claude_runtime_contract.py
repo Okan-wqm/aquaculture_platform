@@ -467,13 +467,14 @@ class WriteContainmentTests(unittest.TestCase):
         self.assertEqual(wrapped[-len(self._ARGV):], self._ARGV)
         # The agent must reach the Claude API, and reaches nothing else: the
         # room has its own network namespace whose one road out is the
-        # kernel's allowlist proxy, through the relay it starts under
-        # (ARIA-HIGH-143).
+        # kernel's provider gateway, bound at the route's path; no relay
+        # stands in front of the command (ARIA-HIGH-143, ARIA-MEDIUM-563).
+        from aria_kernel.provider_routes import route
+
         separator = wrapped.index("--")
         self.assertIn("--unshare-net", wrapped[:separator])
-        self.assertEqual(wrapped[separator + 1:separator + 6],
-                         [implementation_safety.sandbox_interpreter(), "-I", implementation_safety.SANDBOX_EGRESS_RELAY,
-                          implementation_safety.SANDBOX_EGRESS_PROXY_SOCKET, "--"])
+        self.assertIn(route("anthropic").room_socket, wrapped[:separator])
+        self.assertEqual(wrapped[separator + 1:], self._ARGV)
         # READONLY_PATHS that exist are ro-bind, so a write under them EROFSes.
         ro_targets = {
             wrapped[i + 1] for i, tok in enumerate(wrapped) if tok == "--ro-bind"
@@ -519,11 +520,12 @@ class WriteContainmentTests(unittest.TestCase):
             self.assertIn(("--ro-bind", str(common / "worktrees" / "req-1")), pairs)
             self.assertIn(("--tmpfs", str(common / "worktrees")), pairs)
             # The writable binds: the workspace, the hook broker's socket and
-            # the egress proxy's socket (ARIA-HIGH-143) — never a store.
-            from aria_kernel.egress_proxy import kernel_egress_socket
+            # the provider gateway's socket (ARIA-HIGH-143, ARIA-MEDIUM-563) —
+            # never a store, never a login.
+            from aria_kernel.egress_proxy import kernel_egress_sockets
 
             self.assertEqual([source for flag, source in pairs if flag == "--bind"],
-                             [str(worktree), str(broker_socket), str(kernel_egress_socket())])
+                             [str(worktree), str(broker_socket), str(kernel_egress_sockets()["anthropic"])])
             self.assertEqual(wrapped[wrapped.index(HOOK_BROKER_SOCKET_ENV) + 1], SANDBOX_HOOK_BROKER_SOCKET)
             self.assertNotIn("tools_dir", claude_runtime._apply_write_containment.__code__.co_varnames)
 
@@ -607,7 +609,7 @@ class WriteContainmentTests(unittest.TestCase):
             self.assertIsNone(sandbox_backend())
             with self.assertRaises(SandboxUnavailable):
                 wrap_bash_in_sandbox(
-                    ["echo", "hi"], workspace_root=_REPO_ROOT, allow_network=False,
+                    ["echo", "hi"], workspace_root=_REPO_ROOT, 
                 )
 
 
@@ -651,6 +653,65 @@ def _exception_names_handled_in(source: str, function_name: str) -> set[str]:
             elif isinstance(target, ast.Attribute):
                 names.add(target.attr)
     return names
+
+
+class TheKernelCredentialIsThePreflight(unittest.TestCase):
+    """ARIA-MEDIUM-563 — the spawn's preflight reads the kernel's credential
+    boundary, not the host login: a host with a logged-in Claude but no
+    kernel token spawns nothing."""
+
+    def test_a_host_login_without_the_kernel_token_is_refused_before_any_spawn(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="aria-563-preflight-") as tmp:
+            home = Path(tmp) / "home"
+            (home / ".claude").mkdir(parents=True)
+            (home / ".claude" / ".credentials.json").write_text('{"fixture": "login"}', encoding="utf-8")
+            binaries = Path(tmp) / "bin"
+            binaries.mkdir()
+            (binaries / "claude").write_text("#!/bin/sh\necho '2.1.278 (Claude Code)'\n", encoding="utf-8")
+            (binaries / "claude").chmod(0o755)
+            environ = {"HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+                       "PATH": f"{binaries}:{os.environ.get('PATH', os.defpath)}"}
+            spawned: list = []
+            with patch.dict(os.environ, environ, clear=False), \
+                    patch.object(claude_runtime, "_run_spawn", side_effect=lambda *a, **k: spawned.append(a)):
+                os.environ.pop("ARIA_CLAUDE_OAUTH_TOKEN_FILE", None)
+                os.environ.pop(claude_runtime.AUTH_PREFLIGHT_SKIP_ENV_VAR, None)
+                with self.assertRaises(claude_runtime.ProviderCredentialAbsent) as refused:
+                    claude_runtime.run_claude_exec(prompt_text="hi", timeout_seconds=60, model="opus", cwd=tmp)
+            self.assertEqual(spawned, [])
+            self.assertEqual(refused.exception.detail["marker"], "claude_gateway_credential_absent")
+            self.assertEqual(refused.exception.detail["signature"], "claude_logged_out")
+            self.assertEqual(refused.exception.provider, "anthropic")
+            self.assertIn("credential_not_configured", str(refused.exception))
+
+    def test_a_token_inside_the_spawns_workspace_is_refused(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="aria-563-preflight-") as tmp:
+            token = Path(tmp) / "token"
+            token.write_text("fixture-" + "t" * 24 + "\n", encoding="utf-8")
+            token.chmod(0o600)
+            binaries = Path(tmp) / "bin"
+            binaries.mkdir()
+            (binaries / "claude").write_text("#!/bin/sh\necho '2.1.278 (Claude Code)'\n", encoding="utf-8")
+            (binaries / "claude").chmod(0o755)
+            with patch.dict(os.environ, {"ARIA_CLAUDE_OAUTH_TOKEN_FILE": str(token),
+                                         "PATH": f"{binaries}:{os.environ.get('PATH', os.defpath)}"}, clear=False):
+                os.environ.pop(claude_runtime.AUTH_PREFLIGHT_SKIP_ENV_VAR, None)
+                self.assertEqual(claude_runtime.preflight_claude_auth()["credential_source"], "kernel_file")
+                with self.assertRaises(claude_runtime.ProviderCredentialAbsent) as refused:
+                    claude_runtime.preflight_claude_auth(room_trees=(Path(tmp),))
+            self.assertIn("credential_file_in_room_tree", str(refused.exception))
+            self.assertNotIn("t" * 24, str(refused.exception))
+
+    def test_a_foreign_model_is_still_refused_by_name(self) -> None:
+        # The evidence the room needs no Z.ai road: the claude runtime never
+        # serves a GLM tier.
+        with self.assertRaises(claude_runtime.ClaudePolicyViolation) as refused:
+            claude_runtime.assert_model_served_by_claude_runtime("glm-5.3")
+        self.assertIn("model_not_served_by_claude_runtime", str(refused.exception))
 
 
 class RefusedSpawnReachesAnExecutorHandler(unittest.TestCase):

@@ -1062,9 +1062,10 @@ class TestV9PublicApi(unittest.TestCase):
             "SandboxUnavailable", "sandbox_backend",
             # ARIA-HIGH-123 — why sandbox_backend() answered None (the git
             # containment probe's reason), for the pre-claim gate's row; and
-            # the managed route's network setting, which the containment
-            # probe builds with so it proves the implementer's own argv.
-            "sandbox_unavailable_detail", "MANAGED_SPAWN_ALLOW_NETWORK",
+            # the managed route's provider route, which the containment
+            # probe builds with so it proves the implementer's own argv
+            # (ARIA-MEDIUM-563: a route key, no longer a network bool).
+            "sandbox_unavailable_detail", "MANAGED_SPAWN_PROVIDER",
             # ORPHAN-HIGH-470 — the limiter contract is typed for the same
             # reason: apply_resource_limits RAISES rather than handing back
             # bare argv when no limiter is usable.
@@ -1124,10 +1125,10 @@ class TestV9PublicApi(unittest.TestCase):
             # event. The limiter's bus plumbing is named and read by one owner
             # so every lane probes its limiter in the environment that launches
             # it; the managed Claude sandbox wrapper binds the resolved
-            # executable, the spawn's documents and one credential file into
-            # the private home (the mirror of the Codex runtime-state wrapper).
+            # executable and the spawn's documents (the mirror of the Codex
+            # runtime-state wrapper); no login file since ARIA-MEDIUM-563.
             "LIMITER_CONTROL_ENV_NAMES", "limiter_control_environment",
-            "wrap_managed_claude_in_sandbox", "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
+            "wrap_managed_claude_in_sandbox",
             # ARIA-HIGH-104 (2) — the one whole-entry matching rule the
             # pre-PR-open suite check and the merge gate's hygiene battery share.
             "canonical_command_satisfied_by",

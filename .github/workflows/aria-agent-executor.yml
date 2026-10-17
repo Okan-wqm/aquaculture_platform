@@ -3,7 +3,8 @@ name: aria-agent-executor
 # Plan ARIA-V3 §B1 — scheduled CI executor for ARIA's bound-agent
 # pipeline. Runs once per off-hours window OR on manual dispatch; pulls
 # the next pending agent request from the kernel's queue, invokes the
-# Claude Code CLI via a managed login session, submits the result.
+# Claude Code CLI through the kernel's provider gateway (ARIA-MEDIUM-563),
+# submits the result.
 #
 # Argv contract status (DEBT-2026-05-08-001 retired by V3 §B1): the
 # kernel-side argv shape is now PROVEN — see
@@ -520,21 +521,25 @@ jobs:
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
           if [ "${EFFECTIVE_MOCK}" = "false" ]; then
             if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then
-              echo "::error::API-key Claude mode is disallowed for ARIA; use a managed Claude Code login on the trusted runner." >&2
+              echo "::error::API-key Claude mode is disallowed for ARIA; use the kernel's Claude token (`claude setup-token` into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names) on the trusted runner." >&2
               exit 1
             fi
             claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \
               || { echo "::error::Claude Code CLI preflight failed" >&2; cat /tmp/aria-claude-auth.err >&2; exit 1; }
-            # ARIA-HIGH-441 — a missing managed login is reported, not a job
+            # ARIA-MEDIUM-563 — Claude's credential is the kernel's own token
+            # (`claude setup-token`, a 0600 file named by
+            # ARIA_CLAUDE_OAUTH_TOKEN_FILE) that the provider gateway injects;
+            # no spawn holds a login. The check is the kernel's one credential
+            # reader, so it cannot disagree with the gateway or the admission.
+            # ARIA-HIGH-441 — a refused boundary is reported, not a job
             # refusal: whether a request needs Claude is its route's question.
-            # The native admission probes `claude auth status` and cools a
-            # logged-out anthropic (claude_logged_out, which opens its outage);
-            # the spawn lane's pre-claim gate and the worker child cool it the
-            # same way. Work routed to Z.ai runs; work only Claude can run waits
-            # by name. Exiting here held every request, Z.ai's included.
-            CLAUDE_AUTH_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-            if [ ! -f "${CLAUDE_AUTH_DIR}/.credentials.json" ] && [ ! -f "${CLAUDE_AUTH_DIR}/config.json" ]; then
-              echo "::warning::Claude Code managed-auth session not found on the trusted runner; requests routed to Claude are cooled and wait, requests routed to Z.ai run" >&2
+            # The native admission reads the same boundary and cools anthropic
+            # (claude_logged_out, which opens its outage); the spawn lane's
+            # pre-claim gate and the worker child cool it the same way. Work
+            # routed to Z.ai runs; work only Claude can run waits by name.
+            # Exiting here held every request, Z.ai's included.
+            if ! CLAUDE_CREDENTIAL="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.provider_credentials check anthropic)"; then
+              echo "::warning::the kernel's Claude credential boundary refused (${CLAUDE_CREDENTIAL}); requests routed to Claude are cooled and wait, requests routed to Z.ai run" >&2
             fi
           fi
 

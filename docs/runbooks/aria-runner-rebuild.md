@@ -60,8 +60,8 @@ prevent.
   fine-grained PAT (step 3).
 - Read access to the production compose env file on the droplet (source
   of the observability key value, step 3).
-- The operator's Claude subscription account for the managed login
-  (step 4). API keys are NOT a substitute — the lanes hard-fail when
+- The operator's Claude subscription account, to mint the kernel's token
+  with `claude setup-token` (step 4). API keys are NOT a substitute — the lanes hard-fail when
   `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY` / `ANTHROPIC_AUTH_TOKEN` is set.
 - Egress to `github.com`, `api.github.com`, `api.anthropic.com`.
 - Create the service account: `useradd -m -s /bin/bash gharunner`
@@ -248,28 +248,38 @@ enters policy or ledgers. The value is the observability-service
 droplet's compose env file into the runner `.env` under the ARIA name.
 Rotating the observability key means updating both places.
 
-## Step 4 — Claude Code managed-login checklist (10 min)
+## Step 4 — Claude Code token checklist (10 min)
 
-ARIA's live runtime is Claude Code CLI under a **managed (subscription)
-login** on this trusted runner (`docs/aria/CURRENT_STATE.md` §Runtime).
+ARIA's live runtime is Claude Code CLI on the subscription
+(`docs/aria/CURRENT_STATE.md` §Runtime), reached through the kernel's
+provider gateway (ARIA-MEDIUM-563): no agent room holds a login or a token.
+The gateway injects the kernel's own credential — a dedicated long-lived
+token that `claude setup-token` mints — on every request it forwards.
 API-key mode is rejected by both lanes' preflight.
 
 1. Install Claude Code so the `gharunner` user can run it; verify the
    floor: `sudo -u gharunner claude --version` ≥ the `claude_code_floor` in
    `.github/manifests/aria-claude-floor.json`.
-2. Log in interactively AS `gharunner` (`sudo -u gharunner -i claude`,
-   then `/login`) with the managed subscription account.
-3. Confirm no API-key variables anywhere in the runner environment or
+2. Mint the kernel's token AS `gharunner` with the subscription account:
+   `sudo -u gharunner -i claude setup-token`. Write the printed token, and
+   nothing else, to `/home/gharunner/.config/aria/claude_oauth_token`
+   (one line), then `chmod 0600` it, owned by `gharunner`. The file must
+   lie outside every checkout: the kernel refuses a token inside one
+   (`credential_file_in_room_tree`).
+3. Add `ARIA_CLAUDE_OAUTH_TOKEN_FILE=/home/gharunner/.config/aria/claude_oauth_token`
+   to the runner `.env` and restart the runner service.
+4. Confirm no API-key variables anywhere in the runner environment or
    `.env`: `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
    must all be absent — preflight hard-fails when one is set.
-4. Evidence the preflight checks: `/home/gharunner/.claude/.credentials.json`
-   (or `config.json`; `CLAUDE_CONFIG_DIR` respected) exists.
-5. Live smoke: `sudo -u gharunner claude -p "say OK"` returns OK.
-   ORPHAN-CRITICAL-591 is why this step exists: an expired OAuth session
-   made five nights of executor runs fail as `claude_cli_exit_1`. The
-   failure now names itself (`claude_cli_auth_failure`), but renewal is
-   always this manual credential act — sessions expire, so re-run this
-   checklist whenever a night reports auth failure.
+5. Evidence the preflight checks — the kernel's one credential reader:
+   `sudo -u gharunner env ARIA_CLAUDE_OAUTH_TOKEN_FILE=/home/gharunner/.config/aria/claude_oauth_token PYTHONPATH=aria-kernel python3 -m aria_kernel.provider_credentials check anthropic`
+   prints `ok:file:<path>` (never the value).
+6. Re-mint before day 365 (the token's lifetime) and whenever a night
+   reports `claude_auth_failure`: repeat step 2 over the same file; the
+   gateway re-reads it per request, so no restart is needed.
+   ORPHAN-CRITICAL-591 is why this step exists: an expired credential made
+   five nights of executor runs fail as `claude_cli_exit_1`; the failure now
+   names itself (`claude_auth_failure`) and its remedy.
 
 ## Step 5 — State-store bootstrap pointer (2 min)
 

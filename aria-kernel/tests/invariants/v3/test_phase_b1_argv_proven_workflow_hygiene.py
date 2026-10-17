@@ -186,14 +186,17 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         # API-key / proxy-billing env vars are rejected in live mode.
         self.assertIn("ANTHROPIC_API_KEY", self.workflow_text)
         self.assertIn("ANTHROPIC_AUTH_TOKEN", self.workflow_text)
-        # Managed-auth credential surface is checked on the runner — and
-        # reported, never a job refusal (ARIA-HIGH-441): whether a request
-        # needs Claude is its route's question, and the lane cools a
-        # logged-out anthropic per request (claude_logged_out) while work
-        # routed to Z.ai runs.
-        self.assertIn(".credentials.json", self.workflow_text)
-        block = self.workflow_text.split('if [ ! -f "${CLAUDE_AUTH_DIR}/.credentials.json" ]', 1)[1].split("fi\n", 1)[0]
-        self.assertIn("::warning::Claude Code managed-auth session not found", block)
+        # The kernel's Claude credential boundary is checked on the runner
+        # through the kernel's one reader (ARIA-MEDIUM-563: the gateway's
+        # token, not the host login) — and reported, never a job refusal
+        # (ARIA-HIGH-441): whether a request needs Claude is its route's
+        # question, and the lane cools anthropic per request
+        # (claude_logged_out) while work routed to Z.ai runs.
+        self.assertNotIn(".credentials.json", self.workflow_text)
+        check = "python3 -m aria_kernel.provider_credentials check anthropic"
+        self.assertIn(check, self.workflow_text)
+        block = self.workflow_text.split(check, 1)[1].split("fi\n", 1)[0]
+        self.assertIn("::warning::the kernel's Claude credential boundary refused", block)
         self.assertNotIn("exit 1", block)
         # The retired Codex auth probes must be gone.
         self.assertNotIn("codex login status", self.workflow_text)

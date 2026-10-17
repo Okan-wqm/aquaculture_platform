@@ -1,9 +1,10 @@
 """ARIA-HIGH-441 — a Claude login that is gone holds only the work Claude must do.
 
 Operator decision 2026-10-10/11: while Claude is out, every area moves to Z.ai.
-"Out" is a spent quota (ARIA-HIGH-425) or a login that is gone. The native lane
-already asked its route: the admission probes `claude auth status` and the seam
-cools a logged-out anthropic (`claude_logged_out`). Three places asked Claude for
+"Out" is a spent quota (ARIA-HIGH-425) or a login that is gone — since
+ARIA-MEDIUM-563, the kernel's own Claude token (the gateway's credential) that
+is absent. The native lane already asked its route: the admission reads the
+kernel's credential boundary and the seam cools anthropic (`claude_logged_out`). Three places asked Claude for
 every request whatever its route:
 
 * the executor workflow exited the job on a missing managed-auth file (pinned in
@@ -13,7 +14,7 @@ every request whatever its route:
   the hook released `worker_executor_failed` and the scheduler — which does not
   back off on that status — re-claimed and re-spawned it at once, without end.
 
-What this pins, with the real preflight (a claude CLI on PATH, no login on disk),
+What this pins, with the real preflight (a claude CLI on PATH, no kernel token),
 the real routing table, the real cooldown and outage ledgers and the real hook:
 
 * the preflight's refusal is `ProviderCredentialAbsent` for anthropic
@@ -59,7 +60,7 @@ _REAL_RUN = subprocess.run
 
 
 class _LoggedOutHost(unittest.TestCase):
-    """A claude CLI on PATH and no managed login anywhere it would look."""
+    """A claude CLI on PATH and no kernel token (ARIA_CLAUDE_OAUTH_TOKEN_FILE unset)."""
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-441-"))
@@ -75,7 +76,7 @@ class _LoggedOutHost(unittest.TestCase):
         patcher = patch.dict(os.environ, environment)
         patcher.start()
         self.addCleanup(patcher.stop)
-        for name in ("ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP", "ARIA_ZAI_API_KEY_FILE", "ARIA_ZAI_API_KEY",
+        for name in ("ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP", "ARIA_CLAUDE_OAUTH_TOKEN_FILE", "ARIA_ZAI_API_KEY_FILE", "ARIA_ZAI_API_KEY",
                      "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
             os.environ.pop(name, None)
 
@@ -157,7 +158,7 @@ class TheSpawnLaneGateAsksTheRoute(_LoggedOutHost):
         table.write_text(json.dumps(document), encoding="utf-8")
         with patch.object(runtime_profiles, "profiles_path", return_value=table):
             refusal = self._refusal("evidence_judgment", "aria-evidence-judge")
-        self.assertTrue(str(refusal).startswith("claude_managed_auth_absent"), refusal)
+        self.assertTrue(str(refusal).startswith("claude_gateway_credential_absent"), refusal)
         self.assertEqual([row["provider"] for row in self._cooldowns(self.tools)], ["anthropic"],
                          "refused, and the operator is told: Anthropic's outage is open")
 

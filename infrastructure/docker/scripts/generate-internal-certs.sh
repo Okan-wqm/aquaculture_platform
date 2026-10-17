@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # Internal TLS Certificate Generator — Aquaculture Platform
-# Usage: ./generate-internal-certs.sh [--force]
+# Usage: ./generate-internal-certs.sh [--renew-leaves|--rotate-ca]
 # Output: ${DEPLOY_CERTS_DIR:-./certs}/{ca,nats,redis,postgres}/
 # =============================================================================
 set -euo pipefail
@@ -25,17 +25,31 @@ case "${CERTS_DIR}" in
   /*) ;;
   *) echo "error: CERTS_DIR must resolve to an absolute path" >&2; exit 2 ;;
 esac
-FORCE=false
-[ "${1:-}" = "--force" ] && FORCE=true
-# The source branch additionally refused `--force` whenever DEPLOY_CERTS_DIR
-# was set, because its deploy lane replaced proactive renewal with a staged
-# set plus an explicit consumer recreate. This deploy lane has no such step:
-# `scripts/deploy/droplet-up.sh` invokes `--force` itself when the redis server
-# certificate is inside 30 days of expiry, and recreates the consumers in the
-# same rollout. Carrying the refusal here would turn that renewal into a hard
-# deploy failure on the day the certificate is closest to expiring. Renewal is
-# nonetheless atomic: every asset below is written to a staged file in its own
-# directory and published by rename after cryptographic validation.
+# Renewal modes (INFRA-CRITICAL-233). Expiry is a reason to issue new leaves,
+# never a reason to replace the trust root: an application rollout leaves the
+# NATS broker and PostgreSQL running on the CA they started with, so a leaf
+# signed by any other CA splits every restarted service from them.
+#   (no option)     issue only what is missing; validate everything kept.
+#   --renew-leaves  issue every server and client leaf again under the existing
+#                   CA, which must be present and valid; it never mints one.
+#                   This is what scripts/deploy/droplet-up.sh runs on expiry.
+#   --rotate-ca     replace the CA and every leaf. An operator ceremony: every
+#                   consumer, infrastructure included, must be recreated after it,
+#                   so no deploy path passes it.
+# Any other argument is refused, so a stale caller fails instead of guessing.
+# Every asset below is written to a staged file in its own directory and
+# published by rename after cryptographic validation.
+RENEW_LEAVES=false
+ROTATE_CA=false
+case "$#:${1:-}" in
+  0:) ;;
+  1:--renew-leaves) RENEW_LEAVES=true ;;
+  1:--rotate-ca) RENEW_LEAVES=true; ROTATE_CA=true ;;
+  *)
+    echo "error: usage: generate-internal-certs.sh [--renew-leaves|--rotate-ca]" >&2
+    exit 2
+    ;;
+esac
 GENERATED_STAGE=''
 declare -a GENERATED_STAGE_PATHS=()
 declare -a GENERATED_STAGE_DIRECTORIES=()
@@ -281,7 +295,7 @@ validate_certificate_key_pair() {
   local purpose="$5" label="$6" actual_subject key_digest cert_digest
 
   if ! actual_subject=$(certificate_subject "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${actual_subject}" != "${expected_subject}" ]; then
     certificate_store_error \
@@ -289,10 +303,10 @@ validate_certificate_key_pair() {
     return
   fi
   if ! key_digest=$(public_key_digest_from_private_key "${key_path}" "${label} private key"); then
-    return
+    return 1
   fi
   if ! cert_digest=$(public_key_digest_from_certificate "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${key_digest}" != "${cert_digest}" ]; then
     certificate_store_error "${label} certificate and private key do not match"
@@ -314,7 +328,7 @@ validate_certificate_authority() {
   local actual_subject key_digest cert_digest
 
   if ! actual_subject=$(certificate_subject "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${actual_subject}" != 'CN=Aquaculture Internal CA' ]; then
     certificate_store_error \
@@ -322,10 +336,10 @@ validate_certificate_authority() {
     return
   fi
   if ! key_digest=$(public_key_digest_from_private_key "${key_path}" "${label} private key"); then
-    return
+    return 1
   fi
   if ! cert_digest=$(public_key_digest_from_certificate "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${key_digest}" != "${cert_digest}" ]; then
     certificate_store_error "${label} certificate and private key do not match"
@@ -482,7 +496,7 @@ generate_server_cert() {
     *) echo "error: invalid private-key mode for ${name}: ${key_mode}" >&2; exit 1 ;;
   esac
   assert_certificate_directory "${dir}" "${name} server directory"
-  if [ "$FORCE" = false ] && certificate_set_has_any_path \
+  if [ "$RENEW_LEAVES" = false ] && certificate_set_has_any_path \
     "${dir}/${name}-key.pem" "${dir}/${name}-cert.pem" "${dir}/ca-cert.pem"; then
     validate_existing_server_set "${name}" "${cn}" "${key_mode}" "${dir}"
     echo "  [skip] ${name}"
@@ -554,7 +568,7 @@ generate_per_service_client_cert() {
   fi
   assert_certificate_directory "${CERTS_DIR}/nats" 'NATS certificate directory'
   assert_certificate_directory "${out_dir}" 'NATS client identity directory'
-  if [ "$FORCE" = false ] && certificate_set_has_any_path "${key_path}" "${cert_path}"; then
+  if [ "$RENEW_LEAVES" = false ] && certificate_set_has_any_path "${key_path}" "${cert_path}"; then
     validate_existing_client_set \
       "${key_path}" "${cert_path}" "CN=${svc_user}" "${svc_user} client"
     echo "  [skip] ${svc_user} client"
@@ -600,13 +614,17 @@ generate_per_service_client_cert() {
 echo "=== Generating Internal TLS Certificates ==="
 CA_DIR="${CERTS_DIR}/ca"
 assert_certificate_directory "${CA_DIR}" 'certificate authority directory'
-if [ "$FORCE" = false ] && certificate_set_has_any_path \
+if [ "$ROTATE_CA" = false ] && certificate_set_has_any_path \
   "${CA_DIR}/ca-key.pem" "${CA_DIR}/ca-cert.pem"; then
   validate_existing_certificate_asset "${CA_DIR}/ca-key.pem" 0600 'certificate authority private key'
   validate_existing_certificate_asset "${CA_DIR}/ca-cert.pem" 0644 'certificate authority certificate'
   validate_certificate_authority \
     "${CA_DIR}/ca-key.pem" "${CA_DIR}/ca-cert.pem" 'certificate authority'
   echo "  [skip] CA"
+elif [ "$RENEW_LEAVES" = true ] && [ "$ROTATE_CA" = false ]; then
+  # Minting a CA here would hand renewed leaves a root no running consumer holds.
+  certificate_store_error 'leaf renewal requires an existing validated certificate authority'
+  exit 1
 else
   require_safe_generation_target "${CA_DIR}/ca-key.pem" 'certificate authority private key'
   require_safe_generation_target "${CA_DIR}/ca-cert.pem" 'certificate authority certificate'

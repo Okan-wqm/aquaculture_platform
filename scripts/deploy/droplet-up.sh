@@ -985,8 +985,12 @@ fi
 # skip-if-exists logic (line 45-46 of generate-internal-certs.sh)
 # makes the no-op case ~100ms total. New per-service certs added in
 # lockstep with services.yaml will land on next deploy automatically,
-# without operator intervention. --force is reserved for proactive
-# renewal of existing certs nearing expiry.
+# without operator intervention. --renew-leaves is reserved for proactive
+# renewal of existing leaves nearing expiry. It keeps, and requires, the
+# validated CA: NATS and PostgreSQL keep running across an application
+# rollout on the CA they started with (INFRA-CRITICAL-233). Replacing the CA
+# (--rotate-ca) is an operator ceremony that recreates every consumer; no
+# deploy path passes it.
 echo "=== TLS certificate generation (always-run; idempotent) ==="
 # Read TLS material from the persistent certs dir (DEPLOY_CERTS_DIR), which is
 # symlinked into the checkout as ./certs — generate-internal-certs.sh writes
@@ -1000,15 +1004,15 @@ if [ -f "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" ]; then
     DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
     echo "  Server certificate expires in ${DAYS_LEFT} days"
     if [ "$DAYS_LEFT" -lt 30 ]; then
-      echo "  Expiring soon — proactive full regeneration"
+      echo "  Expiring soon — renewing every leaf under the existing CA"
       CERT_RENEW=true
     fi
   fi
 fi
 if [ "$CERT_RENEW" = true ]; then
-  bash infrastructure/docker/scripts/generate-internal-certs.sh --force
+  bash infrastructure/docker/scripts/generate-internal-certs.sh --renew-leaves
 else
-  # No --force: script generates ONLY missing certs; existing valid
+  # No option: script generates ONLY missing certs; existing valid
   # certs stay untouched. Catches "new service added since last
   # deploy" → its client cert gets generated even if shared CA cert
   # is still valid for 300+ days.

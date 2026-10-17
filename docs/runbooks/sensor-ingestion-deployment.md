@@ -115,9 +115,11 @@ Per-service NATS mTLS certs are minted by `infrastructure/docker/scripts/generat
 
 1. **Mint the new certs** on the build machine:
    ```bash
-   FORCE=true bash infrastructure/docker/scripts/generate-internal-certs.sh
+   bash infrastructure/docker/scripts/generate-internal-certs.sh --renew-leaves
    ```
-   `FORCE=true` overwrites the existing cert files (default behaviour is skip-if-present). The CA itself is NOT rotated by this script — CA rotation is separately covered in a future ADR.
+   `--renew-leaves` issues every leaf again under the existing CA, which it requires and never
+   replaces (default behaviour is skip-if-present). Replacing the CA is `--rotate-ca`, an
+   operator ceremony after which every consumer, `nats` and `postgres` included, is recreated.
 
 2. **Copy to every droplet + cluster secret store** — the certs live under `certs/nats/clients/` in the repo working tree; deploy pipelines rsync or sealed-secret-sync them.
 

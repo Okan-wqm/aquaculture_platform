@@ -1,4 +1,5 @@
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   copyFileSync,
@@ -67,8 +68,9 @@ const EXPECTED_NATS_IDENTITIES: Readonly<Record<string, string>> = {
 function runGenerator(
   certsDirectory: string,
   environment: Readonly<Record<string, string>> = {},
+  options: readonly string[] = [],
 ): SpawnSyncReturns<string> {
-  return spawnSync('/bin/bash', [GENERATOR_PATH], {
+  return spawnSync('/bin/bash', [GENERATOR_PATH, ...options], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     env: {
@@ -235,7 +237,269 @@ function compose(): ComposeDocument {
   return yaml.load(readFileSync(COMPOSE_PATH, 'utf8')) as ComposeDocument;
 }
 
+function verifiesAgainst(caPath: string, certificatePath: string, purpose: string): boolean {
+  return (
+    spawnSync(
+      '/usr/bin/openssl',
+      [
+        'verify',
+        '-CAfile',
+        caPath,
+        '-no-CApath',
+        '-no-CAstore',
+        '-purpose',
+        purpose,
+        certificatePath,
+      ],
+      { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' } },
+    ).status === 0
+  );
+}
+
+// The server leaves, CA copies and one client leaf that consumers open at start.
+const SERVER_LEAVES = ['nats/nats-cert.pem', 'redis/redis-cert.pem', 'postgres/postgres-cert.pem'];
+const CA_COPIES = ['nats/ca-cert.pem', 'redis/ca-cert.pem', 'postgres/ca-cert.pem'];
+const CLIENT_LEAF = 'nats/clients/auth_service-cert.pem';
+
+/** SHA-256 of each file, so a changed identity reads as one changed line. */
+function snapshot(certs: string, paths: readonly string[]): Record<string, string> {
+  return Object.fromEntries(
+    paths.map((path) => [
+      path,
+      createHash('sha256')
+        .update(readFileSync(join(certs, path)))
+        .digest('hex'),
+    ]),
+  );
+}
+
+/**
+ * The generator options the deploy passes when a leaf nears expiry, read from
+ * droplet-up.sh itself so the test drives the deploy's own renewal argv.
+ */
+function deployRenewalOptions(): readonly string[] {
+  const deploy = readFileSync(join(REPO_ROOT, 'scripts/deploy/droplet-up.sh'), 'utf8');
+  const invocations = deploy.match(
+    /^\s*bash infrastructure\/docker\/scripts\/generate-internal-certs\.sh\b.*$/gm,
+  );
+  const renewal =
+    /if \[ "\$CERT_RENEW" = true \]; then\n\s*bash infrastructure\/docker\/scripts\/generate-internal-certs\.sh((?: [^\n]*)?)\n/.exec(
+      deploy,
+    );
+  if (renewal === null) throw new Error('droplet-up.sh renewal invocation is missing');
+  // Exactly two calls: the renewal branch and the ordinary missing-only run.
+  expect((invocations ?? []).map((line) => line.trim())).toEqual([
+    `bash infrastructure/docker/scripts/generate-internal-certs.sh${renewal[1]}`,
+    'bash infrastructure/docker/scripts/generate-internal-certs.sh',
+  ]);
+  return renewal[1]
+    .trim()
+    .split(/\s+/)
+    .filter((option) => option.length > 0);
+}
+
 describe('production certificate identity store', () => {
+  it('renews every leaf under the CA the running consumers already hold (INFRA-CRITICAL-233)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-cert-leaf-renewal-'));
+    const certs = join(root, 'certs');
+    const running = join(root, 'running');
+    const authorityPaths = ['ca/ca-key.pem', 'ca/ca-cert.pem', ...CA_COPIES];
+    const leafPaths = [...SERVER_LEAVES, CLIENT_LEAF];
+    const options = deployRenewalOptions();
+    const renew = (): SpawnSyncReturns<string> => runGenerator(certs, {}, options);
+    mkdirSync(certs, { mode: 0o700 });
+    mkdirSync(running, { mode: 0o700 });
+
+    try {
+      const bootstrap = runGenerator(certs);
+      expect({ status: bootstrap.status, stderr: bootstrap.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      });
+      // An application rollout leaves the broker running on what it opened at
+      // start: its CA copy and its server leaf (single-file bind mounts).
+      copyFileSync(join(certs, 'nats/ca-cert.pem'), join(running, 'broker-ca.pem'));
+      copyFileSync(join(certs, 'nats/nats-cert.pem'), join(running, 'broker-server.pem'));
+      const authority = snapshot(certs, authorityPaths);
+      const leaves = snapshot(certs, leafPaths);
+
+      const renewed = renew();
+      expect({ options, status: renewed.status, stderr: renewed.stderr }).toEqual({
+        options,
+        status: 0,
+        stderr: '',
+      });
+      expect(snapshot(certs, authorityPaths)).toEqual(authority);
+      const renewedLeaves = snapshot(certs, leafPaths);
+      expect(leafPaths.filter((path) => renewedLeaves[path] === leaves[path])).toEqual([]);
+      // Both directions of the handshake between a restarted service and the
+      // broker that kept running: the broker's old leaf passes the restarted
+      // client's CA copy, and the client's new leaf passes the broker's CA.
+      expect({
+        restartedClientTrustsRunningBroker: verifiesAgainst(
+          join(certs, 'nats/ca-cert.pem'),
+          join(running, 'broker-server.pem'),
+          'sslserver',
+        ),
+        runningBrokerTrustsRestartedClient: verifiesAgainst(
+          join(running, 'broker-ca.pem'),
+          join(certs, CLIENT_LEAF),
+          'sslclient',
+        ),
+        runningBrokerCaTrustsRenewedServerLeaf: verifiesAgainst(
+          join(running, 'broker-ca.pem'),
+          join(certs, 'nats/nats-cert.pem'),
+          'sslserver',
+        ),
+      }).toEqual({
+        restartedClientTrustsRunningBroker: true,
+        runningBrokerTrustsRestartedClient: true,
+        runningBrokerCaTrustsRenewedServerLeaf: true,
+      });
+
+      // Renewal refuses a trust root it cannot validate and changes nothing.
+      const caCertificate = join(certs, 'ca/ca-cert.pem');
+      const caKey = join(certs, 'ca/ca-key.pem');
+      const caCertificateBytes = readFileSync(caCertificate);
+      const caKeyBytes = readFileSync(caKey);
+      const alternate = generateAlternateClientIdentity(root, 'auth_service');
+      for (const [path, bytes, fragment] of [
+        [caCertificate, Buffer.from('invalid X.509\n'), 'not a parseable X.509 certificate'],
+        [caKey, Buffer.from('invalid private key\n'), 'not a parseable private key'],
+        [
+          caCertificate,
+          readFileSync(alternate.caCertificate),
+          'certificate and private key do not match',
+        ],
+      ] as const) {
+        writeFileSync(path, bytes);
+        expectFailure(renew(), fragment);
+        expect(snapshot(certs, leafPaths)).toEqual(renewedLeaves);
+        writeFileSync(caCertificate, caCertificateBytes);
+        writeFileSync(caKey, caKeyBytes);
+      }
+
+      // The retired ambiguous spelling and unknown options are refused.
+      for (const refused of [['--force'], ['--renew'], ['--renew-leaves', '--rotate-ca']]) {
+        const result = runGenerator(certs, {}, refused);
+        expect({ refused, status: result.status }).toEqual({ refused, status: 2 });
+        expect(result.stderr).toContain('usage:');
+        expect(snapshot(certs, [...authorityPaths, ...leafPaths])).toEqual({
+          ...authority,
+          ...renewedLeaves,
+        });
+      }
+    } finally {
+      removeFixtureTree(root);
+    }
+
+    // Renewal never mints a trust root: an empty store has nothing to renew under.
+    const empty = mkdtempSync(join(tmpdir(), 'aqua-cert-leaf-renewal-empty-'));
+    try {
+      const emptyCerts = join(empty, 'certs');
+      mkdirSync(emptyCerts, { mode: 0o700 });
+      expectFailure(
+        runGenerator(emptyCerts, {}, options),
+        'leaf renewal requires an existing validated certificate authority',
+      );
+      expect(existsSync(join(emptyCerts, 'ca/ca-key.pem'))).toBe(false);
+      expect(existsSync(join(emptyCerts, 'nats/nats-cert.pem'))).toBe(false);
+    } finally {
+      removeFixtureTree(empty);
+    }
+  });
+
+  it('replaces the CA only when asked to by name, and re-signs every leaf under it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-cert-ca-rotation-'));
+    const certs = join(root, 'certs');
+    mkdirSync(certs, { mode: 0o700 });
+    try {
+      expect(runGenerator(certs).status).toBe(0);
+      const previousCa = join(root, 'previous-ca.pem');
+      copyFileSync(join(certs, 'ca/ca-cert.pem'), previousCa);
+      const authority = snapshot(certs, ['ca/ca-key.pem', 'ca/ca-cert.pem']);
+
+      const rotated = runGenerator(certs, {}, ['--rotate-ca']);
+      expect({ status: rotated.status, stderr: rotated.stderr }).toEqual({ status: 0, stderr: '' });
+      const rotatedAuthority = snapshot(certs, ['ca/ca-key.pem', 'ca/ca-cert.pem']);
+      expect(rotatedAuthority['ca/ca-key.pem']).not.toBe(authority['ca/ca-key.pem']);
+      expect(rotatedAuthority['ca/ca-cert.pem']).not.toBe(authority['ca/ca-cert.pem']);
+      const caCertificate = join(certs, 'ca/ca-cert.pem');
+      expect(snapshot(certs, CA_COPIES)).toEqual(
+        Object.fromEntries(CA_COPIES.map((path) => [path, rotatedAuthority['ca/ca-cert.pem']])),
+      );
+      for (const path of SERVER_LEAVES) {
+        expect({
+          path,
+          verifies: verifiesAgainst(caCertificate, join(certs, path), 'sslserver'),
+        }).toEqual({
+          path,
+          verifies: true,
+        });
+      }
+      // Why rotation is a ceremony and not a deploy step: a consumer still
+      // holding the previous CA refuses every leaf the rotation issued.
+      expect(verifiesAgainst(previousCa, join(certs, CLIENT_LEAF), 'sslclient')).toBe(false);
+    } finally {
+      removeFixtureTree(root);
+    }
+  });
+
+  it('refuses an unparseable identity instead of skipping it as valid (INFRA-MEDIUM-234)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-cert-unparseable-'));
+    const certs = join(root, 'certs');
+    mkdirSync(certs, { mode: 0o700 });
+    try {
+      expect(runGenerator(certs).status).toBe(0);
+      for (const { path, fragment, skipLine } of [
+        {
+          path: 'nats/nats-cert.pem',
+          fragment: 'nats server certificate is not a parseable X.509 certificate',
+          skipLine: '[skip] nats',
+        },
+        {
+          path: CLIENT_LEAF.replace('-cert.pem', '-key.pem'),
+          fragment: 'auth_service client private key is not a parseable private key',
+          skipLine: '[skip] auth_service client',
+        },
+        {
+          path: 'ca/ca-cert.pem',
+          fragment: 'certificate authority certificate is not a parseable X.509 certificate',
+          skipLine: '[skip] CA',
+        },
+        {
+          path: 'ca/ca-key.pem',
+          fragment: 'certificate authority private key is not a parseable private key',
+          skipLine: '[skip] CA',
+        },
+      ]) {
+        const target = join(certs, path);
+        const original = readFileSync(target);
+        writeFileSync(target, 'garbage\n');
+        const result = runGenerator(certs);
+        expect({
+          path,
+          failed: result.status !== 0,
+          skipped: result.stdout.includes(skipLine),
+        }).toEqual({
+          path,
+          failed: true,
+          skipped: false,
+        });
+        expect(result.stderr).toContain(fragment);
+        writeFileSync(target, original);
+      }
+      expect(runGenerator(certs).status).toBe(0);
+    } finally {
+      removeFixtureTree(root);
+    }
+
+    // The class, not only these six branches: a bare `return` straight after a
+    // negated test returns that test's status, 0, from a failure branch.
+    const generator = readFileSync(GENERATOR_PATH, 'utf8');
+    expect(generator.match(/^\s*if ! [^\n]*; then\n\s*return\s*$/gm) ?? []).toEqual([]);
+  });
+
   it('generates real identities idempotently and rejects metadata or cryptographic relabeling', () => {
     const root = mkdtempSync(join(tmpdir(), 'aqua-cert-identity-store-'));
     const certs = join(root, 'certs');

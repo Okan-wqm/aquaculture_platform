@@ -31,6 +31,10 @@ replacement gets an explicit name of its own that the deploy never passes.
 The old row's second half, PostgreSQL mounts from mixed releases, is ORPHAN-CRITICAL-810 (OPEN)
 and is not part of this row.
 
+Landed: `--renew-leaves` re-issues every leaf under the existing, validated CA and refuses to
+mint one; `--rotate-ca` replaces it; `--force` and unknown options exit 2. The deploy passes
+`--renew-leaves`. `production-cert-identity-store.spec.ts` runs the deploy's own renewal argv.
+
 ## INFRA-MEDIUM-234
 
 `validate_certificate_key_pair` and `validate_certificate_authority` end six failure branches
@@ -41,6 +45,9 @@ logs its error, the generator prints `[skip]`, and the run exits 0. With `garbag
 and NATS fails at container start.
 
 Planned fix: every failure branch returns 1, and the spec refuses the bare-return pattern.
+
+Landed: the six branches return 1. The spec breaks a server leaf, a client key, the CA
+certificate and the CA key in turn; each run fails without `[skip]`, and the pattern is refused.
 
 ## INFRA-HIGH-235
 

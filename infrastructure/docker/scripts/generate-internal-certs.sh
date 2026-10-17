@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # Internal TLS Certificate Generator — Aquaculture Platform
-# Usage: ./generate-internal-certs.sh [--force]
+# Usage: ./generate-internal-certs.sh [--renew-leaves|--rotate-ca]
 # Output: ${DEPLOY_CERTS_DIR:-./certs}/{ca,nats,redis,postgres}/
 # =============================================================================
 set -euo pipefail
@@ -25,17 +25,46 @@ case "${CERTS_DIR}" in
   /*) ;;
   *) echo "error: CERTS_DIR must resolve to an absolute path" >&2; exit 2 ;;
 esac
-FORCE=false
-[ "${1:-}" = "--force" ] && FORCE=true
-# The source branch additionally refused `--force` whenever DEPLOY_CERTS_DIR
-# was set, because its deploy lane replaced proactive renewal with a staged
-# set plus an explicit consumer recreate. This deploy lane has no such step:
-# `scripts/deploy/droplet-up.sh` invokes `--force` itself when the redis server
-# certificate is inside 30 days of expiry, and recreates the consumers in the
-# same rollout. Carrying the refusal here would turn that renewal into a hard
-# deploy failure on the day the certificate is closest to expiring. Renewal is
-# nonetheless atomic: every asset below is written to a staged file in its own
-# directory and published by rename after cryptographic validation.
+# Renewal modes (INFRA-CRITICAL-233). Expiry is a reason to issue new leaves,
+# never a reason to replace the trust root: an application rollout leaves the
+# NATS broker and PostgreSQL running on the CA they started with, so a leaf
+# signed by any other CA splits every restarted service from them.
+#   (no option)     issue only what is missing; validate everything kept. Once
+#                   any managed leaf is inside LEAF_RENEWAL_WINDOW_DAYS of expiry,
+#                   renew every leaf as --renew-leaves does. Every deploy path
+#                   runs this and passes no option: the renewal decision lives
+#                   here, beside the managed set it reads.
+#   --renew-leaves  issue every server and client leaf again under the existing
+#                   CA, which must be present and valid; it never mints one.
+#   --rotate-ca     replace the CA and every leaf. An operator ceremony: every
+#                   consumer, infrastructure included, must be recreated after it,
+#                   so no deploy path passes it.
+# Except under --rotate-ca, nothing is issued until the store proves it was
+# issued under the CA in ca/ (require_store_issued_under_kept_ca), and a CA is
+# minted only into a store that holds no identity issued under another.
+# Any other argument is refused, so a stale caller fails instead of guessing.
+# Every asset below is written to a staged file in its own directory and
+# published by rename after cryptographic validation.
+RENEW_LEAVES=false
+ROTATE_CA=false
+case "$#:${1:-}" in
+  0:) ;;
+  1:--renew-leaves) RENEW_LEAVES=true ;;
+  1:--rotate-ca) RENEW_LEAVES=true; ROTATE_CA=true ;;
+  *)
+    echo "error: usage: generate-internal-certs.sh [--renew-leaves|--rotate-ca]" >&2
+    exit 2
+    ;;
+esac
+LEAF_VALIDITY_DAYS=365
+LEAF_RENEWAL_WINDOW_DAYS=30
+# The server sets issued below, in order; the continuity and expiry checks read
+# the same list (production-cert-identity-store.spec.ts pins the two together).
+MANAGED_SERVER_NAMES=(nats redis postgres)
+declare -a MANAGED_LEAF_CERTS=()
+declare -a MANAGED_LEAF_KEYS=()
+declare -a MANAGED_LEAF_PURPOSES=()
+declare -a MANAGED_LEAF_LABELS=()
 GENERATED_STAGE=''
 declare -a GENERATED_STAGE_PATHS=()
 declare -a GENERATED_STAGE_DIRECTORIES=()
@@ -281,7 +310,7 @@ validate_certificate_key_pair() {
   local purpose="$5" label="$6" actual_subject key_digest cert_digest
 
   if ! actual_subject=$(certificate_subject "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${actual_subject}" != "${expected_subject}" ]; then
     certificate_store_error \
@@ -289,10 +318,10 @@ validate_certificate_key_pair() {
     return
   fi
   if ! key_digest=$(public_key_digest_from_private_key "${key_path}" "${label} private key"); then
-    return
+    return 1
   fi
   if ! cert_digest=$(public_key_digest_from_certificate "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${key_digest}" != "${cert_digest}" ]; then
     certificate_store_error "${label} certificate and private key do not match"
@@ -314,7 +343,7 @@ validate_certificate_authority() {
   local actual_subject key_digest cert_digest
 
   if ! actual_subject=$(certificate_subject "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${actual_subject}" != 'CN=Aquaculture Internal CA' ]; then
     certificate_store_error \
@@ -322,10 +351,10 @@ validate_certificate_authority() {
     return
   fi
   if ! key_digest=$(public_key_digest_from_private_key "${key_path}" "${label} private key"); then
-    return
+    return 1
   fi
   if ! cert_digest=$(public_key_digest_from_certificate "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${key_digest}" != "${cert_digest}" ]; then
     certificate_store_error "${label} certificate and private key do not match"
@@ -408,6 +437,101 @@ validate_existing_client_set() {
     "${label}"
 }
 
+add_managed_leaf() {
+  MANAGED_LEAF_CERTS+=("$1")
+  MANAGED_LEAF_KEYS+=("$2")
+  MANAGED_LEAF_PURPOSES+=("$3")
+  MANAGED_LEAF_LABELS+=("$4")
+}
+
+store_holds_issued_identity() {
+  local index name
+  for index in "${!MANAGED_LEAF_CERTS[@]}"; do
+    if path_exists "${MANAGED_LEAF_CERTS[index]}" || path_exists "${MANAGED_LEAF_KEYS[index]}"; then
+      return 0
+    fi
+  done
+  for name in "${MANAGED_SERVER_NAMES[@]}"; do
+    if path_exists "${CERTS_DIR}/${name}/ca-cert.pem"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# INFRA-CRITICAL-233: a running consumer holds the root its CA copy is and its
+# leaf chains to. Issuing under ca/ is safe only when the store shows that root
+# and no other, so this runs before anything is published, and a refusal leaves
+# every file as it was. Time is not checked: an expired leaf still names the
+# root it was issued under.
+require_store_issued_under_kept_ca() {
+  local index name path label
+
+  for name in "${MANAGED_SERVER_NAMES[@]}"; do
+    path="${CERTS_DIR}/${name}/ca-cert.pem"
+    if path_exists "${path}"; then
+      if [ -L "${path}" ] || [ ! -f "${path}" ]; then
+        certificate_store_error "${name} server CA certificate is not a regular non-symlink file: ${path}"
+        return 1
+      fi
+      validate_canonical_ca_copy "${path}" "${name} server CA certificate" || return 1
+    fi
+  done
+  for index in "${!MANAGED_LEAF_CERTS[@]}"; do
+    path=${MANAGED_LEAF_CERTS[index]}
+    label="${MANAGED_LEAF_LABELS[index]} certificate"
+    if ! path_exists "${path}"; then
+      continue
+    fi
+    if [ -L "${path}" ] || [ ! -f "${path}" ]; then
+      certificate_store_error "${label} is not a regular non-symlink file: ${path}"
+      return 1
+    fi
+    certificate_subject "${path}" "${label}" >/dev/null || return 1
+    if ! openssl verify \
+      -CAfile "${CERTS_DIR}/ca/ca-cert.pem" \
+      -no-CApath \
+      -no-CAstore \
+      -no_check_time \
+      -purpose "${MANAGED_LEAF_PURPOSES[index]}" \
+      "${path}" >/dev/null 2>&1; then
+      certificate_store_error \
+        "${label} was not issued under the kept certificate authority; restore ca/ or replace every identity with --rotate-ca: ${path}"
+      return 1
+    fi
+  done
+}
+
+# Prints the label of the first managed leaf inside the renewal window. Runs
+# after require_store_issued_under_kept_ca, so every present leaf parses.
+first_leaf_due_for_renewal() {
+  local index
+
+  for index in "${!MANAGED_LEAF_CERTS[@]}"; do
+    if path_exists "${MANAGED_LEAF_CERTS[index]}" && ! openssl x509 \
+      -in "${MANAGED_LEAF_CERTS[index]}" \
+      -noout \
+      -checkend "$((LEAF_RENEWAL_WINDOW_DAYS * 86400))" >/dev/null 2>&1; then
+      printf '%s\n' "${MANAGED_LEAF_LABELS[index]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# A leaf that outlives its CA fails every handshake on the CA's notAfter, so no
+# leaf is issued under a CA that expires first.
+require_ca_outlives_new_leaf() {
+  if ! openssl x509 \
+    -in "${CERTS_DIR}/ca/ca-cert.pem" \
+    -noout \
+    -checkend "$((LEAF_VALIDITY_DAYS * 86400))" >/dev/null 2>&1; then
+    certificate_store_error \
+      "the certificate authority expires before a new ${LEAF_VALIDITY_DAYS}-day leaf would; replace it with --rotate-ca"
+    return 1
+  fi
+}
+
 require_safe_generation_target() {
   local path="$1" label="$2" actual_uid actual_links
 
@@ -482,12 +606,13 @@ generate_server_cert() {
     *) echo "error: invalid private-key mode for ${name}: ${key_mode}" >&2; exit 1 ;;
   esac
   assert_certificate_directory "${dir}" "${name} server directory"
-  if [ "$FORCE" = false ] && certificate_set_has_any_path \
+  if [ "$RENEW_LEAVES" = false ] && certificate_set_has_any_path \
     "${dir}/${name}-key.pem" "${dir}/${name}-cert.pem" "${dir}/ca-cert.pem"; then
     validate_existing_server_set "${name}" "${cn}" "${key_mode}" "${dir}"
     echo "  [skip] ${name}"
     return
   fi
+  require_ca_outlives_new_leaf
   require_safe_generation_target "${dir}/${name}-key.pem" "${name} server private key"
   require_safe_generation_target "${dir}/${name}-cert.pem" "${name} server certificate"
   require_safe_generation_target "${dir}/ca-cert.pem" "${name} server CA certificate"
@@ -504,7 +629,7 @@ generate_server_cert() {
   openssl genrsa -out "${key_stage}" 2048 2>/dev/null
   openssl req -new -key "${key_stage}" -out "${csr_stage}" \
     -subj "/CN=${cn}/O=Aquaculture Platform" -addext "subjectAltName=${san}" 2>/dev/null
-  openssl x509 -req -days 365 -in "${csr_stage}" \
+  openssl x509 -req -days "${LEAF_VALIDITY_DAYS}" -in "${csr_stage}" \
     -CA "${CERTS_DIR}/ca/ca-cert.pem" -CAkey "${CERTS_DIR}/ca/ca-key.pem" \
     -set_serial "0x${cert_serial}" -out "${cert_stage}" -copy_extensions copyall 2>/dev/null
   cp --no-preserve=mode,ownership -- "${CERTS_DIR}/ca/ca-cert.pem" "${ca_stage}"
@@ -554,12 +679,13 @@ generate_per_service_client_cert() {
   fi
   assert_certificate_directory "${CERTS_DIR}/nats" 'NATS certificate directory'
   assert_certificate_directory "${out_dir}" 'NATS client identity directory'
-  if [ "$FORCE" = false ] && certificate_set_has_any_path "${key_path}" "${cert_path}"; then
+  if [ "$RENEW_LEAVES" = false ] && certificate_set_has_any_path "${key_path}" "${cert_path}"; then
     validate_existing_client_set \
       "${key_path}" "${cert_path}" "CN=${svc_user}" "${svc_user} client"
     echo "  [skip] ${svc_user} client"
     return
   fi
+  require_ca_outlives_new_leaf
   require_safe_generation_target "${key_path}" "${svc_user} client private key"
   require_safe_generation_target "${cert_path}" "${svc_user} client certificate"
   create_stage_file "${out_dir}/.${svc_user}-key.pem.XXXXXX"
@@ -578,7 +704,7 @@ generate_per_service_client_cert() {
   openssl req -new -key "${key_stage}" \
     -out "${csr_stage}" \
     -subj "/CN=${svc_user}" 2>/dev/null
-  openssl x509 -req -days 365 -in "${csr_stage}" \
+  openssl x509 -req -days "${LEAF_VALIDITY_DAYS}" -in "${csr_stage}" \
     -CA "${CERTS_DIR}/ca/ca-cert.pem" -CAkey "${CERTS_DIR}/ca/ca-key.pem" \
     -set_serial "0x${cert_serial}" -out "${cert_stage}" 2>/dev/null
   chmod 0644 "${key_stage}" "${cert_stage}"
@@ -598,38 +724,6 @@ generate_per_service_client_cert() {
 }
 
 echo "=== Generating Internal TLS Certificates ==="
-CA_DIR="${CERTS_DIR}/ca"
-assert_certificate_directory "${CA_DIR}" 'certificate authority directory'
-if [ "$FORCE" = false ] && certificate_set_has_any_path \
-  "${CA_DIR}/ca-key.pem" "${CA_DIR}/ca-cert.pem"; then
-  validate_existing_certificate_asset "${CA_DIR}/ca-key.pem" 0600 'certificate authority private key'
-  validate_existing_certificate_asset "${CA_DIR}/ca-cert.pem" 0644 'certificate authority certificate'
-  validate_certificate_authority \
-    "${CA_DIR}/ca-key.pem" "${CA_DIR}/ca-cert.pem" 'certificate authority'
-  echo "  [skip] CA"
-else
-  require_safe_generation_target "${CA_DIR}/ca-key.pem" 'certificate authority private key'
-  require_safe_generation_target "${CA_DIR}/ca-cert.pem" 'certificate authority certificate'
-  create_stage_file "${CA_DIR}/.ca-key.pem.XXXXXX"
-  CA_KEY_STAGE=${GENERATED_STAGE}
-  create_stage_file "${CA_DIR}/.ca-cert.pem.XXXXXX"
-  CA_CERT_STAGE=${GENERATED_STAGE}
-  openssl genrsa -out "${CA_KEY_STAGE}" 4096 2>/dev/null
-  openssl req -new -x509 -days 3650 -key "${CA_KEY_STAGE}" \
-    -out "${CA_CERT_STAGE}" -subj "/CN=Aquaculture Internal CA" 2>/dev/null
-  chmod 0600 "${CA_KEY_STAGE}"
-  chmod 0644 "${CA_CERT_STAGE}"
-  validate_existing_certificate_asset "${CA_KEY_STAGE}" 0600 'staged certificate authority private key'
-  validate_existing_certificate_asset "${CA_CERT_STAGE}" 0644 'staged certificate authority certificate'
-  validate_certificate_authority \
-    "${CA_KEY_STAGE}" "${CA_CERT_STAGE}" 'staged certificate authority'
-  mv -fT -- "${CA_KEY_STAGE}" "${CA_DIR}/ca-key.pem"
-  mv -fT -- "${CA_CERT_STAGE}" "${CA_DIR}/ca-cert.pem"
-  echo "  [done] CA (10-year)"
-fi
-generate_server_cert "nats" "nats" "DNS:nats,DNS:aqua-nats,DNS:localhost"
-generate_server_cert "redis" "redis" "DNS:redis,DNS:aqua-redis,DNS:localhost"
-generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:localhost" 0600
 
 # Per-service mTLS client certs (V4 / verify_and_map identity model).
 # CN must match the user name in nats.conf authorization{} block.
@@ -677,6 +771,70 @@ if [ -z "$SERVICE_NAMES" ]; then
   echo "error: no service names extracted from ${SERVICES_YAML}" >&2
   exit 1
 fi
+for name in "${MANAGED_SERVER_NAMES[@]}"; do
+  add_managed_leaf \
+    "${CERTS_DIR}/${name}/${name}-cert.pem" "${CERTS_DIR}/${name}/${name}-key.pem" \
+    sslserver "${name} server"
+done
+while IFS= read -r svc; do
+  [ -n "$svc" ] || continue
+  add_managed_leaf \
+    "${CERTS_DIR}/nats/clients/${svc}-cert.pem" "${CERTS_DIR}/nats/clients/${svc}-key.pem" \
+    sslclient "${svc} client"
+done <<< "$SERVICE_NAMES"
+
+CA_DIR="${CERTS_DIR}/ca"
+assert_certificate_directory "${CA_DIR}" 'certificate authority directory'
+if [ "$ROTATE_CA" = false ] && certificate_set_has_any_path \
+  "${CA_DIR}/ca-key.pem" "${CA_DIR}/ca-cert.pem"; then
+  validate_existing_certificate_asset "${CA_DIR}/ca-key.pem" 0600 'certificate authority private key'
+  validate_existing_certificate_asset "${CA_DIR}/ca-cert.pem" 0644 'certificate authority certificate'
+  validate_certificate_authority \
+    "${CA_DIR}/ca-key.pem" "${CA_DIR}/ca-cert.pem" 'certificate authority'
+  echo "  [skip] CA"
+elif [ "$RENEW_LEAVES" = true ] && [ "$ROTATE_CA" = false ]; then
+  # Minting a CA here would hand renewed leaves a root no running consumer holds.
+  certificate_store_error 'leaf renewal requires an existing validated certificate authority'
+  exit 1
+elif [ "$ROTATE_CA" = false ] && store_holds_issued_identity; then
+  # The consumers still hold the lost CA: a new one published as canonical
+  # would refuse every later run against them, and a renewal under it would
+  # split each restarted service from them.
+  certificate_store_error \
+    'the certificate authority is missing but identities issued under one remain; restore ca/ from backup, or replace every identity with --rotate-ca'
+  exit 1
+else
+  require_safe_generation_target "${CA_DIR}/ca-key.pem" 'certificate authority private key'
+  require_safe_generation_target "${CA_DIR}/ca-cert.pem" 'certificate authority certificate'
+  create_stage_file "${CA_DIR}/.ca-key.pem.XXXXXX"
+  CA_KEY_STAGE=${GENERATED_STAGE}
+  create_stage_file "${CA_DIR}/.ca-cert.pem.XXXXXX"
+  CA_CERT_STAGE=${GENERATED_STAGE}
+  openssl genrsa -out "${CA_KEY_STAGE}" 4096 2>/dev/null
+  openssl req -new -x509 -days 3650 -key "${CA_KEY_STAGE}" \
+    -out "${CA_CERT_STAGE}" -subj "/CN=Aquaculture Internal CA" 2>/dev/null
+  chmod 0600 "${CA_KEY_STAGE}"
+  chmod 0644 "${CA_CERT_STAGE}"
+  validate_existing_certificate_asset "${CA_KEY_STAGE}" 0600 'staged certificate authority private key'
+  validate_existing_certificate_asset "${CA_CERT_STAGE}" 0644 'staged certificate authority certificate'
+  validate_certificate_authority \
+    "${CA_KEY_STAGE}" "${CA_CERT_STAGE}" 'staged certificate authority'
+  mv -fT -- "${CA_KEY_STAGE}" "${CA_DIR}/ca-key.pem"
+  mv -fT -- "${CA_CERT_STAGE}" "${CA_DIR}/ca-cert.pem"
+  echo "  [done] CA (10-year)"
+fi
+if [ "$ROTATE_CA" = false ]; then
+  require_store_issued_under_kept_ca
+  if [ "$RENEW_LEAVES" = false ] && due_leaf=$(first_leaf_due_for_renewal); then
+    echo "  [renew] ${due_leaf} certificate expires within ${LEAF_RENEWAL_WINDOW_DAYS} days: renewing every leaf under the kept CA"
+    RENEW_LEAVES=true
+  fi
+fi
+generate_server_cert "nats" "nats" "DNS:nats,DNS:aqua-nats,DNS:localhost"
+generate_server_cert "redis" "redis" "DNS:redis,DNS:aqua-redis,DNS:localhost"
+generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:localhost" 0600
+
+# Per-service mTLS client certs, one per name derived above from services.yaml.
 # One name per line, read without word-splitting or glob expansion: the CN list
 # is validated above, and the safe read loop is what nats-invariants pins so a
 # later edit cannot quietly reintroduce `for x in $unquoted`.

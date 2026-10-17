@@ -286,6 +286,15 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
+| `INFRA-CRITICAL-233` | OPEN | 2026-10-17 | claude | already-fixed-needs-close |
+
+Updated 2026-10-17 (lost-work re-land, PR #2007): one active CRITICAL added.
+`INFRA-CRITICAL-233` — an ordinary leaf renewal (`droplet-up.sh` passing `--force` once the redis
+leaf nears expiry) also regenerated the internal CA, so restarted services trusted a root the
+running NATS broker does not hold. The same branch fixes it: the generator renews every leaf under
+the kept CA and replaces the CA only when asked to by name. Proof: the `INFRA-CRITICAL-233` case of
+`tests/invariants/production-cert-identity-store.spec.ts`. The closure-reconcile lane records the
+main-reachable closer after merge and moves this row to `Resolved Evidence`.
 
 ## Mutation Rules
 

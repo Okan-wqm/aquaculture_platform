@@ -111,17 +111,33 @@ Equivalent workflow:
 
 ## 3. Cert rotation
 
-Per-service NATS mTLS certs are minted by `infrastructure/docker/scripts/generate-internal-certs.sh` with a 365-day validity. Rotation is **three steps** that MUST happen in order — the script regenerates the in-place files, so rollback is just `git reset` on the cert directory before the restart.
+Per-service NATS mTLS certs are minted by
+`infrastructure/docker/scripts/generate-internal-certs.sh` with a 365-day validity. Every deploy
+renews them: once any managed leaf is inside 30 days of expiry, the deploy's generator run issues
+every leaf again under the CA the store already holds. That deploy does not recreate a consumer
+it did not roll out (INFRA-HIGH-235), so after a deploy logs `[renew]`, run step 3. A manual
+rotation is **three steps** that MUST happen in order.
 
-1. **Mint the new certs** on the build machine:
+1. **Renew on the droplet, against its own store.** From the deploy checkout, as the user that
+   owns the store (the generator refuses files another uid owns):
+
    ```bash
-   FORCE=true bash infrastructure/docker/scripts/generate-internal-certs.sh
+   DEPLOY_CERTS_DIR=/var/aqua-saas/certs \
+     bash infrastructure/docker/scripts/generate-internal-certs.sh --renew-leaves
    ```
-   `FORCE=true` overwrites the existing cert files (default behaviour is skip-if-present). The CA itself is NOT rotated by this script — CA rotation is separately covered in a future ADR.
 
-2. **Copy to every droplet + cluster secret store** — the certs live under `certs/nats/clients/` in the repo working tree; deploy pipelines rsync or sealed-secret-sync them.
+   `DEPLOY_CERTS_DIR` is the persistent store `scripts/deploy/deploy-paths.sh` names; its default
+   is shown. `--renew-leaves` issues every leaf again under the existing CA, which it requires and
+   never replaces, and it refuses a store whose CA copies or leaves were issued under another
+   root. Replacing the CA is `--rotate-ca`, an operator ceremony after which every consumer,
+   `nats` and `postgres` included, is recreated.
 
-3. **Rolling restart** of every service that uses mTLS, starting with `nats` itself (new CA-signed server cert), then per-service in dependency order:
+2. **Copy nothing between stores.** Each store has its own CA. A leaf issued on a build machine
+   or on another droplet chains to a root this droplet's broker does not hold, and the mTLS
+   handshake fails with an unknown CA.
+
+3. **Rolling restart** of every service that uses mTLS, starting with `nats` itself (its renewed
+   server leaf, under the same CA), then per-service in dependency order:
    ```bash
    docker compose -f docker-compose.droplet.yml restart nats
    # Wait for nats health check to pass (10-20 s)

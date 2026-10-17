@@ -450,11 +450,11 @@ export function analyzeMigrationSafety(
     if (entry === 'refused') {
       throw new Error(`${TOOL_ID}: root is not a contained workspace-relative path: ${root}`);
     }
-    return entry === 'other';
+    return entry === 'directory';
   });
   const candidates = filterFilesBySnapshot(
     rootDirs.flatMap((root) =>
-      collectFiles(join(workspaceRoot, root), { extensions: ['.ts', '.sql'] }),
+      collectFiles(workspaceRoot, join(workspaceRoot, root), { extensions: ['.ts', '.sql'] }),
     ),
     workspaceRoot,
     input,

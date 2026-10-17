@@ -1048,7 +1048,7 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
   // which would let this case pass without the option under test.
   write('crate/target/debug/deps/generated.rs', 'unsafe fn g() {}');
   write('notes/target/kept.rs', ''); // a `target` dir with no manifest beside it is source
-  const walked = collectFiles(workspace, {
+  const walked = collectFiles(workspace, workspace, {
     extensions: ['.rs', 'Cargo.toml'],
     skipDir: cargoTargetDirSkip,
   })
@@ -1056,7 +1056,7 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
     .sort();
   assert.deepEqual(walked, ['crate/Cargo.toml', 'crate/src/lib.rs', 'notes/target/kept.rs']);
   // Without the option the walk is unchanged for every existing importer.
-  const unchanged = collectFiles(workspace, { extensions: ['.rs'] }).length;
+  const unchanged = collectFiles(workspace, workspace, { extensions: ['.rs'] }).length;
   assert.equal(unchanged, 3);
 }
 
@@ -1114,7 +1114,7 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
   write('c/src/plain.rs', '');
   symlinkSync(join(outside, 'secret.rs'), join(workspace, 'c/src/linked.rs'));
   symlinkSync(outside, join(workspace, 'c/src/dirlink'));
-  const walked = collectFiles(workspace, {
+  const walked = collectFiles(workspace, workspace, {
     extensions: ['.rs', 'Cargo.toml'],
     skipDir: cargoTargetDirSkip,
   })

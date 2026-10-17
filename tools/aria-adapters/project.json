@@ -30,6 +30,7 @@
         "cwd": ".",
         "parallel": false,
         "commands": [
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/adapter-fs.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/bundle-budget-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/doc-staleness-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/event-contracts-adapter.test.ts",

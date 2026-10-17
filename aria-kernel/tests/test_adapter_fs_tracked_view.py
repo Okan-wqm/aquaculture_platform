@@ -38,7 +38,7 @@ import { collectFiles, containedWorkspace } from './adapter-fs.ts';
 const root = process.cwd();
 const workspace = containedWorkspace(root);
 const read: Record<string, number> = {};
-for (const file of collectFiles(`${root}/src`, { extensions: ['.py'] })) {
+for (const file of collectFiles(root, `${root}/src`, { extensions: ['.py'] })) {
   const path = relative(root, file);
   read[path] = workspace.readFile(path).length;
 }

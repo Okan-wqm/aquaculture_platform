@@ -151,8 +151,8 @@ export function analyzeKernelDeadWire(
   const sources = filterFilesBySnapshot(
     roots
       .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-      .filter((root) => workspacePathExists(root))
-      .flatMap((root) => collectFiles(root, { extensions: ['.py'] })),
+      .filter((root) => workspacePathExists(workspaceRoot, root))
+      .flatMap((root) => collectFiles(workspaceRoot, root, { extensions: ['.py'] })),
     workspaceRoot,
     input,
   );
@@ -168,7 +168,7 @@ export function analyzeKernelDeadWire(
   const corpus: string[] = [];
   for (const path of productionSources) {
     readPaths.push(normalizeWorkspacePath(relative(workspaceRoot, path)));
-    corpus.push(readWorkspaceFile(path));
+    corpus.push(readWorkspaceFile(workspaceRoot, path));
   }
   const haystack = corpus.join('\n');
 
@@ -176,11 +176,11 @@ export function analyzeKernelDeadWire(
   const policyDirRel = input.policyDir ?? DEFAULT_POLICY_DIR;
   const policyDir = resolveInsideWorkspace(workspaceRoot, policyDirRel);
   let policyKeysChecked = 0;
-  if (workspacePathExists(policyDir)) {
-    for (const policyPath of collectFiles(policyDir, { extensions: ['.json'] })) {
+  if (workspacePathExists(workspaceRoot, policyDir)) {
+    for (const policyPath of collectFiles(workspaceRoot, policyDir, { extensions: ['.json'] })) {
       const policyRel = normalizeWorkspacePath(relative(workspaceRoot, policyPath));
       readPaths.push(policyRel);
-      const raw = readWorkspaceFile(policyPath);
+      const raw = readWorkspaceFile(workspaceRoot, policyPath);
       const lines = raw.split('\n');
       let parsed: unknown;
       try {
@@ -233,9 +233,9 @@ export function analyzeKernelDeadWire(
   const cliRel = input.cliPath ?? DEFAULT_CLI_PATH;
   const cliPath = resolveInsideWorkspace(workspaceRoot, cliRel);
   let verbsChecked = 0;
-  if (workspacePathExists(cliPath)) {
+  if (workspacePathExists(workspaceRoot, cliPath)) {
     readPaths.push(cliRel);
-    const cliLines = readWorkspaceFile(cliPath).split('\n');
+    const cliLines = readWorkspaceFile(workspaceRoot, cliPath).split('\n');
     const registered = new Map<string, number>();
     const routed = new Set<string>();
     for (let index = 0; index < cliLines.length; index += 1) {

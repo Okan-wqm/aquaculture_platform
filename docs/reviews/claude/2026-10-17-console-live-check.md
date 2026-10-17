@@ -10,14 +10,14 @@ Owner: claude (implementation), okan (review).
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
 2026-10-24.
 
-### Symptom
+### Symptom (FE-HIGH-343)
 
 On production `/dashboard` rendered the shell's "Failed to Load Dashboard" boundary with
 `Error: useTenantContext must be used within a TenantProvider`, thrown from
 `remotes/dashboard/assets/DashboardPage-*.js`. The shell mounts `TenantProvider`
 (`web/shell/src/bootstrap.tsx`), and its own tenant pages read it without error.
 
-### Root cause
+### Root cause (FE-HIGH-343)
 
 Every federation vite config (the shell and all eight remotes) aliased `@aquaculture/shared-ui`
 to `web/shared-ui/dist` in every mode except `test`
@@ -37,7 +37,7 @@ The other shared-ui hooks remotes call hid the same split behind fallbacks: `use
 reads a window bridge (FE-MEDIUM-059 named the alias warning as its cause) and `useToast` keeps
 local state.
 
-### Evidence
+### Evidence (FE-HIGH-343)
 
 - Vite's plugin pipeline for the dashboard config in production mode resolves `react` to
   `virtual:mf:…__loadShare__react__loadShare__.js` and `@aquaculture/shared-ui` to the raw path
@@ -47,7 +47,7 @@ local state.
   TanStack Query, recharts and zustand, but none for shared-ui. `DashboardPage-*.js` imports
   `useTenantContext` from a local `index-*.js` chunk. The shell build shows the same pattern.
 
-### Fix
+### Fix (FE-HIGH-343)
 
 `sharedUiAlias(root, mode)` replaces `resolveSharedUiAlias`. It returns alias entries to spread
 into `resolve.alias`: `{ '@aquaculture/shared-ui': <root>/src }` under `test` and nothing in any
@@ -64,7 +64,7 @@ the shell's `TenantProvider`, `AuthProvider`, `ToastProvider`, `ConfirmProvider`
 `I18nProvider`. The shared-ui pin is a constant `1.0.0`, so the federation images must ship from
 one commit. `docker-compose.droplet.yml` already guarantees this: all nine images use one `TAG`.
 
-### Detection
+### Detection (FE-HIGH-343)
 
 - `tests/invariants/web-shared-ui-singleton-imports.spec.ts` fails when a federation vite config
   spells an alias whose `find` shadows any `SHARED_VERSIONS` key, and when `sharedUiAlias`
@@ -104,7 +104,7 @@ the shell's `AuthProvider`.
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
 2026-10-24.
 
-### Symptom
+### Symptom (INFRA-HIGH-230)
 
 CI - Affected run 38990686731 (`ffd6aa2f4`, `deploy-development / deploy`) ended with
 `status=rollback_failed`. Afterwards `ghcr.io/okan-wqm/aquaculture_platform/<svc>:ffd6aa2f4...`
@@ -114,7 +114,7 @@ named the pre-release image for every app service (`shell` → `ebc6d366dea1`, t
 so any later `TAG=ffd6aa2f4... docker compose up` started old code against a schema two
 migrations ahead of it.
 
-### Root cause
+### Root cause (INFRA-HIGH-230)
 
 The job logs of attempts 3 and 4 (release ids `ffd6aa2f4...-20261017T<time>`) show two defects
 in the same rollback path, plus a compose recreate that cannot survive its own failure.
@@ -147,7 +147,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
    The rollback's own `compose up` hit the same wall (`f33602842a24_aqua-auth`). The selective
    path (`:1612`) ran compose with no check for either state.
 
-### Fix
+### Fix (INFRA-HIGH-230)
 
 - **Release tags have one writer.** `pull_deploy_image_required` pins `<svc>:<DEPLOY_SHA>` and
   `<svc>:latest` from the release digest and fails the deploy if either pin fails. The rollback
@@ -173,7 +173,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
 - The rollback and image-reference code moved from `droplet-up.sh` into
   `scripts/deploy/lib/release-rollback.sh`, so the specs can source it.
 
-### Tests
+### Tests (INFRA-HIGH-230)
 
 - `tests/invariants/deploy-rollback-release-tag.spec.ts` runs capture and restore against a
   fake Docker daemon (`tests/invariants/helpers/fake-deploy-docker.ts`). Attempt 4 is refused
@@ -188,7 +188,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
   the name fails with no `rm`, `stop` or `up`. Temp names of other projects are left alone and
   undefined services are refused.
 
-### Not changed
+### Not changed (INFRA-HIGH-230)
 
 - The full-stack path runs `compose down` and force-removes every `aqua-*` container before
   `compose up`, so no leftover can block it. Its rollback goes through the same

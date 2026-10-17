@@ -39,6 +39,10 @@ cycle (:func:`redeliver_stranded_converged_plans`, origin
   claimed. The refusal is the plan body's, the same on every offer, and each
   offer used to pay a full staging (proposal, apply action, baseline suite)
   and a counted attempt to learn it.
+* **Never provable** (ARIA-MEDIUM-552). A plan whose body the ledger cannot
+  prove (``plan_convergence.PlanBodyUnprovable``) is parked the same way
+  (``implementation_envelope_body_unprovable``): staging and the mint derive
+  everything from that body, and the refusal is the ledger's, permanent.
 * **Never mergeable** (ARIA-HIGH-529). Under merge-class authority, a plan whose
   started content no ``synthesis_bound`` row names (``plan start``, skill
   authoring, the V7 fallback) is refused by the merge gate's
@@ -122,6 +126,12 @@ NO_WRITABLE_SCOPE_KIND: str = "converged_delivery_no_writable_scope"
 # the mint's own token (cross_review_bridge.UNBOUND_PLAN_REASON).
 WITHHELD_UNBOUND_PLAN: str = "unbound_plan"
 UNBOUND_PLAN_KIND: str = "converged_delivery_unbound_plan"
+# ARIA-MEDIUM-552 — a CONVERGED plan whose body the ledger cannot prove
+# (``plan_convergence.PlanBodyUnprovable``): the mint can never derive an
+# envelope from it, so it is moved to HUMAN_REQUIRED before staging.
+WITHHELD_BODY_UNPROVABLE: str = "body_unprovable"
+BODY_UNPROVABLE_REASON: str = "implementation_envelope_body_unprovable"
+BODY_UNPROVABLE_KIND: str = "converged_delivery_body_unprovable"
 
 
 def authority_absent_request_id(plan_id: str) -> str:
@@ -256,8 +266,9 @@ def _mint_scope_refusal(plan_id: str, *, state: dict[str, Any], base_dir: Path) 
 
     Asked through the mint's own gate (``cross_review_bridge.implementation_
     envelope_scope``) on the same fold and the same hash-verified body, so the
-    door and the mint cannot disagree on what is mintable. A body the ledger
-    cannot prove is not a scope verdict: its error reaches the caller.
+    door and the mint cannot disagree on what is mintable. The door asks it
+    only of a body the ledger proves (:func:`_withhold_unprovable_body` runs
+    first); any other error reaches the caller.
     """
     from .bridge_exceptions import BridgeContractViolation
     from .cross_review_bridge import implementation_envelope_scope
@@ -312,6 +323,27 @@ def _park_unmintable(
     )
     record_parked_plan(plan_id=plan_id, base_dir=base_dir, verdict=withheld, origin="converged_delivery")
     return withheld
+
+
+def _withhold_unprovable_body(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
+    """Why ``plan_id`` is not offered when its body cannot be proven, else None (ARIA-MEDIUM-552).
+
+    ``plan_body_from_state`` is what staging and the mint derive everything
+    from. Its ``PlanBodyUnprovable`` is a fact of the append-only plan ledger
+    (a plan that converged on a prose revision before the body gate), so the
+    plan is parked (:func:`_park_unmintable`): asked inside the attempt claim
+    as a fault, it was an uncounted ``attempt_unrecorded`` every cycle, which
+    never reached the bound or the operator.
+    """
+    from .plan_convergence import PlanBodyUnprovable, plan_body_from_state
+
+    try:
+        plan_body_from_state(state)
+    except PlanBodyUnprovable as exc:
+        return _park_unmintable(plan_id, state=state, base_dir=base_dir, refusal=str(exc)[:500],
+                                reason_code=BODY_UNPROVABLE_REASON, kind=BODY_UNPROVABLE_KIND,
+                                withheld=WITHHELD_BODY_UNPROVABLE)
+    return None
 
 
 def _withhold_unwritable_scope(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
@@ -387,7 +419,11 @@ def _claim_attempt(
     # ARIA-HIGH-416 — before the claim, so a plan the mint must refuse costs no
     # staging, no baseline suite and no counted attempt. After the live
     # request (review M3: never parked over its own delivery); before the
-    # tree, which the verdict does not depend on.
+    # tree, which the verdict does not depend on. ARIA-MEDIUM-552 — the body
+    # first: the scope gate reads it.
+    unprovable = _withhold_unprovable_body(plan_id, state=state, base_dir=base_dir)
+    if unprovable is not None:
+        return None, unprovable
     unwritable = _withhold_unwritable_scope(plan_id, state=state, base_dir=base_dir)
     if unwritable is not None:
         return None, unwritable
@@ -811,6 +847,8 @@ def redeliver_stranded_converged_plans(
 __all__ = [
     "AUTHORITY_ABSENT_CYCLES",
     "AUTHORITY_ABSENT_REASON",
+    "BODY_UNPROVABLE_KIND",
+    "BODY_UNPROVABLE_REASON",
     "DELIVERY_EXHAUSTED_REASON",
     "HUMAN_REQUIRED_CONTEXT_KIND",
     "MAX_DELIVERY_ATTEMPTS",
@@ -821,6 +859,7 @@ __all__ = [
     "ORIGIN_REDELIVERY",
     "REDELIVERIES_PER_CYCLE",
     "UNBOUND_PLAN_KIND",
+    "WITHHELD_BODY_UNPROVABLE",
     "WITHHELD_NO_WRITABLE_SCOPE",
     "WITHHELD_UNBOUND_PLAN",
     "authority_absent_request_id",

@@ -11,7 +11,7 @@ import { Repository, Between } from 'typeorm';
 
 import { BatchLocation } from '../../../batch/entities/batch-location.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
-import { TankOperation } from '../../../batch/entities/tank-operation.entity';
+import { OperationType, TankOperation } from '../../../batch/entities/tank-operation.entity';
 import { FeedingProgramTank } from '../../../feeding/entities/feeding-program-tank.entity';
 import {
   FeedingProgram,
@@ -20,6 +20,8 @@ import {
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 import { Species } from '../../../species/entities/species.entity';
 import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
+import { FeedingProtocolStatus } from '../../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import { ProtocolAssignmentStatus } from '../../../feeding-protocol/entities/protocol-assignment.entity';
 import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
 import { FCRCalculationService, FCRCalculationInput } from '../../services/fcr-calculation.service';
 
@@ -70,9 +72,13 @@ describe('FCRCalculationService', () => {
     });
   };
 
+  // The cumulative FCR authority reads its feed and ledger totals as raw SQL
+  // over per-batch windows (one statement each, grouped by batch).
+  const mockFeedQuery = jest.fn();
+  const mockLedgerQuery = jest.fn();
   const mockFeedingRecordRepository = {
     find: jest.fn(),
-    createQueryBuilder: jest.fn(),
+    manager: { query: mockFeedQuery },
   };
 
   // getTargetFCR v2 zinciri (P-14) ham SQL'i repository.manager.query üzerinden
@@ -112,40 +118,24 @@ describe('FCRCalculationService', () => {
     findOne: jest.fn(),
   };
 
-  // The cumulative FCR authority reads its totals GROUPED by batch (one query
-  // for any number of batches), so each builder ends in getRawMany.
-  const mockQueryBuilder = {
-    where: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    select: jest.fn().mockReturnThis(),
-    addSelect: jest.fn().mockReturnThis(),
-    groupBy: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    getRawMany: jest.fn(),
-    getOne: jest.fn(),
-  };
-
-  // Ayrı builder: TankOperation ledger sorgusu (net çıkan biyokütle).
-  // Varsayılan satır yok (0) — ledger'ı umursamayan testler etkilenmez.
-  const mockLedgerQueryBuilder = {
-    where: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    select: jest.fn().mockReturnThis(),
-    addSelect: jest.fn().mockReturnThis(),
-    setParameter: jest.fn().mockReturnThis(),
-    groupBy: jest.fn().mockReturnThis(),
-    getRawMany: jest.fn(),
-  };
-
   /** Feed given to batch-456 (the id makeBatch uses), as its grouped row. */
   const givenFeedTotal = (totalFeed: number): void => {
-    mockQueryBuilder.getRawMany.mockResolvedValue([{ batchId: 'batch-456', totalFeed }]);
+    mockFeedQuery.mockResolvedValue([{ batchId: 'batch-456', totalFeed }]);
   };
 
   /** Net biomass that left batch-456 per the TankOperation ledger, as its grouped row. */
   const givenNetRemovedKg = (netRemovedKg: number): void => {
-    mockLedgerQueryBuilder.getRawMany.mockResolvedValue([{ batchId: 'batch-456', netRemovedKg }]);
+    mockLedgerQuery.mockResolvedValue([{ batchId: 'batch-456', netRemovedKg }]);
   };
+
+  /** The ledger operation types the authority binds, from the enum. */
+  const LEDGER_TYPES = [
+    OperationType.MORTALITY,
+    OperationType.CULL,
+    OperationType.HARVEST,
+    OperationType.TRANSFER_OUT,
+    OperationType.TRANSFER_IN,
+  ];
 
   /**
    * The batch every read sees: compareFCR, getBatchFCRSummary and the target
@@ -157,7 +147,7 @@ describe('FCRCalculationService', () => {
   };
 
   const mockTankOperationRepository = {
-    createQueryBuilder: jest.fn(),
+    manager: { query: mockLedgerQuery },
   };
 
   beforeEach(async () => {
@@ -208,12 +198,9 @@ describe('FCRCalculationService', () => {
 
     jest.clearAllMocks();
 
-    // Setup default query builder mocks
-    mockFeedingRecordRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
-    mockGrowthMeasurementRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
-    mockTankOperationRepository.createQueryBuilder.mockReturnValue(mockLedgerQueryBuilder);
-    mockQueryBuilder.getRawMany.mockResolvedValue([]);
-    mockLedgerQueryBuilder.getRawMany.mockResolvedValue([]);
+    // Default: no feed and no ledger row in any window.
+    mockFeedQuery.mockResolvedValue([]);
+    mockLedgerQuery.mockResolvedValue([]);
     mockBatchRepository.find.mockResolvedValue([]);
     mockManagerQuery.mockResolvedValue([]);
     mockGrowthMeasurementQuery.mockResolvedValue([]);
@@ -382,10 +369,11 @@ describe('FCRCalculationService', () => {
 
       await service.calculateCumulativeFCR(batchId, tenantId, endDate);
 
-      // Verify andWhere was called with endDate
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('fr.feedingDate <= :endDate', {
-        endDate,
-      });
+      // The batch's window ends on endDate: feed dated after it is not counted.
+      expect(mockFeedQuery).toHaveBeenCalledWith(
+        expect.stringContaining('fr."feedingDate" <= w."endsOn"'),
+        [tenantId, [batchId], [endDate]],
+      );
     });
 
     it('should return 0 FCR when no growth', async () => {
@@ -441,9 +429,10 @@ describe('FCRCalculationService', () => {
 
       await service.calculateCumulativeFCR(batchId, tenantId, endDate);
 
-      expect(mockLedgerQueryBuilder.andWhere).toHaveBeenCalledWith('op.operationDate <= :endDate', {
-        endDate,
-      });
+      expect(mockLedgerQuery).toHaveBeenCalledWith(
+        expect.stringContaining('op."operationDate" <= w."endsOn"'),
+        [tenantId, [batchId], [endDate], LEDGER_TYPES, OperationType.TRANSFER_IN],
+      );
     });
   });
 
@@ -459,13 +448,11 @@ describe('FCRCalculationService', () => {
         batchNamed('batch-b', 1200),
         batchNamed('batch-c', 1100),
       ]);
-      mockQueryBuilder.getRawMany.mockResolvedValue([
+      mockFeedQuery.mockResolvedValue([
         { batchId: 'batch-a', totalFeed: '500' },
         { batchId: 'batch-b', totalFeed: '300' },
       ]);
-      mockLedgerQueryBuilder.getRawMany.mockResolvedValue([
-        { batchId: 'batch-b', netRemovedKg: '100' },
-      ]);
+      mockLedgerQuery.mockResolvedValue([{ batchId: 'batch-b', netRemovedKg: '100' }]);
 
       const results = await service.calculateCumulativeFCRMany(tenantId, [
         'batch-a',
@@ -495,14 +482,24 @@ describe('FCRCalculationService', () => {
         removedBiomassKg: 0,
       });
 
+      // One statement per table for all three batches, each window open-ended.
+      const ids = ['batch-a', 'batch-b', 'batch-c'];
+      const openEnds = [null, null, null];
       expect(mockBatchRepository.find).toHaveBeenCalledTimes(1);
-      expect(mockFeedingRecordRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
-      expect(mockTankOperationRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
-      expect(mockQueryBuilder.groupBy).toHaveBeenCalledWith('fr.batchId');
-      expect(mockLedgerQueryBuilder.groupBy).toHaveBeenCalledWith('op.batchId');
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('fr.batchId IN (:...batchIds)', {
-        batchIds: ['batch-a', 'batch-b', 'batch-c'],
-      });
+      expect(mockFeedQuery).toHaveBeenCalledTimes(1);
+      expect(mockFeedQuery).toHaveBeenCalledWith(expect.stringContaining('GROUP BY'), [
+        tenantId,
+        ids,
+        openEnds,
+      ]);
+      expect(mockLedgerQuery).toHaveBeenCalledTimes(1);
+      expect(mockLedgerQuery).toHaveBeenCalledWith(expect.stringContaining('GROUP BY'), [
+        tenantId,
+        ids,
+        openEnds,
+        LEDGER_TYPES,
+        OperationType.TRANSFER_IN,
+      ]);
     });
 
     it('maps an id with no batch row to zeros and skips the totals queries', async () => {
@@ -516,14 +513,114 @@ describe('FCRCalculationService', () => {
         totalGrowth: 0,
         removedBiomassKg: 0,
       });
-      expect(mockFeedingRecordRepository.createQueryBuilder).not.toHaveBeenCalled();
-      expect(mockTankOperationRepository.createQueryBuilder).not.toHaveBeenCalled();
+      expect(mockFeedQuery).not.toHaveBeenCalled();
+      expect(mockLedgerQuery).not.toHaveBeenCalled();
     });
 
     it('issues no query for an empty id list', async () => {
       const results = await service.calculateCumulativeFCRMany(tenantId, []);
 
       expect(results.size).toBe(0);
+      expect(mockBatchRepository.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('calculateFcrAtLastWeighingMany (FARM-CRITICAL-444 review)', () => {
+    const tenantId = 'tenant-123';
+    const weighedOn = '2024-03-01T12:00:00.000Z';
+
+    /**
+     * A batch of 10 000 fish stocked at 100 g (1000 kg), last weighed on
+     * `weighedOn` at `weighedBiomassKg`. (JSONB hands lastMeasuredAt back as an
+     * ISO string; the real-PostgreSQL spec covers that.) The live count and
+     * average are deliberately different
+     * (the batch has been thinned and the current weight moved on), so a
+     * window that read them instead of the weighing would show.
+     */
+    const weighedBatch = (id: string, weighedBiomassKg: number, sampleSize = 30): Batch => {
+      const batch = Object.assign(makeBatch({ currentBiomassKg: 5000, startBiomassKg: 1000 }), {
+        id,
+      });
+      batch.currentQuantity = 9000;
+      batch.weight.actual = {
+        avgWeight: 500,
+        totalBiomass: weighedBiomassKg,
+        lastMeasuredAt: new Date(weighedOn),
+        sampleSize,
+        confidencePercent: 95,
+      };
+      return batch;
+    };
+
+    it('judges each weighed batch over feed and ledger up to its weighing, at the weighed biomass', async () => {
+      mockBatchRepository.find.mockResolvedValue([
+        weighedBatch('b-converting', 1400),
+        weighedBatch('b-not-growing', 980),
+        weighedBatch('b-unfed', 1100),
+      ]);
+      mockFeedQuery.mockResolvedValue([
+        { batchId: 'b-converting', totalFeed: '600' },
+        { batchId: 'b-not-growing', totalFeed: '300' },
+      ]);
+      mockLedgerQuery.mockResolvedValue([{ batchId: 'b-converting', netRemovedKg: '200' }]);
+
+      const verdicts = await service.calculateFcrAtLastWeighingMany(tenantId, [
+        'b-converting',
+        'b-not-growing',
+        'b-unfed',
+      ]);
+
+      // (1400 + 200) − 1000 = 600 kg grown on 600 kg of feed.
+      expect(verdicts.get('b-converting')).toEqual({
+        kind: 'converting',
+        weighedOn: new Date(weighedOn),
+        fcr: 1,
+        totalFeed: 600,
+        totalGrowth: 600,
+        removedBiomassKg: 200,
+      });
+      // Weighed at 980 kg against 1000 kg stocked: fed, but no realized growth.
+      expect(verdicts.get('b-not-growing')).toMatchObject({
+        kind: 'not-growing',
+        totalFeed: 300,
+        totalGrowth: -20,
+      });
+      expect(verdicts.get('b-unfed')).toMatchObject({ kind: 'unfed', totalFeed: 0 });
+
+      // Every window ends on its own weighing day, in one statement per table.
+      const weighingDays = [new Date(weighedOn), new Date(weighedOn), new Date(weighedOn)];
+      const ids = ['b-converting', 'b-not-growing', 'b-unfed'];
+      expect(mockFeedQuery).toHaveBeenCalledTimes(1);
+      expect(mockFeedQuery).toHaveBeenCalledWith(expect.any(String), [tenantId, ids, weighingDays]);
+      expect(mockLedgerQuery).toHaveBeenCalledWith(expect.any(String), [
+        tenantId,
+        ids,
+        weighingDays,
+        LEDGER_TYPES,
+        OperationType.TRANSFER_IN,
+      ]);
+    });
+
+    it('does not judge a batch never weighed since stocking, nor an unknown id', async () => {
+      // CreateBatchHandler leaves weight.actual at the stocking weight with
+      // sampleSize 0: growth is unknown, whatever the ledger's rounding says.
+      mockBatchRepository.find.mockResolvedValue([weighedBatch('b-unweighed', 1000, 0)]);
+
+      const verdicts = await service.calculateFcrAtLastWeighingMany(tenantId, [
+        'b-unweighed',
+        'b-gone',
+      ]);
+
+      expect(verdicts.get('b-unweighed')).toEqual({ kind: 'unweighed' });
+      expect(verdicts.get('b-gone')).toEqual({ kind: 'unweighed' });
+      expect(mockFeedQuery).not.toHaveBeenCalled();
+      expect(mockLedgerQuery).not.toHaveBeenCalled();
+    });
+
+    it('issues no query for an empty id list', async () => {
+      const verdicts = await service.calculateFcrAtLastWeighingMany(tenantId, []);
+
+      expect(verdicts.size).toBe(0);
       expect(mockBatchRepository.find).not.toHaveBeenCalled();
     });
   });
@@ -827,9 +924,14 @@ describe('FCRCalculationService', () => {
       expect(mockFeedingProgramTankRepository.findOne).not.toHaveBeenCalled();
       // Ham sorgu sayısı batch sayısından BAĞIMSIZ: v2 + legacy = 2.
       expect(mockManagerQuery).toHaveBeenCalledTimes(2);
-      // FARM-HIGH-445: the program status is bound from the enum. The enum's
+      // FARM-HIGH-445: every status is bound from its enum. The enum's
       // database values are lowercase, so a typed 'ACTIVE' literal made
       // PostgreSQL reject the query (proven in fcr-alert-sweep.postgres.spec.ts).
+      expect(mockManagerQuery).toHaveBeenNthCalledWith(
+        1,
+        expect.not.stringMatching(/"status" = '/),
+        [tenantId, batchIds, ProtocolAssignmentStatus.ACTIVE, FeedingProtocolStatus.ACTIVE],
+      );
       expect(mockManagerQuery).toHaveBeenNthCalledWith(2, expect.not.stringContaining("'ACTIVE'"), [
         tenantId,
         batchIds,

@@ -76,6 +76,7 @@ import {
 } from '../entities/protocol-assignment.entity';
 import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
+import { OPERATIONAL_BATCH_STATUSES } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import {
   MealPlanGeneratorService,
@@ -1173,9 +1174,19 @@ export class FeedingCronV2Service {
    * to add `(fcr->>'actual')::numeric > 0`. `batches_v2.fcr.actual` starts at
    * 0 and its only writer is CloseBatchHandler, which sets `isActive = false`
    * in the same block, so no live batch ever passed and no FCRAlert was ever
-   * emitted. The running FCR now comes from the single FCR authority
-   * (`calculateCumulativeFCRMany`), computed in this pass, so the sweep reads
-   * no stored copy that could go stale.
+   * emitted. The FCR now comes from the single FCR authority, computed in this
+   * pass, so the sweep reads no stored copy that could go stale.
+   *
+   * Which batches: live (`isActive`) and in an OPERATIONAL_BATCH_STATUSES
+   * status, the set `assertFeedable` allows feeding in. It used to be a
+   * hand-typed `IN ('ACTIVE','GROWING')`, so a fed PRE_HARVEST or HARVESTING
+   * batch was never judged.
+   *
+   * Which FCR: the one at each batch's last weighing
+   * (`calculateFcrAtLastWeighingMany`). Growth is known only at a weighing, so
+   * feed up to today over that growth climbed every day until the next
+   * weighing and put on-target batches over the thresholds. An unweighed batch
+   * has no measured growth and is not judged.
    */
   async sweepFcrForTenant(tenantId: string): Promise<void> {
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
@@ -1185,8 +1196,9 @@ export class FeedingCronV2Service {
            FROM "batches_v2" b
           WHERE b."tenantId" = $1
             AND b."isActive" = true
-            AND b.status IN ('ACTIVE', 'GROWING')`,
-        [tenantId],
+            AND b.status = ANY($2)`,
+        // Spread: the constant is readonly, the driver's parameter list is not.
+        [tenantId, [...OPERATIONAL_BATCH_STATUSES]],
       );
 
       if (rows.length === 0) return;
@@ -1196,23 +1208,27 @@ export class FeedingCronV2Service {
       // atar. Okumalar withTenantContext ALS çerçevesi içinde koşar
       // (runInTenantTransaction sarmalar) — repo checkout'ları tenant
       // şemasına yönlenir.
-      const running = await this.fcrCalculation.calculateCumulativeFCRMany(
+      const atLastWeighing = await this.fcrCalculation.calculateFcrAtLastWeighingMany(
         tenantId,
         rows.map((row) => row.id),
       );
-      // FCR 0 means no realized growth yet (no weighing above stocking
-      // weight): there is nothing to judge, not a perfect conversion.
-      const measured = [...running].filter(([, cumulative]) => cumulative.fcr > 0);
+      // Only a converting batch has an FCR to set against a target. Unweighed
+      // and unfed batches have nothing to judge. A not-growing batch (weighed,
+      // fed, no realized growth) has no finite FCR, and FCRAlert.currentFCR is
+      // a non-negative number on the wire, so it raises no FCRAlert here:
+      // FARM-HIGH-449 owns that alert.
+      const measured = [...atLastWeighing].flatMap(([batchId, judged]) =>
+        judged.kind === 'converting' ? [{ batchId, currentFCR: judged.fcr }] : [],
+      );
       if (measured.length === 0) return;
 
       const targets = await this.fcrCalculation.getTargetFCRForBatches(
         tenantId,
-        measured.map(([batchId]) => batchId),
+        measured.map((candidate) => candidate.batchId),
       );
 
       const alerting = measured
-        .map(([batchId, cumulative]) => {
-          const currentFCR = cumulative.fcr;
+        .map(({ batchId, currentFCR }) => {
           const targetFCR = targets.get(batchId) ?? 0;
           if (!targetFCR || targetFCR <= 0) return null;
           const variancePercent = ((currentFCR - targetFCR) / targetFCR) * 100;

@@ -33,7 +33,13 @@ import type { BatchDocument } from './batch-document.entity';
 // IP-3: Enums and interfaces extracted to batch.types.ts (keeps entity under 500 lines).
 // Import for local use, then re-export for backward compatibility.
 // All existing `import { BatchStatus } from '../entities/batch.entity'` continue to work.
-import { BatchStatus, BatchInputType, ArrivalMethod, BatchType } from './batch.types';
+import {
+  BatchStatus,
+  BatchInputType,
+  ArrivalMethod,
+  BatchType,
+  OPERATIONAL_BATCH_STATUSES,
+} from './batch.types';
 import type {
   BatchWeight,
   BatchFCR,
@@ -42,7 +48,7 @@ import type {
   BatchMortalitySummary,
 } from './batch.types';
 
-export { BatchStatus, BatchInputType, ArrivalMethod, BatchType };
+export { BatchStatus, BatchInputType, ArrivalMethod, BatchType, OPERATIONAL_BATCH_STATUSES };
 export type {
   BatchWeight,
   BatchFCR,
@@ -503,13 +509,9 @@ export class Batch {
     return transitions[this.status]?.includes(newStatus) ?? false;
   }
 
+  /** @see OPERATIONAL_BATCH_STATUSES — the one owner of the set. */
   isOperational(): boolean {
-    return [
-      BatchStatus.ACTIVE,
-      BatchStatus.GROWING,
-      BatchStatus.PRE_HARVEST,
-      BatchStatus.HARVESTING,
-    ].includes(this.status);
+    return OPERATIONAL_BATCH_STATUSES.includes(this.status);
   }
 
   /**

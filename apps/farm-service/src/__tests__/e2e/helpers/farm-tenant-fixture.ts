@@ -49,6 +49,7 @@ import { withTenantContext } from '@aquaculture/backend-common';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { ConfigService } from '@nestjs/config';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
@@ -61,9 +62,12 @@ import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { TankOperation } from '../../../batch/entities/tank-operation.entity';
 import { AllocateToTankHandler } from '../../../batch/handlers/allocate-to-tank.handler';
 import { CreateBatchHandler } from '../../../batch/handlers/create-batch.handler';
+import { RecordMortalityHandler } from '../../../batch/handlers/record-mortality.handler';
 import { TransferBatchHandler } from '../../../batch/handlers/transfer-batch.handler';
 import { GetBatchHandler } from '../../../batch/query-handlers/get-batch.handler';
+import { MortalityCullPolicyService } from '../../../batch/services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../../batch/services/removal-quantity-policy.service';
+import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-plan.entity';
 import { FeedingMeal } from '../../../feeding-protocol/entities/feeding-meal.entity';
 import { FeedingProtocolV2 } from '../../../feeding-protocol/entities/feeding-protocol-v2.entity';
@@ -92,6 +96,7 @@ import { FeedingProgram } from '../../../feeding/entities/feeding-program.entity
 import { FeedingProgramTank } from '../../../feeding/entities/feeding-program-tank.entity';
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 import { GrowthMeasurement } from '../../../growth/entities/growth-measurement.entity';
+import { RecordGrowthSampleHandler } from '../../../growth/handlers/record-growth-sample.handler';
 import { FCRCalculationService } from '../../../growth/services/fcr-calculation.service';
 import { SiteContact } from '../../../site/entities/site-contact.entity';
 import { Supplier } from '../../../supplier/entities/supplier.entity';
@@ -233,6 +238,68 @@ export function createFixtureFcrCalculationService(dataSource: DataSource): FCRC
     dataSource.getRepository(TankOperation),
     new ProtocolRateService(),
   );
+}
+
+/**
+ * The production handlers that weigh a stocked batch and remove fish from it.
+ *
+ * WHY they are built here: a weighing is more than `weight.actual.avgWeight`.
+ * RecordGrowthSampleHandler also writes the provenance the FCR authority reads
+ * (`lastMeasuredAt`, `sampleSize`, the at-weighing `totalBiomass`) and a
+ * GrowthMeasurement row, and RecordMortalityHandler writes the ledger row with
+ * the biomass RemovalQuantityPolicy rounds. A suite that patched the JSON by
+ * hand would miss exactly the fields a window or provenance defect lives in.
+ *
+ * Every collaborator is the real one, as in createFixtureBatchWriters. The
+ * DataSource must register FIXTURE_ENTITIES and FCR_AUTHORITY_ENTITIES, and the
+ * suite must create the farm-stock read model (which carries the mobile
+ * command receipts table the mortality path writes).
+ */
+export interface FixtureBatchRecorders {
+  recordGrowthSample: RecordGrowthSampleHandler;
+  recordMortality: RecordMortalityHandler;
+}
+
+export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatchRecorders {
+  const outboxPublisher = new OutboxPublisher(FarmOutbox);
+  // No backdate env override: the production defaults (growth 30 days,
+  // mortality 14 days) apply.
+  const backdatePolicy = new BackdatePolicyService(new ConfigService());
+
+  const recordGrowthSample = new RecordGrowthSampleHandler(
+    dataSource,
+    dataSource.getRepository(GrowthMeasurement),
+    dataSource.getRepository(Batch),
+    createFixtureFcrCalculationService(dataSource),
+    backdatePolicy,
+    outboxPublisher,
+  );
+
+  const recordMortality = new RecordMortalityHandler(
+    dataSource,
+    dataSource.getRepository(Batch),
+    dataSource.getRepository(MortalityRecord),
+    dataSource.getRepository(TankOperation),
+    dataSource.getRepository(TankBatch),
+    dataSource.getRepository(Equipment),
+    dataSource.getRepository(Tank),
+    dataSource.getRepository(EquipmentType),
+    outboxPublisher,
+    new DayPlanRecalcService(
+      outboxPublisher,
+      new ProtocolResolutionService(new ProtocolRateService()),
+    ),
+    new RemovalQuantityPolicyService(),
+    backdatePolicy,
+    new AuditLogService(dataSource.getRepository(AuditLog)),
+    new SiteAuthorizationService(),
+    new TankBatchService(),
+    new MortalityCullPolicyService(),
+    new FarmStockProjectionService(),
+    new MobileCommandReceiptService(),
+  );
+
+  return { recordGrowthSample, recordMortality };
 }
 
 /** The production command handlers a fixture needs to stock a tank. */

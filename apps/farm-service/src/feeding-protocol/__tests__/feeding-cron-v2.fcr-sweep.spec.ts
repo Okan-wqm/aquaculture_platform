@@ -4,9 +4,12 @@
  * Pinlenen sözleşme:
  *  - Eşikler legacy analyzeFCR ile birebir: varyans >%10 warning, >%20
  *    critical; eşik altı batch event üretmez.
- *  - Güncel FCR tek otoriteden TOPLU hesaplanır
- *    (FCRCalculationService.calculateCumulativeFCRMany) — saklı
- *    `batches_v2.fcr.actual` kopyası değil (FARM-CRITICAL-444).
+ *  - FCR tek otoriteden TOPLU, her batch'in SON TARTIMINDA hesaplanır
+ *    (FCRCalculationService.calculateFcrAtLastWeighingMany) — saklı
+ *    `batches_v2.fcr.actual` kopyası değil (FARM-CRITICAL-444). Yalnız
+ *    'converting' hükmü hedefe karşı tartılır.
+ *  - İş sorgusu canlı batch'leri OPERATIONAL_BATCH_STATUSES ile seçer
+ *    (assertFeedable'ın kümesi), bağlı parametre olarak.
  *  - Hedef P-14 zincirinden okunur (FCRCalculationService.getTargetFCRForBatch)
  *    — batch.fcr.target kopyası değil.
  *  - Trend YALNIZ eşiği aşan batch'ler için sorgulanır (ölçek disiplini).
@@ -40,9 +43,10 @@ import { MealPlanGeneratorService } from '../services/meal-plan-generator.servic
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import {
-  CumulativeFcr,
   FCRCalculationService,
+  FcrAtLastWeighing,
 } from '../../growth/services/fcr-calculation.service';
+import { BatchStatus, OPERATIONAL_BATCH_STATUSES } from '../../batch/entities/batch.entity';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 import type { FCRAlertEvent } from '@platform/event-contracts';
@@ -53,7 +57,7 @@ const TENANT = '11111111-1111-4111-8111-111111111111';
 describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   const enqueue = jest.fn().mockResolvedValue(undefined);
   // W5 (FARM-LOW-291): süpürme artık batch başına değil TOPLU okur.
-  const calculateCumulativeFCRMany = jest.fn();
+  const calculateFcrAtLastWeighingMany = jest.fn();
   const getTargetFCRForBatches = jest.fn();
   const analyzeFCRTrendMany = jest.fn();
 
@@ -68,7 +72,7 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     growthApplier,
     stub<WaterTemperatureService>({}),
     stub<FCRCalculationService>({
-      calculateCumulativeFCRMany,
+      calculateFcrAtLastWeighingMany,
       getTargetFCRForBatches,
       analyzeFCRTrendMany,
     }),
@@ -81,22 +85,30 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     stub<SiteTimeZoneService>({}),
   );
 
+  const WEIGHED_ON = new Date('2026-10-10T12:00:00.000Z');
+
+  type WeighedVerdict = Extract<FcrAtLastWeighing, { readonly weighedOn: Date }>;
+
+  /** A weighed batch's verdict (its feed and growth are not read here). */
+  const weighed = (kind: WeighedVerdict['kind'], fcr: number): WeighedVerdict => ({
+    kind,
+    weighedOn: WEIGHED_ON,
+    fcr,
+    totalFeed: 0,
+    totalGrowth: 0,
+    removedBiomassKg: 0,
+  });
+  const converting = (fcr: number): WeighedVerdict => weighed('converting', fcr);
+
   /**
-   * The live batches the work query returns, with the running FCR the single
-   * authority computes for each. The work query returns ids only: the FCR is
+   * The live batches the work query returns, with the authority's verdict at
+   * each one's last weighing. The work query returns ids only: the FCR is
    * never read from a stored column.
    */
-  function givenLiveBatches(runningFcrById: Record<string, number>): void {
-    const entries = Object.entries(runningFcrById);
+  function givenLiveBatches(verdictById: Record<string, FcrAtLastWeighing>): void {
+    const entries = Object.entries(verdictById);
     managerQuery.mockResolvedValueOnce(entries.map(([id]) => ({ id })));
-    calculateCumulativeFCRMany.mockResolvedValueOnce(
-      new Map<string, CumulativeFcr>(
-        entries.map(([id, fcr]) => [
-          id,
-          { fcr, totalFeed: 0, totalGrowth: 0, removedBiomassKg: 0 },
-        ]),
-      ),
-    );
+    calculateFcrAtLastWeighingMany.mockResolvedValueOnce(new Map(entries));
   }
 
   beforeEach(() => {
@@ -113,9 +125,9 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
 
   it('emits warning (>%10) ve critical (>%20) — eşik altı batch event üretmez', async () => {
     givenLiveBatches({
-      'b-warning': 1.72, // +14.7% → warning
-      'b-ok': 1.55, // +3.3% → eşik altı
-      'b-critical': 2.0, // +33.3% → critical
+      'b-warning': converting(1.72), // +14.7% → warning
+      'b-ok': converting(1.55), // +3.3% → eşik altı
+      'b-critical': converting(2.0), // +33.3% → critical
     });
 
     await service.sweepFcrForTenant(TENANT);
@@ -137,8 +149,8 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
 
     // FCR, hedef ve trend TEK toplu çağrıyla; trend yalnız eşiği aşan iki
     // batch için sorgulandı (FARM-LOW-291: batch başına round-trip yok).
-    expect(calculateCumulativeFCRMany).toHaveBeenCalledTimes(1);
-    expect(calculateCumulativeFCRMany).toHaveBeenCalledWith(TENANT, [
+    expect(calculateFcrAtLastWeighingMany).toHaveBeenCalledTimes(1);
+    expect(calculateFcrAtLastWeighingMany).toHaveBeenCalledWith(TENANT, [
       'b-warning',
       'b-ok',
       'b-critical',
@@ -150,7 +162,7 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     expect(enqueue.mock.calls[0]![1]).toMatchObject({ query: managerQuery });
   });
 
-  it('selects live batches by lifecycle only, never by the stored fcr.actual', async () => {
+  it('selects every live, feedable batch by lifecycle only, never by the stored fcr.actual', async () => {
     // FARM-CRITICAL-444: the stored column is 0 for every live batch, so a
     // work query gated on it selects nothing. The real-Postgres spec proves
     // the rows; this pins the shape the regression would take.
@@ -158,26 +170,36 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
 
     await service.sweepFcrForTenant(TENANT);
 
-    const workQuery = String(managerQuery.mock.calls[0]?.[0]);
-    expect(workQuery).toContain('"isActive" = true');
-    expect(workQuery).not.toContain('fcr');
-    expect(calculateCumulativeFCRMany).not.toHaveBeenCalled();
+    const [workQuery, params] = managerQuery.mock.calls[0] ?? [];
+    expect(String(workQuery)).toContain('"isActive" = true');
+    expect(String(workQuery)).not.toContain('fcr');
+    // The status set is bound from the one owner assertFeedable reads, so a
+    // fed PRE_HARVEST or HARVESTING batch is watched too.
+    expect(params).toEqual([TENANT, [...OPERATIONAL_BATCH_STATUSES]]);
+    expect(params?.[1]).toEqual(
+      expect.arrayContaining([BatchStatus.PRE_HARVEST, BatchStatus.HARVESTING]),
+    );
+    expect(calculateFcrAtLastWeighingMany).not.toHaveBeenCalled();
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('skips a batch with no realized growth yet (running FCR 0)', async () => {
-    givenLiveBatches({ 'b-unweighed': 0, 'b-1': 2.0 });
+  it('judges only converting batches: unweighed, unfed and not-growing ones raise nothing', async () => {
+    givenLiveBatches({
+      'b-unweighed': { kind: 'unweighed' },
+      'b-unfed': weighed('unfed', 0),
+      'b-not-growing': { ...weighed('not-growing', 0), totalFeed: 30, totalGrowth: -1 },
+      'b-1': converting(2.0),
+    });
 
     await service.sweepFcrForTenant(TENANT);
 
-    // FCR 0 is "nothing to judge yet": no target lookup, no event.
     expect(getTargetFCRForBatches).toHaveBeenCalledWith(TENANT, ['b-1']);
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect((enqueue.mock.calls[0]![0] as FCRAlertEvent).batchId).toBe('b-1');
   });
 
   it('hedefi P-14 zincirinden okur; hedef çözülemeyen batch atlanır', async () => {
-    givenLiveBatches({ 'b-1': 2.0, 'b-no-target': 2.0 });
+    givenLiveBatches({ 'b-1': converting(2.0), 'b-no-target': converting(2.0) });
     getTargetFCRForBatches.mockImplementation(
       async (_tenantId: string, batchIds: string[]) =>
         new Map(batchIds.map((batchId) => [batchId, batchId === 'b-no-target' ? 0 : 1.5])),
@@ -191,7 +213,7 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   });
 
   it('hiç ihlal yoksa hiçbir event yazılmaz', async () => {
-    givenLiveBatches({ 'b-ok': 1.5 });
+    givenLiveBatches({ 'b-ok': converting(1.5) });
 
     await service.sweepFcrForTenant(TENANT);
 

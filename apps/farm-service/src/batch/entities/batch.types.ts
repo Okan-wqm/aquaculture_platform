@@ -41,6 +41,30 @@ registerEnumType(BatchStatus, {
   description: 'Batch durumu',
 });
 
+/**
+ * The statuses of a batch in production: it holds live fish that are fed, so
+ * feed accumulates against it and its FCR is watched.
+ *
+ * WHY one constant: the set decides three things that must agree.
+ *   1. `Batch.isOperational()` / `BatchDomainService.isOperational()`, and
+ *      through them `assertFeedable()`: whether feed may be recorded at all.
+ *   2. The 18:00 FCR alert sweep's work query (`FeedingCronV2Service.
+ *      sweepFcrForTenant`), which binds this list: whose FCR is judged.
+ * The sweep once hand-typed `status IN ('ACTIVE','GROWING')`, so a fed
+ * PRE_HARVEST or HARVESTING batch never raised an FCRAlert (FARM-CRITICAL-444
+ * review). Deriving both from this list makes "can be fed" and "is watched"
+ * one set.
+ *
+ * WHAT: ACTIVE, GROWING, PRE_HARVEST, HARVESTING. QUARANTINE (alive, not yet
+ * in the feeding cycle) and the terminal statuses are excluded.
+ */
+export const OPERATIONAL_BATCH_STATUSES: readonly BatchStatus[] = [
+  BatchStatus.ACTIVE,
+  BatchStatus.GROWING,
+  BatchStatus.PRE_HARVEST,
+  BatchStatus.HARVESTING,
+];
+
 /** Girdi tipi — batch'in başlangıç formu */
 export enum BatchInputType {
   EGGS = 'EGGS',

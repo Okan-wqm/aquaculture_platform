@@ -33,11 +33,15 @@ import { Species } from '../../species/entities/species.entity';
 import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
 import {
   FcrMatrix,
+  FeedingProtocolStatus,
   ProtocolBand,
   ProtocolFcrSource,
   ProtocolSettings,
 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
-import { AssignmentOverrides } from '../../feeding-protocol/entities/protocol-assignment.entity';
+import {
+  AssignmentOverrides,
+  ProtocolAssignmentStatus,
+} from '../../feeding-protocol/entities/protocol-assignment.entity';
 
 /** Ünitenin aktif v2 protokol satırı — hedef-FCR zincirinin 2. adımının girdisi. */
 interface ProtocolFcrRow {
@@ -178,8 +182,9 @@ export interface BatchFCRSummary {
 }
 
 /**
- * One batch's cumulative FCR, as the single FCR authority computes it
- * (`calculateCumulativeFCR` / `calculateCumulativeFCRMany`).
+ * One batch's cumulative FCR over one window, as the single FCR authority
+ * computes it (`calculateCumulativeFCR`, `calculateCumulativeFCRMany`,
+ * `calculateFcrAtLastWeighingMany`).
  */
 export interface CumulativeFcr {
   /** totalFeed / totalGrowth. 0 means no realized growth yet, not perfect conversion. */
@@ -196,6 +201,104 @@ const NO_CUMULATIVE_FCR: CumulativeFcr = {
   totalGrowth: 0,
   removedBiomassKg: 0,
 };
+
+/**
+ * A batch's FCR judged at its last weighing: feed and the removal ledger up to
+ * the weighing day, against the biomass measured at that weighing.
+ *
+ * WHY the weighing and not "now" (FARM-CRITICAL-444 review): feed is recorded
+ * every day, but growth is known only when the batch is weighed. Feed up to
+ * today over growth up to the last weighing rises every day between weighings,
+ * so a batch converting exactly on target (1.5% of biomass fed per day) read
+ * more than 10% over target about five days after each weighing and more than
+ * 20% over about eleven days after. At the weighing, feed, ledger and biomass
+ * describe the same moment.
+ *
+ * - `unweighed`: not weighed since stocking (`weight.actual.sampleSize` is 0,
+ *   as CreateBatchHandler leaves it), or no such batch. The weight is still the
+ *   stocking weight, so growth is unknown: any "growth" is only the rounding
+ *   residue of the removal ledger, and FCR over it would be noise.
+ * - `unfed`: weighed, but no feed recorded up to the weighing.
+ * - `not-growing`: weighed and fed, but no realized growth. FCR is undefined,
+ *   worse than any target; `fcr` is 0 and must not be read.
+ * - `converting`: weighed, fed and grown; `fcr` = totalFeed / totalGrowth.
+ */
+export type FcrAtLastWeighing =
+  | { readonly kind: 'unweighed' }
+  | (CumulativeFcr & {
+      readonly kind: 'unfed' | 'not-growing' | 'converting';
+      /** The weighing day the window ends on (`weight.actual.lastMeasuredAt`). */
+      readonly weighedOn: Date;
+    });
+
+const UNWEIGHED: FcrAtLastWeighing = { kind: 'unweighed' };
+
+/** One batch's FCR window: everything recorded up to `endsOn`, against `endBiomassKg`. */
+interface FcrWindow {
+  readonly batch: Batch;
+  /** Last calendar day counted (feed and ledger dated on or before it); null counts all. */
+  readonly endsOn: Date | null;
+  /** Live biomass at the end of the window, kg. */
+  readonly endBiomassKg: number;
+}
+
+/**
+ * The TankOperation types that move biomass out of a batch (mortality, cull,
+ * harvest, transfer-out) or into it without feed (transfer-in).
+ */
+const FCR_LEDGER_OPERATION_TYPES: readonly OperationType[] = [
+  OperationType.MORTALITY,
+  OperationType.CULL,
+  OperationType.HARVEST,
+  OperationType.TRANSFER_OUT,
+  OperationType.TRANSFER_IN,
+];
+
+/**
+ * Feed given to each batch up to its own window end. The windows are two
+ * aligned arrays, so every batch gets its own end in one statement whatever
+ * the batch count. A batch with no feeding record in its window has no row.
+ *
+ * Params: $1 tenantId, $2 batch ids (uuid[]), $3 window ends (date[], NULL =
+ * no end).
+ */
+const WINDOW_FEED_TOTALS_SQL = `
+  SELECT w."batchId"::text AS "batchId", SUM(fr."actualAmount") AS "totalFeed"
+    FROM unnest($2::uuid[], $3::date[]) AS w("batchId", "endsOn")
+    JOIN "feeding_records" fr
+      ON fr."tenantId" = $1
+     AND fr."batchId" = w."batchId"
+     AND (w."endsOn" IS NULL OR fr."feedingDate" <= w."endsOn")
+   GROUP BY w."batchId"`;
+
+/**
+ * Net biomass that left each batch through the TankOperation ledger up to its
+ * own window end: removals count positive, transfer-ins negative, so a move
+ * between two tanks of the same batch nets to zero. A batch with no ledger row
+ * in its window has no row.
+ *
+ * Params: $1 tenantId, $2 batch ids (uuid[]), $3 window ends (date[], NULL =
+ * no end), $4 ledger operation types, $5 OperationType.TRANSFER_IN. The types
+ * are bound from the enum (FARM-HIGH-445).
+ */
+const WINDOW_NET_REMOVED_SQL = `
+  SELECT w."batchId"::text AS "batchId",
+         SUM(CASE WHEN op."operationType" = $5 THEN -COALESCE(op."biomassKg", 0)
+                  ELSE COALESCE(op."biomassKg", 0) END) AS "netRemovedKg"
+    FROM unnest($2::uuid[], $3::date[]) AS w("batchId", "endsOn")
+    JOIN "tank_operations" op
+      ON op."tenantId" = $1
+     AND op."batchId" = w."batchId"
+     AND op."isDeleted" = false
+     AND op."operationType" = ANY($4)
+     AND (w."endsOn" IS NULL OR op."operationDate" <= w."endsOn")
+   GROUP BY w."batchId"`;
+
+/** Stocked biomass, kg: initialQuantity x the stocking average weight. */
+function startBiomassKg(batch: Batch): number {
+  const initialWeight = batch.weight?.initial?.avgWeight || 0;
+  return (batch.initialQuantity * initialWeight) / 1000;
+}
 
 // ============================================================================
 // SERVICE
@@ -363,16 +466,10 @@ export class FCRCalculationService {
   }
 
   /**
-   * Cumulative FCR for many batches of one tenant, in three queries whatever
-   * the batch count: the batches, the feed totals grouped by batch, and the
-   * ledger totals grouped by batch.
-   *
-   * WHY it exists: the 18:00 FCR sweep needs the running FCR of every live
-   * batch of a tenant (FARM-CRITICAL-444). It used to read the stored
-   * `batches_v2.fcr.actual` instead, which only CloseBatchHandler writes, so a
-   * live batch always read 0 and no alert ever fired. Calling the single-batch
-   * method per batch would bring back the per-batch round trips FARM-LOW-291
-   * removed from that sweep.
+   * Cumulative FCR for many batches of one tenant, from stocking to `endDate`
+   * (or everything recorded so far), against the current biomass. Three
+   * queries whatever the batch count: the batches, then the feed and ledger
+   * totals of every window (see computeFcrOverWindows).
    *
    * Every requested id gets an entry; an id with no batch row in the tenant
    * maps to zeros.
@@ -389,76 +486,9 @@ export class FCRCalculationService {
     const batches = await this.batchRepository.find({
       where: { tenantId, id: In(ids) },
     });
-    if (batches.length === 0) return results;
-    const foundIds = batches.map((batch) => batch.id);
-
-    // Feed given, per batch.
-    const feedQuery = this.feedingRecordRepository
-      .createQueryBuilder('fr')
-      .where('fr.tenantId = :tenantId', { tenantId })
-      .andWhere('fr.batchId IN (:...batchIds)', { batchIds: foundIds });
-
-    if (endDate) {
-      feedQuery.andWhere('fr.feedingDate <= :endDate', { endDate });
-    }
-
-    const feedRows = await feedQuery
-      .select('fr.batchId', 'batchId')
-      .addSelect('SUM(fr.actualAmount)', 'totalFeed')
-      .groupBy('fr.batchId')
-      .getRawMany<{ batchId: string; totalFeed: string | number | null }>();
-    // A batch with no feeding record has no group row: it was fed 0 kg.
-    const totalFeedByBatch = new Map(feedRows.map((row) => [row.batchId, Number(row.totalFeed)]));
-
-    // NOTE: the latest growth measurement is no longer queried here. Current
-    // biomass is the derive-on-read value (batch.getCurrentBiomass), so the
-    // stale-prone measurement snapshot does not feed the FCR growth term.
-
-    // Ledger: biomass that LEFT the batch (mortality/cull/harvest/transfer-out)
-    // or entered it feed-free (transfer-in). Counting TRANSFER_OUT and
-    // TRANSFER_IN together makes within-batch tank moves (same batchId out +
-    // in) net to zero naturally. Tenant-filtered (op.tenantId) as defence in
-    // depth on top of the tenant search_path routing (ADR-011).
-    const ledgerQuery = this.tankOperationRepository
-      .createQueryBuilder('op')
-      .where('op.tenantId = :tenantId', { tenantId })
-      .andWhere('op.batchId IN (:...batchIds)', { batchIds: foundIds })
-      .andWhere('op.isDeleted = false')
-      .andWhere('op.operationType IN (:...ledgerTypes)', {
-        ledgerTypes: [
-          OperationType.MORTALITY,
-          OperationType.CULL,
-          OperationType.HARVEST,
-          OperationType.TRANSFER_OUT,
-          OperationType.TRANSFER_IN,
-        ],
-      });
-
-    if (endDate) {
-      ledgerQuery.andWhere('op.operationDate <= :endDate', { endDate });
-    }
-
-    const ledgerRows = await ledgerQuery
-      .select('op.batchId', 'batchId')
-      .addSelect(
-        `COALESCE(SUM(CASE WHEN op.operationType = :transferIn THEN -COALESCE(op.biomassKg, 0) ELSE COALESCE(op.biomassKg, 0) END), 0)`,
-        'netRemovedKg',
-      )
-      .setParameter('transferIn', OperationType.TRANSFER_IN)
-      .groupBy('op.batchId')
-      .getRawMany<{ batchId: string; netRemovedKg: string | number | null }>();
-    // A batch with no ledger row lost and gained no biomass: net removed is 0.
-    const netRemovedByBatch = new Map(
-      ledgerRows.map((row) => [row.batchId, Number(row.netRemovedKg)]),
-    );
-
-    for (const batch of batches) {
-      const totalFeed = totalFeedByBatch.get(batch.id) ?? 0;
-      const removedBiomassKg = netRemovedByBatch.get(batch.id) ?? 0;
-
-      // Başlangıç biomass (initialQuantity * initial avgWeight)
-      const initialWeight = batch.weight?.initial?.avgWeight || 0;
-      const startBiomass = (batch.initialQuantity * initialWeight) / 1000; // kg
+    const windows: FcrWindow[] = batches.map((batch) => ({
+      batch,
+      endsOn: endDate ?? null,
       // Current biomass is the single derive-on-read value (currentQuantity ×
       // effectiveAvgWeightG / 1000) — the SAME source the GraphQL resolver and
       // removal handlers read. Sourcing it from the stored measurement snapshot
@@ -466,15 +496,116 @@ export class FCRCalculationService {
       // displayed biomass diverge, because that snapshot goes stale on every
       // removal while the derived value tracks the live count. When no count is
       // available yet, fall back to the start biomass.
-      const currentBiomass = batch.currentQuantity > 0 ? batch.getCurrentBiomass() : startBiomass;
-      // Realized growth includes the growth of biomass that exited the system.
-      const totalGrowth = currentBiomass + removedBiomassKg - startBiomass;
-
-      const fcr = totalGrowth > 0 ? totalFeed / totalGrowth : 0;
-
-      results.set(batch.id, { fcr, totalFeed, totalGrowth, removedBiomassKg });
+      endBiomassKg: batch.currentQuantity > 0 ? batch.getCurrentBiomass() : startBiomassKg(batch),
+    }));
+    for (const [window, cumulative] of await this.computeFcrOverWindows(tenantId, windows)) {
+      results.set(window.batch.id, cumulative);
     }
     return results;
+  }
+
+  /**
+   * Each batch's FCR at its last weighing (see FcrAtLastWeighing), in three
+   * queries whatever the batch count.
+   *
+   * WHY it exists: the 18:00 FCR sweep judges every live batch of a tenant
+   * (FARM-CRITICAL-444). It needs a window in which feed and growth describe
+   * the same moment, and it must not judge a batch nobody has weighed.
+   *
+   * The window ends on `weight.actual.lastMeasuredAt` and its biomass is
+   * `weight.actual.totalBiomass`, both written by the growth-sample handlers in
+   * the same locked write as the weighed average (record-growth-sample /
+   * update-batch-weight-from-sample). The biomass is the count at the weighing
+   * times the weighed average, and the ledger is cut on the same day, so a
+   * removal after the weighing is in neither. Days are calendar days: feed and
+   * removals dated on the weighing day count.
+   *
+   * Every requested id gets an entry; an id with no batch row is `unweighed`.
+   */
+  async calculateFcrAtLastWeighingMany(
+    tenantId: string,
+    batchIds: readonly string[],
+  ): Promise<Map<string, FcrAtLastWeighing>> {
+    const ids = [...new Set(batchIds)];
+    const results = new Map<string, FcrAtLastWeighing>(ids.map((id) => [id, UNWEIGHED]));
+    if (ids.length === 0) return results;
+
+    const batches = await this.batchRepository.find({
+      where: { tenantId, id: In(ids) },
+    });
+    const windows = batches
+      .filter((batch) => batch.weight.actual.sampleSize > 0)
+      .map((batch) => ({
+        batch,
+        // JSONB hands the stored timestamp back as an ISO string, not a Date.
+        endsOn: new Date(batch.weight.actual.lastMeasuredAt),
+        endBiomassKg: batch.weight.actual.totalBiomass,
+      }));
+    for (const [window, cumulative] of await this.computeFcrOverWindows(tenantId, windows)) {
+      results.set(window.batch.id, {
+        ...cumulative,
+        kind:
+          cumulative.totalFeed <= 0
+            ? 'unfed'
+            : cumulative.totalGrowth <= 0
+              ? 'not-growing'
+              : 'converting',
+        weighedOn: window.endsOn,
+      });
+    }
+    return results;
+  }
+
+  /**
+   * The one cumulative FCR computation: for each window, the feed given and
+   * the net biomass removed up to its end, and
+   *
+   *   realized growth = end biomass + net removed − stocked biomass
+   *   FCR             = feed / realized growth (0 when growth ≤ 0)
+   *
+   * Two queries whatever the window count (WINDOW_FEED_TOTALS_SQL,
+   * WINDOW_NET_REMOVED_SQL); every query filters on tenantId as defence in
+   * depth on top of the tenant search_path routing (ADR-011).
+   */
+  private async computeFcrOverWindows<W extends FcrWindow>(
+    tenantId: string,
+    windows: readonly W[],
+  ): Promise<Array<readonly [W, CumulativeFcr]>> {
+    if (windows.length === 0) return [];
+    const batchIds = windows.map((window) => window.batch.id);
+    const windowEnds = windows.map((window) => window.endsOn);
+
+    const feedRows: Array<{ batchId: string; totalFeed: string | number }> =
+      await this.feedingRecordRepository.manager.query(WINDOW_FEED_TOTALS_SQL, [
+        tenantId,
+        batchIds,
+        windowEnds,
+      ]);
+    // A batch with no feeding record in its window has no row: it was fed 0 kg.
+    const totalFeedByBatch = new Map(feedRows.map((row) => [row.batchId, Number(row.totalFeed)]));
+
+    const ledgerRows: Array<{ batchId: string; netRemovedKg: string | number }> =
+      await this.tankOperationRepository.manager.query(WINDOW_NET_REMOVED_SQL, [
+        tenantId,
+        batchIds,
+        windowEnds,
+        // Spread: the constant is readonly, the driver's parameter list is not.
+        [...FCR_LEDGER_OPERATION_TYPES],
+        OperationType.TRANSFER_IN,
+      ]);
+    // A batch with no ledger row in its window lost and gained no biomass.
+    const netRemovedByBatch = new Map(
+      ledgerRows.map((row) => [row.batchId, Number(row.netRemovedKg)]),
+    );
+
+    return windows.map((window) => {
+      const totalFeed = totalFeedByBatch.get(window.batch.id) ?? 0;
+      const removedBiomassKg = netRemovedByBatch.get(window.batch.id) ?? 0;
+      // Realized growth includes the growth of biomass that exited the system.
+      const totalGrowth = window.endBiomassKg + removedBiomassKg - startBiomassKg(window.batch);
+      const fcr = totalGrowth > 0 ? totalFeed / totalGrowth : 0;
+      return [window, { fcr, totalFeed, totalGrowth, removedBiomassKg }] as const;
+    });
   }
 
   /**
@@ -813,6 +944,9 @@ export class FCRCalculationService {
 
     // Ünite → aktif v2 atama → ACTIVE protokol; çok-üniteli batch'te dominant
     // (en yüksek biyokütle) ünite kazanır — tekil sorguyla BİREBİR kural.
+    // Both statuses are bound from their enums, never typed as literals
+    // (FARM-HIGH-445): PostgreSQL rejects a value the enum does not have, and
+    // only at runtime.
     const protocolRows: Array<ProtocolFcrRow & { batchId: string }> =
       await this.batchRepository.manager.query(
         `SELECT b.id::text AS "batchId",
@@ -827,11 +961,11 @@ export class FCRCalculationService {
                JOIN "feeding_protocol_assignments" pa
                  ON pa."tenantId" = tb."tenantId"
                 AND pa."unitId" = tb."tankId"
-                AND pa."status" = 'active'
+                AND pa."status" = $3
                JOIN "feeding_protocols_v2" p
                  ON p."id" = pa."protocolId"
                 AND p."tenantId" = pa."tenantId"
-                AND p."status" = 'active'
+                AND p."status" = $4
                 AND p."isDeleted" = false
               WHERE tb."tenantId" = $1
                 AND (
@@ -845,7 +979,7 @@ export class FCRCalculationService {
               ORDER BY tb."totalBiomassKg" DESC
               LIMIT 1
            ) x ON true`,
-        [tenantId, batchIds],
+        [tenantId, batchIds, ProtocolAssignmentStatus.ACTIVE, FeedingProtocolStatus.ACTIVE],
       );
     // Eksik anahtar "ön-yüklenmedi" demek olurdu; yokluk AÇIK null ile
     // temsil edilir ki zincir gereksiz tekil sorguya düşmesin.
@@ -1035,11 +1169,11 @@ export class FCRCalculationService {
          JOIN "feeding_protocol_assignments" pa
            ON pa."tenantId" = tb."tenantId"
           AND pa."unitId" = tb."tankId"
-          AND pa."status" = 'active'
+          AND pa."status" = $3
          JOIN "feeding_protocols_v2" p
            ON p."id" = pa."protocolId"
           AND p."tenantId" = pa."tenantId"
-          AND p."status" = 'active'
+          AND p."status" = $4
           AND p."isDeleted" = false
         WHERE tb."tenantId" = $1
           AND (
@@ -1052,7 +1186,8 @@ export class FCRCalculationService {
           )
         ORDER BY tb."totalBiomassKg" DESC
         LIMIT 1`,
-      [batch.tenantId, batch.id],
+      // Statuses bound from their enums, as in the bulk leg (FARM-HIGH-445).
+      [batch.tenantId, batch.id, ProtocolAssignmentStatus.ACTIVE, FeedingProtocolStatus.ACTIVE],
     );
 
     return this.resolveProtocolFcrRow(batch, rows[0] ?? null, prefetch);

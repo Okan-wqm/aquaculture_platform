@@ -31,9 +31,37 @@ closed and inactive by construction, so the query matches nothing in any tenant.
 Planned fix: the sweep selects live batches by lifecycle alone and takes each running FCR from
 the single authority, `FCRCalculationService.calculateCumulativeFCR`, in one bulk pass.
 
-Landed: the sweep selects ACTIVE and GROWING live batches by lifecycle and takes each running FCR
-from `calculateCumulativeFCRMany` (three queries per tenant; `calculateCumulativeFCR` delegates to
-it). `fcr-alert-sweep.postgres.spec.ts` runs it on real PostgreSQL; it was red on main.
+Landed: the sweep selects live batches by lifecycle: `isActive` and `OPERATIONAL_BATCH_STATUSES`
+(ACTIVE, GROWING, PRE_HARVEST, HARVESTING), bound as a parameter. That constant is also what
+`Batch.isOperational()` and `BatchDomainService.isOperational()` read, so the batches
+`assertFeedable` lets operators feed are the batches whose FCR is watched. Each batch is judged
+at its last weighing, through `calculateFcrAtLastWeighingMany`: feed and the removal ledger up
+to the weighing day, against the biomass measured at that weighing (`weight.actual.totalBiomass`
+and `lastMeasuredAt`, which the growth-sample handlers write). A batch not weighed since stocking
+(`weight.actual.sampleSize` 0) is not judged. All windows go through one computation,
+`computeFcrOverWindows`, which `calculateCumulativeFCR` and `calculateCumulativeFCRMany` use too:
+three queries per tenant whatever the batch count. `fcr-alert-sweep.postgres.spec.ts` runs it on
+real PostgreSQL, weighing through `RecordGrowthSampleHandler` and recording deaths through
+`RecordMortalityHandler`; it was red on main.
+
+Independent verification, round 1, found three defects in the first version of this fix, all
+reproduced red on that version and fixed here:
+
+- It judged feed up to today against growth up to the last weighing, so the FCR of a batch
+  converting on target rose every day until the next weighing. At a ration of 1.5% of biomass a
+  day it crossed the warning threshold about five days after each weighing and the critical one
+  about eleven days after. Spec case: on target at the weighing, fed 0.3 kg after it, which
+  raised a warning at FCR 1.35.
+- It skipped a batch only when its FCR came out as 0, not when it had never been weighed. An
+  unweighed batch keeps its stocking weight, so a removal whose ledger biomass differs from the
+  count times that weight leaves a tiny "growth". Spec case: 1000 fish at 12.5 g, 20 kg fed,
+  3 deaths recorded by count. The ledger stores 0.04 kg for 0.0375 kg of fish, and the sweep
+  raised a critical alert at FCR 8000.
+- It kept the hand-typed `status IN ('ACTIVE','GROWING')`, so a fed PRE_HARVEST or HARVESTING
+  batch was never judged. Spec cases: one of each at FCR 2.5, no alert.
+
+A weighed, fed batch with no realized growth is now reported as `not-growing`, but it raises no
+alert: the FCRAlert contract cannot carry an undefined FCR. That is FARM-HIGH-449.
 
 ## FARM-HIGH-445
 
@@ -56,6 +84,9 @@ Planned fix: bind the status from `FeedingProgramStatus.ACTIVE` as a query param
 
 Landed: the legacy leg binds `FeedingProgramStatus.ACTIVE` as `$3`. The same PostgreSQL spec
 failed with the enum error before this line changed, and the unit spec pins the bound value.
+The rule is applied to every query this change touches: both v2 legs of the target chain bind
+`ProtocolAssignmentStatus.ACTIVE` and `FeedingProtocolStatus.ACTIVE`, the sweep binds
+`OPERATIONAL_BATCH_STATUSES`, and the FCR ledger query binds its `OperationType` values.
 
 ## FARM-MEDIUM-446
 

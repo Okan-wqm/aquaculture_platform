@@ -14,8 +14,11 @@
  *     manager.getRepository(Plan).findOne(...)
  *
  * The `eslint-disable-next-line` directive is positional — it applies
- * to the next non-blank, non-comment line. Two failure modes silently
- * defeat the architectural intent:
+ * to the LITERAL next line, a comment or blank line included. (This
+ * spec once skipped comment lines; a directive followed by a three-line
+ * rationale comment in libs/backend-common's tenantManagerRepo then
+ * passed here while ESLint still reported the call it was written for.)
+ * Three failure modes silently defeat the architectural intent:
  *
  *   1. **Detached annotation.** A future refactor inserts a blank
  *      line, moves the import block, or reorders methods. The
@@ -73,6 +76,16 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
+// The binding model (a directive covers the literal next line; a fluent
+// chain continues on lines that start with a continuation token) is shared
+// with no-direct-getrepository-call.spec.ts. A blank or comment line under
+// the directive absorbs it and never binds a restricted call.
+import {
+  NO_RESTRICTED_SYNTAX_DIRECTIVE_RE as ANNOTATION_RE,
+  isBlankOrCommentLine as isCommentLine,
+  isContinuationLine,
+} from './helpers/eslint-next-line-directive';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 /**
@@ -107,7 +120,7 @@ interface Hit {
   file: string;
   annotationLine: number;
   rationale: string;
-  // The next non-blank/non-comment line that the annotation should
+  // The literal next line, which the annotation should
   // bind to. `null` when the file ended before any candidate.
   bindingLine: number | null;
   bindingText: string | null;
@@ -116,7 +129,7 @@ interface Hit {
    * output actionable instead of producing one undifferentiated list.
    */
   failure:
-    | 'no-binding-line' // annotation is the last non-trivial line in the file
+    | 'no-binding-line' // annotation is the last line in the file
     | 'binding-misses-restricted-token'; // next code line does not contain any restricted-syntax marker
 }
 
@@ -145,81 +158,6 @@ function listTrackedFiles(): readonly string[] {
 }
 
 /**
- * A line is a "skippable" preamble between the annotation and the
- * statement it disables iff it is blank or a comment. ESLint's own
- * `eslint-disable-next-line` resolution skips these exact line shapes
- * when locating the next "code line", so we mirror that traversal.
- */
-function isCommentLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (trimmed === '') return true;
-  if (trimmed.startsWith('//')) return true;
-  if (trimmed.startsWith('/*')) return true;
-  if (trimmed.startsWith('*')) return true;
-  return false;
-}
-
-/**
- * A "continuation line" is a physical line whose first non-whitespace
- * character indicates the line is part of an expression that began on
- * a previous line. The canonical case in this codebase is fluent
- * TypeORM chaining:
- *
- *     // eslint-disable-next-line no-restricted-syntax -- <rationale>
- *     let invitation = await manager       <-- binding line
- *       .getRepository(Invitation)         <-- continuation, restricted
- *       .createQueryBuilder('invitation')
- *       .getOne();
- *
- * ESLint reports the `getRepository` violation at the enclosing
- * CallExpression's `loc.start`, which the parser anchors at the start
- * of `manager` (line N+1). The annotation on line N therefore covers
- * the violation even though the literal `.getRepository(` substring
- * only appears on line N+2. To mirror this AST-aware behaviour
- * without parsing TypeScript ourselves, the spec walks the binding
- * line *and* its continuation lines as a single logical statement
- * and asserts that ANY of them carries a restricted token.
- *
- * The character set below is conservative — it matches the leading
- * tokens of property access, optional chaining, argument lists,
- * binary operators, and ternary continuations. Statements never
- * begin with these characters, so the rule "starts with one of these
- * → continuation" has no false positives in TS source.
- */
-function isContinuationLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (trimmed === '') return false;
-  // Property / optional chaining / argument lists.
-  if (trimmed.startsWith('.') || trimmed.startsWith('?.') || trimmed.startsWith(',')) {
-    return true;
-  }
-  if (trimmed.startsWith(')') || trimmed.startsWith(']') || trimmed.startsWith('}')) {
-    return true;
-  }
-  // Logical / arithmetic / nullish operator continuations.
-  if (
-    trimmed.startsWith('&&') ||
-    trimmed.startsWith('||') ||
-    trimmed.startsWith('??') ||
-    trimmed.startsWith('+') ||
-    trimmed.startsWith('-') ||
-    trimmed.startsWith('*') ||
-    trimmed.startsWith('/') ||
-    trimmed.startsWith('?') ||
-    trimmed.startsWith(':') ||
-    trimmed.startsWith('=')
-  ) {
-    return true;
-  }
-  return false;
-}
-
-const LINT_ANNOTATION_TOKEN = ['eslint', 'disable', 'next', 'line'].join('-');
-const ANNOTATION_RE = new RegExp(
-  `//\\s*${LINT_ANNOTATION_TOKEN}\\s+no-restricted-syntax(?:\\s*--\\s*(.+))?$`,
-);
-
-/**
  * Hard cap on how many continuation lines we scan beyond the binding
  * line. Real-world TypeORM / fluent-builder chains in this repo top
  * out around 8-10 lines (e.g. mqtt-listener.service.ts:1602 region).
@@ -240,13 +178,9 @@ function scanFile(file: string): readonly Hit[] {
 
     const rationale = (annotationMatch[1] ?? '').trim() || '<no rationale provided>';
 
-    // Walk past intervening blank / comment lines to reach the
-    // physical "binding line" — the first line ESLint considers
-    // covered by `eslint-disable-next-line`.
-    let j = i + 1;
-    while (j < lines.length && isCommentLine(lines[j] ?? '')) {
-      j++;
-    }
+    // The binding line is the literal next line: the only line ESLint
+    // considers covered by the next-line directive.
+    const j = i + 1;
 
     if (j >= lines.length) {
       hits.push({
@@ -276,7 +210,9 @@ function scanFile(file: string): readonly Hit[] {
     }
     const logicalStatement = statementLines.join('\n');
 
-    const bindsRestricted = RESTRICTED_TOKENS.some(({ token }) => logicalStatement.includes(token));
+    const bindsRestricted =
+      !isCommentLine(bindingText) &&
+      RESTRICTED_TOKENS.some(({ token }) => logicalStatement.includes(token));
 
     if (!bindsRestricted) {
       hits.push({
@@ -296,14 +232,14 @@ describe('INVARIANT (SEC-REVIEW-003): eslint-disable-next-line no-restricted-syn
   const files = listTrackedFiles();
   const allHits: Hit[] = files.flatMap((f) => [...scanFile(f)]);
 
-  it('every annotation is followed by a non-comment line within the same file', () => {
+  it('every annotation is followed by a line within the same file', () => {
     const orphans = allHits.filter((h) => h.failure === 'no-binding-line');
     if (orphans.length > 0) {
       const lines = orphans
         .map(
           (h) =>
             `  ${h.file}:${h.annotationLine}\n    rationale: ${h.rationale}\n` +
-            `    failure: file ends before any non-comment line follows the annotation — ` +
+            `    failure: file ends on the annotation line — ` +
             `the rationale is unreachable by ESLint and the call it was meant to disable does not exist.`,
         )
         .join('\n');

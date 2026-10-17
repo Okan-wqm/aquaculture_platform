@@ -13,12 +13,18 @@ now runs them after the cycle. Pinned here, against the live YAML:
 * they and the cycle step name the one channel (`github_issue` on this
   repository, the job token); the executor lane names none;
 * each is bounded, and the close-out margin of the cycle step still covers
-  every step after it.
+  every step after it;
+* the dispatch-gated channel check reaches a verdict without failing its step,
+  so a failed check no longer skips the night; the run turns red after the
+  publish instead (ARIA-LOW-553).
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +32,7 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
+from aria_kernel.notify import NOTIFY_WORST_CASE_SECONDS
 from aria_kernel.workflow_contracts import verify_workflow_contract
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -117,6 +124,106 @@ class TheObservationStepsRunInTheLiveLane(unittest.TestCase):
         bounded = sum(int(step["timeout-minutes"]) for step in after if "timeout-minutes" in step)
         self.assertLessEqual(_UNBOUNDED_CLOSE_OUT_MINUTES + bounded, margin_minutes,
                              f"{_UNBOUNDED_CLOSE_OUT_MINUTES} + {bounded} > {margin_minutes}")
+
+
+_CHANNEL_CHECK_STEP = "Notification channel check (dispatch-gated)"
+_CHANNEL_CHECK_FAIL_STEP = "Fail on a failed notification channel check"
+_PUBLISH_STEP = "Publish ARIA state to the aria/state branch"
+# Stands in for `python3 -m aria_kernel notify send`: answers the send named
+# by the `--key` suffix (1 or 2) from the scenario in the environment.
+_FAKE_NOTIFY_MAIN = """\
+import json, os, sys
+argv = sys.argv[1:]
+send = argv[argv.index("--key") + 1].rsplit(":", 1)[1]
+scenario = json.loads(os.environ["FAKE_NOTIFY_SCENARIO"])[send]
+if scenario.get("hang"):
+    import time
+    time.sleep(60)
+print(json.dumps(scenario["rows"]))
+sys.exit(scenario["rc"])
+"""
+
+
+def _send(status: str, action: str | None = None) -> dict[str, Any]:
+    detail = {"action": action} if action else {"error": "issue_list_failed:rc=1: HTTP 401"}
+    return {"rc": 0 if status == "sent" else 1, "rows": [{"channel": "github_issue", "status": status, "detail": detail}]}
+
+
+class TheChannelCheckProvesTheChannelWithoutSkippingTheNight(unittest.TestCase):
+    """ARIA-LOW-553 — a failed channel check used to fail its step, and every
+    provisioning and cycle step after it carries a plain `if:` (an implied
+    `success()`), so the dispatch that asked for the proof lost its night.
+    The step's own script runs here as GitHub runs it (`bash -e`), against a
+    stand-in `notify send`."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-low-553-"))
+        package = self.tmp / "aria-kernel" / "aria_kernel"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "__main__.py").write_text(_FAKE_NOTIFY_MAIN, encoding="utf-8")
+        (self.tmp / "runner-temp").mkdir()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, first: dict[str, Any], second: dict[str, Any], *,
+             bound: str | None = None) -> tuple[int, dict[str, str]]:
+        run = _step(_CHANNEL_CHECK_STEP)["run"]
+        if bound is not None:
+            # The step's own bound, shortened so a hung send is cut in a test.
+            run = re.sub(r"timeout --kill-after=\d+s \d+s ", f"timeout --kill-after=1s {bound} ", run)
+        script = self.tmp / "step.sh"
+        script.write_text(run, encoding="utf-8")
+        output = self.tmp / "github-output"
+        output.write_text("", encoding="utf-8")
+        env = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "RUNNER_TEMP": str(self.tmp / "runner-temp"),
+            "GITHUB_RUN_ID": "77",
+            "GITHUB_OUTPUT": str(output),
+            "ARIA_TOOLS_DIR": str(self.tmp / "tools"),
+            "FAKE_NOTIFY_SCENARIO": json.dumps({"1": first, "2": second}),
+        }
+        done = subprocess.run(["bash", "-e", str(script)], cwd=self.tmp, env=env, capture_output=True, text=True,
+                              timeout=120, check=False)
+        outputs = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines() if "=" in line)
+        return done.returncode, outputs
+
+    def test_a_failed_send_is_a_false_verdict_on_a_step_that_succeeds(self) -> None:
+        self.assertEqual(self._run(_send("failed"), _send("failed")), (0, {"verified": "false"}))
+
+    def test_a_second_notice_that_opened_another_issue_is_a_false_verdict(self) -> None:
+        self.assertEqual(self._run(_send("sent", "created"), _send("sent", "created")), (0, {"verified": "false"}))
+
+    def test_a_send_cut_at_its_bound_is_a_false_verdict_on_a_step_that_succeeds(self) -> None:
+        hung = {**_send("sent", "created"), "hang": True}
+        self.assertEqual(self._run(hung, _send("sent", "commented"), bound="1s"), (0, {"verified": "false"}))
+
+    def test_sent_then_commented_is_a_true_verdict(self) -> None:
+        self.assertEqual(self._run(_send("sent", "created"), _send("sent", "commented")), (0, {"verified": "true"}))
+
+    def test_each_send_is_bounded_at_notifys_price_and_below_the_step_timeout(self) -> None:
+        # The platform's step timeout is a failed step too, which would skip
+        # the night just the same; the step must reach its verdict first. A
+        # send is not cut before the worst case notify prices for itself.
+        step = _step(_CHANNEL_CHECK_STEP)
+        bounds = re.findall(r"timeout --kill-after=(\d+)s (\d+)s python3 -m aria_kernel notify send", step["run"])
+        self.assertEqual(len(bounds), 1, "one bounded send inside the two-send loop")
+        kill_after, limit = (int(value) for value in bounds[0])
+        self.assertIn("for n in 1 2; do", step["run"])
+        self.assertGreaterEqual(limit, NOTIFY_WORST_CASE_SECONDS)
+        self.assertLess(2 * (limit + kill_after), int(step["timeout-minutes"]) * 60)
+
+    def test_a_false_verdict_turns_the_run_red_after_the_publish(self) -> None:
+        self.assertEqual(_step(_CHANNEL_CHECK_STEP).get("id"), "channel_check")
+        step = _step(_CHANNEL_CHECK_FAIL_STEP)
+        self.assertEqual(
+            step["if"],
+            "always() && steps.lease_check.outputs.blocked != 'true' && steps.channel_check.outputs.verified == 'false'",
+        )
+        self.assertIn("exit 1", step["run"])
+        self.assertGreater(_names().index(_CHANNEL_CHECK_FAIL_STEP), _names().index(_PUBLISH_STEP))
 
 
 class TheGuardSatisfiesTheAbortGate(unittest.TestCase):

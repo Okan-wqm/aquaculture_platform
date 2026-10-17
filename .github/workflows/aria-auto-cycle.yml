@@ -530,9 +530,26 @@ jobs:
       # just-created issue (the old search-index lookup did not, and opened a
       # second one). Before the cycle, so the answer is minutes away, not hours;
       # the outbox rows ride the night's publish.
+      #
+      # ARIA-LOW-553 — the check proves the channel; it does not gate the
+      # night. A failed send or a second notice that did not comment used to
+      # fail this step, and every provisioning and cycle step after it carries
+      # a plain `if:` (an implied success()), so the dispatch that asked for
+      # the proof lost its night with it. Scheduled nights never run the check
+      # and the doctor judges the channel after every cycle either way. The
+      # verdict now leaves as `verified` (the `::error` annotation still lands
+      # here, minutes in) and "Fail on a failed notification channel check"
+      # turns the run red after the publish. A step the platform kills is a
+      # failed step too and would skip the night the same way, so each send
+      # runs under notify's own priced worst case (NOTIFY_WORST_CASE_SECONDS,
+      # 1380 s, aria_kernel/notify.py: the bound a caller running a notifying
+      # command as a child sizes its wall clock from) and the step's timeout
+      # covers both sends: 2 x (1380 s + 30 s) = 2820 s < 50 min. A send cut
+      # there is a false verdict, not a lost night.
       - name: Notification channel check (dispatch-gated)
+        id: channel_check
         if: steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && github.event.inputs.channel_check == 'true'
-        timeout-minutes: 10
+        timeout-minutes: 50
         env:
           GH_TOKEN: ${{ github.token }}
           ARIA_NOTIFY_CHANNELS: github_issue
@@ -540,13 +557,14 @@ jobs:
         run: |
           set -euo pipefail
           for n in 1 2; do
-            PYTHONPATH=aria-kernel python3 -m aria_kernel notify send --kind test \
+            PYTHONPATH=aria-kernel timeout --kill-after=30s 1380s python3 -m aria_kernel notify send --kind test \
               --title "ARIA notification channel check" \
               --body "channel check ${n}/2 from run ${GITHUB_RUN_ID}" \
               --key "channel-check:${GITHUB_RUN_ID}:${n}" \
-              --tools-dir "$ARIA_TOOLS_DIR" > "${RUNNER_TEMP}/aria-channel-check-${n}.json"
+              --tools-dir "$ARIA_TOOLS_DIR" > "${RUNNER_TEMP}/aria-channel-check-${n}.json" \
+              || echo "::warning title=ARIA channel check::send ${n}/2 exited $?"
           done
-          python3 - "${RUNNER_TEMP}/aria-channel-check-1.json" "${RUNNER_TEMP}/aria-channel-check-2.json" <<'PY'
+          if python3 - "${RUNNER_TEMP}/aria-channel-check-1.json" "${RUNNER_TEMP}/aria-channel-check-2.json" <<'PY'
           import json
           import sys
 
@@ -556,6 +574,11 @@ jobs:
           if [r["status"] for r in (*first, *second)] != ["sent", "sent"] or actions[1] != "commented":
               raise SystemExit(f"::error title=ARIA channel check::expected sent+sent with the second commented, got {actions}")
           PY
+          then
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "verified=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Fetch the composed supergraph for the drift scan
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
@@ -1305,6 +1328,14 @@ jobs:
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         run: |
           echo "::error::ARIA state failed integrity verification; captured as quarantine-evidence-${GITHUB_RUN_ID} and NOT published to the aria/state branch." >&2
+          exit 1
+
+      # ARIA-LOW-553 — the channel check's false verdict, red here: after the
+      # night ran and published, never in place of it.
+      - name: Fail on a failed notification channel check
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.channel_check.outputs.verified == 'false'
+        run: |
+          echo "::error title=ARIA channel check::the notification channel check failed (see the 'Notification channel check (dispatch-gated)' step); the night ran and published regardless." >&2
           exit 1
 
       # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.

@@ -14,19 +14,20 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
 import { eventConsumersFor, scanEventConsumers } from './event-consumer-index';
+import { removeFixtureTree } from './fixture-tree';
 import { loadNatsServices } from './nats-services';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const CLI = join(REPO_ROOT, 'tools', 'ripple-tracer', 'cli.ts');
 const TSCONFIG = join(REPO_ROOT, 'tools', 'ripple-tracer', 'tsconfig.json');
 const scratch = mkdtempSync(join(tmpdir(), 'ripple-tracer-spec-'));
-after(() => rmSync(scratch, { recursive: true, force: true }));
+after(() => removeFixtureTree(scratch));
 
 interface GrantJson {
   name: string;

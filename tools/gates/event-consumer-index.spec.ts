@@ -19,7 +19,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,11 +33,12 @@ import {
   FORWARDING_SITES,
   scanEventConsumers,
 } from './event-consumer-index';
+import { removeFixtureTree } from './fixture-tree';
 import { loadNatsServices } from './nats-services';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const scratch = mkdtempSync(join(tmpdir(), 'event-consumer-index-spec-'));
-after(() => rmSync(scratch, { recursive: true, force: true }));
+after(() => removeFixtureTree(scratch));
 
 function writeTree(root: string, files: Record<string, string>): string {
   for (const [path, text] of Object.entries(files)) {

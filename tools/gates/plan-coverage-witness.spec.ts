@@ -26,7 +26,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,6 +33,8 @@ import { dirname, join, relative, resolve } from 'node:path';
 import test, { after } from 'node:test';
 
 import { parse as yamlParse } from 'yaml';
+
+import { removeFixtureTree } from './fixture-tree';
 
 const GATE_DIR = dirname(resolve(__filename));
 const REPO_ROOT = resolve(GATE_DIR, '..', '..');
@@ -49,7 +50,7 @@ const LIVE_ARGS = ['--services-yaml', LIVE_SERVICES_YAML, '--repo-root', REPO_RO
 /** Throwaway repositories this spec creates, removed when it ends. */
 const scratchDirs: string[] = [];
 after(() => {
-  for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true });
+  for (const dir of scratchDirs) removeFixtureTree(dir);
 });
 
 // Typed `unknown` so every read of the parsed document is narrowed explicitly.

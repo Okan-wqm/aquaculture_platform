@@ -3,6 +3,7 @@
   "kind": "adapter",
   "version": "1.0.0",
   "status": "SHADOW",
+  "security_class": true,
   "declared_scope": [
     ".github/workflows/*.{yml,yaml}",
     ".github/actions/*/action.{yml,yaml}",

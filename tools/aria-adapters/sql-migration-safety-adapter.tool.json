@@ -3,6 +3,7 @@
   "kind": "adapter",
   "version": "1.0.0",
   "status": "SHADOW",
+  "security_class": true,
   "declared_scope": ["apps/**/migrations/**/*.ts", "apps/**/migrations/*.sql"],
   "output_schema": {
     "type": "object",

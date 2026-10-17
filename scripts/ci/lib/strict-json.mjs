@@ -24,7 +24,7 @@
  * structure is known to be valid and a linear pass suffices: it tracks string
  * literals (escapes included), keeps one frame per `{` / `[`, and treats the
  * first string after `{` or after a `,` inside an object as a key. Keys are
- * decoded with `JSON.parse`, so `"a"` and `"a"` collide as they do for
+ * decoded with `JSON.parse`, so `"\u0061"` and `"a"` collide as they do for
  * every reader.
  */
 

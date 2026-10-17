@@ -1,4 +1,7 @@
-import type { TenantRequest } from '../types/tenant-request.interface';
+import type {
+  VerifiedServiceIdentity,
+  VerifiedUserAssertion,
+} from '../types/tenant-request.interface';
 
 /**
  * Client network identity resolution — ORPHAN-MEDIUM-319.
@@ -28,6 +31,14 @@ import type { TenantRequest } from '../types/tenant-request.interface';
  * 3. `request.ip` / `user-agent` — DIRECT: dev / test / non-gateway
  *    internal calls where the socket peer IS the client.
  *
+ * # Consumers
+ *
+ * Audit rows and `users.lastLoginIp` (auth resolvers) and the IP dimension of
+ * every `@RateLimit` bucket (`RateLimitGuard.identityOf`, SEC-HIGH-202). The
+ * guard read `request.ip` until 2026-10-17, so every pre-auth bucket keyed only
+ * by IP (refresh, password-reset, …) was ONE bucket for the whole platform:
+ * the gateway container's.
+ *
  * # Why not bind the IP into the signed canonical for pre-auth too
  *
  * The v2 canonical is a fixed 14-field contract with a byte-for-byte Rust
@@ -49,18 +60,18 @@ export interface ClientNetworkContext {
 
 /**
  * Minimal structural view of the request — keeps the helper usable from
- * GraphQL contexts and Express middleware without importing express types
- * at the call site.
+ * GraphQL contexts, Express middleware and the platform RateLimitGuard
+ * (SEC-HIGH-202) without importing express types at the call site. An Express
+ * request (and TenantRequest) satisfies it as-is.
  */
-export type ClientNetworkRequest = Pick<
-  TenantRequest,
-  'ip' | 'headers' | 'verifiedIdentity' | 'verifiedUserAssertion'
->;
+export interface ClientNetworkRequest {
+  ip?: string;
+  headers: Readonly<Record<string, string | string[] | undefined>>;
+  verifiedIdentity?: Pick<VerifiedServiceIdentity, 'serviceName'>;
+  verifiedUserAssertion?: Pick<VerifiedUserAssertion, 'clientIp' | 'clientUserAgent'>;
+}
 
-function headerValue(
-  headers: ClientNetworkRequest['headers'],
-  name: string,
-): string | undefined {
+function headerValue(headers: ClientNetworkRequest['headers'], name: string): string | undefined {
   const raw = headers[name];
   if (Array.isArray(raw)) return raw[0];
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined;

@@ -354,6 +354,34 @@ class ShadowEvalBridgeTests(unittest.TestCase):
         )
         self.assertFalse(_target_is_shadow(self.tools, AGENT))
 
+    def test_an_unscoped_operator_approval_refuses_before_any_eval_write(self) -> None:
+        # ARIA-MEDIUM-512 — the bridge compared the approval's target_agent
+        # only when it was non-empty, so an approval minted without one (the
+        # pre-fix writer stored None) promoted whichever agent the bridge was
+        # pointed at. The row below is that writer's shape.
+        self._seed_chain(mint_operator=False)
+        append_declared_jsonl(
+            self.tools / "operator-provenance" / "events.jsonl",
+            {
+                "schema_version": 1,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "row_id": "operator-approval:unscoped",
+                "row_type": "operator_approval",
+                "event_id": OPERATOR_REF,
+                "operator_provenance_ref": OPERATOR_REF,
+                "target_agent": None,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+                "note": "",
+            },
+            expected_surface="operator_provenance",
+        )
+        before = self._ledger_snapshot()
+        with self.assertRaisesRegex(GovernanceError, "operator_approval_unscoped"):
+            self._bridge()
+        self.assertFalse((self.tools / "agent-evals" / "runs.jsonl").exists())
+        self.assertEqual(self._ledger_snapshot(), before)
+        self.assertEqual(current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "DRAFT")
+
     # -- ARIA-HIGH-502: the lifecycle precondition precedes every write --
 
     def test_rerun_from_shadow_refuses_before_any_write(self) -> None:

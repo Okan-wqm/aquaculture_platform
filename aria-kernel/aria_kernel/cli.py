@@ -1374,7 +1374,8 @@ def build_parser() -> argparse.ArgumentParser:
     # PR) or in a PR review, whose gh: ref the granting verb then takes.
     operator_parser = add_subparser(
         sub, "operator",
-        help="Operator approval helpers (an authority grant is an operator's GitHub act).",
+        help=("Operator helpers: the approval line for an authority grant (an operator's GitHub act), "
+              "and the inbox of every decision ARIA waits on the operator for."),
     )
     operator_sub = operator_parser.add_subparsers(dest="operator_command", required=True)
     approval_template = add_subparser(
@@ -1393,6 +1394,15 @@ def build_parser() -> argparse.ArgumentParser:
         "fields", nargs="*", metavar="KEY=VALUE",
         help="every scope field of the surface, e.g. lane=L1 expires=2026-10-10T00:00:00Z",
     )
+    # ARIA-MEDIUM-127 — every decision ARIA waits on a person for, on one
+    # surface (operator_inbox); the answers stay with each owner's verb.
+    operator_inbox = add_subparser(
+        operator_sub, "inbox",
+        help="List every decision ARIA is waiting on the operator for, each with the command that answers it.",
+    )
+    operator_inbox.add_argument("--workspace-root", default=".")
+    operator_inbox.add_argument("--limit", type=int, default=None, help="items shown per section (counts cover all)")
+    operator_inbox.add_argument("--json", action="store_true")
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -2487,7 +2497,8 @@ def build_parser() -> argparse.ArgumentParser:
                                help="The exact operator_provenance_ref the shadow-eval proof will carry.")
     opprov_record.add_argument("--expires-at", required=True,
                                help="ISO-8601 expiry; must be in the future at mint.")
-    opprov_record.add_argument("--target-agent", default=None)
+    opprov_record.add_argument("--target-agent", required=True,
+                               help="The one agent this approval may promote (ARIA-MEDIUM-512).")
     opprov_record.add_argument("--note", default="")
     opprov_list = add_subparser(opprov_sub, "list")
 
@@ -3105,8 +3116,10 @@ def build_parser() -> argparse.ArgumentParser:
     # docs/runbooks/aria-ack-key-rotation.md (Phase A0 deliverable).
     ack_parser = add_subparser(sub, "ack")
     ack_sub = ack_parser.add_subparsers(dest="ack_command", required=True)
+    # ARIA-MEDIUM-254 — the HMAC key seals autonomous acks only; an operator
+    # ack is signed with the operator's own key (``ack mint --signing-key``).
     ack_init = add_subparser(ack_sub, "init",
-        help="Mint the first HMAC key (Plan ARIA-V3 §A5).")
+        help="Mint the first HMAC key for autonomous acks (Plan ARIA-V3 §A5); operator acks need none.")
     ack_init.add_argument("--reason", required=True, type=_validate_reason)
     ack_init.add_argument("--operator-approval-ref", required=True)
     ack_init.add_argument("--force", action="store_true",
@@ -3115,15 +3128,36 @@ def build_parser() -> argparse.ArgumentParser:
     # body digest) is derived from the draft, never typed: the former
     # --intent-id/--target-path let a mint name a subject the draft does
     # not have, and --operator-approval-ref was required then discarded.
+    # ARIA-MEDIUM-512 — the operator reads the body with ``ack scope`` and
+    # mints for that body's digest; a body re-drafted in between is refused.
+    ack_scope = add_subparser(ack_sub, "scope",
+        help="Print a draft's body and the ack scope that digests it (read before `ack mint`).")
+    ack_scope.add_argument("--draft-id", required=True)
+    ack_scope.add_argument("--kind", required=True, choices=["agent", "skill"])
+    # ARIA-MEDIUM-254 — the mint is the operator's signed act (as
+    # ``feedback request``): ssh-keygen signs it with the operator's key, the
+    # allowed-signers file committed on main at --workspace-root verifies it
+    # here and again at materialize, in any later job.
     ack_mint = add_subparser(ack_sub, "mint",
-        help="Operator-mint an ack token for the draft's current body.")
+        help="Operator-sign an ack token for the draft body you reviewed with `ack scope`.")
     ack_mint.add_argument("--draft-id", required=True)
     ack_mint.add_argument("--kind", required=True, choices=["agent", "skill"])
+    ack_mint.add_argument("--body-sha256", required=True,
+        help="scope.body_sha256 that `ack scope` printed with the body you reviewed.")
     ack_mint.add_argument("--reason", required=True, type=_validate_reason)
     ack_mint.add_argument("--operator-user-id", required=True)
     ack_mint.add_argument("--profile-state", default="standard")
+    ack_mint.add_argument("--signing-key", required=True,
+        help="Operator ed25519 private key (or its .pub with the key in ssh-agent); never stored")
+    ack_mint.add_argument("--signer-principal", required=True,
+        help="Principal the committed .github/manifests/aria-operator-signers names for that key")
+    ack_mint.add_argument("--actor-class", required=True, choices=["T0", "T1"],
+        help="ADR-0023 signed declaration: T0 the operator at a terminal, T1 a root session for the operator")
+    ack_mint.add_argument("--expires-in-hours", type=int, default=None,
+        help="Signed expiry (default and maximum: the operator-act lifetime, 168h); materialize refuses after it")
     ack_mint.add_argument("--workspace-root", default=".",
-        help="Checkout whose --commit-sha revision is recorded.")
+        help="Checkout on main: its committed allowed-signers file verifies the signature, "
+             "and its --commit-sha revision is recorded.")
     ack_mint.add_argument("--commit-sha", default="HEAD",
         help="Revision resolved to the full commit SHA recorded on the row.")
     ack_mint.add_argument("--parent-observation-id", default=None)
@@ -3134,9 +3168,11 @@ def build_parser() -> argparse.ArgumentParser:
     ack_rotate.add_argument("--emergency", action="store_true",
         help="Mark as emergency rotation (separate audit event).")
     ack_verify = add_subparser(ack_sub, "verify",
-        help="Recompute HMAC over the rolling key list for last N rows.")
+        help="Verify the last N rows: operator acks against the committed allowed-signers file, HMAC rows over the rolling key list.")
     ack_verify.add_argument("--range", default="last-50",
         help="``last-N`` or ``full``.")
+    ack_verify.add_argument("--workspace-root", default=".",
+        help="Checkout on main whose committed allowed-signers file verifies operator acks.")
     ack_list_keys = add_subparser(ack_sub, "list-keys",
         help="Print the rolling key list (secrets redacted).")
 
@@ -3221,9 +3257,10 @@ def build_parser() -> argparse.ArgumentParser:
     ag_materialize.add_argument("--draft-id", required=True)
     ag_materialize.add_argument("--assignment-id", required=True)
     # Plan ARIA-V3 §A4 + §2k — pre-V3 ``--acknowledge`` flag REMOVED.
-    # Operators MUST first mint an ack token via
-    # ``aria-kernel ack mint --draft-id ... --reason ...`` then pass
-    # the returned ``ack_id`` via ``--ack-token``.
+    # Operators MUST first read the draft with ``aria-kernel ack scope``,
+    # mint an ack token for that body via ``aria-kernel ack mint
+    # --draft-id ... --reason ... --body-sha256 ...`` then pass the
+    # returned ``ack_id`` via ``--ack-token``.
     ag_materialize.add_argument(
         "--ack-token", required=True,
         help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
@@ -4371,6 +4408,17 @@ def _main(argv: list[str] | None = None) -> int:
         except OperatorApprovalUnrecorded as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+        return 0
+
+    if args.command == "operator" and args.operator_command == "inbox":
+        from .operator_inbox import DEFAULT_ITEM_LIMIT, read_operator_inbox, render_operator_inbox
+
+        inbox = read_operator_inbox(
+            tools_dir=args.tools_dir, workspace_root=args.workspace_root,
+            limit=DEFAULT_ITEM_LIMIT if args.limit is None else args.limit,
+        )
+        print(json.dumps(inbox, indent=2, sort_keys=True, default=str) if args.json else render_operator_inbox(inbox),
+              end="\n" if args.json else "")
         return 0
 
     if args.command == "merge-lane" and args.merge_command == "unfreeze":
@@ -6291,6 +6339,7 @@ def _main(argv: list[str] | None = None) -> int:
             init_ack_ledger,
             list_keys,
             mint_operator_ack,
+            review_draft,
             rotate_key,
             verify_range,
         )
@@ -6301,6 +6350,8 @@ def _main(argv: list[str] | None = None) -> int:
                 operator_approval_ref=args.operator_approval_ref,
                 force=args.force,
             )
+        elif args.ack_command == "scope":
+            result = review_draft(base_dir=args.tools_dir, draft_id=args.draft_id, kind=args.kind)
         elif args.ack_command == "mint":
             # The row records a commit, not the revision name the operator
             # typed (it stored the literal "HEAD"); resolved through the
@@ -6322,6 +6373,12 @@ def _main(argv: list[str] | None = None) -> int:
                 profile_name=args.profile_state,
                 profile_state_at_mint=args.profile_state,
                 commit_sha_at_mint=commit_sha,
+                reviewed_body_sha256=args.body_sha256,
+                signing_key=args.signing_key,
+                signer_principal=args.signer_principal,
+                actor_class=args.actor_class,
+                workspace_root=args.workspace_root,
+                expires_in_hours=args.expires_in_hours,
                 parent_observation_id=args.parent_observation_id,
             )
             result = row.to_dict()
@@ -6350,7 +6407,7 @@ def _main(argv: list[str] | None = None) -> int:
                     f"--range must be 'full' or 'last-N'; got {raw_range!r}"
                 )
                 return 2
-            result = verify_range(base_dir=args.tools_dir, last_n=last_n)
+            result = verify_range(base_dir=args.tools_dir, last_n=last_n, workspace_root=args.workspace_root)
         elif args.ack_command == "list-keys":
             result = {"keys": list_keys(base_dir=args.tools_dir)}
         else:

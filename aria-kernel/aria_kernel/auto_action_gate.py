@@ -32,9 +32,11 @@ Gate decision shape:
     profile. Current mainline authority keeps this ``True`` for every
     live lane; historical snowball lanes cannot auto-mint ack tokens.
   * ``AutoActionGate.acquire_or_consume`` — the ONE consumption path:
-    it verifies an operator ack's HMAC, its scope (the draft, intent,
-    target path, kind and body digest the materializer is about to write)
-    and its one-time use through ``ack_ledger.consume_token``. Autonomous
+    it verifies an operator ack's signature (the operator's ed25519 key,
+    checked against the allowed-signers file committed on main at the
+    materializer's checkout, ARIA-MEDIUM-254), its scope (the draft,
+    intent, target path, kind and body digest the materializer is about to
+    write) and its one-time use through ``ack_ledger.consume_token``. Autonomous
     acks would be recorded by ``ack_ledger.record_autonomous_ack`` (minted
     and consumed in one transaction, never consumable by id);
     AUTONOMOUS_AUTO_ACK_LANES is empty, so no current lane reaches that
@@ -123,6 +125,7 @@ class AutoActionGate:
         ack_id: str | None,
         base_dir: str | Path,
         scope: AckScope,
+        workspace_root: str | Path,
         commit_sha_at_mint: str,
         profile_state_at_mint: str,
     ) -> dict[str, Any]:
@@ -134,7 +137,9 @@ class AutoActionGate:
 
         When ``human_ack_required`` is True: caller MUST pass
         ``ack_id``; ``ack_ledger.consume_token`` verifies it is an operator
-        ack minted for exactly this scope and consumes it once.
+        ack minted for exactly this scope, signed by an operator key the
+        allowed-signers file committed at ``workspace_root``'s commit on
+        main enrols, inside its signed expiry, and consumes it once.
 
         When ``human_ack_required`` is False, a future live lane contract
         records an autonomous ack for this scope through
@@ -158,6 +163,7 @@ class AutoActionGate:
                 ack_id=ack_id,
                 materialize_event_id=self.materialize_event_id,
                 scope=scope,
+                workspace_root=workspace_root,
             )
         # Autonomous path: minted and consumed by this materialization only.
         return record_autonomous_ack(

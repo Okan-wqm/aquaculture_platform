@@ -40,7 +40,7 @@ from aria_kernel import plan_synthesizer as ps
 from aria_kernel.cycle_phases.plan_source import V9PressureSourceProvider
 from aria_kernel.evidence_validator import validate_agent_response_evidence
 from aria_kernel.ledger import load_declared_jsonl
-from aria_kernel.operator_feedback_observation import _consumed_refs
+from aria_kernel.operator_feedback_ingestion import plan_request_ids
 from aria_kernel.plan_convergence import affected_surface_paths, start_plan
 from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture, git
 
@@ -329,7 +329,7 @@ class OperatorRequestPlansCiteOnlyAdmissibleRefsTests(_Checkout):
         self.assertEqual(content["provenance_refs"], ["aria-tools/operator-feedback.jsonl:OP-ground"])
         # The merge owner joins the plan to the request it consumed through
         # the provenance channel.
-        self.assertEqual(_consumed_refs(content), {"OP-ground"})
+        self.assertEqual(plan_request_ids(content), {"OP-ground"})
 
 
 class EveryPlanStartedRefValidatesTests(_Checkout):

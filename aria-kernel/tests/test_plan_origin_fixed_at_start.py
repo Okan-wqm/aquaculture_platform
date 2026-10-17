@@ -37,7 +37,7 @@ from aria_kernel.tool_registry import GovernanceError
 ORIGINS: dict[str, dict] = {
     "f_finding": {"finding_id": "F-007"},
     "orphan_finding": {"finding_id": "ORPHAN-HIGH-104"},
-    "operator_feedback": {"finding_id": "F-007",
+    "operator_feedback": {"finding_id": "F-007", "grounding_digest": "sha256:" + "a" * 64,
                           "evidence_refs": ["docs/aria/SPEC.md", "aria-tools/operator-feedback.jsonl:OP-1"]},
 }
 
@@ -170,6 +170,34 @@ class OriginFixedAtStartTests(unittest.TestCase):
         self.assertEqual(json.loads(revision["content"])["finding_id"], "F-007")
         self.assertTrue(record_revision(plan_id=revised_plan, revision=revision,
                                         base_dir=self.tools)["event_appended"])
+
+    def test_an_operator_plan_cannot_change_or_drop_the_grounding_its_operator_signed(self) -> None:
+        # ARIA-LOW-265 — an operator plan answers the finding AND the grounding
+        # the operator signed, and check 12 compares both with the request at
+        # merge. Only ``finding_id`` was carried and fixed: a body that dropped
+        # or changed ``grounding_digest`` was recorded, and a re-plan successor
+        # (a copy of the converged body) started without it.
+        started = _plan(**ORIGINS["operator_feedback"])
+        plan_id = self._start(started)
+        dropped = {key: value for key, value in started.items() if key != "grounding_digest"}
+        for label, body in (("changed", dict(started, grounding_digest="sha256:" + "b" * 64)), ("dropped", dropped)):
+            with self.subTest(body=label), self.assertRaisesRegex(GovernanceError, PLAN_ORIGIN_CHANGED):
+                self._challenge(plan_id, dict(body, title="Challenger"))
+        # The planner cannot read it either: the bridge carries it.
+        response = {"request_id": "AIR-challenger-000000000002", "agent_id": "aria-challenger-planner",
+                    "plan_content": _without_origin(dict(dropped, title="Challenger"))}
+        challenger = _canonicalize_challenger_payload(
+            response=response, details={}, plan_id=plan_id, base_dir=self.tools,
+        )
+        self.assertEqual(challenger["plan_content"]["grounding_digest"], started["grounding_digest"])
+        self.assertEqual(challenger["plan_content"]["finding_id"], "F-007")
+        self.assertTrue(submit_challenger_plan(plan_id=plan_id, challenger=challenger,
+                                               base_dir=self.tools)["event_appended"])
+
+    def test_a_plan_started_without_a_grounding_cannot_gain_one(self) -> None:
+        plan_id = self._start(_plan(**ORIGINS["f_finding"]))
+        with self.assertRaisesRegex(GovernanceError, PLAN_ORIGIN_CHANGED):
+            self._challenge(plan_id, _plan(**ORIGINS["f_finding"], grounding_digest="sha256:" + "c" * 64))
 
 
 if __name__ == "__main__":

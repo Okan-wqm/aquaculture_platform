@@ -50,6 +50,7 @@ class RecordTests(unittest.TestCase):
                 record_operator_approval(
                     ref="operator:approval:old",
                     expires_at="2001-01-01T00:00:00Z",
+                    target_agent="aria-svc-farm-auditor",
                     base_dir=root,
                 )
         self.assertIn("operator_approval_expired_at_mint", str(ctx.exception))
@@ -58,7 +59,41 @@ class RecordTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
             with self.assertRaises(GovernanceError):
-                record_operator_approval(ref="  ", expires_at=_FUTURE, base_dir=root)
+                record_operator_approval(ref="  ", expires_at=_FUTURE, target_agent="aria-x", base_dir=root)
+
+    def test_an_approval_names_the_agent_it_promotes(self) -> None:
+        # ARIA-MEDIUM-512 — an approval with no target_agent was stored as
+        # None and the shadow bridge compared the scope only when it was
+        # non-empty, so leaving the flag out minted a wildcard that promoted
+        # any agent. The mint refuses it; nothing is written.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            for target_agent in (None, "", "   "):
+                with self.subTest(target_agent=target_agent), \
+                        self.assertRaisesRegex(GovernanceError, "^operator_approval_target_agent_required$"):
+                    record_operator_approval(
+                        ref="operator:approval:unscoped", expires_at=_FUTURE,
+                        target_agent=target_agent, base_dir=root,
+                    )
+            self.assertEqual(list_operator_approvals(base_dir=root), [])
+
+    def test_the_cli_requires_the_target_agent(self) -> None:
+        import contextlib
+        import io
+
+        from aria_kernel.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+                main([
+                    "operator-provenance", "record",
+                    "--ref", "operator:approval:cli-unscoped",
+                    "--expires-at", _FUTURE,
+                    "--tools-dir", str(root),
+                ])
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertEqual(list_operator_approvals(base_dir=root), [])
 
     def test_cli_routes_record_and_list(self) -> None:
         from aria_kernel.cli import main
@@ -69,6 +104,7 @@ class RecordTests(unittest.TestCase):
                 "operator-provenance", "record",
                 "--ref", "operator:approval:cli-1",
                 "--expires-at", _FUTURE,
+                "--target-agent", "aria-svc-farm-auditor",
                 "--tools-dir", str(root),
             ])
             self.assertEqual(rc, 0)

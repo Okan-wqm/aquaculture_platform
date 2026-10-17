@@ -6,6 +6,37 @@
 
 ---
 
+## 0. Operator acks are signed with the operator's key (ARIA-MEDIUM-254)
+
+The HMAC key below does not sign operator acks. It lived under the store's untracked `secrets/`, which
+`aria/state` never carries and every self-hosted job sweeps (`git clean -ffdx`) before the store is
+restored, so an operator ack minted in one job never verified in a later one. An operator ack is now the
+operator's own signed act, the same way `feedback request` is:
+
+```bash
+aria-kernel ack scope --draft-id <id> --kind agent          # read the body; note scope.body_sha256
+aria-kernel ack mint --draft-id <id> --kind agent --body-sha256 <digest> \
+  --reason "<why>" --operator-user-id <you> \
+  --signing-key ~/.ssh/<operator-key> --signer-principal <principal> --actor-class T0 \
+  --workspace-root <root-owned checkout on main>
+```
+
+- `ssh-keygen` signs the row as an `operator_ack` subject in the `aria-operator-request` namespace, with
+  the actor class, the repository audience and an expiry (default and maximum: the namespace's 168 h).
+  The subject is printed to stderr before `ssh-keygen` runs.
+- The mint verifies the signature against `.github/manifests/aria-operator-signers` as committed at the
+  checkout's commit proven on `main`, and writes nothing if it does not verify. Signing as root, the
+  checkout, the working directory and the kernel package must be root-only (ARIA-LOW-266).
+- Materialize verifies it again in whatever job runs it, against the checkout it is given
+  (`--workspace-root`), and refuses an expired ack, a row no enrolled key signed, and any operator row
+  minted with the HMAC key before this change (`operator_signature_required`: mint a new ack).
+- `aria-kernel ack verify --workspace-root <checkout on main>` checks operator rows against the committed
+  allowed-signers file and their consumption rows by their binding to the mint row on the hash-chained
+  ledger; it needs no secret.
+
+The rest of this runbook governs the HMAC key, which now signs only autonomous acks (minted and consumed in
+one materialization; no live lane mints them) and the operator rows minted before ARIA-MEDIUM-254.
+
 ## 1. Key custody
 
 The ack-ledger HMAC key lives at `aria-tools/secrets/ack_hmac.key` on the operator's local filesystem. The file:
@@ -83,7 +114,7 @@ aria-kernel ack revoke-key \
 
 If `aria-tools/secrets/ack_hmac.key` is lost:
 
-1. **STOP**: any new `ack mint` will fail with `hmac_key_missing` until the key is regenerated. Do NOT regenerate silently — historical row verification is impacted.
+1. **STOP**: any new autonomous ack will fail with `hmac_key_missing` until the key is regenerated (operator acks need no HMAC key, §0). Do NOT regenerate silently — historical row verification is impacted.
 2. Run `aria-kernel ack verify --range full` BEFORE creating a new key — this records WHICH rows are currently verifiable (will be most of them, until step 3).
 3. Mint a fresh key:
    ```bash
@@ -114,12 +145,12 @@ ARIA's ack key is per-clone by design (operator-local secret). To hand off the a
 
 ## 6. Verification invariants (CI-enforced)
 
-| Invariant | What it locks |
-|---|---|
-| `I-V3-19c test_hmac_key_path_in_gitignore` | `.gitignore` covers `aria-tools/secrets/` |
-| `I-V3-19d test_hmac_key_not_committed_to_git_history` | `git log` scan finds zero key-shaped commits |
+| Invariant                                                              | What it locks                                  |
+| ---------------------------------------------------------------------- | ---------------------------------------------- |
+| `I-V3-19c test_hmac_key_path_in_gitignore`                             | `.gitignore` covers `aria-tools/secrets/`      |
+| `I-V3-19d test_hmac_key_not_committed_to_git_history`                  | `git log` scan finds zero key-shaped commits   |
 | `I-V3-19e test_hmac_key_rotation_preserves_old_signature_verification` | Rolling list (last 5) verifies historical rows |
-| `I-V3-19f test_dr_runbook_aria_ack_key_rotation_present` | This file exists at this path |
+| `I-V3-19f test_dr_runbook_aria_ack_key_rotation_present`               | This file exists at this path                  |
 
 A failed invariant blocks the V3 invariant suite from passing; the kernel test sweep also blocks any PR landing on snowball until the invariant is restored.
 
@@ -127,15 +158,16 @@ A failed invariant blocks the V3 invariant suite from passing; the kernel test s
 
 ## 7. Quick reference
 
-| Action | Command |
-|---|---|
-| First-time init | `aria-kernel ack init --reason ... --operator-approval-ref ...` |
-| Schedule rotation | `aria-kernel ack rotate-key --reason ... --operator-approval-ref ...` |
-| Emergency rotation | `aria-kernel ack rotate-key --emergency --reason ...` |
-| Revoke compromised key | `aria-kernel ack revoke-key --key-id ... --reason ...` |
-| DR regenerate after loss | `aria-kernel ack init --force --reason ...` |
-| Verify rows | `aria-kernel ack verify --range last-N|full` |
-| List rolling keys | `aria-kernel ack list-keys` |
+| Action                     | Command                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------- |
+| Operator ack (no HMAC key) | `aria-kernel ack mint ... --signing-key ... --signer-principal ... --actor-class T0` (§0)       |
+| First-time init            | `aria-kernel ack init --reason ... --operator-approval-ref ...`                                 |
+| Schedule rotation          | `aria-kernel ack rotate-key --reason ... --operator-approval-ref ...`                           |
+| Emergency rotation         | `aria-kernel ack rotate-key --emergency --reason ...`                                           |
+| Revoke compromised key     | `aria-kernel ack revoke-key --key-id ... --reason ...`                                          |
+| DR regenerate after loss   | `aria-kernel ack init --force --reason ...`                                                     |
+| Verify rows                | `aria-kernel ack verify --range last-N --workspace-root <checkout on main>` (or `--range full`) |
+| List rolling keys          | `aria-kernel ack list-keys`                                                                     |
 
 ---
 

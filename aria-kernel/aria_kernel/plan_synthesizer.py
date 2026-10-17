@@ -1612,6 +1612,10 @@ def convert_candidate_to_plan_content(
         content["finding_id"] = candidate_id
     elif source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
         content["finding_id"] = admission.finding_id
+        # ARIA-LOW-265 — the grounding the operator signed, which admission
+        # matched (``admit_finding`` refuses another digest), so check 12
+        # compares the plan's start with the signed row's terms at merge.
+        content["grounding_digest"] = admission.grounding_digest
     metadata: dict[str, Any] = {
         "_pressure_source_type": source_type,
         "_candidate_id": candidate_id,

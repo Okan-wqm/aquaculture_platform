@@ -1300,11 +1300,18 @@ def _capture_pre_merge_operator_feedback(
     ``main`` after the cycle cannot merge what it asked for (ADR-0020). A git
     object needs no recheck and the lane holds no key. ``tools`` names the
     keys ARIA's runner holds, which the anchor never enrols (ARIA-HIGH-281).
+
+    ARIA-MEDIUM-264 — the merged-once proof also reads main's history up to
+    ``trust_sha`` through the same hardened git: the request lines earlier
+    deliveries landed on main survive any rollback of aria/state.
     """
+    from .main_anchor import messages_naming
     from .operator_feedback_observation import observe_operator_feedback_for_plan
     from .operator_request_signature import allowed_signers_at
+    from .operator_request_spend import MERGED_REQUEST_KEY, merged_request_ids
 
     signers = allowed_signers_at(workspace, commit=trust_sha, base_dir=tools)
+    messages = messages_naming(workspace, commit=trust_sha, key=MERGED_REQUEST_KEY)
     return observe_operator_feedback_for_plan(
         plan_id=plan_id,
         plan_started=state.get("plan_started"),
@@ -1312,6 +1319,7 @@ def _capture_pre_merge_operator_feedback(
         feedback_rows=rows["operator_feedback"],
         plan_events=rows["plan_convergence_events"],
         allowed_signers=signers,
+        main_request_ids=None if messages is None else merged_request_ids(messages),
     )
 
 

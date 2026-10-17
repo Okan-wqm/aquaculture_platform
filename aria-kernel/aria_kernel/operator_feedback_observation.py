@@ -15,13 +15,22 @@ names → every consumed request row, and for each consumed row
   (``…_consumed_row_unsigned:<reason>``);
 * re-checks the signed terms at merge time — expiry, audience, grounding
   digest present (``…_consumed_row_refused:<reason>``);
+* requires the plan's start to name the signed ``finding_id`` and
+  ``grounding_digest`` (``…_plan_subject_mismatch:<field>``, ARIA-LOW-265):
+  synthesis matches them at admission, and the merge proves the plan it
+  merges is still the one the operator signed for;
 * matches the signed subject the binding recorded, so a row swapped under
   the same id and position is refused;
+* refuses when main's history already carries the request
+  (``…_request_merged_on_main``, ARIA-MEDIUM-264): every merged delivery of
+  an operator plan lands a ``merged_request_line`` on main
+  (``operator_request_spend``), and a rollback of aria/state cannot erase
+  main. The merge owner reads that history at the PR's live base on the
+  merge lane's fresh clone; an unreadable history is
+  ``…_main_history_unavailable``, never "not merged";
 * refuses when the same request id is bound to another plan whose
-  implementation already merged (``…_request_already_merged``). That proof is
-  derived from the plan and ingestion ledgers the merge owner captured; a
-  store rolled back past the earlier merge would hide it, which is what the
-  signed expiry bounds.
+  implementation already merged (``…_request_already_merged``), from the
+  plan and ingestion ledgers the merge owner captured.
 
 Every gap is a named ``operator_feedback_unavailable_reason``; the
 predicate never infers a pass from an empty field.
@@ -31,22 +40,21 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .operator_feedback_ingestion import PROVENANCE_REF_PREFIX
+from .operator_feedback_ingestion import plan_request_ids
 from .operator_feedback_signature import operator_request_schema_reason
 from .operator_request_signature import AllowedSigners, request_subject_digest, verify_operator_request
 from .operator_request_spend import INGESTION_ROW_TYPE, SYNTHESIS_BOUND_ROW_TYPE
 from .tool_registry import GovernanceError
 
 ALREADY_MERGED = "operator_feedback_request_already_merged"
-
-
-def _consumed_refs(plan_content: Any) -> set[str]:
-    """Request ids the started plan names as its provenance (never its evidence, ORPHAN-HIGH-519)."""
-    refs = plan_content.get("provenance_refs") if isinstance(plan_content, dict) else None
-    return {
-        str(ref)[len(PROVENANCE_REF_PREFIX):]
-        for ref in (refs or []) if isinstance(ref, str) and ref.startswith(PROVENANCE_REF_PREFIX)
-    }
+# ARIA-MEDIUM-264 — main's history, the record a rollback of aria/state
+# cannot erase, already carries the request; or that history could not be read.
+MERGED_ON_MAIN = "operator_feedback_request_merged_on_main"
+MAIN_HISTORY_UNAVAILABLE = "operator_feedback_main_history_unavailable"
+# ARIA-LOW-265 — the plan_started content names another finding or grounding
+# than the request row it consumed signs.
+PLAN_SUBJECT_MISMATCH = "operator_feedback_plan_subject_mismatch"
+_SIGNED_PLAN_SUBJECT: tuple[str, ...] = ("finding_id", "grounding_digest")
 
 
 def _merged_elsewhere(
@@ -80,9 +88,15 @@ def observe_operator_feedback_for_plan(
     feedback_rows: list[dict[str, Any]],
     plan_events: list[dict[str, Any]],
     allowed_signers: AllowedSigners | None,
+    main_request_ids: frozenset[str] | None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """The pre-merge observation; see the module docstring for every refusal it names."""
+    """The pre-merge observation; see the module docstring for every refusal it names.
+
+    ``main_request_ids`` are the request ids main's history records as merged
+    (``operator_request_spend.merged_request_ids`` over main), or None when
+    that history could not be read.
+    """
     moment = now or datetime.now(timezone.utc)
     observation: dict[str, Any] = {}
     reason = "operator_feedback_plan_start_unavailable"
@@ -122,7 +136,7 @@ def observe_operator_feedback_for_plan(
         if not isinstance(consumed, list):
             raise GovernanceError(reason)
         consumed_ids = {str(entry.get("id")) for entry in consumed if isinstance(entry, dict)}
-        if consumed_ids != _consumed_refs(started_content):
+        if consumed_ids != plan_request_ids(started_content):
             raise GovernanceError(reason)
         identity = ("id", "ledger_hash", "signer", "subject_digest")
         admitted_keys = {tuple(entry.get(key) for key in identity) for entry in admitted if isinstance(entry, dict)}
@@ -147,6 +161,15 @@ def observe_operator_feedback_for_plan(
             terms = operator_request_schema_reason(matches[0], now=moment, anchor=allowed_signers)
             if terms is not None:
                 raise GovernanceError("operator_feedback_consumed_row_refused:" + terms)
+            # ARIA-LOW-265 — the plan this merge starts from targets the
+            # subject the operator signed: same finding, same grounding.
+            for field in _SIGNED_PLAN_SUBJECT:
+                if started_content.get(field) != matches[0].get(field):
+                    raise GovernanceError(f"{PLAN_SUBJECT_MISMATCH}:{field}")
+            if main_request_ids is None:
+                raise GovernanceError(MAIN_HISTORY_UNAVAILABLE)
+            if entry["id"] in main_request_ids:
+                raise GovernanceError(MERGED_ON_MAIN)
             if _merged_elsewhere(str(entry["id"]), plan_id=plan_id,
                                  ingestion_rows=ingestion_rows, plan_events=plan_events):
                 raise GovernanceError(ALREADY_MERGED)
@@ -164,4 +187,10 @@ def observe_operator_feedback_for_plan(
         return observation
 
 
-__all__ = ["ALREADY_MERGED", "observe_operator_feedback_for_plan"]
+__all__ = [
+    "ALREADY_MERGED",
+    "MAIN_HISTORY_UNAVAILABLE",
+    "MERGED_ON_MAIN",
+    "PLAN_SUBJECT_MISMATCH",
+    "observe_operator_feedback_for_plan",
+]

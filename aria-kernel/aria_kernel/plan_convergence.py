@@ -646,8 +646,9 @@ def _validate_submitted_plan(
     from here on, while every historical ledger keeps folding.
 
     ADR-0018 D4 — one origin check for every origin kind: a body whose
-    ``finding_id`` differs from, adds to or drops the started plan's is
-    refused (``plan_origin.PLAN_ORIGIN_CHANGED``).
+    origin (``plan_origin.ORIGIN_FIELDS``: ``finding_id``, and an operator
+    plan's signed ``grounding_digest``, ARIA-LOW-265) differs from, adds to or
+    drops the started plan's is refused (``plan_origin.PLAN_ORIGIN_CHANGED``).
 
     ADR-0021 — and every path the body names stays inside the bound the plan
     was admitted with (``revision_scope_exceeds_admission_closure``); the

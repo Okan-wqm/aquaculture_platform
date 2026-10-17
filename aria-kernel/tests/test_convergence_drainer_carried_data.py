@@ -27,7 +27,7 @@ from pathlib import Path
 from aria_kernel import convergence_drainer as cd
 from aria_kernel.ledger import load_segments
 from aria_kernel.agent_invocations import render_invocation_prompt
-from aria_kernel.architecture_spine_gate import InvariantMeasurement, take_baseline, take_postcheck
+from aria_kernel.architecture_spine_gate import INVARIANT_KINDS, InvariantMeasurement, take_baseline, take_postcheck
 from aria_kernel.cross_review_bridge import issue_primary_envelope
 from aria_kernel.draft_intent import BANNED_PHRASES_DEFAULT
 from aria_kernel.plan_convergence import (
@@ -52,22 +52,15 @@ CRITIC_REASON = f"waiver rejected: the store is {_SPINE_WORD}, not removed"
 MANIFEST_PATH = "aria-tools/coverage/plan-1-r1.json"
 
 
-def _measurement(invariant: str, measurements: dict) -> InvariantMeasurement:
-    return InvariantMeasurement(invariant=invariant, measured_at=utc_now(), measurements=measurements, source=f"fixture:{invariant}")
-
-
-def _spine_checks(missing: list[str]) -> dict:
-    """Injected invariant checks: one event-contract identity goes missing
+def _spine_checks(introduced: list[str]) -> dict:
+    """Injected invariant checks: one event-contract violation is introduced
     between baseline and postcheck, so the comparison names it."""
-    return {
-        "tenant_scoping": lambda root: _measurement("tenant_scoping", {"get_repository_callsite_count": 0}),
-        "event_contracts": lambda root: _measurement(
-            "event_contracts", {"missing_schema_count": len(missing), "missing_schema_identities": list(missing)},
-        ),
-        "schema_entity": lambda root: _measurement("schema_entity", {"missing_schema_violation_count": 0}),
-        "auth_security": lambda root: _measurement("auth_security", {"pending": True}),
-        "harness_security": lambda root: _measurement("harness_security", {"pending": True}),
-    }
+    def measured(kind: str, identities: list[str]):
+        return lambda root: InvariantMeasurement(
+            invariant=kind, measured_at=utc_now(), source=f"fixture:{kind}",
+            measurements={"violation_count": len(identities), "violation_identities": list(identities)},
+        )
+    return {kind: measured(kind, introduced if kind == "event_contracts" else []) for kind in INVARIANT_KINDS}
 
 
 class CarriedDataMintsThroughTheRealBridge(unittest.TestCase):

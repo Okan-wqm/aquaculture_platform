@@ -10,6 +10,7 @@ from typing import Any
 
 from .confidence import confidence_in_unit_interval
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
+from .finding_subject import normalize_finding_message
 from .ledger import sha256_of_canonical_json
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
@@ -1394,7 +1395,7 @@ def finding_fingerprint(tool_id: str, finding: dict[str, Any]) -> str:
         "rule": str(finding.get("rule") or "unknown").strip().lower(),
         "path": str(finding.get("path") or _first_evidence_path(finding)).replace("\\", "/"),
         "evidence_hash": evidence_hash,
-        "message": _normalize_message(str(finding.get("message") or "")),
+        "message": normalize_finding_message(str(finding.get("message") or "")),
     }
     digest = sha256_of_canonical_json(normalized)
     return f"finding:{digest}"
@@ -1637,10 +1638,6 @@ def _first_evidence_path(finding: dict[str, Any]) -> str:
             if isinstance(item, dict) and isinstance(item.get("path"), str):
                 return item["path"]
     return ""
-
-
-def _normalize_message(message: str) -> str:
-    return " ".join(message.lower().split())
 
 
 def _max_severity(values: Any) -> str:

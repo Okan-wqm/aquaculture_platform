@@ -2062,13 +2062,25 @@ def _resolve_artifact_path(raw_path: str, *, root: Path, workspace_root: Path | 
     raise GovernanceError("artifact path escapes tools/workspace roots")
 
 
-def _artifact_ref_has_raw_findings(run: dict[str, Any], *, base_dir: Path) -> bool:
+def run_raw_findings(run: dict[str, Any], *, base_dir: str | Path | None) -> list[Any] | None:
+    """The raw findings a run's artifact holds, or None when no artifact holds them.
+
+    The one reader of a run's FULL finding list (ARIA-HIGH-045): the first
+    artifact reference whose resolved payload carries a ``raw_findings``
+    list. ``raw_findings_sample`` and ``raw-findings.jsonl`` cannot stand
+    in: the sample is truncated, and ``record_raw_findings_for_run`` writes
+    no row for an empty run, so neither tells a clean run from a missing one.
+    """
     for ref in _artifact_refs_from_run(run):
         payload = resolve_artifact_payload(ref, base_dir=base_dir)
         inner = payload.get("payload") if isinstance(payload, dict) else None
         if isinstance(inner, dict) and isinstance(inner.get("raw_findings"), list):
-            return True
-    return False
+            return inner["raw_findings"]
+    return None
+
+
+def _artifact_ref_has_raw_findings(run: dict[str, Any], *, base_dir: Path) -> bool:
+    return run_raw_findings(run, base_dir=base_dir) is not None
 
 
 def _raw_finding_verdict(
@@ -2852,6 +2864,6 @@ __all__ = [
     "classify_cycle_evidence", "read_runs_for_cycle", "require_runtime_v2_promotion",
     "compacted_artifacts",
     "resolve_artifact_payload", "resolve_finding_from_artifact", "restore_artifact",
-    "retention_apply", "retention_dry_run", "rollback_retention", "run_artifacts_root",
+    "retention_apply", "retention_dry_run", "rollback_retention", "run_artifacts_root", "run_raw_findings",
     "run_ledger_format", "verify_artifacts", "verify_runtime_artifacts", "write_run_artifact",
 ]

@@ -4,8 +4,8 @@
 
 * Governance.jsonl readers (spine_orchestrator, plan_016_metrics,
   reflection) route through ``governance_reader.read_governance_rows``.
-* Runs.jsonl readers (spine_orchestrator, architecture_spine_gate)
-  route through ``runs_reader.latest_run_for_tool``.
+* Runs.jsonl readers (spine_orchestrator, architecture_spine_gate's
+  latest-recorded selection) route through ``runs_reader.latest_run_for_tool``.
 * Generic-JSONL readers (context_budget_gate, agent_compliance,
   agent_eval) route through ``strict_jsonl_reader.read_strict_jsonl``
   or the manifest-declared ``load_declared_jsonl`` strict reader.
@@ -55,16 +55,16 @@ class RunsMigrationTests(unittest.TestCase):
             "latest_run_for_tool(runs_path, tool_id=adapter_id)", spine,
         )
 
+        # ARIA-HIGH-045/525 — the gate reads one owner adapter's run per
+        # invariant from the TOOLS ROOT it was given (never
+        # <workspace>/aria-tools/runs.jsonl), through the one strict reader.
         gate = _src("architecture_spine_gate.py")
-        self.assertIn("from .runs_reader import latest_run_for_tool", gate)
+        self.assertIn("from .runs_reader import latest_run_for_tool, raw_findings_count", gate)
         self.assertIn(
-            'latest_run_for_tool(runs_path, tool_id="security-boundary-adapter")',
+            'latest_run_for_tool(tools_root / "runs.jsonl", tool_id=adapter_id, base_dir=tools_root)',
             gate,
         )
-        self.assertIn(
-            'latest_run_for_tool(runs_path, tool_id="agent-harness-security-adapter")',
-            gate,
-        )
+        self.assertNotIn('"aria-tools" / "runs.jsonl"', gate)
 
 
 class GenericJsonlMigrationTests(unittest.TestCase):

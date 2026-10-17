@@ -6381,9 +6381,7 @@ PENDING_CLOSURE_REGRESSION_REFS: dict[str, tuple[str, ...]] = {
     ),
     "ARIA-CRITICAL-009": ("aria-kernel/tests/test_pre_merge_consensus_and_coverage.py",),
     "ARIA-HIGH-010": ("tools/aria-adapters/rust-runtime-safety-adapter.test.ts",),
-    "ARIA-HIGH-011": ("tools/aria-adapters/sql-migration-safety-adapter.test.ts",),
     "ARIA-HIGH-012": ("tools/aria-adapters/infrastructure-policy-adapter.test.ts",),
-    "ARIA-HIGH-013": ("tools/aria-adapters/workflow-shell-safety-adapter.test.ts",),
     "ARIA-HIGH-014": ("aria-kernel/tests/test_vertical_slice_evidence.py",),
     "ARIA-CRITICAL-015": ("aria-kernel/tests/test_autonomy_stage_progression.py",),
 }

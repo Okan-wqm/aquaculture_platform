@@ -376,11 +376,14 @@ class GatewayHeartbeatFresh(unittest.TestCase):
         self.assertNotEqual(organs["gateway"].reason, "gateway_heartbeat_stale")
 
     def test_a_dead_daemon_becomes_a_self_improvement_signal(self) -> None:
-        from aria_kernel.self_improvement import scan_signals
+        # ARIA-LOW-550 — lifted and ANNOUNCED (`host_fault`), never minted: a
+        # dead daemon is restarted on its host, not by a change to ARIA's code.
+        from aria_kernel.self_improvement import ANNOUNCE_REMEDY, scan_signals
 
         self._beat(age_seconds=4 * 24 * 3600)
-        signals = scan_signals(base_dir=self.tools, workspace_root=self.root)
-        self.assertIn(("doctor_fail", "gateway_heartbeat_fresh"), {(s.kind, s.key) for s in signals})
+        signals = {(s.kind, s.key): s for s in scan_signals(base_dir=self.tools, workspace_root=self.root)}
+        self.assertEqual(signals[("host_fault", "gateway_heartbeat_fresh")].remedy, ANNOUNCE_REMEDY)
+        self.assertNotIn(("doctor_fail", "gateway_heartbeat_fresh"), signals)
 
 
 class OrchestratorOrgan(unittest.TestCase):

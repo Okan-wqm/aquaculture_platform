@@ -90,7 +90,7 @@ class RemedyVocabulary(unittest.TestCase):
         # ARIA-MEDIUM-417 — `config_missing` joins the vocabulary as an
         # ANNOUNCED kind, so the self-change list is unchanged.
         self.assertEqual(si.SIGNAL_KINDS, ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail",
-                                           "deadline_due", "config_missing"))
+                                           "deadline_due", "config_missing", "host_fault"))
         self.assertEqual(si.SELF_CHANGE_SIGNAL_KINDS, ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail"))
         self.assertEqual(si.SIGNAL_REMEDIES["deadline_due"], si.ANNOUNCE_REMEDY)
         self.assertEqual(si.SIGNAL_REMEDIES["config_missing"], si.ANNOUNCE_REMEDY)
@@ -256,6 +256,29 @@ class RepairLoop(_Store):
         self.assertEqual(announced.remedy, si.ANNOUNCE_REMEDY)
         self.assertEqual(announced.title, "Doctor organ notifications failing: no_notification_channel_in_ci")
         self.assertNotIn(("doctor_fail", "notifications"), signals)
+        self.assertEqual([(o["signal"], o["key"]) for o in opened], [("doctor_fail", "queue")])
+
+    def test_a_host_organs_fail_is_announced_and_never_minted(self) -> None:
+        """ARIA-LOW-550 — a missing `claude` binary, no provider credential, no
+        bwrap backend or a dead gateway daemon is answered on the HOST. Each
+        minted a `propose_self_change` mission whose only answer was an
+        operator's, spending a slot and an agent turn every new signature."""
+        host = (
+            DoctorCheck("providers", "fail", "no_provider_available"),
+            DoctorCheck("sandbox_backend", "fail", "no_sandbox_backend_write_capable_spawns_refused"),
+            DoctorCheck("claude_cli", "fail", "claude_binary_missing"),
+            DoctorCheck("gateway_heartbeat_fresh", "fail", "gateway_heartbeat_stale:9000s>3x60s"),
+        )
+        queue = DoctorCheck("queue", "fail", "human_required_open:628")
+        with self.reported(*host, queue):
+            signals = {(s.kind, s.key): s for s in si.scan_signals(base_dir=self.tools, workspace_root=self.ws)}
+            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=5)
+
+        for check in host:
+            announced = signals[("host_fault", check.name)]
+            self.assertEqual(announced.remedy, si.ANNOUNCE_REMEDY, check.name)
+            self.assertEqual(announced.title, f"Doctor organ {check.name} failing: {check.reason}")
+            self.assertNotIn(("doctor_fail", check.name), signals)
         self.assertEqual([(o["signal"], o["key"]) for o in opened], [("doctor_fail", "queue")])
 
     def test_every_organ_routed_to_an_announcement_is_an_organ_the_doctor_runs(self) -> None:

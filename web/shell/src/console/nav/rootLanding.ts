@@ -17,6 +17,14 @@ import { CONSOLE_WORKSPACES } from './workspaces';
 
 export const COMPANY_DASHBOARD_PATH = '/tenant';
 
+/**
+ * The shell's landing route (App.tsx `/` → RoleBasedRedirect → rootLanding):
+ * the one place a signed-in user is sent to start. Sign-in navigates here and
+ * nowhere else — not to a path auth-service suggests, whose module
+ * `defaultRoute` values name routes the console does not serve.
+ */
+export const LANDING_PATH = '/';
+
 export function rootLanding(role: string, moduleCodes: readonly string[]): string {
   if (role === 'SUPER_ADMIN') return '/admin';
   if (role === 'TENANT_ADMIN') return COMPANY_DASHBOARD_PATH;

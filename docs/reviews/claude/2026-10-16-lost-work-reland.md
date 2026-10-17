@@ -173,3 +173,66 @@ instead of 2 kg, and `finalFCR` is frozen as 0.8 instead of 1.2, in `fcr.actual`
 `BatchClosed` event. A fix gives every caller a window whose end biomass is known at its end:
 the last weighing for a live batch, zero for an emptied one. `computeFcrOverWindows` already
 takes a per-batch window. Owner okan/claude, deadline 2027-01-15.
+
+## FARM-HIGH-451
+
+No shipped client can weigh a batch. Raised by the independent verification of FARM-CRITICAL-444
+(round 2, MAJOR). The sweep judges a batch at its last weighing and leaves a batch never weighed
+since stocking unjudged, so its value depends on weighings being recorded.
+
+- `web/modules/farm-module/src/pages/production/tabs/GrowthTab.tsx:502`: the "Ornekleme Ekle"
+  button has no `onClick`.
+- `web/modules/farm-module/src/hooks/useGrowth.ts:400` and `:430`: `useRecordGrowthSample` and
+  `useUpdateBatchWeightFromSample` are exported and imported by no component.
+- `web/apps/aquamobil/src/pwa/operation-registry.ts:65`: the offline operation map carries
+  mortality, cull, harvest and feeding mutations, and no growth sample.
+- `apps/farm-service/src/growth/resolvers/growth.resolver.ts:532` and `:564`: the GraphQL
+  mutations are the only callers of the two weighing commands.
+
+Failure scenario: a tenant feeds a batch daily through aquamobil while it converts at FCR 2.5. The
+operator clicks "Ornekleme Ekle" and nothing happens. `weight.actual.sampleSize` stays 0, the
+authority returns `unweighed`, and the 18:00 sweep emits no `FCRAlert` for it, every day. Until
+this lands, alerts start only for batches weighed through the API. A fix wires a weighing form on
+the existing button (and an aquamobil operation with the idempotency envelope, if field weighing is
+in scope) and proves it with an end-to-end weighing. Owner okan/claude, deadline 2026-12-16.
+
+## FARM-MEDIUM-452
+
+The FCR authority judges any positive growth, however small against the weighing's own sampling
+error. Raised by the independent verification of FARM-CRITICAL-444 (round 2, MINOR).
+
+- `apps/farm-service/src/growth/services/fcr-calculation.service.ts:591`: a weighed, fed batch with
+  growth above 0 is `converting`, with FCR = feed / growth.
+- `apps/farm-service/src/growth/handlers/record-growth-sample.handler.ts:105`: a sample needs only
+  3 fish.
+- `apps/farm-service/src/growth/entities/growth-measurement.entity.ts:502`: the sample's 95% margin
+  of error is computed, and nothing on the FCR path reads it.
+- `apps/farm-service/src/batch/entities/batch.types.ts:138`: `weight.actual` stores no spread, so
+  the authority cannot bound the weighed biomass.
+
+Failure scenario: 100 fish stocked at 10 g are fed 0.1 kg in their first week (true FCR 1.0). A
+3-fish sample a week later averages 10.2 g instead of 11 g, about one standard error at 20%
+individual CV. Growth reads 0.02 kg and FCR 5.0, and a critical incident opens. A fix stores the
+weighing's margin of error with `weight.actual` (both growth-sample writers) and reports a batch
+whose growth is not clearly above count x margin as not yet judgeable, pinned by a real-PostgreSQL
+case. Owner okan/claude, deadline 2027-01-15.
+
+## FARM-MEDIUM-453
+
+A growth sample dated before the batch's last weighing overwrites `weight.actual`. Raised by the
+independent verification of FARM-CRITICAL-444 (round 2, MINOR, writer contract).
+
+- `apps/farm-service/src/growth/handlers/record-growth-sample.handler.ts:224` and
+  `update-batch-weight-from-sample.handler.ts:64`: either writer replaces the average, the day and
+  the sample size with any sample's, whatever its date (the growth backdate window is 30 days).
+- `apps/farm-service/src/batch/entities/batch.entity.ts:455`: `getCurrentAvgWeight` reads
+  `weight.actual.avgWeight` first, and `getCurrentBiomass` multiplies it by the live count.
+- `apps/farm-service/src/batch/handlers/record-mortality.handler.ts:225` and
+  `transfer-batch.handler.ts:224`: removals and transfers are valued at that weight.
+
+Failure scenario: a batch weighed on day D at 50 g gets a sample dated D-10 at 30 g entered
+afterwards. The displayed biomass drops by 40%, the next mortality is valued at 30 g a fish, and
+the FCR sweep judges the D-10 weighing. The FARM-CRITICAL-444 window stays consistent (the average
+and the day come from one sample, and the count on that day from the ledger), so its alerts are
+older, not wrong; the defect is in the writers. A fix makes both writers refuse to move
+`weight.actual` backwards inside their locked update. Owner okan/claude, deadline 2027-01-15.

@@ -31,9 +31,11 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { esmExportResult } from './helpers/esm-export';
 import { nxProjects } from './helpers/nx';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
+const REVIEWED_EXCEPTION_LIB = join(REPO_ROOT, 'scripts/ci/lib/reviewed-exception.mjs');
 const EXCLUSIONS = join(REPO_ROOT, 'scripts/ci/lint-all-exclusions.json');
 const AFFECTED_POLICY = join(REPO_ROOT, 'scripts/ci/affected-target-policy.json');
 const RUNNER = join(REPO_ROOT, 'scripts/ci/lint-all.mjs');
@@ -76,8 +78,16 @@ describe('lint quarantine has one source', () => {
     // The ceiling is the point: without it, "exclude the failing project" is
     // always the cheapest way to make a red lane green.
     expect(entries.length).toBeLessThanOrEqual(MAX_EXCLUSIONS);
+    // The reason floor is the reviewed-exception lib's, read from it rather
+    // than re-typed. The file's bare strings carry no owner, expiry or finding
+    // field, so the lib's whole check does not apply yet (INFRA-LOW-231).
+    const minReasonLength = esmExportResult<number>(
+      REVIEWED_EXCEPTION_LIB,
+      'MIN_REASON_LENGTH',
+      [],
+    );
     const unexplained = entries
-      .filter(([, reason]) => typeof reason !== 'string' || reason.trim().length < 30)
+      .filter(([, reason]) => typeof reason !== 'string' || reason.trim().length < minReasonLength)
       .map(([project]) => project);
 
     // An entry with no reason is indistinguishable from a project someone

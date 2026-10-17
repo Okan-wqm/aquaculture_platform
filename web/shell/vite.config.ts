@@ -4,6 +4,7 @@ import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getSharedConfigWithReactFlow } from '../shared-ui/src/federation/federationSharedConfig';
 import { sharedUiAlias } from '../shared-ui/src/federation/sharedUiAlias';
+import { unresolvedAssetUrlGate } from '../shared-ui/src/federation/unresolvedAssetUrlGate';
 
 /**
  * Vite Konfigürasyonu - Shell (Host) Uygulaması
@@ -23,6 +24,7 @@ export default defineConfig(({ command, mode }) => {
   return {
     plugins: [
       react(),
+      unresolvedAssetUrlGate(),
       federation({
         dts: false,
         name: 'shell',

@@ -11,7 +11,7 @@
     "types": ["node"],
     "ignoreDeprecations": "5.0"
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../../tests/invariants/js-yaml.d.ts"],
   "ts-node": {
     "transpileOnly": true
   }

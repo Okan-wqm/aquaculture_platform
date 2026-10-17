@@ -4561,6 +4561,7 @@ def _claude_preflight_refusal(*, tools_dir: Path, request_id: str | None, target
 
 def _pre_claim_environment_gate(
     *, tools_dir: Path, request_id: str | None = None, target_agent: str | None = None,
+    native_runtime: _NativeRuntimePlan | None = None,
 ) -> str | None:
     """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
 
@@ -4576,15 +4577,27 @@ def _pre_claim_environment_gate(
     request is NEVER claimed: it stays
     PENDING for a healthy host instead of consuming a lease + requeue here.
     Mock mode skips the gate — a mock dispatch needs none of the surfaces.
+
+    ARIA-MEDIUM-564 — one gate for both lanes. Claude's preflight is the
+    spawn lane's question only: an admitted ``native_runtime`` already had
+    its provider's auth decided by the fleet's own status probe, so it is
+    not asked again (a logged-out Claude must not refuse an admitted Z.ai
+    route). Everything after it is the HOST's, whatever route was admitted
+    — the room's sandbox and egress boundary, git answering in the
+    workspace, node_modules on the walk up — so it runs on both. Before,
+    ``_main`` skipped the whole gate once a native route was admitted, and
+    production (adaptive policy since 2026-09-12) never asked any of them.
     """
     if _MOCK_MODE_AT_ENTRY:
         return None
 
     kind: str | None = None
     detail = ""
-    claude_refusal = _claude_preflight_refusal(tools_dir=tools_dir, request_id=request_id, target_agent=target_agent)
-    if claude_refusal is not None:
-        kind, detail = "claude_auth_unavailable", claude_refusal
+    if native_runtime is None:
+        claude_refusal = _claude_preflight_refusal(tools_dir=tools_dir, request_id=request_id,
+                                                   target_agent=target_agent)
+        if claude_refusal is not None:
+            kind, detail = "claude_auth_unavailable", claude_refusal
     if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
         # ARIA-HIGH-123 — the detail names WHY (the git containment probe's
         # refusal when that is what failed): an operator reading the row
@@ -4967,8 +4980,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 native_runtime = admission_exit
             elif isinstance(admission_exit, _NativeAdmissionRefusal):
                 return admission_exit.exit_code
-        gate_kind = (_pre_claim_environment_gate(tools_dir=tools_dir, request_id=request_id, target_agent=subagent_type)
-                     if native_runtime is None else None)
+        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir, request_id=request_id, target_agent=subagent_type,
+                                                native_runtime=native_runtime)
         if gate_kind is not None:
             return 1
         # Step 1 — claim the request through the kernel CLI. The lease is

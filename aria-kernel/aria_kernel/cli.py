@@ -350,6 +350,7 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "agent_genesis_command",
         "skill_genesis_command",
         "autonomy_command",
+        "closure_command",
         "burn_in_command",
         "unlock_command",
         "policy_approval_command",
@@ -2971,6 +2972,25 @@ def build_parser() -> argparse.ArgumentParser:
         type=_full_git_sha,
         default=None,
         help="Full target commit SHA (valid only with --evidence; defaults to HEAD).",
+    )
+    # ARIA-HIGH-016 — the derived two-SHA closure verdict (closure plan
+    # Task 20A): exit 0 only when every predicate holds.
+    auto_closure = add_subparser(
+        autonomy_sub, "closure",
+        help="Derive the autonomy closure verdict from two explicit SHAs (read-only).",
+    )
+    closure_sub = auto_closure.add_subparsers(dest="closure_command", required=True)
+    closure_verify = add_subparser(
+        closure_sub, "verify",
+        help="Verify closure: runtime predicates at --evidence-target-sha, the report at --report-commit-sha.",
+    )
+    closure_verify.add_argument(
+        "--report-commit-sha", type=_full_git_sha, required=True,
+        help="The final origin/main commit that carries the closure report.",
+    )
+    closure_verify.add_argument(
+        "--evidence-target-sha", type=_full_git_sha, required=True,
+        help="The code tree every runtime predicate is judged at (an ancestor of the report commit).",
     )
     auto_project_queue = add_subparser(autonomy_sub, "project-queue")
     auto_project_queue.add_argument("--limit", type=int, default=None)
@@ -6978,6 +6998,18 @@ def _main(argv: list[str] | None = None) -> int:
         result = read_pending(args.tools_dir, limit=args.limit)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "autonomy" and args.autonomy_command == "closure":
+        from .autonomy_closure import derive_autonomy_closure_verdict
+
+        verdict = derive_autonomy_closure_verdict(
+            report_commit_sha=args.report_commit_sha,
+            evidence_target_sha=args.evidence_target_sha,
+            repo_root=Path.cwd(),
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(verdict.to_dict(), indent=2, sort_keys=True))
+        return 0 if verdict.verdict == "closed" else 1
 
     if args.command == "autonomy" and args.autonomy_command == "status":
         if args.target_sha is not None and not args.evidence:

@@ -109,6 +109,7 @@ import {
   commitMessageClosesFindingExactly,
   findingRejectsClosure,
   type FindingTrailerTarget,
+  readCommitMessage,
 } from './finding-traceability';
 import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
 
@@ -424,6 +425,92 @@ function cmdVerify(): number {
   const tip = chainTip(entries);
   if (tip) process.stdout.write(`Chain tip: ${tip}\n\n`);
   return 0;
+}
+
+/** One finding's closure in a registry snapshot, as of a commit. */
+interface SnapshotClosure {
+  readonly id: string;
+  readonly ok: boolean;
+  readonly reasons: readonly string[];
+}
+
+/**
+ * ARIA-HIGH-016 — is `id` closed in this snapshot as of commit `at`? The
+ * registry's own closure rules, applied to rows read from a Git tree: exactly
+ * one row, RESOLVED, at least one closing commit, and every closing commit
+ * reachable from `at` (`commitReachableFrom`, as `close` requires of
+ * origin/main), not rejected by an override reopen (`closureAdmissible`) and
+ * carrying the finding's exact `Closes:` trailer
+ * (`commitMessageClosesFindingExactly`, the derivation matcher `reconcile`
+ * reads merged history with, aliases resolved as `close` resolves them).
+ */
+function snapshotClosure(entries: readonly Finding[], id: string, at: string): SnapshotClosure {
+  const rows = entries.filter((entry) => entry.id === id);
+  const [row] = withFindingAliases(REPO_ROOT, rows);
+  if (rows.length !== 1 || row === undefined) {
+    return { id, ok: false, reasons: [`registry_rows:${rows.length}`] };
+  }
+  const reasons: string[] = [];
+  if (row.state !== 'RESOLVED') reasons.push(`not_resolved:${row.state}`);
+  if (row.closing_commits.length === 0) reasons.push('no_closing_commit');
+  for (const sha of row.closing_commits) {
+    if (!commitReachableFrom(REPO_ROOT, sha, at).ok) {
+      reasons.push(`closing_commit_unreachable:${sha}`);
+      continue;
+    }
+    if (!closureAdmissible(row, sha).ok) reasons.push(`closing_commit_rejected:${sha}`);
+    let message: string;
+    try {
+      message = readCommitMessage(REPO_ROOT, sha);
+    } catch {
+      reasons.push(`closing_commit_message_unreadable:${sha}`);
+      continue;
+    }
+    if (!commitMessageClosesFindingExactly(message, row)) {
+      reasons.push(`closing_commit_without_trailer:${sha}`);
+    }
+  }
+  return { id, ok: reasons.length === 0, reasons };
+}
+
+/**
+ * ARIA-HIGH-016 — `verify --stdin [--closures-at <sha> <ID>...]`: the same
+ * admission test (`verify` from finding-registry-chain) over registry bytes
+ * the caller read from a Git tree, so a snapshot is judged by the one chain
+ * implementation instead of a transcription of it; with `--closures-at`, also
+ * each named finding's closure in that snapshot as of `<sha>`
+ * (`snapshotClosure`). The autonomy closure verifier
+ * (aria-kernel/aria_kernel/autonomy_closure.py) pipes the registry blob at its
+ * evidence target here and names the closure policy's findings. Prints one
+ * JSON line; exit 0 only when the chain holds and every named closure does.
+ */
+function cmdVerifyStdin(closuresAt: string | null, ids: readonly string[]): number {
+  let entries: Finding[];
+  try {
+    entries = parseRegistryJsonl(readFileSync(0, 'utf8'));
+  } catch (error) {
+    const reason = `registry_unparseable: ${error instanceof Error ? error.message : String(error)}`;
+    process.stdout.write(
+      JSON.stringify({ ok: false, entries: 0, reason, tip: null, closures: [] }) + '\n',
+    );
+    return 1;
+  }
+  const result = verify(entries);
+  const tip = result.ok ? chainTip(entries) : null;
+  const closures =
+    result.ok && closuresAt !== null
+      ? ids.map((id) => snapshotClosure(entries, id, closuresAt))
+      : [];
+  process.stdout.write(
+    JSON.stringify({
+      ok: result.ok,
+      entries: result.entries,
+      reason: result.reason,
+      tip,
+      closures,
+    }) + '\n',
+  );
+  return result.ok && closures.every((closure) => closure.ok) ? 0 : 1;
 }
 
 function readFindingStub(stubPath: string): Partial<Finding> | null {
@@ -1921,7 +2008,9 @@ function main(): void {
     console.error(
       'Usage: finding-registry <verify|add|add-explicit|import-narrative|close|sweep|export|list|rechain-from|dedupe> [args]',
     );
-    console.error('  verify');
+    process.stderr.write(
+      '  verify [--stdin [--closures-at <full-sha> <ID>...]]  — the chain over the file or stdin bytes; with --closures-at, each named closure too\n',
+    );
     console.error('  add <domain> <stub.json>  — atomically allocate id + append');
     console.error('  add-explicit <stub.json>  — governed replay/import with fixed id');
     process.stderr.write(
@@ -1945,7 +2034,24 @@ function main(): void {
 
   let exitCode = 0;
   if (sub === 'verify') {
-    exitCode = cmdVerify();
+    const [mode, closuresFlag, closuresAt, ...ids] = args;
+    const plain = args.length === 0;
+    const stdinChain = mode === '--stdin' && args.length === 1;
+    const stdinClosures =
+      mode === '--stdin' &&
+      closuresFlag === '--closures-at' &&
+      closuresAt !== undefined &&
+      /^[a-f0-9]{40}$/.test(closuresAt) &&
+      ids.length > 0;
+    if (!plain && !stdinChain && !stdinClosures) {
+      process.stderr.write(
+        'usage: finding-registry verify [--stdin [--closures-at <full-sha> <ID>...]]\n',
+      );
+      process.exit(2);
+    }
+    exitCode = plain
+      ? cmdVerify()
+      : cmdVerifyStdin(stdinClosures ? (closuresAt ?? null) : null, stdinClosures ? ids : []);
   } else if (sub === 'add') {
     const domain = args[0];
     const stubPath = args[1];

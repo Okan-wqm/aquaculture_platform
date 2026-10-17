@@ -10,7 +10,7 @@ Owner: claude (implementation), okan (review).
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
 2026-10-24.
 
-### Symptom
+### Symptom (INFRA-HIGH-230)
 
 CI - Affected run 38990686731 (`ffd6aa2f4`, `deploy-development / deploy`) ended with
 `status=rollback_failed`. Afterwards `ghcr.io/okan-wqm/aquaculture_platform/<svc>:ffd6aa2f4...`
@@ -20,7 +20,7 @@ named the pre-release image for every app service (`shell` → `ebc6d366dea1`, t
 so any later `TAG=ffd6aa2f4... docker compose up` started old code against a schema two
 migrations ahead of it.
 
-### Root cause
+### Root cause (INFRA-HIGH-230)
 
 The job logs of attempts 3 and 4 (release ids `ffd6aa2f4...-20261017T<time>`) show two defects
 in the same rollback path, plus a compose recreate that cannot survive its own failure.
@@ -53,7 +53,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
    The rollback's own `compose up` hit the same wall (`f33602842a24_aqua-auth`). The selective
    path (`:1612`) ran compose with no check for either state.
 
-### Fix
+### Fix (INFRA-HIGH-230)
 
 - **Release tags have one writer.** `pull_deploy_image_required` pins `<svc>:<DEPLOY_SHA>` and
   `<svc>:latest` from the release digest and fails the deploy if either pin fails. The rollback
@@ -79,7 +79,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
 - The rollback and image-reference code moved from `droplet-up.sh` into
   `scripts/deploy/lib/release-rollback.sh`, so the specs can source it.
 
-### Tests
+### Tests (INFRA-HIGH-230)
 
 - `tests/invariants/deploy-rollback-release-tag.spec.ts` runs capture and restore against a
   fake Docker daemon (`tests/invariants/helpers/fake-deploy-docker.ts`). Attempt 4 is refused
@@ -94,7 +94,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
   the name fails with no `rm`, `stop` or `up`. Temp names of other projects are left alone and
   undefined services are refused.
 
-### Not changed
+### Not changed (INFRA-HIGH-230)
 
 - The full-stack path runs `compose down` and force-removes every `aqua-*` container before
   `compose up`, so no leftover can block it. Its rollback goes through the same
@@ -108,14 +108,14 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
 2026-10-24.
 
-### Symptom
+### Symptom (SEC-HIGH-202)
 
 Tenant users were sent back to `/login` while their sessions were still valid. auth-service
 logged `Rate limit exceeded for bucket 'refresh'`, and the only refresh key in Redis was
 `ratelimit:refresh:ip:::ffff:172.20.0.30`. That address is the `aqua-gateway` container on
 `aqua-saas_aqua-internal`, not a client.
 
-### Root cause
+### Root cause (SEC-HIGH-202)
 
 `RateLimitGuard` (`libs/backend-common`) builds the IP dimension of a `@RateLimit` bucket from
 `request.ip` (`libs/backend-common/src/rate-limit/rate-limit.guard.ts:301` before the fix).
@@ -147,7 +147,7 @@ reads it only when the request carries a verified `gateway-api` service identity
 ORPHAN-MEDIUM-319 moved the auth audit IPs onto that reader. The rate-limit guard kept
 `request.ip`.
 
-### Other pre-auth operations checked
+### Other pre-auth operations checked (SEC-HIGH-202)
 
 These key on a custom identifier and were not affected while the identifier was present. Their
 IP fallback had the same defect and is fixed by the same change.
@@ -161,7 +161,7 @@ tiers key on the client IP it resolves under `TRUST_PROXY` and were correct. sen
 provisioning limiter is reached from nginx directly with `TRUST_PROXY=1`, so its `request.ip` is
 the client.
 
-### Fix
+### Fix (SEC-HIGH-202)
 
 `RateLimitGuard.identityOf` takes the IP dimension from `resolveClientNetworkContext(request).ip`,
 the one platform reader of the client IP. The guard's request type extends `ClientNetworkRequest`,
@@ -183,7 +183,7 @@ Keying `refresh` on the refresh-token family was considered and rejected. Before
 token is attacker-chosen, so every random string would get a fresh bucket. Validating the family
 first would put a database lookup in front of the limiter it is meant to protect.
 
-### Tests
+### Tests (SEC-HIGH-202)
 
 `libs/backend-common/src/rate-limit/__tests__/gateway-client-bucket.spec.ts` runs the real hop:
 an Express app with `StripInternalHeadersMiddleware` and the guard, a v2 signature built by

@@ -12,8 +12,8 @@ Claude Code CLI runtime (ORPHAN-MEDIUM-253 — codex→claude migration):
   * I-V3-22a — vars.ARIA_MOCK_KILL_SWITCH read AHEAD of the workflow
     default (kill switch precedence).
   * I-V3-22b — preflight step refuses to start when effective_mock=false
-    AND Claude API-key/proxy-billing mode is rejected and managed-auth
-    preflight is present.
+    AND Claude API-key/proxy-billing mode is rejected, and the kernel's
+    Claude credential boundary is checked (ARIA-MEDIUM-563).
   * I-V3-22c — pinned Claude Code CLI preflight step is present BEFORE the
     executor step.
   * I-V3-22d — aria-agent-executor.yml in V2 I-25 _GOVERNED_WORKFLOWS
@@ -56,6 +56,24 @@ def _extract_yaml_block(text: str, block_marker: str) -> str:
         if block_marker in match.group(1):
             return match.group(1)
     raise AssertionError(f"yaml block with marker {block_marker!r} not found")
+
+
+def _backtick_in_double_quotes(command: str) -> bool:
+    """Whether a shell line holds an unescaped backtick inside double quotes
+    (bash runs it as a command substitution)."""
+    double = single = escaped = False
+    for char in command:
+        if escaped:
+            escaped = False
+        elif char == "\\" and not single:
+            escaped = True
+        elif char == "'" and not double:
+            single = not single
+        elif char == '"' and not single:
+            double = not double
+        elif char == "`" and double:
+            return True
+    return False
 
 
 # The Claude Code CLI argv flags the proven doc declares for both executors.
@@ -176,7 +194,7 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
             ),
         )
 
-    # I-V3-22b — Claude managed-auth preflight guard.
+    # I-V3-22b — Claude API-key refusal + kernel credential check.
     def test_i_v3_22b_claude_auth_preflight_guard_present(self) -> None:
         self.assertIn(
             "API-key Claude mode is disallowed",
@@ -202,6 +220,27 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         self.assertNotIn("codex login status", self.workflow_text)
         self.assertNotIn("codex doctor", self.workflow_text)
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", self.workflow_text)
+
+    def test_no_message_runs_a_command_through_backticks(self) -> None:
+        # ARIA-MEDIUM-563 review: `echo "... (`claude setup-token` ...)"` is
+        # command substitution in bash: the API-key refusal path would start
+        # the interactive token mint inside a CI step and print its output to
+        # the Actions log. A backtick inside a double-quoted echo/printf
+        # string runs a command; a message names one in plain quotes.
+        offenders = []
+        github = _REPO_ROOT / ".github"
+        for path in sorted([*github.glob("workflows/*.yml"), *github.glob("actions/*/action.yml")]):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                found = re.search(r"\b(echo|printf)\b", stripped)
+                if stripped.startswith("#") or not found:
+                    continue
+                if _backtick_in_double_quotes(stripped[found.start():]):
+                    offenders.append(f"{path.relative_to(_REPO_ROOT)}:{number}")
+        self.assertEqual(offenders, [], "command substitution inside a double-quoted message")
+        self.assertTrue(_backtick_in_double_quotes('echo "x (`claude setup-token` y)"'))
+        self.assertFalse(_backtick_in_double_quotes("echo \"x ('claude setup-token') \\` y\""))
+        self.assertFalse(_backtick_in_double_quotes("echo 'x `y` z'"))
 
     # I-V3-22c — Claude Code binary preflight step.
     def test_i_v3_22c_claude_binary_preflight_step_present(self) -> None:

@@ -353,7 +353,7 @@ jobs:
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
           if [ "${EFFECTIVE_MOCK}" = "false" ]; then
             if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then
-              echo "::error::API-key Claude mode is disallowed for ARIA; use the kernel's Claude token (`claude setup-token` into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names) on the trusted runner." >&2
+              echo "::error::API-key Claude mode is disallowed for ARIA; use the kernel's Claude token ('claude setup-token' into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names) on the trusted runner." >&2
               exit 1
             fi
             claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \

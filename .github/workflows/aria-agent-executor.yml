@@ -437,7 +437,7 @@ jobs:
       #
       # WHY BEFORE THE CLAUDE PREFLIGHT. A recovery must not depend on the agent
       # path being healthy. The steps below refuse the job when the Claude CLI
-      # or its managed session is absent, and a runner in that state is exactly
+      # is absent or API-key mode is set, and a runner in that state is exactly
       # where an operator still needs to repair a breaker.
       #
       # WHY IT STILL CARRIES THE LEASE GUARD. The repair mutates the same tree a
@@ -480,8 +480,9 @@ jobs:
             --operator-approval-ref "$QUARANTINE_APPROVAL_REF"
 
       # Plan ARIA-V3 §B1 INFRA-CRITICAL-002 — refuse to start when
-      # the workflow is in live mode but managed Claude Code auth is
-      # absent. The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read
+      # the workflow is in live mode in API-key mode or without the Claude
+      # CLI, and report the kernel's Claude credential boundary
+      # (ARIA-MEDIUM-563). The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read
       # AHEAD of the workflow default — operator opt-out path (Plan
       # ARIA-V3 §B1 INFRA-MEDIUM-011). The mock_source value flows
       # into the ci_executor via CLAUDE_CLI_MOCK_SOURCE so the
@@ -489,8 +490,8 @@ jobs:
       # records exactly which layer decided the mock state.
       - name: Pre-flight - Claude Code auth + mock-mode kill-switch resolution
         id: preflight
-        # RC-6 — see the CLI floor above: a recovery run needs no managed
-        # Claude session, and this step hard-fails the job without one.
+        # RC-6 — see the CLI floor above: a recovery run needs no Claude
+        # CLI, and this step hard-fails the job without one.
         if: steps.lease_check.outputs.blocked != 'true' && inputs.breaker_quarantine_reason == ''
         env:
           KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
@@ -521,7 +522,7 @@ jobs:
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
           if [ "${EFFECTIVE_MOCK}" = "false" ]; then
             if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then
-              echo "::error::API-key Claude mode is disallowed for ARIA; use the kernel's Claude token (`claude setup-token` into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names) on the trusted runner." >&2
+              echo "::error::API-key Claude mode is disallowed for ARIA; use the kernel's Claude token ('claude setup-token' into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names) on the trusted runner." >&2
               exit 1
             fi
             claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \

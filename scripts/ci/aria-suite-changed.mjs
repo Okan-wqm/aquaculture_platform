@@ -54,16 +54,13 @@ const RUNNER = 'scripts/ci/aria-suite-run.sh';
 const GRAPH = 'scripts/ci/aria-import-graph.py';
 const GATE_FILES = [SELF, RUNNER, GRAPH];
 
-/** Paths whose change can break something the ARIA kernel suite asserts. */
-const ARIA_SURFACES = [
-  'aria-kernel',
-  'tools/aria-poc',
-  'tools/aria-adapters',
-  '.github/workflows',
-  '.github/actions',
-  ...GATE_FILES,
-  'package.json',
-];
+/**
+ * Paths whose change can break something the ARIA kernel suite asserts: the kernel lane's PR
+ * surface, owned by one manifest that aria-kernel.yml's `changes` job reads too (ARIA-HIGH-530).
+ * This file kept a second, different list, so a push and the required check disagreed on what
+ * an ARIA change is. git matches the globs (`:(glob)` pathspec magic) here exactly as in CI.
+ */
+const SURFACE_MANIFEST = '.github/manifests/aria-kernel-surface.json';
 
 const GATE_SPEC_DIR = 'tests/invariants';
 const DEFAULT_BUDGET_S = 300;
@@ -147,7 +144,7 @@ function main(planOnly) {
     warn('no origin ref resolved, ARIA kernel suite SKIPPED (CI still runs it).');
     return 0;
   }
-  const diff = run('git', ['diff', '--name-only', `${base}...HEAD`, '--', ...ARIA_SURFACES]);
+  const diff = run('git', ['diff', '--name-only', `${base}...HEAD`, '--', ...surfacePathspecs()]);
   const files = diff === '' ? [] : diff.split('\n');
   const forceFull = process.env.ARIA_SUITE_FULL === '1';
   const budgetS = budget();
@@ -206,6 +203,24 @@ function run(command, args) {
     );
   }
   return result.stdout.trim();
+}
+
+/**
+ * The manifest's globs as git pathspecs. An unreadable, malformed or empty manifest refuses the
+ * run: an empty pathspec list would make `git diff` report every change, and a partial one would
+ * decide on a surface nobody declared.
+ */
+function surfacePathspecs() {
+  let globs;
+  try {
+    globs = JSON.parse(readFileSync(SURFACE_MANIFEST, 'utf-8')).surface.map((entry) => entry.glob);
+  } catch (error) {
+    throw new Refusal(1, `${SURFACE_MANIFEST} is unreadable (${error.message}).`);
+  }
+  if (globs.length === 0 || globs.some((glob) => typeof glob !== 'string' || glob === '')) {
+    throw new Refusal(1, `${SURFACE_MANIFEST} declares no usable kernel surface.`);
+  }
+  return globs.map((glob) => `:(glob)${glob}`);
 }
 
 function resolves(ref) {

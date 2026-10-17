@@ -70,26 +70,16 @@ jobs:
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
-          # The paths a PR must touch for the kernel lane to run. This was the
-          # pull_request `paths:` filter, moved here unchanged.
-          #   docs/adr/** — ARIA-MEDIUM-135, inherited from the retired
-          #     aria-kernel-fast.yml: a SPEC/ADR amendment fires the lane on
-          #     the PR, not first on the push to main (I-V3-31c).
-          #   tools/aria-poc/**, tools/shared/** — Plan ARIA-V2 §3.6: kernel-
-          #     quality-gate adjacent (I-19..I-22, I-39 land here).
-          #   tools/aria-adapters/** — ARIA-HIGH-098: the registry contract
-          #     lives in the suite
-          #     (tests/test_adapter_fixture_evidence_contract.py), so an
-          #     adapters-only PR must run it before merge, not on main.
-          KERNEL_SURFACE: |
-            aria-kernel/**
-            scripts/ci/aria-suite-run.sh
-            docs/aria/**
-            docs/adr/**
-            .github/workflows/aria-kernel.yml
-            tools/aria-poc/**
-            tools/shared/**
-            tools/aria-adapters/**
+          # ARIA-HIGH-530 — the paths a PR must touch for the kernel lane to
+          # run live in ONE manifest, read here, by the pre-push selector
+          # (scripts/ci/aria-suite-changed.mjs), by the suite's own helper
+          # (aria-kernel/tests/_helpers/kernel_lane.py) and by
+          # tests/invariants/aria-doc-runtime-ssot.spec.ts; every entry names
+          # its reader. A hand list here left out inputs the suite and lane
+          # read (.claude/agents, tools/aria-acceptance, .github/actions,
+          # package.json), so a PR changing only those passed this check
+          # without running it, and the selector kept a second, different list.
+          KERNEL_SURFACE_MANIFEST: .github/manifests/aria-kernel-surface.json
         run: |
           set -euo pipefail
           # A main push and a manual run always run the whole lane (ARIA-V-007).
@@ -98,8 +88,14 @@ jobs:
             echo "${EVENT_NAME}: the kernel lane runs whole."
             exit 0
           fi
-          # `:(glob)` gives `**` and `*` the meaning they had in the filter.
-          mapfile -t pathspecs < <(printf '%s\n' "$KERNEL_SURFACE" | sed -e '/^$/d' -e 's/^/:(glob)/')
+          # `:(glob)` gives `**` and `*` the meaning they had in the filter;
+          # git is the only matcher of these globs, here and in every reader.
+          # A missing, unreadable, malformed or empty manifest fails this step
+          # (and so the verdict): the assignment carries jq's status under
+          # `set -e`, where a process substitution would hide it and decide
+          # on a partial list.
+          globs="$(jq -er '.surface[].glob | ":(glob)" + .' "$KERNEL_SURFACE_MANIFEST")"
+          mapfile -t pathspecs <<< "$globs"
           changed="$(git diff --name-only HEAD^1 HEAD -- "${pathspecs[@]}")"
           if [ -n "$changed" ]; then
             echo "kernel=true" >> "$GITHUB_OUTPUT"

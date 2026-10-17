@@ -1,0 +1,95 @@
+{
+  "$comment": [
+    "The PR surface of the required aria-kernel check (ARIA-HIGH-530, INFRA-HIGH-215). One owner; every reader reads this file:",
+    "aria-kernel.yml `changes` (via jq), scripts/ci/aria-suite-changed.mjs (pre-push selector), aria-kernel/tests/_helpers/kernel_lane.py",
+    "and tests/invariants/aria-doc-runtime-ssot.spec.ts. A pull_request runs the suite, lane and state jobs iff it changes a path matched by",
+    "one glob, matched by git itself (`:(glob)` pathspec magic) everywhere, so no second matcher exists to drift.",
+    "A glob belongs here only for an input the kernel jobs read as KERNEL CONFIGURATION: ARIA code and config, agent and CI definitions,",
+    "ARIA docs, the lane's toolchain manifests. `readers` names who reads it; an entry no reader needs is removed.",
+    "aria-kernel/tests/test_kernel_surface.py fails the build when a gated job reads a workflow-level input (a local action, npm ci,",
+    "an npm script, a path argument) that no glob here covers."
+  ],
+  "schema_version": 1,
+  "surface": [
+    {
+      "glob": "aria-kernel/**",
+      "readers": "the kernel, its suite, the shard weights"
+    },
+    {
+      "glob": "scripts/ci/aria-suite-run.sh",
+      "readers": "the suite runner every kernel job calls"
+    },
+    {
+      "glob": "scripts/ci/aria-suite-changed.mjs",
+      "readers": "the pre-push selector; pinned by the lane's `npm run aria:docs:ssot` (aria-doc-runtime-ssot.spec.ts)"
+    },
+    {
+      "glob": "scripts/ci/aria-import-graph.py",
+      "readers": "the selector's import graph; the lane's `npm run aria:docs:ssot` (aria-doc-runtime-ssot.spec.ts) drives the selector, which runs it"
+    },
+    {
+      "glob": "scripts/aria/**",
+      "readers": "suite: test_t2_boundary_probe, test_doctor, test_runner_env_not_expression_context"
+    },
+    {
+      "glob": "docs/aria/**",
+      "readers": "doc-parity tests (ARIA-MEDIUM-135)"
+    },
+    {
+      "glob": "docs/adr/**",
+      "readers": "SPEC/ADR amendment tests (ARIA-MEDIUM-135, I-V3-31c)"
+    },
+    {
+      "glob": "tools/aria-poc/**",
+      "readers": "lane: tools/aria-poc invariant tests (Plan ARIA-V2 3.6)"
+    },
+    {
+      "glob": "tools/shared/**",
+      "readers": "lane: tools/shared invariant tests (Plan ARIA-V2 3.6)"
+    },
+    {
+      "glob": "tools/aria-adapters/**",
+      "readers": "suite: test_adapter_fixture_evidence_contract (ARIA-HIGH-098)"
+    },
+    {
+      "glob": "tools/aria-acceptance/**",
+      "readers": "lane: `npm run test:aria-acceptance:unit` and `npm run test:aria-acceptance`"
+    },
+    {
+      "glob": "tools/aria/**",
+      "readers": "suite: test_runner_env_not_expression_context (chain_next_cycle.py)"
+    },
+    {
+      "glob": "aria-config/**",
+      "readers": "suite: test_pre_merge_budget_and_content, test_closable_backlog_cap, test_executor_implementation_identity"
+    },
+    {
+      "glob": ".claude/agents/**",
+      "readers": "lane: pedagogy lint and specialist-review dry-run (--agents-dir .claude/agents); suite: test_phase_v12_d_delivery (aria-implementer.md cap)"
+    },
+    {
+      "glob": ".claude/knowledge/**",
+      "readers": "suite: test_context_budget_gate, test_plan_contract, test_must_satisfy_shape"
+    },
+    {
+      "glob": ".github/**",
+      "readers": "lane: `uses: ./.github/actions/*` and workflow verify-registry; suite: workflow, action, manifest and CODEOWNERS pins (test_ci_workflow_invariants, test_state_compaction_gate, test_runner_availability, test_required_checks_manifest_parity)"
+    },
+    {
+      "glob": "tests/invariants/agent-pedagogy.allowlist.json",
+      "readers": "lane: pedagogy lint --allowlist; suite: test_phase_v5_3_pedagogy_lint"
+    },
+    {
+      "glob": "package.json",
+      "readers": "every `npm ci` and `npm run` step of the kernel jobs"
+    },
+    {
+      "glob": "package-lock.json",
+      "readers": "`npm ci` in the suite and lane jobs"
+    },
+    {
+      "glob": ".npmrc",
+      "readers": "`npm ci` in the suite and lane jobs"
+    }
+  ]
+}

@@ -859,8 +859,50 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   over the committed bytes for every target instead of `isEntry`'s copy, and the npm spec runs the
   gate on the committed file instead of its re-declared constants. Red first: the dormant check
   accepted `{reason: "tbd", finding_id: "TODO"}`.
+- **Scope, after the independent verification (round 1):** this row names the copies of the
+  three files whose shape the lib already owns, and those are what it closes. Two more lists are
+  reviewed exceptions outside the lib, and each has its own row: the full lint lane's
+  `lint-all-exclusions.json` (INFRA-LOW-231) and the seven `.claude/allowlists` ratchets whose
+  specs carry their own rules (INFRA-LOW-232). The same round pinned the owner's refusals that
+  the deleted copies used to restate: a non-GHSA key, a string `packages`, an empty or missing
+  `scopes`, and an expiry that is not an ISO date.
 
-### PROC-LOW-055 — the finding-id grammar is stated four ways
+### INFRA-LOW-231 — the full lint lane's exclusions carry no owner, expiry or finding
+
+- **Raised by:** the independent verification of the `G041-G042-reviewed-exception` fix
+  (round 1).
+- **Problem:** `scripts/ci/lint-all-exclusions.json` maps backend-common, event-bus, storage and
+  outbox to bare reason strings, and `lint-all.mjs` excludes every key from `lint:all` (ci-full:
+  the weekly schedule, workflow_dispatch and release tags) with no date.
+  `lint-quarantine-ssot.spec.ts` checks a reason length, a ceiling of 6 and that each key is
+  also a key of the affected lane's lint quarantine. It compares keys only, so after the
+  affected-lane entries lapse (event-bus, outbox and storage on 2026-11-06), the affected lane
+  gates those projects while `lint:all` keeps skipping them. The reason floor is now read from the
+  lib, not re-typed. Two docstrings still say `build-status` depends on `lint:all`
+  (`lint-all.mjs:7`, `lint-quarantine-ssot.spec.ts:16`), but ci-full has no `pull_request`
+  trigger.
+- **Planned fix:** `{owner, reason, expires_on, finding_id}` entries checked through
+  `validateReviewedExceptions`. What an expired full-lane entry does is the operator's decision,
+  as in INFRA-MEDIUM-222: a lapsed date must not turn the whole lane red. Deadline: 2027-04-15.
+
+### INFRA-LOW-232 — seven allowlist specs carry their own reviewed-exception rules
+
+- **Raised by:** the independent verification of the `G041-G042-reviewed-exception` fix
+  (round 1).
+- **Problem:** `no-dead-guards.spec.ts:177`, `retention-authority-ssot.spec.ts:102`,
+  `admin-mutation-audit-coverage.spec.ts:74`, `platform-capability-coverage.spec.ts:73`,
+  `plan-catalog-ssot.spec.ts:101`, `scheduled-jobs-leased.spec.ts:136` and
+  `web-design-system-ratchet.spec.ts:387` each check `{owner, reason, expiry, findingId}` entries
+  under `.claude/allowlists/` with rules of their own. They disagree with the lib and with each
+  other on the expiry boundary (`<=`, `>` or `>=` today), the reason floor (non-empty, over 20, at
+  least 30) and the id grammar. A waiver with reason `tbd` and findingId `X-Y-1` passes four of
+  them. Measured 2026-10-17: all 72 governed entries meet the lib's rules, so no live entry is
+  weaker today.
+- **Planned fix:** the lib's field names (or one field mapping in the lib), and each spec checks
+  its entries through `validateReviewedException` via `tests/invariants/helpers/esm-export.ts`.
+  Deadline: 2027-04-15.
+
+### PROC-LOW-055 — the finding-id grammar is stated in many places
 
 - **Raised by:** design G041-S §1 ("register as its own finding at implementation time"), at the
   `G041-G042-reviewed-exception` fix, which leaves the lib's `FINDING_ID` as it is.
@@ -871,6 +913,18 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   trailer. `banned-phrase-excuse.ts:66` admits `NIT` and two-digit ids that no row can carry.
   Measured 2026-10-17: 9 of 2767 registry ids fail the lib, all RESOLVED, so no live exception is
   affected today.
+- **More copies (independent verification, round 1):** the row's title says "four ways"; the row
+  is hash-chained, so the count is corrected here. Besides the four cited in the row, the grammar
+  is restated at `tools/gates/banned-phrase.ts:169`, `tests/invariants/claude-md-accuracy.spec.ts:143`,
+  `plan-catalog-ssot.spec.ts:104`, `scheduled-jobs-leased.spec.ts:137` and `:208`,
+  `admin-mutation-audit-coverage.spec.ts:75`, `platform-capability-coverage.spec.ts:74`,
+  `web-design-system-ratchet.spec.ts:392`, `finding-id-aliases.spec.ts:144`,
+  `aria-kernel/aria_kernel/plan_origin.py:57` (the `Closes:` trailer, a Python copy),
+  `adapter_quarantine.py:31`, `plan_convergence.py:35`, `twin.py:982`, and the kernel tests
+  `test_control_reachability.py:109` and `test_surface_reachability.py:159`. Purpose-narrow forms
+  also exist: `tools/gates/finding-registry.ts:826` and `plan_origin.py:78` (ORPHAN ids only) and
+  `three-store-invariants.spec.ts:1319` (P0 ids only). The fix covers every one of them, so this
+  row cannot close while any copy remains.
 - **Planned fix:** one exported grammar derived from the registry schema, and every gate's
   pattern built from it. Deadline: 2027-04-15.
 

@@ -2,13 +2,14 @@
 
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
 
 import { assertLintProjectionComplete } from '../aria-adapters/sql-migration-safety-adapter';
 
+import { removeFixtureTree } from './fixture-tree';
 import { inspectMigrationSource, scanMigrationSql } from './migration-sql-lint';
 
 function expectR4Pass(sql: string): void {
@@ -241,7 +242,7 @@ void test('the CLI and inspectMigrationSource report identical violations for on
     assert.ok(exported.length >= 3, JSON.stringify(exported));
     assert.deepStrictEqual(reported, exported);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeFixtureTree(dir);
   }
 });
 

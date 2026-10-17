@@ -34,7 +34,8 @@ WHAT — one owner for the bytes:
 * Every dispatch (``verify_genesis_dispatch``: the tool runner and the
   fixture runner) re-hashes the custody bytes against the custody and
   calibration digests before they run. Promotion to ACTIVE needs the same,
-  plus an operator act or the panel (``verify_genesis_promotion``).
+  plus an operator act or the panel, each verified
+  (``verify_genesis_promotion``).
 """
 from __future__ import annotations
 
@@ -334,38 +335,33 @@ def verify_genesis_dispatch(tool: Mapping[str, Any], *, base_dir: str | Path | N
 
 
 def verify_genesis_promotion(
-    tool: Mapping[str, Any],
+    tool_id: str,
     *,
-    operator_approval_ref: str | None,
+    operator_approval: Mapping[str, Any] | None,
     panel_promote_verified: bool,
-    base_dir: str | Path | None,
 ) -> None:
-    """SHADOW -> ACTIVE for a genesis tool: the bytes verify as at dispatch,
-    and the authority is an operator act or the panel. The auto-promote token
-    is never that authority: it vouches for precision, and nobody has looked
-    at drafted code. Runs among ``transition_tool``'s structural gates,
-    before any approval is consumed, so it reads each authority in the form
-    that exists without spending it:
+    """SHADOW -> ACTIVE authority for a genesis tool: an operator act or the
+    panel, each as VERIFIED, never as a string's presence. The auto-promote
+    token is never that authority: it vouches for precision, and nobody has
+    looked at drafted code.
 
-    * the panel as ``transition_tool`` VERIFIED it
-      (``promotion_veto.verify_panel_approval_token``, which consumes
-      nothing): a forged panel string is no panel, so it cannot stand beside
-      a verified auto token as the "operator or panel" this gate asks for
-      (ARIA-HIGH-414 item 6, the wave-2 reproduction);
-    * the operator as a claimed ref, which is binding: ``transition_tool``
-      resolves every non-blank ref right after these gates and refuses the
-      transition when it is not an operator's act
-      (``resolve_transition_approval`` raises), so a garbage ref is a
-      refusal, never an authority.
+    ``operator_approval`` is the record ``transition_tool`` resolved
+    (``resolve_transition_approval`` -> ``operator_approval.verify_operator_
+    approval``), not the ref a caller typed; ``panel_promote_verified`` is
+    ``promotion_veto.verify_panel_approval_token``'s verdict, not the token.
+    The bytes are re-verified earlier, among the structural gates
+    (``verify_genesis_dispatch``), so drifted bytes refuse before an act is
+    spent; this check fires only when no act resolved, so it spends none.
+    ARIA-HIGH-414 item 6 (the wave-2 reproduction): a garbage ref or a forged
+    panel string beside a verified auto-promote token promoted drafted code.
     """
-    if verify_genesis_dispatch(tool, base_dir=base_dir) is None:
+    if isinstance(operator_approval, Mapping) or panel_promote_verified is True:
         return
-    if not str(operator_approval_ref or "").strip() and not panel_promote_verified:
-        raise GenesisCustodyRefusal(
-            f"genesis_adapter_promotion_requires_operator_or_panel: {tool.get('tool_id')!r} is drafted code; "
-            "SHADOW -> ACTIVE needs an operator approval ref or a verified panel approval token, "
-            "not the auto-promote token"
-        )
+    raise GenesisCustodyRefusal(
+        f"genesis_adapter_promotion_requires_operator_or_panel: {tool_id!r} is drafted code; "
+        "SHADOW -> ACTIVE needs a resolved operator approval or a verified panel approval token, "
+        "not the auto-promote token"
+    )
 
 
 def _passing_calibration(root: Path, sandbox_result: Mapping[str, Any] | None, staged: StagedAdapter) -> dict[str, Any]:

@@ -71,8 +71,9 @@ npx ts-node --project tools/gates/tsconfig.json \
 ```
 
 All mutating subcommands (`add`, `add-explicit`, `import-narrative`, `close`,
-`reopen`, `assign`, `sweep`, `reconcile`, `rechain-from`, and `dedupe`) share one lock in Git's common directory, so every
-worktree of the same repository is serialized. Lock acquisition is bounded. A
+`reopen`, `assign`, `sweep`, `reconcile`, `rechain-from`, and `dedupe`) share one
+lock in Git's common directory, so every worktree of the same repository is
+serialized. Lock acquisition is bounded. A
 stale lock is taken over only when its metadata is valid, it belongs to this
 host, and its recorded process no longer exists. Malformed and foreign-host
 locks fail closed. Ownership is fenced immediately before each atomic write and

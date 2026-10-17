@@ -3024,8 +3024,9 @@ submit-result`, the drain's `agent next-pending`, the worker lane's `worker list
   (`mcp_kernel_socket_requires_relay`), never handed a server spawned inside; a relay whose
   broker cannot be reached answers every request with a JSON-RPC error naming the cause
   (`mcp_broker_unreachable:<why>`), never a hung server. The orchestrator's startup sweep prunes
-  the broker's socket directories with the others (its `socket_holders.MCP_BROKER` declaration). Served against
-  the real store, the view's `governance_tail` tool turned out to have never answered at all
+  the broker's socket directories with the others (its `socket_holders.MCP_BROKER`
+  declaration). Served against the real store, the view's `governance_tail` tool turned out to
+  have never answered at all
   (`read_governance_rows(on_corruption="skip")`, a mode the reader refuses at entry) — it reads
   through the bounded seek-to-end reader now.
   Pinned end to end through the REAL executor child under REAL bwrap in

@@ -8,10 +8,10 @@
 
 ## 0. Operator acks are signed with the operator's key (ARIA-MEDIUM-254)
 
-The HMAC key below does not sign operator acks. It lived under the store's untracked `secrets/`, which
-`aria/state` never carries and every self-hosted job sweeps (`git clean -ffdx`) before the store is
-restored, so an operator ack minted in one job never verified in a later one. An operator ack is now the
-operator's own signed act, the same way `feedback request` is:
+The HMAC key below does not sign operator acks. It lived under the store's untracked `secrets/`,
+which `aria/state` never carries and every self-hosted job sweeps (`git clean -ffdx`) before the
+store is restored, so an operator ack minted in one job never verified in a later one. An operator
+ack is now the operator's own signed act, the same way `feedback request` is:
 
 ```bash
 aria-kernel ack scope --draft-id <id> --kind agent          # read the body; note scope.body_sha256
@@ -34,8 +34,9 @@ aria-kernel ack mint --draft-id <id> --kind agent --body-sha256 <digest> \
   allowed-signers file and their consumption rows by their binding to the mint row on the hash-chained
   ledger; it needs no secret.
 
-The rest of this runbook governs the HMAC key, which now signs only autonomous acks (minted and consumed in
-one materialization; no live lane mints them) and the operator rows minted before ARIA-MEDIUM-254.
+The rest of this runbook governs the HMAC key, which now signs only autonomous acks (minted and
+consumed in one materialization; no live lane mints them) and the operator rows minted before
+ARIA-MEDIUM-254.
 
 ## 1. Key custody
 
@@ -114,7 +115,9 @@ aria-kernel ack revoke-key \
 
 If `aria-tools/secrets/ack_hmac.key` is lost:
 
-1. **STOP**: any new autonomous ack will fail with `hmac_key_missing` until the key is regenerated (operator acks need no HMAC key, §0). Do NOT regenerate silently — historical row verification is impacted.
+1. **STOP**: any new autonomous ack will fail with `hmac_key_missing` until the key is
+   regenerated (operator acks need no HMAC key, §0). Do NOT regenerate silently — historical row
+   verification is impacted.
 2. Run `aria-kernel ack verify --range full` BEFORE creating a new key — this records WHICH rows are currently verifiable (will be most of them, until step 3).
 3. Mint a fresh key:
    ```bash

@@ -56,6 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .artifact_safety import published_tail
 from .git_containment import GitContainmentRefusal, derive_git_containment
 from .implementation_safety import (
     KERNEL_CHECKOUT_ROOT,
@@ -87,6 +88,8 @@ ADAPTER_REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 # (`runner.repo_local_dependencies`), so a workspace without it is refused
 # before the room is built (ARIA-MEDIUM-508).
 ADAPTER_RUNTIME_EXECUTABLES: tuple[str, ...] = ("node",)
+# How much of an adapter's stderr a run row keeps (see adapter_stderr_sample).
+ADAPTER_STDERR_SAMPLE_MAX_CHARS = 4096
 # The runner's private temp directory: the App key file lives directly in
 # it (aria-auto-cycle.yml, "Run the nightly cycle"), so no bind may reach it.
 RUNNER_TEMP_ENV = "RUNNER_TEMP"
@@ -311,12 +314,35 @@ def run_adapter(
     )
 
 
+def adapter_stderr_sample(stderr: str, *, store_root: str | os.PathLike[str] | None) -> str:
+    """What a row keeps of an adapter run's stderr: the one sample both runs
+    record, the night's (``tool_runner.run_tool``, ``runner.stderr_sample``)
+    and a fixture case's (``fixture_runner.run_fixture_case``).
+
+    Both rows are published on aria/state, so the text goes through the
+    publish sanitizer (``artifact_safety.published_tail``: secret shapes
+    redacted, host paths reduced to their file name, store paths kept
+    store-relative) and keeps the LAST ``ADAPTER_STDERR_SAMPLE_MAX_CHARS``
+    characters: a crash's cause is what the process wrote last. A fixture
+    case used to keep only ``stderr_hash``, so a crash in the room was a
+    status with no message (ARIA-LOW-542); the night's row kept the first
+    4,096 characters and scrubbed them after the cut, so a secret straddling
+    the cut survived as a fragment and host paths were published whole.
+    """
+    return published_tail(
+        stderr, store_root=Path(store_root) if store_root is not None else None,
+        limit=ADAPTER_STDERR_SAMPLE_MAX_CHARS,
+    )
+
+
 __all__ = [
     "ADAPTER_NODE_HEAP_DEFAULT_MB",
     "ADAPTER_REPO_ROOT_ENV",
     "ADAPTER_RUNTIME_EXECUTABLES",
+    "ADAPTER_STDERR_SAMPLE_MAX_CHARS",
     "AdapterSpawn",
     "adapter_environment",
+    "adapter_stderr_sample",
     "prepare_adapter_spawn",
     "run_adapter",
     "wrap_adapter_in_sandbox",

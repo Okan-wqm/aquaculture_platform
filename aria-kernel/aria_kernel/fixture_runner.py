@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .adapter_fixture_contract import expected_run_status
-from .adapter_room import prepare_adapter_spawn, run_adapter
+from .adapter_room import adapter_stderr_sample, prepare_adapter_spawn, run_adapter
 from .genesis_adapter_custody import verify_genesis_dispatch
 from .evidence_validator import validate_tool_output_evidence
 from .implementation_safety import (
@@ -868,6 +868,12 @@ def run_fixture_case(
         "input_hash": sha256(input_bytes),
         "output_hash": sha256(stdout.encode("utf-8")),
         "stderr_hash": sha256(stderr.encode("utf-8")),
+        # ARIA-LOW-542 — a case that did not run ``ok`` says why: the hash
+        # alone left a crash in the room with no message
+        # (test_adapter_fixture_evidence_contract reported "crash" and
+        # nothing else). An ``ok`` case's stderr is noise the suite row
+        # does not need, so it keeps only the hash.
+        "stderr_sample": None if status == "ok" else adapter_stderr_sample(stderr, store_root=store),
         "exit_code": exit_code,
         "timed_out": timed_out,
         "raw_observations_count": len(array_or_empty((output or {}).get("observations"))),

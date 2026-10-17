@@ -143,10 +143,13 @@ class ShippedManifestContractTests(unittest.TestCase):
                     # accepted the output (``run_fixture_case``): a crash, an
                     # unparsable envelope or a finding without ``evidence``
                     # each carry their own status here.
+                    # A crash names its cause: the sanitized tail of the
+                    # adapter's stderr (ARIA-LOW-542), not only its hash.
                     self.assertEqual(
                         case["status"], REQUIRED_EXPECTED_STATUS,
                         f"{manifest['tool_id']}/{case['name']}: {case['status']} — "
-                        f"{json.dumps(case['evidence_validation'].get('errors', []))[:400]}",
+                        f"{json.dumps(case['evidence_validation'].get('errors', []))[:400]} — "
+                        f"stderr: {case['stderr_sample']}",
                     )
 
 

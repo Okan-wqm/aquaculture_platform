@@ -99,6 +99,34 @@ export function resolveInsideWorkspace(workspaceRoot: string, requestedPath: str
 }
 
 /**
+ * What the entry at `path` IS, asked of the path itself with lstat (no
+ * symlink followed), never of the directory listing that names it.
+ *
+ * The two answers differ inside the adapter room (`aria_kernel/adapter_room.py`):
+ * the room shows only what git tracks, and covers an untracked file beneath a
+ * tracked directory with a read-only bind of `/dev/null`. The parent's
+ * listing still names the entry with its on-disk type, "regular file"; the
+ * path itself is the character device the cover put there, which the room's
+ * mount refuses to open (EACCES). A walker that trusted the listing returned
+ * the covered entry and its adapter died opening it (ARIA-LOW-542:
+ * kernel-dead-wire-adapter exited 1 in the room with an untracked
+ * `aria_kernel/digest.py` in the checkout, 0 outside it). `collectFiles` and
+ * `containedWorkspace` both classify through this one function, so the walk
+ * lists exactly the files the reader will open; outside the room nothing is
+ * covered and both see every file.
+ */
+type EntryKind = 'absent' | 'symlink' | 'file' | 'directory' | 'special';
+
+function entryKindAt(path: string): EntryKind {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (stat === undefined) return 'absent';
+  if (stat.isSymbolicLink()) return 'symlink';
+  if (stat.isFile()) return 'file';
+  if (stat.isDirectory()) return 'directory';
+  return 'special';
+}
+
+/**
  * What a workspace-relative path names, looked up without following any
  * symlink: `refused` when the path fails `isWorkspaceRelativePath` or any of
  * its components (the entry included) is a symlink, so nothing behind a
@@ -118,9 +146,10 @@ export interface ContainedWorkspace {
  * Filesystem access confined to a workspace: one resolver owns containment
  * (`isWorkspaceRelativePath`, then a component walk under the root's realpath
  * that refuses every symlink), so a caller cannot escape by passing an
- * unchecked path. `collectFiles` never follows a symlink either, so the walk
- * and this reader agree on what the workspace holds. The final open uses
- * O_NOFOLLOW, so a file swapped for a symlink after the check is refused too.
+ * unchecked path. `collectFiles` classifies each entry with the same
+ * `entryKindAt`, so the walk and this reader agree on what the workspace
+ * holds. The final open uses O_NOFOLLOW, so a file swapped for a symlink
+ * after the check is refused too.
  */
 export function containedWorkspace(workspaceRoot: string): ContainedWorkspace {
   const root = realpathSync(workspaceRoot);
@@ -130,11 +159,11 @@ export function containedWorkspace(workspaceRoot: string): ContainedWorkspace {
     let current = root;
     for (const [index, segment] of segments.entries()) {
       current = join(current, segment);
-      const stat = lstatSync(current, { throwIfNoEntry: false });
-      if (stat === undefined) return 'absent';
-      if (stat.isSymbolicLink()) return 'refused';
-      if (index === segments.length - 1) return stat.isFile() ? 'file' : 'other';
-      if (!stat.isDirectory()) return 'absent';
+      const kind = entryKindAt(current);
+      if (kind === 'absent') return 'absent';
+      if (kind === 'symlink') return 'refused';
+      if (index === segments.length - 1) return kind === 'file' ? 'file' : 'other';
+      if (kind !== 'directory') return 'absent';
     }
     return 'other';
   };
@@ -177,20 +206,25 @@ export function collectFiles(
     if (!current) {
       continue;
     }
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        if (ADAPTER_EXCLUDED_DIRS.has(entry.name) && options.includeExcludedDir?.(entry.name) !== true) {
+    // The listing supplies names only; what each name IS comes from
+    // `entryKindAt` (see there: in the adapter room the listing's type of a
+    // covered untracked file is not what the path holds). A symlink, a
+    // special file and an entry gone since the listing are not walked.
+    for (const name of readdirSync(current)) {
+      const path = resolve(current, name);
+      const kind = entryKindAt(path);
+      if (kind === 'directory') {
+        if (ADAPTER_EXCLUDED_DIRS.has(name) && options.includeExcludedDir?.(name) !== true) {
           continue;
         }
-        if (options.skipDir !== undefined && options.skipDir(entry.name, current)) {
+        if (options.skipDir !== undefined && options.skipDir(name, current)) {
           continue;
         }
         stack.push(path);
       } else if (
-        entry.isFile() &&
-        options.extensions.some((extension) => entry.name.endsWith(extension)) &&
-        (options.includeFile?.(entry.name, path) ?? true)
+        kind === 'file' &&
+        options.extensions.some((extension) => name.endsWith(extension)) &&
+        (options.includeFile?.(name, path) ?? true)
       ) {
         files.push(path);
       }
@@ -211,12 +245,20 @@ export function filterFilesBySnapshot(
   return files.filter((file) => allowed.has(normalizeWorkspacePath(relative(workspaceRoot, file))));
 }
 
-export function pathAllowedBySnapshot(workspaceRoot: string, requestedPath: string, input: SnapshotInput): boolean {
+export function pathAllowedBySnapshot(
+  workspaceRoot: string,
+  requestedPath: string,
+  input: SnapshotInput,
+): boolean {
   const allowed = snapshotAllowedPathSet(input);
   if (!allowed) {
     return true;
   }
-  return allowed.has(normalizeWorkspacePath(relative(workspaceRoot, resolveInsideWorkspace(workspaceRoot, requestedPath))));
+  return allowed.has(
+    normalizeWorkspacePath(
+      relative(workspaceRoot, resolveInsideWorkspace(workspaceRoot, requestedPath)),
+    ),
+  );
 }
 
 function snapshotAllowedPathSet(input: SnapshotInput): ReadonlySet<string> | undefined {

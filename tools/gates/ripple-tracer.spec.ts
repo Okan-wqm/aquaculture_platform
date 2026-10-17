@@ -19,6 +19,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
+import { eventConsumersFor, scanEventConsumers } from './event-consumer-index';
+import { loadNatsServices } from './nats-services';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const CLI = join(REPO_ROOT, 'tools', 'ripple-tracer', 'cli.ts');
 const TSCONFIG = join(REPO_ROOT, 'tools', 'ripple-tracer', 'tsconfig.json');
@@ -33,6 +36,14 @@ interface GrantJson {
   catch_all: boolean;
 }
 
+interface ConsumerJson {
+  application: string;
+  sources: string[];
+  code_sites: string[];
+  grant: string | null;
+  subject: string;
+}
+
 interface TracerJson {
   event_type: string;
   subjects: string[];
@@ -40,6 +51,10 @@ interface TracerJson {
   yaml_service_count: number;
   producers: GrantJson[];
   acl_subscribers: GrantJson[];
+  consumer_source: string;
+  consumers: ConsumerJson[];
+  acl_catch_all: GrantJson[];
+  unresolved: { application: string | null; site: string; api: string; form: string }[];
 }
 
 function tracer(...args: string[]): { status: number | null; stdout: string; stderr: string } {
@@ -109,4 +124,40 @@ void test('the Markdown report names the producer and says what an ACL grant pro
     /\*\*Producer\(s\)\*\*: `auth-service` \(`auth_service`, `events\.\*\.UserInvited`\)/,
   );
   assert.match(run.stdout, /a permission, not evidence that the service consumes the event/);
+});
+
+void test('ARIA-HIGH-313: consumers are the code subscriptions and naming grants, the witness set', () => {
+  const run = tracer('--event', 'UserInvited', '--format', 'json');
+  assert.equal(run.status, 0, run.stderr);
+  const report = JSON.parse(run.stdout) as TracerJson;
+  assert.equal(report.consumer_source, 'code_subscriptions+acl_grants');
+  // The same consumer set the plan-coverage witness uses: one function owns it.
+  const expected = eventConsumersFor(
+    'UserInvited',
+    scanEventConsumers(REPO_ROOT),
+    loadNatsServices(),
+  );
+  assert.deepEqual(
+    report.consumers.map((c) => [c.application, c.sources, c.code_sites]),
+    expected.consumers.map((c) => [c.application, c.sources, c.codeSites]),
+  );
+  const notification = report.consumers.find((c) => c.application === 'notification-service');
+  assert.ok(notification !== undefined, 'the durable UserInvited consumer is listed');
+  assert.ok(
+    notification.code_sites.some((site) =>
+      site.startsWith(
+        'apps/notification-service/src/notification/event-handlers/auth-event.handler.ts:',
+      ),
+    ),
+  );
+  // Catch-all grants are listed apart, as permissions.
+  for (const grant of report.acl_catch_all) assert.equal(grant.catch_all, true);
+  assert.deepEqual(report.unresolved, []);
+});
+
+void test('ARIA-HIGH-313: the Markdown dispatch checklist names each consumer with its code sites', () => {
+  const run = tracer('--event', 'UserInvited');
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /- \[ \] Dispatch review to the agent owning `notification-service`/);
+  assert.match(run.stdout, /auth-event\.handler\.ts:\d+/);
 });

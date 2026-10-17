@@ -2,8 +2,15 @@
 /**
  * ripple-tracer — CLI entry.
  *
- * Given an event type, answers "which services publish it and which services' NATS grants admit
- * it?" from the ADR-015 cert-is-identity SSoT (infrastructure/nats/services.yaml).
+ * Given an event type, answers "which services publish it, which services consume it, and whose
+ * NATS grants admit it?". Producers and grants come from the ADR-015 cert-is-identity SSoT
+ * (infrastructure/nats/services.yaml); consumers come from the code (ARIA-HIGH-313).
+ *
+ * Consumers are `eventConsumersFor` (tools/gates/event-consumer-index.ts), the same function the
+ * plan-coverage witness uses: every subscription site in apps/, libs/ and platform/libs/ that the
+ * type checker resolves to the event (durable JetStream consumers included, whose grants never
+ * name the event), united with the subscribe grants that name it. A catch-all grant (`events.>`)
+ * is a permission, not consumption; it is listed apart.
  *
  * The SSoT is read through tools/gates/nats-services.ts, the one reader every tool shares
  * (ARIA-MEDIUM-314): a YAML parse held to infrastructure/nats/services.schema.json, NATS subject
@@ -26,6 +33,15 @@
  *   3 — services.yaml unreadable or refused by its schema.
  */
 
+import { resolve } from 'node:path';
+
+import {
+  type ConsumerMatch,
+  type EventConsumerIndex,
+  eventConsumersFor,
+  scanEventConsumers,
+  type UnresolvedConsumerSite,
+} from '../gates/event-consumer-index';
 import {
   aclEventRipple,
   eventSubjectsFor,
@@ -34,6 +50,9 @@ import {
   type NatsServiceEntry,
   NatsServicesInvalid,
 } from '../gates/nats-services';
+
+/** The checkout whose code is scanned for consumers: the one this tool lives in. */
+const REPO_ROOT = resolve(__dirname, '..', '..');
 
 type SubjectSource = 'declared' | 'default_root' | 'override';
 
@@ -51,6 +70,10 @@ export interface RippleReport {
   readonly serviceCount: number;
   readonly producers: readonly GrantMatch[];
   readonly aclSubscribers: readonly GrantMatch[];
+  /** Code subscriptions united with the grants naming the event (eventConsumersFor). */
+  readonly consumers: readonly ConsumerMatch[];
+  readonly aclCatchAll: readonly GrantMatch[];
+  readonly unresolved: readonly UnresolvedConsumerSite[];
 }
 
 const USAGE =
@@ -89,11 +112,13 @@ function parseArgs(argv: readonly string[]): Args | { error: string } {
 export function computeRipple(
   eventType: string,
   services: readonly NatsServiceEntry[],
+  index: EventConsumerIndex,
   overrideSubject?: string,
 ): RippleReport {
   const derived = eventSubjectsFor(eventType, services);
   const subjects = overrideSubject === undefined ? derived.subjects : [overrideSubject];
   const ripple = aclEventRipple(eventType, services, subjects);
+  const consumed = eventConsumersFor(eventType, index, services, subjects);
   return {
     eventType,
     subjects,
@@ -101,6 +126,9 @@ export function computeRipple(
     serviceCount: services.length,
     producers: ripple.producers,
     aclSubscribers: ripple.aclSubscribers,
+    consumers: consumed.consumers,
+    aclCatchAll: consumed.aclCatchAll,
+    unresolved: index.unresolved,
   };
 }
 
@@ -126,39 +154,66 @@ function renderMarkdown(report: RippleReport): string {
   lines.push(`**Producer(s)**: ${producerNames}`);
   lines.push('');
   lines.push(
-    `**ACL subscribers** (${report.aclSubscribers.length} of ${report.serviceCount} services):`,
+    `**Consumers** (${report.consumers.length}): code subscriptions and grants naming the event`,
   );
   lines.push('');
-  if (report.aclSubscribers.length === 0) {
-    lines.push('_No subscribe grant admits these subjects._');
+  if (report.consumers.length === 0) {
+    lines.push('_No subscription in the code and no grant naming the event._');
   } else {
-    lines.push('| Application | NATS identity | Subscribe grant | Subject | Catch-all |');
-    lines.push('|---|---|---|---|---|');
-    for (const { service, grant, subject, catchAll } of report.aclSubscribers) {
+    lines.push('| Application | Sources | Code sites | Grant |');
+    lines.push('|---|---|---|---|');
+    for (const consumer of report.consumers) {
+      const sites = consumer.codeSites.map((site) => `\`${site}\``).join('<br>') || '—';
+      const grant = consumer.acl === null ? '—' : `\`${consumer.acl.grant}\``;
       lines.push(
-        `| \`${service.application}\` | \`${service.name}\` | \`${grant}\` | \`${subject}\` | ${catchAll ? 'yes' : 'no'} |`,
+        `| \`${consumer.application}\` | ${consumer.sources.join(', ')} | ${sites} | ${grant} |`,
       );
     }
   }
   lines.push('');
+  if (report.unresolved.length > 0) {
+    lines.push(
+      `> **${report.unresolved.length} subscription site(s) could not be resolved** and may consume ` +
+        'this event; read them before dispatching:',
+    );
+    for (const site of report.unresolved) {
+      lines.push(`> - \`${site.site}\` (${site.api}): \`${site.form}\``);
+    }
+    lines.push('');
+  }
   lines.push('## Contract-change dispatch checklist');
   lines.push('');
   lines.push('Per the `change-event-contract` skill (Step 3 consumer enumeration):');
   lines.push('');
-  for (const { service } of report.aclSubscribers) {
+  for (const consumer of report.consumers) {
+    const where = consumer.codeSites.length > 0 ? ` (${consumer.codeSites.join(', ')})` : '';
     lines.push(
-      `- [ ] Dispatch review to the agent owning \`${service.application}\` (consult orchestrator routing table). Confirm it handles the new event shape (dual-publish window) before producer cleanup.`,
+      `- [ ] Dispatch review to the agent owning \`${consumer.application}\`${where} (consult orchestrator routing table). Confirm it handles the new event shape (dual-publish window) before producer cleanup.`,
     );
   }
-  if (report.aclSubscribers.length === 0) {
-    lines.push('- _(no subscribe grant admits the event; dispatch is limited to the producer)_');
+  if (report.consumers.length === 0) {
+    lines.push('- _(no consumer found; dispatch is limited to the producer)_');
+  }
+  lines.push('');
+  lines.push('## Catch-all grants (permission only)');
+  lines.push('');
+  if (report.aclCatchAll.length === 0) {
+    lines.push('_None._');
+  } else {
+    for (const { service, grant } of report.aclCatchAll) {
+      lines.push(`- \`${service.application}\` (\`${service.name}\`, \`${grant}\`)`);
+    }
   }
   lines.push('');
   lines.push('## Notes');
   lines.push('');
   lines.push(
-    '- These are NATS ACL grants, which say who MAY receive the event. A catch-all grant ' +
-      '(`events.>`) is a permission, not evidence that the service consumes the event.',
+    '- Consumers come from the code (tools/gates/event-consumer-index.ts): a durable JetStream ' +
+      'consumer receives through `$JS.API.CONSUMER.>` and its inbox, so no grant names its event.',
+  );
+  lines.push(
+    '- A catch-all grant (`events.>`) says a service MAY receive the event; it is a permission, ' +
+      'not evidence that the service consumes the event.',
   );
   return `${lines.join('\n')}\n`;
 }
@@ -183,6 +238,16 @@ function renderJson(report: RippleReport): string {
     yaml_service_count: report.serviceCount,
     producers: report.producers.map(grantJson),
     acl_subscribers: report.aclSubscribers.map(grantJson),
+    consumer_source: 'code_subscriptions+acl_grants',
+    consumers: report.consumers.map((consumer) => ({
+      application: consumer.application,
+      sources: consumer.sources,
+      code_sites: consumer.codeSites,
+      grant: consumer.acl?.grant ?? null,
+      subject: consumer.subject,
+    })),
+    acl_catch_all: report.aclCatchAll.map(grantJson),
+    unresolved: report.unresolved,
   });
 }
 
@@ -204,7 +269,12 @@ function main(): void {
     process.stderr.write(`ripple-tracer: services.yaml: ${error.message}\n`);
     process.exit(3);
   }
-  const report = computeRipple(parsed.event, services, parsed.subject);
+  const report = computeRipple(
+    parsed.event,
+    services,
+    scanEventConsumers(REPO_ROOT),
+    parsed.subject,
+  );
   const output = parsed.format === 'json' ? renderJson(report) : renderMarkdown(report);
   process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
   process.exit(report.producers.length === 0 ? 1 : 0);

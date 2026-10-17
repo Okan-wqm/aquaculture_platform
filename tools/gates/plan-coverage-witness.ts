@@ -24,11 +24,20 @@
  *                             the nx dependency graph.
  *   event-consumer:<svc>:<EventType>
  *                           — when an affected path touches
- *                             libs/event-contracts/**, every service whose
- *                             services.yaml subscribe pattern overlaps one
- *                             of the event's NATS subjects. <svc> is the
- *                             entry's `application:` (the nx project), not
- *                             its `name:` (the NATS identity).
+ *                             libs/event-contracts/**, every application
+ *                             that consumes the event: a subscription in
+ *                             its code (tools/gates/event-consumer-index.ts,
+ *                             durable JetStream consumers included), or a
+ *                             services.yaml subscribe grant that names the
+ *                             event. <svc> is the nx project (a grant's
+ *                             `application:`, not its `name:`). A catch-all
+ *                             grant (`events.>`) is a permission, not
+ *                             consumption: it is recorded in the ledger and
+ *                             makes no node.
+ *   event-consumer-unresolved:<svc|lib>:<path>:<line>
+ *                           — a subscription site whose event type or
+ *                             subject the scan cannot resolve statically:
+ *                             an unknown consumer is a gap, never a pass.
  *   migration:<svc>         — when an affected path is an `*.entity.ts`
  *                             under apps/<svc>/, the service's migration
  *                             surface (plan-time analog of
@@ -62,13 +71,18 @@
  * `ledger.services_yaml` records what was parsed from the live NATS SSoT
  * (services, publish / subscribe patterns, event types) whenever the
  * event-consumer closure reads it, and is null otherwise.
+ * `ledger.event_consumer_index` records the code scan of the same run (files
+ * scanned, subscription sites, entries, unresolved and unattributed sites,
+ * the catch-all grants that made no node), and is null when no contract
+ * path is touched.
  *
  * Exit codes (contract — aria_kernel/plan_coverage.py depends on these):
  *   0 — closure computed, no uncovered nodes (covered / covered_with_waivers)
  *   1 — closure computed, uncovered nodes present (gaps)
  *   2 — environment/invocation error (missing input, nx unavailable,
  *        services.yaml unreadable, not in the SSoT's shape, or parsed to
- *        zero services or zero publish / subscribe patterns) — the kernel
+ *        zero services or zero publish / subscribe patterns, or the code
+ *        scan for event consumers failing) — the kernel
  *        maps this to environment_unable -> HUMAN_REQUIRED, never a silent
  *        pass.
  *
@@ -82,6 +96,17 @@
  * this witness had before ARIA-HIGH-306 accepted only quoted items and parsed nothing once the SSoT
  * dropped its quotes (2026-08-01); a private copy of the reader in tools/ripple-tracer drifted the
  * same way (ARIA-MEDIUM-314).
+ *
+ * # Event consumers come from the code (ARIA-HIGH-313)
+ *
+ * A service consumes an event through a durable JetStream consumer, which
+ * receives through `$JS.API.CONSUMER.>` and its inbox: no subscribe grant of
+ * its identity names the event. Consumers taken from ACL grants alone missed
+ * most real consumers (notification-service's UserInvited handler) and named
+ * every catch-all holder instead. The consumer set is
+ * `eventConsumersFor` (tools/gates/event-consumer-index.ts): the code's
+ * subscription sites, recognised by the type checker, united with the grants
+ * that name the event. The scan runs only when a contract path is touched.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -91,11 +116,11 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
 import {
-  aclEventRipple,
-  loadNatsServices,
-  NATS_SERVICES_YAML,
-  type NatsServiceEntry,
-} from './nats-services';
+  eventConsumersFor,
+  type EventConsumerIndex,
+  scanEventConsumers,
+} from './event-consumer-index';
+import { loadNatsServices, NATS_SERVICES_YAML, type NatsServiceEntry } from './nats-services';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -137,6 +162,20 @@ interface ServicesYamlLedger {
   readonly publish_patterns: number;
   readonly subscribe_patterns: number;
   readonly event_types: number;
+}
+
+/** What the code scan for event consumers found — written to the report. */
+interface EventConsumerIndexLedger {
+  readonly files_scanned: number;
+  readonly sites: number;
+  readonly entries: number;
+  readonly unresolved: readonly string[];
+  readonly unattributed: readonly string[];
+  readonly acl_catch_all: readonly {
+    readonly event_type: string;
+    readonly application: string;
+    readonly grant: string;
+  }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -374,8 +413,11 @@ function main(): void {
     consumer: string;
     matching_pattern: string;
     subject: string;
+    sources: readonly string[];
+    code_sites: readonly string[];
   }[] = [];
   let servicesYamlLedger: ServicesYamlLedger | null = null;
+  let consumerIndexLedger: EventConsumerIndexLedger | null = null;
   if (contractPaths.length > 0) {
     // --repo-root decides which SSoT is read; the shared reader's own default is its checkout's.
     let services: readonly NatsServiceEntry[];
@@ -383,6 +425,13 @@ function main(): void {
       services = loadNatsServices(servicesYamlArg ?? join(repoRoot, NATS_SERVICES_YAML));
     } catch (error) {
       fail(`services.yaml unreadable: ${String(error)}`);
+    }
+    // The consumers are read from the code of the same repository (ARIA-HIGH-313).
+    let index: EventConsumerIndex;
+    try {
+      index = scanEventConsumers(repoRoot);
+    } catch (error) {
+      fail(`event-consumer scan failed: ${String(error)}`);
     }
     const eventTypes = extractEventTypes(contractPaths, repoRoot);
     // The schema the reader enforces requires every service to hold publish and subscribe grants,
@@ -393,25 +442,58 @@ function main(): void {
       subscribe_patterns: services.reduce((sum, svc) => sum + svc.subscribe.length, 0),
       event_types: eventTypes.size,
     };
+    const catchAll: { event_type: string; application: string; grant: string }[] = [];
     for (const eventType of [...eventTypes].sort()) {
-      for (const { service, grant, subject } of aclEventRipple(eventType, services)
-        .aclSubscribers) {
-        const consumer = service.application;
+      const found = eventConsumersFor(eventType, index, services);
+      for (const grant of found.aclCatchAll) {
+        catchAll.push({
+          event_type: eventType,
+          application: grant.service.application,
+          grant: grant.grant,
+        });
+      }
+      for (const consumer of found.consumers) {
         eventConsumers.push({
           event_type: eventType,
-          consumer,
-          matching_pattern: grant,
-          subject,
+          consumer: consumer.application,
+          matching_pattern: consumer.matchingPattern,
+          subject: consumer.subject,
+          sources: consumer.sources,
+          code_sites: consumer.codeSites,
         });
-        if (!touchedProjects.has(consumer)) {
-          nodes.push({
-            node_id: `event-consumer:${consumer}:${eventType}`,
-            kind: 'event_consumer',
-            why: `services.yaml grants ${service.name} "${grant}", which subscribes to ${eventType} on ${subject}, published from a touched contract file`,
-          });
+        if (touchedProjects.has(consumer.application)) continue;
+        const reasons: string[] = [];
+        if (consumer.codeSites.length > 0) {
+          reasons.push(`subscribes to it in code at ${consumer.codeSites.join(', ')}`);
         }
+        if (consumer.acl !== null) {
+          reasons.push(
+            `services.yaml grants ${consumer.acl.service.name} "${consumer.acl.grant}" on ${consumer.acl.subject}`,
+          );
+        }
+        nodes.push({
+          node_id: `event-consumer:${consumer.application}:${eventType}`,
+          kind: 'event_consumer',
+          why: `${consumer.application} consumes ${eventType}, published from a touched contract file: ${reasons.join('; ')}`,
+        });
       }
     }
+    // A subscription whose value does not fold may consume any of these events: fail closed.
+    for (const site of index.unresolved) {
+      nodes.push({
+        node_id: `event-consumer-unresolved:${site.application ?? 'lib'}:${site.site}`,
+        kind: 'event_consumer',
+        why: `${site.api} at ${site.site} subscribes to \`${site.form}\`, which the code scan cannot resolve to an event type or subject; make the value static (tools/gates/event-consumer-index.ts)`,
+      });
+    }
+    consumerIndexLedger = {
+      files_scanned: index.filesScanned,
+      sites: index.sites.length,
+      entries: index.entries.length,
+      unresolved: index.unresolved.map((site) => site.site),
+      unattributed: index.unattributed,
+      acl_catch_all: catchAll,
+    };
   }
 
   // --- entity -> migration closure ------------------------------------------
@@ -494,7 +576,7 @@ function main(): void {
     uncovered: uncovered.map(({ reached_from: _reachedFrom, ...rest }) => rest),
     waived,
     unmapped_paths: unmappedPaths,
-    ledger: { services_yaml: servicesYamlLedger },
+    ledger: { services_yaml: servicesYamlLedger, event_consumer_index: consumerIndexLedger },
     inputs_hash: inputsHash,
   };
   // Single-line JSON on purpose (repo-wide no-restricted-syntax bans
@@ -504,4 +586,4 @@ function main(): void {
   process.exit(uncovered.length > 0 ? 1 : 0);
 }
 
-main();
+if (require.main === module) main();

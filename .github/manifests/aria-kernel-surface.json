@@ -68,6 +68,10 @@
       "readers": "imported by the plan-coverage witness; same suite tests"
     },
     {
+      "glob": "tools/gates/event-consumer-index.ts",
+      "readers": "imported by the plan-coverage witness (event-consumer closure, ARIA-HIGH-313); same suite tests"
+    },
+    {
       "glob": "tools/gates/tsconfig.json",
       "readers": "the witness's ts-node project (aria_kernel/plan_coverage.py WITNESS_TSCONFIG); same suite tests"
     },

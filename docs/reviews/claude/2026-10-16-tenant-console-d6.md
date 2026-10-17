@@ -75,8 +75,10 @@ Owner okan, deadline 2026-11-16 for each.
 ¹ The tenant-wide count by priority is served: alert-engine `activeAlertCounts` counts the
 unresolved alarms per (severity, acknowledged), and the annunciator folds them onto P1/P2/P3. The
 page-based count it replaced lost an older active CRITICAL behind 100 newer INFO or
-resolved-but-unacknowledged rows and capped every count at 100. Still missing: the same count per
-module, which alert-engine cannot give until an alarm records the module it belongs to.
+resolved-but-unacknowledged rows and capped every count at 100. The count per module followed on
+2026-10-17: every alarm records its module and site, `activeAlertCounts` groups by them, and the
+workspace menu reads real counts with its preview deleted
+(`docs/reviews/claude/2026-10-17-module-dashboards.md`).
 
 ## Tracked theme gaps (open)
 

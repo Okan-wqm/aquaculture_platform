@@ -114,12 +114,16 @@ function createMeResponse(
     me: {
       user,
       modules,
-      redirectPath: '/dashboard',
     },
   };
 }
 
-function createLoginResponse(user: AuthUser, redirectUrl = '/dashboard') {
+/**
+ * A login answer as auth-service sends it — redirectUrl included, which the
+ * context must never read: where a signed-in user starts is the shell's one
+ * landing decision.
+ */
+function createLoginResponse(user: AuthUser, redirectUrl = '/farm/dashboard') {
   return {
     login: {
       accessToken: 'new-access-token',
@@ -130,7 +134,7 @@ function createLoginResponse(user: AuthUser, redirectUrl = '/dashboard') {
   };
 }
 
-function createVerifyMfaLoginResponse(user: AuthUser, redirectUrl = '/dashboard') {
+function createVerifyMfaLoginResponse(user: AuthUser, redirectUrl = '/farm/dashboard') {
   return {
     verifyMfaLogin: {
       accessToken: 'new-access-token',
@@ -141,11 +145,9 @@ function createVerifyMfaLoginResponse(user: AuthUser, redirectUrl = '/dashboard'
   };
 }
 
-function getRedirectPath(loginResult: LoginResult | undefined): string {
-  if (!loginResult || !('redirectPath' in loginResult)) {
-    throw new Error('Expected login redirect result');
-  }
-  return loginResult.redirectPath;
+/** The documents the context sent, in order. */
+function sentDocuments(): string[] {
+  return mockGraphqlRequest.mock.calls.map((call: unknown[]) => String(call[0]));
 }
 
 // AuthProvider wrapper for renderHook
@@ -256,8 +258,8 @@ describe('AuthContext', () => {
       expect(result.current.modules).toHaveLength(1);
       expect(result.current.error).toBeNull();
 
-      // Verify redirect path
-      expect(getRedirectPath(loginResult)).toBe('/dashboard');
+      // A completed sign-in names no destination.
+      expect(loginResult).toEqual({ signedIn: true });
     });
 
     it('should dispatch AUTH_FAILURE on login error', async () => {
@@ -329,28 +331,6 @@ describe('AuthContext', () => {
       });
       expect(result.current.isAuthenticated).toBe(false);
       expect(result.current.user).toBeNull();
-    });
-
-    it('should use default redirect for SUPER_ADMIN when redirectUrl is empty', async () => {
-      const superAdmin = createMockUser({ role: 'SUPER_ADMIN', tenantId: null });
-
-      mockGraphqlRequest
-        .mockResolvedValueOnce(createLoginResponse(superAdmin, ''))
-        .mockResolvedValueOnce(createMeResponse(superAdmin, []));
-
-      const { result } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapper(false),
-      });
-
-      let loginResult: LoginResult | undefined;
-      await act(async () => {
-        loginResult = await result.current.login({
-          email: 'admin@example.com',
-          password: 'password',
-        });
-      });
-
-      expect(getRedirectPath(loginResult)).toBe('/admin');
     });
 
     it('should clear stale tenant scope for SUPER_ADMIN login', async () => {
@@ -723,15 +703,15 @@ describe('AuthContext', () => {
       expect(result.current.hasModuleAccess('sensor')).toBe(false);
     });
 
-    it('fallback login should resolve with root redirect', async () => {
+    it('fallback login fails closed: nothing outside AuthProvider can sign in', async () => {
       const { result } = renderHook(() => useAuthContext());
 
-      const loginResult = await result.current.login({
-        email: 'test@example.com',
-        password: 'pw',
-      });
-
-      expect(getRedirectPath(loginResult)).toBe('/');
+      await expect(
+        result.current.login({
+          email: 'test@example.com',
+          password: 'pw',
+        }),
+      ).rejects.toThrow('Login is not available outside AuthProvider');
     });
 
     it('fallback logout should clear session', async () => {
@@ -743,120 +723,21 @@ describe('AuthContext', () => {
   });
 
   // ============================================================================
-  // sanitizeRedirectUrl (Open Redirect Prevention - SEC-005)
+  // No server-chosen destination (SEC-005 by construction)
   // ============================================================================
 
-  describe('sanitizeRedirectUrl (via login redirectUrl)', () => {
-    it('should accept valid relative paths', async () => {
-      const user = createMockUser({ role: 'TENANT_ADMIN' });
-
-      mockGraphqlRequest
-        .mockResolvedValueOnce(createLoginResponse(user, '/dashboard'))
-        .mockResolvedValueOnce(createMeResponse(user));
-
-      const { result } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapper(false),
-      });
-
-      let loginResult: LoginResult | undefined;
-      await act(async () => {
-        loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
-      });
-
-      expect(getRedirectPath(loginResult)).toBe('/dashboard');
-    });
-
-    it('should reject protocol-relative URLs (//evil.com)', async () => {
-      const user = createMockUser({ role: 'TENANT_ADMIN' });
-
-      mockGraphqlRequest
-        .mockResolvedValueOnce(createLoginResponse(user, '//evil.com/steal'))
-        .mockResolvedValueOnce(createMeResponse(user));
-
-      const { result } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapper(false),
-      });
-
-      let loginResult: LoginResult | undefined;
-      await act(async () => {
-        loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
-      });
-
-      // Should fall back to default redirect, not the malicious URL
-      expect(getRedirectPath(loginResult)).not.toContain('evil.com');
-      expect(getRedirectPath(loginResult)).toBe('/tenant');
-    });
-
-    it('should reject absolute URLs with protocol (https://evil.com)', async () => {
-      const user = createMockUser({ role: 'TENANT_ADMIN' });
-
-      mockGraphqlRequest
-        .mockResolvedValueOnce(createLoginResponse(user, 'https://evil.com'))
-        .mockResolvedValueOnce(createMeResponse(user));
-
-      const { result } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapper(false),
-      });
-
-      let loginResult: LoginResult | undefined;
-      await act(async () => {
-        loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
-      });
-
-      expect(getRedirectPath(loginResult)).not.toContain('evil.com');
-      expect(getRedirectPath(loginResult)).toBe('/tenant');
-    });
-
-    it.each(['/\\evil.example/steal', '/%5cevil.example/steal', '/%2f%2fevil.example/steal'])(
-      'should reject browser-normalizable external URL %s',
-      async (redirectUrl) => {
-        const user = createMockUser({ role: 'TENANT_ADMIN' });
-
-        mockGraphqlRequest
-          .mockResolvedValueOnce(createLoginResponse(user, redirectUrl))
-          .mockResolvedValueOnce(createMeResponse(user));
-
-        const { result } = renderHook(() => useAuthContext(), {
-          wrapper: createWrapper(false),
-        });
-
-        let loginResult: LoginResult | undefined;
-        await act(async () => {
-          loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
-        });
-
-        expect(getRedirectPath(loginResult)).toBe('/tenant');
-      },
-    );
-
-    it('should reject an encoded control-character redirect after MFA verification', async () => {
-      const user = createMockUser({ role: 'TENANT_ADMIN' });
-
-      mockGraphqlRequest
-        .mockResolvedValueOnce(createVerifyMfaLoginResponse(user, '/%09/evil.example'))
-        .mockResolvedValueOnce(createMeResponse(user));
-
-      const { result } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapper(false),
-      });
-
-      let redirectPath: string | undefined;
-      await act(async () => {
-        const verifyResult = await result.current.verifyMfaLogin({
-          mfaToken: 'signed-challenge',
-          code: '123456',
-        });
-        redirectPath = verifyResult.redirectPath;
-      });
-
-      expect(redirectPath).toBe('/tenant');
-    });
-
-    it('should reject URLs with colon (javascript:alert(1))', async () => {
+  describe('sign-in never follows a path the server sends', () => {
+    it.each([
+      '/farm/dashboard',
+      '//evil.com/steal',
+      'https://evil.com',
+      '/%5cevil.example/steal',
+      'javascript:alert(1)',
+    ])('ignores redirectUrl %s: the result names no destination', async (redirectUrl) => {
       const user = createMockUser({ role: 'MODULE_USER' });
 
       mockGraphqlRequest
-        .mockResolvedValueOnce(createLoginResponse(user, 'javascript:alert(1)'))
+        .mockResolvedValueOnce(createLoginResponse(user, redirectUrl))
         .mockResolvedValueOnce(createMeResponse(user));
 
       const { result } = renderHook(() => useAuthContext(), {
@@ -868,27 +749,38 @@ describe('AuthContext', () => {
         loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
       });
 
-      expect(getRedirectPath(loginResult)).not.toContain('javascript');
-      expect(getRedirectPath(loginResult)).toBe('/dashboard');
+      expect(loginResult).toEqual({ signedIn: true });
+      expect(Object.keys(result.current)).not.toContain('redirectPath');
     });
 
-    it('should use role-based default when redirectUrl is null', async () => {
-      const user = createMockUser({ role: 'MODULE_MANAGER' });
+    it('asks auth-service for no redirect: neither login, MFA verification nor me selects one', async () => {
+      const user = createMockUser({ role: 'TENANT_ADMIN' });
 
       mockGraphqlRequest
-        .mockResolvedValueOnce(createLoginResponse(user, ''))
+        .mockResolvedValueOnce(createLoginResponse(user))
+        .mockResolvedValueOnce(createMeResponse(user))
+        .mockResolvedValueOnce(createVerifyMfaLoginResponse(user))
         .mockResolvedValueOnce(createMeResponse(user));
 
       const { result } = renderHook(() => useAuthContext(), {
         wrapper: createWrapper(false),
       });
 
-      let loginResult: LoginResult | undefined;
+      let verifyResult: unknown;
       await act(async () => {
-        loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
+        await result.current.login({ email: 'a@b.com', password: 'p' });
+        verifyResult = await result.current.verifyMfaLogin({
+          mfaToken: 'signed-challenge',
+          code: '123456',
+        });
       });
 
-      expect(getRedirectPath(loginResult)).toBe('/dashboard');
+      expect(verifyResult).toEqual({ signedIn: true });
+      const documents = sentDocuments();
+      expect(documents).toHaveLength(4);
+      for (const document of documents) {
+        expect(document).not.toMatch(/redirectUrl|redirectPath/);
+      }
     });
   });
 

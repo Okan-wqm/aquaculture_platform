@@ -45,6 +45,7 @@ interface PublishedFollowUp {
   causationId?: string;
   correlationId?: string;
   recordedAt?: unknown;
+  siteId?: string;
 }
 
 function makeBus(): BusDouble {
@@ -282,6 +283,24 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     // ORPHAN-111: recordedAt is now an ISO string on the wire.
     expect(typeof alert?.recordedAt).toBe('string');
     expect(alert?.recordedAt).toBe('2026-06-10T08:00:00.000Z');
+  });
+
+  it('carries the trigger’s site onto every alert it raises (ALERT-MEDIUM-010)', async () => {
+    const SITE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const bus = makeBus();
+    const { listener } = makeListener({
+      bus,
+      batch: { currentQuantity: 8000 },
+      mortalityRecords: [],
+    });
+
+    await listener.handle(
+      toWireEvent(makeEvent({ quantity: 300, newMortalityRate: 12, siteId: SITE_ID })),
+    );
+
+    const alerts = publishedEvents(bus).filter((e) => e.eventType === 'MortalityAlertRaised');
+    expect(alerts.length).toBeGreaterThan(0);
+    expect(alerts.map((e) => e.siteId)).toEqual(alerts.map(() => SITE_ID));
   });
 
   // ── Inbound idempotency (symmetric with HarvestCompletedListener) ─────────

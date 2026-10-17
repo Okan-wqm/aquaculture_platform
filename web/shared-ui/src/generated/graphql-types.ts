@@ -78,8 +78,15 @@ export type ActionType =
 export type ActiveAlertCount = {
   acknowledged: Scalars['Boolean']['output'];
   count: Scalars['Int']['output'];
+  module?: Maybe<AlertModule>;
   severity: AlertSeverity;
+  siteId?: Maybe<Scalars['ID']['output']>;
 };
+
+/** A dimension activeAlertCounts can group the unresolved alarms by */
+export type ActiveAlertCountDimension =
+  | 'MODULE'
+  | 'SITE';
 
 export type ActiveTankResponse = {
   avgWeightG: Scalars['Float']['output'];
@@ -350,6 +357,7 @@ export type AlertHistory = {
   farmId?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   message: Scalars['String']['output'];
+  module?: Maybe<AlertModule>;
   pondId?: Maybe<Scalars['String']['output']>;
   resolved: Scalars['Boolean']['output'];
   resolvedAt?: Maybe<Scalars['DateTime']['output']>;
@@ -357,11 +365,23 @@ export type AlertHistory = {
   ruleName: Scalars['String']['output'];
   sensorId?: Maybe<Scalars['String']['output']>;
   severity: AlertSeverity;
+  siteId?: Maybe<Scalars['ID']['output']>;
   sourceEventId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
   triggeredAt: Scalars['DateTime']['output'];
   triggeringData: Scalars['JSON']['output'];
 };
+
+/** NEWEST_FIRST (default): by trigger time. MOST_SEVERE_FIRST: by severity, the newest first within one */
+export type AlertHistoryOrder =
+  | 'MOST_SEVERE_FIRST'
+  | 'NEWEST_FIRST';
+
+/** The platform module an alarm originates in */
+export type AlertModule =
+  | 'FARM'
+  | 'HYDROPONICS'
+  | 'SENSOR';
 
 /** Comparison operator for alert conditions */
 export type AlertOperator =
@@ -16063,6 +16083,7 @@ export type Query = {
   reportPrefill: ReportPrefillOutput;
   resolveTagRefs: TagResolutionResultType;
   resolvedParameterValue: ParameterReading;
+  resolvedUnitParameterValues: Array<UnitParameterReading>;
   /** All retention policies for current tenant. */
   retentionPolicies: Array<RetentionPolicy>;
   reviewCycleStatus: ReviewCycleStatus;
@@ -16257,6 +16278,13 @@ export type Query = {
 };
 
 
+export type QueryActiveAlertCountsArgs = {
+  groupBy?: InputMaybe<Array<ActiveAlertCountDimension>>;
+  module?: InputMaybe<AlertModule>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type QueryActiveEmployeesArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
@@ -16318,11 +16346,14 @@ export type QueryAlertHistoryArgs = {
   acknowledged?: InputMaybe<Scalars['Boolean']['input']>;
   endDate?: InputMaybe<Scalars['DateTime']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
+  module?: InputMaybe<AlertModule>;
+  orderBy?: InputMaybe<AlertHistoryOrder>;
   page?: InputMaybe<Scalars['Int']['input']>;
   resolved?: InputMaybe<Scalars['Boolean']['input']>;
   ruleId?: InputMaybe<Scalars['ID']['input']>;
   severities?: InputMaybe<Array<AlertSeverity>>;
   severity?: InputMaybe<AlertSeverity>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
   startDate?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
@@ -17833,6 +17864,11 @@ export type QueryResolveTagRefsArgs = {
 
 export type QueryResolvedParameterValueArgs = {
   input: ResolvedParameterValueInput;
+};
+
+
+export type QueryResolvedUnitParameterValuesArgs = {
+  input: ResolvedUnitParameterValuesInput;
 };
 
 
@@ -19670,6 +19706,15 @@ export type ResolvedTagBindingType = {
   revision: Scalars['Int']['output'];
   source: Scalars['JSON']['output'];
   unifiedTagId: Scalars['ID']['output'];
+};
+
+/** A parameter to read at many units now (tanks or water equipment, classified by farm), each at its representative location */
+export type ResolvedUnitParameterValuesInput = {
+  /** Skip a value older than this many seconds; any age when omitted */
+  maxAgeSeconds?: InputMaybe<Scalars['Int']['input']>;
+  parameterConfigId: Scalars['ID']['input'];
+  /** Tank or water-equipment ids, 1 to 200; farm decides which each is */
+  unitIds: Array<Scalars['ID']['input']>;
 };
 
 export type RetentionPolicy = {
@@ -23267,6 +23312,14 @@ export type UnitMeasurementPlanEntry = {
   parameter: WaterQualityParameterConfig;
   /** Whether a measurement at this unit must carry this parameter */
   required: Scalars['Boolean']['output'];
+};
+
+/** One asked unit of a many-unit read, and its reading */
+export type UnitParameterReading = {
+  /** Null when no active tank or water equipment has this id in the tenant (retired or deleted since it was named): the other units are still read */
+  reading?: Maybe<ParameterReading>;
+  /** The unit id as asked */
+  unitId: Scalars['ID']['output'];
 };
 
 export type UnresolvedTagRefType = {

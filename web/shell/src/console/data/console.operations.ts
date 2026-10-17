@@ -2,21 +2,24 @@
  * GraphQL documents the console's data hooks send through the gateway.
  *
  * WHY: each selects only what a console cell reads: alert-engine
- * activeAlertCounts, sensor-service edgeDeviceStats / edgeDevices, farm-service
+ * activeAlertCounts (per module), sensor-service edgeDeviceStats / edgeDevices, farm-service
  * activeSites, auth-service tenantUsers and tenantRoles. Field names match the
  * composed supergraph (shared-ui generated/graphql-types), which the hooks use
  * to type the responses.
  */
 
 /**
- * Unresolved alarms per severity and acknowledgement, counted server-side: no
- * page, so an active alarm can neither be capped nor pushed out of the count.
+ * Unresolved alarms per severity, acknowledgement and module, counted
+ * server-side: no page, so an active alarm can neither be capped nor pushed
+ * out of the count. The annunciator sums every row; the workspace menu reads
+ * each module's rows (ALERT-MEDIUM-010) — one request, one snapshot for both.
  */
 export const ACTIVE_ALERT_COUNTS_QUERY = `
   query ConsoleAlarmCounts {
-    activeAlertCounts {
+    activeAlertCounts(groupBy: [MODULE]) {
       severity
       acknowledged
+      module
       count
     }
   }

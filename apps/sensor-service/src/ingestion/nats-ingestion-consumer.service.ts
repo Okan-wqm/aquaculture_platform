@@ -23,6 +23,7 @@ import { SensorDataChannel } from '../database/entities/sensor-data-channel.enti
 import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { TagValueFanoutService } from '../scada-runtime/services/tag-value-fanout.service';
+import { siteOfSensor } from '../sensor/utils/sensor-site.util';
 
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
@@ -360,6 +361,10 @@ export class NatsIngestionConsumerService
       sensorId: sensor.id,
       farmId: event.farmId ?? sensor.farmId ?? undefined,
       pondId: event.pondId ?? sensor.pondId ?? undefined,
+      // The site comes from sensor-service's own metadata — the sidecar does
+      // not carry one. alert-engine places the alarm on it (ALERT-MEDIUM-010),
+      // a UUID or nothing (ALERT-MEDIUM-013).
+      siteId: siteOfSensor(sensor),
     };
 
     // SENSOR-MEDIUM-066/068: channelKey → parameter → flat field via the single

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import type { FCRAlertEvent } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { farmOrigin } from './alert-origin';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
 
 /**
@@ -76,6 +77,9 @@ export class FcrAlertService {
       ruleId,
       ruleName,
       tenantId: event.tenantId,
+      // A batch is not bound to one site (its units may sit on several), so
+      // a batch-level FCR alarm has none.
+      ...farmOrigin(null),
       severity,
       message,
       triggeringData,

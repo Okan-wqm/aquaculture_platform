@@ -46,7 +46,7 @@ export interface IndustrialRailProps {
   readonly workspaces: readonly RailWorkspace[];
   readonly activeWorkspaceId: ConsoleWorkspaceId | undefined;
   readonly onWorkspaceSelect: (id: ConsoleWorkspaceId) => void;
-  /** A workspace's alarm counts in the menu (the shell's preview of ALERT-MEDIUM-010 today). */
+  /** A workspace's alarm counts in the menu (the shell's per-module counts, ALERT-MEDIUM-010). */
   readonly renderWorkspaceAlarms?: (id: ConsoleWorkspaceId) => ReactNode;
   /** The entry the current location lights; none on a page outside the nav. */
   readonly active?: RailActive;

@@ -22,20 +22,21 @@ import { engineUnit, WATER_CHEMISTRY_INPUT_SETS } from '../data/water-chemistry-
 import {
   type ParameterReading,
   parameterReadingOf,
+  type UnitParameterReading,
   type WaterChemistryInputsResult,
   waterChemistryInputsOf,
 } from '../dto/water-chemistry-reading.response';
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import {
   ResolveParameterValueQuery,
+  ResolveUnitParameterValuesQuery,
   ResolveWaterChemistryInputsQuery,
 } from '../queries/reading-queries';
-import { assertPointReadable } from '../services/measurement-point-lookup';
-import {
-  liveSystemsOfUnit,
-  ParameterReadingResolver,
-} from '../services/parameter-reading-resolver.service';
+import { assertPointReadable, assertUnitsReadable } from '../services/measurement-point-lookup';
+import { resolveMeasurementUnits } from '../services/measurement-unit';
+import { ParameterReadingResolver } from '../services/parameter-reading-resolver.service';
 import { representativeLocation } from '../services/parameter-sources';
+import { liveSystemsOfUnit } from '../services/reading-facts';
 import {
   evaluateInputSet,
   type InputFacts,
@@ -85,6 +86,76 @@ export class ResolveParameterValueHandler
   }
 }
 
+/**
+ * One parameter at many units, each at its representative location — the
+ * dashboard's lowest dissolved oxygen of a site's units, read the way one
+ * point is (live channel first, then a person's sample, in the parameter's
+ * unit), in one request: the units classified and authorized in one tenant
+ * read (assertUnitsReadable, the rule assertPointReadable applies to one),
+ * then the one resolver across the active ones. Each asked unit gets an entry
+ * in the asked order; one with no active row is answered as not found
+ * (`reading: null`), so a unit retired since a plan named it does not fail
+ * the others (FE-LOW-365).
+ */
+@Injectable()
+@QueryHandler(ResolveUnitParameterValuesQuery)
+export class ResolveUnitParameterValuesHandler
+  implements IQueryHandler<ResolveUnitParameterValuesQuery, UnitParameterReading[]>
+{
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly siteAuth: SiteAuthorizationService,
+    private readonly resolver: ParameterReadingResolver,
+  ) {}
+
+  async execute(query: ResolveUnitParameterValuesQuery): Promise<UnitParameterReading[]> {
+    const { tenantId, parameterConfigId, unitIds, maxAgeMs, caller } = query;
+    const asOf = new Date();
+    const { parameter, points } = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner) => {
+        const { manager } = queryRunner;
+        const units = await resolveMeasurementUnits(manager, unitIds, tenantId);
+        const readable = assertUnitsReadable(this.siteAuth, unitIds, units, caller);
+        const found = await tenantManagerRepo(
+          manager,
+          WaterQualityParameterConfig,
+          tenantId,
+        ).findOne({ where: { id: parameterConfigId, isActive: true } });
+        if (found === null) {
+          throw new NotFoundException(`No active parameter '${parameterConfigId}' in this tenant`);
+        }
+        return { parameter: found, points: readable };
+      },
+    );
+    const locations = points.flatMap((point) =>
+      point === null ? [] : [representativeLocation(point)],
+    );
+    const readings =
+      locations.length === 0
+        ? []
+        : await this.resolver.resolveAcross(
+            tenantId,
+            locations,
+            { parameter, unit: parameter.unit, maxAgeMs },
+            asOf,
+          );
+    if (readings.length !== locations.length) {
+      throw new Error('The reading resolver answered a different number of locations than asked');
+    }
+    const answered = new Map<string, ParameterReading>();
+    for (const [index, location] of locations.entries()) {
+      const reading = readings[index];
+      if (reading !== undefined) {
+        answered.set(location.point.id, parameterReadingOf(parameter, location, reading));
+      }
+    }
+    return unitIds.map((unitId) => ({ unitId, reading: answered.get(unitId) ?? null }));
+  }
+}
+
 @Injectable()
 @QueryHandler(ResolveWaterChemistryInputsQuery)
 export class ResolveWaterChemistryInputsHandler
@@ -128,7 +199,7 @@ export class ResolveWaterChemistryInputsHandler
           // loop's carbonate state and volume for a tank only when it is one.
           loopSystemIds:
             point.kind === 'tank' || point.kind === 'equipment'
-              ? (await liveSystemsOfUnit(manager, tenantId, point.id)).live
+              ? await liveSystemsOfUnit(manager, tenantId, point.id)
               : [],
         };
       },

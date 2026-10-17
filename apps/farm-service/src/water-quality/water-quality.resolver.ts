@@ -35,6 +35,7 @@ import {
 } from './entities/water-quality-measurement.entity';
 import { Throttle } from '@aquaculture/backend-common/security';
 import { BadRequestException } from '@nestjs/common';
+import { MAX_UNITS_PER_READ } from '@aquaculture/shared-contracts';
 import { QueryBus } from '@platform/cqrs';
 import { WaterQualityService } from './water-quality.service';
 import { WaterTemperatureService } from './services/water-temperature.service';
@@ -112,8 +113,12 @@ export class EffectiveUnitTemperature {
   sensorId?: string;
 }
 
-/** Tek istekte çözülebilecek maksimum ünite (DoS koruması; toplu okuma zaten tek sorgu). */
-const MAX_EFFECTIVE_TEMPERATURE_UNITS = 200;
+/**
+ * Tek istekte çözülebilecek maksimum ünite (DoS koruması; toplu okuma zaten
+ * tek sorgu). İstemcinin parti boyuyla aynı sayı (MAX_UNITS_PER_READ,
+ * FE-LOW-365): dashboard bir sitenin ünitelerini bu boyda partilerle sorar.
+ */
+const MAX_EFFECTIVE_TEMPERATURE_UNITS = MAX_UNITS_PER_READ;
 
 // ============================================================================
 // RESOLVER

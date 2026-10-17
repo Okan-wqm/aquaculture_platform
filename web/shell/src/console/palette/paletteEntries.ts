@@ -63,12 +63,17 @@ export function palettePages(
 
 /**
  * The design's suggested pages (tenant-core paletteItems: dashboard, users,
- * roles, devices, billing, tanks), in its order. Devices are the sensor
- * module's page in Control & sensors and the tenant devices page in Company;
- * a workspace lists at most one of them.
+ * roles, devices, billing, tanks), in its order. The dashboard is the current
+ * workspace's own — Production's, Greenhouse's, Control & sensors' or the
+ * company dashboard — and devices are the sensor module's page in Control &
+ * sensors and the tenant devices page in Company; a workspace lists at most
+ * one of each.
  */
 const SUGGESTED_PAGE_IDS: readonly string[] = [
   'dashboard',
+  'dashboard-greenhouse',
+  'dashboard-control',
+  'tenant-dashboard',
   'tenant-users',
   'tenant-roles',
   'sensor-devices',

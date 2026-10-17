@@ -110,6 +110,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     protocolId: 'protocol-1',
     unitId: UNIT,
     unitCode: 'T-01',
+    siteId: 'site-1',
     status: FeedingDayPlanStatus.PLANNED,
     // FARM-CRITICAL-244: mod PLANIN kolonudur; protokol ayarı sonradan
     // değişse bile bu plan üretildiği semantikle işlenir.
@@ -169,7 +170,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
 
   const saved: unknown[] = [];
-  const enqueued: Array<{ eventType: string }> = [];
+  const enqueued: Array<{ eventType: string; siteId?: string }> = [];
 
   const feedingRecord =
     opts.feedingRecord === null
@@ -405,6 +406,9 @@ describe('MealExecutionService.recordMealFeeding', () => {
 
     const types = harness.enqueued.map((event) => event.eventType);
     expect(types).toContain('MealUnderfed');
+    // The day plan's site travels to the alarm (ALERT-MEDIUM-010).
+    const underfed = harness.enqueued.find((event) => event.eventType === 'MealUnderfed');
+    expect(underfed?.siteId).toBe('site-1');
     expect(harness.dayPlan.status).toBe(FeedingDayPlanStatus.COMPLETED); // açık öğün kalmadı
   });
 

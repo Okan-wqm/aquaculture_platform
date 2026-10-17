@@ -20,9 +20,10 @@ import {
   email as emailValidator,
   minLength,
   validateField,
-  validateNavigationUrl,
 } from '@aquaculture/shared-ui';
 import type { MfaChallengeResult, MfaSetupRequiredResult } from '@aquaculture/shared-ui';
+
+import { LANDING_PATH } from '../../console/nav/rootLanding';
 
 import { AuthFormShell } from './AuthFormShell';
 import MfaSetupScreen from './MfaSetupScreen';
@@ -117,10 +118,8 @@ const LoginForm: React.FC = () => {
           return;
         }
 
-        const redirectPath = (result as { redirectPath: string }).redirectPath;
-        const validatedPath = validateNavigationUrl(redirectPath);
-        const safePath = validatedPath?.startsWith('/') ? validatedPath : '/';
-        navigate(safePath);
+        // Signed in: the shell's landing route decides where this user starts.
+        navigate(LANDING_PATH);
       } catch {
         // Auth context handles error display
       } finally {
@@ -154,10 +153,8 @@ const LoginForm: React.FC = () => {
       setIsSubmitting(true);
       setMfaError('');
       try {
-        const { redirectPath } = await verifyMfaLogin({ mfaToken: mfaChallenge.mfaToken, code });
-        const validatedPath = validateNavigationUrl(redirectPath);
-        const safePath = validatedPath?.startsWith('/') ? validatedPath : '/';
-        navigate(safePath);
+        await verifyMfaLogin({ mfaToken: mfaChallenge.mfaToken, code });
+        navigate(LANDING_PATH);
       } catch (err) {
         const message = err instanceof Error ? err.message : t('common.error');
         setMfaError(message);

@@ -26,6 +26,23 @@ export class ResolveParameterValueQuery implements ITenantQuery {
   ) {}
 }
 
+/**
+ * The value of one parameter at each of many units (tanks or water
+ * equipment) now, each at its representative location, in the asked order.
+ */
+export class ResolveUnitParameterValuesQuery implements ITenantQuery {
+  readonly queryName = 'ResolveUnitParameterValuesQuery';
+
+  constructor(
+    public readonly tenantId: string,
+    public readonly parameterConfigId: string,
+    public readonly unitIds: readonly string[],
+    /** Skip a value older than this; null accepts any age. */
+    public readonly maxAgeMs: number | null,
+    public readonly caller: SourceReader,
+  ) {}
+}
+
 /** The inputs of a water-chemistry calculation at a point, each resolved, and the set's verdict. */
 export class ResolveWaterChemistryInputsQuery implements ITenantQuery {
   readonly queryName = 'ResolveWaterChemistryInputsQuery';

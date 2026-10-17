@@ -80,7 +80,6 @@ function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue 
   return {
     user: currentUser,
     modules,
-    redirectPath: null,
     isLoading: false,
     isAuthenticated: currentUser !== null,
     error: null,

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import type { WaterQualityCriticalEvent } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { farmOrigin } from './alert-origin';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
 
 /**
@@ -133,6 +134,7 @@ export class WaterQualityCriticalAlertService {
       ruleId,
       ruleName,
       tenantId: event.tenantId,
+      ...farmOrigin(event.siteId),
       // The producer only publishes this event when parameters crossed their
       // CRITICAL bounds (imminent fish-mortality risk) — severity is not a
       // judgment call this side can soften.

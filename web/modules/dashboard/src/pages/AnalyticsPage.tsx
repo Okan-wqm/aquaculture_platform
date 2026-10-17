@@ -20,8 +20,7 @@ import {
   PageHeader,
   ChartTooltipContent,
 } from '@aquaculture/shared-ui';
-// PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
-import { DownloadIcon } from '../components/icons';
+import { Download } from 'lucide-react';
 import {
   ComposedChart,
   Line,
@@ -324,7 +323,7 @@ const AnalyticsPage: React.FC = () => {
               ]}
             />
             <Button variant="outline" size="sm" onClick={handleExportCSV}>
-              <DownloadIcon className="w-4 h-4 mr-2" />
+              <Download className="w-4 h-4 mr-2" aria-hidden="true" />
               Rapor Indir
             </Button>
           </div>

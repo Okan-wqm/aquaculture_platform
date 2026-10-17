@@ -3,9 +3,11 @@
  * tenant-admin, HR and the company record (design WSN `org`). No module gates
  * the workspace itself: it appears for anyone with an entry to show.
  *
- * Beyond the design tree: an Overview area (the tenant dashboard for the
- * admin, and the shared dashboards and messages, so a tenant with HR alone —
- * no module workspace — keeps them), the HR pages no nav reached before
+ * Beyond the design tree: an Overview area — the company dashboard, which
+ * every tenant user opens (an admin sees the account's cards, anyone else the
+ * notices meant for them), and messages, so a tenant with HR alone — no module
+ * workspace — keeps a home; the module dashboards live in their own
+ * workspaces — the HR pages no nav reached before
  * (team overview, scheduling settings, rotations, certifications, the routed
  * "coming soon" placeholders as planned), finance charts and categories, and
  * the setup departments and workers tabs.
@@ -33,13 +35,7 @@ export const ORG_WORKSPACE: WorkspaceDef = {
       groups: [
         {
           id: 'org-home-main',
-          pages: [
-            TN.dashboard,
-            SHELL_PAGES.dashboard,
-            SHELL_PAGES.dashboardAnalytics,
-            SHELL_PAGES.messaging,
-            SHELL_PAGES.newAiChat,
-          ],
+          pages: [TN.dashboard, SHELL_PAGES.messaging, SHELL_PAGES.newAiChat],
         },
       ],
     },

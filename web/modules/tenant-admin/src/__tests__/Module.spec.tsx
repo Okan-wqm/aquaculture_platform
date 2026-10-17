@@ -2,7 +2,10 @@
  * Module route-guard tests (SEC-007 + MT-HIGH-060 delegation).
  *
  * - Authenticated TENANT_ADMIN / SUPER_ADMIN -> render children (bypass all gates)
- * - Authenticated MODULE_USER with no panel capability -> redirect /unauthorized
+ * - The company dashboard (/tenant) -> every member: the admin's dashboard for
+ *   a tenant admin, the member view for anyone else
+ * - Authenticated MODULE_USER with no panel capability -> every other page
+ *   redirects to /unauthorized, exactly as before
  * - Unauthenticated -> redirect /login
  * - Delegate (MODULE_USER + capability) -> reaches ONLY the delegated pages;
  *   admin-only pages (billing/database/...) still redirect to /unauthorized.
@@ -68,6 +71,10 @@ vi.mock('@aquaculture/shared-ui', () => ({
 }));
 
 // Mock all page components to simple stubs to avoid deep dependency chains
+vi.mock('../pages/companyHome/MemberCompanyHome', () => ({
+  default: () =>
+    React.createElement('div', { 'data-testid': 'member-company-home' }, 'Member company home'),
+}));
 vi.mock('../pages/TenantDashboard', () => ({
   default: () => React.createElement('div', { 'data-testid': 'tenant-dashboard' }, 'Dashboard Page'),
 }));
@@ -219,32 +226,52 @@ describe('Tenant-admin route guards (SEC-007 + MT-HIGH-060)', () => {
   });
 
   describe('Authenticated MODULE_USER (no panel capability)', () => {
-    it('should redirect a capability-less MODULE_USER to /unauthorized', async () => {
+    it('opens the company dashboard to a capability-less MODULE_USER, as the member view', async () => {
       mockUser = { id: 'u2', email: 'm@t.com', role: 'MODULE_USER' };
       renderModule('/tenant');
       await waitFor(() => {
-        expect(screen.getByTestId('unauthorized-page')).toBeInTheDocument();
+        expect(screen.getByTestId('member-company-home')).toBeInTheDocument();
       });
+      // Never the admin's dashboard, its cards or its queries.
+      expect(screen.queryByTestId('tenant-dashboard')).not.toBeInTheDocument();
     });
 
-    it('should redirect a capability-less MODULE_USER from /tenant/users', async () => {
+    it.each([
+      '/tenant/users',
+      '/tenant/roles',
+      '/tenant/settings',
+      '/tenant/modules',
+      '/tenant/messages',
+      '/tenant/support',
+      '/tenant/announcements',
+      '/tenant/devices',
+      '/tenant/devices/d-1',
+      '/tenant/database',
+      '/tenant/audit-log',
+      '/tenant/billing',
+      '/tenant/activity',
+      '/tenant/architecture',
+      '/tenant/architecture/review',
+      '/tenant/unknown',
+    ])('keeps %s closed to a capability-less MODULE_USER', async (path) => {
       mockUser = { id: 'u2', email: 'm@t.com', role: 'MODULE_USER' };
-      renderModule('/tenant/users');
+      renderModule(path);
       await waitFor(() => {
         expect(screen.getByTestId('unauthorized-page')).toBeInTheDocument();
-      });
-    });
-
-    it('should not render tenant content for a capability-less MODULE_USER', async () => {
-      mockUser = { id: 'u2', email: 'm@t.com', role: 'MODULE_USER' };
-      renderModule('/tenant');
-      await waitFor(() => {
-        expect(screen.queryByTestId('tenant-dashboard')).not.toBeInTheDocument();
       });
     });
   });
 
   describe('Delegate (MODULE_USER + tenant-RBAC capability)', () => {
+    it('gives a delegate the member view of the company dashboard, not the admin dashboard', async () => {
+      mockUser = { id: 'u3', email: 'd@t.com', role: 'MODULE_USER', resourcePermissions: ['users:view'] };
+      renderModule('/tenant');
+      await waitFor(() => {
+        expect(screen.getByTestId('member-company-home')).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('tenant-dashboard')).not.toBeInTheDocument();
+    });
+
     it('lets a users:view delegate reach /tenant/users', async () => {
       mockUser = { id: 'u3', email: 'd@t.com', role: 'MODULE_USER', resourcePermissions: ['users:view'] };
       renderModule('/tenant/users');

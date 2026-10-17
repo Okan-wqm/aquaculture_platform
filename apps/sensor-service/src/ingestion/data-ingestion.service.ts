@@ -27,6 +27,7 @@ import { SensorDataChannel } from '../database/entities/sensor-data-channel.enti
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
+import { siteOfSensor } from '../sensor/utils/sensor-site.util';
 import {
   ConnectionHandle,
   DataSubscription,
@@ -418,6 +419,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // not stored, under a scope that excluded every farm-scoped rule.
       const projection = projectPersistedReadings(persisted);
       if (this.eventBus && projection.mappedCount > 0) {
+        const siteId = siteOfSensor(sensor);
         try {
           await this.eventBus.publish({
             ...createBaseEvent('SensorReading', sensor.tenantId, {
@@ -432,6 +434,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
             ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
             ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
             ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
+            // The sensor's site: alert-engine places the alarm a rule raises
+            // from this reading on it (ALERT-MEDIUM-010), a UUID or nothing
+            // (ALERT-MEDIUM-013).
+            ...(siteId !== undefined ? { siteId } : {}),
           });
         } catch (error) {
           this.logger.warn(`Failed to publish SensorReading event: ${(error as Error).message}`);

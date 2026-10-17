@@ -2,20 +2,23 @@
  * Tenant-admin panel pages (/tenant).
  *
  * The gate of each entry is the gate of its route in tenant-admin's Module.tsx
- * (MT-HIGH-060), which the coverage invariant checks: the three delegatable
- * pages carry their capability — a tenant admin, or a delegate whose custom
- * role grants it — and every other page is the tenant admin's alone.
+ * (MT-HIGH-060), which the coverage invariant checks: the company dashboard is
+ * every member's, the three delegatable pages carry their capability — a
+ * tenant admin, or a delegate whose custom role grants it — and every other
+ * page is the tenant admin's alone.
  */
 import type { ConsoleRole, NavPageDef } from '../types';
 
 const ADMIN_ONLY: readonly ConsoleRole[] = ['TENANT_ADMIN'];
 
 export const TENANT_PAGES = {
+  // The company dashboard opens for every tenant user: the page shows a
+  // tenant admin the account's cards and anyone else only their notices
+  // (tenant-admin CompanyHome), the route admits any member (RequireTenantMember).
   dashboard: {
     id: 'tenant-dashboard',
     labelKey: 'nav.page.companyDashboard',
     path: '/tenant',
-    requiredRoles: ADMIN_ONLY,
   },
   users: {
     id: 'tenant-users',

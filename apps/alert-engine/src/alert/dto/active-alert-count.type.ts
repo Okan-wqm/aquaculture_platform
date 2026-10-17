@@ -1,5 +1,23 @@
-import { Field, Int, ObjectType } from '@nestjs/graphql';
+import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
+import { AlertModule } from '../entities/alert-module.enum';
+
+/**
+ * The dimensions activeAlertCounts can additionally group by.
+ *
+ * WHY: the workspace menu counts each module workspace's alarms (MODULE) and a
+ * module dashboard counts each site's (SITE, with a module filter); both read
+ * the same unresolved rows as the annunciator, only split further.
+ */
+export enum ActiveAlertCountDimension {
+  SITE = 'site',
+  MODULE = 'module',
+}
+
+registerEnumType(ActiveAlertCountDimension, {
+  name: 'ActiveAlertCountDimension',
+  description: 'A dimension activeAlertCounts can group the unresolved alarms by',
+});
 
 /**
  * ActiveAlertCount — how many unresolved alarms of one severity are, or are
@@ -15,8 +33,11 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
  * the web (shared-ui AnnunciatorPriority), which the annunciator and the alarm
  * list both read, so the server does not keep a second copy of it.
  *
- * WHAT: one row per (severity, acknowledged) pair that has active alarms; a
- * pair without any is absent, i.e. zero.
+ * WHAT: one row per (severity, acknowledged) pair that has active alarms —
+ * per (…, site) and/or (…, module) when grouped by those dimensions; a
+ * combination without any is absent, i.e. zero. `siteId` / `module` are set
+ * only when the count is grouped by them; a null there then names the alarms
+ * without a site, or recorded before alarms carried a module.
  */
 @ObjectType()
 export class ActiveAlertCount {
@@ -25,6 +46,12 @@ export class ActiveAlertCount {
 
   @Field()
   acknowledged!: boolean;
+
+  @Field(() => ID, { nullable: true })
+  siteId?: string | null;
+
+  @Field(() => AlertModule, { nullable: true })
+  module?: AlertModule | null;
 
   @Field(() => Int)
   count!: number;

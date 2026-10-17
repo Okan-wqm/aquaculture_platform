@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import type { MortalityAlertRaisedEvent } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { farmOrigin } from './alert-origin';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
 
 /**
@@ -84,6 +85,7 @@ export class MortalityAlertService {
       ruleId,
       ruleName,
       tenantId: event.tenantId,
+      ...farmOrigin(event.siteId),
       severity,
       message: event.message,
       triggeringData,

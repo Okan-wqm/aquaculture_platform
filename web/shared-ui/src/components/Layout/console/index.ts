@@ -43,6 +43,7 @@ export {
   type AnnunciatorFilter,
 } from './AnnunciatorPriority';
 export {
+  ACTIVE_ALERT_COUNTS_KEY,
   ALARM_SEVERITIES,
   annunciatorScope,
   isOnTile,

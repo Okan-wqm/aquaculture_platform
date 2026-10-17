@@ -166,6 +166,7 @@ interface WireFeedingWindowReadiness {
   observedDissolvedOxygen?: number;
   observedAt?: string;
   lowOxygenReductionPercent?: number;
+  siteId?: string;
 }
 
 const FEEDING_WINDOW_READINESS_SCHEMA: JSONSchemaType<WireFeedingWindowReadiness> = {
@@ -196,6 +197,8 @@ const FEEDING_WINDOW_READINESS_SCHEMA: JSONSchemaType<WireFeedingWindowReadiness
       maximum: 100,
       nullable: true,
     } as const,
+    // Additive (ALERT-MEDIUM-010): the guarding DO sensor's site.
+    siteId: { type: 'string', pattern: UUID_PATTERN, nullable: true } as const,
   },
   required: [
     ...BASE_EVENT_REQUIRED,

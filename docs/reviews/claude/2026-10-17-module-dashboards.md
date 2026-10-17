@@ -423,8 +423,9 @@ only once the plans answered, and fails with them. Test: `ModuleDashboards.spec.
 
 ## FE-LOW-362
 
-**State:** OPEN until the fix merges. Fix: an alarm at a site the viewer does not list says "a
-site outside your list"; "no site" is for an alarm that records none. Test:
+**State:** OPEN until the fix merges. Fix: an alarm at a site the loaded site list does not hold
+says "a site outside your list"; while that list is loading or failed, an alarm with a site says
+"site name unavailable"; "no site" is for an alarm that records none. Test:
 `ModuleDashboards.spec.tsx`.
 
 ## FE-LOW-363

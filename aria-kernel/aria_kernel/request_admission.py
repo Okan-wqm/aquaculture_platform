@@ -267,7 +267,7 @@ def _append(root: Path, view: _CycleView, row: dict[str, Any]) -> None:
 
 def _measure(root: Path, now: datetime) -> dict[str, Any]:
     """The cycle's snapshot: drain capacity plus the cooled providers, or the fault that stopped it."""
-    from .provider_outage import cooled_providers
+    from .provider_outage import cooled_providers, host_providers
     from .request_drain_capacity import measure_drain_capacity, request_admission_policy
 
     try:
@@ -280,6 +280,9 @@ def _measure(root: Path, now: datetime) -> dict[str, Any]:
     except (GovernanceError, OSError, ValueError) as exc:
         capacity["cooled_providers"] = None
         capacity["cooldown_fault"] = f"{type(exc).__name__}: {exc}"[:300]
+    # ARIA-HIGH-434 review — the same host presence the planner hook's claim
+    # gate reads, so the mint and the claim agree on an outage.
+    capacity["host_providers"] = sorted(host_providers())
     return capacity
 
 
@@ -295,7 +298,7 @@ def _discretionary_reason(producer: str, role: str, capacity: Mapping[str, Any],
     if cooled is None:
         return False, REASON_PROVIDER_STATUS_UNREADABLE
     try:
-        outage = provider_outage(role, cooled, now=now)
+        outage = provider_outage(role, cooled, now=now, present=capacity.get("host_providers") or ())
     except GovernanceError:
         return False, REASON_PROVIDER_STATUS_UNREADABLE
     if outage is not None:

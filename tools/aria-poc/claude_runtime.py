@@ -164,6 +164,25 @@ class ClaudeAuthUnavailable(RuntimeError):
     """Claude Code CLI auth/session state could not be verified."""
 
 
+class ProviderCredentialAbsent(ClaudeAuthUnavailable):
+    """A provider's credential boundary is absent on this host (ARIA-HIGH-434 review).
+
+    A provider fact, not the request's: the lane that holds the claim cools
+    ``provider`` under ``detail["signature"]`` through the one cooldown
+    writer (which opens the outage), so its queue routes past the provider
+    instead of re-claiming into the same absence every tick. A subclass of
+    ``ClaudeAuthUnavailable`` on purpose: every existing arm keeps reading
+    it as an unverifiable credential (the auth failover still keeps the
+    primary's verdict over a rung whose credential is not configured).
+    """
+
+    def __init__(self, message: str, *, provider: str, model: str | None, signature: str, marker: str) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.detail = {"signature": signature, "marker": marker, "matched_marker": marker}
+
+
 class ClaudeUsageUnavailable(RuntimeError):
     """Claude stream-json did not include the required usage data."""
 
@@ -418,10 +437,15 @@ def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
         return {"status": "skipped_by_env", "version": version}
 
     if not _managed_auth_present():
-        raise ClaudeAuthUnavailable(
+        # ARIA-HIGH-441 — a provider fact: the lane holding the claim cools
+        # anthropic under `claude_logged_out` (the logged-out signature the
+        # native admission's seam already uses), so the queue routes past a
+        # Claude that is logged out instead of re-claiming into it.
+        raise ProviderCredentialAbsent(
             "claude_managed_auth_absent: no logged-in Claude Code session found; "
             "run `claude` login on the runner or set "
-            "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1 for a dry-run"
+            "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1 for a dry-run",
+            provider="anthropic", model=None, signature="claude_logged_out", marker="claude_managed_auth_absent",
         )
     return {"status": "ok", "version": version}
 

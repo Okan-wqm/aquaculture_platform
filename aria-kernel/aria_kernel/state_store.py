@@ -78,6 +78,7 @@ from .ledger import (
     tools_index_group_ledgers,
 )
 from .file_lock import ExclusiveLockHandle, with_exclusive_lock
+from .git_containment import without_ambient_git_redirects
 from .write_root_owner import refuse_foreign_owned_root
 from .state_manifest import (
     iter_surfaces,
@@ -6189,7 +6190,11 @@ def _run_git_bytes_bounded(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             # `index_file`: a scratch index (the cold union tree), never the store's.
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0",
+            # ARIA-LOW-447 — the publish step's `GIT_CONFIG_*` credential is
+            # kept (the store pushes with it); a redirect of git's programs,
+            # transport, credential prompt or templates is not, so nothing
+            # planted runs beside that credential.
+            env={**without_ambient_git_redirects(os.environ), "GIT_OPTIONAL_LOCKS": "0",
                  **({"GIT_INDEX_FILE": str(index_file)} if index_file is not None else {})},
             bufsize=0,
         )

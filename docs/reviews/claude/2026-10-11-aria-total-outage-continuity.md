@@ -566,3 +566,63 @@ pipe, redirection or chaining.
     no file written, no `uid=` reached the vendor);
   - `hooks.run_hook("pre-tool")` refuses the same payloads.
   - On HEAD: `allow != deny`.
+
+## ARIA-HIGH-448 — agent transcripts were sealed unredacted on every lane (fixed)
+
+### Symptom
+
+Every executor lane wrote the run's stdout to its transcript raw, with no scrub step:
+
+- Claude CLI: `ci_executor.py:2537`;
+- native Z.ai: `:3576`;
+- Codex: `:3429`;
+- mock: `:2069`;
+- fallback record: `:5924`;
+- judge batch: `ci_executor_judge_batch.py:505`.
+
+The kernel seals those bytes content-addressed
+(`agent-invocations/outputs/content-addressed/transcripts/<hash>.md`), and aria/state publishes
+them. A Claude or Z.ai stream-json carries every tool call's input and result, so a key a tool
+read, echoed or was handed reached the store verbatim. Of 40 stored transcripts sampled on
+origin/aria/state, 31 were stream-json with raw `tool_use` inputs, and none carried a redaction
+marker.
+
+This is distinct from ARIA-HIGH-272, which is about the public branch publishing raw prompts and
+responses; there the operator's decision is a private repository. This finding is that a secret
+must not be persisted at all, private or not.
+
+### Fix (tier 1 at one writer, tier 3 against a second)
+
+- `artifact_safety.scrub_transcript` scrubs line by line.
+  - A line that parses as JSON is scrubbed as data (`scrub_json`) and written back compact, with
+    keys in their order and non-ASCII as is. Every reader still parses the same events. Integer
+    usage counters under token-named keys stay.
+  - A line with nothing to redact keeps its exact bytes.
+  - A line that does not parse goes through `scrub_text`.
+- `artifact_safety.write_sanitized_transcript` is the one write. Every lane calls it through
+  `ci_executor._write_sanitized_transcript`:
+  - the Claude CLI, native Z.ai, Codex, mock and fallback lanes;
+  - the judge batch, through `_engine`.
+- The bytes are scrubbed before they exist, so the hash the executor submits and the hash the
+  kernel seals is the scrubbed bytes' hash. Nothing re-derives a hash from raw bytes.
+- `tests/test_transcript_scrub.py::EveryLaneWritesThroughTheOneWriter` is an AST pin: it fails
+  any executor module that writes a transcript path itself.
+
+### Tests
+
+- `tests/test_transcript_scrub.py` (6):
+  - a stream-json run with a GitHub PAT in a Bash input and an Anthropic key in a tool result
+    keeps every event parseable and redacts both;
+  - unchanged lines keep their bytes;
+  - prose is scrubbed as text;
+  - the written bytes are the scrubbed ones;
+  - the single-writer pin, plus a check that the pin sees the shapes it exists for.
+- `test_executor_zai_implementation…test_a_secret_shape_in_the_run_never_reaches_the_sealed_transcript`
+  runs the real executor child on the native Z.ai lane. One tool call carries a PAT-shaped
+  argument.
+  - The sealed transcript holds the marker and not the value.
+  - Its recorded hash is the sealed bytes' hash.
+  - On HEAD it is red: the sealed transcript carried the PAT verbatim.
+
+Continuity wrote the fix and its unit tests. It stopped at the account's weekly limit; main added
+the end-to-end proof, verified the change and committed it.

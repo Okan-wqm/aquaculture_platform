@@ -18,7 +18,8 @@ Detection (which failures cool a provider, and for how long) belongs to
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+import os
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -65,8 +66,19 @@ def cooled_providers(base_dir: str | Path | None, *, now: datetime) -> dict[str,
     }
 
 
+def host_providers(environ: Mapping[str, str] | None = None) -> frozenset[str]:
+    """The providers THIS host can run: ``model_fleet.available_providers``'
+    cheap signals (the claude CLI on PATH, the Z.ai credential boundary
+    named, the codex session). The one presence reading every gate that
+    decides a claim or a mint takes (ARIA-HIGH-434 review)."""
+    from .model_fleet import available_providers
+
+    return frozenset(provider.key for provider in available_providers(dict(os.environ if environ is None else environ)))
+
+
 def provider_outage(
-    role: str, cooled: Mapping[str, Mapping[str, str]], *, now: datetime, target_agent: str | None = None,
+    role: str, cooled: Mapping[str, Mapping[str, str]], *, now: datetime, present: Collection[str],
+    target_agent: str | None = None,
 ) -> ProviderOutage | None:
     """The outage for ``role`` under ``cooled`` (a ``cooled_providers`` reading), or None.
 
@@ -74,14 +86,26 @@ def provider_outage(
     reading taken earlier in the cycle stays honest as windows end. A role
     whose ladder is empty (every provider suspended) is in an outage too: no
     provider would take its request.
+
+    ARIA-HIGH-434 review — ``present`` is the host's providers
+    (:func:`host_providers`): a rung that would take over from a cooled
+    provider has to be one this host can run. The writer ladder gained a
+    zai rung; on a host with no Z.ai key a cooled Anthropic left the
+    implementer "not in an outage", so the planner hook claimed it every
+    poll and the admission released it ``no_eligible_provider``. A ladder
+    nothing has cooled is no outage whatever is absent: there is no event
+    to wait out, and the admission names an absent provider itself.
     """
     providers = role_providers(role, target_agent=target_agent)
     standing: dict[str, datetime] = {}
     for provider in providers:
         until = parse_utc_stamp(str((cooled.get(provider) or {}).get("until") or ""))
-        if until is None or until <= now:
+        if until is not None and until > now:
+            standing[provider] = until
+        elif provider in present:
             return None
-        standing[provider] = until
+    if providers and not standing:
+        return None
     first_back = min(standing.values()) if standing else None
     return ProviderOutage(
         role=role, providers=providers,
@@ -89,4 +113,4 @@ def provider_outage(
     )
 
 
-__all__ = ["ProviderOutage", "cooled_providers", "provider_outage", "role_providers"]
+__all__ = ["ProviderOutage", "cooled_providers", "host_providers", "provider_outage", "role_providers"]

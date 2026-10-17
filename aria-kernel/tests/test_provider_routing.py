@@ -276,7 +276,13 @@ class TheWorkerLaneRidesTheWriterLadder(unittest.TestCase):
                                           source="kernel_profile", tools=_WRITE, write_scope=("**",))
         self.reader = AgentRuntimeProfile(agent_name="farm-expert", model="opus", effort="max",
                                           source="kernel_profile", tools=_READ)
-        self.zai = {"ARIA_ZAI_API_KEY_FILE": str(self.tmp / "zai.key"), "PATH": ""}
+        # The host's presence is explicit: a claude CLI on PATH, a Z.ai key named.
+        binaries = self.tmp / "bin"
+        binaries.mkdir()
+        (binaries / "claude").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (binaries / "claude").chmod(0o755)
+        self.claude = {"PATH": str(binaries)}
+        self.zai = {"ARIA_ZAI_API_KEY_FILE": str(self.tmp / "zai.key"), **self.claude}
 
     def test_a_writer_rides_the_writer_ladder_and_a_reader_keeps_its_own_provider(self) -> None:
         self.assertEqual(runtime_profiles.worker_ladder(self.writer), ("anthropic", "zai"))
@@ -286,9 +292,24 @@ class TheWorkerLaneRidesTheWriterLadder(unittest.TestCase):
         route = runtime_profiles.worker_route
         self.assertEqual(route(self.writer, environ=self.zai, cooled=()), ("anthropic", "opus"))
         self.assertEqual(route(self.writer, environ=self.zai, cooled={"anthropic"}), ("zai", "glm-5.3"))
-        self.assertIsNone(route(self.writer, environ={"PATH": ""}, cooled={"anthropic"}), "no key, no claim")
+        self.assertIsNone(route(self.writer, environ=self.claude, cooled={"anthropic"}), "no key, no claim")
         self.assertIsNone(route(self.writer, environ=self.zai, cooled={"anthropic", "zai"}))
         self.assertIsNone(route(self.reader, environ=self.zai, cooled={"anthropic"}), "a reader never writes on zai")
+
+    def test_presence_is_read_for_every_rung_the_head_included(self) -> None:
+        """Review of dfe4f63fb (LOW): rung 0 skipped the presence check, so
+        a ladder of ("zai",) on a host with no key claimed every tick."""
+        route = runtime_profiles.worker_route
+        key_only = {"ARIA_ZAI_API_KEY_FILE": str(self.tmp / "zai.key"), "PATH": ""}
+        self.assertEqual(route(self.writer, environ=key_only, cooled=()), ("zai", "glm-5.3"),
+                         "an absent claude CLI is routed past, not claimed into")
+        one = _write_table(self.tmp, lambda block: block.update(suspended_providers=["anthropic"]))
+        with patch.object(runtime_profiles, "profiles_path", return_value=one):
+            # Nothing cooled and nothing here can run: the head, whose child
+            # meets the absence and cools it (ProviderCredentialAbsent)...
+            self.assertEqual(route(self.writer, environ=self.claude, cooled=()), ("zai", "glm-5.3"))
+            # ...after which the hook holds under that cooldown.
+            self.assertIsNone(route(self.writer, environ=self.claude, cooled={"zai"}))
 
     def test_suspension_applies_and_every_writer_suspended_leaves_none(self) -> None:
         one = _write_table(self.tmp, lambda block: block.update(suspended_providers=["anthropic"]))

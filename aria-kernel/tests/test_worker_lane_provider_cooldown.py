@@ -71,7 +71,15 @@ class _LaneFixture(unittest.TestCase):
         }, indent=2, sort_keys=True), encoding="utf-8")
         self._old_cwd = os.getcwd()
         os.chdir(self.tmp)
-        self._env = patch.dict(os.environ, {"ARIA_WORKSPACE_BASE": str(self.tmp / "workspaces")})
+        # ARIA-HIGH-434 review — the hook routes over the rungs THIS host can
+        # run (`provider_outage.host_providers`): the claude CLI is present
+        # here by construction, not by whatever the test host installed.
+        binaries = self.tmp / "bin"
+        binaries.mkdir()
+        (binaries / "claude").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (binaries / "claude").chmod(0o755)
+        self._env = patch.dict(os.environ, {"ARIA_WORKSPACE_BASE": str(self.tmp / "workspaces"),
+                                            "PATH": os.pathsep.join([str(binaries), os.environ.get("PATH", "")])})
         self._env.start()
         # ARIA-HIGH-434 — the Z.ai credential boundary decides whether a
         # cooled Claude moves the worker to Z.ai (`worker_route`): these pins

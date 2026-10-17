@@ -2,7 +2,7 @@
  * The Greenhouse dashboard's Site status table — as a labelled preview.
  *
  * WHY: hydroponics-service keeps no greenhouse zones, nutrient readings or
- * dosing state (PRODUCT-MEDIUM-001), so the table renders the design's sample
+ * dosing state (FARM-MEDIUM-443), so the table renders the design's sample
  * zones only through MockPreview, beside the notice naming the finding and
  * what is missing. The columns are the real table's: EC max against its
  * target, pH, air temperature against its target, dosing; a zone opens the

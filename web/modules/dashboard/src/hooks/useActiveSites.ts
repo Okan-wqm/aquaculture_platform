@@ -5,15 +5,9 @@
 import { graphqlClient, useTenantQuery } from '@aquaculture/shared-ui';
 import type { UseQueryResult } from '@tanstack/react-query';
 
-import { ACTIVE_SITES_QUERY } from './dashboard.operations';
+import type { DashboardSite } from '../model/site';
 
-export interface DashboardSite {
-  readonly id: string;
-  readonly code: string;
-  readonly name: string;
-  readonly type: string;
-  readonly timezone: string | null;
-}
+import { ACTIVE_SITES_QUERY, type DashboardOperationResults } from './dashboard.operations';
 
 export const SITE_REFRESH_MS = 60_000;
 
@@ -21,7 +15,7 @@ export function useActiveSites(): UseQueryResult<readonly DashboardSite[]> {
   return useTenantQuery(
     ['dashboard', 'activeSites'],
     async ({ signal }): Promise<readonly DashboardSite[]> => {
-      const data = await graphqlClient.request<{ activeSites: DashboardSite[] }>(
+      const data = await graphqlClient.request<DashboardOperationResults['DashboardActiveSites']>(
         ACTIVE_SITES_QUERY,
         undefined,
         { signal },

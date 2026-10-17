@@ -39,19 +39,29 @@ const AUTH = {
   hasPermission: (): boolean => false,
 };
 
+const SESSION = {
+  user: { id: 'u1', firstName: 'Ayse', role: 'MODULE_MANAGER', tenantId: 'tenant-1' },
+  isAuthenticated: true,
+  isLoading: false,
+  isSuperAdmin: (): boolean => false,
+  hasRoleOrHigher: (): boolean => false,
+  hasModuleAccess: (): boolean => true,
+};
+
 vi.mock('../../../../shared-ui/src/hooks/useAuth', () => ({ useAuth: () => AUTH }));
+
+// The route guards (RequireAuth, RequireRole) read the context module directly.
+vi.mock('../../../../shared-ui/src/contexts/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../shared-ui/src/contexts/AuthContext')>()),
+  useAuthContext: () => SESSION,
+}));
 
 vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@aquaculture/shared-ui')>();
   return {
     ...actual,
     useAuth: () => AUTH,
-    useAuthContext: () => ({
-      user: { id: 'u1', firstName: 'Ayse', role: 'MODULE_MANAGER', tenantId: 'tenant-1' },
-      isAuthenticated: true,
-      isLoading: false,
-      hasModuleAccess: () => true,
-    }),
+    useAuthContext: () => SESSION,
     graphqlClient: {
       request: (document: string, variables?: Record<string, unknown>) =>
         gateway.current!.request(document, variables),

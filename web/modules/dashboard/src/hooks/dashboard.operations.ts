@@ -8,13 +8,77 @@
  * the responses.
  *
  * WHO may send them (resolver guards, checked for this change): sites,
- * systems, water quality, parameter configs, day plans and unit temperatures
- * admit every module role, scoped to the caller's sites where the farm scopes
- * them; edge devices, sensors, PLCs and alarms admit any tenant user; tenant
- * billing, tenant stats, announcements and audit logs are the tenant admin's;
- * tenant users need users:view. The hooks fire each document only for a viewer
- * its guard admits.
+ * systems, parameter configs, the units' resolved readings, day plans and
+ * unit temperatures admit every module role, scoped to the caller's sites
+ * where the farm scopes them; edge devices, sensors, PLCs and alarms admit any
+ * tenant user; tenant billing, tenant stats, announcements and audit logs are
+ * the tenant admin's; tenant users need users:view. The hooks fire each
+ * document only for a viewer its guard admits.
+ *
+ * DashboardOperationResults names what each document answers, in the
+ * supergraph's generated types: the hooks read responses as these, and the
+ * specs' fake gateway must answer with them.
  */
+import type { AuditEntry } from '../model/activity';
+import type { AlarmRecord, SiteAlarmCountRow } from '../model/alarms';
+import type { PlcAlarmRecord, PlcConnectionRecord } from '../model/control';
+import type { AnnouncementRecord, UserRecord } from '../model/inbox';
+import type {
+  DayPlanRecord,
+  GatewayRecord,
+  OxygenParameterRecord,
+  SystemRecord,
+  UnitReadingRecord,
+  UnitTemperatureRecord,
+} from '../model/production';
+import type { DashboardSite } from '../model/site';
+import type {
+  AlertHistory,
+  TenantPlanLimitsDto,
+  TenantStats,
+} from '@platform/shared-ui/generated/graphql-types';
+
+export interface DashboardOperationResults {
+  readonly DashboardActiveSites: { readonly activeSites: readonly DashboardSite[] };
+  readonly DashboardSiteAlarmCounts: { readonly activeAlertCounts: readonly SiteAlarmCountRow[] };
+  readonly DashboardModuleAlarms: {
+    readonly open: readonly AlarmRecord[];
+    readonly returned: readonly AlarmRecord[];
+  };
+  readonly DashboardAcknowledgeAlert: {
+    readonly acknowledgeAlert: Pick<AlertHistory, 'id' | 'acknowledged'>;
+  };
+  readonly DashboardSiteGateways: {
+    readonly edgeDevices: { readonly items: readonly GatewayRecord[]; readonly total: number };
+  };
+  readonly DashboardParameterLimits: {
+    readonly parameterConfigs: readonly OxygenParameterRecord[];
+  };
+  readonly DashboardUnitOxygen: {
+    readonly resolvedUnitParameterValues: readonly UnitReadingRecord[];
+  };
+  readonly DashboardSiteDayPlans: { readonly feedingDayPlans: readonly DayPlanRecord[] };
+  readonly DashboardUnitTemperatures: {
+    readonly effectiveUnitTemperatures: readonly UnitTemperatureRecord[];
+  };
+  readonly DashboardSiteSystems: { readonly systems: { readonly items: readonly SystemRecord[] } };
+  readonly DashboardSiteSensorTotal: { readonly sensors: { readonly total: number } };
+  readonly DashboardSitePlcs: { readonly plcConnectionsBySite: readonly PlcConnectionRecord[] };
+  readonly DashboardActivePlcAlarms: { readonly activePlcAlarms: readonly PlcAlarmRecord[] };
+  readonly DashboardSeats: {
+    readonly tenantBilling: {
+      readonly planLimits?: Pick<TenantPlanLimitsDto, 'maxUsers' | 'currentUsers'> | null;
+    };
+    readonly tenantStats: Pick<TenantStats, 'pendingUsers'>;
+  };
+  readonly DashboardUsers: { readonly tenantUsers: readonly UserRecord[] };
+  readonly DashboardMaintenance: { readonly myAnnouncements: readonly AnnouncementRecord[] };
+  readonly DashboardRecentAudit: {
+    readonly tenantAuditLogs: { readonly data: readonly AuditEntry[] };
+  };
+}
+
+export type DashboardOperation = keyof DashboardOperationResults;
 
 // ── Shared ──────────────────────────────────────────────────────────────
 
@@ -56,11 +120,19 @@ const ALARM_FIELDS = `
 
 /**
  * One module's alarms the panel can show: the open ones, and the cleared ones
- * nobody has acknowledged yet (returned to normal, still awaiting a look).
+ * nobody has acknowledged yet (returned to normal, still awaiting a look) —
+ * each page the most severe first, so its limit cuts the mildest alarms and
+ * never an older P1 behind newer, milder ones.
  */
 export const MODULE_ALARMS_QUERY = `
   query DashboardModuleAlarms($module: AlertModule!, $severities: [AlertSeverity!]!) {
-    open: alertHistory(module: $module, resolved: false, severities: $severities, limit: 50) {
+    open: alertHistory(
+      module: $module
+      resolved: false
+      severities: $severities
+      orderBy: MOST_SEVERE_FIRST
+      limit: 50
+    ) {
       ${ALARM_FIELDS}
     }
     returned: alertHistory(
@@ -68,9 +140,20 @@ export const MODULE_ALARMS_QUERY = `
       resolved: true
       acknowledged: false
       severities: $severities
+      orderBy: MOST_SEVERE_FIRST
       limit: 50
     ) {
       ${ALARM_FIELDS}
+    }
+  }
+`;
+
+/** Acknowledge one alarm (alert-engine acknowledgeAlert, open to every module role). */
+export const ACKNOWLEDGE_ALERT_MUTATION = `
+  mutation DashboardAcknowledgeAlert($input: AcknowledgeAlertInput!) {
+    acknowledgeAlert(input: $input) {
+      id
+      acknowledged
     }
   }
 `;
@@ -91,33 +174,40 @@ export const SITE_GATEWAYS_QUERY = `
   }
 `;
 
-/** The site's water-quality measurements of the last day, newest first. */
-export const SITE_MEASUREMENTS_QUERY = `
-  query DashboardSiteMeasurements($siteId: ID!, $fromDate: DateTime!) {
-    waterQualityMeasurements(filter: { siteId: $siteId, fromDate: $fromDate, limit: 100 }) {
-      items {
-        id
-        tankId
-        equipmentId
-        dissolvedOxygen
-        measuredAt
-      }
-    }
-  }
-`;
-
-/** The tenant's active parameter limits (dissolved oxygen's among them). */
+/** The tenant's active parameters: dissolved oxygen's id, unit and limits among them. */
 export const PARAMETER_LIMITS_QUERY = `
   query DashboardParameterLimits {
     parameterConfigs(filter: { isActive: true }) {
+      id
       code
+      unit
       warningMin
       criticalMin
     }
   }
 `;
 
-/** The site's feeding day plans of its local day: planned and fed kg per unit. */
+/**
+ * One parameter (dissolved oxygen) at each of a site's fed units, read by
+ * farm's one reading resolver: a live channel first, else a person's latest
+ * sample, in the parameter's unit, none older than the window.
+ */
+export const UNIT_OXYGEN_QUERY = `
+  query DashboardUnitOxygen($input: ResolvedUnitParameterValuesInput!) {
+    resolvedUnitParameterValues(input: $input) {
+      point {
+        id
+      }
+      value
+      unit
+      sourceKind
+      observedAt
+      unresolved
+    }
+  }
+`;
+
+/** The site's feeding day plans of its local day: planned and fed kg per unit, and the meal schedule. */
 export const SITE_DAY_PLANS_QUERY = `
   query DashboardSiteDayPlans($planDate: String!, $siteId: ID!) {
     feedingDayPlans(planDate: $planDate, siteId: $siteId) {
@@ -129,6 +219,9 @@ export const SITE_DAY_PLANS_QUERY = `
       unplannedActualKg
       meals {
         actualKg
+        plannedKg
+        scheduledAt
+        status
       }
     }
   }
@@ -205,9 +298,9 @@ export const SEATS_QUERY = `
   }
 `;
 
-/** The tenant's users with their role and two-factor state (users:view). */
-export const USERS_MFA_QUERY = `
-  query DashboardUsersMfa {
+/** The tenant's users: names for the activity, roles and two-factor state for the inbox (users:view). */
+export const TENANT_USERS_QUERY = `
+  query DashboardUsers {
     tenantUsers {
       id
       firstName

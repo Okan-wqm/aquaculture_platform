@@ -94,13 +94,20 @@ describe('pageMatchScore', () => {
 });
 
 describe('moduleForPath', () => {
-  it('reads the module from the mount prefix only', () => {
+  it('reads a remote mount’s module for every page under its prefix', () => {
     expect(moduleForPath('/sites/finance?tab=budget')).toBe('farm');
     expect(moduleForPath('/sensor')).toBe('sensor');
     expect(moduleForPath('/hydroponics/setup')).toBe('hydroponics');
     expect(moduleForPath('/hr/today')).toBe('hr');
     expect(moduleForPath('/tenant/users')).toBeUndefined();
     expect(moduleForPath('/sitesx/whatever')).toBeUndefined();
-    expect(moduleForPath('/dashboard')).toBeUndefined();
+  });
+
+  it('gates each module dashboard by its own path, and leaves trends open', () => {
+    expect(moduleForPath('/dashboard')).toBe('farm');
+    expect(moduleForPath('/dashboard/control')).toBe('sensor');
+    expect(moduleForPath('/dashboard/greenhouse?tab=zones')).toBe('hydroponics');
+    expect(moduleForPath('/dashboard/analytics')).toBeUndefined();
+    expect(moduleForPath('/dashboardx')).toBeUndefined();
   });
 });

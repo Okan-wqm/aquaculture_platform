@@ -1,17 +1,27 @@
 /**
  * The Production dashboard's Site status table (design D6 `dashboard` page,
- * aqua workspace): per fish site its alarms, the lowest dissolved oxygen
- * against the configured limit, the water temperature and today's feed
- * (model/production says where each value comes from). Colour appears only
- * where a value is abnormal; a site row opens the site's live readings.
+ * aqua workspace): per fish site its alarms, the lowest dissolved oxygen of
+ * the units fed today against the configured limit — with where it came from
+ * (live channel or manual sample) and how old it is — the water temperature
+ * and today's feed against the plan so far (model/production says where each
+ * value comes from). Colour appears only where a value is abnormal; a stale
+ * site's values are greyed; a site's name opens its live readings.
  */
-import { useI18n, type SupportedLocale } from '@aquaculture/shared-ui';
+import { useI18n, type MessageKey, type SupportedLocale } from '@aquaculture/shared-ui';
 import type { ReactElement } from 'react';
 
 import { useProductionRows } from '../hooks/useProductionRows';
 import { worstPriority } from '../model/alarms';
-import { formatClock, formatDecimal } from '../model/format';
-import type { FeedProgress, ProductionSiteRow, ReadingLevel } from '../model/production';
+import type { Cell } from '../model/cell';
+import { formatAge, formatClock, formatDecimal } from '../model/format';
+import type {
+  DataFreshness,
+  FeedProgress,
+  OxygenState,
+  ProductionSiteRow,
+  ReadingLevel,
+  ReadingSource,
+} from '../model/production';
 
 import { AlarmTally } from './AlarmTally';
 import { CellValue } from './CellValue';
@@ -24,8 +34,26 @@ const LEVEL_CLASS: Readonly<Record<ReadingLevel, string>> = {
   normal: 'text-sd-ink',
 };
 
+/** A stale site's readings are old news: greyed, unless a limit is crossed. */
+const STALE_CLASS = 'text-sd-neutral-600';
+
 const VALUE_CLASS = 'font-display-sd text-lg leading-tight font-semibold tabular-nums';
 const NOTE_CLASS = 'text-sm text-sd-neutral-700';
+
+const SOURCE_KEY: Readonly<Record<ReadingSource, MessageKey>> = {
+  live: 'dashboard.production.source.live',
+  manual: 'dashboard.production.source.manual',
+};
+
+const NO_OXYGEN_KEY: Readonly<Record<Exclude<OxygenState['kind'], 'reading'>, MessageKey>> = {
+  noParameter: 'dashboard.production.oxygenNoParameter',
+  noUnits: 'dashboard.production.oxygenNoUnits',
+  noReading: 'dashboard.production.oxygenNoReading',
+};
+
+function isStale(data: Cell<DataFreshness>): boolean {
+  return data.status === 'ready' && data.value.state === 'stale';
+}
 
 function feedAmounts(
   feed: FeedProgress,
@@ -38,6 +66,119 @@ function feedAmounts(
     planned: formatDecimal(feed.plannedKg / scale, 1, locale),
     tonnes,
   };
+}
+
+/** The bar of today's feed: fed so far, the plan-so-far marker, amber when behind it. */
+function FeedBar({ feed }: { readonly feed: FeedProgress }): ReactElement {
+  const percent = Math.min(Math.round(feed.ratio * 100), 100);
+  const byNow =
+    feed.plannedByNowRatio === null
+      ? null
+      : Math.min(Math.round(feed.plannedByNowRatio * 100), 100);
+  return (
+    <svg
+      viewBox="0 0 100 12"
+      preserveAspectRatio="none"
+      className="mt-1 block h-3 w-full"
+      aria-hidden="true"
+    >
+      <rect y="3" width="100" height="6" className="fill-sd-neutral-300" />
+      <rect
+        y="3"
+        width={percent}
+        height="6"
+        className={feed.behind ? 'fill-sd-hz-amber' : 'fill-sd-neutral-700'}
+      />
+      {byNow !== null && (
+        <line
+          x1={byNow}
+          x2={byNow}
+          y1="0"
+          y2="12"
+          strokeWidth="2"
+          vectorEffect="non-scaling-stroke"
+          className="stroke-sd-ink"
+        />
+      )}
+    </svg>
+  );
+}
+
+function OxygenCell({
+  oxygen,
+  stale,
+  now,
+}: {
+  readonly oxygen: OxygenState;
+  readonly stale: boolean;
+  readonly now: Date;
+}): ReactElement {
+  const { t, locale } = useI18n();
+  if (oxygen.kind !== 'reading') {
+    return (
+      <>
+        <div className={VALUE_CLASS}>{t('dashboard.production.oxygenNone')}</div>
+        <div className={NOTE_CLASS}>{t(NO_OXYGEN_KEY[oxygen.kind])}</div>
+      </>
+    );
+  }
+  const { reading } = oxygen;
+  const colour = reading.level === 'normal' && stale ? STALE_CLASS : LEVEL_CLASS[reading.level];
+  return (
+    <>
+      <div className={`${VALUE_CLASS} ${colour}`}>
+        {t('dashboard.production.oxygen', {
+          value: formatDecimal(reading.value, 1, locale),
+          unit: reading.unit,
+        })}
+      </div>
+      <div className={NOTE_CLASS}>
+        {reading.limit === null
+          ? t('dashboard.production.oxygenNoLimit', { unit: reading.unitCode })
+          : t('dashboard.production.oxygenLimit', {
+              unit: reading.unitCode,
+              limit: formatDecimal(reading.limit, 1, locale),
+            })}
+      </div>
+      <div className={`${NOTE_CLASS} tabular-nums`}>
+        {t(SOURCE_KEY[reading.source], { age: formatAge(reading.observedAt, now, locale) })}
+      </div>
+    </>
+  );
+}
+
+function FeedCell({ feed }: { readonly feed: FeedProgress | null }): ReactElement {
+  const { t, locale } = useI18n();
+  if (feed === null) {
+    return <span className={NOTE_CLASS}>{t('dashboard.production.feedNone')}</span>;
+  }
+  const amounts = feedAmounts(feed, locale);
+  return (
+    <>
+      <div className="flex justify-between gap-2 text-sm tabular-nums">
+        <span className="font-semibold text-sd-ink">
+          {t('dashboard.production.feedPercent', { value: Math.round(feed.ratio * 100) })}
+        </span>
+        <span className="text-sd-neutral-700">
+          {t(amounts.tonnes ? 'dashboard.production.feedTonnes' : 'dashboard.production.feedKg', {
+            actual: amounts.actual,
+            planned: amounts.planned,
+          })}
+        </span>
+      </div>
+      <FeedBar feed={feed} />
+      {feed.plannedByNowRatio !== null && (
+        <span className="sr-only">
+          {t(
+            feed.behind
+              ? 'dashboard.production.feedBehindPlan'
+              : 'dashboard.production.feedPlannedByNow',
+            { value: Math.round(feed.plannedByNowRatio * 100) },
+          )}
+        </span>
+      )}
+    </>
+  );
 }
 
 export function ProductionSiteTable({ now }: { readonly now: Date }): ReactElement {
@@ -79,32 +220,7 @@ export function ProductionSiteTable({ now }: { readonly now: Date }): ReactEleme
       header: t('dashboard.production.column.keyReading'),
       render: (row) => (
         <CellValue cell={row.oxygen}>
-          {(oxygen) =>
-            oxygen === null ? (
-              <>
-                <div className={VALUE_CLASS}>{t('dashboard.production.oxygenNone')}</div>
-                <div className={NOTE_CLASS}>{t('dashboard.production.oxygenNoReading')}</div>
-              </>
-            ) : (
-              <>
-                <div className={`${VALUE_CLASS} ${LEVEL_CLASS[oxygen.level]}`}>
-                  {t('dashboard.production.oxygen', {
-                    value: formatDecimal(oxygen.value, 1, locale),
-                  })}
-                </div>
-                <div className={NOTE_CLASS}>
-                  {oxygen.limit === null
-                    ? t('dashboard.production.oxygenNoLimit', {
-                        unit: oxygen.unitCode ?? t('dashboard.production.unknownUnit'),
-                      })
-                    : t('dashboard.production.oxygenLimit', {
-                        unit: oxygen.unitCode ?? t('dashboard.production.unknownUnit'),
-                        limit: formatDecimal(oxygen.limit, 1, locale),
-                      })}
-                </div>
-              </>
-            )
-          }
+          {(oxygen) => <OxygenCell oxygen={oxygen} stale={isStale(row.data)} now={now} />}
         </CellValue>
       ),
     },
@@ -121,7 +237,7 @@ export function ProductionSiteTable({ now }: { readonly now: Date }): ReactEleme
               </>
             ) : (
               <>
-                <div className={VALUE_CLASS}>
+                <div className={`${VALUE_CLASS} ${isStale(row.data) ? STALE_CLASS : ''}`}>
                   {t('dashboard.production.temperature', {
                     value: formatDecimal(temperature.latest, 1, locale),
                   })}
@@ -144,46 +260,7 @@ export function ProductionSiteTable({ now }: { readonly now: Date }): ReactEleme
       key: 'feed',
       header: t('dashboard.production.column.feed'),
       width: '160px',
-      render: (row) => (
-        <CellValue cell={row.feed}>
-          {(feed) => {
-            if (feed === null) {
-              return <span className={NOTE_CLASS}>{t('dashboard.production.feedNone')}</span>;
-            }
-            const percent = Math.round(feed.ratio * 100);
-            const amounts = feedAmounts(feed, locale);
-            return (
-              <>
-                <div className="flex justify-between gap-2 text-sm tabular-nums">
-                  <span className="font-semibold text-sd-ink">
-                    {t('dashboard.production.feedPercent', { value: percent })}
-                  </span>
-                  <span className="text-sd-neutral-700">
-                    {t(
-                      amounts.tonnes
-                        ? 'dashboard.production.feedTonnes'
-                        : 'dashboard.production.feedKg',
-                      {
-                        actual: amounts.actual,
-                        planned: amounts.planned,
-                      },
-                    )}
-                  </span>
-                </div>
-                <svg
-                  viewBox="0 0 100 6"
-                  preserveAspectRatio="none"
-                  className="mt-1.5 block h-1.5 w-full"
-                  aria-hidden="true"
-                >
-                  <rect width="100" height="6" className="fill-sd-neutral-300" />
-                  <rect width={Math.min(percent, 100)} height="6" className="fill-sd-neutral-700" />
-                </svg>
-              </>
-            );
-          }}
-        </CellValue>
-      ),
+      render: (row) => <CellValue cell={row.feed}>{(feed) => <FeedCell feed={feed} />}</CellValue>,
     },
   ];
 

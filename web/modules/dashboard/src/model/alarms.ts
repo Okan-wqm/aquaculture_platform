@@ -14,25 +14,24 @@
  * acknowledged; within a state the most urgent priority, then the newest.
  */
 import { priorityOf, type AlarmPriority, type AlarmPriorityTally } from '@aquaculture/shared-ui';
-import type { AlertSeverity } from '@platform/shared-ui/generated/graphql-types';
+import type { ActiveAlertCount, AlertHistory } from '@platform/shared-ui/generated/graphql-types';
 
-export interface SiteAlarmCountRow {
-  readonly severity: AlertSeverity;
-  readonly acknowledged: boolean;
-  readonly siteId: string | null;
-  readonly count: number;
-}
+export type SiteAlarmCountRow = Pick<
+  ActiveAlertCount,
+  'severity' | 'acknowledged' | 'siteId' | 'count'
+>;
 
-export interface AlarmRecord {
-  readonly id: string;
-  readonly ruleName: string;
-  readonly message: string;
-  readonly severity: AlertSeverity;
-  readonly acknowledged: boolean;
-  readonly resolved: boolean;
-  readonly triggeredAt: string;
-  readonly siteId: string | null;
-}
+export type AlarmRecord = Pick<
+  AlertHistory,
+  | 'id'
+  | 'ruleName'
+  | 'message'
+  | 'severity'
+  | 'acknowledged'
+  | 'resolved'
+  | 'triggeredAt'
+  | 'siteId'
+>;
 
 export type AlarmState = 'unack' | 'cleared' | 'acked';
 
@@ -50,7 +49,7 @@ export function tallyBySite(
   const tallies = new Map<string, AlarmPriorityTally>();
   for (const row of rows) {
     const priority = priorityOf(row.severity);
-    if (row.siteId === null || priority === null) continue;
+    if (row.siteId === null || row.siteId === undefined || priority === null) continue;
     const current = tallies.get(row.siteId) ?? EMPTY_TALLY;
     tallies.set(row.siteId, { ...current, [priority]: current[priority] + row.count });
   }

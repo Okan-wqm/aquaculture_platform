@@ -11,9 +11,17 @@
  * WHAT: gatewaySummary, plcSummary and the row type.
  */
 import type { AlarmPriorityTally } from '@aquaculture/shared-ui';
+import type {
+  PlcAlarm,
+  PlcConnection,
+  SiteType,
+} from '@platform/shared-ui/generated/graphql-types';
 
 import type { Cell } from './cell';
 import type { GatewayRecord } from './production';
+
+export type PlcConnectionRecord = Pick<PlcConnection, 'id' | 'status'>;
+export type PlcAlarmRecord = Pick<PlcAlarm, 'id' | 'plcConnectionId'>;
 
 export interface GatewaySummary {
   readonly online: number;
@@ -31,7 +39,7 @@ export interface ControlSiteRow {
   readonly siteId: string;
   readonly code: string;
   readonly name: string;
-  readonly type: string;
+  readonly type: SiteType;
   readonly alarms: Cell<AlarmPriorityTally>;
   readonly gateways: Cell<GatewaySummary>;
   readonly sensors: Cell<number>;
@@ -41,7 +49,7 @@ export interface ControlSiteRow {
 export function gatewaySummary(gateways: readonly GatewayRecord[]): GatewaySummary {
   let lastSeen: number | null = null;
   for (const gateway of gateways) {
-    if (gateway.lastSeenAt === null) continue;
+    if (gateway.lastSeenAt === null || gateway.lastSeenAt === undefined) continue;
     const time = Date.parse(gateway.lastSeenAt);
     if (Number.isFinite(time) && (lastSeen === null || time > lastSeen)) lastSeen = time;
   }
@@ -53,8 +61,8 @@ export function gatewaySummary(gateways: readonly GatewayRecord[]): GatewaySumma
 }
 
 export function plcSummary(
-  connections: readonly { readonly id: string; readonly status: string }[],
-  alarms: readonly { readonly plcConnectionId: string }[],
+  connections: readonly PlcConnectionRecord[],
+  alarms: readonly Pick<PlcAlarmRecord, 'plcConnectionId'>[],
 ): PlcSummary {
   const ids = new Set(connections.map((connection) => connection.id));
   return {

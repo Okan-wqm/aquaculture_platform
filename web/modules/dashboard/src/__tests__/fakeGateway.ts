@@ -3,10 +3,17 @@
  * its name with a fixture, records every request, and lets a spec replace one
  * answer (an error, an empty list) without restating the rest.
  *
+ * Every fixture is typed as the operation's result (DashboardOperationResults,
+ * the supergraph's generated types), so a fixture cannot answer with a value
+ * the API never sends — a lower-case enum, a missing field.
+ *
  * The fixtures are one tenant with two fish sites — Ayvalık, whose lowest
- * oxygen is below the configured critical limit and which has an open P1
- * alarm, and Bodrum, quiet — modelled on the Tenant Console D6 design.
+ * oxygen (a live channel at B-12) is below the configured critical limit and
+ * which has an open P1 alarm, and Bodrum, quiet — modelled on the Tenant
+ * Console D6 design.
  */
+import type { DashboardOperation, DashboardOperationResults } from '../hooks/dashboard.operations';
+
 export const SITE_A = 'aaaaaaaa-0000-4000-8000-00000000000a';
 export const SITE_B = 'bbbbbbbb-0000-4000-8000-00000000000b';
 export const TANK_A1 = 'a1a1a1a1-0000-4000-8000-0000000000a1';
@@ -17,12 +24,24 @@ export interface RecordedRequest {
   readonly variables: Record<string, unknown> | undefined;
 }
 
-type Answer = (variables: Record<string, unknown> | undefined) => unknown;
+type Variables = Record<string, unknown> | undefined;
+type Answer<Name extends DashboardOperation> = (
+  variables: Variables,
+) => DashboardOperationResults[Name];
+type Answers = { readonly [Name in DashboardOperation]: Answer<Name> };
 
 const NOW = Date.now();
 const minutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString();
+const minutesAhead = (minutes: number): string => new Date(NOW + minutes * 60_000).toISOString();
 
-export const FIXTURES: Readonly<Record<string, Answer>> = {
+function unitIdsOf(variables: Variables): readonly string[] {
+  const input = variables?.['input'];
+  if (typeof input !== 'object' || input === null || !('unitIds' in input)) return [];
+  const { unitIds } = input;
+  return Array.isArray(unitIds) ? unitIds.filter((id): id is string => typeof id === 'string') : [];
+}
+
+export const FIXTURES: Answers = {
   DashboardActiveSites: () => ({
     activeSites: [
       {
@@ -90,40 +109,31 @@ export const FIXTURES: Readonly<Record<string, Answer>> = {
       total: variables?.['siteId'] === SITE_A ? 2 : 0,
     },
   }),
-  DashboardSiteMeasurements: (variables) => ({
-    waterQualityMeasurements: {
-      items:
-        variables?.['siteId'] === SITE_A
-          ? [
-              {
-                id: 'm-3',
-                tankId: TANK_A1,
-                equipmentId: null,
-                dissolvedOxygen: 5.8,
-                measuredAt: minutesAgo(5),
-              },
-              {
-                id: 'm-2',
-                tankId: TANK_A2,
-                equipmentId: null,
-                dissolvedOxygen: 7.4,
-                measuredAt: minutesAgo(6),
-              },
-              {
-                id: 'm-1',
-                tankId: TANK_A1,
-                equipmentId: null,
-                dissolvedOxygen: 3.0,
-                measuredAt: minutesAgo(300),
-              },
-            ]
-          : [],
-    },
+  DashboardUnitOxygen: (variables) => ({
+    resolvedUnitParameterValues: unitIdsOf(variables).map((unitId) =>
+      unitId === TANK_A1
+        ? {
+            point: { id: TANK_A1 },
+            value: 5.8,
+            unit: 'mg/L',
+            sourceKind: 'CHANNEL_PRIMARY',
+            observedAt: minutesAgo(5),
+            unresolved: null,
+          }
+        : {
+            point: { id: unitId },
+            value: 7.4,
+            unit: 'mg/L',
+            sourceKind: 'MANUAL',
+            observedAt: minutesAgo(120),
+            unresolved: null,
+          },
+    ),
   }),
   DashboardParameterLimits: () => ({
     parameterConfigs: [
-      { code: 'temperature', warningMin: 10, criticalMin: 8 },
-      { code: 'dissolved_oxygen', warningMin: 6.5, criticalMin: 6 },
+      { id: 'pc-temp', code: 'temperature', unit: '°C', warningMin: 10, criticalMin: 8 },
+      { id: 'pc-do', code: 'dissolved_oxygen', unit: 'mg/L', warningMin: 6.5, criticalMin: 6 },
     ],
   }),
   DashboardSiteDayPlans: (variables) => ({
@@ -134,19 +144,31 @@ export const FIXTURES: Readonly<Record<string, Answer>> = {
               id: 'plan-1',
               unitId: TANK_A1,
               unitCode: 'B-12',
-              status: 'in_progress',
+              status: 'IN_PROGRESS',
               plannedTotalKg: 2000,
               unplannedActualKg: 100,
-              meals: [{ actualKg: 600 }, { actualKg: 540 }],
+              meals: [
+                { actualKg: 600, plannedKg: 700, scheduledAt: minutesAgo(240), status: 'FED' },
+                { actualKg: 540, plannedKg: 700, scheduledAt: minutesAgo(60), status: 'FED' },
+                {
+                  actualKg: 0,
+                  plannedKg: 600,
+                  scheduledAt: minutesAhead(120),
+                  status: 'SCHEDULED',
+                },
+              ],
             },
             {
               id: 'plan-2',
               unitId: TANK_A2,
               unitCode: 'B-03',
-              status: 'in_progress',
+              status: 'IN_PROGRESS',
               plannedTotalKg: 1400,
               unplannedActualKg: 0,
-              meals: [{ actualKg: 860 }],
+              meals: [
+                { actualKg: 860, plannedKg: 900, scheduledAt: minutesAgo(200), status: 'FED' },
+                { actualKg: 0, plannedKg: 500, scheduledAt: minutesAhead(60), status: 'SCHEDULED' },
+              ],
             },
           ]
         : [],
@@ -179,7 +201,7 @@ export const FIXTURES: Readonly<Record<string, Answer>> = {
     tenantBilling: { planLimits: { maxUsers: 15, currentUsers: 11 } },
     tenantStats: { pendingUsers: 3 },
   }),
-  DashboardUsersMfa: () => ({
+  DashboardUsers: () => ({
     tenantUsers: [
       {
         id: 'u-1',
@@ -227,11 +249,27 @@ export const FIXTURES: Readonly<Record<string, Answer>> = {
       data: [
         {
           id: 'audit-1',
-          action: 'ROLE_CHANGED',
+          action: 'USER_ROLE_CHANGED',
           entityType: 'User',
           performedBy: 'u-1',
-          performedByEmail: 'ayse.demir@x.io',
+          performedByEmail: 'ingrid@x.io',
           createdAt: minutesAgo(12),
+        },
+        {
+          id: 'audit-2',
+          action: 'LOGIN_SUCCESS',
+          entityType: 'User',
+          performedBy: 'f0f0f0f0-0000-4000-8000-0000000000f0',
+          performedByEmail: null,
+          createdAt: minutesAgo(30),
+        },
+        {
+          id: 'audit-3',
+          action: 'BACKUP_EXPORTED',
+          entityType: 'Tenant',
+          performedBy: 'u-2',
+          performedByEmail: 'lars@x.io',
+          createdAt: minutesAgo(45),
         },
       ],
     },
@@ -250,8 +288,12 @@ export function operationOf(document: string): string {
   return match[1];
 }
 
+function isOperation(name: string): name is DashboardOperation {
+  return Object.prototype.hasOwnProperty.call(FIXTURES, name);
+}
+
 /** A request handler over the fixtures; `overrides` replaces answers by operation name. */
-export function fakeGateway(overrides: Partial<Record<string, Answer>> = {}): {
+export function fakeGateway(overrides: Partial<Answers> = {}): {
   request: (document: string, variables?: Record<string, unknown>) => Promise<unknown>;
   requests: RecordedRequest[];
 } {
@@ -263,8 +305,9 @@ export function fakeGateway(overrides: Partial<Record<string, Answer>> = {}): {
       new Promise((resolve) => {
         const operation = operationOf(document);
         requests.push({ operation, variables });
-        const answer = overrides[operation] ?? FIXTURES[operation];
-        if (answer === undefined) throw new Error(`unanswered operation ${operation}`);
+        if (!isOperation(operation)) throw new Error(`unanswered operation ${operation}`);
+        const answer: (variables: Variables) => unknown =
+          overrides[operation] ?? FIXTURES[operation];
         resolve(answer(variables));
       }),
   };

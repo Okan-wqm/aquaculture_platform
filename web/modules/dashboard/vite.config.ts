@@ -39,6 +39,11 @@ export default defineConfig(({ mode }) => ({
       '@': resolve(__dirname, 'src'),
       ...sharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
     },
+    // The federation shares these as singletons at runtime; specs resolve
+    // shared-ui from source, so they must see the one copy too — a second
+    // react-router is a second Router context, and shared-ui's route guards
+    // (RequireRole on each dashboard route) could not navigate inside it.
+    dedupe: ['react', 'react-dom', 'react-router', 'react-router-dom'],
   },
   server: {
     port: 3001,

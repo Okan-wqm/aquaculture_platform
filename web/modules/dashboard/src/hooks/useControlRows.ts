@@ -13,28 +13,25 @@ import { useQueries, type UseQueryResult } from '@tanstack/react-query';
 
 import { tallyOf } from '../model/alarms';
 import { bothOf, cellAt, cellOf, mapCell } from '../model/cell';
-import { gatewaySummary, plcSummary, type ControlSiteRow } from '../model/control';
+import {
+  gatewaySummary,
+  plcSummary,
+  type ControlSiteRow,
+  type PlcAlarmRecord,
+  type PlcConnectionRecord,
+} from '../model/control';
 import type { GatewayRecord } from '../model/production';
 
 import {
   ACTIVE_PLC_ALARMS_QUERY,
   SITE_PLCS_QUERY,
   SITE_SENSOR_TOTAL_QUERY,
+  type DashboardOperationResults,
 } from './dashboard.operations';
 import { SITE_REFRESH_MS, useActiveSites } from './useActiveSites';
 import { useSiteGateways, type SiteRows } from './useProductionRows';
 import { ALARM_REFRESH_MS, useSiteAlarmTallies } from './useSiteAlarmTallies';
 import { useTenantKeys } from './useTenantKeys';
-
-interface PlcConnectionRecord {
-  readonly id: string;
-  readonly status: string;
-}
-
-interface PlcAlarmRecord {
-  readonly id: string;
-  readonly plcConnectionId: string;
-}
 
 const REFRESH = { staleTime: SITE_REFRESH_MS, refetchInterval: SITE_REFRESH_MS } as const;
 
@@ -43,7 +40,7 @@ function useActivePlcAlarms(): UseQueryResult<readonly PlcAlarmRecord[]> {
     ['dashboard', 'activePlcAlarms'],
     async ({ signal }): Promise<readonly PlcAlarmRecord[]> =>
       (
-        await graphqlClient.request<{ activePlcAlarms: PlcAlarmRecord[] }>(
+        await graphqlClient.request<DashboardOperationResults['DashboardActivePlcAlarms']>(
           ACTIVE_PLC_ALARMS_QUERY,
           undefined,
           { signal },
@@ -66,7 +63,7 @@ export function useControlRows(): SiteRows<ControlSiteRow> {
       queryKey: key('siteSensorTotal', site.id),
       queryFn: async ({ signal }: { signal: AbortSignal }): Promise<number> =>
         (
-          await graphqlClient.request<{ sensors: { total: number } }>(
+          await graphqlClient.request<DashboardOperationResults['DashboardSiteSensorTotal']>(
             SITE_SENSOR_TOTAL_QUERY,
             { siteId: site.id },
             { signal },
@@ -86,7 +83,7 @@ export function useControlRows(): SiteRows<ControlSiteRow> {
         signal: AbortSignal;
       }): Promise<readonly PlcConnectionRecord[]> =>
         (
-          await graphqlClient.request<{ plcConnectionsBySite: PlcConnectionRecord[] }>(
+          await graphqlClient.request<DashboardOperationResults['DashboardSitePlcs']>(
             SITE_PLCS_QUERY,
             { siteId: site.id },
             { signal },

@@ -10,9 +10,12 @@
  *  - maintenance: the maintenance announcements in force now (published,
  *    active, not expired).
  *
- * WHAT: pure builders over the fetched records; the panel decides which the
- * viewer may read before anything is fetched.
+ * WHAT: pure builders over the fetched records (the supergraph's own
+ * shapes); the panel decides which the viewer may read before anything is
+ * fetched.
  */
+import type { AnnouncementListItem, Role, User } from '@platform/shared-ui/generated/graphql-types';
+
 export interface SeatSources {
   readonly maxUsers: number;
   readonly currentUsers: number;
@@ -25,26 +28,17 @@ export interface SeatNotice {
   readonly pending: number;
 }
 
-export interface UserRecord {
-  readonly id: string;
-  readonly firstName: string | null;
-  readonly lastName: string | null;
-  readonly email: string;
-  readonly role: string;
-  readonly isActive: boolean;
-  readonly mfaEnabled: boolean;
-}
+export type UserRecord = Pick<
+  User,
+  'id' | 'firstName' | 'lastName' | 'email' | 'role' | 'isActive' | 'mfaEnabled'
+>;
 
-export interface AnnouncementRecord {
-  readonly id: string;
-  readonly title: string;
-  readonly isActive: boolean;
-  readonly publishAt: string | null;
-  readonly expiresAt: string | null;
-  readonly createdAt: string;
-}
+export type AnnouncementRecord = Pick<
+  AnnouncementListItem,
+  'id' | 'title' | 'isActive' | 'publishAt' | 'expiresAt' | 'createdAt'
+>;
 
-const PRIVILEGED_ROLES: ReadonlySet<string> = new Set(['TENANT_ADMIN', 'MODULE_MANAGER']);
+const PRIVILEGED_ROLES: ReadonlySet<Role> = new Set<Role>(['TENANT_ADMIN', 'MODULE_MANAGER']);
 
 export function seatNotice(sources: SeatSources | null): SeatNotice | null {
   if (sources === null || sources.maxUsers <= 0) return null;
@@ -54,9 +48,12 @@ export function seatNotice(sources: SeatSources | null): SeatNotice | null {
     : null;
 }
 
-function displayName(user: UserRecord): string {
+/** A user as people name them: first and last name, else the e-mail. */
+export function userDisplayName(
+  user: Pick<UserRecord, 'firstName' | 'lastName' | 'email'>,
+): string {
   const name = [user.firstName, user.lastName]
-    .filter((part) => part !== null && part !== '')
+    .filter((part): part is string => part !== null && part !== undefined && part !== '')
     .join(' ');
   return name === '' ? user.email : name;
 }
@@ -65,7 +62,7 @@ function displayName(user: UserRecord): string {
 export function usersWithoutMfa(users: readonly UserRecord[]): string[] {
   return users
     .filter((user) => user.isActive && !user.mfaEnabled && PRIVILEGED_ROLES.has(user.role))
-    .map(displayName);
+    .map(userDisplayName);
 }
 
 export function maintenanceInForce(
@@ -76,7 +73,11 @@ export function maintenanceInForce(
   return announcements.filter(
     (announcement) =>
       announcement.isActive &&
-      (announcement.publishAt === null || Date.parse(announcement.publishAt) <= at) &&
-      (announcement.expiresAt === null || Date.parse(announcement.expiresAt) > at),
+      (announcement.publishAt === null ||
+        announcement.publishAt === undefined ||
+        Date.parse(announcement.publishAt) <= at) &&
+      (announcement.expiresAt === null ||
+        announcement.expiresAt === undefined ||
+        Date.parse(announcement.expiresAt) > at),
   );
 }

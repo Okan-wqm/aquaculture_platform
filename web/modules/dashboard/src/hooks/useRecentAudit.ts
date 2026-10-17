@@ -6,16 +6,9 @@
 import { graphqlClient, useAuth, useTenantQuery } from '@aquaculture/shared-ui';
 import type { UseQueryResult } from '@tanstack/react-query';
 
-import { RECENT_AUDIT_QUERY } from './dashboard.operations';
+import type { AuditEntry } from '../model/activity';
 
-export interface AuditEntry {
-  readonly id: string;
-  readonly action: string;
-  readonly entityType: string;
-  readonly performedBy: string;
-  readonly performedByEmail: string | null;
-  readonly createdAt: string;
-}
+import { RECENT_AUDIT_QUERY, type DashboardOperationResults } from './dashboard.operations';
 
 export const ACTIVITY_LIMIT = 5;
 const ACTIVITY_REFRESH_MS = 60_000;
@@ -26,7 +19,7 @@ export function useRecentAudit(): UseQueryResult<readonly AuditEntry[]> | null {
     ['dashboard', 'recentAudit'],
     async ({ signal }): Promise<readonly AuditEntry[]> =>
       (
-        await graphqlClient.request<{ tenantAuditLogs: { data: AuditEntry[] } }>(
+        await graphqlClient.request<DashboardOperationResults['DashboardRecentAudit']>(
           RECENT_AUDIT_QUERY,
           { limit: ACTIVITY_LIMIT },
           { signal },

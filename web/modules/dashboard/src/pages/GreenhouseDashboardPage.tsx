@@ -1,6 +1,6 @@
 /**
  * Greenhouse's dashboard (/dashboard/greenhouse): the zone table as a
- * labelled preview (PRODUCT-MEDIUM-001) and the hydroponics module's alarms.
+ * labelled preview (FARM-MEDIUM-443) and the hydroponics module's alarms.
  */
 import { useI18n } from '@aquaculture/shared-ui';
 import type { ReactElement } from 'react';

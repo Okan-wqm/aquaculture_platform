@@ -15,8 +15,9 @@ import type { AnnouncementRecord, SeatSources, UserRecord } from '../model/inbox
 import {
   MAINTENANCE_ANNOUNCEMENTS_QUERY,
   SEATS_QUERY,
-  USERS_MFA_QUERY,
+  type DashboardOperationResults,
 } from './dashboard.operations';
+import { useTenantUsers } from './useTenantUsers';
 
 const INBOX_REFRESH_MS = 5 * 60_000;
 const REFRESH = { staleTime: INBOX_REFRESH_MS, refetchInterval: INBOX_REFRESH_MS } as const;
@@ -31,37 +32,33 @@ export interface InboxSources {
 
 export function useInbox(): InboxSources {
   const { isTenantAdmin, hasPermission } = useAuth();
-  const canViewUsers = hasPermission('users:view');
+  const users = useTenantUsers();
 
   const seats = useTenantQuery(
     ['dashboard', 'inbox', 'seats'],
     async ({ signal }): Promise<SeatSources | null> => {
-      const data = await graphqlClient.request<{
-        tenantBilling: { planLimits: { maxUsers: number; currentUsers: number } | null };
-        tenantStats: { pendingUsers: number };
-      }>(SEATS_QUERY, undefined, { signal });
+      const data = await graphqlClient.request<DashboardOperationResults['DashboardSeats']>(
+        SEATS_QUERY,
+        undefined,
+        { signal },
+      );
       const limits = data.tenantBilling.planLimits;
-      return limits === null ? null : { ...limits, pendingUsers: data.tenantStats.pendingUsers };
+      return limits === null || limits === undefined
+        ? null
+        : {
+            maxUsers: limits.maxUsers,
+            currentUsers: limits.currentUsers,
+            pendingUsers: data.tenantStats.pendingUsers,
+          };
     },
     { enabled: isTenantAdmin, ...REFRESH },
-  );
-
-  const users = useTenantQuery(
-    ['dashboard', 'inbox', 'users'],
-    async ({ signal }): Promise<readonly UserRecord[]> =>
-      (
-        await graphqlClient.request<{ tenantUsers: UserRecord[] }>(USERS_MFA_QUERY, undefined, {
-          signal,
-        })
-      ).tenantUsers,
-    { enabled: canViewUsers, ...REFRESH },
   );
 
   const maintenance = useTenantQuery(
     ['dashboard', 'inbox', 'maintenance'],
     async ({ signal }): Promise<readonly AnnouncementRecord[]> =>
       (
-        await graphqlClient.request<{ myAnnouncements: AnnouncementRecord[] }>(
+        await graphqlClient.request<DashboardOperationResults['DashboardMaintenance']>(
           MAINTENANCE_ANNOUNCEMENTS_QUERY,
           undefined,
           { signal },
@@ -72,7 +69,7 @@ export function useInbox(): InboxSources {
 
   return {
     seats: isTenantAdmin ? seats : null,
-    users: canViewUsers ? users : null,
+    users,
     maintenance: isTenantAdmin ? maintenance : null,
     reviewsAccess: hasPermission('roles:view'),
   };

@@ -409,7 +409,8 @@ describe('buildConsoleNav — pruning on given definitions', () => {
           groups: [
             {
               id: 'open',
-              pages: [{ id: 'dashboard', labelKey: 'nav.dashboard', path: '/dashboard' }],
+              // Trends: open to every member (the module dashboards are gated by module).
+              pages: [{ id: 'trends', labelKey: 'nav.dashboard', path: '/dashboard/analytics' }],
             },
             {
               id: 'admin-only',

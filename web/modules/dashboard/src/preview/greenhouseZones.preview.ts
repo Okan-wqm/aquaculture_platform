@@ -1,5 +1,5 @@
 /**
- * Sample zones of the Greenhouse dashboard's site table (PRODUCT-MEDIUM-001):
+ * Sample zones of the Greenhouse dashboard's site table (FARM-MEDIUM-443):
  * hydroponics-service stores no greenhouse zones, nutrient readings or dosing
  * state, so these rows render only through MockPreview, beside the notice
  * naming the finding. The figures follow the Tenant Console D6 design's Söke
@@ -36,7 +36,7 @@ const ZONES: readonly GreenhouseZoneRow[] = [
 
 export const GREENHOUSE_ZONES_PREVIEW = definePreviewData(
   {
-    finding: 'PRODUCT-MEDIUM-001',
+    finding: 'FARM-MEDIUM-443',
     reasonKey: 'dashboard.greenhouse.previewReason',
     needs:
       'hydroponics-service greenhouse zones bound to farm sites, with live EC, pH and air temperature against their targets, and the dosing state',

@@ -7,6 +7,12 @@
  * DataTable inside a dashboard panel; a row whose worst open alarm is P1 or
  * P2 carries the hazard stripe on its leading edge (colour only for what is
  * abnormal), and the row's way in is the site cell's link.
+ *
+ * WHY a static table: the rows are a status board of the viewer's few sites
+ * in the module's own order, and their cells are composed values (a reading
+ * with its limit, a tally of glyphs), not the sortable or searchable scalars
+ * DataTable's toolbar works on. So no search box, no sort buttons and no row
+ * hover — none of which would do anything here.
  */
 import { DataTable, useI18n, type AlarmPriority } from '@aquaculture/shared-ui';
 import type { ReactElement, ReactNode } from 'react';
@@ -73,9 +79,12 @@ export function SiteStatusTable<Row>({
           loading={loading}
           emptyMessage={t('dashboard.sites.empty')}
           rowClassName={(row) => {
-            const priority = alarmOf?.(row) ?? null;
+            const priority = alarmOf === undefined ? null : alarmOf(row);
             return priority === null ? '' : (STRIPE[priority] ?? '');
           }}
+          searchable={false}
+          sortable={false}
+          hoverable={false}
           flush
         />
       )}

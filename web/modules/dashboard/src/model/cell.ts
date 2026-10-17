@@ -46,6 +46,17 @@ export function cellAt<TData, T>(
   return result === undefined ? LOADING : cellOf(result, toValue);
 }
 
+/**
+ * A ready cell's value turned into another cell — a source read only once an
+ * earlier one answered (the units' temperatures once the day plans name the
+ * units); loading and error pass through, so a failed first source fails the
+ * cell instead of leaving it loading forever.
+ */
+export function flatMapCell<A, T>(cell: Cell<A>, next: (value: A) => Cell<T>): Cell<T> {
+  if (cell.status === 'ready') return next(cell.value);
+  return cell.status === 'error' ? { status: 'error' } : LOADING;
+}
+
 /** Combine two cells: ready only when both are. */
 export function bothOf<A, B, T>(a: Cell<A>, b: Cell<B>, combine: (a: A, b: B) => T): Cell<T> {
   if (a.status === 'error' || b.status === 'error') return { status: 'error' };

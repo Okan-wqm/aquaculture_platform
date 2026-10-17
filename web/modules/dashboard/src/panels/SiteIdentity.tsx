@@ -3,6 +3,7 @@
  * site's name as the link into its page, and the freshness of its data.
  */
 import { useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import type { SiteType } from '@platform/shared-ui/generated/graphql-types';
 import type { ReactElement, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -12,7 +13,8 @@ import type { DataFreshness } from '../model/production';
 
 import { CellValue } from './CellValue';
 
-const SITE_TYPE_KEYS: Readonly<Record<string, MessageKey>> = {
+/** Every site type the supergraph knows, each with its label: a new type fails the build until labelled. */
+const SITE_TYPE_KEYS: Readonly<Record<SiteType, MessageKey>> = {
   HATCHERY: 'dashboard.siteType.HATCHERY',
   LAND_BASED: 'dashboard.siteType.LAND_BASED',
   POND: 'dashboard.siteType.POND',
@@ -23,7 +25,7 @@ const SITE_TYPE_KEYS: Readonly<Record<string, MessageKey>> = {
 
 export interface SiteIdentityProps {
   readonly code: string;
-  readonly type: string;
+  readonly type: SiteType;
   readonly name: string;
   readonly href: string;
   /** Beside the type: the tank count, already worded, with its source. */
@@ -42,12 +44,10 @@ export function SiteIdentity({
   now,
 }: SiteIdentityProps): ReactElement {
   const { t, locale } = useI18n();
-  const typeKey = SITE_TYPE_KEYS[type];
   return (
     <div className="flex min-h-11 flex-col justify-center gap-0.5">
       <span className="font-display-sd text-sm font-semibold tracking-[0.08em] whitespace-nowrap text-sd-neutral-700">
-        {code}
-        {typeKey !== undefined && ` · ${t(typeKey)}`}
+        {`${code} · ${t(SITE_TYPE_KEYS[type])}`}
         {extra}
       </span>
       <Link

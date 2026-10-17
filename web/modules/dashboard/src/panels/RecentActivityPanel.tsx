@@ -2,33 +2,32 @@
  * Recent activity — the tenant's latest audit entries, for a tenant admin only
  * (the design's isAdmin gate, and tenantAuditLogs' own). For anyone else the
  * panel is not drawn and nothing is requested.
+ *
+ * WHAT: per entry the actor (named from the tenant's users, else by the
+ * recorded e-mail — never an id), what they did in words (model/activity)
+ * and when.
  */
 import { useI18n } from '@aquaculture/shared-ui';
-import type { ReactElement } from 'react';
+import { useMemo, type ReactElement } from 'react';
 
-import { useRecentAudit, type AuditEntry } from '../hooks/useRecentAudit';
+import { useRecentAudit } from '../hooks/useRecentAudit';
+import { useTenantUsers } from '../hooks/useTenantUsers';
+import { actionKeyOf, actorOf, initialsOf, type ActivityUser } from '../model/activity';
 import { formatAge } from '../model/format';
 
 import { DashboardPanel } from './DashboardPanel';
 import { PanelLink } from './PanelLink';
 
-/** Who did it: the actor's e-mail where the audit kept one, else their id. */
-export function actorOf(entry: Pick<AuditEntry, 'performedBy' | 'performedByEmail'>): string {
-  return entry.performedByEmail ?? entry.performedBy;
-}
-
-/** Two letters for the actor's mark: the e-mail's local part, else the id's start. */
-export function initialsOf(actor: string): string {
-  const local = actor.split('@')[0] ?? actor;
-  const parts = local.split(/[._-]+/).filter((part) => part !== '');
-  const letters =
-    parts.length > 1 ? `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}` : local.slice(0, 2);
-  return letters.toUpperCase();
-}
-
 export function RecentActivityPanel({ now }: { readonly now: Date }): ReactElement | null {
   const { t, locale } = useI18n();
   const audit = useRecentAudit();
+  const users = useTenantUsers();
+  const userList = users === null ? undefined : users.data;
+  const usersById = useMemo(
+    (): ReadonlyMap<string, ActivityUser> =>
+      new Map((userList ?? []).map((user) => [user.id, user])),
+    [userList],
+  );
   if (audit === null) return null;
 
   return (
@@ -48,7 +47,8 @@ export function RecentActivityPanel({ now }: { readonly now: Date }): ReactEleme
       ) : (
         <ul className="m-0 list-none p-0">
           {audit.data.map((entry) => {
-            const actor = actorOf(entry);
+            const actor = actorOf(entry, usersById) ?? t('dashboard.activity.actorUnknown');
+            const actionKey = actionKeyOf(entry.action);
             return (
               <li
                 key={entry.id}
@@ -63,10 +63,9 @@ export function RecentActivityPanel({ now }: { readonly now: Date }): ReactEleme
                 <span className="min-w-0 flex-1 text-base leading-normal">
                   <span className="font-medium text-sd-ink">{actor}</span>{' '}
                   <span className="text-sd-neutral-800">
-                    {t('dashboard.activity.entry', {
-                      action: entry.action,
-                      entity: entry.entityType,
-                    })}
+                    {actionKey === null
+                      ? t('dashboard.activity.action.other', { code: entry.action })
+                      : t(actionKey)}
                   </span>
                 </span>
                 <span className="shrink-0 text-sm whitespace-nowrap text-sd-neutral-700">

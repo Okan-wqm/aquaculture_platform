@@ -31,9 +31,13 @@ replacement gets an explicit name of its own that the deploy never passes.
 The old row's second half, PostgreSQL mounts from mixed releases, is ORPHAN-CRITICAL-810 (OPEN)
 and is not part of this row.
 
-Landed: `--renew-leaves` re-issues every leaf under the existing, validated CA and refuses to
-mint one; `--rotate-ca` replaces it; `--force` and unknown options exit 2. The deploy passes
-`--renew-leaves`. `production-cert-identity-store.spec.ts` runs the deploy's own renewal argv.
+Landed: renewal is the generator's decision. The deploy calls it with no option; once any
+managed leaf is inside 30 days of expiry, it re-issues every leaf under the existing, validated
+CA, and so does `--renew-leaves`. Neither mints a CA. Before anything is issued, every CA copy
+must equal `ca/ca-cert.pem` and every leaf must chain to it. A CA is minted only into a store
+that holds no identity issued under another, and no leaf is issued under a CA that expires
+first. `--rotate-ca` replaces the CA; `--force` and unknown options exit 2; no deploy path
+passes an option. `production-cert-identity-store.spec.ts` runs the deploy's own call.
 
 ## INFRA-MEDIUM-234
 
@@ -51,12 +55,25 @@ certificate and the CA key in turn; each run fails without `[skip]`, and the pat
 
 ## INFRA-HIGH-235
 
-A renewed server leaf never reaches the running NATS broker in an application rollout.
-`ensure_nats_acl_loaded` (`scripts/deploy/droplet-up.sh:508-511`) keeps the broker when
-`nats.conf` is unchanged and compares no TLS file. Renewal publishes the new leaf by rename, so
-the broker keeps serving the old one. That certificate expires at most 30 days after renewal;
-unless a full deploy or a `nats.conf` change recreates the broker first, every NATS client then
-fails verification. The PostgreSQL server leaf has the same gap in development rollouts.
+A renewed leaf never reaches a consumer that the rollout does not recreate. Renewal re-issues
+every server and client leaf in one run and publishes each by rename, and every consumer
+bind-mounts its files as single files, so it keeps the inode it opened at start.
 
-Not fixed by the INFRA-CRITICAL-233 change: it needs a deploy-path harness for the broker
-recreate decision. Deadline 2026-12-16.
+- The NATS broker: `ensure_nats_acl_loaded` (`scripts/deploy/droplet-up.sh:508-511`) keeps it
+  when `nats.conf` is unchanged and compares no TLS file. It keeps serving the old server leaf.
+- Application services: a selective rollout recreates only the services it rolls out
+  (`scripts/deploy/droplet-up.sh:1479`). Every other service keeps presenting its old client
+  leaf.
+- PostgreSQL: a production selective rollout runs `up -d postgres redis minio` (`:1438`), which
+  keeps an unchanged container, and a development rollout preserves it. The applications run
+  `DATABASE_SSL=false`, so this part has low impact.
+
+Each old leaf expires at most 30 days after renewal. Only the full-stack path removes every
+container first (`:1162`); a `nats.conf` change recreates only the broker. Without a full-stack
+deploy inside those 30 days, the broker presents an expired leaf to every NATS client, and every
+service the rollout did not restart presents an expired leaf to the broker.
+
+Not fixed by the INFRA-CRITICAL-233 change: it needs a deploy-path harness for the recreate
+decision. The fix must cover every consumer of a renewed leaf, not the broker alone. Deadline
+2026-12-16. The row was widened to this scope before merge, after the change's first
+verification round.

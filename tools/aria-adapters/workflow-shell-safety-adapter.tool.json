@@ -6,8 +6,18 @@
   "declared_scope": [
     ".github/workflows/*.{yml,yaml}",
     ".github/actions/*/action.{yml,yaml}",
-    "**/*.{sh,bash}",
-    ".husky/*"
+    ".husky/**",
+    ".github/**/*.{sh,bash}",
+    "scripts/**/*.{sh,bash}",
+    "tools/**/*.{sh,bash}",
+    "infra/**/*.{sh,bash}",
+    "infrastructure/**/*.{sh,bash}",
+    "platform/**/*.{sh,bash}",
+    "libs/**/*.{sh,bash}",
+    "sens-api-gateway/**/*.{sh,bash}",
+    "apps/sensor-ingestion/**/*.{sh,bash}",
+    "crates/**/*.{sh,bash}",
+    "sensorprotocols/**/*.{sh,bash}"
   ],
   "output_schema": {
     "type": "object",
@@ -133,6 +143,6 @@
     "stdin_json": true
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:02c744ce5fde17954458c83de69958ed911efb4d270c60288b2c0c4b77ae1923",
+  "parse_window_signature": "sha256:9943c2436e7c2e920b04f1313cb66cba55646caec1b7b0149634838e93959fba",
   "schema_version": 1
 }

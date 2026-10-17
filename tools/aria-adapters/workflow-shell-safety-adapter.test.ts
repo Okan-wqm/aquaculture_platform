@@ -476,7 +476,23 @@ assert.equal(
 // every authority present, nothing unparsable.
 const manifest = JSON.parse(
   readFileSync(join(__dirname, 'workflow-shell-safety-adapter.tool.json'), 'utf8'),
-) as { default_input: { roots: string[] } };
+) as { declared_scope: string[]; default_input: { roots: string[] } };
+
+// The manifest claims only what the production input walks. The kernel's
+// observation map (aria_kernel/observation_coverage.py) counts every tracked
+// path a declared_scope glob matches as observed; a glob reaching past
+// default_input.roots (`**/*.sh`) would count a script under apps/ or web/ as
+// seen although no run reads it, and hide the blind spot the map exists to
+// report. Each glob's literal prefix (up to its first wildcard) must sit under
+// one of the roots.
+for (const glob of manifest.declared_scope) {
+  const wildcard = glob.search(/[*?[{]/);
+  const literal = wildcard < 0 ? glob : glob.slice(0, wildcard);
+  assert.ok(
+    manifest.default_input.roots.some((root) => literal.startsWith(`${root}/`)),
+    `declared_scope ${glob} reaches outside the scan roots ${manifest.default_input.roots.join(', ')}`,
+  );
+}
 const real = analyzeWorkflowShellSafety({ roots: manifest.default_input.roots }, REPO_ROOT);
 const realSummary =
   real.observations.find((o) => o.id === 'workflow-shell-safety-adapter:summary')?.details ?? {};

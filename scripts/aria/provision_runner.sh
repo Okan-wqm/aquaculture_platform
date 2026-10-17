@@ -156,31 +156,16 @@ else
 fi
 
 # ARIA-HIGH-034 — memory discipline is part of the habitat, not a hand edit
-# on the host. The two drop-ins are repo-tracked (WHY inside each file) and
-# must match byte-for-byte: a drifted copy is exactly the state in which the
+# on the host. The drop-ins are repo-tracked (WHY inside each file) and must
+# match byte-for-byte: a drifted copy is exactly the state in which the
 # 2026-09-01/02 producer lane died (2G cap hit 8 996 times, OOMPolicy=stop
 # cancelling the queued job on every kill).
-section "ARIA gateway + telemetry units (Plan 032 Faz 032e/032f — repo copy is the SSoT)"
-for unit in aria-gateway.service aria-telemetry.service aria-telemetry.timer; do
-  src="$REPO_ROOT/infrastructure/aria/$unit"
-  if [ ! -f "$src" ]; then bad "missing $src"; continue; fi
-  if [ "$DRY_RUN" -eq 1 ]; then
-    if cmp -s "$src" "/etc/systemd/system/$unit"; then ok "$unit installed (matches repo)"; else bad "$unit not installed or drifted from repo"; fi
-  else
-    install -m 0644 "$src" "/etc/systemd/system/$unit" && ok "$unit installed"
-  fi
-done
-if [ -f /etc/aria/aria.env ]; then
-  for name in ARIA_GITHUB_WEBHOOK_SECRET ARIA_ALERTMANAGER_BEARER ARIA_OPERATOR_BEARER ARIA_GATEWAY_ACTOR_ALLOWLIST; do
-    if grep -q "^${name}=" /etc/aria/aria.env; then ok "aria.env carries $name"; else bad "aria.env lacks $name (gateway refuses that ingress)"; fi
-  done
-else
-  bad "/etc/aria/aria.env missing (mode 0600, owner gharunner; names only are checked here)"
-fi
-if [ "$DRY_RUN" -eq 0 ]; then
-  systemctl daemon-reload && systemctl enable --now aria-telemetry.timer aria-gateway.service && ok "gateway + telemetry timer enabled"
-fi
-
+# ARIA-HIGH-247 — apply mode installs the runner habitat and nothing else: the
+# event gateway and the telemetry export have their own provisioner
+# (scripts/aria/provision_gateway.sh), and the habitat budgets only the units
+# it owns. The operator's login sessions carry no habitat memory cap: on this
+# 31 GiB host they held 10.9 GB (2026-09-29), so the 3 GiB cap sized for the
+# retired 7.8 GiB droplet would have killed them, and the operator declined it.
 section "Memory discipline and T2 identity (systemd drop-ins — repo copy is the SSoT)"
 HABITAT_SYSTEMD="${REPO_ROOT}/scripts/aria/runner-habitat/systemd"
 reload_needed=0
@@ -197,7 +182,6 @@ while IFS='|' read -r src dst; do
 done <<EOF
 ${HABITAT_SYSTEMD}/actions-runner.limits.conf|/etc/systemd/system/${SERVICE_NAME}.d/limits.conf
 ${HABITAT_SYSTEMD}/actions-runner.identity.conf|/etc/systemd/system/${SERVICE_NAME}.d/identity.conf
-${HABITAT_SYSTEMD}/user-.slice.d/50-aria-memory-discipline.conf|/etc/systemd/system/user-.slice.d/50-aria-memory-discipline.conf
 ${HABITAT_SYSTEMD}/user.slice.d/50-aria-cpu-discipline.conf|/etc/systemd/system/user.slice.d/50-aria-cpu-discipline.conf
 ${HABITAT_SYSTEMD}/aria-t2-probe.service|/etc/systemd/system/aria-t2-probe.service
 ${HABITAT_SYSTEMD}/aria-t2-probe.timer|/etc/systemd/system/aria-t2-probe.timer
@@ -220,7 +204,7 @@ fi
 # Effective values, not file contents: what the kernel enforces right now.
 # identity.conf's User/NoNewPrivileges take effect at the next service start
 # (ADR-0023): a ✗ on them after an install means "restart between jobs".
-for probe in "${SERVICE_NAME}|User|gharunner" "${SERVICE_NAME}|NoNewPrivileges|yes" "${SERVICE_NAME}|OOMPolicy|continue" "${SERVICE_NAME}|MemoryMax|3221225472" "${SERVICE_NAME}|CPUWeight|400" "user-.slice|MemoryMax|3221225472" "user.slice|CPUWeight|50"; do
+for probe in "${SERVICE_NAME}|User|gharunner" "${SERVICE_NAME}|NoNewPrivileges|yes" "${SERVICE_NAME}|OOMPolicy|continue" "${SERVICE_NAME}|MemoryMax|3221225472" "${SERVICE_NAME}|CPUWeight|400" "user.slice|CPUWeight|50"; do
   unit="${probe%%|*}"; rest="${probe#*|}"; prop="${rest%%|*}"; want="${rest##*|}"
   have="$(systemctl show "$unit" -p "$prop" --value 2>/dev/null || echo unreadable)"
   if [ "$have" = "$want" ]; then ok "${unit} ${prop}=${have}"; else bad "${unit} ${prop}=${have} (want ${want})"; fi

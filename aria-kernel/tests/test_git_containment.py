@@ -88,16 +88,11 @@ from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_
 from aria_kernel.signing_agent import hold_signing_agent
 from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG, injected_git_config
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+from tests._helpers.sandbox_pins import require_sandbox_backend
 
 CYCLE = "cyc-aria-high-123"
 BRANCH = "aria-impl-0123abcd"
 _KERNEL_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _skip_without_bwrap(case: unittest.TestCase) -> None:
-    impl._bwrap_available.cache_clear()
-    if impl.sandbox_backend() is None:
-        case.skipTest("bwrap is not usable on this host; the sandbox refuses rather than degrading")
 
 
 def _pairs(argv: list[str]) -> list[tuple[str, str, str]]:
@@ -349,7 +344,7 @@ class _HeldIdentity(_Checkout):
 
     def setUp(self) -> None:
         super().setUp()
-        _skip_without_bwrap(self)
+        require_sandbox_backend(fresh_probe=True)
         from aria_kernel.gh_token_factory import mint_signing_key, revoke_signing_key
 
         key = mint_signing_key(cycle_id=CYCLE, workspace_root=self.worktree)
@@ -1185,7 +1180,7 @@ class DependencyTreeTests(_Checkout):
         """Node walks up from the cwd for `node_modules`; the per-request
         worktree resolves the checkout's, which the sandbox hid — the
         canonical validation suite could not start inside. Bound read-only."""
-        _skip_without_bwrap(self)
+        require_sandbox_backend(fresh_probe=True)
         binary = self.repo / "node_modules" / ".bin"
         binary.mkdir()
         (binary / "nx").write_text("#!/bin/sh\necho NX_FROM_CHECKOUT \"$@\"\n", encoding="utf-8")
@@ -1226,7 +1221,7 @@ class TemporaryDirectoryTests(unittest.TestCase):
         """`TMPDIR` is in the spawn's baseline environment; a host value the
         sandbox does not mount made `git commit` die writing the buffer it
         signs. The sandbox exports its own /tmp as TMPDIR, by name."""
-        _skip_without_bwrap(self)
+        require_sandbox_backend(fresh_probe=True)
         with tempfile.TemporaryDirectory() as workspace:
             argv = impl.wrap_bash_in_sandbox(["sh", "-c", "echo $TMPDIR; test -d \"$TMPDIR\""], workspace_root=workspace)
             done = subprocess.run(argv, capture_output=True, text=True, timeout=30,

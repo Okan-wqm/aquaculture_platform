@@ -81,12 +81,14 @@ cd "$SMOKE_DIR"
 PYTHONPATH=aria-kernel:. python3 -m aria_kernel profile set \
   --profile strict --operator-approval-ref "v31-f-smoke"
 
-# 5-cycle smoke. ARIA_DRY_RUN=true short-circuits scan_failing_ci
-# + mint_installation_token (V3.1-F-2 gate); CLAUDE_CODE_MOCK=true
-# routes the LLM calls through ci_executor's mock path. The
-# `unshare --net` namespace isolation is the operator-side Tier-1
-# defense in depth.
-ARIA_DRY_RUN=true CLAUDE_CODE_MOCK=true \
+# 5-cycle smoke. ARIA_DRY_RUN=true selects the recording GitHub adapter
+# and short-circuits mint_installation_token (V3.1-F-2 gate); it does not
+# mock a Claude spawn. CLAUDE_CLI_MOCK=true is the mock switch
+# (tools/aria-poc/claude_runtime.py is_mock_mode): the planner dispatch
+# hook spawns ci_executor with this environment, so the LLM calls take
+# its mock path. The `unshare --net` namespace isolation is the
+# operator-side Tier-1 defense in depth.
+ARIA_DRY_RUN=true CLAUDE_CLI_MOCK=true \
   unshare --net -- \
   env PYTHONPATH=aria-kernel:. python3 -m aria_kernel autonomy run \
     --workspace-root "$SMOKE_DIR" \
@@ -126,9 +128,10 @@ grep -c '"kind":"plan_candidate_source_selected"' "$GOV"
 
 # 3. Memory hook fired per CONVERGED cycle (if any cycle converged).
 grep -c '"kind":"convention_recorded"\|"kind":"memory_hook_recorded"' "$GOV"
-# Expected: >= 1 IF any cycle reached CONVERGED. Under DRY_RUN the
-# LLMs are mocked; convergence depends on the mocked agent
-# verdicts. Both 0 and >=1 are acceptable — the key signal is
+# Expected: >= 1 IF any cycle reached CONVERGED. Under
+# CLAUDE_CLI_MOCK=true the LLMs are mocked; convergence depends on
+# the mocked agent verdicts. Both 0 and >=1 are acceptable — the key
+# signal is
 # memory_hook_failed events MUST be 0.
 grep -c '"kind":"memory_hook_failed"' "$GOV"
 # Expected: 0

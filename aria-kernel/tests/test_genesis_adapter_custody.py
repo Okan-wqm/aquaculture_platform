@@ -47,6 +47,7 @@ from aria_kernel.runtime_artifacts import resolve_artifact_payload
 from aria_kernel.skill_genesis_sandbox import UnsafeAdapterImport, verify_adapter_imports
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, register_tool
 from aria_kernel.tool_runner import run_tool
+from tests._helpers.sandbox_pins import require_sandbox_backend
 from tests.test_enterprise_cycle import shadow_tool
 
 KERNEL_CHECKOUT = Path(__file__).resolve().parents[2]
@@ -186,11 +187,6 @@ def _manifest() -> dict:
     return tool
 
 
-def _requires_backend(test: unittest.TestCase) -> None:
-    if impl.sandbox_backend() is None:
-        test.skipTest(f"bwrap is not usable on this host: {impl.sandbox_unavailable_detail()}")
-
-
 class StaticPreCheckTests(unittest.TestCase):
     """The AST walk is the EARLY refusal, by name — not the boundary."""
 
@@ -300,7 +296,7 @@ class StagingTests(unittest.TestCase):
 
 class _RoomLayout(unittest.TestCase):
     def setUp(self) -> None:
-        _requires_backend(self)
+        require_sandbox_backend()
         base = Path(tempfile.mkdtemp(prefix="aria-genesis-room-", dir="/var/tmp"))
         self.addCleanup(shutil.rmtree, base, True)
         self.workspace = _git_workspace(base)

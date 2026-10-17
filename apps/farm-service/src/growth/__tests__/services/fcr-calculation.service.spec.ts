@@ -123,10 +123,25 @@ describe('FCRCalculationService', () => {
     mockFeedQuery.mockResolvedValue([{ batchId: 'batch-456', totalFeed }]);
   };
 
-  /** Net biomass that left batch-456 per the TankOperation ledger, as its grouped row. */
+  /**
+   * Net biomass that left batch-456 per the TankOperation ledger, as its
+   * grouped row. The head count it carries is read only by the weighing
+   * window, never by the to-now window these cases use.
+   */
   const givenNetRemovedKg = (netRemovedKg: number): void => {
-    mockLedgerQuery.mockResolvedValue([{ batchId: 'batch-456', netRemovedKg }]);
+    mockLedgerQuery.mockResolvedValue([{ batchId: 'batch-456', netRemovedKg, headCountAtEnd: 0 }]);
   };
+
+  /**
+   * The ledger statement's answer when nothing left any batch: one row per
+   * requested batch (it joins the batch row, so every existing batch has one),
+   * with no removals.
+   */
+  const ledgerRowPerBatchWithNoRemovals = async (
+    _sql: string,
+    params: unknown[],
+  ): Promise<Array<{ batchId: string; netRemovedKg: string; headCountAtEnd: string }>> =>
+    (params[1] as string[]).map((batchId) => ({ batchId, netRemovedKg: '0', headCountAtEnd: '0' }));
 
   /** The ledger operation types the authority binds, from the enum. */
   const LEDGER_TYPES = [
@@ -198,9 +213,9 @@ describe('FCRCalculationService', () => {
 
     jest.clearAllMocks();
 
-    // Default: no feed and no ledger row in any window.
+    // Default: no feed in any window, and nothing removed from any batch.
     mockFeedQuery.mockResolvedValue([]);
-    mockLedgerQuery.mockResolvedValue([]);
+    mockLedgerQuery.mockImplementation(ledgerRowPerBatchWithNoRemovals);
     mockBatchRepository.find.mockResolvedValue([]);
     mockManagerQuery.mockResolvedValue([]);
     mockGrowthMeasurementQuery.mockResolvedValue([]);
@@ -335,14 +350,52 @@ describe('FCRCalculationService', () => {
     const tenantId = 'tenant-123';
     const batchId = 'batch-456';
 
-    it('should return zeros when batch not found', async () => {
+    it('should return zeros when batch not found, without the totals queries', async () => {
       givenBatch(null);
 
       const result = await service.calculateCumulativeFCR(batchId, tenantId);
 
-      expect(result.fcr).toBe(0);
-      expect(result.totalFeed).toBe(0);
-      expect(result.totalGrowth).toBe(0);
+      expect(result).toEqual({ fcr: 0, totalFeed: 0, totalGrowth: 0, removedBiomassKg: 0 });
+      expect(mockFeedQuery).not.toHaveBeenCalled();
+      expect(mockLedgerQuery).not.toHaveBeenCalled();
+    });
+
+    it('computes the to-now window in one feed and one ledger statement', async () => {
+      givenBatch(makeBatch({ currentBiomassKg: 1200, startBiomassKg: 1000 }));
+      mockFeedQuery.mockResolvedValue([{ batchId, totalFeed: '300' }]);
+      mockLedgerQuery.mockResolvedValue([{ batchId, netRemovedKg: '100', headCountAtEnd: '7' }]);
+
+      const result = await service.calculateCumulativeFCR(batchId, tenantId);
+
+      // 300 / ((1200 + 100) − 1000) = 1.0. The to-now window keeps the current
+      // biomass (FARM-MEDIUM-450), so the ledger's head count is not read.
+      expect(result).toEqual({ fcr: 1, totalFeed: 300, totalGrowth: 300, removedBiomassKg: 100 });
+      // The window is open-ended: no end date on either statement.
+      expect(mockFeedQuery).toHaveBeenCalledTimes(1);
+      expect(mockFeedQuery).toHaveBeenCalledWith(expect.stringContaining('GROUP BY'), [
+        tenantId,
+        [batchId],
+        [null],
+      ]);
+      expect(mockLedgerQuery).toHaveBeenCalledTimes(1);
+      expect(mockLedgerQuery).toHaveBeenCalledWith(expect.stringContaining('GROUP BY'), [
+        tenantId,
+        [batchId],
+        [null],
+        LEDGER_TYPES,
+        OperationType.TRANSFER_IN,
+      ]);
+    });
+
+    it('returns zeros for a batch that left the tenant between its read and the ledger statement', async () => {
+      // The ledger statement joins the batch row: no row means no batch.
+      givenBatch(makeBatch({ currentBiomassKg: 1200, startBiomassKg: 1000 }));
+      givenFeedTotal(300);
+      mockLedgerQuery.mockResolvedValue([]);
+
+      const result = await service.calculateCumulativeFCR(batchId, tenantId);
+
+      expect(result).toEqual({ fcr: 0, totalFeed: 0, totalGrowth: 0, removedBiomassKg: 0 });
     });
 
     it('should calculate cumulative FCR from batch start (derive-on-read biomass)', async () => {
@@ -436,115 +489,27 @@ describe('FCRCalculationService', () => {
     });
   });
 
-  describe('calculateCumulativeFCRMany (FARM-CRITICAL-444)', () => {
-    const tenantId = 'tenant-123';
-
-    const batchNamed = (id: string, currentBiomassKg: number): Batch =>
-      Object.assign(makeBatch({ currentBiomassKg, startBiomassKg: 1000 }), { id });
-
-    it('computes every batch with three queries, whatever the batch count', async () => {
-      mockBatchRepository.find.mockResolvedValue([
-        batchNamed('batch-a', 1400),
-        batchNamed('batch-b', 1200),
-        batchNamed('batch-c', 1100),
-      ]);
-      mockFeedQuery.mockResolvedValue([
-        { batchId: 'batch-a', totalFeed: '500' },
-        { batchId: 'batch-b', totalFeed: '300' },
-      ]);
-      mockLedgerQuery.mockResolvedValue([{ batchId: 'batch-b', netRemovedKg: '100' }]);
-
-      const results = await service.calculateCumulativeFCRMany(tenantId, [
-        'batch-a',
-        'batch-b',
-        'batch-c',
-      ]);
-
-      // a: 500 / (1400 − 1000) = 1.25
-      expect(results.get('batch-a')).toEqual({
-        fcr: 1.25,
-        totalFeed: 500,
-        totalGrowth: 400,
-        removedBiomassKg: 0,
-      });
-      // b: 300 / ((1200 + 100) − 1000) = 1.0, the ledger counted per batch
-      expect(results.get('batch-b')).toEqual({
-        fcr: 1,
-        totalFeed: 300,
-        totalGrowth: 300,
-        removedBiomassKg: 100,
-      });
-      // c: grew 100 kg on no recorded feed
-      expect(results.get('batch-c')).toEqual({
-        fcr: 0,
-        totalFeed: 0,
-        totalGrowth: 100,
-        removedBiomassKg: 0,
-      });
-
-      // One statement per table for all three batches, each window open-ended.
-      const ids = ['batch-a', 'batch-b', 'batch-c'];
-      const openEnds = [null, null, null];
-      expect(mockBatchRepository.find).toHaveBeenCalledTimes(1);
-      expect(mockFeedQuery).toHaveBeenCalledTimes(1);
-      expect(mockFeedQuery).toHaveBeenCalledWith(expect.stringContaining('GROUP BY'), [
-        tenantId,
-        ids,
-        openEnds,
-      ]);
-      expect(mockLedgerQuery).toHaveBeenCalledTimes(1);
-      expect(mockLedgerQuery).toHaveBeenCalledWith(expect.stringContaining('GROUP BY'), [
-        tenantId,
-        ids,
-        openEnds,
-        LEDGER_TYPES,
-        OperationType.TRANSFER_IN,
-      ]);
-    });
-
-    it('maps an id with no batch row to zeros and skips the totals queries', async () => {
-      mockBatchRepository.find.mockResolvedValue([]);
-
-      const results = await service.calculateCumulativeFCRMany(tenantId, ['batch-gone']);
-
-      expect(results.get('batch-gone')).toEqual({
-        fcr: 0,
-        totalFeed: 0,
-        totalGrowth: 0,
-        removedBiomassKg: 0,
-      });
-      expect(mockFeedQuery).not.toHaveBeenCalled();
-      expect(mockLedgerQuery).not.toHaveBeenCalled();
-    });
-
-    it('issues no query for an empty id list', async () => {
-      const results = await service.calculateCumulativeFCRMany(tenantId, []);
-
-      expect(results.size).toBe(0);
-      expect(mockBatchRepository.find).not.toHaveBeenCalled();
-    });
-  });
-
   describe('calculateFcrAtLastWeighingMany (FARM-CRITICAL-444 review)', () => {
     const tenantId = 'tenant-123';
     const weighedOn = '2024-03-01T12:00:00.000Z';
 
     /**
      * A batch of 10 000 fish stocked at 100 g (1000 kg), last weighed on
-     * `weighedOn` at `weighedBiomassKg`. (JSONB hands lastMeasuredAt back as an
-     * ISO string; the real-PostgreSQL spec covers that.) The live count and
-     * average are deliberately different
-     * (the batch has been thinned and the current weight moved on), so a
-     * window that read them instead of the weighing would show.
+     * `weighedOn` at `weighedAvgWeightG`. (JSONB hands lastMeasuredAt back as an
+     * ISO string; the real-PostgreSQL spec covers that.) The live count, the
+     * current average and the stored `totalBiomass` are deliberately different
+     * from the batch on the weighing day: the window must read none of them.
+     * The count on the weighing day comes from the ledger statement's row.
      */
-    const weighedBatch = (id: string, weighedBiomassKg: number, sampleSize = 30): Batch => {
+    const weighedBatch = (id: string, weighedAvgWeightG: number, sampleSize = 30): Batch => {
       const batch = Object.assign(makeBatch({ currentBiomassKg: 5000, startBiomassKg: 1000 }), {
         id,
       });
       batch.currentQuantity = 9000;
       batch.weight.actual = {
-        avgWeight: 500,
-        totalBiomass: weighedBiomassKg,
+        avgWeight: weighedAvgWeightG,
+        // populationSize x average as typed when the sample was entered: not read.
+        totalBiomass: 123_456,
         lastMeasuredAt: new Date(weighedOn),
         sampleSize,
         confidencePercent: 95,
@@ -552,17 +517,22 @@ describe('FCRCalculationService', () => {
       return batch;
     };
 
-    it('judges each weighed batch over feed and ledger up to its weighing, at the weighed biomass', async () => {
+    it('judges each weighed batch over feed and ledger up to its weighing, at its count on that day', async () => {
       mockBatchRepository.find.mockResolvedValue([
-        weighedBatch('b-converting', 1400),
-        weighedBatch('b-not-growing', 980),
-        weighedBatch('b-unfed', 1100),
+        weighedBatch('b-converting', 140),
+        weighedBatch('b-not-growing', 98),
+        weighedBatch('b-unfed', 110),
       ]);
       mockFeedQuery.mockResolvedValue([
         { batchId: 'b-converting', totalFeed: '600' },
         { batchId: 'b-not-growing', totalFeed: '300' },
       ]);
-      mockLedgerQuery.mockResolvedValue([{ batchId: 'b-converting', netRemovedKg: '200' }]);
+      // Each batch held 10 000 fish at the end of its weighing day.
+      mockLedgerQuery.mockResolvedValue([
+        { batchId: 'b-converting', netRemovedKg: '200', headCountAtEnd: '10000' },
+        { batchId: 'b-not-growing', netRemovedKg: '0', headCountAtEnd: '10000' },
+        { batchId: 'b-unfed', netRemovedKg: '0', headCountAtEnd: '10000' },
+      ]);
 
       const verdicts = await service.calculateFcrAtLastWeighingMany(tenantId, [
         'b-converting',
@@ -570,7 +540,7 @@ describe('FCRCalculationService', () => {
         'b-unfed',
       ]);
 
-      // (1400 + 200) − 1000 = 600 kg grown on 600 kg of feed.
+      // 10 000 x 140 g = 1400 kg; (1400 + 200) − 1000 = 600 kg grown on 600 kg of feed.
       expect(verdicts.get('b-converting')).toEqual({
         kind: 'converting',
         weighedOn: new Date(weighedOn),
@@ -579,19 +549,29 @@ describe('FCRCalculationService', () => {
         totalGrowth: 600,
         removedBiomassKg: 200,
       });
-      // Weighed at 980 kg against 1000 kg stocked: fed, but no realized growth.
-      expect(verdicts.get('b-not-growing')).toMatchObject({
+      // 980 kg against 1000 kg stocked: fed, but no realized growth, and no FCR
+      // field to misread as on target.
+      expect(verdicts.get('b-not-growing')).toEqual({
         kind: 'not-growing',
+        weighedOn: new Date(weighedOn),
         totalFeed: 300,
         totalGrowth: -20,
+        removedBiomassKg: 0,
       });
-      expect(verdicts.get('b-unfed')).toMatchObject({ kind: 'unfed', totalFeed: 0 });
+      expect(verdicts.get('b-unfed')).toEqual({
+        kind: 'unfed',
+        weighedOn: new Date(weighedOn),
+        totalFeed: 0,
+        totalGrowth: 100,
+        removedBiomassKg: 0,
+      });
 
       // Every window ends on its own weighing day, in one statement per table.
       const weighingDays = [new Date(weighedOn), new Date(weighedOn), new Date(weighedOn)];
       const ids = ['b-converting', 'b-not-growing', 'b-unfed'];
       expect(mockFeedQuery).toHaveBeenCalledTimes(1);
       expect(mockFeedQuery).toHaveBeenCalledWith(expect.any(String), [tenantId, ids, weighingDays]);
+      expect(mockLedgerQuery).toHaveBeenCalledTimes(1);
       expect(mockLedgerQuery).toHaveBeenCalledWith(expect.any(String), [
         tenantId,
         ids,
@@ -601,10 +581,37 @@ describe('FCRCalculationService', () => {
       ]);
     });
 
+    it('takes the weighed biomass from the head count at the weighing day, not from the typed population', async () => {
+      // On the weighing day the batch held 10 000 fish at 140 g. Since then
+      // 1000 left (the live count is 9000), and the sample was typed with some
+      // other population: the stored totalBiomass is 123 456 kg. Only the
+      // count the ledger statement reconstructs for the weighing day is read.
+      mockBatchRepository.find.mockResolvedValue([weighedBatch('b-1', 140)]);
+      mockFeedQuery.mockResolvedValue([{ batchId: 'b-1', totalFeed: '480' }]);
+      mockLedgerQuery.mockResolvedValue([
+        { batchId: 'b-1', netRemovedKg: '0', headCountAtEnd: '10000' },
+      ]);
+
+      const verdicts = await service.calculateFcrAtLastWeighingMany(tenantId, ['b-1']);
+
+      // 10 000 x 140 g = 1400 kg; 1400 − 1000 = 400 kg grown; 480 / 400 = 1.2.
+      expect(verdicts.get('b-1')).toMatchObject({
+        kind: 'converting',
+        fcr: 1.2,
+        totalGrowth: 400,
+      });
+      // The count is read in the same statement as the ledger cut: the live
+      // count plus what the ledger types moved out after the window's end.
+      const [ledgerSql] = mockLedgerQuery.mock.calls[0] ?? [];
+      expect(String(ledgerSql)).toContain('b."currentQuantity"');
+      expect(String(ledgerSql)).toContain('op."operationDate" > w."endsOn"');
+      expect(String(ledgerSql)).toContain('op."operationDate" <= w."endsOn"');
+    });
+
     it('does not judge a batch never weighed since stocking, nor an unknown id', async () => {
       // CreateBatchHandler leaves weight.actual at the stocking weight with
       // sampleSize 0: growth is unknown, whatever the ledger's rounding says.
-      mockBatchRepository.find.mockResolvedValue([weighedBatch('b-unweighed', 1000, 0)]);
+      mockBatchRepository.find.mockResolvedValue([weighedBatch('b-unweighed', 100, 0)]);
 
       const verdicts = await service.calculateFcrAtLastWeighingMany(tenantId, [
         'b-unweighed',

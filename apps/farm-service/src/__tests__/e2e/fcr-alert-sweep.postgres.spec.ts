@@ -22,6 +22,11 @@
  *   ledger and the biomass are all known. Feed given after the weighing has no
  *   measured growth to set against yet, so counting it inflates FCR every day
  *   until the next weighing.
+ * - The biomass at the weighing is the batch's own head count at the end of the
+ *   weighing day times the weighed average. The count is the live count with
+ *   the ledger's removals after that day added back, so it describes the same
+ *   moment as the ledger cut, whatever order the weighing and the removals were
+ *   recorded in, and whatever population the operator typed on the sample.
  * - Only batches weighed since stocking. Before the first weighing the batch's
  *   weight is still the stocking weight, so "growth" is only the rounding
  *   residue of the removal ledger, and FCR over it is noise in the thousands.
@@ -39,11 +44,15 @@
  *
  * ## The fixture
  *
- * Each case is its own tenant with one stocked tank (the shared fixture creates
- * one species per tenant). Unless a plan says otherwise a batch is 100 fish at
- * 10 g (1 kg). Feed is recorded as feeding records dated before the weighing,
- * and after it where a plan says so. A weighing at 30 g puts the batch at 3 kg,
- * so 2 kg grew. The species is Atlantic salmon with no override and no
+ * Each plan is one batch with its own stocked tank. Every plan is its own
+ * tenant except the paired one, whose two batches share a tenant (and its
+ * species) so that one sweep computes two windows with different weighing days
+ * in the same statements. Unless a plan says otherwise
+ * a batch is 100 fish at 10 g (1 kg). A plan's steps are recorded in the order
+ * listed: feed as feeding records, weighings through RecordGrowthSampleHandler,
+ * deaths through RecordMortalityHandler, status changes through
+ * UpdateBatchStatusHandler. A weighing at 30 g of all 100 fish puts the batch at
+ * 3 kg, so 2 kg grew. The species is Atlantic salmon with no override and no
  * protocol, so the target chain ends at the industry average, FCR 1.2.
  */
 import 'reflect-metadata';
@@ -70,6 +79,7 @@ import {
   MortalityReason,
   RecordMortalityCommand,
 } from '../../batch/commands/record-mortality.command';
+import { TransferBatchCommand } from '../../batch/commands/transfer-batch.command';
 import { UpdateBatchStatusCommand } from '../../batch/commands/update-batch-status.command';
 import { BatchStatus } from '../../batch/entities/batch.entity';
 import { OperationType } from '../../batch/entities/tank-operation.entity';
@@ -92,17 +102,21 @@ import {
 } from '../../growth/services/fcr-calculation.service';
 import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
+import { Tank } from '../../tank/entities/tank.entity';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import {
   createFarmTenantFixture,
   createFixtureBatchRecorders,
   createFixtureBatchWriters,
   createFixtureFcrCalculationService,
+  createFixtureTank,
   FarmTenantFixture,
   FCR_AUTHORITY_ENTITIES,
   FIXTURE_ENTITIES,
   FixtureBatchRecorders,
   FixtureBatchWriters,
+  StockedTank,
+  stockFixtureTank,
 } from './helpers/farm-tenant-fixture';
 import {
   createFarmOutboxTable,
@@ -127,13 +141,48 @@ function daysAgo(days: number): Date {
   return new Date(`${day}T12:00:00.000Z`);
 }
 
-/** The order of events every plan follows: feed, weigh, feed again, deaths. */
+/** The calendar days the plans date their events on. */
 const FED_BEFORE_WEIGHING = daysAgo(10);
 const WEIGHED_ON = daysAgo(7);
+const MOVED_BEFORE_WEIGHING = daysAgo(8);
+const DIED_AFTER_WEIGHING = daysAgo(5);
+const MOVED_AFTER_WEIGHING = daysAgo(5);
 const FED_AFTER_WEIGHING = daysAgo(3);
 const DIED_ON = daysAgo(2);
+/** The paired tenant's two weighing days, and the days between them. */
+const WEIGHED_EARLY = daysAgo(9);
+const DIED_BETWEEN = daysAgo(8);
+const FED_BETWEEN = daysAgo(6);
+const WEIGHED_LATE = daysAgo(4);
 
-/** One tenant's batch: how it is stocked, fed, weighed, thinned and moved. */
+/**
+ * One recorded event. A plan records its steps in the order listed, so the
+ * order of recording is part of the plan, apart from the dates the steps carry.
+ */
+type Step =
+  /** Feed given on `on`, kg. */
+  | { readonly feedKg: number; readonly on: Date }
+  /**
+   * A 3-fish sample at `weighG` grams from the batch's first tank, dated `on`.
+   * `populationSize` is the count the operator types on the sample; the
+   * stocked count when omitted.
+   */
+  | { readonly weighG: number; readonly on: Date; readonly populationSize?: number }
+  /** Dead fish recorded by count only (no weight, no kg), dated `on`. */
+  | { readonly deadByCount: number; readonly on: Date }
+  /**
+   * Fish moved between the batch's first tank and a second, empty one (created
+   * on first use) through the production transfer handler, dated `on`. The
+   * ledger gets a TRANSFER_OUT and a TRANSFER_IN row for the same batch.
+   */
+  | { readonly transferFish: number; readonly from: 'first' | 'second'; readonly on: Date }
+  /**
+   * A status change through the production status handler. The
+   * initial-stocking allocation already moves the batch to ACTIVE.
+   */
+  | { readonly status: BatchStatus };
+
+/** One batch: how it is stocked, and what is recorded against it, in order. */
 interface BatchPlan {
   readonly tenantId: string;
   readonly code: string;
@@ -141,52 +190,40 @@ interface BatchPlan {
   readonly initialQuantity?: number;
   /** Stocking weight in grams; the fixture default (10) when omitted. */
   readonly initialAvgWeightG?: number;
-  /**
-   * Status changes after the feeding, weighing and deaths, through the
-   * production status handler. The initial-stocking allocation already moves
-   * the batch to ACTIVE.
-   */
-  readonly transitions: readonly BatchStatus[];
-  /** Feed recorded before the weighing day, kg. */
-  readonly fedKg: number;
-  /** Feed recorded after the weighing day, kg. */
-  readonly fedAfterWeighingKg: number;
-  /** Weighed average weight in grams; null leaves the batch unweighed. */
-  readonly weighedAvgWeightG: number | null;
-  /** Dead fish recorded by count only (no weight, no kg), after the weighing day. */
-  readonly deadByCount: number;
+  readonly steps: readonly Step[];
 }
+
+/** The tenant both paired batches live in. */
+const PAIRED_TENANT_ID = '4d8b1f63-7a2e-4c95-b0d6-3e9a5c1f7b28';
 
 const PLANS = {
   // FCR 5 / 2 = 2.5, +108% over target: critical.
   critical: {
     tenantId: '7d3c2a61-4f0e-4b8a-9c15-2e6f8d0a4b37',
     code: 'FCR-CRIT',
-    transitions: [],
-    fedKg: 5,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: 30,
-    deadByCount: 0,
+    steps: [
+      { feedKg: 5, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON },
+    ],
   },
   // FCR 2.7 / 2 = 1.35, +12.5% over target: warning.
   warning: {
     tenantId: '0b6e9f42-8a1d-4c37-b5e2-61f4d9c8a703',
     code: 'FCR-WARN',
-    transitions: [BatchStatus.GROWING],
-    fedKg: 2.7,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: 30,
-    deadByCount: 0,
+    steps: [
+      { feedKg: 2.7, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON },
+      { status: BatchStatus.GROWING },
+    ],
   },
   // FCR 2.4 / 2 = 1.2, on target: no alert.
   onTarget: {
     tenantId: 'c41a7e95-2d6b-4f08-9e3c-8b5d0f7a1e26',
     code: 'FCR-OK',
-    transitions: [],
-    fedKg: 2.4,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: 30,
-    deadByCount: 0,
+    steps: [
+      { feedKg: 2.4, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON },
+    ],
   },
   // On target at the weighing (2.4 / 2 = 1.2), then fed 0.3 kg more. Counting
   // that feed against the growth measured before it reads 2.7 / 2 = 1.35, a
@@ -194,21 +231,17 @@ const PLANS = {
   fedAfterWeighing: {
     tenantId: '3a9e5c70-1b2d-4f86-a4c3-9d7e0b5f2c18',
     code: 'FCR-LATE',
-    transitions: [],
-    fedKg: 2.4,
-    fedAfterWeighingKg: 0.3,
-    weighedAvgWeightG: 30,
-    deadByCount: 0,
+    steps: [
+      { feedKg: 2.4, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON },
+      { feedKg: 0.3, on: FED_AFTER_WEIGHING },
+    ],
   },
   // Fed but never weighed: growth is unknown, so there is no FCR to judge.
   unweighed: {
     tenantId: '5f2d8c17-9b4e-4a61-8d0f-3c7e2a9b6d54',
     code: 'FCR-NOGROW',
-    transitions: [],
-    fedKg: 3,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: null,
-    deadByCount: 0,
+    steps: [{ feedKg: 3, on: FED_BEFORE_WEIGHING }],
   },
   // Never weighed, 3 deaths recorded by count. The ledger takes 3 x 12.5 g =
   // 0.0375 kg, RemovalQuantityPolicy rounds it to 0.038 and numeric(15,2)
@@ -219,52 +252,136 @@ const PLANS = {
     code: 'FCR-DEAD',
     initialQuantity: 1000,
     initialAvgWeightG: 12.5,
-    transitions: [],
-    fedKg: 20,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: null,
-    deadByCount: 3,
+    steps: [
+      { feedKg: 20, on: FED_BEFORE_WEIGHING },
+      { deadByCount: 3, on: DIED_ON },
+    ],
   },
   // PRE_HARVEST keeps isActive=true and stays feedable: FCR 2.5, critical.
   preHarvest: {
     tenantId: 'b2f6d913-4e8a-4c57-9a1d-7f3e0c6b8d25',
     code: 'FCR-PREH',
-    transitions: [BatchStatus.GROWING, BatchStatus.PRE_HARVEST],
-    fedKg: 5,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: 30,
-    deadByCount: 0,
+    steps: [
+      { feedKg: 5, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON },
+      { status: BatchStatus.GROWING },
+      { status: BatchStatus.PRE_HARVEST },
+    ],
   },
   // HARVESTING keeps isActive=true and stays feedable: FCR 2.5, critical.
   harvesting: {
     tenantId: '6e1a8f4c-2b97-4d30-8c6e-5a9d1f3b7e42',
     code: 'FCR-HARV',
-    transitions: [BatchStatus.GROWING, BatchStatus.PRE_HARVEST, BatchStatus.HARVESTING],
-    fedKg: 5,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: 30,
-    deadByCount: 0,
+    steps: [
+      { feedKg: 5, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON },
+      { status: BatchStatus.GROWING },
+      { status: BatchStatus.PRE_HARVEST },
+      { status: BatchStatus.HARVESTING },
+    ],
   },
   // Weighed at 9 g after 3 kg of feed: 0.9 kg against 1 kg stocked, so no
   // realized growth. FCR is undefined; the authority says not-growing.
   notGrowing: {
     tenantId: '1781c2e6-208f-44e3-967f-e9c4e16ae7ac',
     code: 'FCR-LOSS',
-    transitions: [],
-    fedKg: 3,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: 9,
-    deadByCount: 0,
+    steps: [
+      { feedKg: 3, on: FED_BEFORE_WEIGHING },
+      { weighG: 9, on: WEIGHED_ON },
+    ],
   },
   // Same numbers as the critical batch, but FAILED retires it (isActive=false).
   retired: {
     tenantId: 'e8b03a5d-6c1f-4e92-a7d4-0f9b5c2e8a61',
     code: 'FCR-FAILED',
-    transitions: [BatchStatus.FAILED],
-    fedKg: 5,
-    fedAfterWeighingKg: 0,
-    weighedAvgWeightG: 30,
-    deadByCount: 0,
+    steps: [
+      { feedKg: 5, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON },
+      { status: BatchStatus.FAILED },
+    ],
+  },
+  // A HARVESTING batch weighed at 30 g (all 100 fish, 3 kg) after 2.7 kg of
+  // feed, so FCR 2.7 / 2 = 1.35, a warning. Later the same day 30 fish leave
+  // (0.9 kg at the weighed average), recorded after the sample and dated on
+  // the weighing day, so the ledger cut keeps them. Counting them both in the
+  // weighed 3 kg and in the ledger reads growth 3 + 0.9 - 1 = 2.9 and FCR 0.93:
+  // no alert for a batch 12.5% over target. At the end of the weighing day the
+  // batch holds 70 fish, 2.1 kg: growth 2.1 + 0.9 - 1 = 2. (30, not more: the
+  // fixture's tank composition still holds the stocked 1 kg, because no
+  // feeding run grows it here, and the mortality path refuses to take more
+  // biomass out of a tank than it holds.)
+  thinnedOnWeighingDay: {
+    tenantId: 'a5c3e817-0d4b-4f2a-9e61-7b8d2c4f0a93',
+    code: 'FCR-THIN',
+    steps: [
+      { status: BatchStatus.GROWING },
+      { status: BatchStatus.PRE_HARVEST },
+      { status: BatchStatus.HARVESTING },
+      { feedKg: 2.7, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON },
+      { deadByCount: 30, on: WEIGHED_ON },
+    ],
+  },
+  // On target: 2.4 kg fed, then weighed at 30 g on WEIGHED_ON, so 3 kg and
+  // FCR 1.2. But 40 fish died two days after the weighing and were recorded
+  // first; the backdated sample is entered afterwards with the count at that
+  // time, 60. Reading the typed 60 x 30 g = 1.8 kg as the weighed biomass gives
+  // growth 0.8 and FCR 3.0, a critical alert for an on-target batch. At the
+  // end of the weighing day the batch held 60 + 40 = 100 fish.
+  weighedBackdatedAcrossDeaths: {
+    tenantId: 'f0e6b2d4-9c18-4a7e-8d53-2b4f6a9c1e07',
+    code: 'FCR-BACK',
+    steps: [
+      { feedKg: 2.4, on: FED_BEFORE_WEIGHING },
+      { deadByCount: 40, on: DIED_AFTER_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON, populationSize: 60 },
+    ],
+  },
+  // A batch split across two tanks: 50 fish move to a second tank before the
+  // weighing, the first tank's 50 are weighed at 30 g and the sample is typed
+  // with that tank's count, 50. 10 fish move back after the weighing. On
+  // target (2.4 kg fed, all 100 fish at 30 g, FCR 1.2), but the typed
+  // 50 x 30 g = 1.5 kg reads growth 0.5 and FCR 4.8, critical. Both moves stay
+  // inside the batch: each nets to zero in the ledger biomass (TRANSFER_IN
+  // counts negative) and in the count added back after the weighing day.
+  weighedOneTankOfTwo: {
+    tenantId: '2c9f4a71-6e3b-4d08-b5a2-8f1d7c3e9b64',
+    code: 'FCR-TANKS',
+    steps: [
+      { feedKg: 2.4, on: FED_BEFORE_WEIGHING },
+      { transferFish: 50, from: 'first', on: MOVED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_ON, populationSize: 50 },
+      { transferFish: 10, from: 'second', on: MOVED_AFTER_WEIGHING },
+    ],
+  },
+  // The paired tenant: two batches, weighed on different days, judged in one
+  // sweep. Early: 2.4 kg fed, weighed on WEIGHED_EARLY at 30 g (3 kg), so FCR
+  // 1.2. After the weighing it is fed 0.6 kg and 10 fish die: neither is in
+  // its window, and the 10 dead fish are still in its count at the weighing.
+  pairedEarly: {
+    tenantId: PAIRED_TENANT_ID,
+    code: 'FCR-PAIR-E',
+    steps: [
+      { feedKg: 2.4, on: FED_BEFORE_WEIGHING },
+      { weighG: 30, on: WEIGHED_EARLY },
+      { deadByCount: 10, on: DIED_BETWEEN },
+      { feedKg: 0.6, on: FED_BETWEEN },
+    ],
+  },
+  // Late: 2.0 kg fed, 20 fish die before its weighing (0.2 kg at the stocking
+  // weight), 0.4 kg more fed, then weighed on WEIGHED_LATE at 30 g with the
+  // 80 fish left (2.4 kg). Growth 2.4 + 0.2 - 1 = 1.6 on 2.4 kg of feed: FCR
+  // 1.5, +25%, critical. Given the early batch's window it would read
+  // 2.0 / 2 = 1.0 and raise nothing.
+  pairedLate: {
+    tenantId: PAIRED_TENANT_ID,
+    code: 'FCR-PAIR-L',
+    steps: [
+      { feedKg: 2.0, on: FED_BEFORE_WEIGHING },
+      { deadByCount: 20, on: DIED_BETWEEN },
+      { feedKg: 0.4, on: FED_BETWEEN },
+      { weighG: 30, on: WEIGHED_LATE, populationSize: 80 },
+    ],
   },
 } as const satisfies Record<string, BatchPlan>;
 
@@ -277,6 +394,8 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
   let dataSource: DataSource;
   let fcrAuthority: FCRCalculationService;
   const batchIds = new Map<PlanKey, string>();
+  /** Each tenant's fixture, from its first plan; later plans stock further tanks in it. */
+  const tenantFixtures = new Map<string, FarmTenantFixture>();
 
   beforeAll(async () => {
     pg = await bootPostgresContainer({ startTimeoutMs: 90_000 });
@@ -330,16 +449,18 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
       collaborator<SiteTimeZoneService>({}, 'SiteTimeZoneService'),
     );
 
-    for (const key of PLAN_KEYS) {
-      const plan: BatchPlan = PLANS[key];
-      await createTenantSchemaDerived(dataSource, getTenantSchemaName(plan.tenantId));
-      batchIds.set(key, await seedBatch(writers, recorders, statusHandler, plan));
-      await cron.sweepFcrForTenant(plan.tenantId);
+    const tenantIds = [...new Set(PLAN_KEYS.map((key) => PLANS[key].tenantId))];
+    for (const tenantId of tenantIds) {
+      await createTenantSchemaDerived(dataSource, getTenantSchemaName(tenantId));
+      for (const key of PLAN_KEYS.filter((planKey) => PLANS[planKey].tenantId === tenantId)) {
+        batchIds.set(key, await seedBatch(writers, recorders, statusHandler, PLANS[key]));
+      }
+      await cron.sweepFcrForTenant(tenantId);
     }
-    // Eleven tenants, each stocked, fed, weighed and moved through the
-    // production handlers: more than the 120 s default the integration config
-    // gives a hook.
-  }, 300_000);
+    // Fifteen batches in fourteen tenants, each stocked, fed, weighed and
+    // moved through the production handlers: more than the 120 s default the
+    // integration config gives a hook.
+  }, 420_000);
 
   afterAll(async () => {
     if (dataSource?.isInitialized) await dataSource.destroy();
@@ -347,7 +468,7 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
   });
 
   async function recordFeed(
-    fixture: FarmTenantFixture,
+    fixture: StockedTank,
     feed: Feed,
     plan: BatchPlan,
     feedingDate: Date,
@@ -379,6 +500,27 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
     );
   }
 
+  /**
+   * Stocks the plan's batch: in a new tenant fixture for the tenant's first
+   * plan, in a further tank of that fixture for the next one.
+   */
+  async function stockPlan(writers: FixtureBatchWriters, plan: BatchPlan): Promise<StockedTank> {
+    const params = {
+      tenantId: plan.tenantId,
+      codePrefix: plan.code,
+      userId: USER_ID,
+      initialQuantity: plan.initialQuantity ?? 100,
+      initialAvgWeightG: plan.initialAvgWeightG ?? 10,
+    };
+    const tenantFixture = tenantFixtures.get(plan.tenantId);
+    if (tenantFixture !== undefined) {
+      return stockFixtureTank(dataSource, writers, tenantFixture, params);
+    }
+    const created = await createFarmTenantFixture(dataSource, writers, params);
+    tenantFixtures.set(plan.tenantId, created);
+    return created;
+  }
+
   async function seedBatch(
     writers: FixtureBatchWriters,
     recorders: FixtureBatchRecorders,
@@ -387,13 +529,7 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
   ): Promise<string> {
     const { tenantId } = plan;
     const initialQuantity = plan.initialQuantity ?? 100;
-    const fixture = await createFarmTenantFixture(dataSource, writers, {
-      tenantId,
-      codePrefix: plan.code,
-      userId: USER_ID,
-      initialQuantity,
-      initialAvgWeightG: plan.initialAvgWeightG ?? 10,
-    });
+    const fixture = await stockPlan(writers, plan);
     const batchId = fixture.batch.id;
     const manager = dataSource.manager;
 
@@ -419,69 +555,115 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
       ),
     );
 
-    await recordFeed(fixture, feed, plan, FED_BEFORE_WEIGHING, plan.fedKg);
+    // The batch's second tank, created empty on the plan's first transfer.
+    let secondTank: Tank | undefined;
+    async function secondTankId(): Promise<string> {
+      if (secondTank === undefined) {
+        const tenantFixture = tenantFixtures.get(tenantId);
+        if (tenantFixture === undefined) throw new Error(`tenant ${tenantId} has no fixture`);
+        secondTank = await createFixtureTank(dataSource, tenantFixture.department, {
+          tenantId,
+          code: `${plan.code}-TANK2`,
+          userId: USER_ID,
+          count: 0,
+          biomassKg: 0,
+        });
+      }
+      return secondTank.id;
+    }
 
-    if (plan.weighedAvgWeightG !== null) {
-      const weightG = plan.weighedAvgWeightG;
-      await withTenantContext(tenantId, () =>
-        recorders.recordGrowthSample.execute(
-          new RecordGrowthSampleCommand(
-            tenantId,
-            {
+    for (const step of plan.steps) {
+      if ('feedKg' in step) {
+        await recordFeed(fixture, feed, plan, step.on, step.feedKg);
+      } else if ('weighG' in step) {
+        const weightG = step.weighG;
+        await withTenantContext(tenantId, () =>
+          recorders.recordGrowthSample.execute(
+            new RecordGrowthSampleCommand(
+              tenantId,
+              {
+                batchId,
+                tankId: fixture.tank.id,
+                measurementDate: step.on,
+                populationSize: step.populationSize ?? initialQuantity,
+                individualMeasurements: [1, 2, 3].map((sampleNumber) => ({
+                  sampleNumber,
+                  weight: weightG,
+                })),
+                measuredBy: USER_ID,
+              },
+              USER_ID,
+            ),
+          ),
+        );
+      } else if ('deadByCount' in step) {
+        await withTenantContext(tenantId, () =>
+          recorders.recordMortality.execute(
+            new RecordMortalityCommand(
+              tenantId,
               batchId,
-              tankId: fixture.tank.id,
-              measurementDate: WEIGHED_ON,
-              populationSize: initialQuantity,
-              individualMeasurements: [1, 2, 3].map((sampleNumber) => ({
-                sampleNumber,
-                weight: weightG,
-              })),
-              measuredBy: USER_ID,
-            },
-            USER_ID,
+              {
+                tankId: fixture.tank.id,
+                quantity: step.deadByCount,
+                reason: MortalityReason.DISEASE,
+                observedAt: step.on,
+                notes: 'fcr sweep fixture: dead fish counted, not weighed',
+              },
+              USER_ID,
+              [Role.MODULE_MANAGER],
+              [],
+              // The production mortality path rejects a call without an
+              // idempotency envelope, as the GraphQL input and REST DTO require.
+              {
+                clientCommandId: randomUUID(),
+                payloadHash: 'c'.repeat(64),
+                operationType: 'recordMortality',
+              },
+            ),
           ),
-        ),
-      );
-    }
-
-    if (plan.fedAfterWeighingKg > 0) {
-      await recordFeed(fixture, feed, plan, FED_AFTER_WEIGHING, plan.fedAfterWeighingKg);
-    }
-
-    if (plan.deadByCount > 0) {
-      await withTenantContext(tenantId, () =>
-        recorders.recordMortality.execute(
-          new RecordMortalityCommand(
-            tenantId,
-            batchId,
-            {
-              tankId: fixture.tank.id,
-              quantity: plan.deadByCount,
-              reason: MortalityReason.DISEASE,
-              observedAt: DIED_ON,
-              notes: 'fcr sweep fixture: dead fish counted, not weighed',
-            },
-            USER_ID,
-            [Role.MODULE_MANAGER],
-            [],
-            // The production mortality path rejects a call without an
-            // idempotency envelope, as the GraphQL input and REST DTO require.
-            {
-              clientCommandId: randomUUID(),
-              payloadHash: 'c'.repeat(64),
-              operationType: 'recordMortality',
-            },
+        );
+      } else if ('transferFish' in step) {
+        const otherTankId = await secondTankId();
+        const [sourceTankId, destinationTankId] =
+          step.from === 'first' ? [fixture.tank.id, otherTankId] : [otherTankId, fixture.tank.id];
+        await withTenantContext(tenantId, () =>
+          writers.transferBatch.execute(
+            new TransferBatchCommand(
+              tenantId,
+              batchId,
+              {
+                sourceTankId,
+                destinationTankId,
+                quantity: step.transferFish,
+                transferredAt: step.on,
+                transferReason: 'fcr sweep fixture: batch split across tanks',
+              },
+              USER_ID,
+              [Role.MODULE_MANAGER],
+              [],
+              // The production transfer path rejects a call without an
+              // idempotency envelope, as the GraphQL input and REST DTO require.
+              {
+                clientCommandId: randomUUID(),
+                payloadHash: 'd'.repeat(64),
+                operationType: 'transferBatch',
+              },
+            ),
           ),
-        ),
-      );
-    }
-
-    for (const status of plan.transitions) {
-      await withTenantContext(tenantId, () =>
-        statusHandler.execute(
-          new UpdateBatchStatusCommand(tenantId, batchId, status, 'fcr sweep fixture', USER_ID),
-        ),
-      );
+        );
+      } else {
+        await withTenantContext(tenantId, () =>
+          statusHandler.execute(
+            new UpdateBatchStatusCommand(
+              tenantId,
+              batchId,
+              step.status,
+              'fcr sweep fixture',
+              USER_ID,
+            ),
+          ),
+        );
+      }
     }
     return batchId;
   }
@@ -492,11 +674,13 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
     return id;
   }
 
+  /** The FCRAlerts the sweep wrote for one plan's batch. */
   async function fcrAlerts(key: PlanKey): Promise<FCRAlertEvent[]> {
     const rows: Array<{ payload: FCRAlertEvent }> = await dataSource.manager.query(
       `SELECT "payload" FROM "farm"."outbox_events"
-        WHERE "tenantId" = $1 AND "eventType" = 'FCRAlert'`,
-      [PLANS[key].tenantId],
+        WHERE "tenantId" = $1 AND "eventType" = 'FCRAlert'
+          AND "payload"->>'batchId' = $2`,
+      [PLANS[key].tenantId, batchId(key)],
     );
     return rows.map((row) => row.payload);
   }
@@ -540,11 +724,14 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
     });
   });
 
-  it('weighs through the production handler: weight.actual carries its provenance', async () => {
-    const rows: Array<{ sampleSize: number; totalBiomass: string; lastMeasuredAt: string }> =
+  it('weighs through the production handler: weight.actual carries what the authority reads', async () => {
+    // The weighed average, the weighing day and the sample size, written in
+    // one locked update by RecordGrowthSampleHandler. The authority takes the
+    // count at the weighing from the ledger, not from the typed populationSize.
+    const rows: Array<{ sampleSize: number; avgWeight: string; lastMeasuredAt: string }> =
       await dataSource.manager.query(
         `SELECT ("weight"->'actual'->>'sampleSize')::int AS "sampleSize",
-                "weight"->'actual'->>'totalBiomass' AS "totalBiomass",
+                "weight"->'actual'->>'avgWeight' AS "avgWeight",
                 "weight"->'actual'->>'lastMeasuredAt' AS "lastMeasuredAt"
            FROM "${getTenantSchemaName(PLANS.critical.tenantId)}"."batches_v2" WHERE "id" = $1`,
         [batchId('critical')],
@@ -552,7 +739,7 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
     expect(rows).toEqual([
       {
         sampleSize: 3,
-        totalBiomass: '3',
+        avgWeight: '30',
         lastMeasuredAt: WEIGHED_ON.toISOString(),
       },
     ]);
@@ -661,5 +848,107 @@ describe('18:00 FCR alert sweep — real Postgres (FARM-CRITICAL-444)', () => {
     // FAILED sets isActive=false: the sweep watches live batches only.
     expect(await storedBatch('retired')).toMatchObject({ isActive: false });
     expect(await fcrAlerts('retired')).toEqual([]);
+  });
+
+  it('counts a removal dated on the weighing day once, however late it was recorded', async () => {
+    // 30 of 100 fish leave on the weighing day, recorded after the sample. The
+    // ledger cut keeps their 0.9 kg; the biomass at the end of that day is the
+    // 70 fish left. Growth 2.1 + 0.9 - 1 = 2, FCR 1.35: a warning.
+    expect(await storedBatch('thinnedOnWeighingDay')).toMatchObject({
+      status: BatchStatus.HARVESTING,
+      isActive: true,
+    });
+    expect(await atLastWeighing('thinnedOnWeighingDay')).toEqual({
+      kind: 'converting',
+      weighedOn: new Date(WEIGHED_ON.toISOString()),
+      fcr: expect.closeTo(1.35, 10),
+      totalFeed: 2.7,
+      totalGrowth: expect.closeTo(2, 10),
+      removedBiomassKg: 0.9,
+    });
+    expect(await fcrAlerts('thinnedOnWeighingDay')).toEqual([
+      expect.objectContaining({
+        batchId: batchId('thinnedOnWeighingDay'),
+        currentFCR: 1.35,
+        variancePercent: expect.closeTo(12.5, 3),
+        alertLevel: 'warning',
+      }),
+    ]);
+  });
+
+  it('takes the count at a backdated weighing from the ledger, not from the count when it was entered', async () => {
+    // The 40 deaths after the weighing day are outside the window and are
+    // added back to the live 60: 100 fish at 30 g, growth 2, FCR 1.2.
+    expect(await atLastWeighing('weighedBackdatedAcrossDeaths')).toEqual({
+      kind: 'converting',
+      weighedOn: new Date(WEIGHED_ON.toISOString()),
+      fcr: expect.closeTo(1.2, 10),
+      totalFeed: 2.4,
+      totalGrowth: expect.closeTo(2, 10),
+      removedBiomassKg: 0,
+    });
+    expect(await fcrAlerts('weighedBackdatedAcrossDeaths')).toEqual([]);
+  });
+
+  it('judges a one-tank weighing of a split batch at the batch count, with its moves netting to zero', async () => {
+    // Precondition: the moves are real ledger rows of this batch, both ways.
+    const moves: Array<{ operationType: string; quantity: number }> =
+      await dataSource.manager.query(
+        `SELECT "operationType"::text AS "operationType", "quantity"
+           FROM "${getTenantSchemaName(PLANS.weighedOneTankOfTwo.tenantId)}"."tank_operations"
+          WHERE "batchId" = $1
+          ORDER BY "operationDate", "operationType"`,
+        [batchId('weighedOneTankOfTwo')],
+      );
+    expect(moves).toEqual([
+      { operationType: OperationType.TRANSFER_IN, quantity: 50 },
+      { operationType: OperationType.TRANSFER_OUT, quantity: 50 },
+      { operationType: OperationType.TRANSFER_IN, quantity: 10 },
+      { operationType: OperationType.TRANSFER_OUT, quantity: 10 },
+    ]);
+    // 100 fish at 30 g on the weighing day, whatever the sample was typed with.
+    expect(await atLastWeighing('weighedOneTankOfTwo')).toEqual({
+      kind: 'converting',
+      weighedOn: new Date(WEIGHED_ON.toISOString()),
+      fcr: expect.closeTo(1.2, 10),
+      totalFeed: 2.4,
+      totalGrowth: expect.closeTo(2, 10),
+      removedBiomassKg: 0,
+    });
+    expect(await fcrAlerts('weighedOneTankOfTwo')).toEqual([]);
+  });
+
+  it('gives each batch of one sweep its own window: its weighing day, its ledger cut, its count', async () => {
+    // Early: the death and the feed after its weighing are outside its window,
+    // and the 10 dead fish are added back to its count at the weighing.
+    expect(await atLastWeighing('pairedEarly')).toEqual({
+      kind: 'converting',
+      weighedOn: new Date(WEIGHED_EARLY.toISOString()),
+      fcr: expect.closeTo(1.2, 10),
+      totalFeed: 2.4,
+      totalGrowth: expect.closeTo(2, 10),
+      removedBiomassKg: 0,
+    });
+    // Late: the death before its weighing is in its ledger (0.2 kg at the
+    // stocking weight) and not in its count, and the feed between both
+    // weighings is in its window.
+    expect(await atLastWeighing('pairedLate')).toEqual({
+      kind: 'converting',
+      weighedOn: new Date(WEIGHED_LATE.toISOString()),
+      fcr: expect.closeTo(1.5, 10),
+      totalFeed: 2.4,
+      totalGrowth: expect.closeTo(1.6, 10),
+      removedBiomassKg: 0.2,
+    });
+    // The one sweep of the paired tenant alerted on the late batch only.
+    expect(await fcrAlerts('pairedEarly')).toEqual([]);
+    expect(await fcrAlerts('pairedLate')).toEqual([
+      expect.objectContaining({
+        batchId: batchId('pairedLate'),
+        currentFCR: 1.5,
+        variancePercent: expect.closeTo(25, 3),
+        alertLevel: 'critical',
+      }),
+    ]);
   });
 });

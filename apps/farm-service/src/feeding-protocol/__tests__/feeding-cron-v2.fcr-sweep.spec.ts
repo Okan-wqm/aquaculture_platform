@@ -87,18 +87,19 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
 
   const WEIGHED_ON = new Date('2026-10-10T12:00:00.000Z');
 
-  type WeighedVerdict = Extract<FcrAtLastWeighing, { readonly weighedOn: Date }>;
-
-  /** A weighed batch's verdict (its feed and growth are not read here). */
-  const weighed = (kind: WeighedVerdict['kind'], fcr: number): WeighedVerdict => ({
-    kind,
+  /** A weighed batch's window (its feed and growth are not read here). */
+  const WEIGHED = {
     weighedOn: WEIGHED_ON,
-    fcr,
     totalFeed: 0,
     totalGrowth: 0,
     removedBiomassKg: 0,
+  } as const;
+  /** Only a converting verdict carries an FCR. */
+  const converting = (fcr: number): FcrAtLastWeighing => ({
+    ...WEIGHED,
+    kind: 'converting',
+    fcr,
   });
-  const converting = (fcr: number): WeighedVerdict => weighed('converting', fcr);
 
   /**
    * The live batches the work query returns, with the authority's verdict at
@@ -186,8 +187,8 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   it('judges only converting batches: unweighed, unfed and not-growing ones raise nothing', async () => {
     givenLiveBatches({
       'b-unweighed': { kind: 'unweighed' },
-      'b-unfed': weighed('unfed', 0),
-      'b-not-growing': { ...weighed('not-growing', 0), totalFeed: 30, totalGrowth: -1 },
+      'b-unfed': { ...WEIGHED, kind: 'unfed' },
+      'b-not-growing': { ...WEIGHED, kind: 'not-growing', totalFeed: 30, totalGrowth: -1 },
       'b-1': converting(2.0),
     });
 

@@ -45,7 +45,7 @@ registerEnumType(BatchStatus, {
  * The statuses of a batch in production: it holds live fish that are fed, so
  * feed accumulates against it and its FCR is watched.
  *
- * WHY one constant: the set decides three things that must agree.
+ * WHY one constant: the set decides two things that must agree.
  *   1. `Batch.isOperational()` / `BatchDomainService.isOperational()`, and
  *      through them `assertFeedable()`: whether feed may be recorded at all.
  *   2. The 18:00 FCR alert sweep's work query (`FeedingCronV2Service.

@@ -36,13 +36,15 @@ Landed: the sweep selects live batches by lifecycle: `isActive` and `OPERATIONAL
 `Batch.isOperational()` and `BatchDomainService.isOperational()` read, so the batches
 `assertFeedable` lets operators feed are the batches whose FCR is watched. Each batch is judged
 at its last weighing, through `calculateFcrAtLastWeighingMany`: feed and the removal ledger up
-to the weighing day, against the biomass measured at that weighing (`weight.actual.totalBiomass`
-and `lastMeasuredAt`, which the growth-sample handlers write). A batch not weighed since stocking
-(`weight.actual.sampleSize` 0) is not judged. All windows go through one computation,
-`computeFcrOverWindows`, which `calculateCumulativeFCR` and `calculateCumulativeFCRMany` use too:
-three queries per tenant whatever the batch count. `fcr-alert-sweep.postgres.spec.ts` runs it on
-real PostgreSQL, weighing through `RecordGrowthSampleHandler` and recording deaths through
-`RecordMortalityHandler`; it was red on main.
+to the weighing day (`weight.actual.lastMeasuredAt`), against the batch's head count at the end of
+that day times the weighed average (`weight.actual.avgWeight`). The count is the live count plus
+the fish the same ledger removed after that day, read in the same statement as the ledger cut. A
+batch not weighed since stocking (`weight.actual.sampleSize` 0) is not judged, and only a
+`converting` verdict carries an FCR. All windows go through one computation,
+`computeFcrOverWindows`, which `calculateCumulativeFCR` uses too: three queries per tenant whatever
+the batch count. `fcr-alert-sweep.postgres.spec.ts` runs it on real PostgreSQL, weighing through
+`RecordGrowthSampleHandler` and recording deaths through `RecordMortalityHandler`; it was red on
+main.
 
 Independent verification, round 1, found three defects in the first version of this fix, all
 reproduced red on that version and fixed here:
@@ -62,6 +64,26 @@ reproduced red on that version and fixed here:
 
 A weighed, fed batch with no realized growth is now reported as `not-growing`, but it raises no
 alert: the FCRAlert contract cannot carry an undefined FCR. That is FARM-HIGH-449.
+
+Independent verification, round 2, found that the weighed biomass was `weight.actual.totalBiomass`,
+the `populationSize` typed on the sample times the average. That count describes the moment the
+sample was entered, or whatever the operator typed, not the batch on the weighing day, while the
+ledger was cut by calendar day. Three spec cases were red on that version and pass here:
+
+- 30 of 100 fish leave on the weighing day, recorded after the sample: they were in both the
+  weighed biomass and the ledger, and a batch 12.5% over target read FCR 0.93 with no alert.
+- 40 fish die after the weighing day and are recorded before the backdated sample, which is typed
+  with the 60 left: they were in neither, and an on-target batch raised a critical alert at 3.0.
+- A batch split 50/50 across two tanks is weighed in one tank and typed with that tank's 50 fish:
+  an on-target batch raised a critical alert at 4.8.
+
+A fourth case runs two batches with different weighing days through one sweep, with a death
+before one weighing and after the other, so the per-batch pairing of the windows, the ledger cut
+and the count add-back are pinned on real PostgreSQL; the split-batch case pins the TRANSFER_IN
+sign. Flipping that sign, pairing ledger rows across batches or dropping the day cut each turns one
+of these cases red. Registered from the same review:
+FARM-HIGH-451 (no client can record a weighing), FARM-MEDIUM-452 (growth inside the sampling
+error is judged) and FARM-MEDIUM-453 (an older sample overwrites `weight.actual`).
 
 ## FARM-HIGH-445
 

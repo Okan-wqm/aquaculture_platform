@@ -125,12 +125,16 @@ import {
   WaterType,
 } from '../../../tank/entities/tank.entity';
 
-export interface FarmTenantFixture {
+/** A tank stocked with one batch. */
+export interface StockedTank {
+  tank: Tank;
+  batch: Batch;
+}
+
+export interface FarmTenantFixture extends StockedTank {
   site: Site;
   department: Department;
   species: Species;
-  tank: Tank;
-  batch: Batch;
 }
 
 export interface FarmTenantFixtureParams {
@@ -245,10 +249,13 @@ export function createFixtureFcrCalculationService(dataSource: DataSource): FCRC
  *
  * WHY they are built here: a weighing is more than `weight.actual.avgWeight`.
  * RecordGrowthSampleHandler also writes the provenance the FCR authority reads
- * (`lastMeasuredAt`, `sampleSize`, the at-weighing `totalBiomass`) and a
- * GrowthMeasurement row, and RecordMortalityHandler writes the ledger row with
- * the biomass RemovalQuantityPolicy rounds. A suite that patched the JSON by
- * hand would miss exactly the fields a window or provenance defect lives in.
+ * with it (`lastMeasuredAt`, `sampleSize`), the `totalBiomass` it derives from
+ * the typed `populationSize`, and a GrowthMeasurement row, and
+ * RecordMortalityHandler writes the ledger row (count and the biomass
+ * RemovalQuantityPolicy rounds) that the FCR authority cuts by day and counts
+ * the head count at a weighing from. A suite that patched the JSON or the
+ * ledger by hand would miss exactly the fields a window or provenance defect
+ * lives in.
  *
  * Every collaborator is the real one, as in createFixtureBatchWriters. The
  * DataSource must register FIXTURE_ENTITIES and FCR_AUTHORITY_ENTITIES, and the
@@ -405,8 +412,6 @@ export async function createFarmTenantFixture(
   params: FarmTenantFixtureParams,
 ): Promise<FarmTenantFixture> {
   const { tenantId, codePrefix, userId } = params;
-  const initialQuantity = params.initialQuantity ?? 100;
-  const initialAvgWeightG = params.initialAvgWeightG ?? 10;
   const manager = dataSource.manager;
 
   const site = await withTenantContext(tenantId, () =>
@@ -461,30 +466,44 @@ export async function createFarmTenantFixture(
     ),
   );
 
-  const tank = await withTenantContext(tenantId, () =>
-    manager.save(
-      manager.create(Tank, {
-        tenantId,
-        name: `${codePrefix} Tank`,
-        code: `${codePrefix}-TANK`,
-        departmentId: department.id,
-        tankType: TankType.CIRCULAR,
-        material: TankMaterial.FIBERGLASS,
-        waterType: WaterType.SALTWATER,
-        diameter: 5,
-        depth: 2,
-        waterDepth: 2,
-        maxBiomass: 1500,
-        currentBiomass: (initialQuantity * initialAvgWeightG) / 1000,
-        currentCount: initialQuantity,
-        maxDensity: 30,
-        status: TankStatus.ACTIVE,
-        isActive: true,
-        createdBy: userId,
-        updatedBy: userId,
-      }),
-    ),
+  const { tank, batch } = await stockFixtureTank(
+    dataSource,
+    writers,
+    { department, species },
+    params,
   );
+
+  return { site, department, species, tank, batch };
+}
+
+/**
+ * Creates tank → batch → allocation in an existing tenant fixture's department
+ * and species, through the same production writers.
+ *
+ * WHY it is separate: a tenant holds one species per scientific name (unique
+ * per tenant), so a suite that needs two batches in one tenant (one sweep over
+ * both) cannot create a second tenant fixture; it stocks a second tank here.
+ * `params.codePrefix` names the new tank and batch and must differ from the
+ * fixture's.
+ */
+export async function stockFixtureTank(
+  dataSource: DataSource,
+  writers: FixtureBatchWriters,
+  base: Pick<FarmTenantFixture, 'department' | 'species'>,
+  params: FarmTenantFixtureParams,
+): Promise<StockedTank> {
+  const { tenantId, codePrefix, userId } = params;
+  const initialQuantity = params.initialQuantity ?? 100;
+  const initialAvgWeightG = params.initialAvgWeightG ?? 10;
+  const { department, species } = base;
+
+  const tank = await createFixtureTank(dataSource, department, {
+    tenantId,
+    code: `${codePrefix}-TANK`,
+    userId,
+    count: initialQuantity,
+    biomassKg: (initialQuantity * initialAvgWeightG) / 1000,
+  });
 
   const batch = await withTenantContext(tenantId, () =>
     writers.createBatch.execute(
@@ -524,5 +543,55 @@ export async function createFarmTenantFixture(
     ),
   );
 
-  return { site, department, species, tank, batch };
+  return { tank, batch };
+}
+
+/** What createFixtureTank builds: a tank's code and the totals it starts with. */
+export interface FixtureTankParams {
+  tenantId: string;
+  /** Unique per tenant; the tank's name is derived from it. */
+  code: string;
+  userId: string;
+  /** Fish the tank's stored totals start with; 0 for an empty tank. */
+  count: number;
+  /** Biomass the tank's stored totals start with, kg; 0 for an empty tank. */
+  biomassKg: number;
+}
+
+/**
+ * Creates one tank in a fixture department. stockFixtureTank stocks it
+ * through the production allocation; a suite that moves fish between tanks
+ * creates an empty one (count and biomass 0) as the destination.
+ */
+export async function createFixtureTank(
+  dataSource: DataSource,
+  department: Department,
+  params: FixtureTankParams,
+): Promise<Tank> {
+  const { tenantId, code, userId } = params;
+  const manager = dataSource.manager;
+  return withTenantContext(tenantId, () =>
+    manager.save(
+      manager.create(Tank, {
+        tenantId,
+        name: `${code} Tank`,
+        code,
+        departmentId: department.id,
+        tankType: TankType.CIRCULAR,
+        material: TankMaterial.FIBERGLASS,
+        waterType: WaterType.SALTWATER,
+        diameter: 5,
+        depth: 2,
+        waterDepth: 2,
+        maxBiomass: 1500,
+        currentBiomass: params.biomassKg,
+        currentCount: params.count,
+        maxDensity: 30,
+        status: TankStatus.ACTIVE,
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      }),
+    ),
+  );
 }

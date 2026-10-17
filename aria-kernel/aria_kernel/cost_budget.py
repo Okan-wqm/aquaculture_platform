@@ -260,10 +260,13 @@ def _trip_breaker(
     # Plan 032 Faz 032e — a tripped cost breaker is an operator event.
     from .notify import notify_best_effort
 
+    # ARIA-MEDIUM-556 — the amounts reach private channels only; the public
+    # issue names the breaker state record.
     notify_best_effort(
         kind="breaker_tripped", key=f"cost:{cap_name}", base_dir=root,
         title=f"ARIA cost breaker tripped ({cap_name})",
         body=f"amount_usd: {amount} cap_usd: {cap}",
+        record=_state_path(root).relative_to(root).as_posix(),
     )
 
 

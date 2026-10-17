@@ -151,10 +151,20 @@ def _fold(rows: Iterable[dict[str, Any]]) -> list[OutageInterval]:
     return intervals
 
 
+def fold_outage_intervals(rows: Iterable[dict[str, Any]]) -> tuple[OutageInterval, ...]:
+    """The outage intervals in governance rows a caller already read (other kinds are ignored).
+
+    ARIA-LOW-562 — a reader that parses the ledger for its own rows too (the
+    lease reaper's attempt routes) builds its clock from the same parse,
+    instead of the clock parsing the whole ledger a second time.
+    """
+    return tuple(_fold(rows))
+
+
 def outage_intervals(base_dir: str | Path | None) -> tuple[OutageInterval, ...]:
     """The store's outage intervals (read-only; an absent store has none)."""
     path = _governance(base_dir)
-    return tuple(_fold(load_jsonl(path))) if path.is_file() else ()
+    return fold_outage_intervals(load_jsonl(path)) if path.is_file() else ()
 
 
 def open_outages(base_dir: str | Path | None) -> tuple[OutageInterval, ...]:
@@ -375,7 +385,7 @@ def render_outage_section(base_dir: str | Path | None, *, now: datetime | None =
 
 __all__ = [
     "ADMISSION_RESTORABLE_KINDS", "OUTAGE_ESCALATION_AFTER", "OUTAGE_KINDS", "OUTAGE_OPENED_KIND",
-    "PROVIDER_RESTORED_KIND", "OutageInterval", "escalate_prolonged_outages", "open_outages",
-    "open_provider_outage", "outage_intervals", "outage_opened_by_claim", "outage_remedy",
+    "PROVIDER_RESTORED_KIND", "OutageInterval", "escalate_prolonged_outages", "fold_outage_intervals",
+    "open_outages", "open_provider_outage", "outage_intervals", "outage_opened_by_claim", "outage_remedy",
     "record_provider_restored", "render_outage_section", "standing_outage",
 ]

@@ -179,9 +179,10 @@ T2_RUNNER_USER = "gharunner"
 OPERATOR_SIGNING_KEY = Path("/root/.ssh/aria-operator-signing")
 DOCKER_SOCKET = Path("/var/run/docker.sock")
 # Personal tokens by GitHub's documented prefixes: classic, fine-grained,
-# OAuth and user-to-server. An App installation token (ghs_) is the identity
-# T2 is meant to hold; ARIA_GH_TOKEN was the operator's PAT (ARIA-CRITICAL-246).
-# The habitat view of secret_scrub.CREDENTIAL_SHAPES (ARIA-HIGH-519).
+# OAuth, user-to-server and refresh. An App installation token (ghs_) is the
+# identity T2 is meant to hold; ARIA_GH_TOKEN was the operator's PAT
+# (ARIA-CRITICAL-246). The habitat view of secret_scrub.CREDENTIAL_SHAPES
+# (ARIA-HIGH-519), built from its GITHUB_TOKEN_CLASSES (ARIA-MEDIUM-546).
 _PERSONAL_TOKEN_RE = view_alternation("habitat")
 _RETIRED_PAT_KEY_RE = re.compile(r"(?m)^\s*(?:export\s+)?ARIA_GH_TOKEN\s*=")
 _PRIVATE_KEY_HEADER = b"-----BEGIN OPENSSH PRIVATE KEY-----"

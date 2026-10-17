@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import register_tool, run_tool
+from aria_kernel.runs_reader import run_read_paths
 
 
 class TypeOrmAdapterIntegrationTests(unittest.TestCase):
@@ -85,8 +86,9 @@ class TypeOrmAdapterIntegrationTests(unittest.TestCase):
         self.assertEqual(run["emitted_counts"]["findings"], 0)
         self.assertFalse(run["evidence_validation"]["repository_mutation_attempt"])
         self.assertGreater(run["runner"]["raw_observations_count"], 0)
-        self.assertIn("apps/farm-service/src/batch/entities/batch.entity.ts", run["read_paths"])
-        self.assertIn("libs/backend-common/src/database/schema-manager.service.ts", run["read_paths"])
+        read = run_read_paths(run, base_dir=self.tools_dir)
+        self.assertIn("apps/farm-service/src/batch/entities/batch.entity.ts", read)
+        self.assertIn("libs/backend-common/src/database/schema-manager.service.ts", read)
 
     def latest_run(self):
         rows = (self.tools_dir / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()

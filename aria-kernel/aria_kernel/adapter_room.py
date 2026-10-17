@@ -83,6 +83,9 @@ ADAPTER_REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 # banned-phrase-adapter is `python3 …` and spawns the repository's ts-node,
 # whose `#!/usr/bin/env node` resolves node on PATH. Bound read-only when
 # the host has it; a host without node fails the same adapters outside.
+# The repo-local ts-node itself is declared in the manifest
+# (`runner.repo_local_dependencies`), so a workspace without it is refused
+# before the room is built (ARIA-MEDIUM-508).
 ADAPTER_RUNTIME_EXECUTABLES: tuple[str, ...] = ("node",)
 # The runner's private temp directory: the App key file lives directly in
 # it (aria-auto-cycle.yml, "Run the nightly cycle"), so no bind may reach it.

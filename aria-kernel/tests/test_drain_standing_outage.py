@@ -24,8 +24,22 @@ from aria_kernel.tool_registry import ensure_tools_dir
 
 from tests.test_executor_drain_breaker import _DrainHarness, _row, _summary, ci_executor_drain
 
+import claude_runtime  # noqa: E402 — on sys.path through the drain harness's import
+from dispatch_failure import DISPATCH_FAILURE_CLASSES, classify_dispatch_failure  # noqa: E402
+
 _AUTH = {"signature": "claude_auth_failure", "marker": "oauth session expired"}
 _QUOTA = {"signature": "claude_credit_error", "marker": "credit balance too low"}
+_UNREACHABLE = {"signature": "claude_unreachable", "marker": "api error: 529"}
+
+# The three provider facts an executor child raises (each arm cools the provider).
+_PROVIDER_FACTS = (
+    claude_runtime.ClaudeAuthFailure("claude_auth_failure: oauth session expired", provider="anthropic",
+                                     model="opus", detail=dict(_AUTH)),
+    claude_runtime.ClaudeCreditExhausted("claude_credit_exhausted: provider='anthropic'", provider="anthropic",
+                                         model="opus", detail=dict(_QUOTA)),
+    claude_runtime.ClaudeProviderUnreachable("provider_unreachable: provider='anthropic'", provider="anthropic",
+                                             model="opus", detail=dict(_UNREACHABLE)),
+)
 
 
 class _Harness(_DrainHarness):
@@ -109,6 +123,28 @@ class AReprobeOfAStandingOutage(unittest.TestCase):
     def test_the_kinds_are_the_ledgers(self) -> None:
         for kinds in ci_executor_drain.OUTAGE_KINDS_BY_FAILURE_CLASS.values():
             self.assertTrue(kinds <= frozenset(OUTAGE_KINDS), kinds)
+
+    def test_an_unreachable_reprobe_keeps_the_run_green(self) -> None:
+        # The summary's class is the one the executor writes for the fact,
+        # through the one classifier, not a literal this test chose.
+        failure = classify_dispatch_failure(exception=_PROVIDER_FACTS[2], phase="spawn")
+        h = _Harness(queue=[_row("AIR-1")], summaries={"AIR-1": _summary(
+            request_id="AIR-1", outcome="failed", failure_class=failure.failure_class, retryable=failure.retryable)})
+        self.addCleanup(h.close)
+        h.outage(_UNREACHABLE, opened=self.now - timedelta(hours=6))
+        self.assertEqual(h.run_drain(), 0)
+        self.assertEqual(h.breaker_records, [])
+        self.assertEqual([row["outage_kind"] for row in h.payload()["standing_outage"]], ["unreachable"])
+
+    def test_every_provider_fact_classifies_to_a_class_the_drain_reads(self) -> None:
+        # ARIA-MEDIUM-438 (wave-2 reopen) — the map was keyed on
+        # `provider_unreachable`, a class no classifier produced, so an
+        # unreachable re-probe was never excused.
+        self.assertLessEqual(set(ci_executor_drain.OUTAGE_KINDS_BY_FAILURE_CLASS), set(DISPATCH_FAILURE_CLASSES))
+        for exc in _PROVIDER_FACTS:
+            with self.subTest(fact=type(exc).__name__):
+                failure_class = classify_dispatch_failure(exception=exc, phase="spawn").failure_class
+                self.assertIn(failure_class, ci_executor_drain.OUTAGE_KINDS_BY_FAILURE_CLASS)
 
 
 if __name__ == "__main__":

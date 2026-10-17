@@ -402,6 +402,39 @@ class UnifiedValidationRunSurfaceTests(unittest.TestCase):
         self.assertEqual(log_path.parent, expected_dir)
         self.assertTrue(log_path.exists())
 
+    def test_a_run_whose_output_is_secret_shaped_keeps_no_credential_on_its_log(self) -> None:
+        """ARIA-MEDIUM-539 — the log is published (``validation_run_logs``,
+        pushed with aria/state) and it was written raw: a suite that printed a
+        credential-shaped string left it there for anyone reading the state
+        branch, refused by the delivery or not. The one writer now redacts the
+        command's output with the one credential table and records the
+        kernel's refusal-set verdict on the row (counts, never a value), so the
+        delivery still refuses by name while the log never holds the bytes."""
+        token = "gh" + "p_" + "A" * 36
+        # Assembled at run time, so nothing in the tree matches the pattern.
+        (self.root / "leaky_e21a.py").write_text("print('gh' + 'p_' + 'A' * 36)\n", encoding="utf-8")
+        run_validation_commands(
+            commands=["python3 -m unittest leaky_e21a"], workspace_root=self.root, change_id=self.change_id,
+            commit_sha=self.commit_sha, runner_identity="ci-executor:e21a", change_author_identity="agent:planner-e21a",
+            base_dir=self.base, cycle_id="cycle-e21a", require_clean_worktree=False,
+        )
+        row = list_validation_runs(base_dir=self.base)[-1]
+        logs = ensure_tools_dir(self.base) / "validation" / "logs"
+        self.assertEqual([path.name for path in logs.iterdir() if token.encode("utf-8") in path.read_bytes()], [])
+        self.assertNotIn(token, json.dumps(row))
+        # The redacted log is the one the ledger hash-bound.
+        verify_validation_run(row["validation_run_id"], base_dir=self.base)
+        self.assertTrue(row["output_secret_scan"], row)
+        self.assertNotIn("A" * 36, row["output_secret_scan"])
+        # A run whose output holds no credential says so on its row (the
+        # first run left the module's bytecode cache in the tree).
+        run_validation_commands(
+            commands=["python3 -m unittest --help"], workspace_root=self.root, change_id=self.change_id,
+            commit_sha=self.commit_sha, runner_identity="ci-executor:e21a", change_author_identity="agent:planner-e21a",
+            base_dir=self.base, cycle_id="cycle-e21a", require_clean_worktree=False,
+        )
+        self.assertIsNone(list_validation_runs(base_dir=self.base)[-1]["output_secret_scan"])
+
 
 class ValidationInputBindingTests(unittest.TestCase):
     """Actual ordinary execution, then optional scoped input provenance."""

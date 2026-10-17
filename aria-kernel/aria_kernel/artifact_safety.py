@@ -8,7 +8,7 @@ from typing import Any, Iterator
 
 from .implementation_safety import SecretLeakDetected, verify_no_secret_in_diff
 from .ledger import atomic_write_json
-from .secret_scrub import UNIFORM_MARKER, credential_shapes_in, redact_secrets
+from .secret_scrub import CREDENTIAL_KEY_WORDS, UNIFORM_MARKER, credential_shapes_in, redact_secrets
 
 FORBIDDEN_REAL_MODE_ENV: frozenset[str] = frozenset({
     "CODEX_OSS_DEBUG",
@@ -41,15 +41,18 @@ def published_text(text: Any, *, store_root: Path | None, limit: int) -> str:
     cycle's exception, a refusal, a human-required reason — routinely names
     host paths and can carry anything an exception or an agent put into it.
     One sanitizer for all of them (the review of the 2026-10-10 repair stack
-    found four that each did part of this): secret shapes redacted, a path
-    under the store kept store-relative (``memory/beliefs.jsonl``), any other
-    absolute path reduced to its file name, then bounded.
+    found four that each did part of this): a path under the store kept
+    store-relative (``memory/beliefs.jsonl``), secret shapes redacted, any
+    other absolute path reduced to its file name, then bounded. The
+    redaction runs before the path reduction: reducing first cut a URL's
+    ``//user:password@`` and a webhook's ``/services/`` path down to their
+    last component, and the redaction no longer knew either (ARIA-MEDIUM-546).
     """
     out = str(text)
     if store_root is not None:
         for prefix in {Path(store_root).as_posix(), Path(store_root).resolve().as_posix()}:
             out = out.replace(f"{prefix}/", "")
-    return scrub_text(_ABSOLUTE_PATH.sub(r"\1", out))[:limit]
+    return _ABSOLUTE_PATH.sub(r"\1", scrub_text(out))[:limit]
 
 
 def scrub_json(value: Any) -> Any:
@@ -67,11 +70,10 @@ def scrub_json(value: Any) -> Any:
             # CLI reports (input_tokens, output_tokens, cache_read_...), and
             # masking those blinded cost telemetry while protecting nothing —
             # an integer cannot leak a secret. String values under token-ish
-            # keys stay masked (lease_token, oauth token, ...).
-            sensitive_key = any(
-                token in key_text.lower()
-                for token in ("token", "secret", "api_key", "apikey")
-            )
+            # keys stay masked (lease_token, oauth token, ...). The key words
+            # are the credential table's (ARIA-HIGH-448 added the password
+            # and private-key names a tool's JSON input or config carries).
+            sensitive_key = any(word in key_text.lower() for word in CREDENTIAL_KEY_WORDS)
             if sensitive_key and isinstance(item, str):
                 scrubbed[key_text] = UNIFORM_MARKER
             else:
@@ -168,14 +170,31 @@ def refuse_credential_keys(payload: Any, *, where: str | Path) -> None:
         raise ArtifactSafetyError(f"artifact_credential_in_key: {where}: {shapes}")
 
 
+def sanitized_json_text(document: Any, *, where: str | Path, **dumps: Any) -> str:
+    """The JSON text a publishing writer may write for an already-scrubbed ``document``.
+
+    The one encoding step of every published JSON writer (ARIA-LOW-547: the
+    run-artifact writer encoded ``scrub_json(payload)`` itself and refused
+    nothing). It refuses a credential-shaped mapping key (``scrub_json``
+    never rewrites a key), encodes with the writer's own ``json.dumps``
+    options, and refuses a refusal hit in the encoded text: escaping can form
+    one the raw strings did not hold (``ensure_ascii`` writes an e-circumflex
+    as an escape that ends in ``a``). Raises ``ArtifactSafetyError`` naming
+    shape types, never a value; returns only text the kernel would not refuse.
+    """
+    refuse_credential_keys(document, where=where)
+    text = json.dumps(document, **dumps)
+    refuse_unredacted_credentials(text, where=where)
+    return text
+
+
 def write_sanitized_json(path: str | Path, payload: Any, *, max_bytes: int = 1_000_000) -> None:
     scrubbed = scrub_json(payload)
-    refuse_credential_keys(scrubbed, where=path)
-    raw = json.dumps(scrubbed, indent=2, sort_keys=True)
+    # The size and the refusal scan read the bytes the format owner
+    # (ledger.atomic_write_json) writes.
+    raw = sanitized_json_text(scrubbed, where=path, indent=2, sort_keys=True)
     if len(raw.encode("utf-8")) > max_bytes:
         raise ArtifactSafetyError(f"artifact exceeds max_bytes={max_bytes}: {path}")
-    # The size and the refusal scan read the bytes the format owner writes.
-    refuse_unredacted_credentials(raw, where=path)
     atomic_write_json(Path(path), scrubbed)
 
 
@@ -184,6 +203,7 @@ __all__ = [
     "assert_real_mode_env_safe",
     "refuse_credential_keys",
     "refuse_unredacted_credentials",
+    "sanitized_json_text",
     "scrub_json",
     "scrub_text",
     "write_sanitized_json",

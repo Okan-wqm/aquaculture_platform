@@ -17,6 +17,13 @@ independent reasons, and BOTH had to be true for the agent to run:
 The second is the more instructive: a permission that is granted and unusable
 reads to every reviewer as granted. These tests pin both, so a future edit
 cannot quietly restore either.
+
+ARIA-HIGH-143 changed what the granted network IS, not the lesson: the room
+no longer shares the host's namespace or binds its resolver (that was the
+road a prompt-injected test file took to any host). It has its own namespace,
+and its one road out is the kernel's allowlist proxy, which resolves the
+provider OUTSIDE — so "granted and usable" is now "the room's proxy answers
+from inside", pinned below by the gate's own in-room probe.
 """
 from __future__ import annotations
 
@@ -87,12 +94,15 @@ class SandboxHomeTest(unittest.TestCase):
 
 
 class SandboxNetworkTest(unittest.TestCase):
-    def test_allowing_the_network_also_supplies_the_resolver(self) -> None:
+    def test_allowing_the_network_grants_the_proxy_not_the_hosts_network(self) -> None:
         _skip_without_bwrap(self)
+        from aria_kernel.implementation_safety import SANDBOX_EGRESS_PROXY_SOCKET
+
         argv = _argv(allow_network=True)
 
-        self.assertIn("/etc/resolv.conf", argv)
-        self.assertNotIn("--unshare-net", argv)
+        self.assertIn("--unshare-net", argv)
+        self.assertNotIn("/etc/resolv.conf", argv)
+        self.assertIn(SANDBOX_EGRESS_PROXY_SOCKET, argv[: argv.index("--")])
 
     def test_denying_the_network_binds_no_resolver(self) -> None:
         _skip_without_bwrap(self)
@@ -103,23 +113,16 @@ class SandboxNetworkTest(unittest.TestCase):
         self.assertIn("--unshare-net", argv)
         self.assertNotIn("/etc/resolv.conf", argv)
 
-    def test_name_resolution_actually_works_inside(self) -> None:
-        # The assertion that would have caught this in the first place: not
-        # "was the flag passed" but "can the sandbox resolve a name".
+    def test_the_granted_network_actually_works_inside(self) -> None:
+        # The assertion that would have caught 2026-08-08 in the first place:
+        # not "was the flag passed" but "does the granted road carry traffic,
+        # asked from inside the room" — the room's HTTPS_PROXY answers, and
+        # answers as the allowlist (the gate's own probe, ARIA-HIGH-143).
         if not _bwrap_available():
             self.skipTest("bwrap not installed on this host")
-        if not Path("/etc/resolv.conf").exists():
-            self.skipTest("host has no /etc/resolv.conf to bind")
-        with TemporaryDirectory() as tmp:
-            argv = wrap_bash_in_sandbox(
-                ["sh", "-c", "cat /etc/resolv.conf > /dev/null && echo RESOLVER_PRESENT"],
-                workspace_root=tmp,
-                allow_network=True,
-            )
-            result = subprocess.run(list(argv), capture_output=True, text=True, timeout=60)
+        from aria_kernel.implementation_safety import egress_boundary_probe
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("RESOLVER_PRESENT", result.stdout)
+        self.assertIsNone(egress_boundary_probe())
 
 
 if __name__ == "__main__":

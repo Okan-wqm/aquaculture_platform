@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import smtplib
 import threading
 import urllib.error
@@ -52,6 +53,24 @@ DEFAULT_DEDUP_WINDOW = timedelta(hours=6)
 # The label every notice issue carries; the issue writer creates it when the
 # repository lacks it (`gh issue create` refuses an unknown label).
 NOTIFY_ISSUE_LABELS: tuple[str, ...] = ("aria",)
+# ARIA-MEDIUM-556 — a GitHub issue is a public page. A tripped cost breaker
+# posted its dollar amounts there and a CRITICAL HUMAN_REQUIRED record its
+# free-text reason, which can describe a weakness nobody has fixed yet. For
+# the kinds below the notifier renders a public channel's body itself: the
+# kind's fixed sentence and a pointer to the governed record (``record=``, a
+# store-relative path). The producer's body reaches the private channels
+# (stdout, email, telegram) only. A pointer kind without a valid pointer is a
+# failed public row, never the producer's body.
+PUBLIC_CHANNELS: frozenset[str] = frozenset({"github_issue"})
+POINTER_ONLY_SUMMARIES: dict[str, str] = {
+    "breaker_tripped": "A breaker tripped. ARIA holds the work it guards until an operator resets it.",
+    "human_required_opened": "A request needs an operator decision.",
+    "human_required_sla_breached": "A request that needs an operator decision is past its SLA.",
+}
+# A store-relative path: no leading slash, no whitespace, no parent step. A
+# request id may hold ":" (operator_feedback_signature's id grammar).
+_RECORD_POINTER = re.compile(r"(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}")
+PUBLIC_RECORD_INVALID = "notify_public_record_invalid"
 Sender = Callable[[str, str, Mapping[str, str]], dict[str, Any]]
 
 # One transport call's bound — the number each sender hands its transport.
@@ -131,6 +150,21 @@ def configured_channels(environ: Mapping[str, str] | None = None) -> tuple[str, 
         if all(env.get(name) for name in CHANNEL_ENV_NAMES[channel]):
             out.append(channel)
     return tuple(out)
+
+
+def channel_body(kind: str, channel: str, body: str, record: str | None) -> str | None:
+    """The body ``channel`` is handed for one event; None when a public channel may not carry it.
+
+    A private channel gets the producer's body. A public channel gets it too,
+    except for a ``POINTER_ONLY_SUMMARIES`` kind, where it gets the kind's
+    fixed sentence and ``record: <pointer>``, or nothing when the pointer is
+    not a store-relative path.
+    """
+    if channel not in PUBLIC_CHANNELS or kind not in POINTER_ONLY_SUMMARIES:
+        return body
+    if not isinstance(record, str) or _RECORD_POINTER.fullmatch(record) is None:
+        return None
+    return f"{POINTER_ONLY_SUMMARIES[kind]}\nrecord: {record}"
 
 
 def _send_stdout(title: str, body: str, environ: Mapping[str, str]) -> dict[str, Any]:
@@ -253,6 +287,7 @@ def notify(
     title: str,
     body: str,
     key: str | None = None,
+    record: str | None = None,
     base_dir: str | Path | None = None,
     channels: tuple[str, ...] | list[str] | None = None,
     environ: Mapping[str, str] | None = None,
@@ -261,7 +296,12 @@ def notify(
     dedup_window: timedelta = DEFAULT_DEDUP_WINDOW,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Deliver one event to every configured channel; one outbox row per channel."""
+    """Deliver one event to every configured channel; one outbox row per channel.
+
+    ``record`` is the store-relative path of the governed record the event is
+    about; a public channel names it instead of ``body`` for a pointer kind
+    (``POINTER_ONLY_SUMMARIES``).
+    """
     if kind not in NOTIFY_EVENT_KINDS:
         raise ValueError(f"unknown notify kind {kind!r}")
     env = os.environ if environ is None else environ
@@ -304,13 +344,15 @@ def notify(
             row.update({"status": "failed", "detail": {"error": f"unknown channel {channel}"}})
         elif not all(env.get(name) for name in CHANNEL_ENV_NAMES[channel]):
             row.update({"status": "unconfigured", "detail": {"missing_env_names": [n for n in CHANNEL_ENV_NAMES[channel] if not env.get(n)]}})
+        elif (channel_text := channel_body(kind, channel, body, record)) is None:
+            row.update({"status": "failed", "detail": {"error": PUBLIC_RECORD_INVALID}})
         elif _recent_sent([*existing, *rows], signature, now=stamp, window=dedup_window) is not None:
             row.update({"status": "deduped", "detail": {"window_seconds": int(dedup_window.total_seconds())}})
         elif dry_run:
             row.update({"status": "dry_run", "detail": {}})
         else:
             try:
-                row.update({"status": "sent", "detail": _send_bounded(table[channel], title, body, env)})
+                row.update({"status": "sent", "detail": _send_bounded(table[channel], title, channel_text, env)})
             except Exception as exc:  # noqa: BLE001 — a channel failure is a row, never a crash
                 row.update({"status": "failed", "detail": {"error_class": type(exc).__name__, "error": str(exc)[:300]}})
         rows.append(row)
@@ -345,10 +387,14 @@ __all__ = [
     "NOTIFY_WORST_CASE_SECONDS",
     "OUTBOX_RELPATH",
     "OUTBOX_SURFACE",
+    "POINTER_ONLY_SUMMARIES",
+    "PUBLIC_CHANNELS",
+    "PUBLIC_RECORD_INVALID",
     "SENDERS",
     "SENDER_WALL_CLOCK_SECONDS",
     "ChannelSelectorInvalid",
     "SenderWallClockExceeded",
+    "channel_body",
     "configured_channels",
     "notifications_disabled",
     "notify",

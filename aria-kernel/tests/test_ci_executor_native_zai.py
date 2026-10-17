@@ -68,6 +68,11 @@ class _Vendor:
                 vendor.received.append({"path": self.path, "authorization": self.headers.get("Authorization"),
                                         "json": json.loads(body.decode("utf-8"))})
                 status, payload = vendor.script.pop(0) if vendor.script else (500, {"error": {"code": "0", "message": "unscripted"}})
+                if status is None:
+                    # The vendor hangs up without an answer: a transport
+                    # failure (`ZaiTransportUnavailable`), not an HTTP status.
+                    self.close_connection = True
+                    return
                 raw = json.dumps(payload).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
@@ -317,6 +322,43 @@ class NativeZaiLane(unittest.TestCase):
         self.assertEqual(zai["credential_source"], "file")
         self.assertEqual(zai["controls"]["status"], "available")
         self.assertFalse(Path(self.request["expected_output_path"]).exists())
+        self._assert_secret_nowhere()
+
+    def _provider_fact_summary(self) -> dict:
+        summary_path = self.runner_temp / f"dispatch-result-{self.request['request_id']}.json"
+        self.assertTrue(summary_path.is_file(), "a native provider-fact child names its failure to the drain")
+        self.assertIn(f"dispatch_summary_path={summary_path.resolve().as_posix()}",
+                      self.github_output.read_text(encoding="utf-8"))
+        return json.loads(summary_path.read_text(encoding="utf-8"))
+
+    def test_a_quota_refusal_on_the_run_is_a_summary_the_drain_can_match_to_the_outage(self) -> None:
+        # ARIA-MEDIUM-438 (wave-2 reopen) — the native Z.ai and Codex
+        # provider-fact children cooled the provider and exited 1 with no
+        # summary, so the drain counted `child_without_summary` and never
+        # consulted the standing outage.
+        import ci_executor_drain
+
+        self.vendor.script.append((200, _completion("OK", prompt_tokens=7, completion_tokens=1)))  # probe
+        self.vendor.script.append((429, {"error": {"code": "1113", "message": "insufficient balance"}}))
+        completed = self._run_executor()
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        summary = self._provider_fact_summary()
+        self.assertEqual((summary["outcome"], summary["provider"], summary["model"], summary["failure_class"]),
+                         ("failed", "zai", "glm-5.3", "credit_exhausted"))
+        self.assertIn(summary["failure_class"], ci_executor_drain.OUTAGE_KINDS_BY_FAILURE_CLASS)
+        self._assert_secret_nowhere()
+
+    def test_an_unreachable_vendor_on_the_run_is_a_summary_the_drain_can_match_to_the_outage(self) -> None:
+        import ci_executor_drain
+
+        self.vendor.script.append((200, _completion("OK", prompt_tokens=7, completion_tokens=1)))  # probe
+        self.vendor.script.append((None, {}))
+        completed = self._run_executor()
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        summary = self._provider_fact_summary()
+        self.assertEqual((summary["outcome"], summary["provider"], summary["model"]), ("failed", "zai", "glm-5.3"))
+        self.assertEqual(ci_executor_drain.OUTAGE_KINDS_BY_FAILURE_CLASS.get(summary["failure_class"]),
+                         frozenset({"unreachable"}))
         self._assert_secret_nowhere()
 
     def test_a_group_readable_key_file_is_refused_before_any_vendor_call(self) -> None:

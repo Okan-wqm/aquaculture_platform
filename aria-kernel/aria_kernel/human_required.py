@@ -213,12 +213,15 @@ def record_human_required(
     # records a day, and each one notified is one issue (the title names the
     # record). The rest reach the operator as COUNTS in the one daily
     # delivery summary (`gateway.scheduler`, action `deliver`).
+    # ARIA-MEDIUM-556 — the reason reaches private channels only; the public
+    # issue names this record.
     if sev == "CRITICAL":
         notify_best_effort(
             kind="human_required_opened", key=request_id, base_dir=root,
             title=f"ARIA HUMAN_REQUIRED [{sev}] {request_id}",
             body=f"reason: {published_text(reason, store_root=root, limit=1000)}\nsla_deadline: {record['sla_deadline']}\n"
                  f"resolve: aria-kernel human-required resolve --request-id {request_id}",
+            record=out_path.relative_to(root).as_posix(),
         )
     return record
 

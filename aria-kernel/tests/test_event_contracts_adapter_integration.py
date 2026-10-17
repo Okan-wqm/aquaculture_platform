@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import register_tool, run_tool
+from aria_kernel.runs_reader import run_read_paths
 
 
 class EventContractsAdapterIntegrationTests(unittest.TestCase):
@@ -72,8 +73,9 @@ class EventContractsAdapterIntegrationTests(unittest.TestCase):
         self.assertFalse(run["evidence_validation"]["repository_mutation_attempt"])
         self.assertGreater(run["runner"]["raw_observations_count"], 0)
         self.assertEqual(run["runner"]["raw_findings_count"], 0)
-        self.assertIn("libs/event-contracts/src/base-event.ts", run["read_paths"])
-        self.assertIn("libs/event-contracts/src/schemas/validator.ts", run["read_paths"])
+        read = run_read_paths(run, base_dir=self.tools_dir)
+        self.assertIn("libs/event-contracts/src/base-event.ts", read)
+        self.assertIn("libs/event-contracts/src/schemas/validator.ts", read)
 
     def latest_run(self):
         rows = (self.tools_dir / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()

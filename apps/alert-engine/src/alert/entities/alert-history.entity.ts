@@ -68,7 +68,7 @@ export class AlertHistory {
    * sensor's site, the measured unit's site, the day plan's site). Null when
    * the source has no single site — a batch-level FCR, tenant-wide stock — or
    * the row predates the column and no exact backfill reached it
-   * (migration 1801200000000).
+   * (migration 1801300000000).
    */
   @Field(() => ID, { nullable: true })
   @Column({ name: 'site_id', type: 'uuid', nullable: true })

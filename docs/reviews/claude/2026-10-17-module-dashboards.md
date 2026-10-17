@@ -53,25 +53,26 @@ alarms. The greenhouse dashboard's alarm panel reads it as such.
 
 ### Backfill (ALERT-MEDIUM-010)
 
-Exact or nothing, in tenant schemas only, under a transaction-local `app.bypass_rls` inside one DO
-block (the runner binds no tenant and the tenant policy is forced):
+Migration `1801300000000`, separate from the DDL (ALERT-MEDIUM-011), in tenant schemas only.
+Exact or nothing (ALERT-LOW-012):
 
 - module from provenance: rows with a `sensor_id` (only rule evaluation sets it) and the oxygen
   guard's rule id → sensor; the listed `system:` farm rule ids → farm; anything else stays NULL.
-- site from what the row names: the sensor's `site_id`, the farm signal's own `siteId` /
-  site-UUID `siteScopeKey`, the day plan's site for meal and oxygen-guard rows, the measurement's
-  site for water-quality rows. Each sibling table is read only where that module is provisioned
-  in the tenant schema.
+- site only from the source the live path stamps: the farm signal's own `siteId` / site-UUID
+  `siteScopeKey`, the day plan's site for meal rows, the measurement's site for water-quality
+  rows. Each sibling table is read only where that module is provisioned in the tenant schema.
 
-Left NULL: mortality, FCR, low stock and feed type transition rows (no single site, or none
-recorded), rows whose referenced record is gone, and rows of a tenant without the module. The one
-inexact case: a sensor moved to another site since an old alarm keeps that alarm on its current
-site, the same binding the live path stamps.
+Left NULL: rule alarms on sensor readings (the live path stamps the site the sensor had at
+reading time; only its current site is on record), oxygen-guard rows (the live path stamps the
+DO sensor's site, which the row does not name), mortality, FCR, low stock and feed type
+transition rows (no single site, or none recorded), rows whose referenced record is gone, and
+rows of a tenant without the module.
 
 ### Tests (ALERT-MEDIUM-010)
 
-- The migration's Postgres spec (`add-alert-history-site-and-module.migration.postgres.spec.ts`
-  in alert-engine's migration tests) runs it as a role without BYPASSRLS on forced-policy tables.
+- The migrations' Postgres specs (`add-alert-history-site-and-module.migration.postgres.spec.ts`
+  and `backfill-alert-history-site-and-module.migration.postgres.spec.ts` in alert-engine's
+  migration tests) run them as a role without BYPASSRLS on forced-policy tables.
 - `alert-rule.site-module.spec.ts`, `alert.resolver.spec.ts` and each creation path's service spec
   pin the scope, the grouping and the origin of every alarm path.
 - Producer specs in sensor-service and farm-service pin the site on each event;
@@ -141,6 +142,34 @@ the repository's migrations do.
 - `apps/alert-engine/src/database/migrations/1801200000000-AddAlertHistorySiteAndModule.ts:146-190`
 - `libs/backend-common/src/database/migration-runner/migration-runner.service.ts:600`
 
+### Fix (ALERT-MEDIUM-011)
+
+`1801200000000` is DDL only and sets `SET LOCAL lock_timeout = '2s'` and
+`statement_timeout = '30s'` in `up()` and `down()`. Its transaction is short. A live alarm
+transaction on the table makes it give up after 2 s and roll back whole instead of queueing; a
+queued ACCESS EXCLUSIVE request would block every later reader of the table.
+
+The backfill is `1801300000000-BackfillAlertHistorySiteAndModule`, `transaction = false`. It walks
+`alert_history` in primary-key order, 5 000 rows per batch, each batch its own transaction under
+the same two timeouts and a transaction-local `app.bypass_rls`. A live acknowledgement waits at
+most for one batch's row locks. A batch fills only columns still NULL, so a run stopped midway
+keeps its committed batches and a re-run completes the rest. The runner records the migration
+only after `up()` returns. It refuses to run inside a transaction it cannot commit batch by
+batch.
+
+### Tests (ALERT-MEDIUM-011)
+
+On Testcontainers Postgres:
+
+- `add-alert-history-site-and-module.migration.postgres.spec.ts`: the migration's transaction
+  carries both timeouts and the session keeps none. Behind a live reader it fails with `55P03`
+  in under 10 s and leaves no half-added column. It writes no row.
+- `backfill-alert-history-site-and-module.migration.postgres.spec.ts` runs a 10 001-row table.
+  A live row lock in the second batch stops the run at `lock_timeout` with the first batch
+  committed. The re-run completes, and the rows carry three distinct `xmin`s, one per batch. The
+  spec also covers a re-run writing nothing, the refusal inside a transaction, and no bypass left
+  behind.
+
 ## ALERT-LOW-012
 
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
@@ -163,6 +192,20 @@ the day plan's site, a different source from the live stamp.
 - `apps/alert-engine/src/database/migrations/1801200000000-AddAlertHistorySiteAndModule.ts:162-169`
 - `apps/alert-engine/src/database/migrations/1801200000000-AddAlertHistorySiteAndModule.ts:67-72`
 - `apps/alert-engine/src/alert/services/feeding-execution-alert.service.ts:244`
+
+### Fix (ALERT-LOW-012)
+
+The backfill writes a site only from the source the live path stamps. Sensor-rule and oxygen-guard
+rows keep a NULL site: no record states the site the sensor had at reading time, and the
+oxygen-guard row does not name its DO sensor. Their module is still exact. The backfill no longer
+reads `sensors`.
+
+### Tests (ALERT-LOW-012)
+
+`backfill-alert-history-site-and-module.migration.postgres.spec.ts` seeds a sensor bound to a site
+and expects its rule alarm `sensor@NULL`, the oxygen-guard row `sensor@NULL`, and meal rows the day
+plan's site. A gone or malformed day-plan reference stays NULL without a cast error, and a row the
+new release already stamped is not overwritten.
 
 ## ALERT-MEDIUM-013
 

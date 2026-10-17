@@ -1,10 +1,13 @@
 # File-level lint debt baseline.
 #
-# Project-level lint debt is already quarantined in
-# scripts/ci/affected-target-policy.json. This file covers legacy files that
-# still have pre-existing file-level lint debt but are touched by infra/SSOT
-# wiring changes. New files and files not listed here remain under strict
-# `eslint --max-warnings=0`.
+# scripts/ci/lint-changed-files.mjs skips every file listed here. Every other
+# changed .ts/.tsx file is linted at base and head, and a new error-level
+# finding fails the lint job. That base comparison is what keeps security
+# lint (getRepository, JWT_SECRET, the aquaculture tenant rules) gating inside
+# a project whose pre-existing debt is quarantined in
+# scripts/ci/affected-target-policy.json. A file inside a lint-quarantined
+# project therefore may not be listed here, because no other lane lints it
+# (INFRA-MEDIUM-224; tests/invariants/affected-target-quarantine-ssot.spec.ts).
 apps/alert-engine/src/app.module.ts
 apps/auth-service/src/app.module.ts
 apps/auth-service/src/health/__tests__/health.controller.spec.ts
@@ -18,6 +21,5 @@ apps/hydroponics-service/src/app.module.ts
 apps/messaging-service/src/app.module.ts
 apps/notification-service/src/app.module.ts
 apps/sensor-service/src/app.module.ts
-libs/backend-common/src/bootstrap/create-service-app.ts
 web/apps/aquamobil/src/pages/storage/StockMovementPage.tsx
 web/apps/aquamobil/src/pages/storage/StockTransferPage.tsx

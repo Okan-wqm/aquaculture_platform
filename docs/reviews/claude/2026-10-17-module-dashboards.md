@@ -5,6 +5,13 @@ only: no production container, Redis or droplet runtime state was touched.
 
 Owner: claude (implementation), okan (review).
 
+## ADMIN-MEDIUM-161
+
+**State:** OPEN. Deadline 2026-10-31, owner okan. The tenant-admin Modules page opens a module at
+its `defaultRoute` or a local map (`/farm/dashboard`, `/sensor/dashboard`, `/hr/dashboard`), routes
+the console does not serve. Needed: one owner of each module's home that both the shell and the
+tenant-admin remote read (shared-ui), instead of a third copy.
+
 ## ALERT-LOW-012
 
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
@@ -214,6 +221,24 @@ The column stays varchar; converting it is SENSOR-MEDIUM-187.
 - `sensor-site.util.spec.ts` and the NATS, GraphQL-ingest and MQTT producer specs publish no site
   for a label. All of them failed before the fix.
 
+## ALERT-MEDIUM-016
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan.
+
+### Fix (ALERT-MEDIUM-016)
+
+`alertHistory` takes `orderBy: AlertHistoryOrder` — `NEWEST_FIRST` (default, every other reader)
+or `MOST_SEVERE_FIRST` (severity rank, newest first within one). The rank is
+`ALERT_SEVERITY_RANK`, now the one ranking alert-engine reads (the evaluation service's and the
+incident service's copies are gone), spelled as SQL by `severityRankSql`. The dashboard panel asks
+for the most severe first.
+
+### Tests (ALERT-MEDIUM-016)
+
+`alert-rule.site-module.postgres.spec.ts` (real Postgres): a two-row page keeps the older CRITICAL
+and the HIGH, not the two newest; `alert-rule.history-filter.spec.ts` and `alert.resolver.spec.ts`
+pin the default and the forwarding.
+
 ## Alarm site and module (closes ALERT-MEDIUM-010)
 
 ALERT-MEDIUM-010 (`docs/reviews/claude/2026-10-16-tenant-console-d6.md`) recorded that alert-engine
@@ -289,6 +314,52 @@ rows of a tenant without the module.
 - `web/shell/src/console/{data,rail}/__tests__` pin the per-module tallies, the shared request and
   the menu slot without a preview.
 
+## FARM-MEDIUM-443
+
+**State:** OPEN. Deadline 2026-10-31, owner okan. Replaces PRODUCT-MEDIUM-001 (see there): the
+same gap under the farm-expert prefix. The Greenhouse preview now names this ID.
+
+## FE-HIGH-351
+
+**State:** OPEN until the commits that carry `Closes:` for this ID merge. Deadline 2026-10-31,
+owner okan.
+
+### Symptom (FE-HIGH-351)
+
+The Production dashboard's "DO min" read `waterQualityMeasurements` of the last day, at most 100
+rows per site, and showed the lowest as the site's oxygen, as if it were live.
+
+### Root cause (FE-HIGH-351)
+
+Measurements are not where live oxygen is: the app writes them as manual entries
+(`water-quality.service.ts:192`), and the list is cut at its page size (newest first). Farm's one
+reader of "a parameter's value at a point, now" is `ParameterReadingResolver` (live channel first,
+then a person's sample, in the parameter's unit, site-authorized), served one point per request
+(`resolvedParameterValue`). A site has many units, so the dashboard went around it.
+
+### Fix (FE-HIGH-351)
+
+- farm-service: `resolvedUnitParameterValues(input: { parameterConfigId, unitIds, maxAgeSeconds })`
+  answers one parameter at up to 200 units in one request. Farm classifies each unit (tank or
+  water equipment, `resolveMeasurementUnits`, three queries), authorizes them as
+  `assertPointReadable` authorizes one (`assertUnitsReadable`: 404 for a missing unit, 403 for a
+  module user's unassigned site), and asks the resolver once (`resolveAcross`: one tenant read,
+  one sensor-directory request, one placement read).
+- dashboard: the oxygen cell asks for the units fed today (the day plans' units, the same ones the
+  temperature cell reads) with a 24 h window, shows the lowest value in the parameter's unit, and
+  says `live · 5 min ago` or `manual entry · 2 h ago`. It says when no dissolved-oxygen parameter
+  is configured, when no unit is fed today, and when no unit has a value within the window.
+- Data freshness reads the gateways and these readings; the measurement query is gone.
+
+### Tests (FE-HIGH-351)
+
+- `water-chemistry-reading.postgres.spec.ts` (real Postgres): four units in one request, a live
+  channel, a person's sample (a machine row never), and none, in the asked order with one
+  directory request; refused whole for an unknown unit, an inactive parameter or an unassigned
+  site.
+- `ModuleDashboards.spec.tsx`: the request's variables, the live and manual source lines, the
+  configured unit, and no measurement query.
+
 ## FE-LOW-347
 
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
@@ -320,6 +391,48 @@ names the sources it counts and points at SENSOR-MEDIUM-188 for the ones it does
 `WorkspaceMenu.spec.tsx` pins the line and the accessible description with an alarm column, and
 their absence without one.
 
+## FE-LOW-357
+
+**State:** OPEN until the fix merges. Fix: shared-ui `ACTIVE_ALERT_COUNTS_KEY` is the shell
+counts' key; a dashboard acknowledgement invalidates it. Test: `ModuleDashboards.spec.tsx`.
+
+## FE-LOW-358
+
+**State:** OPEN until the fix merges. Fix: an alarm row opens the alarm list (where the tenant
+holds the sensor module); a CLEARED-unacknowledged row keeps its stripe and tint; the feed bar
+marks the share of the day's plan due by now (from the meals' schedule) and turns amber when the
+fed share trails it by more than 10 points; a stale site's values are greyed; the footnotes say
+to select a site's (or zone's) name. Tests: `ModuleDashboards.spec.tsx`, `production.spec.ts`.
+
+## FE-LOW-359
+
+**State:** OPEN until the fix merges. Fix: each audit action auth-service writes into a tenant's
+log has a phrase (en and tr; an unknown code is shown as recorded); the actor is the tenant's user
+by name, else the recorded e-mail, else "someone outside your users", never an id. Tests:
+`activity.spec.ts`, `ModuleDashboards.spec.tsx`.
+
+## FE-LOW-360
+
+**State:** OPEN until the fix merges. Fix: the oxygen value is printed in the unit the resolver
+answered in (the parameter's). Test: `ModuleDashboards.spec.tsx` (a `ppm` parameter).
+
+## FE-LOW-361
+
+**State:** OPEN until the fix merges. Fix: `flatMapCell` reads the units' temperatures and oxygen
+only once the plans answered, and fails with them. Test: `ModuleDashboards.spec.tsx`.
+
+## FE-LOW-362
+
+**State:** OPEN until the fix merges. Fix: an alarm at a site the viewer does not list says "a
+site outside your list"; "no site" is for an alarm that records none. Test:
+`ModuleDashboards.spec.tsx`.
+
+## FE-LOW-363
+
+**State:** OPEN until the fix merges. Fix: specs for a `users:view` delegate (the 2FA notice, no
+seat, maintenance or audit request) and a `roles:view` delegate (the access-request preview, no
+admin request). Test: `ModuleDashboards.spec.tsx`.
+
 ## FE-MEDIUM-346
 
 **State:** OPEN until the module-dashboards change merges with `Closes:` for this ID. Deadline
@@ -342,7 +455,8 @@ had one index page, and the tenant panel wrapped the company dashboard with ever
   sensors `/dashboard/control`, Greenhouse `/dashboard/greenhouse`. Trends stay in each module
   overview. Company lists the company dashboard, messages and the AI chat, and no `/dashboard*`.
 - Landing (`rootLanding`): a tenant admin lands on `/tenant`. A module user lands on the first
-  module workspace's dashboard, in switcher order. Anyone else lands on `/tenant`.
+  module workspace's dashboard, in switcher order. Anyone else lands on `/tenant`. Sign-in
+  navigates to `/` and nowhere else (FE-MEDIUM-355).
 - Dashboard remote: three pages over one layout (`ModuleDashboard`). They show the module's Site
   status table, Active alarms (alert-engine `alertHistory` filtered by module, acknowledge via
   `acknowledgeAlert`), the Inbox, and Recent activity for a tenant admin. The KPI page and its
@@ -359,15 +473,15 @@ had one index page, and the tenant panel wrapped the company dashboard with ever
 | ---------------------------- | --------------------------------------------------------------- |
 | Site list (all dashboards)   | Real: farm `activeSites`, scoped to a module user's sites       |
 | Site alarms per priority     | Real: `activeAlertCounts(module, groupBy: [SITE])`              |
-| Data freshness (Production)  | Real: newest of `edgeDevices(siteId)` reports and measurements  |
-| Lowest DO and its limit      | Real: `waterQualityMeasurements` + `parameterConfigs` (DO)      |
+| Data freshness (Production)  | Real: newest of `edgeDevices(siteId)` reports and DO readings   |
+| Lowest DO, limit, unit       | Real: `resolvedUnitParameterValues` + `parameterConfigs` (DO)   |
 | Temperature, hottest unit    | Real: `effectiveUnitTemperatures` over the day plans' units     |
 | Feed today                   | Real: `feedingDayPlans` of the site's local day                 |
 | Tank count                   | Real but manual: `systems.tankCount`, labelled as entered       |
 | Gateways, sensors, PLCs      | Real: `edgeDevices`, `sensors` total, `plcConnectionsBySite`    |
 | PLC alarms per site          | Real: `activePlcAlarms` by connection                           |
-| Greenhouse zone rows         | Preview: PRODUCT-MEDIUM-001                                     |
-| Active alarms panel          | Real: `alertHistory` open + cleared-unacknowledged, per module  |
+| Greenhouse zone rows         | Preview: FARM-MEDIUM-443                                        |
+| Active alarms panel          | Real: `alertHistory`, most severe first, per module             |
 | Inbox: seats                 | Real (tenant admin): `tenantBilling.planLimits` + `tenantStats` |
 | Inbox: users without 2FA     | Real (`users:view`): `tenantUsers.mfaEnabled`                   |
 | Inbox: maintenance           | Real (tenant admin): `myAnnouncements(type: MAINTENANCE)`       |
@@ -376,11 +490,11 @@ had one index page, and the tenant panel wrapped the company dashboard with ever
 | Member home: unread messages | Real: `totalUnreadMessageCount` (caller's own)                  |
 | Member home: announcements   | Preview: RBAC-MEDIUM-021                                        |
 
-The lowest dissolved oxygen comes from water-quality measurements, not from channel latest values.
-Measurements hold manual entries and sensor-fed readings, each with its unit and site, and the
-tenant's parameter configs give the limit the farm flags critical measurements with. A channel's
-latest value carries neither the limit nor the unit. Which store holds more data in production
-was not read: no production database or runtime was touched.
+Correction (FE-HIGH-351): this section first said the lowest dissolved oxygen came from
+water-quality measurements, which "hold manual entries and sensor-fed readings". That was wrong:
+the app writes only manual entries there, and the read was capped at 100 rows. The cell now reads
+farm's reading resolver (`resolvedUnitParameterValues`) over the units fed today: a live channel
+first, else a person's latest sample, in the parameter's unit, with its source and age.
 
 Each source is fetched only for a viewer whose role the resolver admits. Seats, maintenance and
 the audit are the tenant admin's, the 2FA list needs `users:view`, and nothing admin-only is sent
@@ -397,15 +511,120 @@ for anyone else. No backend permission was widened.
   and every other page refused as before. `MemberCompanyHome.spec.tsx` covers the member view.
 - `tests/invariants/web-console-nav-coverage.spec.ts` allows exactly one member route, `/tenant`.
 
+## FE-MEDIUM-352
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan.
+
+### Symptom (FE-MEDIUM-352)
+
+`feedProgress` skipped plans whose status is `'cancelled'`; the API sends `'CANCELLED'`, so a
+cancelled plan's kilograms counted as planned.
+
+### Fix (FE-MEDIUM-352)
+
+The dashboard's records are `Pick`s of the generated supergraph types: day-plan and meal status,
+`SiteType` (`SITE_TYPE_KEYS: Record<SiteType, MessageKey>`), `PlcConnectionStatus`, alarm and user
+records. `DashboardOperationResults` names each operation's result, and the spec fixtures are
+typed with it, so a lower-case enum no longer type-checks. Skipped plans (a fasting window, an
+operator's call) feed nothing either and count nowhere.
+
+### Tests (FE-MEDIUM-352)
+
+`production.spec.ts` feeds `CANCELLED` and `SKIPPED` plans; `tsc` checks the fixtures.
+
+## FE-MEDIUM-353
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan.
+
+### Fix (FE-MEDIUM-353)
+
+`SiteStatusTable` passes `searchable={false}`, `sortable={false}` and `hoverable={false}`: the
+rows are a status board of composed cells, which DataTable's search and sort cannot honour.
+
+### Tests (FE-MEDIUM-353)
+
+`ModuleDashboards.spec.tsx` finds no text box and no button in the site table.
+
+## FE-MEDIUM-354
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan.
+
+### Fix (FE-MEDIUM-354)
+
+- The dashboard remote gates each route with the guard family's `RequireRole requiredModule`:
+  Production `farm`, Control & sensors `sensor`, Greenhouse `hydroponics`. Trends stay open to
+  every member. An unknown path goes to `/`, the member's own landing.
+- `MODULE_MOUNTS` is keyed by route pattern: `/sites/*` gates its subtree, `/dashboard/control`
+  only itself. `moduleForPath` takes the most specific gate.
+- The nav-coverage invariant derives the table from App.tsx's mounts and the gated pages below
+  them, so a gate and its nav entry cannot drift apart.
+
+### Tests (FE-MEDIUM-354)
+
+`ModuleDashboards.spec.tsx` (module gates), `match.spec.ts` (`moduleForPath`), and
+`web-console-nav-coverage.spec.ts`.
+
+## FE-MEDIUM-355
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan.
+
+### Fix (FE-MEDIUM-355)
+
+One owner decides where a signed-in user starts: the shell's `/` route (`RoleBasedRedirect` →
+`rootLanding`). Sign-in and MFA verification resolve `{ signedIn: true }` and name no
+destination; `LoginForm` navigates to `LANDING_PATH`. shared-ui no longer selects `redirectUrl`
+or `me.redirectPath`, keeps no `redirectPath` in its state, and its `getDefaultRedirect` is gone;
+an open redirect through that value is no longer possible at all. Outside `AuthProvider`, login
+fails closed instead of claiming a redirect.
+
+The backend still computes those values from the seeded `defaultRoute`s (SEC-LOW-204). The
+tenant-admin Modules page still opens modules at unserved routes (ADMIN-MEDIUM-161). The
+Analytics page still asks for the tenant admin's `tenantStats` for every member (FE-MEDIUM-364).
+
+### Tests (FE-MEDIUM-355)
+
+`AuthContext.spec.tsx` (any `redirectUrl` is ignored; no document selects one), `LoginForm.spec.tsx`
+(password and MFA sign-in land on `/` only).
+
+## FE-MEDIUM-356
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan.
+
+### Fix (FE-MEDIUM-356)
+
+Each alarm row carries its priority's name for assistive technology (`annunciator.label.p1`–`p3`,
+`sr-only` beside the hidden glyph). Each acknowledge button is named by the alarm's message, rule,
+site and time.
+
+### Tests (FE-MEDIUM-356)
+
+`ModuleDashboards.spec.tsx`: the priority names, and distinct button names for two alarms of one
+rule at one site.
+
+## FE-MEDIUM-364
+
+**State:** OPEN. Deadline 2026-10-31, owner okan. The Analytics page's KPI request includes the
+tenant admin's `tenantStats` in one `Promise.all`, so for a module user the whole request fails.
+Needed: request it only for a tenant admin and draw the KPIs that remain.
+
 ## Independent review of PR #1997
 
 An independent review of the ALERT-MEDIUM-010 change raised the findings below. Each is
 registered with its own section; the ones fixed in PR #1997 are resolved by the commit that
 carries `Closes:` for the ID, the others stay open with an owner and a deadline.
 
+## Independent review of PR #1999
+
+An independent review of the module-dashboards change raised the findings below. Each is
+registered with its own section. The fixed ones are resolved by the commit that carries `Closes:`
+for the ID; the others stay open with an owner and a deadline.
+
 ## PRODUCT-MEDIUM-001
 
-**State:** OPEN. Deadline 2026-10-31, owner okan.
+**State:** OPEN. Deadline 2026-10-31, owner okan. Superseded by FARM-MEDIUM-443: the schema
+reserves `PRODUCT-*` for Lane-B, and `apps/hydroponics-service/**` is farm-expert's in the routing
+table. The registry CLI has no supersede transition (only `close`, which needs a merged fix, and
+`reopen`), so this row stays OPEN for the same gap; the fix closes both IDs.
 
 ### Gap (PRODUCT-MEDIUM-001)
 
@@ -467,6 +686,13 @@ annunciator, lists the module's alarms tenant-wide, as alert-engine serves them.
 ### Needed (RBAC-MEDIUM-022)
 
 The same caller site scope in the sensor-service and alert-engine reads.
+
+## SEC-LOW-204
+
+**State:** OPEN. Deadline 2026-10-31, owner okan. auth-service still computes login `redirectUrl`
+and `me.redirectPath` from seeded `defaultRoute`s that name unserved routes; no web client reads
+them since FE-MEDIUM-355. Needed: remove both fields (breaking API: supergraph and AquaMobil
+checked first) or correct the seeds with a data migration.
 
 ## SENSOR-HIGH-186
 

@@ -42,7 +42,7 @@ import {
   DELETE_TENANT_ROLE_MUTATION,
   SEED_TENANT_ROLES_MUTATION,
   MY_MODULES_QUERY,
-  MY_MODULES_ID_QUERY,
+  MY_MODULE_REFS_QUERY,
   MODULE_USAGE_STATS_QUERY,
   ASSIGN_MODULE_MANAGER_MUTATION,
   REMOVE_MODULE_MANAGER_MUTATION,
@@ -90,6 +90,7 @@ import type {
   TenantStats,
   TenantModule,
   MyModule,
+  MyModuleRef,
   ModuleUsageStat,
   User,
   TenantDatabaseInfo,
@@ -408,10 +409,8 @@ export async function getMyModules(): Promise<MyModule[]> {
   return data.myModules;
 }
 
-export async function getMyModuleIds(): Promise<Array<{ id: string; code: string }>> {
-  const data = await apiClient.graphql<{
-    myModules: Array<{ id: string; code: string }>;
-  }>(MY_MODULES_ID_QUERY);
+export async function getMyModuleRefs(): Promise<MyModuleRef[]> {
+  const data = await apiClient.graphql<{ myModules: MyModuleRef[] }>(MY_MODULE_REFS_QUERY);
   return data.myModules;
 }
 

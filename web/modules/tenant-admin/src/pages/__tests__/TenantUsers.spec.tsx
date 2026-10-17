@@ -138,7 +138,7 @@ vi.mock('../../lib/api', () => ({
   assignModuleManager: mockUnexpectedTenantApiCall('assignModuleManager'),
   removeModuleManager: mockUnexpectedTenantApiCall('removeModuleManager'),
   updateTenant: mockUnexpectedTenantApiCall('updateTenant'),
-  getMyModuleIds: mockUnexpectedTenantApiCall('getMyModuleIds'),
+  getMyModuleRefs: mockUnexpectedTenantApiCall('getMyModuleRefs'),
   getModuleUsageStats: mockUnexpectedTenantApiCall('getModuleUsageStats'),
   getEdgeDevices: mockUnexpectedTenantApiCall('getEdgeDevices'),
   getDeviceEvents: mockUnexpectedTenantApiCall('getDeviceEvents'),

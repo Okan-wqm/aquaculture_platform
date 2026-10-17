@@ -357,6 +357,19 @@ SCADA alarm active the row reads as no alarms.
 - `apps/alert-engine/src/alert/resolvers/alert.resolver.ts:137`
 - `apps/alert-engine/src/alert/services/alert-history-scope.ts:26`
 
+### Fix (ALERT-LOW-014)
+
+Both `siteId` arguments carry `new ParseUUIDPipe({ optional: true })`, the pattern of
+`apps/auth-service/src/modules/tenant/resolvers/tenant-admin.resolver.ts:167`. A value that is
+not a UUID is a bad request before the resolver runs; an absent or null site still means no
+filter.
+
+### Tests (ALERT-LOW-014)
+
+`alert.resolver.spec.ts` runs the pipes each method's `siteId` argument registered, as Nest does:
+a UUID and an absent or null site pass, `site-1` is a `BadRequestException`. Both failed before
+the fix.
+
 ## ALERT-LOW-015
 
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline

@@ -1,4 +1,6 @@
 import { collaborator } from '@aquaculture/testing';
+import { BadRequestException, type PipeTransform } from '@nestjs/common';
+import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { type Repository } from 'typeorm';
 
 import { AlertResolver } from '../alert.resolver';
@@ -250,5 +252,49 @@ describe('AlertResolver.activeAlertCounts', () => {
       module: undefined,
       groupBy: undefined,
     });
+  });
+});
+
+/**
+ * The siteId arguments parse a UUID (ALERT-LOW-014). `site_id` is a uuid
+ * column: a value that is not one must be a validation error, not a 22P02 the
+ * database hands the client. Nest runs an argument's pipes before the method;
+ * the specs above call the method directly and never reach them, so this runs
+ * the pipes the `@Args` decorator registered, as Nest does.
+ */
+describe('AlertResolver siteId arguments (ALERT-LOW-014)', () => {
+  type SiteFiltered = 'getAlertHistory' | 'getActiveAlertCounts';
+
+  interface RegisteredArg {
+    readonly data?: unknown;
+    readonly pipes: readonly PipeTransform[];
+  }
+
+  async function parsedSiteId(method: SiteFiltered, value: unknown): Promise<unknown> {
+    const registered: Record<string, RegisteredArg> = Reflect.getMetadata(
+      ROUTE_ARGS_METADATA,
+      AlertResolver,
+      method,
+    );
+    const siteArg = Object.values(registered).find((arg) => arg.data === 'siteId');
+    if (siteArg === undefined) throw new Error(`${method} registers no siteId argument`);
+    expect(siteArg.pipes.length).toBeGreaterThan(0);
+    let parsed = value;
+    for (const pipe of siteArg.pipes) {
+      parsed = await pipe.transform(parsed, { type: 'custom', data: 'siteId' });
+    }
+    return parsed;
+  }
+
+  const methods: readonly SiteFiltered[] = ['getAlertHistory', 'getActiveAlertCounts'];
+
+  it.each(methods)('%s passes a site UUID, and an absent or null site', async (method) => {
+    await expect(parsedSiteId(method, SITE_ID)).resolves.toBe(SITE_ID);
+    await expect(parsedSiteId(method, undefined)).resolves.toBeUndefined();
+    await expect(parsedSiteId(method, null)).resolves.toBeNull();
+  });
+
+  it.each(methods)('%s refuses a site that is not a UUID as a bad request', async (method) => {
+    await expect(parsedSiteId(method, 'site-1')).rejects.toBeInstanceOf(BadRequestException);
   });
 });

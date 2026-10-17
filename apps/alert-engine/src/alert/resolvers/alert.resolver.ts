@@ -1,12 +1,5 @@
-import {
-  Resolver,
-  Query,
-  Mutation,
-  Args,
-  Int,
-  ID,
-} from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, Int, ID } from '@nestjs/graphql';
+import { Logger, ParseUUIDPipe } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { AlertRule, AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
@@ -84,7 +77,9 @@ export class AlertResolver {
    * absent argument means — no filter — so each is turned into the service's
    * "absent" (undefined) once; the honest type makes the compiler demand it,
    * and the service never sees a null. The dates name their scalar
-   * explicitly: a `Date | null` parameter reflects as Object.
+   * explicitly: a `Date | null` parameter reflects as Object. `siteId` is
+   * parsed as a UUID here (ALERT-LOW-014): `site_id` is a uuid column, and a
+   * value that is not one is a validation error, never a database error.
    */
   @Query(() => [AlertHistory], { name: 'alertHistory' })
   async getAlertHistory(
@@ -100,7 +95,8 @@ export class AlertResolver {
     @Args('resolved', { type: () => Boolean, nullable: true }) resolved?: boolean | null,
     @Args('startDate', { type: () => Date, nullable: true }) startDate?: Date | null,
     @Args('endDate', { type: () => Date, nullable: true }) endDate?: Date | null,
-    @Args('siteId', { type: () => ID, nullable: true }) siteId?: string | null,
+    @Args('siteId', { type: () => ID, nullable: true }, new ParseUUIDPipe({ optional: true }))
+    siteId?: string | null,
     @Args('module', { type: () => AlertModule, nullable: true }) module?: AlertModule | null,
   ): Promise<AlertHistory[]> {
     const limit = Math.min(Math.max(1, rawLimit), 100);
@@ -129,12 +125,14 @@ export class AlertResolver {
    * `module` narrow them like the list; `groupBy` splits them per site and/or
    * module (the workspace menu, a module dashboard's site rows). Without
    * arguments the rows keep the annunciator's shape. An explicit null means
-   * what an absent argument means, as on alertHistory.
+   * what an absent argument means, and `siteId` is parsed as a UUID, as on
+   * alertHistory.
    */
   @Query(() => [ActiveAlertCount], { name: 'activeAlertCounts' })
   async getActiveAlertCounts(
     @Tenant() tenantId: string,
-    @Args('siteId', { type: () => ID, nullable: true }) siteId?: string | null,
+    @Args('siteId', { type: () => ID, nullable: true }, new ParseUUIDPipe({ optional: true }))
+    siteId?: string | null,
     @Args('module', { type: () => AlertModule, nullable: true }) module?: AlertModule | null,
     @Args('groupBy', { type: () => [ActiveAlertCountDimension], nullable: true })
     groupBy?: ActiveAlertCountDimension[] | null,

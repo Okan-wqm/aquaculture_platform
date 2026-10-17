@@ -463,7 +463,7 @@ class OrchestratorOrgan(unittest.TestCase):
 
         check = doctor._check_orchestrator(self.tools)
 
-        self.assertEqual((check.status, check.reason), ("fail", "orchestrator_exits_all_cycle_failed:3"))
+        self.assertEqual((check.status, check.reason), ("fail", "orchestrator_exits_all_failed:3"))
         self.assertEqual([e["exit_reason"] for e in check.detail["exits"]], ["cycle_failed"] * 3)
         causes = {c["cycle_id"]: c for c in check.detail["failed_cycles"]}
         self.assertEqual(
@@ -485,7 +485,7 @@ class OrchestratorOrgan(unittest.TestCase):
         by_name = {check.name: check for check in report.checks}
         self.assertEqual(by_name["orchestrator"].status, "fail")
         self.assertEqual(report.exit_code, DOCTOR_EXIT_UNHEALTHY)
-        self.assertIn("[FAIL] orchestrator — orchestrator_exits_all_cycle_failed:3", render_doctor_text(report))
+        self.assertIn("[FAIL] orchestrator — orchestrator_exits_all_failed:3", render_doctor_text(report))
 
     def test_one_bad_night_after_good_ones_is_a_warn(self) -> None:
         self._exit("max_cycles", 1)
@@ -495,7 +495,7 @@ class OrchestratorOrgan(unittest.TestCase):
 
         check = doctor._check_orchestrator(self.tools)
 
-        self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_cycle_failed"))
+        self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_failed:cycle_failed"))
         self.assertEqual(check.detail["failed_cycles"][0]["cycle_id"], "cyc-bad")
 
     def test_a_degraded_night_is_not_a_cause_of_a_failed_exit(self) -> None:
@@ -520,7 +520,7 @@ class OrchestratorOrgan(unittest.TestCase):
 
         check = doctor._check_orchestrator(self.tools)
 
-        self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_cycle_failed"))
+        self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_failed:cycle_failed"))
 
     def test_a_single_clean_exit_is_ok_with_insufficient_history(self) -> None:
         self._exit("max_cycles", 1)

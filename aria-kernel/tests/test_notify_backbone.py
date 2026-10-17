@@ -254,7 +254,7 @@ class DoctorNamesItsFailingOrgans(_Store):
         report = self._report(
             DoctorCheck("deadlines", "fail", long_reason, {"path": "/host/path"}),
             DoctorCheck("integrity", "ok"),
-            DoctorCheck("orchestrator", "fail", "orchestrator_exits_all_cycle_failed:4"),
+            DoctorCheck("orchestrator", "fail", "orchestrator_exits_all_failed:4"),
             DoctorCheck("gateway", "warn", "inbox_backlog"),
         )
         with mock.patch("aria_kernel.doctor.run_doctor", return_value=report):
@@ -268,7 +268,7 @@ class DoctorNamesItsFailingOrgans(_Store):
         self.assertEqual(rows[0]["failing"], ["deadlines", "orchestrator"])
         self.assertEqual([title for title, _ in self.sent], [scheduler.DOCTOR_UNHEALTHY_TITLE])
         body = self.sent[0][1]
-        self.assertIn("orchestrator: orchestrator_exits_all_cycle_failed:4", body)
+        self.assertIn("orchestrator: orchestrator_exits_all_failed:4", body)
         self.assertNotIn("/host/path", body, "organ details carry host paths; the issue is public")
 
     def test_a_healthy_doctor_notifies_nobody_and_names_no_organ(self) -> None:
@@ -340,6 +340,44 @@ class OneFailedCycleIsOneNotification(_Store):
         self.assertEqual(len(notices), 1)
         self.assertIn("exit: bridge_replay_required", notices[0][1])
         self.assertIn("pending_after=2", notices[0][1])
+
+    def _assert_failed_in_every_account(self, result: dict[str, Any], *, exit_reason: str, failed_phase: str) -> None:
+        """ARIA-MEDIUM-548 — a night that sent the failure notice is failed on
+        every other account too: the run result, the exit row, the CLI summary
+        whose exit code colours the workflow step, and the doctor's
+        ``orchestrator`` organ that reads the exit row and names its cause."""
+        from aria_kernel import doctor
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        self.assertEqual(result["exit_reason"], exit_reason)
+        self.assertEqual(len(self._cycle_notices()), 1)
+        self.assertFalse(result["exits_clean"], "a notified failure must not exit clean")
+        self.assertEqual(result["cycles_completed"], 0, "a failed night completed no cycle")
+        exits = self.governance("autonomy_orchestrator_exit")
+        self.assertEqual([(row["exit_reason"], row["cycles_completed"]) for row in exits], [(exit_reason, 0)])
+        summary = autonomy_output_summary(result, base_dir=self.tools, workspace_root=self.tmp)
+        self.assertEqual((summary["overall_status"], summary["exit_code"]), ("failed", 1))
+        self.assertEqual(summary["cycles_completed"], 0)
+        self.assertIn(failed_phase, [phase.get("phase") for phase in summary["failed_phases"]])
+        organ = doctor._check_orchestrator(self.tools)
+        self.assertEqual((organ.status, organ.reason), ("warn", f"last_orchestrator_exit_failed:{exit_reason}"))
+        self.assertIn(failed_phase, [phase["phase"] for cycle in organ.detail["failed_cycles"]
+                                     for phase in cycle["failed_phases"]])
+
+    def test_a_fail_closed_night_is_failed_in_every_account(self) -> None:
+        operator_set_profile("strict", base_dir=self.base, scheduler_ceiling="strict")
+        self.capture()
+        result = self._run(profile="strict", cycle_runner=_payload_failed_cycle)
+        self._assert_failed_in_every_account(result, exit_reason="cycle_failed", failed_phase="pr_lifecycle")
+
+    def test_a_bridge_left_unreplayed_is_failed_in_every_account(self) -> None:
+        # The bridge exit notified a failure while the cycle was counted in
+        # cycles_completed, the run returned exits_clean=True, the CLI exited
+        # 0 and the summary's failed_phases did not name the bridge.
+        operator_set_profile("strict", base_dir=self.base, scheduler_ceiling="strict")
+        self.capture()
+        result = self._run(profile="strict", cycle_runner=_completed_cycle, bridge_drainer=_stuck_bridge)
+        self._assert_failed_in_every_account(result, exit_reason="bridge_replay_required", failed_phase="bridge")
 
     def test_a_completed_cycle_notifies_nobody(self) -> None:
         self.capture()

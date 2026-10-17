@@ -75,6 +75,15 @@ from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .ledger import LedgerIntegrityError
 from .next_cycle_queue import defer_projection, mark_consumed, read_pending
+from .orchestrator_exit_history import (
+    BRIDGE_FAILED_PHASE,
+    BRIDGE_REPLAY_PHASE,
+    EXIT_BRIDGE_REPLAY_REQUIRED,
+    EXIT_CYCLE_FAILED,
+    EXIT_KIND,
+    FAILED_EXIT_REASONS,
+    bridge_replay_reason,
+)
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
 from .tool_registry import GovernanceError
@@ -176,8 +185,15 @@ def _notify_cycle_failed(root: Path, *, cycle_id: str, exit_reason: str, reason:
     the exit so a continuing run's failed cycle that then also needs a
     bridge replay is two notices, not a dedup of the second.
     ``notify_best_effort`` never raises into the run it reports on.
+
+    ARIA-MEDIUM-548 — ``exit_reason`` is one of ``FAILED_EXIT_REASONS``, the
+    set ``exits_clean`` is computed from, so no exit can notify a failure and
+    still exit clean.
     """
     from .notify import notify_best_effort
+
+    if exit_reason not in FAILED_EXIT_REASONS:
+        raise ValueError(f"cycle_failed notice for an exit outside FAILED_EXIT_REASONS: {exit_reason}")
 
     notify_best_effort(
         kind="cycle_failed", key=f"{cycle_id}:{exit_reason}", base_dir=root,
@@ -1781,7 +1797,7 @@ def run_autonomy_orchestrator(
                 # fails closed. Before the reflection, so a reflection that
                 # raises cannot cost the operator the notice.
                 if cycle_status == "failed":
-                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason="cycle_failed",
+                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason=EXIT_CYCLE_FAILED,
                                          reason=_cycle_failure_reason(cycle_summary["cycle"]))
                 # C5/E8 — one warn-mode pedagogy snapshot per cycle,
                 # taken ONCE here (not inside the kwargs builder) so
@@ -1790,9 +1806,7 @@ def run_autonomy_orchestrator(
                 # branch because the failed exits reflect too
                 # (ARIA-HIGH-420).
                 pedagogy_snapshot = pedagogy_lint_snapshot(workspace_root)
-                if cycle_status in {"ok", "degraded"}:
-                    cycles_completed += 1
-                elif fail_closed_on_cycle_failure:
+                if cycle_status == "failed" and fail_closed_on_cycle_failure:
                     # ARIA-HIGH-420 — the work lanes are skipped and the
                     # reflection still runs, so a failed night writes its
                     # report and queues the next cycle's work.
@@ -1803,7 +1817,7 @@ def run_autonomy_orchestrator(
                         pedagogy_snapshot=pedagogy_snapshot,
                     )
                     per_cycle_results.append(cycle_summary)
-                    exit_reason = "cycle_failed"
+                    exit_reason = EXIT_CYCLE_FAILED
                     break
 
                 # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
@@ -1893,7 +1907,7 @@ def run_autonomy_orchestrator(
                     AutonomyStateReducer.transition(
                         root,
                         cycle_id=cycle_id,
-                        phase="bridge_replay_required",
+                        phase=BRIDGE_REPLAY_PHASE,
                         status="failed",
                         profile=profile_snapshot,
                         details={
@@ -1903,14 +1917,15 @@ def run_autonomy_orchestrator(
                     )
                     cycle_summary["failed_phases"] = list(cycle_summary.get("failed_phases", [])) + [
                         {
-                            "phase": "bridge",
+                            "phase": BRIDGE_FAILED_PHASE,
                             "status": "failed",
+                            "error": bridge_replay_reason(bridge_status, pending_after),
                             "bridge_status": bridge_status,
                             "pending_after": pending_after,
                         },
                     ]
-                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason="bridge_replay_required",
-                                         reason=f"bridge_status={bridge_status} pending_after={pending_after}")
+                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason=EXIT_BRIDGE_REPLAY_REQUIRED,
+                                         reason=bridge_replay_reason(bridge_status, pending_after))
                     # ARIA-HIGH-420 — the second failed exit reflects like
                     # the first one does.
                     cycle_summary["reflection"] = _reflect_on_failed_cycle(
@@ -1920,8 +1935,17 @@ def run_autonomy_orchestrator(
                         pedagogy_snapshot=pedagogy_snapshot,
                     )
                     per_cycle_results.append(cycle_summary)
-                    exit_reason = "bridge_replay_required"
+                    exit_reason = EXIT_BRIDGE_REPLAY_REQUIRED
                     break
+
+                # ARIA-MEDIUM-548 — a cycle is completed once it has passed
+                # both fail-closed gates: its own verdict and the bridge
+                # replay. Counted at `cycle_completed`, before the bridge, a
+                # bridge_replay_required night that notified a failure was
+                # also one completed cycle. A failed cycle the run continues
+                # past (fail_closed_on_cycle_failure=False) is not counted.
+                if cycle_status in {"ok", "degraded"}:
+                    cycles_completed += 1
 
                 # ARIA-HIGH-362 — CONVERGED plans an earlier cycle offered and
                 # left CONVERGED are offered again, through the same entry the
@@ -2981,7 +3005,7 @@ def run_autonomy_orchestrator(
 
             if profile_announce_allowed:
                 append_tools_governance(
-                    root, "autonomy_orchestrator_exit",
+                    root, EXIT_KIND,
                     {
                         "daemon_id": daemon_id,
                         "cycles_completed": cycles_completed,
@@ -2998,7 +3022,7 @@ def run_autonomy_orchestrator(
                 "worker_assignments_dispatched": worker_total,
                 "auto_merges_completed": auto_merges_total,
                 "exit_reason": exit_reason,
-                "exits_clean": exit_reason not in {"cycle_failed"},
+                "exits_clean": exit_reason not in FAILED_EXIT_REASONS,
                 "per_cycle": per_cycle_results,
                 "daemon_agent_id": daemon_agent_id,
             }

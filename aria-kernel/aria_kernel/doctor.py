@@ -544,12 +544,16 @@ def _failed_cycle_causes(failed_cycles: tuple[dict[str, Any], ...]) -> tuple[Doc
 
 
 def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
-    """A streak of ``cycle_failed`` exits is a FAULT, not a series of bad
-    nights. The orchestrator fails closed on a failed cycle — nothing behind
-    it (planner dispatch, the convergence drainer) runs — so a store whose
-    last runs all died that way has not planned anything, whatever the other
-    organs say. Four such runs in a row on the live store (2026-08-21 →
-    2026-09-04) read as healthy here before this organ existed.
+    """A streak of failed exits is a FAULT, not a series of bad nights. The
+    orchestrator fails closed on a failed cycle — nothing behind it (planner
+    dispatch, the convergence drainer) runs — and on a bridge left
+    unreplayed — nothing behind the bridge runs — so a store whose last runs
+    all died that way has not planned anything, whatever the other organs
+    say. Four such runs in a row on the live store (2026-08-21 → 2026-09-04)
+    read as healthy here before this organ existed. Which exits are failed is
+    `orchestrator_exit_history.FAILED_EXIT_REASONS`, the set the run's own
+    ``exits_clean`` is computed from (ARIA-MEDIUM-548); the WARN names the
+    newest exit's reason.
 
     A FAIL names its causes (`_failed_cycle_causes`), so a streak with a new
     cause is a new repair mission and the same cause on later nights is not."""
@@ -560,11 +564,11 @@ def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
     if streak.all_failed:
         return DoctorCheck(
             "orchestrator", "fail",
-            f"orchestrator_exits_all_cycle_failed:{len(streak.exits)}", detail,
+            f"orchestrator_exits_all_failed:{len(streak.exits)}", detail,
             _failed_cycle_causes(streak.failed_cycles),
         )
     if streak.last_failed:
-        return DoctorCheck("orchestrator", "warn", "last_orchestrator_exit_cycle_failed", detail)
+        return DoctorCheck("orchestrator", "warn", f"last_orchestrator_exit_failed:{streak.exits[0]['exit_reason']}", detail)
     if len(streak.exits) < 2:
         return DoctorCheck("orchestrator", "ok", "insufficient_history", detail)
     return DoctorCheck("orchestrator", "ok", "", detail)

@@ -401,3 +401,25 @@ against mocks. A spec casts a `FeedingWindowReadiness` literal, another adds the
 - `apps/alert-engine/src/alert/services/__tests__/feeding-execution-alert.service.spec.ts:205`
 - `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts:256-257`
 - `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts:874`
+
+### Fix (ALERT-LOW-015)
+
+- `alert-rule.site-module.postgres.spec.ts` runs `AlertRuleService`, wired through
+  `TypeOrmModule`, on Testcontainers Postgres. It pins the ungrouped and grouped counts with their
+  null groups, a site-filtered count against the list it opens, the rows served through the
+  code-first GraphQL types as enum names, and Postgres refusing a non-UUID site.
+- `feeding-execution-alert.service.spec.ts` builds its FeedingWindowReadiness event with
+  `stub<>()`; `sensor-reading.handler.spec.ts` builds the site-carrying event from its typed
+  `sensorReadingEvent` helper instead of an `as any` literal.
+- The morning sweep pairs each overdue meal with its day plan once (`PlannedMeal`), so the
+  missed-meal event reads `plan.unitCode` and `plan.siteId` from a value that is there by type,
+  and the finalize, catch-up and settle steps lose their Map-lookup guards. A meal whose day plan
+  does not exist is corrupt data: the retention purge deletes a plan's meals before the plan in
+  one transaction. Such a meal is logged and left out of the sweep, where it used to be marked
+  missed with an empty unit code.
+
+### Tests (ALERT-LOW-015)
+
+The real-SQL spec (6 tests) and the farm `rollup-reconciliation.postgres.spec.ts` (6 tests, it
+drives `sweepTenant`) ran on this host. `feeding-cron-v2.sweep.spec.ts` adds the orphan meal: it
+stays scheduled, nothing is enqueued and its unit is not locked.

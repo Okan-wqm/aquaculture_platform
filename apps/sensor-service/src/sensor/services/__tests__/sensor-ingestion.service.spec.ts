@@ -206,6 +206,17 @@ describe('SensorIngestionService — outbox durability', () => {
       expect(event).not.toHaveProperty('siteId');
     });
 
+    it('publishes no site for a site label that is not a UUID (ALERT-MEDIUM-013)', async () => {
+      sensorRepository.find.mockResolvedValue([
+        Object.assign(new Sensor(), { id: baseInput.sensorId, siteId: 'Hatchery North' }),
+      ]);
+
+      await service.ingestReading(baseInput);
+
+      const [event] = mockOutboxPublisher.enqueue.mock.calls[0] ?? [];
+      expect(event).not.toHaveProperty('siteId');
+    });
+
     it('looks up each batch chunk’s sensors once and stamps every reading', async () => {
       sensorRepository.find.mockResolvedValue([
         Object.assign(new Sensor(), { id: baseInput.sensorId, siteId: SITE_ID }),

@@ -261,8 +261,16 @@ is a farm site UUID, and the columns it is copied into (`sensor_metrics.site_id`
 
 A per-tenant audit of non-UUID values (reported, then cleared), `ALTER COLUMN site_id TYPE uuid`
 and the entity's `@Column('uuid')`. The parse in `siteOfSensor` then reduces to the column's
-type. PR #1997 adds that parse at every reader (ALERT-MEDIUM-013) and leaves the column as it is.
-Related: SENSOR-MEDIUM-161 (the site is never checked against farm).
+type. PR #1997 adds that parse at every event reader (ALERT-MEDIUM-013) and leaves the column as
+it is. Related: SENSOR-MEDIUM-161 (the site is never checked against farm).
+
+The sensor's other location columns (`department_id`, `system_id`, `equipment_id`, `tank_id`,
+`pond_id`, `farm_id`) are varchar too. The MQTT and data-ingestion paths copy them, with
+`site_id`, into the uuid columns of `sensor_metrics`
+(`apps/sensor-service/src/ingestion/mqtt-listener.service.ts:2048`,
+`apps/sensor-service/src/ingestion/data-ingestion.service.ts:381`). There a value that is not a
+UUID fails the metric write, and the reading is lost before any event is built (read from the
+code, not reproduced). This predates ALERT-MEDIUM-010. The same migration converts them together.
 
 ## SENSOR-MEDIUM-188
 

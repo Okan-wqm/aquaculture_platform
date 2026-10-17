@@ -56,6 +56,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
+import { siteOfSensor } from '../sensor/utils/sensor-site.util';
 
 import { ErasedTenantTombstoneService } from '../compliance/erasure/erased-tenant-tombstone.service';
 import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisioning.service';
@@ -1837,6 +1838,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    const siteId = siteOfSensor(sensor);
     try {
       await this.eventBus.publish({
         ...createBaseEvent('SensorReading', sensor.tenantId, {
@@ -1860,8 +1862,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
         ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
         // The sensor's site: alert-engine places the alarm a rule raises from
-        // this reading on it (ALERT-MEDIUM-010).
-        ...(sensor.siteId ? { siteId: sensor.siteId } : {}),
+        // this reading on it (ALERT-MEDIUM-010), a UUID or nothing
+        // (ALERT-MEDIUM-013).
+        ...(siteId !== undefined ? { siteId } : {}),
       });
       this.logger.debug(`Published SensorReading event for sensor ${sensor.id}`);
     } catch (error) {

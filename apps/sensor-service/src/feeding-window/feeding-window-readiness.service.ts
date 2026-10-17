@@ -36,6 +36,8 @@ import {
 import type { MealWindowEntry } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
+import { siteOfSensor } from '../sensor/utils/sensor-site.util';
+
 /** A reading older than this cannot vouch for conditions at meal time. */
 export const DO_READING_FRESHNESS_MINUTES = 60;
 
@@ -113,11 +115,10 @@ export class FeedingWindowReadinessService {
       }
 
       // The sensor's site travels with the verdict so alert-engine can place
-      // the alarm; a site that is not a UUID is not one the wire schema admits.
-      const site =
-        observation.siteId !== null && isValidUUID(observation.siteId)
-          ? { siteId: observation.siteId }
-          : {};
+      // the alarm; a site that is not a UUID is not one the wire schema admits
+      // (ALERT-MEDIUM-013).
+      const siteId = siteOfSensor(observation);
+      const site = siteId !== undefined ? { siteId } : {};
 
       if (observation.dissolvedOxygen === null || observation.observedAt === null) {
         verdicts.push({ entry, status: 'no_reading', ...site });

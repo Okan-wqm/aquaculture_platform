@@ -189,6 +189,34 @@ class PromotionAuthorityTests(_MaterializeLayout):
         verify.assert_called_once()
         self.assertEqual(row["status"], "ACTIVE")
 
+    def test_a_forged_panel_string_beside_a_verified_auto_token_is_refused(self) -> None:
+        # The wave-2 reproduction of item 6: the genesis gate counted the
+        # panel token's PRESENCE, the predicate then counted the verified
+        # auto token, and drafted code reached ACTIVE with neither an
+        # operator act nor the panel.
+        verified = {"tool_id": TOOL_ID}
+        with mock.patch("aria_kernel.adapter_calibration.verify_auto_promote_token", return_value=verified):
+            with self.assertRaisesRegex(GovernanceError, "genesis_adapter_promotion_requires_operator_or_panel"):
+                transition_tool(TOOL_ID, "ACTIVE", reason="auto", base_dir=self.tools, auto_promote_token="tok",
+                                panel_approval_token="forged", precision=1.0, evidence_chains_valid=True)
+        self.assertEqual(get_tool(TOOL_ID, self.tools)["status"], "SHADOW")
+
+    def test_a_forged_operator_ref_beside_a_verified_auto_token_is_refused(self) -> None:
+        verified = {"tool_id": TOOL_ID}
+        with mock.patch("aria_kernel.adapter_calibration.verify_auto_promote_token", return_value=verified):
+            with self.assertRaisesRegex(GovernanceError, "tool_transition_approval_unrecorded"):
+                transition_tool(TOOL_ID, "ACTIVE", reason="auto", base_dir=self.tools, auto_promote_token="tok",
+                                operator_approval_ref="garbage", precision=1.0, evidence_chains_valid=True)
+        self.assertEqual(get_tool(TOOL_ID, self.tools)["status"], "SHADOW")
+
+    def test_a_verified_panel_token_promotes(self) -> None:
+        pending = {"tool_id": TOOL_ID}
+        with mock.patch("aria_kernel.promotion_veto.verify_panel_approval_token", return_value=pending) as verify:
+            row = transition_tool(TOOL_ID, "ACTIVE", reason="panel", base_dir=self.tools,
+                                  panel_approval_token="minted", precision=1.0, evidence_chains_valid=True)
+        verify.assert_called_once()
+        self.assertEqual(row["status"], "ACTIVE")
+
     def test_custody_that_no_longer_verifies_blocks_promotion_before_the_act_is_spent(self) -> None:
         tool = get_tool(TOOL_ID, self.tools)
         tool["runner"] = {**tool["runner"], "timeout_ms": 1}

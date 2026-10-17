@@ -1500,6 +1500,8 @@ def transition_tool(
         raise GovernanceError("transition reason is required")
 
     tool = get_tool(tool_id, base_dir)
+    # Set only by SHADOW -> ACTIVE, the one transition the panel authorizes.
+    _panel_promote_verified = False
     if target_status in RUNNER_REQUIRED_STATUSES and "runner" not in tool:
         raise GovernanceError(f"{target_status} tool requires runner configuration")
     current = tool["status"]
@@ -1530,17 +1532,36 @@ def transition_tool(
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
             if critical_false_positives > 0:
                 raise GovernanceError("SHADOW -> ACTIVE requires zero critical false positives")
+            # The panel token is VERIFIED once, here among the structural
+            # gates, and both the genesis gate below and the predicate
+            # further down read the verdict: presence is not authority.
+            # verify_panel_approval_token re-derives the mint (kernel scope,
+            # panel adjudication, veto window) and compares MACs in constant
+            # time, so a forged string reads as "no token" instead of as a
+            # promotion. It spends nothing, so verifying it before the
+            # operator act resolves keeps a refusal free. Late import:
+            # promotion_veto reads this module at import time.
+            if panel_approval_token:
+                from .promotion_veto import verify_panel_approval_token
+
+                _panel_promote_verified = (
+                    verify_panel_approval_token(
+                        panel_approval_token, tool_id=tool_id, base_dir=base_dir
+                    )
+                    is not None
+                )
             # ARIA-HIGH-414 — a skill-genesis drafted adapter: its custody
             # bytes must still verify, and the authority must be an operator
-            # act or the panel; the auto-promote token alone is refused.
-            # Structural, so a refusal spends no operator act. Late import:
-            # genesis_adapter_custody imports this module.
+            # act or the VERIFIED panel; the auto-promote token alone is
+            # refused, and so is the auto token beside a forged panel
+            # string. Structural, so a refusal spends no operator act. Late
+            # import: genesis_adapter_custody imports this module.
             from .genesis_adapter_custody import verify_genesis_promotion
 
             verify_genesis_promotion(
                 tool,
                 operator_approval_ref=operator_approval_ref,
-                panel_approval_token=panel_approval_token,
+                panel_promote_verified=_panel_promote_verified,
                 base_dir=base_dir,
             )
     leaving_quarantine = (
@@ -1597,22 +1618,9 @@ def transition_tool(
                     )
                     is not None
                 )
-            # Same standard for the panel token, symmetric with the auto
-            # lane: presence is not authority. verify_panel_approval_token
-            # re-derives the mint (kernel scope, panel adjudication, veto
-            # window) and compares MACs in constant time, so a forged
-            # string reads as "no token" instead of as a promotion.
-            # Late import for the same cycle reason as above.
-            _panel_promote_verified = False
-            if panel_approval_token:
-                from .promotion_veto import verify_panel_approval_token
-
-                _panel_promote_verified = (
-                    verify_panel_approval_token(
-                        panel_approval_token, tool_id=tool_id, base_dir=base_dir
-                    )
-                    is not None
-                )
+            # The panel lane was verified among the structural gates above
+            # (_panel_promote_verified), to the same standard as the auto
+            # lane: presence is not authority.
             if (not operator_approval and not _auto_promote_verified and not _panel_promote_verified) or not evidence_chains_valid:
                 raise GovernanceError(
                     "SHADOW -> ACTIVE requires valid evidence chains and "

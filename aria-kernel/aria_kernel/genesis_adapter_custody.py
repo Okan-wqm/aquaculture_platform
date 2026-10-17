@@ -337,20 +337,34 @@ def verify_genesis_promotion(
     tool: Mapping[str, Any],
     *,
     operator_approval_ref: str | None,
-    panel_approval_token: str | None,
+    panel_promote_verified: bool,
     base_dir: str | Path | None,
 ) -> None:
     """SHADOW -> ACTIVE for a genesis tool: the bytes verify as at dispatch,
     and the authority is an operator act or the panel. The auto-promote token
-    alone is refused: it vouches for precision, and nobody has looked at
-    drafted code. Runs among ``transition_tool``'s structural gates, before
-    any approval is consumed."""
+    is never that authority: it vouches for precision, and nobody has looked
+    at drafted code. Runs among ``transition_tool``'s structural gates,
+    before any approval is consumed, so it reads each authority in the form
+    that exists without spending it:
+
+    * the panel as ``transition_tool`` VERIFIED it
+      (``promotion_veto.verify_panel_approval_token``, which consumes
+      nothing): a forged panel string is no panel, so it cannot stand beside
+      a verified auto token as the "operator or panel" this gate asks for
+      (ARIA-HIGH-414 item 6, the wave-2 reproduction);
+    * the operator as a claimed ref, which is binding: ``transition_tool``
+      resolves every non-blank ref right after these gates and refuses the
+      transition when it is not an operator's act
+      (``resolve_transition_approval`` raises), so a garbage ref is a
+      refusal, never an authority.
+    """
     if verify_genesis_dispatch(tool, base_dir=base_dir) is None:
         return
-    if not str(operator_approval_ref or "").strip() and not panel_approval_token:
+    if not str(operator_approval_ref or "").strip() and not panel_promote_verified:
         raise GenesisCustodyRefusal(
             f"genesis_adapter_promotion_requires_operator_or_panel: {tool.get('tool_id')!r} is drafted code; "
-            "SHADOW -> ACTIVE needs an operator approval ref or a panel approval token, not the auto-promote token"
+            "SHADOW -> ACTIVE needs an operator approval ref or a verified panel approval token, "
+            "not the auto-promote token"
         )
 
 

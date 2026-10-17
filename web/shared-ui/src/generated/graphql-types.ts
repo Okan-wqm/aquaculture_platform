@@ -372,6 +372,11 @@ export type AlertHistory = {
   triggeringData: Scalars['JSON']['output'];
 };
 
+/** NEWEST_FIRST (default): by trigger time. MOST_SEVERE_FIRST: by severity, the newest first within one */
+export type AlertHistoryOrder =
+  | 'MOST_SEVERE_FIRST'
+  | 'NEWEST_FIRST';
+
 /** The platform module an alarm originates in */
 export type AlertModule =
   | 'FARM'
@@ -16078,6 +16083,7 @@ export type Query = {
   reportPrefill: ReportPrefillOutput;
   resolveTagRefs: TagResolutionResultType;
   resolvedParameterValue: ParameterReading;
+  resolvedUnitParameterValues: Array<ParameterReading>;
   /** All retention policies for current tenant. */
   retentionPolicies: Array<RetentionPolicy>;
   reviewCycleStatus: ReviewCycleStatus;
@@ -16341,6 +16347,7 @@ export type QueryAlertHistoryArgs = {
   endDate?: InputMaybe<Scalars['DateTime']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
   module?: InputMaybe<AlertModule>;
+  orderBy?: InputMaybe<AlertHistoryOrder>;
   page?: InputMaybe<Scalars['Int']['input']>;
   resolved?: InputMaybe<Scalars['Boolean']['input']>;
   ruleId?: InputMaybe<Scalars['ID']['input']>;
@@ -17857,6 +17864,11 @@ export type QueryResolveTagRefsArgs = {
 
 export type QueryResolvedParameterValueArgs = {
   input: ResolvedParameterValueInput;
+};
+
+
+export type QueryResolvedUnitParameterValuesArgs = {
+  input: ResolvedUnitParameterValuesInput;
 };
 
 
@@ -19694,6 +19706,15 @@ export type ResolvedTagBindingType = {
   revision: Scalars['Int']['output'];
   source: Scalars['JSON']['output'];
   unifiedTagId: Scalars['ID']['output'];
+};
+
+/** A parameter to read at many units now (tanks or water equipment, classified by farm), each at its representative location */
+export type ResolvedUnitParameterValuesInput = {
+  /** Skip a value older than this many seconds; any age when omitted */
+  maxAgeSeconds?: InputMaybe<Scalars['Int']['input']>;
+  parameterConfigId: Scalars['ID']['input'];
+  /** Tank or water-equipment ids, 1 to 200; farm decides which each is */
+  unitIds: Array<Scalars['ID']['input']>;
 };
 
 export type RetentionPolicy = {

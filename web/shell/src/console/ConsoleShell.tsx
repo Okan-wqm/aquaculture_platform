@@ -4,7 +4,8 @@
  *
  * WHAT, left to right: the IndustrialRail with its workspace menu, then the
  * `.sd-content` column — the `page` container every console query reads, the
- * Industry token scope and the engineering-grid ground — holding the
+ * Industry token scope, the engineering-grid ground and the workspace's motif
+ * over it (suderra.css, FE-MEDIUM-348) — holding the
  * ConsoleHeader (sticky where it fits; eyebrow + h1, palette trigger, title
  * block, the layout's notifications and AI trigger, the user menu, the
  * annunciator under the row) and <main>, capped at 1520 px and left-aligned
@@ -26,9 +27,10 @@
  * (useFollowedWorkspace); choosing a workspace opens its home page.
  *
  * Real data only: counts come from the console data hooks and draw nothing
- * until ready. The two values without a source render through MockPreview with
- * their findings — the title block's revision (FE-LOW-338) and the workspace
- * menu's per-module alarm counts (ALERT-MEDIUM-010).
+ * until ready — the workspace menu's per-module alarm counts included, read
+ * from the annunciator's own request (ALERT-MEDIUM-010). The one value without
+ * a source renders through MockPreview with its finding: the title block's
+ * revision (FE-LOW-338).
  */
 import {
   Button,

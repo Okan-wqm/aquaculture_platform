@@ -185,6 +185,53 @@ describe('SensorIngestionService — outbox durability', () => {
     });
   });
 
+  describe('the sensor’s site on SensorReading (ALERT-MEDIUM-010)', () => {
+    const SITE_ID = '55555555-5555-4555-8555-555555555555';
+
+    it('reads the site from the sensor’s own row, in the ingest transaction', async () => {
+      sensorRepository.find.mockResolvedValue([
+        Object.assign(new Sensor(), { id: baseInput.sensorId, siteId: SITE_ID }),
+      ]);
+
+      await service.ingestReading(baseInput);
+
+      const [event] = mockOutboxPublisher.enqueue.mock.calls[0] ?? [];
+      expect(event).toMatchObject({ sensorId: baseInput.sensorId, siteId: SITE_ID });
+    });
+
+    it('publishes no site for a sensor bound to none', async () => {
+      await service.ingestReading(baseInput);
+
+      const [event] = mockOutboxPublisher.enqueue.mock.calls[0] ?? [];
+      expect(event).not.toHaveProperty('siteId');
+    });
+
+    it('publishes no site for a site label that is not a UUID (ALERT-MEDIUM-013)', async () => {
+      sensorRepository.find.mockResolvedValue([
+        Object.assign(new Sensor(), { id: baseInput.sensorId, siteId: 'Hatchery North' }),
+      ]);
+
+      await service.ingestReading(baseInput);
+
+      const [event] = mockOutboxPublisher.enqueue.mock.calls[0] ?? [];
+      expect(event).not.toHaveProperty('siteId');
+    });
+
+    it('looks up each batch chunk’s sensors once and stamps every reading', async () => {
+      sensorRepository.find.mockResolvedValue([
+        Object.assign(new Sensor(), { id: baseInput.sensorId, siteId: SITE_ID }),
+      ]);
+
+      await service.ingestBatch([baseInput, baseInput]);
+
+      expect(sensorRepository.find).toHaveBeenCalledTimes(1);
+      const sites = mockOutboxPublisher.enqueue.mock.calls.map(
+        ([event]) => (event as { siteId?: string }).siteId,
+      );
+      expect(sites).toEqual([SITE_ID, SITE_ID]);
+    });
+  });
+
   describe('ingestBatch() — chunked durable ingest', () => {
     it('enqueues one SensorReading event per reading on the chunk manager, no stored insert', async () => {
       const count = await service.ingestBatch([baseInput, baseInput]);

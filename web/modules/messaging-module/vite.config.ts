@@ -13,6 +13,7 @@ import { defineConfig } from 'vitest/config';
 // eslint.config.mjs, since a build config cannot go through the npm scope).
 import { getSharedConfigWithLucide } from '../../shared-ui/src/federation/federationSharedConfig';
 import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
+import { unresolvedAssetUrlGate } from '../../shared-ui/src/federation/unresolvedAssetUrlGate';
 
 /**
  * Vite config — Messaging Panel microfrontend.
@@ -25,6 +26,7 @@ import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
+    unresolvedAssetUrlGate(),
     federation({
       dts: false,
       name: 'messagingModule',

@@ -31,6 +31,7 @@ import { BindParameterChannelCommand } from '../commands/bind-parameter-channel.
 import type { WaterChemistryInputSet } from '../data/water-chemistry-input-sets';
 import type {
   ParameterReading,
+  UnitParameterReading,
   WaterChemistryInputsResult,
 } from '../dto/water-chemistry-reading.response';
 import {
@@ -42,10 +43,12 @@ import { BindParameterChannelHandler } from '../handlers/bind-parameter-channel.
 import type { SourceReader } from '../queries/parameter-source-queries';
 import {
   ResolveParameterValueQuery,
+  ResolveUnitParameterValuesQuery,
   ResolveWaterChemistryInputsQuery,
 } from '../queries/reading-queries';
 import {
   ResolveParameterValueHandler,
+  ResolveUnitParameterValuesHandler,
   ResolveWaterChemistryInputsHandler,
 } from '../query-handlers/reading-query.handlers';
 import { ParameterReadingResolver } from '../services/parameter-reading-resolver.service';
@@ -80,11 +83,12 @@ describe('water-chemistry reading — real Postgres', () => {
   let database: SourceDatabase | undefined;
   let topology: SourceTopology;
   let auditLog: AuditLogService;
-  const configs: Record<'alkalinity' | 'salinity' | 'calcium' | 'h2s', string> = {
+  const configs: Record<'alkalinity' | 'salinity' | 'calcium' | 'h2s' | 'oxygen', string> = {
     alkalinity: '',
     salinity: '',
     calcium: '',
     h2s: '',
+    oxygen: '',
   };
   const described = new Map<string, SensorChannelDescription>();
   const directory = stub<SensorChannelDirectory>({
@@ -205,6 +209,40 @@ describe('water-chemistry reading — real Postgres', () => {
       ),
     );
 
+  /** One parameter at many units in one request, through a directory that counts its requests. */
+  const resolveUnits = async (
+    parameterConfigId: string,
+    unitIds: readonly string[],
+    caller: SourceReader = MANAGER,
+  ): Promise<{ entries: UnitParameterReading[]; describeCalls: number }> => {
+    let describeCalls = 0;
+    const counting = stub<SensorChannelDirectory>({
+      describe: async (tenantId: string, keys: readonly SensorChannelKey[]) => {
+        describeCalls += 1;
+        return directory.describe(tenantId, keys);
+      },
+      describeOne: async (tenantId: string, key: SensorChannelKey) =>
+        directory.describeOne(tenantId, key),
+    });
+    const entries = await inTenant(() =>
+      new ResolveUnitParameterValuesHandler(
+        ds().dataSource,
+        new SiteAuthorizationService(),
+        new ParameterReadingResolver(ds().dataSource, counting),
+      ).execute(
+        new ResolveUnitParameterValuesQuery(TENANT, parameterConfigId, unitIds, 24 * HOUR, caller),
+      ),
+    );
+    return { entries, describeCalls };
+  };
+
+  /** Each entry's reading, for a read whose every unit is active. */
+  const readingsOf = (entries: readonly UnitParameterReading[]): ParameterReading[] =>
+    entries.map(({ unitId, reading }) => {
+      if (reading === null) throw new Error(`unit ${unitId} was answered as not found`);
+      return reading;
+    });
+
   const inputsAt = (
     point: MeasurementPoint,
     set: WaterChemistryInputSet,
@@ -256,6 +294,15 @@ describe('water-chemistry reading — real Postgres', () => {
         );
         configs[code] = saved.id;
       }
+      const oxygen = await manager.save(
+        manager.create(WaterQualityParameterConfig, {
+          tenantId: TENANT,
+          code: 'dissolved_oxygen',
+          name: 'dissolved oxygen',
+          unit: 'mg/L',
+        }),
+      );
+      configs.oxygen = oxygen.id;
     });
   });
 
@@ -620,6 +667,120 @@ describe('water-chemistry reading — real Postgres', () => {
       code: PARAMETER_SOURCE_ERROR.SENSOR_DIRECTORY_UNAVAILABLE,
       status: HttpStatus.SERVICE_UNAVAILABLE,
     });
+  });
+
+  it('reads one parameter at many units in one request — live channel first, then a person’s sample — in the asked order', async () => {
+    // The dashboard's question: the dissolved oxygen of each fed unit of a site, now.
+    await bind(
+      configs.oxygen,
+      tankPoint(),
+      channel('tank_do', {
+        tankId: topology.tankId,
+        quantity: 'dissolvedOxygen',
+        unit: 'mg/L',
+        latestValue: 6.4,
+        latestAt: ago(2 * MINUTE),
+      }),
+    );
+    const sampled = await seedTank(ds().dataSource, TENANT, topology, 'TNK-DO-2', USER);
+    const manual = await sample({ tankId: sampled }, { dissolved_oxygen: 5.1 }, HOUR);
+    // A machine-provenance row is never the person's sample.
+    await sample({ tankId: sampled }, { dissolved_oxygen: 2.0 }, MINUTE, 'sensor_auto');
+    const quiet = await seedEquipmentTank(ds().dataSource, TENANT, topology, 'EQ-DO-3', []);
+
+    const { entries, describeCalls } = await resolveUnits(configs.oxygen, [
+      sampled,
+      topology.tankId,
+      quiet,
+      topology.biofilterId,
+    ]);
+    const readings = readingsOf(entries);
+
+    expect(describeCalls).toBe(1);
+    expect(entries.map((entry) => entry.unitId)).toEqual([
+      sampled,
+      topology.tankId,
+      quiet,
+      topology.biofilterId,
+    ]);
+    expect(readings.map((reading) => reading.point)).toEqual([
+      { kind: 'tank', id: sampled },
+      { kind: 'tank', id: topology.tankId },
+      { kind: 'tank', id: quiet },
+      { kind: 'equipment', id: topology.biofilterId },
+    ]);
+    expect(readings[0]).toMatchObject({
+      value: 5.1,
+      unit: 'mg/L',
+      sourceKind: 'MANUAL',
+      measurementId: manual,
+      unresolved: null,
+    });
+    expect(readings[0]?.ageSeconds).toBeGreaterThanOrEqual(3600);
+    expect(readings[1]).toMatchObject({
+      value: 6.4,
+      unit: 'mg/L',
+      sourceKind: 'CHANNEL_PRIMARY',
+      channelKey: 'tank_do',
+      quality: 'GOOD',
+      unresolved: null,
+    });
+    expect(readings[1]?.ageSeconds).toBeLessThan(600);
+    expect(readings[2]).toMatchObject({ value: null, unresolved: 'NO_SOURCE' });
+    expect(readings[3]).toMatchObject({ value: null, unresolved: 'NO_SOURCE' });
+  });
+
+  it('answers a unit with no active row as not found and reads the others (FE-LOW-365)', async () => {
+    // A unit today's plans still name, deactivated since; an id that was never a unit.
+    const retired = await seedTank(ds().dataSource, TENANT, topology, 'TNK-RETIRED', USER);
+    await ds().dataSource.query(
+      `UPDATE "${ds().schema}".tanks SET "isActive" = false WHERE id = $1`,
+      [retired],
+    );
+    const { entries } = await resolveUnits(configs.oxygen, [retired, topology.tankId, OTHER_TANK]);
+    expect(entries.map(({ unitId, reading }) => [unitId, reading === null])).toEqual([
+      [retired, true],
+      [topology.tankId, false],
+      [OTHER_TANK, true],
+    ]);
+    expect(entries[1]?.reading).toMatchObject({ value: 6.4, sourceKind: 'CHANNEL_PRIMARY' });
+
+    // Nothing active to read: every unit answered as not found, nothing resolved.
+    const none = await resolveUnits(configs.oxygen, [retired, OTHER_TANK]);
+    expect(none.entries).toEqual([
+      { unitId: retired, reading: null },
+      { unitId: OTHER_TANK, reading: null },
+    ]);
+    expect(none.describeCalls).toBe(0);
+  });
+
+  it('refuses a many-unit read whole for an inactive parameter, or a unit at an unassigned site', async () => {
+    await expect(
+      resolveUnits('0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b', [topology.tankId]),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    const elsewhere: SourceReader = {
+      sub: USER,
+      roles: [Role.MODULE_USER],
+      assignedSiteIds: ['1a1a1a1a-1a1a-4a1a-8a1a-1a1a1a1a1a1a'],
+    };
+    await expect(resolveUnits(configs.oxygen, [topology.tankId], elsewhere)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    // An active unit at another site refuses the read even beside a unit that is not found:
+    // the not-found answer never stands in for the site check.
+    await expect(
+      resolveUnits(configs.oxygen, [OTHER_TANK, topology.tankId], elsewhere),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    const here: SourceReader = { ...elsewhere, assignedSiteIds: [topology.siteId] };
+    const { entries } = await resolveUnits(
+      configs.oxygen,
+      [topology.biofilterId, OTHER_TANK],
+      here,
+    );
+    expect(entries.map(({ unitId, reading }) => [unitId, reading === null])).toEqual([
+      [topology.biofilterId, false],
+      [OTHER_TANK, true],
+    ]);
   });
 
   it('reads a set only at its kind of point, an active parameter only, and a MODULE_USER only at an assigned site', async () => {

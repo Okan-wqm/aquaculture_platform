@@ -33,6 +33,12 @@ export interface WaterQualityCriticalEvent extends BaseEvent {
   criticalParametersJson: string;
   criticalParameterCount: number;
   measuredAt: string;
+  /**
+   * The measurement's site (its unit's site, the only one the measurement
+   * stores) — the alarm's site in alert-engine (ALERT-MEDIUM-010). Null when
+   * the unit has no site; absent on events minted before the field existed.
+   */
+  siteId?: string | null;
 }
 
 // ==================== Type Union ====================

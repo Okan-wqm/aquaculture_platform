@@ -49,7 +49,7 @@ describe('console nav definitions', () => {
     expect(split).toEqual([]);
     // The design's shared set really is shared.
     for (const id of [
-      'dashboard',
+      'dashboard-analytics',
       'alarms',
       'messaging',
       'tasks',

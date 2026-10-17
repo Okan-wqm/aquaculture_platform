@@ -2,6 +2,7 @@ import { resolve } from 'path';
 
 import { getSharedConfigWithRecharts } from '@aquaculture/shared-ui/federation/federationSharedConfig';
 import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
+import { unresolvedAssetUrlGate } from '../../shared-ui/src/federation/unresolvedAssetUrlGate';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { type PluginOption } from 'vite';
@@ -23,6 +24,7 @@ export default defineConfig(({ mode }) => {
     envDir: resolve(__dirname, '../../..'),
     plugins: [
       createReactPlugin(),
+      unresolvedAssetUrlGate(),
       federation({
         dts: false,
         name: 'farmModule',

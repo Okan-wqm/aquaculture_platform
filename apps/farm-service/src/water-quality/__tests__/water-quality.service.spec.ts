@@ -45,6 +45,7 @@ import {
   WaterQualityMeasurement,
   WaterQualityStatus,
   MeasurementSource,
+  ParameterStatus,
 } from '../entities/water-quality-measurement.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { CreateWaterQualityInput } from '../dto/create-water-quality.input';
@@ -229,6 +230,44 @@ describe('WaterQualityService — single-ingress validation', () => {
         tankId: EQUIPMENT,
         equipmentId: undefined,
       });
+    });
+
+    it('carries the measurement’s site on WaterQualityCritical, the alarm’s site (ALERT-MEDIUM-010)', async () => {
+      const { service, evaluate, mockManager, enqueue } = await buildService();
+      evaluate.mockResolvedValue({
+        overallStatus: WaterQualityStatus.CRITICAL,
+        criticalCount: 1,
+        warningCount: 0,
+        optimalCount: 0,
+        evaluations: [
+          {
+            parameter: 'dissolved_oxygen',
+            value: 2.1,
+            unit: 'mg/L',
+            status: ParameterStatus.CRITICAL_LOW,
+            criticalMin: 4,
+          },
+        ],
+        recommendations: [],
+      });
+      mockManager.save.mockImplementation((_e: unknown, entity: unknown) =>
+        Promise.resolve({
+          id: MEASUREMENT,
+          measuredAt: new Date('2026-06-14T08:00:00Z'),
+          ...(entity as object),
+        }),
+      );
+
+      await service.create(
+        TENANT,
+        createInput({ dynamicParameters: { dissolved_oxygen: 2.1 } }),
+        WQ_CALLER,
+      );
+
+      const critical = enqueue.mock.calls
+        .map(([event]: [{ eventType: string }]) => event)
+        .find((event) => event.eventType === 'WaterQualityCritical');
+      expect(critical).toMatchObject({ measurementId: MEASUREMENT, siteId: SITE });
     });
 
     it('refuses a missing unit, a tankId naming another unit, and a siteId of another site', async () => {

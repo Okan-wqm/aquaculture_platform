@@ -14,11 +14,9 @@ declare module 'dashboard/Module' {
   export default DashboardModule;
 }
 
-declare module 'dashboard/DashboardPage' {
-  import { FC } from 'react';
-  const DashboardPage: FC;
-  export default DashboardPage;
-}
+// `dashboard/DashboardPage` (and the `OverviewWidgets` expose) removed with the
+// tenant-wide KPI page: each module workspace's dashboard is a route of
+// `dashboard/Module` (FE-MEDIUM-346).
 
 // ============================================================================
 // Farm Module

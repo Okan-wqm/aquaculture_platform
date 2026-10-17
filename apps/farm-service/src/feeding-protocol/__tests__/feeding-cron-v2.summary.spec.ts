@@ -157,6 +157,7 @@ describe('FeedingCronV2Service.summarizeTenant (W5)', () => {
           id: 'dp-1',
           unitId: 'unit-1',
           unitCode: 'T1',
+          siteId: 'site-1',
           planDate: '2026-07-20',
           status: 'completed',
           plannedTotalKg: 100,
@@ -171,6 +172,12 @@ describe('FeedingCronV2Service.summarizeTenant (W5)', () => {
     await harness.service.summarizeTenant(TENANT, CLOCK);
 
     const underfed = harness.enqueued.find((event) => event.eventType === 'MealUnderfed');
-    expect(underfed).toMatchObject({ scope: 'day', unitId: 'unit-1', variancePercent: -30 });
+    // The day plan's site travels to the alarm (ALERT-MEDIUM-010).
+    expect(underfed).toMatchObject({
+      scope: 'day',
+      unitId: 'unit-1',
+      variancePercent: -30,
+      siteId: 'site-1',
+    });
   });
 });

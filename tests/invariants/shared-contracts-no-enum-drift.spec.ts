@@ -102,6 +102,10 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       // water-chemistry parameter, and the problem codes the binding UI shows —
       // decided once for the farm commands and the browser alike.
       './measurement/channel-binding',
+      // The many-unit read bound (FE-LOW-365): the most units farm's many-unit
+      // reads take, and the batch size the dashboard asks them in — one number,
+      // so a client batch cannot outgrow the server's bound.
+      './measurement/unit-reads',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [

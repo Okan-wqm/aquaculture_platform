@@ -9,6 +9,7 @@ import type {
 } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
 import { stub } from '@aquaculture/testing';
 import {
   FeedCoverageAlertService,
@@ -119,5 +120,22 @@ describe('FeedCoverageAlertService', () => {
     await service.recordTransitionGap(transitionEvent({ shortfallDays: 0 }));
     expect(save).not.toHaveBeenCalled();
     expect(ensureIncident).not.toHaveBeenCalled();
+  });
+
+  it('places a site pool’s alarm on that site and the tenant pool’s on none (ALERT-MEDIUM-010)', async () => {
+    const siteId = '66666666-6666-4666-8666-666666666666';
+    await service.recordStockoutForecast(stockoutEvent({ siteScopeKey: siteId }));
+    await service.recordStockoutForecast(stockoutEvent({ siteScopeKey: 'tenant' }));
+    await service.recordTransitionGap(transitionEvent({ siteScopeKey: siteId }));
+
+    const origins = create.mock.calls.map(([row]: [{ module: string; siteId: string | null }]) => [
+      row.module,
+      row.siteId,
+    ]);
+    expect(origins).toEqual([
+      [AlertModule.FARM, siteId],
+      [AlertModule.FARM, null],
+      [AlertModule.FARM, siteId],
+    ]);
   });
 });

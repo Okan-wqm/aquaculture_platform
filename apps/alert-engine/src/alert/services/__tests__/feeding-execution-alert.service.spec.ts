@@ -190,19 +190,21 @@ describe('FeedingExecutionAlertService', () => {
     await service.recordMealMissed(missedEvent({ siteId }));
     await service.recordUnfedUnit(unfedEvent({ siteId }));
     await service.recordFeedTransitioned(transitionedEvent({ siteId }));
-    await service.recordFeedingWindowReadiness({
-      eventType: 'FeedingWindowReadiness',
-      tenantId: TENANT,
-      timestamp: '2026-07-17T07:45:00.000Z',
-      unitId: 'unit-1',
-      unitCode: 'T1',
-      mealId: 'meal-1',
-      dayPlanId: 'dp-1',
-      scheduledAt: '2026-07-17T08:00:00.000Z',
-      status: 'no_reading',
-      minDissolvedOxygen: 6,
-      siteId,
-    } as FeedingWindowReadinessEvent);
+    await service.recordFeedingWindowReadiness(
+      stub<FeedingWindowReadinessEvent>({
+        eventType: 'FeedingWindowReadiness',
+        tenantId: TENANT,
+        timestamp: '2026-07-17T07:45:00.000Z',
+        unitId: 'unit-1',
+        unitCode: 'T1',
+        mealId: 'meal-1',
+        dayPlanId: 'dp-1',
+        scheduledAt: '2026-07-17T08:00:00.000Z',
+        status: 'no_reading',
+        minDissolvedOxygen: 6,
+        siteId,
+      }),
+    );
     // A signal minted before events carried a site.
     await service.recordMealMissed(missedEvent());
 

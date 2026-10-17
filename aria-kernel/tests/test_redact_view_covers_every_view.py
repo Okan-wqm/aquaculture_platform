@@ -139,6 +139,40 @@ class ReferenceShapesSurvive(unittest.TestCase):
         self.assertIn("redact_view_rewrites_reference", str(caught.exception))
 
 
+class AnAssignmentLosesItsValueOnly(unittest.TestCase):
+    """A redacted assignment keeps its name, quotes and delimiter: a JSON record or an env line stays readable.
+
+    The validation log's env-presence probe is a JSON record of secret-shaped
+    names with boolean values. Replacing the whole assignment ate the key's
+    closing quote, so the log no longer parsed.
+    """
+
+    def test_a_json_record_stays_a_record_and_loses_only_the_secret(self) -> None:
+        secret, name = "Hk7Pq2Zt" + "Wm4Rv9", "DB_" + "PASSWORD"
+        record = json.dumps({name: secret, "GH_" + "TOKEN": False, "API_" + "KEY": None})
+        expected = {name: secret_scrub.UNIFORM_MARKER, "GH_" + "TOKEN": False, "API_" + "KEY": None}
+        self.assertEqual(json.loads(scrub_text(record)), expected)
+        typed, _types = secret_scrub.scrub_text(record)
+        self.assertEqual(json.loads(typed)["GH_" + "TOKEN"], False)
+        self.assertTrue(json.loads(typed)[name].startswith("<REDACTED:"))
+
+    def test_an_env_assignment_keeps_its_name_and_what_follows(self) -> None:
+        name = "DB_" + "PASSWORD"
+        self.assertEqual(scrub_text(name + "=" + "Vb3Nm8Qw1Er6" + " next"),
+                         name + "=" + secret_scrub.UNIFORM_MARKER + " next")
+
+    def test_a_bare_value_is_redacted_to_its_end_and_a_number_stays_secret(self) -> None:
+        # A secret may hold a comma or a brace: the bare value runs to the next
+        # space or quote, so no tail of it is published. A PIN is a number.
+        name = "DB_" + "PASSWORD"
+        self.assertEqual(_surviving_runs(scrub_text(name + "=" + "Vb3N,m8Q}w1E]r6 next"), "Vb3N,m8Q}w1E]r6"), [])
+        self.assertEqual(_surviving_runs(scrub_text(name + "=" + "48151623 next"), "48151623"), [])
+
+    def test_an_env_presence_probe_is_not_rewritten(self) -> None:
+        probe = json.dumps({"GH_" + "TOKEN": False, "PROBE_SECRET_" + "TOKEN": None, "DB_" + "PASSWORD": True})
+        self.assertEqual(scrub_text(probe), probe)
+
+
 class OneGitHubTokenFamily(unittest.TestCase):
     """One prefix table: the write door classifies by it, habitat flags its user prefixes, the boundary redacts all."""
 

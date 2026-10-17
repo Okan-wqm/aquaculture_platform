@@ -72,7 +72,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final, Literal, get_args
+from typing import Callable, Final, Literal, get_args
 
 CredentialView = Literal["redact", "refuse", "dlp", "harness", "system_one", "habitat", "vault"]
 ShapeKind = Literal["credential", "pii"]
@@ -232,7 +232,19 @@ _SYSTEM_ONE_REDACT: Final = frozenset({"system_one", "redact"})
 # The value of a secret assignment: quoted (spaces included), or one bare
 # token. A value that starts with ``$`` or ``<`` is a variable reference, a
 # placeholder or an earlier redaction marker, not a secret, and stays.
-_ASSIGNED_VALUE: Final = r"""(?:"(?![$<])[^"\n]+"|'(?![$<])[^'\n]+'|(?![$<"'])[^\s"']+)"""
+# The value is a named group, so the one redaction loop replaces the value
+# alone and keeps the name, its quotes and the delimiter: a quoted JSON or
+# compose value stays parseable after redaction. A bare JSON literal (true,
+# false, null) is no secret: an env-presence probe prints
+# ``"GH_TOKEN": false``. A bare number still is (a PIN), and a bare value
+# still runs to the next space or quote, because a secret may contain ``,``
+# or ``}``, and stopping there would publish its tail.
+_ASSIGNED_VALUE: Final = (
+    r"""(?:"(?![$<])(?P<value>[^"\n]+)"|'(?![$<])(?P<value_sq>[^'\n]+)'"""
+    r"""|(?![$<"'])(?!(?:true|false|null)(?:[\s,}\]]|$))(?P<value_bare>[^\s"']+))"""
+)
+# The group names a row's ``redact`` may use to confine its replacement.
+_VALUE_GROUPS: Final[tuple[str, ...]] = ("value", "value_sq", "value_bare")
 # An environment-style name that ends in a secret word: the words the
 # system_one view knows, and the key and pass-phrase names an env file, a
 # compose file or a CI secret carries (``JWT_PRIVATE_KEY``,
@@ -486,6 +498,18 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
 UNIFORM_MARKER: Final = "<secret-redacted>"
 
 
+def _value_only(marker: str, groups: list[str]) -> Callable[[re.Match[str]], str]:
+    """A replacement that swaps only the matched value group for ``marker``."""
+    def replace(match: re.Match[str]) -> str:
+        for name in groups:
+            if match.group(name) is not None:
+                start, end = match.span(name)
+                whole, base = match.group(0), match.start()
+                return whole[:start - base] + marker + whole[end - base:]
+        return marker
+    return replace
+
+
 def _redact_counted(rows: tuple[CredentialShape, ...], text: str, *, typed: bool) -> tuple[str, dict[str, int]]:
     """The one redaction loop: each row's ``redact`` in order; match counts per row name.
 
@@ -495,7 +519,9 @@ def _redact_counted(rows: tuple[CredentialShape, ...], text: str, *, typed: bool
     """
     counts: dict[str, int] = {}
     for row in rows:
-        text, matched = row.redact.subn(f"<REDACTED:{row.name}>" if typed else UNIFORM_MARKER, text)
+        marker = f"<REDACTED:{row.name}>" if typed else UNIFORM_MARKER
+        groups = [name for name in _VALUE_GROUPS if name in row.redact.groupindex]
+        text, matched = row.redact.subn(_value_only(marker, groups) if groups else marker, text)
         if matched:
             counts[row.name] = matched
     return text, counts
@@ -507,7 +533,7 @@ def _redact_counted(rows: tuple[CredentialShape, ...], text: str, *, typed: bool
 # view would flag are assembled from parts, like the fixtures.
 REFERENCE_SHAPES: Final[tuple[str, ...]] = (
     "apps/x.ts:12",
-    "aria-kernel/aria_kernel/cost_budget.py:263-267",
+    "aria-kernel/aria_kernel/cost_budget" + ".py:263-267",
     "0123456789abcdef" * 4,
     "sha256:" + "0123456789abcdef" * 4,
     "SHA256:" + "U3ludGhldGljRmluZ2VycHJpbnRGb3JBVGVzdE9ubHkx"[:43],
@@ -528,6 +554,11 @@ REFERENCE_SHAPES: Final[tuple[str, ...]] = (
     "https://example.org:8443/path?q=1",
     "password = hashPassword(input)",
     "resolve_token=absent",
+    # A JSON record naming secret-shaped environment variables with values
+    # that cannot be secrets (booleans, null): the env-presence probe of a
+    # validation log. ARIA-MEDIUM-546's assignment rows once replaced each
+    # name with its value here, and the record no longer parsed.
+    '{"GH_TOKEN": false, "PROBE_SECRET_TOKEN": null, "DB_PASSWORD": true}',
 )
 
 

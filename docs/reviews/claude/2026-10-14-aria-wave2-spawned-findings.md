@@ -811,6 +811,43 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   regression lint as every other changed file. `affected-target-quarantine-ssot.spec.ts` fails when
   a baseline entry lies inside a lint-quarantined project. Deadline: 2026-10-31.
 
+### INFRA-MEDIUM-228 — the integration lane runs twice, and a duplicated policy key is read silently
+
+- **Wave-2 key:** ci-surface-3 (designs G042-S §1 and G042 §1, bucket
+  `G041-G042-reviewed-exception`).
+- **Already fixed on main, not in this row:** the duplicated `test:integration` key in
+  `affected-target-policy.json` (deleted by 508b44849), and the writer refusing the whole policy
+  file over an expired entry of another target (579a34c71, INFRA-MEDIUM-222).
+- **Problem:** `ci-affected.yml` runs `affected-target-policy.sh --target test:integration` from
+  two steps of the `test` job (:533 and :594), so every PR that touches farm-service or
+  auth-service runs their Testcontainers suites twice inside a 45-minute job budget.
+  `test-target-ci-reachability.spec.ts` sees the target twice and checks only that it is driven.
+  The policy file, the npm exceptions file and the lint-debt renewal are all read with
+  `JSON.parse`, which keeps the last of two equal keys. A second block for a target therefore
+  shadows the first without a signal, and `lint-debt-measure.mjs --renew` drops it from the file
+  when it rewrites the policy.
+- **Planned fix:** one strict JSON reader (`scripts/ci/lib/strict-json.mjs`) that refuses a
+  duplicated key, used by every reader of those files; a repo-wide spec over every tracked `*.json`;
+  the second integration step deleted; and a reachability test that each target is driven at most
+  once per workflow. Deadline: 2027-01-15.
+
+### INFRA-LOW-229 — the reviewed-exception rules have four copies
+
+- **Wave-2 key:** ci-surface-9 (designs G041-S §4 and G041 §4, bucket
+  `G041-G042-reviewed-exception`).
+- **Problem:** `scripts/ci/lib/reviewed-exception.mjs` owns the shape of a reviewed exception
+  (owner, a reason of at least 30 characters, an ISO expiry, a registry-shaped finding id). Three
+  invariant specs restate it, because a jest spec cannot import an `.mjs` module.
+  `invariant-reachability.spec.ts` accepts a dormant waiver with reason `tbd` and finding_id `TODO`,
+  which the lib refuses. `affected-target-quarantine-ssot.spec.ts` (`isEntry`) and
+  `npm-audit-exception-ssot.spec.ts` copy the rules and regexes, so tightening the lib leaves them
+  behind. `npm-audit-gate.mjs` says the exceptions file is empty and the ratchet is at 0; five
+  advisories are active.
+- **Planned fix:** each committed exception file is checked by the code that owns its rules: the
+  dormant manifest through the lib, the quarantine policy through the writer for every target it
+  names, and the npm file through the gate. The copies and the stale prose are deleted. Deadline:
+  2027-04-15.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

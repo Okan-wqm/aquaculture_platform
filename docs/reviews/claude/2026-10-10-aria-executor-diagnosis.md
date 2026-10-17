@@ -947,3 +947,125 @@ With `ARIA_ZAI_MODEL=glm-5.4`:
 - An exhaustion on the override raises under provider zai.
 - The worker lane's `worker_route` is `("zai", "glm-5.4")` while anthropic is cooled.
 - Import-graph tiers 0-2 (11 modules): 217 tests OK.
+
+### Follow-up 2 (continuity's review of dfe4f63fb, two LOWs): presence is read at every gate that routes
+
+- **LOW 1: `worker_route` skipped the host-presence check for rung 0.**
+  - With `suspended_providers: ["anthropic"]`, the worker ladder is `("zai",)`. On a host with no
+    Z.ai key, every tick claimed the assignment.
+  - The child raised `ClaudeAuthUnavailable` from the credential boundary, the arm cooled
+    nothing, and the hook released `worker_executor_failed`. It repeated with no end.
+- **LOW 2: `provider_outage` ignored host presence.**
+  - The writer ladder became `[anthropic, zai]`. On a zai-less host a cooled Anthropic left the
+    implementer "not in an outage".
+  - The planner hook's ARIA-HIGH-364 gate therefore claimed the implementer every poll, and the
+    admission released it `no_eligible_provider`.
+- **Fix, at the owners.**
+  - `provider_outage.host_providers()` is the one reading of what this host can run
+    (`model_fleet.available_providers`: the claude CLI on PATH, the Z.ai credential boundary
+    named, the codex session).
+  - `provider_outage(..., present=)` (a required keyword) counts a rung as able to take over only
+    when the host can run it. A ladder nothing has cooled is no outage, whatever is absent: there
+    is no event to wait out, and the admission names an absent provider itself.
+  - The planner hook's claim gate and the mint gate (`request_admission`, which records
+    `host_providers` on the capacity row) read the same presence, so they agree. Both run on the
+    same self-hosted runner.
+  - `worker_route` takes the first rung that is neither cooled nor absent. It holds (None) when no
+    rung can serve and one is cooled. A ladder that nothing has cooled and nothing here can run
+    takes its head, and the child that meets the absence cools the provider:
+    `claude_runtime.ProviderCredentialAbsent` is a `ClaudeAuthUnavailable` subclass carrying
+    provider and signature. For zai it is `zai_auth_refusal` from
+    `zai_tool_loop.prepare_zai_credential`, the one place a rung reads the key boundary. The next
+    tick holds by name.
+- **Tests.**
+  - The tests pin the host explicitly instead of trusting the machine's PATH. The kernel suite
+    runs on GitHub-hosted runners with no claude binary.
+  - New tests:
+    - `test_request_admission.ProviderOutage.test_a_rung_this_host_cannot_run_takes_over_nothing`;
+    - `ThePlannerDaemonBacksOffACooledProvider.test_on_a_host_with_no_zai_key_a_cooled_anthropic_holds_the_implementer_unclaimed`;
+    - `test_claude_quota_window_failover…test_a_zai_rung_whose_key_is_absent_cools_zai_and_the_next_tick_holds_unclaimed`;
+    - `test_provider_routing…test_presence_is_read_for_every_rung_the_head_included`.
+  - All four are red on be6ed002c.
+  - The lane fixtures now put a claude CLI on PATH, and continuity's 10-day e2e pins its emulated
+    host (`_HOST_PROVIDERS`). The e2e passes 12 tests under the real PATH and under a PATH with
+    no claude binary.
+
+## ARIA-HIGH-441 — a Claude login that is gone holds only the work Claude must do (2026-10-11, wave 3)
+
+### Symptom
+
+"Claude out" means a spent quota (ARIA-HIGH-425) or a login that is gone. The native lane already
+asked the route. The pre-claim gate is skipped once the admission admits a route
+(`ci_executor.py:4782`), and the admission's `claude auth status` probe cools a logged-out
+anthropic under `claude_logged_out` and admits zai. Three places still asked Claude for every
+request:
+
+- **(a)** `aria-agent-executor.yml:528` exited the whole job when the managed-auth file was
+  absent, before any request was routed. Whether `claude logout` removes that file is UNVERIFIED.
+- **(b)** The spawn lane's `_pre_claim_environment_gate` (`ci_executor.py:4421`) refused every
+  request on Claude's preflight, whatever its route.
+- **(c)** In the worker lane, the preflight's `ClaudeAuthUnavailable` landed in the arm that cools
+  nothing (`worker_executor.py:418`). The hook released `worker_executor_failed`
+  (`worker_dispatch_hook.py:450`), and the scheduler does not back off on that status. The
+  assignment was re-claimed and re-spawned at once, without end. The retry budget counts only
+  verification failures, so it was not spent, but the loop was hot.
+
+### Fix
+
+- **The preflight names the fact.** A missing managed login is `ProviderCredentialAbsent` for
+  anthropic, under `claude_logged_out`, the signature the native admission's seam already cools
+  under. It is still a `ClaudeAuthUnavailable` for every existing arm.
+- **(a)** The workflow keeps the API-key refusal and `claude --version`. A missing login is a
+  `::warning::`, not an exit. The invariant I-V3-22b pins that the block warns and does not
+  exit.
+- **(b)** `_claude_preflight_refusal` asks the route owner, `_spawn_lane_rungs`, which is
+  `routed_models` over the active cooldowns, the same reading `invoke_claude_cli` spawns from:
+  - a request whose first rung is not anthropic never asks Claude;
+  - only rungs this host can run count (`provider_outage.host_providers`, the one presence
+    reading);
+  - a logged-out Claude on an anthropic-headed request is cooled, through the one writer that
+    opens the outage, and the request goes on to its rung past anthropic;
+  - with nothing runnable past anthropic, for example no Z.ai key, the request is refused before
+    its claim, by name, with the gate's `::error::` and governance row. Anthropic is still cooled,
+    so its outage and HUMAN_REQUIRED item tell the operator.
+
+### No usable provider is told, not hidden (main's question)
+
+The step only warns now, so a night with the Claude login gone and no Z.ai key must still be loud:
+
+- **Native lane:**
+  `test_executor_zai_implementation.NoUsableProviderIsToldNotHidden.test_a_night_with_no_usable_provider_claims_nothing_and_opens_the_outage_item`
+  runs the real child.
+  - The admission refuses `no_eligible_provider` (anthropic `managed_session_logged_out`, zai
+    `provider_not_configured`).
+  - There is no claim and no vendor call.
+  - The anthropic `logged_out` outage is open with its HUMAN_REQUIRED item.
+  - This pins behaviour that already held on the native lane; this change must keep it.
+- **Spawn lane:**
+  `test_claude_logged_out_failover.TheSpawnLaneGateAsksTheRoute.test_no_login_and_no_zai_key_is_refused_before_the_claim_loudly`.
+  - The gate returns `claude_auth_unavailable` with its `::error::`.
+  - The request stays PENDING.
+  - The outage and its item are open.
+- **(c)** Nothing new is needed in the worker child. Its cooling arm already takes
+  `ProviderCredentialAbsent` (434 follow-up 2), so the hook releases
+  `provider_quota_unavailable:anthropic` and every later tick holds or routes to zai.
+
+### Tests (red on the 434 follow-up, green here)
+
+- **`aria-kernel/tests/test_claude_logged_out_failover.py`** (6 tests). Each runs the real
+  preflight (a claude CLI on PATH, no login on disk), the real routing, the real ledgers and the
+  real hook.
+  - The preflight raises the provider fact.
+  - An anthropic-headed request is cooled and routed past anthropic, and its outage opens. A
+    zai-headed request never asks Claude. An anthropic-only ladder is refused by name and cools
+    nothing.
+  - Five worker ticks with the login gone: one claim and one spawn, five `provider_cooldown`
+    statuses, one harness-class release, retry count 0, and `max_retries_exceeded` never
+    reached. With the Z.ai key on the host, the next tick runs the worker on glm-5.3.
+- **`test_executor_zai_implementation.TheSpawnLaneMovesALoggedOutClaudesWriterToZai`.** This is
+  the real executor child on the spawn lane with the login removed:
+  - the gate cools anthropic (`spawn_preflight`) and opens its logged-out outage;
+  - the implementation is delivered on zai, with a signed commit, the gate's suite at the tip
+    and the PR;
+  - `claude` never ran a model.
+- **The I-V3-22b invariant** pins the warning in the workflow.

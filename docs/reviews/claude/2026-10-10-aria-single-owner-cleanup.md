@@ -327,3 +327,77 @@ Fix at the one owner: `without_ambient_git_config` strips the redirect names as 
 publish (which keeps its own `GIT_CONFIG_*` credential on purpose) drops the redirect names
 through the same owner, and the invariant widens from the literal `GIT_CONFIG*` names to every
 variable that redirects git's configuration, program lookup, transport or credential prompt.
+
+## ARIA-LOW-447 — fixed: the ambient-env owner strips git's redirects
+
+Owner: claude. Raised by the security review of `0b88b2ccb..2d70a127e`; fixed 2026-10-11.
+
+### Symptom
+
+`without_ambient_git_config` (`git_containment.py:680-694`) stripped the `GIT_CONFIG_*` set and
+nothing else. The security review reproduced the gap:
+
+- With `GIT_EXEC_PATH` pointing at a planted `git-receive-pack`, the kernel push
+  (`_git(['push', …], env=_publish_environment())`) ran the planted helper with `GH_TOKEN` in its
+  environment.
+- The delivery push and `gh pr create` children received `GIT_ASKPASS`, `GIT_EXEC_PATH`,
+  `GIT_PROXY_COMMAND`, `GIT_SSH_COMMAND` and `SSH_ASKPASS`.
+
+The state store's git (`state_store.py:6187`) passed `{**os.environ}`, the publish step's
+credential included.
+
+### Which names belong to the class (git 2.43, measured here)
+
+The candidate list comes from the names git's own binaries read (`git` and `git-remote-http`).
+A name belongs when it can make a non-interactive kernel call do one of four things: run
+another program, reach or trust another transport, ask another source for a credential, or
+start a repository from other configuration.
+
+- **Stripped:**
+  - `GIT_EXEC_PATH`: every helper lookup. A local push runs `git-receive-pack` from it; the new
+    test's planted helper ran before the fix.
+  - `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND`: the transport's program.
+  - `GIT_EXTERNAL_DIFF`: run by diff porcelain.
+  - `GIT_ASKPASS`, `SSH_ASKPASS`: credential prompts.
+  - every `GIT_SSL_*` and `GIT_PROXY_SSL_*`: verification off, CA, client certificate and key.
+  - `GIT_TEMPLATE_DIR`: `git init` from a template holding `hooks/post-commit` and a `config` gave
+    the new repository the hook (which then ran on a plain commit) and the template's `user.name`
+    and `core.hooksPath`.
+  - `GIT_TRACE_REDACT`: over a local dumb-HTTP remote with an `Authorization` header, the
+    `GIT_TRACE_CURL` and `GIT_CURL_VERBOSE` output held the token 0 times by default and 2 times
+    with `GIT_TRACE_REDACT=0`.
+- **Kept:**
+  - `GIT_CEILING_DIRECTORIES`: it only stops discovery. With the ceiling at the repository, git
+    reports `not a git repository`; it never finds another one.
+  - The other `GIT_TRACE*` sinks: `GIT_TRACE` and `GIT_TRACE_PACKET` held the token 0 times;
+    `GIT_TRACE_CURL` is redacted while `GIT_TRACE_REDACT` is absent.
+  - `GIT_TERMINAL_PROMPT`: it can only disable prompts.
+  - Editors and pagers: `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR` and `GIT_PAGER` pointed at a marker
+    script did not run for `revert --no-edit`, `log` without a tty or `git var`.
+  - `HOME`, `GIT_CONFIG_GLOBAL/SYSTEM` and proxies: host plumbing every child needs.
+    `_publish_environment` pins the config files itself.
+
+### Fix (tier 1 at the one owner, tier 3 for a second list)
+
+- `git_containment.without_ambient_git_redirects` strips the class above.
+- `without_ambient_git_config` now builds on it, so every seam it already covers drops the
+  redirects too: the delivery push and publication, `gh pr create`, the revert's push, lookup,
+  create and commit, and the identity check.
+- The state store's one git spawn (`_run_git_bytes_bounded`) builds on
+  `without_ambient_git_redirects` alone. It keeps the publish step's `GIT_CONFIG_*` credential
+  (`aria-auto-cycle.yml:1239-1241`, `aria-agent-executor.yml:887-889`) and drops every redirect.
+- `tests/invariants/test_git_config_env_single_owner.py` pins:
+  - the new names and prefixes at the one owner (a forged second list of 11 spellings is caught);
+  - the full stripped set and the kept set;
+  - the store child keeping the `GIT_CONFIG_*` credential with no redirect.
+- `tests/_helpers/ambient_git_config.py` adds the redirects, with values a local transport never
+  uses, so every existing consumer test now also checks them.
+
+### Evidence
+
+- **Red before**, in a snapshot of `0ffd209dd`: 7 failed.
+  - The planted `git-receive-pack` ran with the push's credential.
+  - `gh pr create` saw 11 redirect names.
+  - The revert push, the identity check, the publication environment, the owner unit test and the
+    store child each carried redirects.
+- **Green after:** the same 21 tests passed.

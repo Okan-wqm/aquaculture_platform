@@ -186,6 +186,15 @@ class ExecutorLiveness(_Store):
 
 
 class ProviderOutage(_Store):
+    def setUp(self) -> None:
+        super().setUp()
+        # The host's presence is the test's fact (`provider_outage.host_providers`),
+        # never the machine's PATH: this host runs every vendor unless a test says not.
+        self.host = {"anthropic", "zai", "openai"}
+        patcher = patch("aria_kernel.provider_outage.host_providers", side_effect=lambda: frozenset(self.host))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _cooled(self, *providers: str) -> Any:
         until = _iso(NOW + timedelta(hours=1))
         return patch("aria_kernel.provider_outage.cooled_providers",
@@ -203,6 +212,26 @@ class ProviderOutage(_Store):
         with self.queue(_ledgers(1, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))), \
                 self._cooled("anthropic"):
             self.assertTrue(self.admit().admitted)
+
+    def test_a_rung_this_host_cannot_run_takes_over_nothing(self) -> None:
+        """ARIA-HIGH-434 review — the writer ladder gained zai; on a host with
+        no Z.ai key a cooled Anthropic is an outage for the implementer, and
+        the mint gate and the planner hook's claim gate say so alike. Nothing
+        cooled is no outage, whatever is absent."""
+        from aria_kernel.provider_outage import provider_outage
+
+        self.host = {"anthropic"}
+        until = {"until": _iso(NOW + timedelta(hours=1)), "reason": "quota_unavailable"}
+        for role in ("implementation", "evidence_judgment"):
+            with self.subTest(role=role):
+                self.assertIsNotNone(provider_outage(role, {"anthropic": until}, now=NOW, present={"anthropic"}))
+                self.assertIsNone(provider_outage(role, {"anthropic": until}, now=NOW,
+                                                  present={"anthropic", "zai"}))
+                self.assertIsNone(provider_outage(role, {}, now=NOW, present=()), "no cooldown, no outage")
+        with self.queue(_ledgers(1, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))), \
+                self._cooled("anthropic"):
+            refused = self.admit()
+        self.assertEqual(refused.refusal, "request_admission_throttled:provider_unavailable")
 
 
 class PriorityClasses(_Store):
@@ -336,6 +365,26 @@ class ThePlannerDaemonBacksOffACooledProvider(_Store):
         self.assertEqual(tick["status"], PROVIDER_COOLDOWN_STATUS)
         self.assertIn(PROVIDER_COOLDOWN_STATUS, ADMISSION_BACKOFF_STATUSES)
         self.assertEqual(tick["provider_cooldown"]["providers"], ["anthropic", "zai", "openai"])
+
+
+    def test_on_a_host_with_no_zai_key_a_cooled_anthropic_holds_the_implementer_unclaimed(self) -> None:
+        """ARIA-HIGH-434 review (LOW) — the writer ladder is [anthropic, zai];
+        a zai the host cannot run takes over nothing, so the hook holds the
+        implementer instead of claiming it into `no_eligible_provider` every
+        poll. With the key here, the hook goes on to claim."""
+        from aria_kernel.planner_dispatch_hook import PROVIDER_COOLDOWN_STATUS, dispatch_one_pending_planner_request
+
+        request = {"request_id": "req-2", "role": "implementation", "target_agent": "aria-implementer"}
+        until = _iso(datetime.now(timezone.utc) + timedelta(hours=1))
+        cooled = {"anthropic": {"until": until, "reason": "quota_unavailable"}}
+        for host, expected in (({"anthropic"}, PROVIDER_COOLDOWN_STATUS), ({"anthropic", "zai"}, "claim_failed")):
+            with self.subTest(host=sorted(host)), \
+                    patch.object(invocations, "next_pending_request", return_value=request), \
+                    patch("aria_kernel.provider_outage.cooled_providers", return_value=cooled), \
+                    patch("aria_kernel.provider_outage.host_providers", return_value=frozenset(host)), \
+                    patch.object(invocations, "claim_request", side_effect=GovernanceError("claim_probe")):
+                tick = dispatch_one_pending_planner_request(base_dir=self.tools, agent_id="daemon")
+            self.assertEqual(tick["status"], expected)
 
 
 class PlanSeedingIsDiscretionaryAndPlanStepsAreNot(_Store):

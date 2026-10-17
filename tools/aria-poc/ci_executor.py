@@ -71,6 +71,7 @@ from claude_runtime import (
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    ProviderCredentialAbsent,
     UsageRecording,
     extract_final_message,
     failure_cause_text,
@@ -868,6 +869,14 @@ def _write_sanitized_envelope(path: Path, envelope: dict[str, Any]) -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
     from aria_kernel.artifact_safety import write_sanitized_json
     write_sanitized_json(path, envelope)
+
+
+def _write_sanitized_transcript(path: Path, text: str) -> None:
+    """The ONE transcript write of every lane (ARIA-HIGH-448): through the
+    artifact-safety boundary, before the transcript is hashed and sealed."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.artifact_safety import write_sanitized_transcript
+    write_sanitized_transcript(path, text)
 
 
 def _safe_agent_text_excerpt(text: str, *, limit: int = 4000) -> str:
@@ -1930,8 +1939,8 @@ def invoke_claude_cli(
             }
         _write_sanitized_envelope(output_path, mock_envelope)
         resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
-        resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_transcript_path.write_text(
+        _write_sanitized_transcript(
+            resolved_transcript_path,
             json.dumps(
                 {
                     "schema_version": "aria/ci-executor-transcript/v1",
@@ -1945,7 +1954,6 @@ def invoke_claude_cli(
                 sort_keys=True,
             )
             + "\n",
-            encoding="utf-8",
         )
         if on_outcome is not None:
             # ARIA-HIGH-188 — every terminal path reports once, the mock too.
@@ -2398,8 +2406,7 @@ def invoke_claude_cli(
         envelope["details"]["agent_contract_hash"] = agent_contract.contract_hash
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
-        resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_transcript_path.write_text(completed.stdout, encoding="utf-8")
+        _write_sanitized_transcript(resolved_transcript_path, completed.stdout)
         # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution. Gated on
         # _MOCK_MODE_AT_ENTRY frozen sentinel (V3.1-D2) so a mid-run
         # CLAUDE_CLI_MOCK flip cannot rewrite mock-mode classification
@@ -3166,21 +3173,15 @@ def _run_zai_as_claude_result(
     Claude writer's gate and room, not one completion.
     """
     from claude_runtime import _record_usage_best_effort
-    from zai_runtime import (
-        ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, resolve_zai_max_tokens,
-        run_zai_chat,
-    )
-    from zai_tool_loop import ROOM_SYSTEM_PROMPT, claude_run_result, run_zai_writer
+    from zai_runtime import ZaiTransportUnavailable, resolve_zai_max_tokens, run_zai_chat
+    from zai_tool_loop import ROOM_SYSTEM_PROMPT, claude_run_result, prepare_zai_credential, run_zai_writer
 
     if room is not None:
         # The contract already leads `prompt_text` on this lane.
         return run_zai_writer(seat=room, model=model, effort=effort, user=prompt_text,
                               system=ROOM_SYSTEM_PROMPT + "\n\n" + _ZAI_SYSTEM_PROMPT,
                               timeout_seconds=timeout_seconds, usage_recording=usage_recording)
-    try:
-        context = prepare_zai_context(dict(os.environ), default_model=model)
-    except ZaiCredentialUnavailable as exc:
-        raise ClaudeAuthUnavailable(f"zai_{exc.reason}: {exc}") from exc
+    context = prepare_zai_credential(model)
     try:
         completed = run_zai_chat(
             context.credential, base_url=context.base_url, model=model,
@@ -3290,8 +3291,7 @@ def _invoke_native_codex(
             native_runtime.context, contract.text + "\n\n" + prompt, model=route["model"], effort=route["effort"],
             timeout_seconds=timeout_seconds, control=spawn_control,
         )
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_path.write_text(completed.stdout, encoding="utf-8")
+        _write_sanitized_transcript(transcript_path, completed.stdout)
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
             raise ClaudeAuthFailure("Codex managed authentication unavailable", provider=route["provider"],
@@ -3437,8 +3437,7 @@ def _invoke_native_zai(
                 max_tokens=resolve_zai_max_tokens(dict(os.environ)), reasoning_effort=route["effort"],
                 json_object=resolve_zai_json_object(dict(os.environ)),
             )
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
+        _write_sanitized_transcript(transcript_path, completed.raw_body.decode("utf-8", errors="replace"))
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
             raise ClaudeAuthFailure(
@@ -4272,7 +4271,88 @@ def _git_availability_gap(session: Any, *, workspace: Path) -> str | None:
     return None
 
 
-def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
+def _spawn_lane_rungs(*, tools_dir: Path, request_id: str, target_agent: str) -> tuple[tuple[str, str], ...] | None:
+    """``(provider, model)`` for this request's spawn-lane rungs, in the order
+    `invoke_claude_cli` will try them (`runtime_profiles.routed_models` over
+    the active cooldowns), or None when the request row cannot be read.
+
+    ARIA-HIGH-441 — the route owner the pre-claim gate asks whether Claude
+    is needed at all; the gate keeps no copy of the ladder.
+    """
+    from aria_kernel.agent_invocations import list_agent_invocation_requests
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+    from aria_kernel.provider_cooldown import active_provider_cooldowns
+    from aria_kernel.runtime_profiles import routed_models
+
+    rows = list_agent_invocation_requests(request_id=request_id, base_dir=tools_dir)
+    if len(rows) != 1 or not rows[0].get("role"):
+        return None
+    profile = read_agent_runtime_profile(target_agent, repo_root=_kernel_checkout_root())
+    models = routed_models(str(rows[0]["role"]), target_agent, profile_model=profile.model,
+                           write_capable=profile.write_capable, environ=os.environ,
+                           runtimes=_SPAWN_LANE_RUNTIMES, cooled=active_provider_cooldowns(tools_dir))
+    return tuple((_provider_for_model(model), model) for model in models)
+
+
+def _cool_logged_out_anthropic(*, tools_dir: Path, request_id: str, exc: ProviderCredentialAbsent, model: str) -> None:
+    """Cool anthropic for a login that is gone, through the one writer (which
+    opens the `logged_out` outage and its operator item once per transition)."""
+    from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+    record_provider_cooldown(
+        tools_dir, provider=exc.provider, model=model, cooldown_seconds=provider_cooldown_seconds(_REPO_ROOT),
+        request_id=request_id, claim_id=f"preflight:{request_id}", detection={**exc.detail, "seam": "spawn_preflight"},
+    )
+
+
+def _claude_preflight_refusal(*, tools_dir: Path, request_id: str | None, target_agent: str | None) -> str | None:
+    """Why this spawn-lane request cannot proceed for want of Claude, or None.
+
+    ARIA-HIGH-441 — Claude's preflight is the question only when the
+    request's first rung runs on Anthropic. A logged-out Claude
+    (`ProviderCredentialAbsent`) is a provider fact: Anthropic is cooled
+    under `claude_logged_out` through the one cooldown writer (which opens
+    its outage), and the request goes on when a rung past Anthropic remains
+    — `invoke_claude_cli` reads the same cooldowns and tries that rung
+    first. Before, every spawn-lane request was refused before its claim
+    while the Claude login was gone, whatever its route. A rung the host
+    cannot run is no rung: with no Claude login and no Z.ai key the request
+    is refused before its claim (`claude_auth_unavailable`, the gate's
+    `::error::`), and Anthropic's outage is open for the operator.
+    """
+    from aria_kernel.provider_outage import host_providers
+
+    rungs = (None if request_id is None or target_agent is None
+             else _spawn_lane_rungs(tools_dir=tools_dir, request_id=request_id, target_agent=target_agent))
+    # The rungs this host can run (`provider_outage.host_providers`, the one
+    # presence reading): a rung past anthropic the host cannot run takes
+    # over nothing, so with no Claude and no Z.ai key the request is refused
+    # here, loudly, before any claim — never claimed into a dead rung.
+    present = host_providers()
+    runnable = [(provider, model) for provider, model in rungs or () if provider in present]
+    if runnable and runnable[0][0] != "anthropic":
+        return None
+    try:
+        preflight_claude_auth()
+    except ProviderCredentialAbsent as exc:
+        if not runnable or all(provider == "anthropic" for provider, _model in runnable):
+            if rungs:
+                # Refused all the same: the fact is still Anthropic's, and
+                # cooling it opens the outage an operator is told about.
+                _cool_logged_out_anthropic(tools_dir=tools_dir, request_id=str(request_id), exc=exc,
+                                           model=runnable[0][1] if runnable else rungs[0][1])
+            return str(exc)
+        _cool_logged_out_anthropic(tools_dir=tools_dir, request_id=str(request_id), exc=exc, model=runnable[0][1])
+        _stage(f"claude_logged_out_cooled request_id={request_id} routes_past_anthropic")
+        return None
+    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
+        return str(exc)
+    return None
+
+
+def _pre_claim_environment_gate(
+    *, tools_dir: Path, request_id: str | None = None, target_agent: str | None = None,
+) -> str | None:
     """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
 
     The correct shape existed in the dead `--consume` loop: preflight the
@@ -4293,10 +4373,9 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
 
     kind: str | None = None
     detail = ""
-    try:
-        preflight_claude_auth()
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
-        kind, detail = "claude_auth_unavailable", str(exc)
+    claude_refusal = _claude_preflight_refusal(tools_dir=tools_dir, request_id=request_id, target_agent=target_agent)
+    if claude_refusal is not None:
+        kind, detail = "claude_auth_unavailable", claude_refusal
     if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
         # ARIA-HIGH-123 — the detail names WHY (the git containment probe's
         # refusal when that is what failed): an operator reading the row
@@ -4655,7 +4734,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 native_runtime = admission_exit
             elif isinstance(admission_exit, _NativeAdmissionRefusal):
                 return admission_exit.exit_code
-        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir) if native_runtime is None else None
+        gate_kind = (_pre_claim_environment_gate(tools_dir=tools_dir, request_id=request_id, target_agent=subagent_type)
+                     if native_runtime is None else None)
         if gate_kind is not None:
             return 1
         # Step 1 — claim the request through the kernel CLI. The lease is
@@ -5785,8 +5865,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # Step 4 — submit through the kernel CLI; lease-token via env var.
     # ORPHAN-HIGH-081 — bounded timeout + survivable claim release on hang.
     if not transcript_output_path.exists():
-        transcript_output_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_output_path.write_text(
+        _write_sanitized_transcript(
+            transcript_output_path,
             json.dumps(
                 {
                     "schema_version": "aria/ci-executor-transcript/v1",
@@ -5798,7 +5878,6 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 sort_keys=True,
             )
             + "\n",
-            encoding="utf-8",
         )
     _transcript_hash = "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
     # ARIA-HIGH-022 — implementer agents cite the POST-FIX lines of files

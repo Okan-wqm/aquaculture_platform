@@ -502,11 +502,11 @@ def _run_judge_batch(
         )
         expected_output_path.parent.mkdir(parents=True, exist_ok=True)
         _engine._write_sanitized_envelope(expected_output_path, sealed)
-        transcript_path.write_text(json.dumps({
+        _engine._write_sanitized_transcript(transcript_path, json.dumps({
             "schema_version": BATCH_SUMMARY_SCHEMA, "batch_id": batch_id, "payload_hash": payload_hash,
             "request_id": member.request_id, "answer": json.loads(json.dumps(sealed["details"]["verdict"])),
             "usage_share": share,
-        }, sort_keys=True) + "\n", encoding="utf-8")
+        }, sort_keys=True) + "\n")
         _engine._publish_artifact_paths(expected_output_path, transcript_path)
         errors = _engine._pre_submit_validate_envelope(sealed, role=role, request=envelope, tools_dir=tools_dir)
         if errors:

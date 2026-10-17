@@ -412,6 +412,8 @@ class TheWorkerLaneCoolsAndWaits(unittest.TestCase):
         }, test_fixture=True)
         spawned: list[list[str]] = []
         boundary = {"ARIA_ZAI_API_KEY_FILE": str(self.tmp / "zai.key")} if zai_key else {}
+        # The lane fixture puts a claude CLI first on PATH: anthropic is
+        # present on this host by construction (`host_providers`).
         with patch.dict(os.environ, boundary), \
                 patch("aria_kernel.worker_dispatch_hook.subprocess.run",
                       lambda argv, *a, **k: spawned.append(list(argv)) or subprocess.CompletedProcess(argv, 1, "", "")):
@@ -450,6 +452,43 @@ class TheWorkerLaneCoolsAndWaits(unittest.TestCase):
             with self.assertRaises(GovernanceError) as refused:
                 self._hook(zai_key=True, cooled=False)
         self.assertIn("worker_route_unavailable:aria-worker:every_writer_suspended", str(refused.exception))
+
+    def test_a_zai_rung_whose_key_is_absent_cools_zai_and_the_next_tick_holds_unclaimed(self) -> None:
+        """Review of dfe4f63fb (LOW) — with Anthropic suspended the worker
+        ladder is ("zai",); on a host with no Z.ai key every tick claimed and
+        the child exited 1 uncooled (`worker_executor_failed`). The child now
+        cools zai (`ProviderCredentialAbsent`), so the hook holds by name."""
+        import copy
+
+        import worker_executor
+        from aria_kernel import runtime_profiles
+
+        worktree = self.tmp / "worktrees" / "A-W-1"
+        worktree.mkdir(parents=True, exist_ok=True)
+        assignment = {"assignment_id": "A-W-1", "target_agent": "aria-worker", "worktree_path": str(worktree),
+                      "required_tests": [], "expected_trailer": "Closes-Pressure: P-A-W-1", "timeout_seconds": 60}
+        worker = read_agent_runtime_profile("aria-worker", repo_root=_REPO_ROOT)
+        with patch.object(worker_executor, "_resolve_assignment", return_value=assignment), \
+                patch("aria_kernel.agent_runtime_profile.read_agent_runtime_profile", lambda *a, **k: worker), \
+                patch.dict(os.environ, {}), patch.object(sys, "stderr", io.StringIO()):
+            os.environ.pop("ARIA_ZAI_API_KEY_FILE", None)
+            os.environ.pop("ARIA_ZAI_API_KEY", None)
+            code = worker_executor.main(["A-W-1", "aria-worker", "--claim-id", "DC-z", "--model", "glm-5.3"])
+        self.assertEqual(code, 1)
+        rows = [row["details"] for row in load_declared_jsonl(self.tools_root / "governance.jsonl",
+                                                               expected_surface="tools_governance")
+                if row["kind"] == PROVIDER_COOLDOWN_GOVERNANCE_KIND]
+        self.assertEqual([(row["provider"], row["claim_id"], row["detection"]["signature"]) for row in rows],
+                         [("zai", "DC-z", "zai_auth_refusal")])
+        document = copy.deepcopy(json.loads(runtime_profiles.profiles_path().read_text(encoding="utf-8")))
+        document["provider_routing"]["suspended_providers"] = ["anthropic"]
+        table = self.tmp / "runtime_profiles.json"
+        table.write_text(json.dumps(document), encoding="utf-8")
+        with patch.object(runtime_profiles, "profiles_path", return_value=table):
+            result, spawned = self._hook(zai_key=False, cooled=False)
+        self.assertEqual((result["status"], result["claim_id"], result["provider_cooldown"]["provider"]),
+                         ("provider_cooldown", None, "zai"))
+        self.assertEqual((spawned, result["retry_count"]), ([], 0), "held by name: no claim, no spawn, no budget")
 
     def test_one_resolver_names_the_targets_ladder_for_the_hook_and_any_reader(self) -> None:
         from aria_kernel.worker_dispatch_hook import worker_ladder_for_target, worker_target_profile

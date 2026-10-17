@@ -173,7 +173,7 @@ class PhaseB3SpecAdrAmendment(unittest.TestCase):
         # INFRA-HIGH-215 — the PR trigger is unfiltered (a required context
         # must report on every PR); the `changes` job runs the suite for a
         # SPEC/ADR amendment.
-        surface = kernel_lane_surface(yaml.safe_load(self.kernel_wf_text))
+        surface = kernel_lane_surface()
         for required in ("docs/aria/**", "docs/adr/**"):
             self.assertIn(required, surface, f"aria-kernel.yml: the kernel surface lacks {required}")
         self.assertFalse(

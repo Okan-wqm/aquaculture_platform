@@ -55,7 +55,11 @@
 import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
+import yaml from 'js-yaml';
+
 import {
+  EXPRESSION_BLOCK_RE,
+  NAMED_INPUT_READ_RE,
   findRunBlockInjections,
   type InjectionViolation,
 } from '../../tools/gates/workflow-input-injection';
@@ -295,5 +299,158 @@ describe('workflow input injection invariant (Plan 024 v3 §B-3, INFRA-CRITICAL-
 
     const quoted = shipped.replace('<<EOF', "<<'EOF'");
     expect(write(quoted)).toHaveLength(0);
+  });
+});
+
+/**
+ * ARIA-LOW-510: an inputs read must name an input the workflow declares.
+ *
+ * aria-kernel.yml compacted with `${{ github.event.inputs.retain_days || '7' }}`
+ * while its `workflow_dispatch` declared no inputs: the knob did not exist (the
+ * expression always gave '7') and GitHub refuses a dispatch that passes an
+ * undeclared input. Nothing compared the reads with the declarations.
+ *
+ * Declared inputs are the keys of `on.workflow_dispatch.inputs` and
+ * `on.workflow_call.inputs`. Reads are taken from the parsed document, so YAML
+ * comments never count: every `${{ ... }}` in any string value, plus every
+ * `if:` value, which GitHub evaluates as an expression with or without braces.
+ */
+interface UndeclaredInputRead {
+  readonly file: string;
+  readonly at: string;
+  readonly input: string;
+}
+
+function declaredWorkflowInputs(document: unknown): Set<string> {
+  const declared = new Set<string>();
+  if (typeof document !== 'object' || document === null) return declared;
+  const on = (document as Record<string, unknown>).on;
+  if (typeof on !== 'object' || on === null || Array.isArray(on)) return declared;
+  for (const trigger of ['workflow_dispatch', 'workflow_call']) {
+    const config = (on as Record<string, unknown>)[trigger];
+    if (typeof config !== 'object' || config === null) continue;
+    const inputs = (config as Record<string, unknown>).inputs;
+    if (typeof inputs !== 'object' || inputs === null) continue;
+    for (const name of Object.keys(inputs)) declared.add(name);
+  }
+  return declared;
+}
+
+function namedInputReads(expressionBody: string): string[] {
+  const names: string[] = [];
+  for (const read of expressionBody.matchAll(NAMED_INPUT_READ_RE)) {
+    const name = read[1] ?? read[2];
+    if (name !== undefined) names.push(name);
+  }
+  return names;
+}
+
+function findUndeclaredInputReadsInText(text: string, label: string): UndeclaredInputRead[] {
+  const document: unknown = yaml.load(text);
+  const declared = declaredWorkflowInputs(document);
+  const reads: UndeclaredInputRead[] = [];
+
+  const visit = (node: unknown, path: string, key: string | undefined): void => {
+    if (typeof node === 'string') {
+      const bodies = [...node.matchAll(EXPRESSION_BLOCK_RE)].map((match) => match[1] ?? '');
+      if (key === 'if' && !node.includes('${{')) bodies.push(node);
+      for (const body of bodies) {
+        for (const input of namedInputReads(body)) {
+          if (!declared.has(input)) reads.push({ file: label, at: path, input });
+        }
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => visit(item, `${path}[${index}]`, undefined));
+      return;
+    }
+    if (typeof node === 'object' && node !== null) {
+      for (const [childKey, child] of Object.entries(node)) {
+        visit(child, path === '' ? childKey : `${path}.${childKey}`, childKey);
+      }
+    }
+  };
+  visit(document, '', undefined);
+  return reads;
+}
+
+describe('workflow input declarations (ARIA-LOW-510)', () => {
+  test('every inputs read in a workflow names an input its workflow_dispatch or workflow_call declares', () => {
+    const files = workflowFiles();
+    expect(files).toEqual(
+      expect.arrayContaining(['aria-kernel.yml', 'aria-state-maintenance.yml']),
+    );
+
+    const undeclared: UndeclaredInputRead[] = [];
+    for (const file of files) {
+      undeclared.push(
+        ...findUndeclaredInputReadsInText(readFileSync(join(WORKFLOWS_DIR, file), 'utf-8'), file),
+      );
+    }
+
+    expect(undeclared.map((read) => `${read.file}: inputs.${read.input} at ${read.at}`)).toEqual(
+      [],
+    );
+  });
+
+  test('the declaration scanner fires on every read shape, and spares declared inputs and comments', () => {
+    // A gate nobody has seen fail is a gate nobody knows the direction of.
+    const workflow = (on: string[], steps: string[]): string =>
+      [
+        'on:',
+        ...on,
+        'jobs:',
+        '  x:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        ...steps,
+        '',
+      ].join('\n');
+    const names = (text: string): string[] =>
+      findUndeclaredInputReadsInText(text, 'fixture').map((read) => read.input);
+
+    // The shape that shipped in aria-kernel.yml: env read, dispatch without inputs.
+    const shipped = workflow(
+      ['  workflow_dispatch:', '  pull_request:'],
+      [
+        '      - name: Compact',
+        '        env:',
+        "          RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}",
+        '        run: echo "$RETAIN_DAYS"',
+      ],
+    );
+    expect(names(shipped)).toEqual(['retain_days']);
+
+    // Declaring it under workflow_dispatch (or workflow_call) answers the read.
+    const declaredDispatch = shipped.replace(
+      '  workflow_dispatch:\n',
+      "  workflow_dispatch:\n    inputs:\n      retain_days:\n        default: '7'\n",
+    );
+    expect(names(declaredDispatch)).toEqual([]);
+    const declaredCall = shipped.replace(
+      '  workflow_dispatch:\n',
+      '  workflow_call:\n    inputs:\n      retain_days:\n        type: string\n',
+    );
+    expect(names(declaredCall)).toEqual([]);
+
+    // Index form, the bare-expression `if:` and a `with:` value are reads too.
+    const otherShapes = workflow(
+      ['  workflow_dispatch:'],
+      [
+        "      - if: inputs.dry_run == 'true'",
+        '        uses: ./.github/actions/x',
+        '        with:',
+        "          sha: ${{ inputs['head_sha'] }}",
+      ],
+    );
+    expect(names(otherShapes).sort()).toEqual(['dry_run', 'head_sha']);
+
+    // A YAML comment naming an input, and other contexts, are not reads.
+    const inert = workflow(
+      ['  workflow_dispatch:', '  # ${{ inputs.retain_days }} is not declared here'],
+      ['      - run: echo "${{ steps.scope.outputs.reason }} ${{ github.sha }}"'],
+    );
+    expect(names(inert)).toEqual([]);
   });
 });

@@ -70,8 +70,8 @@ npx ts-node --project tools/gates/tsconfig.json \
   tools/gates/finding-registry.ts add-explicit /tmp/historical-finding.json
 ```
 
-All mutating subcommands (`add`, `add-explicit`, `close`, `sweep`,
-`rechain-from`, and `dedupe`) share one lock in Git's common directory, so every
+All mutating subcommands (`add`, `add-explicit`, `import-narrative`, `close`,
+`reopen`, `assign`, `sweep`, `reconcile`, `rechain-from`, and `dedupe`) share one lock in Git's common directory, so every
 worktree of the same repository is serialized. Lock acquisition is bounded. A
 stale lock is taken over only when its metadata is valid, it belongs to this
 host, and its recorded process no longer exists. Malformed and foreign-host
@@ -118,8 +118,59 @@ to remain identical (including hashes), and requires `N` to be at or beyond that
 canonical prefix. It then validates the complete suffix against the JSON schema
 and the post-cutover evidence contract before recalculating hashes. This permits
 merge concatenation and correction of an unmerged malformed tail without
-turning rechain into a way to bless edits to canonical history. `close` remains
-the only command that can transition an already-merged row.
+turning rechain into a way to bless edits to canonical history.
+
+### Merged-row mutators and the write sink
+
+Only these commands change an already-merged row: `close` and `reconcile` (to
+RESOLVED), `reopen` (to OPEN), `sweep` (to STALE or BLOCKED), `assign` (fills a
+missing `owner_user` or `deadline`), `canonicalize-owner` (rewrites an
+`owner_user` spelling to its CODEOWNERS handle) and `dedupe` (drops a
+duplicate). Each one
+restitches the chain from the row it changed. They all write through
+`writeRegistry` in `tools/gates/finding-registry.ts`, which holds every row the
+write changes to the row contract (`tools/gates/finding-registry-rows.ts`: the
+schema, plus the evidence shape for rows created after its cutover) and writes
+nothing when one fails. Rows the write does not change are left to the integrity
+invariant.
+
+### Accountability
+
+An unresolved CRITICAL must carry a non-blank `owner_user` and a `deadline`
+(schema `$defs/accountable`). A CRITICAL is exempt from the 30-day STALE timer, so
+its deadline is the only clock that moves it. A row registered before the rule
+gains its fields through:
+
+```bash
+npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts \
+  assign <id> --owner-user=<handle> --deadline=<YYYY-MM-DD> --reason=<why>
+```
+
+`assign` fills a missing value and never changes one; it refuses a deadline the
+sweep would already call lapsed, records the reason in `notes`, and accepts any
+state, RESOLVED included, so a reopen of an ownerless RESOLVED CRITICAL has a path.
+
+### Owner identity
+
+`owner_user` is the GitHub handle accountable for the finding, stored in its
+`.github/CODEOWNERS` spelling without the `@` (`Okan-wqm`). The one rule is
+`canonicalOwner` in `tools/gates/finding-registry-owners.ts`: GitHub logins are
+case-insensitive, so `add` and `assign` store `@okan-wqm` as `Okan-wqm`, and a
+value no CODEOWNERS handle names (a first name, an email, a role) is refused.
+The write sink refuses any write that sets such a value, and the integrity
+invariant (`tests/invariants/finding-registry-integrity.spec.ts`) judges every
+row. A spelling registered before the rule is rewritten with:
+
+```bash
+npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts \
+  canonicalize-owner <spelling> [--to=<handle>] --reason=<why>
+```
+
+Without `--to` the spelling must name a handle by itself (`@okan-wqm`,
+`Okan-Wqm`); with it, the caller states which person a legacy spelling means.
+Each rewritten row records the change and the reason in `notes`.
+`LEGACY_OWNER_SPELLINGS` in the same module lists the spellings whose identity
+still awaits that decision; it only shrinks.
 
 ## Hash chain integrity
 

@@ -47,13 +47,27 @@ import yaml from 'js-yaml';
 export const EXPRESSION_BLOCK_RE = /\$\{\{([\s\S]*?)\}\}/g;
 
 /**
- * A read of the inputs context anywhere in an expression body: `inputs.x`,
- * `inputs['x']`, `github.event.inputs.x`. The look-behind keeps a longer
- * identifier (`my_inputs.x`, `steps.inputs.x`) from matching; the
- * `github.event.inputs` alternative is listed explicitly because its `inputs`
- * is preceded by `.`.
+ * The inputs context in an expression body: `inputs` or `github.event.inputs`.
+ * The look-behind keeps a longer identifier (`my_inputs.x`, `steps.inputs.x`)
+ * from matching; the `github.event.inputs` alternative is listed explicitly
+ * because its `inputs` is preceded by `.`. Both rules below build on this one
+ * source, so they cannot disagree about what an inputs read is.
  */
-export const INPUTS_CONTEXT_RE = /(?<![A-Za-z0-9_.])(?:github\.event\.inputs|inputs)\s*(?:\.|\[)/;
+const INPUTS_CONTEXT_SOURCE = String.raw`(?<![A-Za-z0-9_.])(?:github\.event\.inputs|inputs)\s*`;
+
+/** A read of the inputs context anywhere in an expression body: `inputs.x`, `inputs['x']`, `github.event.inputs.x`. */
+export const INPUTS_CONTEXT_RE = new RegExp(`${INPUTS_CONTEXT_SOURCE}(?:\\.|\\[)`);
+
+/**
+ * The same read with the input's name captured: group 1 for the dotted form,
+ * group 2 for the index form with a quoted literal. A computed index
+ * (`inputs[format(...)]`) names no input and is not matched. ARIA-LOW-510's
+ * invariant (every read names a declared input) reads it.
+ */
+export const NAMED_INPUT_READ_RE = new RegExp(
+  `${INPUTS_CONTEXT_SOURCE}(?:\\.\\s*([A-Za-z_][A-Za-z0-9_-]*)|\\[\\s*['"]([^'"]+)['"]\\s*\\])`,
+  'g',
+);
 
 /**
  * A read of an event-payload field an outside author writes. A SHA, a number

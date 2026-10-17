@@ -271,13 +271,19 @@ class NativePreMergeContextTests(unittest.TestCase):
             change_id=planned["change_id"], commit_sha=head_sha,
             actual_affected_files=[source_path], base_dir=tools,
         )
-        pr = {
+        opener_pr = {
             "number": 731, "base_branch": "main", "base_sha": base_sha,
             "head_ref": "aria/native-pre-merge-context", "head_sha": head_sha,
             "changed_files": [source_path], "change_id": planned["change_id"],
             "body": "Apply the converged sample-interval change.",
         }
+        # ARIA-HIGH-521 — production shape: the opener's row binds the PR to
+        # its change; the merge lane then records what GitHub reports, and
+        # GitHub knows no change_id, so the LAST row carries none.
+        opened = record_pr_lifecycle(opener_pr, event="opened", base_dir=tools)
+        pr = {key: value for key, value in opener_pr.items() if key != "change_id"}
         observed = record_pr_lifecycle(pr, base_dir=tools)
+        self.assertIsNone(observed["change_id"])
         snapshot = build_repo_snapshot(workspace_root=repo, mode="committed")
         self.assertEqual(change_for_pr(731, base_dir=tools), planned["change_id"])
         self.assertEqual(plan_status(plan_id=plan.plan_id, base_dir=tools)["state"], "CONVERGED")
@@ -286,7 +292,7 @@ class NativePreMergeContextTests(unittest.TestCase):
         self.assertEqual(git("diff", "--name-only", base_sha, head_sha), source_path)
         self.assertEqual(snapshot["base_commit_sha"], head_sha)
         self.assertNotEqual(base_sha, head_sha)
-        for row in (planned, committed, observed):
+        for row in (planned, committed, opened, observed):
             self.assertRegex(row["ledger_hash"], r"^sha256:[0-9a-f]{64}$")
 
         # Missing optional native context capability is the initial RED;
@@ -312,7 +318,8 @@ class NativePreMergeContextTests(unittest.TestCase):
         self.assertIsNone(evidence.claim_id)
         self.assertEqual(evidence.pr_number, 731)
         self.assertEqual(evidence.change_id, planned["change_id"])
-        self.assertEqual(evidence.pr_row_hash, observed["ledger_hash"])
+        # The evidence names the row that binds the PR to its change.
+        self.assertEqual(evidence.pr_row_hash, opened["ledger_hash"])
         self.assertEqual(evidence.planned_row_hash, planned["ledger_hash"])
         self.assertEqual(evidence.committed_row_hash, committed["ledger_hash"])
         self.assertEqual(evidence.plan_id, plan.plan_id)
@@ -637,11 +644,18 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(plan_status(plan_id=plan.plan_id, base_dir=tools)["state"], "IMPLEMENTATION_RECORDED")
         self.assertEqual(accepted_result_for_request(request_id=request["request_id"], base_dir=tools)["ledger_hash"],
             submitted["row"]["ledger_hash"])
-        pr = {"number": 732, "state": "OPEN", "base_branch": "main", "base_sha": staged["base_sha"],
+        # ARIA-HIGH-521 — production shape: the opener's row binds the PR to
+        # its change and proposal; the merge lane observes the PR through
+        # GitHub (`GhCliGitHubAdapter.get_pr`), which knows neither, so every
+        # row the lane appends carries change_id None.
+        opener_pr = {"number": 732, "state": "OPEN", "base_branch": "main", "base_sha": staged["base_sha"],
             "head_ref": staged["branch"], "head_sha": head_sha, "body": "Native implementation result fixture.",
             "changed_files": [source_path], "change_id": staged["change_id"],
             "proposal_id": staged["proposal_id"], "url": pr_url}
+        opened = record_pr_lifecycle(opener_pr, event="opened", base_dir=tools)
+        pr = {key: value for key, value in opener_pr.items() if key not in {"change_id", "proposal_id"}}
         observed = record_pr_lifecycle(pr, base_dir=tools)
+        self.assertIsNone(observed["change_id"])
         with patch("aria_kernel.tool_registry.update_tools_index", wraps=actual_index_writer) as public_writer:
             public_binding = verify_invocation_context_binding(
                 request_id=request["request_id"], context_hash=request["context_hash"],
@@ -660,7 +674,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(evidence.request_id, request["request_id"])
         self.assertEqual(evidence.claim_id, claim["claim_id"])
         self.assertEqual(evidence.result_row_hash, submitted["row"]["ledger_hash"])
-        self.assertEqual(evidence.pr_row_hash, observed["ledger_hash"])
+        self.assertEqual(evidence.pr_row_hash, opened["ledger_hash"])
         self.assertEqual(evidence.plan_revision_id, plan.revision_id)
         self.assertEqual(evidence.plan_content_hash, plan.content_hash)
         self.assertEqual(evidence.head_sha, head_sha)
@@ -898,8 +912,21 @@ class NativeImplementationContextTests(unittest.TestCase):
             tools_dir=tools, workspace_root=repo, plan_id="plan-competing-source-inspection",
             allowed_path=source_path, base_sha=head_sha,
         )
-        competing_claim = claim_request(request_id=competing["request_id"],
-            agent_id="competing-source-worker", base_dir=tools)
+        from aria_kernel.merge_record import lifecycle_rows
+        from aria_kernel.tool_registry import GovernanceError
+
+        # ARIA-HIGH-006 — PR #732 is open, so its change holds the source
+        # path at claim time although its claim's result has committed.
+        with self.assertRaisesRegex(GovernanceError, "implementation_scope_locked"):
+            claim_request(request_id=competing["request_id"], agent_id="competing-source-worker", base_dir=tools)
+        # The merge-time observation is the backstop for a claim the
+        # claim-time lock admitted before #732's `opened` row existed (the
+        # native lease lapsing mid-delivery): the competing claim is admitted
+        # against the pr-lifecycle ledger as it stood before that row.
+        before_open = [row for row in lifecycle_rows(tools) if row.get("pr_number") != pr["number"]]
+        with patch("aria_kernel.merge_record.lifecycle_rows", return_value=before_open):
+            competing_claim = claim_request(request_id=competing["request_id"],
+                agent_id="competing-source-worker", base_dir=tools)
         with self.subTest(ordinary_case="live_overlapping_implementation_claim"):
             locked_context, locked_checks = invoke_current_runner(selected_root=repo)
             self.assertTrue(locked_checks["branch_tip_lock_and_recheck"].passed)
@@ -918,6 +945,28 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertTrue(unlocked_checks["per_file_mutual_exclusion"].passed)
             self.assertIsNone(unlocked_context.pre_merge_evidence.scope_conflicting_claim_id)
             self.assertIsNotNone(unlocked_context.pre_merge_evidence.scope_observed_at)
+        # ARIA-HIGH-006 — a competing change whose PR is open holds its files
+        # at the point of merge, whatever its claim did since: two open ARIA
+        # PRs over the same file are refused here, and the hold ends when the
+        # competing PR closes.
+        from aria_kernel.merge_record import EVENT_CLOSED_UNMERGED, record_pr_unmergeable
+
+        competing_ids = competing["implementation_ids"]
+        competing_pr = {"number": 733, "state": "OPEN", "base_branch": "main", "base_sha": head_sha,
+            "head_ref": competing_ids["branch"], "head_sha": head_sha, "changed_files": [source_path],
+            "change_id": competing_ids["change_id"], "proposal_id": competing_ids["proposal_id"]}
+        record_pr_lifecycle(competing_pr, event="opened", base_dir=tools)
+        with self.subTest(ordinary_case="released_claim_whose_pr_is_open"):
+            open_context, open_checks = invoke_current_runner(selected_root=repo)
+            self.assertFalse(open_checks["per_file_mutual_exclusion"].passed)
+            self.assertEqual(open_checks["per_file_mutual_exclusion"].reason, "implementation_scope_locked")
+            self.assertEqual(open_context.pre_merge_evidence.scope_conflicting_claim_id, competing_claim["claim_id"])
+        record_pr_unmergeable(pr=competing_pr, event=EVENT_CLOSED_UNMERGED, reason="closed_unmerged_on_github",
+            base_dir=tools)
+        with self.subTest(ordinary_case="released_claim_whose_pr_closed"):
+            closed_context, closed_checks = invoke_current_runner(selected_root=repo)
+            self.assertTrue(closed_checks["per_file_mutual_exclusion"].passed)
+            self.assertIsNone(closed_context.pre_merge_evidence.scope_conflicting_claim_id)
 
         with self.subTest(ordinary_case="coverage_manifest_temporarily_unavailable"):
             held_manifest = coverage_manifest.with_suffix(".held")

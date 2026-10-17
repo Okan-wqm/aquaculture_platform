@@ -3838,17 +3838,32 @@ def _assert_envelope_reproduces_binding(envelope: dict[str, Any]) -> None:
 
 def _implementation_scope_conflict(
     request: dict[str, Any], *, requests: list[dict[str, Any]],
-    claims: list[dict[str, Any]], results: list[dict[str, Any]], now: datetime,
+    claims: list[dict[str, Any]], results: list[dict[str, Any]],
+    pr_lifecycle: list[dict[str, Any]], now: datetime,
 ) -> dict[str, str] | None:
     """Compare implementation scopes using existing native lease ownership.
 
     Inputs are canonical rows captured by the caller. A prepared submission
     retains ownership until its result commits; mere lease expiry cannot free
     that pending operation. Other roles keep their existing admission rules.
+
+    ARIA-HIGH-006 — and an owner whose change has a PR still open holds its
+    scope until that PR merges or closes, whatever its claim did since. The
+    executor opens the PR inside the claim (``implementation_delivery``), so
+    the result commits, or the lease lapses, while the PR is live; releasing
+    the scope then let a second implementation of the same files be claimed,
+    delivered and opened beside it, and the merge-time observation (this
+    helper, ``merge_authority``) could not see the overlap. Whether the PR is
+    open is pr-lifecycle's fact, read through its one reader
+    (``merge_record.pull_requests_for_change``). Callers read
+    ``pr_lifecycle`` AFTER ``claims`` and ``results``: the ``opened`` row is
+    appended before the result commits, so a result seen implies its PR row
+    is seen.
     """
     if request.get("role") != "implementation":
         return None
     from .implementation_safety import implementation_allowed_scope as _allowed_scope
+    from .merge_record import PR_STATE_OPEN, pull_requests_for_change
 
     def paths(row: dict[str, Any]) -> list[str]:
         declared = row.get("allowed_scope")
@@ -3875,13 +3890,24 @@ def _implementation_scope_conflict(
         if owner.get("role") != "implementation":
             continue
         claim_id = claim["claim_id"]
-        if _claim_has_result(results, claim_id):
-            continue
-        if not _claim_has_prepared_submission(claims, claim_id):
-            if _claim_terminal_event(claims, claim_id) is not None:
+        # A change with no change_id or proposal_id was never delivered:
+        # the delivery refuses before any push without all of its ids.
+        ids = owner.get("implementation_ids") or {}
+        change_id, proposal_id = ids.get("change_id"), ids.get("proposal_id")
+        pr_open = bool(change_id and proposal_id) and any(
+            pr["pr_state"] == PR_STATE_OPEN
+            for pr in pull_requests_for_change(
+                pr_lifecycle, proposal_id=str(proposal_id), change_id=str(change_id),
+            )
+        )
+        if not pr_open:
+            if _claim_has_result(results, claim_id):
                 continue
-            if _latest_lease_expiry(claims, claim_id) < now:
-                continue
+            if not _claim_has_prepared_submission(claims, claim_id):
+                if _claim_terminal_event(claims, claim_id) is not None:
+                    continue
+                if _latest_lease_expiry(claims, claim_id) < now:
+                    continue
         for held in paths(owner):
             for proposed in wanted:
                 if held == proposed or held.startswith(proposed + "/") or proposed.startswith(held + "/"):
@@ -3955,14 +3981,22 @@ def claim_request(
         # refusing after the claim exists is how the queue wedged.
         _assert_envelope_reproduces_binding(request_for_check)
         if request_for_check.get("role") == "implementation":
+            from .merge_record import lifecycle_rows
+
+            requests_rows = load_segments(root, "agent_invocation_requests")
+            claims_rows = load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+            results_rows = load_declared_jsonl(
+                root / "agent-invocations" / "results.jsonl",
+                expected_surface="agent_invocation_results",
+            )
+            # After claims and results (ARIA-HIGH-006): a PR row is appended
+            # before its result commits.
             conflict = _implementation_scope_conflict(
                 request_for_check,
-                requests=load_segments(root, "agent_invocation_requests"),
-                claims=load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims"),
-                results=load_declared_jsonl(
-                    root / "agent-invocations" / "results.jsonl",
-                    expected_surface="agent_invocation_results",
-                ),
+                requests=requests_rows,
+                claims=claims_rows,
+                results=results_rows,
+                pr_lifecycle=lifecycle_rows(root),
                 now=_utc_now_dt(),
             )
             if conflict is not None:

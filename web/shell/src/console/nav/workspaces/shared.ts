@@ -13,8 +13,11 @@ import { SHELL_PAGES } from '../pages/shell';
 import { TENANT_PAGES } from '../pages/tenant';
 import type { NavAreaDef, NavPageDef } from '../types';
 
-/** Overview of a module workspace: dashboards, the shared alarm list, messages. */
-export function moduleOverviewArea(id: string): NavAreaDef {
+/**
+ * Overview of a module workspace: its own dashboard first (the workspace's
+ * home), the cross-module trends, the shared alarm list, messages.
+ */
+export function moduleOverviewArea(id: string, dashboard: NavPageDef): NavAreaDef {
   return {
     id,
     labelKey: 'nav.overview',
@@ -23,7 +26,7 @@ export function moduleOverviewArea(id: string): NavAreaDef {
       {
         id: `${id}-main`,
         pages: [
-          SHELL_PAGES.dashboard,
+          dashboard,
           SHELL_PAGES.dashboardAnalytics,
           SENSOR_PAGES.alarms,
           SHELL_PAGES.messaging,

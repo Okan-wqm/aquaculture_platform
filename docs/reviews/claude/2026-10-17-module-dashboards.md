@@ -110,3 +110,145 @@ Static evidence; not reproduced against a database.
 Read the DO sensor's latest value from the tenant `sensor_metrics` hypertable (its dissolved
 oxygen channel), inside the same tenant-bound read. Found while adding the guard's site to
 `FeedingWindowReadiness`; not fixed there.
+
+## FE-MEDIUM-346
+
+**State:** OPEN until the module-dashboards change merges with `Closes:` for this ID. Deadline
+2026-10-31, owner okan.
+
+### Symptom (FE-MEDIUM-346)
+
+Production, Greenhouse and Control & sensors all opened on one tenant-wide KPI page at
+`/dashboard`, which the Company workspace listed too. A member without the tenant-admin role had
+no company page, and `/` sent every non-admin to the KPI page whatever modules they held.
+
+### Root cause (FE-MEDIUM-346)
+
+`moduleOverviewArea` gave every module workspace the same `/dashboard` page. The dashboard remote
+had one index page, and the tenant panel wrapped the company dashboard with every admin page.
+
+### Fix (FE-MEDIUM-346)
+
+- Nav: each module workspace lists its own dashboard first: Production `/dashboard`, Control &
+  sensors `/dashboard/control`, Greenhouse `/dashboard/greenhouse`. Trends stay in each module
+  overview. Company lists the company dashboard, messages and the AI chat, and no `/dashboard*`.
+- Landing (`rootLanding`): a tenant admin lands on `/tenant`. A module user lands on the first
+  module workspace's dashboard, in switcher order. Anyone else lands on `/tenant`.
+- Dashboard remote: three pages over one layout (`ModuleDashboard`). They show the module's Site
+  status table, Active alarms (alert-engine `alertHistory` filtered by module, acknowledge via
+  `acknowledgeAlert`), the Inbox, and Recent activity for a tenant admin. The KPI page and its
+  widgets are deleted; Analytics is kept.
+- Company dashboard: the `/tenant` index opens to every member (`RequireTenantMember`, and the
+  shell's `TenantPanelRoute` with no role requirement at the index only). A tenant admin sees the
+  unchanged `TenantDashboard`. Anyone else sees `MemberCompanyHome`: unread messages, the users
+  card for a `users:view` delegate, and announcements as a preview (RBAC-MEDIUM-021). Every other
+  `/tenant/*` page keeps its shell and remote guards.
+
+### Real or preview (FE-MEDIUM-346)
+
+| Element                      | Source                                                          |
+| ---------------------------- | --------------------------------------------------------------- |
+| Site list (all dashboards)   | Real: farm `activeSites`, scoped to a module user's sites       |
+| Site alarms per priority     | Real: `activeAlertCounts(module, groupBy: [SITE])`              |
+| Data freshness (Production)  | Real: newest of `edgeDevices(siteId)` reports and measurements  |
+| Lowest DO and its limit      | Real: `waterQualityMeasurements` + `parameterConfigs` (DO)      |
+| Temperature, hottest unit    | Real: `effectiveUnitTemperatures` over the day plans' units     |
+| Feed today                   | Real: `feedingDayPlans` of the site's local day                 |
+| Tank count                   | Real but manual: `systems.tankCount`, labelled as entered       |
+| Gateways, sensors, PLCs      | Real: `edgeDevices`, `sensors` total, `plcConnectionsBySite`    |
+| PLC alarms per site          | Real: `activePlcAlarms` by connection                           |
+| Greenhouse zone rows         | Preview: PRODUCT-MEDIUM-001                                     |
+| Active alarms panel          | Real: `alertHistory` open + cleared-unacknowledged, per module  |
+| Inbox: seats                 | Real (tenant admin): `tenantBilling.planLimits` + `tenantStats` |
+| Inbox: users without 2FA     | Real (`users:view`): `tenantUsers.mfaEnabled`                   |
+| Inbox: maintenance           | Real (tenant admin): `myAnnouncements(type: MAINTENANCE)`       |
+| Inbox: access requests       | Preview (`roles:view`): RBAC-MEDIUM-020                         |
+| Recent activity              | Real (tenant admin): `tenantAuditLogs`                          |
+| Member home: unread messages | Real: `totalUnreadMessageCount` (caller's own)                  |
+| Member home: announcements   | Preview: RBAC-MEDIUM-021                                        |
+
+The lowest dissolved oxygen comes from water-quality measurements, not from channel latest values.
+Measurements hold manual entries and sensor-fed readings, each with its unit and site, and the
+tenant's parameter configs give the limit the farm flags critical measurements with. A channel's
+latest value carries neither the limit nor the unit. Which store holds more data in production
+was not read: no production database or runtime was touched.
+
+Each source is fetched only for a viewer whose role the resolver admits. Seats, maintenance and
+the audit are the tenant admin's, the 2FA list needs `users:view`, and nothing admin-only is sent
+for anyone else. No backend permission was widened.
+
+### Tests (FE-MEDIUM-346)
+
+- `web/modules/dashboard/src/__tests__/ModuleDashboards.spec.tsx` runs all three dashboards over
+  a fake gateway, including role gating and what is never requested.
+- `web/modules/dashboard/src/model/__tests__` pins each row rule.
+- `web/shell/src/routing/__tests__/TenantPanelRoute.spec.tsx` covers the index for members and
+  the unchanged gate below it. `nav/__tests__/rootLanding.spec.ts` covers the landing.
+- `web/modules/tenant-admin/src/__tests__/Module.spec.tsx` covers the member view at `/tenant`
+  and every other page refused as before. `MemberCompanyHome.spec.tsx` covers the member view.
+- `tests/invariants/web-console-nav-coverage.spec.ts` allows exactly one member route, `/tenant`.
+
+## RBAC-MEDIUM-020
+
+**State:** OPEN. Deadline 2026-10-31, owner okan.
+
+### Gap (RBAC-MEDIUM-020)
+
+No access-request flow exists. A member cannot ask for a capability or a site, and no approver has
+requests to review. The dashboard inbox's access-request item (design D6) renders as a labelled
+preview for `roles:view` holders (`web/modules/dashboard/src/preview/accessRequests.preview.ts`).
+
+### Needed (RBAC-MEDIUM-020)
+
+An auth-service access-request record (requester, capability or site, status) and a query of the
+requests a viewer may approve.
+
+## RBAC-MEDIUM-021
+
+**State:** OPEN. Deadline 2026-10-31, owner okan.
+
+### Gap (RBAC-MEDIUM-021)
+
+`myAnnouncements` is documented as the current user's announcements but is gated
+`@TenantAdminOrHigher` (auth-service `announcement.resolver.ts:30-34`).
+A member never sees a platform announcement, a maintenance window included. The member company
+dashboard shows announcements as a labelled preview. The gate was not widened in this change.
+
+### Needed (RBAC-MEDIUM-021)
+
+A member-readable announcements query scoped to the caller.
+
+## PRODUCT-MEDIUM-001
+
+**State:** OPEN. Deadline 2026-10-31, owner okan.
+
+### Gap (PRODUCT-MEDIUM-001)
+
+hydroponics-service stores one JSON configuration per tenant
+(`apps/hydroponics-service/src/setup/entities/hydroponics-config.entity.ts`). It has no greenhouse
+zones, no EC, pH or air-temperature readings against targets, and no dosing state. The Greenhouse
+dashboard's site table renders the design's zones as a labelled preview
+(`web/modules/dashboard/src/preview/greenhouseZones.preview.ts`). Its alarm panel is real and
+filters `module: HYDROPONICS`, which returns nothing today because no hydroponics signal reaches
+alert-engine.
+
+### Needed (PRODUCT-MEDIUM-001)
+
+Greenhouse zones bound to farm sites, live EC, pH and air temperature with targets, dosing state,
+and the alarms raised from them.
+
+## RBAC-MEDIUM-022
+
+**State:** OPEN. Deadline 2026-10-31, owner okan.
+
+### Gap (RBAC-MEDIUM-022)
+
+sensor-service and alert-engine apply no site scope for a module user. Edge devices, sensors, PLC
+connections and alarms, alarm history and alarm counts all return the whole tenant. farm-service
+limits the same user to their assigned sites (`SiteAuthorizationService.resolveSiteScope`). The
+dashboards' site rows come from the scoped `activeSites`. Their alarm panel, like the console
+annunciator, lists the module's alarms tenant-wide, as alert-engine serves them.
+
+### Needed (RBAC-MEDIUM-022)
+
+The same caller site scope in the sensor-service and alert-engine reads.

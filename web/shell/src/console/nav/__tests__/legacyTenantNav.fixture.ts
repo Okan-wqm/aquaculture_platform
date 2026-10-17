@@ -26,6 +26,14 @@ export interface LegacyEntry {
    */
   readonly brokenUnless?: ModuleCode;
   /**
+   * The console serves this destination only inside a module workspace, for
+   * every role: the viewer must hold one of these modules. The pre-console
+   * `/dashboard` was one tenant-wide KPI page; each module workspace now opens
+   * on its own dashboard, Production's at that path, and the trends page is
+   * listed in the module workspaces' overviews.
+   */
+  readonly onlyWith?: readonly ModuleCode[];
+  /**
    * Roles the page itself refused (an in-page "Access Restricted" gate): the
    * entry was listed for them but led nowhere, so the console drops it.
    */
@@ -61,10 +69,14 @@ const TENANT_ADMIN_BASE: readonly LegacyEntry[] = [
 
 const MODULE_USER_BASE: readonly LegacyEntry[] = [
   { id: 'company', lands: '/sites/company', brokenUnless: 'farm' },
-  { id: 'dashboard', lands: '/dashboard' },
+  { id: 'dashboard', lands: '/dashboard', onlyWith: ['farm'] },
   { id: 'messaging', lands: '/messaging' },
   // Was `/analytics`, which no route served (NotFound outside the layout).
-  { id: 'analytics', lands: '/dashboard/analytics' },
+  {
+    id: 'analytics',
+    lands: '/dashboard/analytics',
+    onlyWith: ['farm', 'hydroponics', 'sensor'],
+  },
   // Was `/reports`, likewise; the farm regulatory reports are the real page.
   { id: 'reports', lands: '/sites/reports/sea-lice', brokenUnless: 'farm' },
 ];

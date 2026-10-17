@@ -34,7 +34,12 @@ describe('workspaceForPath', () => {
     expect(workspaceForPath('/sites/tasks', CONSOLE_WORKSPACES)).toBe('aqua');
     expect(workspaceForPath('/tenant/roles', CONSOLE_WORKSPACES, 'org')).toBe('org');
     expect(workspaceForPath('/tenant/roles', CONSOLE_WORKSPACES, 'ctl')).toBe('ctl');
-    expect(workspaceForPath('/dashboard', CONSOLE_WORKSPACES, 'org')).toBe('org');
+    // The analytics page is every module workspace's; Production's dashboard is its own.
+    expect(workspaceForPath('/dashboard/analytics', CONSOLE_WORKSPACES, 'ctl')).toBe('ctl');
+    expect(workspaceForPath('/dashboard/analytics', CONSOLE_WORKSPACES, 'org')).toBe('aqua');
+    expect(workspaceForPath('/dashboard', CONSOLE_WORKSPACES, 'org')).toBe('aqua');
+    expect(workspaceForPath('/dashboard/control', CONSOLE_WORKSPACES, 'aqua')).toBe('ctl');
+    expect(workspaceForPath('/dashboard/greenhouse', CONSOLE_WORKSPACES, 'aqua')).toBe('gh');
   });
 
   it('prefers an exact entry elsewhere over a base match here', () => {

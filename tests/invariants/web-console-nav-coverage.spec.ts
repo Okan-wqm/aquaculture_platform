@@ -24,7 +24,8 @@
  *   3. Placeholders — a routed "coming soon" page is listed as `planned`, and
  *      `planned` is only ever a placeholder.
  *   4. Gates — the nav's module table is App.tsx's `requiredModule` table, and
- *      each tenant page's gate is its route's RequireTenantCapability gate.
+ *      each tenant page's gate is its route's RequireTenantCapability gate (the
+ *      company dashboard's RequireTenantMember: an ungated entry).
  *   5. Redirects land — each static `<Navigate>` target is a leaf route.
  *   6. Nothing escapes the scan — every web file hosting a `<Routes>` or
  *      reading `?tab=` is one the scan reads (or names why not).
@@ -340,26 +341,41 @@ describe('web console nav coverage (FE-HIGH-335)', () => {
     expect(fromApp).toEqual(MODULE_MOUNTS);
   });
 
-  it('gates each tenant page as its route does (RequireTenantCapability)', () => {
+  it('gates each tenant page as its route does (RequireTenantCapability / RequireTenantMember)', () => {
     const mismatched: string[] = [];
     for (const leaf of TABLE.leaves.filter((candidate) =>
       candidate.file.includes('/tenant-admin/'),
     )) {
       const capability = /\bcapability="([^"]+)"/.exec(leaf.element)?.[1];
       const adminOnly = /\badminOnly\b/.test(leaf.element);
+      // The company dashboard opens to every member: its nav entry carries no gate.
+      const member = /<RequireTenantMember\b/.test(leaf.element);
       expect(
-        capability !== undefined || adminOnly ? '' : `${leaf.pattern}: route has no gate`,
+        capability !== undefined || adminOnly || member ? '' : `${leaf.pattern}: route has no gate`,
       ).toBe('');
       for (const page of coveringPages(leaf)) {
         const ok =
           capability !== undefined
             ? page.requiredPermission === capability && page.requiredRoles === undefined
-            : page.requiredPermission === undefined &&
-              JSON.stringify(page.requiredRoles) === JSON.stringify(['TENANT_ADMIN']);
-        if (!ok) mismatched.push(`${page.id} → ${leaf.pattern} (${capability ?? 'adminOnly'})`);
+            : member
+              ? page.requiredPermission === undefined && page.requiredRoles === undefined
+              : page.requiredPermission === undefined &&
+                JSON.stringify(page.requiredRoles) === JSON.stringify(['TENANT_ADMIN']);
+        const gate = capability ?? (member ? 'member' : 'adminOnly');
+        if (!ok) mismatched.push(`${page.id} → ${leaf.pattern} (${gate})`);
       }
     }
     expect(mismatched).toEqual([]);
+  });
+
+  it('opens only the company dashboard to every member; the rest of the panel keeps its gate', () => {
+    const tenantLeaves = TABLE.leaves.filter((candidate) =>
+      candidate.file.includes('/tenant-admin/'),
+    );
+    const memberLeaves = tenantLeaves
+      .filter((leaf) => /<RequireTenantMember\b/.test(leaf.element))
+      .map((leaf) => leaf.pattern);
+    expect(memberLeaves).toEqual(['/tenant']);
   });
 
   it('lands every static redirect on a leaf route (or an exempt one)', () => {

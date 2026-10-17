@@ -8,8 +8,10 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthContext } from '@aquaculture/shared-ui';
-import DashboardPage from './pages/DashboardPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import ControlDashboardPage from './pages/ControlDashboardPage';
+import GreenhouseDashboardPage from './pages/GreenhouseDashboardPage';
+import ProductionDashboardPage from './pages/ProductionDashboardPage';
 
 // ============================================================================
 // Auth Guard (DASH-SEC-006: defense-in-depth, not relying solely on shell)
@@ -37,8 +39,11 @@ const DashboardModule: React.FC = () => {
   return (
     <RequireAuth>
       <Routes>
-        {/* Ana Dashboard */}
-        <Route index element={<DashboardPage />} />
+        {/* Each module workspace's own dashboard: Production at the index,
+            Control & sensors and Greenhouse below it. */}
+        <Route index element={<ProductionDashboardPage />} />
+        <Route path="control" element={<ControlDashboardPage />} />
+        <Route path="greenhouse" element={<GreenhouseDashboardPage />} />
 
         {/* Analitik Sayfası */}
         <Route path="analytics" element={<AnalyticsPage />} />

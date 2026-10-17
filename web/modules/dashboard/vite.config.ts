@@ -23,10 +23,10 @@ export default defineConfig(({ mode }) => ({
       name: 'dashboard',
       filename: 'remoteEntry.js',
       // Expose edilen modüller
+      // Only the module: the shell mounts its routes (the module dashboards
+      // and analytics); the KPI page and its widgets were removed with it.
       exposes: {
         './Module': './src/Module.tsx',
-        './DashboardPage': './src/pages/DashboardPage.tsx',
-        './OverviewWidgets': './src/components/OverviewWidgets.tsx',
       },
       // FE-HIGH-004/FE-HIGH-005: single source of truth — recharts moved
       // into federationSharedConfig so no shared-entry literal lives here

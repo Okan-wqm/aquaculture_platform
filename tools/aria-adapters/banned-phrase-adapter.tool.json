@@ -37,6 +37,7 @@
     "type": "subprocess",
     "argv": ["python3", "banned_phrase_adapter.py"],
     "cwd": "tools/aria-poc",
+    "repo_local_dependencies": ["node_modules/.bin/ts-node"],
     "timeout_ms": 120000,
     "stdin_json": true
   },

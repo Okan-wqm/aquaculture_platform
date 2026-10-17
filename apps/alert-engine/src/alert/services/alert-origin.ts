@@ -11,6 +11,14 @@
  * WHAT: `farmOrigin` / `sensorOrigin` for signals from farm-service and
  * sensor-service; `siteOfScopeKey` reads a feed-coverage scope key (a site
  * UUID, or `tenant` for the tenant-wide stock pool — FeedStockoutForecast).
+ *
+ * Every site passes `storableSite` (ALERT-MEDIUM-013): `alert_history.site_id`
+ * is uuid, and a producer's site can be a label that is not one — a sensor's
+ * site is a varchar column (SENSOR-MEDIUM-187), SensorReading has no wire
+ * schema. Stored as given, such a label failed the alarm insert after the
+ * Redis cooldown was claimed, so the redelivered reading was suppressed and
+ * the alarm lost. A site is placement, never a reason to drop an alarm: one
+ * that is not a UUID is recorded as no site.
  */
 import { isValidUUID } from '@aquaculture/backend-common/database';
 
@@ -22,14 +30,19 @@ export interface AlertOrigin {
 }
 
 export function farmOrigin(siteId: string | null | undefined): AlertOrigin {
-  return { module: AlertModule.FARM, siteId: siteId ?? null };
+  return { module: AlertModule.FARM, siteId: storableSite(siteId) };
 }
 
 export function sensorOrigin(siteId: string | null | undefined): AlertOrigin {
-  return { module: AlertModule.SENSOR, siteId: siteId ?? null };
+  return { module: AlertModule.SENSOR, siteId: storableSite(siteId) };
 }
 
 /** A feed-coverage scope key's site: the key itself when it is a site UUID, else none. */
 export function siteOfScopeKey(siteScopeKey: string): string | null {
-  return isValidUUID(siteScopeKey) ? siteScopeKey : null;
+  return storableSite(siteScopeKey);
+}
+
+/** The site as `alert_history.site_id` (uuid) stores it: the UUID, or no site. */
+function storableSite(siteId: string | null | undefined): string | null {
+  return typeof siteId === 'string' && isValidUUID(siteId) ? siteId : null;
 }

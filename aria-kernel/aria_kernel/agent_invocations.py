@@ -5481,6 +5481,7 @@ def judge_claim_submission(
     output: Path,
     workspace_root: str | Path,
     evidence_target_sha: str | None = None,
+    transcript: bytes | None = None,
 ) -> ClaimSubmissionJudgment:
     """Decide ``envelope`` the way the submit decides it, writing nothing.
 
@@ -5493,7 +5494,12 @@ def judge_claim_submission(
     executor's submit takes (``--evidence-target-sha auto``). Raises
     ``GovernanceError`` for a request row the strict view cannot adapt and
     for an evidence target git answers "no" to (a non-descendant): the
-    request's fault, the same errors the submit raises.
+    request's fault, the same errors the submit raises. ``transcript`` is
+    the run's transcript as the submission names it (ARIA-HIGH-524), judged
+    with the same credential set as the envelope: the submit passes the
+    bytes bound to the declared ``transcript_hash``
+    (``bound_submission_transcript``), the delivery the lane's file, so both
+    reach the same verdict; None judges no transcript.
     """
     from .agent_contract import enforce_separation_of_duties, validate_response
     from .agent_compliance import (
@@ -5613,6 +5619,9 @@ def judge_claim_submission(
         # and every other reason is reduced to its code (ARIA-HIGH-515,
         # `credential_refusal_reasons`, `_build_rejection_row`).
         reject(SECRET_IN_ENVELOPE_CODE, f"{SECRET_IN_ENVELOPE_CODE}: {exc}")
+    transcript_leak = transcript_credential_reason(transcript) if transcript is not None else None
+    if transcript_leak is not None:
+        reject(SECRET_IN_TRANSCRIPT_CODE, transcript_leak)
     revalidation = validate_agent_response_evidence(
         response=envelope,
         workspace_root=workspace_root,
@@ -5722,6 +5731,13 @@ def _prepare_claim_submission(
         transcript_hash=transcript_hash,
         workspace_root=workspace_root,
     )
+    # ARIA-HIGH-524 — the transcript the accepted branch below seals onto the
+    # published outputs surface, judged before any branch can seal it.
+    transcript_bytes = bound_submission_transcript(
+        transcript_artifact_ref=transcript_artifact_ref,
+        transcript_hash=transcript_hash,
+        workspace_root=workspace_root,
+    )
 
     if envelope_unreadable_error is not None or envelope is None:
         reasons = [f"envelope_unreadable: {envelope_unreadable_error}"]
@@ -5736,6 +5752,10 @@ def _prepare_claim_submission(
         except SecretLeakDetected as exc:
             reasons.append(f"{SECRET_IN_ENVELOPE_CODE}: {exc}")
             reason_codes.append(SECRET_IN_ENVELOPE_CODE)
+        transcript_leak = transcript_credential_reason(transcript_bytes) if transcript_bytes is not None else None
+        if transcript_leak is not None:
+            reasons.append(transcript_leak)
+            reason_codes.append(SECRET_IN_TRANSCRIPT_CODE)
         return _prepared_claim_rejection(
             claim_id=claim_id,
             request_id=request_id,
@@ -5758,6 +5778,7 @@ def _prepare_claim_submission(
     judgment = judge_claim_submission(
         root=root, claim_id=claim_id, agent_id=agent_id, request=request, envelope=envelope,
         output=output, workspace_root=workspace_root, evidence_target_sha=evidence_target_sha,
+        transcript=transcript_bytes,
     )
     revalidation = judgment.revalidation
     # Scope discipline (operator requirements 2026-08-29) — out-of-scope
@@ -6653,7 +6674,13 @@ def _build_accepted_row(
 # persists — the sealed envelope on the published outputs surface, plus the
 # caller's raw files left in place.
 SECRET_IN_ENVELOPE_CODE = "secret_in_envelope"
-CREDENTIAL_REFUSAL_CODES: frozenset[str] = frozenset({SECRET_IN_ENVELOPE_CODE})
+# ARIA-HIGH-524 — the submission's transcript carries a credential shape
+# (`transcript_credential_reason`). A member of the same set, so the same
+# owner withholds the transcript and its envelope and the same gate reads
+# their digests: an accepted row's transcript is sealed onto the published
+# outputs surface exactly as its envelope is.
+SECRET_IN_TRANSCRIPT_CODE = "secret_in_transcript"
+CREDENTIAL_REFUSAL_CODES: frozenset[str] = frozenset({SECRET_IN_ENVELOPE_CODE, SECRET_IN_TRANSCRIPT_CODE})
 OUTPUT_WITHHELD_CREDENTIAL_REFUSAL = "credential_refusal"
 
 
@@ -6676,6 +6703,61 @@ def credential_refusal_reasons(reasons: Sequence[str], reason_codes: Sequence[st
         reason if code in CREDENTIAL_REFUSAL_CODES else f"{code}: detail withheld with the refused output"
         for reason, code in zip(reasons, reason_codes)
     ]
+
+
+def transcript_credential_reason(transcript: bytes) -> str | None:
+    """The ``secret_in_transcript`` reason when ``transcript`` carries a
+    credential shape, else None.
+
+    ARIA-HIGH-524 — the submit sealed an accepted row's transcript onto the
+    published outputs surface after checking only its hash: tool output,
+    file contents included, reached aria/state as the producer wrote it. The
+    executor scrubs every transcript at its one writer (ARIA-HIGH-448); the
+    kernel is the last line for any producer, so the bytes are judged with
+    the one refusal owner (``implementation_safety.verify_no_secret_in_diff``,
+    whose message carries counts, never a value).
+    """
+    from .implementation_safety import SecretLeakDetected, verify_no_secret_in_diff
+
+    try:
+        verify_no_secret_in_diff(transcript.decode("utf-8", "replace"))
+    except SecretLeakDetected as exc:
+        return f"{SECRET_IN_TRANSCRIPT_CODE}: {exc}"
+    return None
+
+
+def read_submission_transcript(path: str | Path) -> bytes | None:
+    """A lane's transcript as the submit would read it — a bounded regular
+    file, never through a symlink — or None when there is no such file to
+    judge (absent, a link, unreadable). The delivery's reading
+    (``implementation_delivery``): it judges the transcript the executor
+    will submit before it spends any authority."""
+    try:
+        return _read_stable_submission_artifact(Path(path))
+    except OSError:
+        return None
+
+
+def bound_submission_transcript(
+    *,
+    transcript_artifact_ref: str | None,
+    transcript_hash: str | None,
+    workspace_root: str | Path,
+) -> bytes | None:
+    """The transcript bytes a submission names: the file as named, read
+    without following a link, whose digest is the declared
+    ``transcript_hash`` — the digest the seal and the withholding bind, so
+    the bytes judged are the bytes either would touch. None when there are
+    none to judge (no ref, no digest, unreadable, another digest): the
+    accepted path then refuses by name (``transcript_artifact_ref_unreadable``,
+    ``transcript_artifact_hash_mismatch``) and nothing seals them.
+    """
+    if not transcript_artifact_ref or not transcript_hash or not is_sha256_digest(transcript_hash):
+        return None
+    content = read_submission_transcript(_submission_source_path(transcript_artifact_ref, workspace_root))
+    if content is None or "sha256:" + hashlib.sha256(content).hexdigest() != transcript_hash:
+        return None
+    return content
 
 
 def _is_withholdable_relative(relative: Path) -> bool:
@@ -7008,6 +7090,26 @@ def _verified_evidence_target_sha(
     return verified
 
 
+def _lease_routes_and_clock(root: Path) -> tuple[dict[str, str], "ProviderClock"]:
+    """What the lease rule needs from governance.jsonl, from ONE parse of it.
+
+    ARIA-LOW-562 — each claim's attempt route (ARIA-MEDIUM-444) and the
+    providers' outage intervals (ARIA-HIGH-367) both live in the governance
+    ledger, 25.8 MB on aria/state. The reaper parsed and verified the whole
+    ledger for the routes, then the provider clock parsed it again for the
+    intervals. One verified parse feeds both; the rows are released on
+    return, so only the routes and the intervals outlive it.
+    """
+    from .independence_check import attempt_providers_by_claim
+    from .provider_clock import ProviderClock
+    from .provider_outage_ledger import fold_outage_intervals
+
+    governance_path = root / "governance.jsonl"
+    rows = (load_declared_jsonl(governance_path, expected_surface="tools_governance")
+            if governance_path.is_file() else [])
+    return attempt_providers_by_claim(rows), ProviderClock(fold_outage_intervals(rows))
+
+
 def reap_stale_claims(
     *,
     base_dir: str | Path | None = None,
@@ -7079,16 +7181,11 @@ def reap_stale_claims(
             request_id = str(claim_event.get("request_id") or "")
             agent_id = claim_event.get("agent_id")
             if lease_clock is None:
-                from .independence_check import attempt_providers_by_claim
-                from .provider_clock import lease_expiry_reason, provider_clock, role_head_providers
+                from .provider_clock import lease_expiry_reason, role_head_providers
 
-                lease_clock = provider_clock(root)
+                routed, lease_clock = _lease_routes_and_clock(root)
                 request_roles = {str(row.get("request_id")): str(row.get("role") or "")
                                  for row in load_segments(root, "agent_invocation_requests")}
-                governance_path = root / "governance.jsonl"
-                routed = attempt_providers_by_claim(
-                    load_declared_jsonl(governance_path, expected_surface="tools_governance")
-                    if governance_path.is_file() else [])
             # ARIA-HIGH-367 (M1) — the one lease-outage rule (the worker lane
             # asks it too, ARIA-MEDIUM-437). ARIA-MEDIUM-444 — over the
             # provider the claim RAN on (its newest native attempt): since

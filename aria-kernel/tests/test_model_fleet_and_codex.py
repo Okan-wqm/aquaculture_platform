@@ -754,6 +754,29 @@ class CodexBridge(unittest.TestCase):
         self.assertIsNone(result.auth_failure)
         self.assertIsNone(result.credit_exhaustion)
 
+    def test_a_token_count_containing_401_is_no_credential_fact(self) -> None:
+        # ARIA-HIGH-536 — a vendor fact comes from the CLI's error events only.
+        from codex_runtime import classify_codex_events
+
+        result = classify_codex_events(
+            [{"type": "turn.completed", "usage": {"input_tokens": 14012401, "output_tokens": 812}}],
+            returncode=1,
+        )
+        self.assertIsNone(result.auth_failure)
+
+    def test_agent_or_command_text_naming_billing_is_no_quota_fact(self) -> None:
+        from codex_runtime import classify_codex_events
+
+        result = classify_codex_events(
+            [{"type": "item.completed", "item": {"type": "agent_message",
+                                                  "text": "The billing-service quota module needs a rate limit."}},
+             {"type": "item.completed", "item": {"type": "command_execution", "command": "grep -r authentication",
+                                                  "aggregated_output": "401 Unauthorized fixture"}}],
+            returncode=1,
+        )
+        self.assertIsNone(result.credit_exhaustion)
+        self.assertIsNone(result.auth_failure)
+
 
 if __name__ == "__main__":
     unittest.main()

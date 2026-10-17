@@ -732,23 +732,30 @@ _SANDBOX_SYSTEM_ROOTS: tuple[str, ...] = (
     "/etc/group",
 )
 
-# Name resolution. Bound ONLY when the caller asked for network, because these
-# are the files that make an allowed network usable rather than nominal.
+# ARIA-HIGH-143 / ARIA-HIGH-528 — the EGRESS ROOM. Every room has its own
+# network namespace (`--unshare-net`): there is no host-network room to ask
+# for. A room that must reach its provider (`allow_network=True`: the managed
+# Claude route, the Codex runtime route) gets one road out on top of that:
 #
-# Measured 2026-08-08: with `allow_network=True` the sandbox shared the host's
-# network namespace and still had no `/etc/resolv.conf`, so `getent hosts
-# api.anthropic.com` failed inside it and the Claude CLI hung until its timeout
-# — surfacing to the executor as a bare `claude exec exited 1`. Every nightly
-# agent dispatch died there, and the log said only that the CLI had failed.
+# * the unix socket of the kernel's allowlist proxy (`egress_proxy`, served
+#   by the process that builds the room, `PROVIDER_ENDPOINTS` only), bound
+#   in at `SANDBOX_EGRESS_PROXY_SOCKET`;
+# * the relay (`egress_relay.py`, this one file bound read-only at
+#   `SANDBOX_EGRESS_RELAY`) as the room's first process: it opens a
+#   loopback listener inside the namespace, names it in `HTTPS_PROXY` /
+#   `HTTP_PROXY`, and execs the command in its own place.
 #
-# A sandbox that grants the network and withholds the means to use it is not a
-# smaller permission; it is a permission that does not work, which is worse
-# because it reads as granted.
-_SANDBOX_NETWORK_FILES: tuple[str, ...] = (
-    "/etc/resolv.conf",
-    "/etc/hosts",
-    "/etc/nsswitch.conf",
-)
+# Until this the managed rooms shared the host's namespace (so the CLI could
+# reach its provider) with the host's `/etc/resolv.conf` bound in, and the
+# proxy was a variable the command could ignore: under real bwrap a probe in
+# the room reached the host's loopback services, the host's public interface
+# and its abstract sockets, and had a route to anywhere. Now a direct connect
+# finds no route (ENETUNREACH), the host's resolver is never bound — the
+# proxy resolves the provider outside — and the room names only loopback
+# (`_SANDBOX_LOOPBACK_FILES`), exactly as the no-network room does.
+SANDBOX_EGRESS_PROXY_SOCKET = "/tmp/aria-egress-proxy.sock"
+SANDBOX_EGRESS_RELAY = "/tmp/aria-egress-relay.py"
+EGRESS_RELAY_SOURCE = Path(__file__).resolve().with_name("egress_relay.py")
 
 # ARIA-HIGH-361 — loopback names WITHOUT the network. `--unshare-net` leaves
 # the namespace its own loopback, but with no /etc/hosts `localhost` did not
@@ -813,6 +820,23 @@ def _interpreter_ro_binds(base_prefix: str | None = None) -> list[str]:
     if not prefix.is_dir():
         return []
     return ["--ro-bind", str(prefix), str(prefix)]
+
+
+def sandbox_interpreter() -> str:
+    """The interpreter every in-room kernel client runs under — the egress
+    relay, the hook client, the MCP relay: this process's, by its REAL path.
+    The room binds the system tree and this interpreter's prefix
+    (:func:`_interpreter_ro_binds`), not the directory a symlink named on
+    PATH (ARIA-HIGH-124: a symlinked ``python3`` outside the binds gave the
+    relay no interpreter inside), so the resolved binary exists on both
+    sides."""
+    import sys
+
+    executable = sys.executable or "python3"
+    try:
+        return os.path.realpath(executable)
+    except OSError:
+        return executable
 
 
 def _bwrap_executable() -> str | None:
@@ -889,9 +913,11 @@ def _sandbox_probe_succeeds(
 
 # The network setting of the one route that hosts a commit-capable spawn
 # (`wrap_managed_claude_in_sandbox`): the Claude CLI talks to its provider,
-# so the managed sandbox shares the host's network namespace and binds the
-# name-resolution files. The containment probe builds with the SAME value,
-# so what it proves is the argv the implementer gets — not a smaller one.
+# so the managed room is an EGRESS room — its own network namespace whose
+# only road out is the kernel's allowlist proxy (ARIA-HIGH-143; see
+# `SANDBOX_EGRESS_PROXY_SOCKET`). The containment probe builds with the SAME
+# value, so what it proves is the argv the implementer gets — relay
+# included — not a smaller one.
 MANAGED_SPAWN_ALLOW_NETWORK = True
 
 
@@ -952,55 +978,78 @@ class SandboxUnavailable(RuntimeError):
     """
 
 
-# ARIA-HIGH-143 — the egress boundary the managed spawn is handed. The spawn
-# shares the host's network namespace so the CLI can reach its provider;
-# what keeps a prompt-injected agent from sending `.env` anywhere is the
-# allowlist CONNECT proxy in HTTPS_PROXY (`aria_kernel.egress_proxy`, the
-# host's `aria-egress-proxy.service`). A boundary that is configured but
-# not answering, or answering but admitting everything, is no boundary: the
-# probe asks the proxy for a tunnel to a TEST-NET address (RFC 5737, never
-# routable, never allowlisted) and accepts only a refusal BY NAME.
-EGRESS_PROXY_ENV = "HTTPS_PROXY"
+# ARIA-HIGH-143 — the egress boundary, proved in a real room before a claim.
+# The boundary is structural (every room unshares the network; the managed
+# room's one road out is the kernel's proxy), so this probe does not ask an
+# operator-configured variable whether a proxy exists: it builds the managed
+# room's own argv and asks the ROOM, from inside, the two things the boundary
+# is — a direct connect to a TEST-NET address (RFC 5737, never routable,
+# never allowlisted) finds no route at all, and the same target through the
+# room's HTTPS_PROXY is refused BY NAME by the allowlist.
 EGRESS_PROBE_TARGET = "203.0.113.1:443"
 EGRESS_REFUSAL_MARKER = b"egress_refused:target_not_allowlisted"
-_EGRESS_PROBE_TIMEOUT_SECONDS = 5.0
+_EGRESS_PROBE_TIMEOUT_SECONDS = 30
+_EGRESS_PROBE_PROGRAM = r"""
+import errno, os, socket, sys
+from urllib.parse import urlsplit
+host, port, marker = sys.argv[1], int(sys.argv[2]), sys.argv[3].encode()
+direct = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+direct.settimeout(5)
+try:
+    direct.connect((host, port))
+    print("direct_connect_admitted"); sys.exit(0)
+except OSError as exc:
+    if exc.errno != errno.ENETUNREACH:
+        print("direct_connect_not_unroutable:%r" % (exc,)); sys.exit(0)
+finally:
+    direct.close()
+proxy = urlsplit(os.environ.get("HTTPS_PROXY", ""))
+if proxy.scheme != "http" or proxy.hostname != "127.0.0.1" or not proxy.port:
+    print("room_proxy_not_the_relay:%r" % (os.environ.get("HTTPS_PROXY"),)); sys.exit(0)
+answer = b""
+try:
+    with socket.create_connection((proxy.hostname, proxy.port), timeout=10) as sock:
+        sock.sendall(("CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n" % (host, port, host, port)).encode())
+        while len(answer) < 4096 and marker not in answer and not answer.startswith(b"HTTP/1.1 200"):
+            chunk = sock.recv(1024)
+            if not chunk:
+                break
+            answer += chunk
+except OSError as exc:
+    print("room_proxy_did_not_answer:%r" % (exc,)); sys.exit(0)
+if answer.startswith(b"HTTP/1.1 200"):
+    print("proxy_admits_off_allowlist_target"); sys.exit(0)
+print("ok" if marker in answer else "proxy_did_not_refuse_by_name:%r" % (answer[:120],))
+"""
 
 
-def egress_boundary_probe(environ: Mapping[str, str] | None = None) -> str | None:
-    """Why the egress boundary is absent for a spawn built from ``environ``
-    (the executor's environment by default), or ``None`` when the proxy it
-    names refuses an off-allowlist tunnel by name."""
-    import socket
-    from urllib.parse import urlsplit
+def egress_boundary_probe() -> str | None:
+    """Why the managed room's egress boundary does not hold on this host, or
+    ``None`` when the room itself reports no route out and a refusal by name
+    for an off-allowlist target through its proxy."""
+    import tempfile
 
-    env = os.environ if environ is None else environ
-    proxy = env.get(EGRESS_PROXY_ENV) or env.get(EGRESS_PROXY_ENV.lower())
-    if not proxy:
-        return f"{EGRESS_PROXY_ENV} is unset; the spawn would have the host's whole network"
-    parts = urlsplit(proxy if "//" in proxy else f"http://{proxy}")
-    if parts.scheme not in ("http", "") or not parts.hostname or not parts.port:
-        return f"{EGRESS_PROXY_ENV}={proxy!r} is not an http://host:port proxy"
-    try:
-        with socket.create_connection((parts.hostname, parts.port), timeout=_EGRESS_PROBE_TIMEOUT_SECONDS) as sock:
-            sock.settimeout(_EGRESS_PROBE_TIMEOUT_SECONDS)
-            sock.sendall(f"CONNECT {EGRESS_PROBE_TARGET} HTTP/1.1\r\nHost: {EGRESS_PROBE_TARGET}\r\n\r\n".encode())
-            answer = b""
-            while len(answer) < 4096 and EGRESS_REFUSAL_MARKER not in answer:
-                # A tunnel that opens never closes on its own: stop at the
-                # status line. A refusal carries its reason in the body and
-                # closes, so read to the marker or to EOF.
-                if b"\r\n" in answer and answer.startswith(b"HTTP/1.1 200"):
-                    break
-                chunk = sock.recv(1024)
-                if not chunk:
-                    break
-                answer += chunk
-    except OSError as exc:
-        return f"egress proxy {parts.hostname}:{parts.port} did not answer: {exc}"
-    if answer.startswith(b"HTTP/1.1 200"):
-        return f"egress proxy {parts.hostname}:{parts.port} admits {EGRESS_PROBE_TARGET}; it is not an allowlist"
-    if EGRESS_REFUSAL_MARKER not in answer:
-        return f"egress proxy {parts.hostname}:{parts.port} did not refuse by name: {answer[:120]!r}"
+    host, _, port = EGRESS_PROBE_TARGET.rpartition(":")
+    with tempfile.TemporaryDirectory(prefix="aria-egress-probe-") as workspace:
+        try:
+            argv = wrap_bash_in_sandbox(
+                [sandbox_interpreter(), "-I", "-c", _EGRESS_PROBE_PROGRAM, host, port,
+                 EGRESS_REFUSAL_MARKER.decode()],
+                workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK, write_scope=(),
+            )
+        except SandboxUnavailable as exc:
+            return f"the managed room cannot be built: {exc}"
+        try:
+            completed = subprocess.run(
+                argv, capture_output=True, text=True, timeout=_EGRESS_PROBE_TIMEOUT_SECONDS, check=False,
+                env={"PATH": os.environ.get("PATH", os.defpath), "LANG": "C.UTF-8"},
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return f"the managed room did not run the egress probe: {exc}"
+    verdict = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
+    if completed.returncode != 0 or verdict != "ok":
+        return (f"the managed room's egress boundary does not hold: {verdict or 'no verdict'} "
+                f"(exit {completed.returncode}; {completed.stderr.strip()[-200:]})")
     return None
 
 
@@ -1220,7 +1269,9 @@ def wrap_bash_in_sandbox(
     Returns the argv prefixed with bwrap flags pinning:
       * Workspace mounted writable
       * READONLY_PATHS mounted ro-bind
-      * ``--unshare-net`` (no network egress) unless allow_network=True
+      * ``--unshare-net`` always: the room's own network namespace, which
+        names only loopback; with ``allow_network=True`` its one road out
+        is the kernel's allowlist proxy (the egress room, ARIA-HIGH-143)
       * ``/tmp`` mounted as tmpfs
       * No /root, /home, /etc/secrets bind
 
@@ -1233,10 +1284,14 @@ def wrap_bash_in_sandbox(
     being contained.
 
     ``allow_network=True`` is the correct setting when wrapping an agent
-    process that must reach an API. It does NOT weaken the property that
-    matters most here: READONLY_PATHS stay ro-bind, so a write under them
-    fails with EROFS at the syscall level rather than by the agent
-    choosing to obey.
+    process that must reach an API, and it grants exactly that API: the
+    command starts under the egress relay, whose ``HTTPS_PROXY`` leads to
+    the kernel's allowlist proxy (``egress_proxy.PROVIDER_ENDPOINTS``) and
+    nowhere else — a direct connect from anything in the room finds no
+    route, the host's loopback services and abstract sockets included
+    (ARIA-HIGH-143, ARIA-HIGH-528). READONLY_PATHS stay ro-bind either way,
+    so a write under them fails with EROFS at the syscall level rather than
+    by the agent choosing to obey.
     """
     if _bwrap_available():
         return _sandbox_argv(
@@ -1388,19 +1443,40 @@ def _sandbox_argv(
         wrap.extend(git.bwrap_flags())
     if workspace_view is not None:
         wrap.extend(["--remount-ro", str(workspace)])
+    # ARIA-HIGH-143 / ARIA-HIGH-528 — every room has its own network
+    # namespace and names only loopback; there is no branch that shares the
+    # host's. A room that reaches its provider is handed the proxy's socket
+    # and starts under the relay (`SANDBOX_EGRESS_PROXY_SOCKET`).
+    egress_door: list[str] = []
     if allow_network:
-        # Existence-guarded for the same reason _system_ro_binds is: bwrap
-        # aborts on a bind source it cannot find, so an unconditional bind
-        # would turn a container without /etc/nsswitch.conf into a total
-        # failure rather than a smaller sandbox.
-        for network_file in _SANDBOX_NETWORK_FILES:
-            if Path(network_file).exists():
-                wrap.extend(["--ro-bind", network_file, network_file])
-    else:
-        wrap.extend(_loopback_name_binds())
-        wrap.append("--unshare-net")
+        egress_binds, egress_door = _egress_room()
+        wrap.extend(egress_binds)
+    wrap.extend(_loopback_name_binds())
+    wrap.append("--unshare-net")
     wrap.append("--")
-    return wrap + list(argv)
+    return wrap + egress_door + list(argv)
+
+
+def _egress_room() -> tuple[list[str], list[str]]:
+    """The binds and the command prefix of the egress room: the kernel
+    proxy's socket and the relay file, read-only, at their fixed in-room
+    paths, and the relay as the room's first process. Refused by name when
+    the proxy cannot be served — a room that needs its provider is never
+    built without its road, nor with another one."""
+    from .egress_proxy import EgressProxyUnavailable, kernel_egress_socket
+
+    try:
+        proxy_socket = kernel_egress_socket()
+    except EgressProxyUnavailable as exc:
+        raise SandboxUnavailable(f"egress_proxy_unavailable: {exc}") from exc
+    if not _is_socket(proxy_socket):
+        raise SandboxUnavailable(f"egress_proxy_socket_missing: {proxy_socket} is not a listening socket")
+    binds = [
+        "--bind", str(proxy_socket), SANDBOX_EGRESS_PROXY_SOCKET,
+        "--ro-bind", str(EGRESS_RELAY_SOURCE), SANDBOX_EGRESS_RELAY,
+    ]
+    door = [sandbox_interpreter(), "-I", SANDBOX_EGRESS_RELAY, SANDBOX_EGRESS_PROXY_SOCKET, "--"]
+    return binds, door
 
 
 def _wrap_runtime_state_in_sandbox(
@@ -1410,6 +1486,12 @@ def _wrap_runtime_state_in_sandbox(
     """Bind only the managed auth file into a writable private Codex home.
 
     The existing sandbox still owns system, network and workspace containment.
+    The network is the egress room's (ARIA-HIGH-528): the Codex CLI reaches
+    its provider through the kernel's allowlist proxy and nothing else — the
+    relay names its proxy after this wrapper's ``--clearenv``, so the
+    caller's environment cannot carry a proxy the room cannot reach, and a
+    host loopback service is out of reach whatever Codex's own inner sandbox
+    does.
     A private runtime directory is mounted after its /tmp tmpfs, so output and
     SQLite files have the same identity inside and outside the process. The
     original auth directory's sessions, history and configuration stay hidden.
@@ -1464,9 +1546,10 @@ def wrap_managed_claude_in_sandbox(
     handed straight to :func:`wrap_bash_in_sandbox`, so both routes derive
     one set of binds.
 
-    On top of :func:`wrap_bash_in_sandbox` (system, network, workspace,
-    READONLY_PATHS, private /tmp and home) this binds exactly three things
-    the spawn depends on and the sandbox would otherwise hide:
+    On top of :func:`wrap_bash_in_sandbox` (system, the egress room's network
+    — its own namespace, the kernel's allowlist proxy its one road out —
+    workspace, READONLY_PATHS, private /tmp and home) this binds exactly
+    three things the spawn depends on and the sandbox would otherwise hide:
 
     * ``executable`` — the CLI resolved OUTSIDE the sandbox, bound read-only
       and run by that absolute path. Measured 2026-09-11 (ARIA-HIGH-077):
@@ -1629,9 +1712,10 @@ VALIDATION_SANDBOX_CONTAINMENT_FLAGS: tuple[str, ...] = ("--unshare-pid", "--die
 # terminal, the classic sandbox escape when a tty is inherited). Every flag
 # is free — none of them the CLI or its tools can miss — and the probe
 # mirrors them so a host that cannot build these namespaces is refused
-# before a claim (ORPHAN-MEDIUM-452's rule). The network namespace is NOT
-# here: the CLI reaches its provider through it, and the egress boundary is
-# the allowlist proxy the spawn is handed (`egress_boundary_probe`).
+# before a claim (ORPHAN-MEDIUM-452's rule). The network namespace is not
+# here because no room is built without it: `_sandbox_argv` unshares it for
+# every room, and the managed room's one road out is the kernel's allowlist
+# proxy (ARIA-HIGH-143, proved in the room by `egress_boundary_probe`).
 MANAGED_SPAWN_ISOLATION_FLAGS: tuple[str, ...] = (
     "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--new-session", "--die-with-parent",
 )

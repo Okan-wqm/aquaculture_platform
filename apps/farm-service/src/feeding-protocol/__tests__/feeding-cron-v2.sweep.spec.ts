@@ -297,4 +297,24 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
     expect(harness.lockUnitForGrowth).toHaveBeenCalledWith(expect.anything(), TENANT, 'unit-1');
     expect(harness.applyGrowth).not.toHaveBeenCalled();
   });
+
+  it('leaves a meal whose day plan does not exist out of the sweep (ALERT-LOW-015)', async () => {
+    // The retention purge deletes a plan's meals before the plan, in one
+    // transaction: a meal without its plan is corrupt data, never swept
+    // without the unit code and site its plan carries.
+    const orphan: Partial<FeedingMeal> = {
+      id: 'meal-orphan',
+      unitId: 'unit-9',
+      dayPlanId: 'dp-gone',
+      status: FeedingMealStatus.SCHEDULED,
+      scheduledAt: OVERDUE,
+    };
+    const harness = makeHarness({ meals: [orphan], dayPlans: [], protocols: [] });
+
+    await harness.service.sweepTenant(TENANT, CLOCK);
+
+    expect(orphan.status).toBe(FeedingMealStatus.SCHEDULED);
+    expect(harness.enqueued).toEqual([]);
+    expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
+  });
 });

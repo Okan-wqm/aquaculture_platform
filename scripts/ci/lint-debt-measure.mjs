@@ -36,6 +36,7 @@ import {
   summarizeLintInvocations,
   verifyLintQuarantine,
 } from './lib/lint-debt.mjs';
+import { readStrictJson } from './lib/strict-json.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DEFAULT_POLICY = join(repoRoot, 'scripts/ci/affected-target-policy.json');
@@ -87,8 +88,8 @@ function utcToday() {
 }
 
 function verify(args) {
-  const policy = readJson(args.policy);
-  const measurement = existsSync(args.measurement) ? readJson(args.measurement) : null;
+  const policy = readStrictJson(args.policy);
+  const measurement = existsSync(args.measurement) ? readStrictJson(args.measurement) : null;
   const problems = verifyLintQuarantine(
     policy,
     measurement,
@@ -213,7 +214,7 @@ async function measure(args) {
   }
   const sha = git(['rev-parse', 'HEAD']).stdout.trim();
   const measuredAt = utcToday();
-  const policy = readJson(args.policy);
+  const policy = readStrictJson(args.policy);
   const quarantine = policy.targets?.lint?.knownUnstableProjects ?? {};
   const { NON_SECURITY_RESTRICTED_SYNTAX_MESSAGES } = await import(
     pathToFileURL(join(repoRoot, 'eslint.config.mjs')).href
@@ -272,7 +273,9 @@ async function main() {
   console.log(`lint debt measurement: ${args.measurement}`);
   if (args.mode !== 'renew') return 0;
 
-  const renewal = renewLintQuarantine(readJson(args.policy), measurement);
+  // Strict: a renewal rewrites the file from what it parsed, so a repeated
+  // key would leave the file without its first block (INFRA-MEDIUM-228).
+  const renewal = renewLintQuarantine(readStrictJson(args.policy), measurement);
   await writeFormatted(args.policy, renewal.policy);
   console.log(`deleted (measured clean): ${renewal.deleted.join(', ') || '(none)'}`);
   console.log(`renewed: ${renewal.renewed.join(', ') || '(none)'}`);

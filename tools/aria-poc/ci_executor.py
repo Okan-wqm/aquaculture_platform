@@ -742,6 +742,157 @@ def _hand_over_after_delivery(*, tools_dir: Path, request_id: str, delivered: An
            f"pr={delivered.pr_number} record={outcome.get('handed_over')}")
 
 
+def _close_refused_delivery(
+    *, exc: Any, tools_dir: Path, repo: Path, request: dict[str, Any], request_id: str, target_agent: str,
+    claim_id: str, agent_id: str, lease_token: str, expected_output_path: Path, transcript_output_path: Path,
+) -> int:
+    """ARIA-HIGH-124 — the terminal of a delivery the kernel refused.
+
+    ``exc`` is the ``ImplementationDeliveryRefusal`` (``stage``, ``reason``):
+    recorded on governance by name; a HOST stage (the window, the sandbox,
+    the lane's credential source) is released harness-class with no
+    escalation; every other stage is escalated for a person through the
+    kernel's recorder, released request-class (the published branch makes
+    a retry collide) and its plan settled with the class the kernel can
+    verify from the reason. A credential verdict (``exc.withholds_output``,
+    ARIA-HIGH-540) is first submitted through ``_submit_withheld_refusal``
+    and escalated without a release once the kernel's withheld row made the
+    claim terminal. ``expected_output_path`` and ``transcript_output_path``
+    are the result's files as the lane left them. Returns the child's exit
+    code.
+    """
+    from aria_kernel.implementation_delivery import HOST_STAGES, IMPLEMENTATION_DELIVERY_REFUSED_EVENT
+    from aria_kernel.tool_registry import append_tools_governance as _delivery_governance
+
+    _delivery_governance(tools_dir, IMPLEMENTATION_DELIVERY_REFUSED_EVENT, {
+        "request_id": request_id, "claim_id": claim_id, "stage": exc.stage, "reason": exc.reason[:500],
+        "workspace_root": str(_REPO_ROOT),
+    })
+    _stage(f"implementation_delivery_refused stage={exc.stage} reason={exc.reason[:200]!r}")
+    if exc.stage in HOST_STAGES:
+        # (round 3) the host's window or sandbox, decided after
+        # the publication, and (round 6) the lane's credential
+        # source at the moment of the push: harness-class, no
+        # escalation — the request keeps its budget; the
+        # published branch makes the retry collide, which IS
+        # escalated, by name.
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+        )
+        return _refuse_dispatch(
+            request=request, request_id=request_id, target_agent=target_agent,
+            reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+            failure_class=DELIVERY_WINDOW_REFUSAL.failure_class,
+            retryable=DELIVERY_WINDOW_REFUSAL.retryable,
+        )
+    # ARIA-HIGH-540 — a verdict that judged the envelope a credential leak is
+    # SUBMITTED before anything else: the submit is the kernel's one
+    # withholding owner (`_build_rejection_row`, `_withhold_submission_sources`),
+    # so the refused envelope and transcript are deleted under a withheld row
+    # whose digests the publish gate reads, and that row makes the claim
+    # terminal. The terminal used to release without a submit, and the
+    # refused bytes stayed on the published outputs surface with no row
+    # saying they had been refused. First, so no later step's failure (the
+    # recorder's, the settlement's) can leave them behind.
+    claim_terminal = exc.withholds_output and _submit_withheld_refusal(
+        tools_dir=tools_dir, repo=repo, request=request, request_id=request_id, claim_id=claim_id,
+        agent_id=agent_id, lease_token=lease_token, expected_output_path=expected_output_path,
+        transcript_output_path=transcript_output_path,
+    )
+    try:
+        _record_human_required(
+            tools_dir=tools_dir, request_id=request_id, severity="HIGH",
+            reason=f"implementation_delivery_refused:{exc.stage}: {exc.reason[:400]}",
+            context={
+                "code": f"implementation_delivery_refused:{exc.stage}", "stage": exc.stage,
+                "detail": exc.reason[:1000], "claim_id": claim_id,
+                "branch": _staged_implementation_ids(tools_dir=tools_dir, request_id=request_id).get("branch"),
+                "base_sha": _staged_implementation_ids(tools_dir=tools_dir, request_id=request_id).get("base_sha"),
+                **({"output_withheld": True} if claim_terminal else {}),
+            },
+        )
+    except HumanRequiredRecordUnavailable as record_error:
+        return _release_unescalated(
+            tools_dir=tools_dir, repo=repo, request=request, request_id=request_id,
+            target_agent=target_agent, claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+            escalation_reason=f"implementation_delivery_refused:{exc.stage}", phase="submit", error=record_error,
+            claim_terminal=claim_terminal,
+        )
+    if not claim_terminal:
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=f"implementation_delivery_refused:{exc.stage}",
+        )
+    _refused = _refuse_dispatch(
+        request=request, request_id=request_id, target_agent=target_agent,
+        reason="implementation_delivery_refused",
+    )
+    # ARIA-HIGH-388 — the plan ends with the class and fault domain
+    # the kernel can VERIFY from the refusal's own reason
+    # (`implementation_rejections.settlement_for_delivery`); an
+    # unverifiable cause is `unclassified` and cools nothing off.
+    from aria_kernel.implementation_settlement import settle_delivery_refusal
+
+    _settled = settle_delivery_refusal(request_id=request_id, stage=exc.stage, reason=exc.reason,
+                                       base_dir=tools_dir)
+    _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+    return _refused
+
+
+def _submit_withheld_refusal(
+    *, tools_dir: Path, repo: Path, request: dict[str, Any], request_id: str, claim_id: str, agent_id: str,
+    lease_token: str, expected_output_path: Path, transcript_output_path: Path,
+) -> bool:
+    """ARIA-HIGH-540 — hand a refused delivery's credential verdict to the
+    kernel's one withholding owner: the submit, on the files the lane left.
+
+    The submit judges those bytes with the chain the delivery just ran
+    (``judge_claim_submission``), so it records the same credential verdict
+    as a WITHHELD rejection row and deletes the envelope and transcript
+    before its journal (``agent_invocations._withhold_submission_sources``).
+    True once the kernel answered with that row: the claim is terminal by
+    it, and the caller releases nothing. Any other answer — the submit timed
+    out, refused before any row, or recorded a row that withholds nothing —
+    is a job error naming the answer, and False: the caller releases and
+    escalates as for any refusal, and the bytes stay where the verdict found
+    them, which the error says.
+    """
+    transcript_hash = _submitted_transcript_hash(
+        transcript_output_path, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
+    )
+    try:
+        submitted = _submit_via_cli(
+            claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+            expected_output_path=expected_output_path, repo=repo, tools_dir=tools_dir,
+            request_envelope=request, transcript_hash=transcript_hash,
+            transcript_output_path=transcript_output_path,
+        )
+    except subprocess.TimeoutExpired:
+        sys.stderr.write(
+            f"::error::aria executor could not withhold the output the delivery refused as a credential leak "
+            f"for request {request_id}: the submit hung past {SUBMIT_RESULT_TIMEOUT_SECONDS}s; the refused "
+            f"envelope and transcript stay on the outputs surface.\n"
+        )
+        return False
+    row = _recorded_rejection_row(submitted.stdout or "")
+    if row is not None and row.get("output_withheld") is not None:
+        _stage(f"implementation_delivery_refused_output_withheld claim={claim_id} "
+               f"sources={len(row.get('withheld_sources') or [])}")
+        return True
+    detail = "\n".join(
+        part for part in (submitted.stdout or "", submitted.stderr or "") if part.strip()
+    ) or "(the submit step produced no output on either stream)"
+    sys.stderr.write(
+        f"::error::aria executor could not withhold the output the delivery refused as a credential leak "
+        f"for request {request_id} (submit rc={submitted.returncode}); the refused envelope and transcript stay "
+        f"on the outputs surface: " + _redact_lease_in_message(detail, lease_token)[:2000] + "\n"
+    )
+    return False
+
+
 def _record_human_required(
     *, tools_dir: Path, request_id: str, severity: str, reason: str, context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -788,7 +939,7 @@ def _record_human_required(
 def _release_unescalated(
     *, tools_dir: Path, repo: Path, request: dict[str, Any], request_id: str, target_agent: str,
     claim_id: str, agent_id: str, lease_token: str, escalation_reason: str, phase: str,
-    error: HumanRequiredRecordUnavailable,
+    error: HumanRequiredRecordUnavailable, claim_terminal: bool = False,
 ) -> int:
     """The release site's ERROR for an escalation whose record did not land.
 
@@ -800,32 +951,42 @@ def _release_unescalated(
     governance and on stderr as a job error, and the child's summary a
     FAILED harness dispatch (exit 1) — never a `refused` by-design exit that
     reads as if the escalation happened.
+
+    ``claim_terminal`` (ARIA-HIGH-540): the kernel already recorded a result
+    row for the claim (a refused delivery's withheld rejection), so there is
+    no lease to hand back and no retry to wait for — the release is not
+    attempted (the kernel would refuse it) and the summary is not retryable;
+    the escalation's absence is still a job error, on stderr and governance.
     """
     from aria_kernel.tool_registry import append_tools_governance
 
     cause = str(error)
     sys.stderr.write(
         f"::error::aria executor could not record HUMAN_REQUIRED for request {request_id} "
-        f"({escalation_reason}): {cause}. The claim is released harness-class under "
-        f"human_required_record_unavailable and the request stays queued.\n"
+        f"({escalation_reason}): {cause}. "
+        + ("The claim is terminal by the kernel's own result row, so nothing is released; the request is "
+           "not retried and its escalation must be recorded by hand.\n" if claim_terminal else
+           "The claim is released harness-class under human_required_record_unavailable and the request "
+           "stays queued.\n")
     )
     try:
         append_tools_governance(tools_dir, "human_required_record_unavailable", {
             "request_id": request_id, "claim_id": claim_id, "escalation_reason": escalation_reason,
-            "error": cause[:1000],
+            "error": cause[:1000], "claim_terminal": claim_terminal,
         })
     except Exception as governance_exc:  # the store's governance may be what failed
         sys.stderr.write(f"human_required_record_unavailable governance row not written: {governance_exc}\n")
-    _release_claim(
-        tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-        agent_id=agent_id, lease_token=lease_token,
-        reason=f"human_required_record_unavailable:{escalation_reason}",
-    )
+    if not claim_terminal:
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=f"human_required_record_unavailable:{escalation_reason}",
+        )
     _write_dispatch_summary(
         route=_dispatch_route_for(request, target_agent=target_agent),
         request_id=request_id, outcome="failed",
         failure=DispatchFailure(
-            failure_class="harness_unavailable", retryable=True,
+            failure_class="harness_unavailable", retryable=not claim_terminal,
             detail_code="human_required_record_unavailable", phase=phase, exit_code=1,
         ),
         exit_code=1,
@@ -2097,6 +2258,21 @@ def invoke_claude_cli(
         # attempt closure and its governance-audit callback; the helper owns
         # the single-retry-bounded control flow.
         def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
+            # ARIA-LOW-445 — the spawn lane's route, on the ledger BEFORE the
+            # rung runs: a rung that hangs until its lease runs out is judged
+            # by its own provider's outage (`attempt_providers_by_claim`), not
+            # the ladder head's. The native lane's route is its reserved
+            # attempt row. No rung runs without its record, as on the native
+            # lane: a refused write is a refused spawn, released by name.
+            if route_model is None and tools_dir is not None and claim_id:
+                from aria_kernel.independence_check import record_claim_route
+                from aria_kernel.tool_registry import GovernanceError as _RouteRecordRefused
+
+                try:
+                    record_claim_route(tools_dir, request_id=request_id, claim_id=claim_id,
+                                       provider=_provider_for_model(model), model=model, lane="spawn")
+                except _RouteRecordRefused as exc:
+                    raise ClaudeCliUnavailable(f"claim_route_record_unavailable: {exc}") from exc
             # The auth failover is written in tier names; the runtime that
             # serves a tier is the fleet's decision. A Z.ai tier (its own HTTP
             # transport since the 2026-09-11 policy) never reaches the claude
@@ -2842,8 +3018,8 @@ def _build_envelope_from_claude_output(
     return envelope
 
 
-def _rejected_result_recorded(submit_stdout: str) -> bool:
-    """True when the submit step's answer is a kernel-recorded REJECTED result row.
+def _recorded_rejection_row(submit_stdout: str) -> dict[str, Any] | None:
+    """The kernel-recorded REJECTED result row the submit step answered with, or None.
 
     `aria_kernel agent submit-result` prints its result document on stdout and
     exits 1 for anything but `accepted`. When that document carries a result
@@ -2855,14 +3031,22 @@ def _rejected_result_recorded(submit_stdout: str) -> bool:
     text = submit_stdout or ""
     start = text.find("{")
     if start < 0:
-        return False
+        return None
     try:
         payload = json.loads(text[start:])
     except ValueError:
-        return False
+        return None
     row = payload.get("row") if isinstance(payload, dict) else None
-    return (isinstance(payload, dict) and payload.get("status") == "rejected"
-            and isinstance(row, dict) and row.get("row_type") == "result" and row.get("status") == "rejected")
+    if (isinstance(payload, dict) and payload.get("status") == "rejected"
+            and isinstance(row, dict) and row.get("row_type") == "result" and row.get("status") == "rejected"):
+        return row
+    return None
+
+
+def _rejected_result_recorded(submit_stdout: str) -> bool:
+    """True when the submit step's answer is a kernel-recorded REJECTED result
+    row (`_recorded_rejection_row`)."""
+    return _recorded_rejection_row(submit_stdout) is not None
 
 
 def _held_request_state(request_id: str, base_dir: Path) -> str | None:
@@ -3542,6 +3726,31 @@ def _cool_provider(
         cooldown_seconds=(native_runtime.policy.provider_cooldown_seconds if native_runtime is not None
                           else provider_cooldown_seconds(_REPO_ROOT)),
         request_id=request_id, claim_id=claim_id, detection=exc.detail,
+    )
+
+
+def _summarize_native_provider_fact(
+    *, native_runtime: Any, request: dict[str, Any], request_id: str, target_agent: str,
+    exc: ClaudeAuthFailure | ClaudeCreditExhausted | ClaudeProviderUnreachable,
+) -> None:
+    """The native child's summary of a provider fact (ARIA-MEDIUM-438).
+
+    The drain tells a re-probe of a standing outage from a new failure by
+    the child's summary: its class names the outage kind and its provider
+    the outage it met. The native Z.ai and Codex attempts raise their fact
+    straight to `_main`'s arm, so they wrote none, and the drain counted
+    `child_without_summary` — a harness failure — every re-probe night.
+    Written here, beside `_cool_provider`, for every native runtime, on the
+    pair the attempt RAN on (ARIA-HIGH-182), as the nonzero-exit path does;
+    for the native Claude route it supersedes the spawn's own summary. The
+    spawn lane's summary is `invoke_claude_cli`'s own.
+    """
+    if native_runtime is None:
+        return
+    _write_dispatch_summary(
+        route=_native_route_for_summary(native_runtime, request, target_agent=target_agent),
+        request_id=request_id, outcome="failed",
+        failure=classify_dispatch_failure(exception=exc, phase="runtime"), exit_code=1,
     )
 
 
@@ -4385,10 +4594,11 @@ def _pre_claim_environment_gate(
             f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
     if kind is None and _egress_boundary_probe is not None:
-        # ARIA-HIGH-143 — the spawn shares the host's network; its boundary
-        # is the allowlist proxy it is handed. No proxy, a silent one or a
-        # permissive one means a prompt-injected agent has the whole
-        # network, so the request stays PENDING until the host has one.
+        # ARIA-HIGH-143 — the spawn's room has its own network namespace and
+        # one road out, the kernel's allowlist proxy. The probe asks a real
+        # managed room, from inside, whether that holds on this host (no
+        # route out, an off-allowlist target refused by name); when it does
+        # not, the request stays PENDING until the host can build one.
         egress_gap = _egress_boundary_probe()
         if egress_gap is not None:
             kind, detail = "egress_boundary_unavailable", egress_gap
@@ -4482,6 +4692,29 @@ def _render_and_bind_prompt(*, request_envelope: dict[str, Any], request_id: str
         )
         return None
     return payload, computed
+
+
+def _submitted_transcript_hash(transcript_output_path: Path, *, request_id: str, claim_id: str, agent_id: str) -> str:
+    """The digest of the transcript a submit names: the lane's, or the
+    executor's fallback record when the lane wrote none (the submit requires
+    one). The one writer of that fallback, for both submits of this child —
+    the result's (step 4) and a refused delivery's (ARIA-HIGH-540)."""
+    if not transcript_output_path.exists():
+        _write_sanitized_transcript(
+            transcript_output_path,
+            json.dumps(
+                {
+                    "schema_version": "aria/ci-executor-transcript/v1",
+                    "mode": "fallback-empty-transcript",
+                    "request_id": request_id,
+                    "claim_id": claim_id,
+                    "agent_id": agent_id,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+        )
+    return "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
 
 
 def _submit_via_cli(
@@ -5354,6 +5587,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # and the next admission routes past it.
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         from aria_kernel.provider_outage_ledger import outage_opened_by_claim
 
         # ARIA-HIGH-366 — said once per outage: a re-probe that meets the
@@ -5389,6 +5624,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
@@ -5403,6 +5640,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
                        request_id=request_id, claim_id=claim_id)
+        _summarize_native_provider_fact(native_runtime=native_runtime, request=request_envelope,
+                                        request_id=request_id, target_agent=subagent_type, exc=exc)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
@@ -5669,9 +5908,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         _mutated_delivery = False
         if implementation_identity is not None:
             from aria_kernel.implementation_delivery import (
-                HOST_STAGES,
                 IMPLEMENTATION_DELIVERED_EVENT,
-                IMPLEMENTATION_DELIVERY_REFUSED_EVENT,
                 ImplementationDeliveryRefusal,
                 deliver_implementation,
                 stamp_implementation_delivery,
@@ -5705,70 +5942,20 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                     # dispositions for intended files it left untouched)
                     # off the same record.
                     envelope=_envelope_for_validation, output_path=expected_output_path,
+                    # ARIA-HIGH-524 — and the transcript it submits beside it,
+                    # judged with it, so a credential there is refused (and
+                    # withheld, `_close_refused_delivery`) before any push.
+                    transcript_path=transcript_output_path,
                     # (round 3) the delivery's own admission reads the job
                     # window; the executor decided it before the publication.
                     job_deadline_epoch=float(_deadline_epoch) if _deadline_epoch else None,
                 )
             except ImplementationDeliveryRefusal as exc:
-                _delivery_governance(tools_dir, IMPLEMENTATION_DELIVERY_REFUSED_EVENT, {
-                    "request_id": request_id, "claim_id": claim_id, "stage": exc.stage, "reason": exc.reason[:500],
-                    "workspace_root": str(_REPO_ROOT),
-                })
-                _stage(f"implementation_delivery_refused stage={exc.stage} reason={exc.reason[:200]!r}")
-                if exc.stage in HOST_STAGES:
-                    # (round 3) the host's window or sandbox, decided after
-                    # the publication, and (round 6) the lane's credential
-                    # source at the moment of the push: harness-class, no
-                    # escalation — the request keeps its budget; the
-                    # published branch makes the retry collide, which IS
-                    # escalated, by name.
-                    _release_claim(
-                        tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-                        agent_id=agent_id, lease_token=lease_token,
-                        reason=DELIVERY_WINDOW_REFUSAL.release_reason,
-                    )
-                    return _refuse_dispatch(
-                        request=request_envelope, request_id=request_id, target_agent=subagent_type,
-                        reason=DELIVERY_WINDOW_REFUSAL.release_reason,
-                        failure_class=DELIVERY_WINDOW_REFUSAL.failure_class,
-                        retryable=DELIVERY_WINDOW_REFUSAL.retryable,
-                    )
-                try:
-                    _record_human_required(
-                        tools_dir=tools_dir, request_id=request_id, severity="HIGH",
-                        reason=f"implementation_delivery_refused:{exc.stage}: {exc.reason[:400]}",
-                        context={
-                            "code": f"implementation_delivery_refused:{exc.stage}", "stage": exc.stage,
-                            "detail": exc.reason[:1000], "claim_id": claim_id,
-                            "branch": _staged_implementation_ids(tools_dir=tools_dir, request_id=request_id).get("branch"),
-                            "base_sha": _staged_implementation_ids(tools_dir=tools_dir, request_id=request_id).get("base_sha"),
-                        },
-                    )
-                except HumanRequiredRecordUnavailable as record_error:
-                    return _release_unescalated(
-                        tools_dir=tools_dir, repo=repo, request=request_envelope, request_id=request_id,
-                        target_agent=subagent_type, claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
-                        escalation_reason=f"implementation_delivery_refused:{exc.stage}", phase="submit", error=record_error,
-                    )
-                _release_claim(
-                    tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-                    agent_id=agent_id, lease_token=lease_token,
-                    reason=f"implementation_delivery_refused:{exc.stage}",
+                return _close_refused_delivery(
+                    exc=exc, tools_dir=tools_dir, repo=repo, request=request_envelope, request_id=request_id,
+                    target_agent=subagent_type, claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+                    expected_output_path=expected_output_path, transcript_output_path=transcript_output_path,
                 )
-                _refused = _refuse_dispatch(
-                    request=request_envelope, request_id=request_id, target_agent=subagent_type,
-                    reason="implementation_delivery_refused",
-                )
-                # ARIA-HIGH-388 — the plan ends with the class and fault domain
-                # the kernel can VERIFY from the refusal's own reason
-                # (`implementation_rejections.settlement_for_delivery`); an
-                # unverifiable cause is `unclassified` and cools nothing off.
-                from aria_kernel.implementation_settlement import settle_delivery_refusal
-
-                _settled = settle_delivery_refusal(request_id=request_id, stage=exc.stage, reason=exc.reason,
-                                                   base_dir=tools_dir)
-                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
-                return _refused
             _delivered = _delivery
             _mutated_delivery = stamp_implementation_delivery(
                 _envelope_for_validation, delivery=_delivery, request_id=request_id, claim_id=claim_id,
@@ -5864,22 +6051,9 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     _stage("submit_step_begin claim=" + claim_id)
     # Step 4 — submit through the kernel CLI; lease-token via env var.
     # ORPHAN-HIGH-081 — bounded timeout + survivable claim release on hang.
-    if not transcript_output_path.exists():
-        _write_sanitized_transcript(
-            transcript_output_path,
-            json.dumps(
-                {
-                    "schema_version": "aria/ci-executor-transcript/v1",
-                    "mode": "fallback-empty-transcript",
-                    "request_id": request_id,
-                    "claim_id": claim_id,
-                    "agent_id": agent_id,
-                },
-                sort_keys=True,
-            )
-            + "\n",
-        )
-    _transcript_hash = "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
+    _transcript_hash = _submitted_transcript_hash(
+        transcript_output_path, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
+    )
     # ARIA-HIGH-022 — implementer agents cite the POST-FIX lines of files
     # they changed; graded against the request's base SHA every genuine fix
     # was worktree_candidate and the submit died. Ground the evidence check

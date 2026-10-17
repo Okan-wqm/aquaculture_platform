@@ -30,7 +30,7 @@ from .canonical_path import lexical_repo_path
 from .snapshot import build_repo_snapshot, ignored_dirty_path, snapshot_allowed_set
 from .artifact_safety import scrub_text
 from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
-from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
+from .tool_registry import GovernanceError, ensure_tools_binding, get_tool, missing_repo_local_dependencies
 
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
@@ -145,14 +145,18 @@ def run_tool(
     spawn_environment: dict[str, Any] | None = None
 
     try:
-        if _runner_missing_node_deps(cwd, runner["argv"]):
+        missing_dependencies = missing_repo_local_dependencies(runner, workspace_root=root)
+        if missing_dependencies:
             # The WORKSPACE is missing the runner's dependency; the tool never
             # executed and this run says nothing about the tool. Its own
             # status keeps it out of the quarantine trigger — six adapters
             # were quarantined on 2026-08-10 for exactly this, an environment
             # fault priced as tool guilt (the requeue counter's defect, one
-            # layer up; MISSION_SPEC M-2.5).
-            stderr = "missing repo-local node dependency: node_modules/ts-node/dist/bin.js"
+            # layer up; MISSION_SPEC M-2.5). ARIA-MEDIUM-508 — the registry
+            # names every runner's dependencies, declared or derived, so a
+            # python adapter that spawns the repository's ts-node
+            # (banned-phrase-adapter) is no longer priced `crash` here.
+            stderr = "missing repo-local dependency: " + ", ".join(missing_dependencies)
             status = "environment_unavailable"
             exit_code = None
             output = {}
@@ -252,11 +256,12 @@ def run_tool(
         "status": status,
         "input_hash": _sha256(input_bytes),
         "output_hash": _sha256(stdout.encode("utf-8")),
-        # NOTE: read_paths stays a plain array on purpose — it is a
-        # schema-owned field of the run envelope (validate_run_envelope
-        # requires an array). Its observed worst case (88 KB) sits far
-        # under the cap; the unbounded offender this finding chased was
-        # evidence_validation.
+        # The ENVELOPE carries the full read set: record_run judges scope
+        # against it in memory (validate_run_envelope requires an array).
+        # The stored ROW names it by content address once the run artifact
+        # holds it (ARIA-HIGH-523, tool_health._ledger_row_fields): inline it
+        # grew to 536 KB a run (test-gap, 2026-10-15) and 66% of runs.jsonl.
+        # Readers take it from runs_reader.run_read_paths.
         "read_paths": _array_or_empty(output.get("read_paths")),
         "emitted_observations": _array_or_empty(raw_observations) if can_emit else [],
         "emitted_findings": _array_or_empty(raw_findings) if can_emit else [],
@@ -748,9 +753,3 @@ def _decode_timeout_stream(value: bytes | str | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
-
-
-def _runner_missing_node_deps(cwd: Path, argv: list[str]) -> bool:
-    if len(argv) >= 2 and argv[0] == "node" and argv[1] == "./node_modules/ts-node/dist/bin.js":
-        return not (cwd / "node_modules" / "ts-node" / "dist" / "bin.js").exists()
-    return False

@@ -1557,6 +1557,7 @@ def run_autonomy_orchestrator(
                 # Nothing swept, nothing said.
                 try:
                     from .delivery_credentials import prune_stale_delivery_credential_dirs
+                    from .egress_proxy import prune_stale_egress_proxies
                     from .hook_broker import prune_stale_hook_brokers
                     from .mcp_broker import prune_stale_mcp_brokers
                     from .signing_agent import prune_stale_signing_agents
@@ -1571,6 +1572,9 @@ def run_autonomy_orchestrator(
                         # mint's write and the hold's read); older than the
                         # provider's hour it is nobody's.
                         "delivery_credential_dirs": prune_stale_delivery_credential_dirs(),
+                        # ARIA-HIGH-143 — the kernel egress proxy's socket
+                        # directory, one per process that built a room.
+                        "egress_proxies": prune_stale_egress_proxies(),
                     }
                 except Exception as _sweep_exc:
                     append_tools_governance(

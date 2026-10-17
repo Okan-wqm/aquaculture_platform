@@ -429,6 +429,22 @@ describe('INVARIANT: test-target CI reachability', () => {
     expect(dangling).toEqual([]);
   });
 
+  it('drives each target through the policy script at most once per workflow', () => {
+    // A lane wired twice runs its suites twice and splits one gate across two
+    // steps that can drift apart: f2ab70ef6 re-wired `test:integration` in
+    // ci-affected.yml after a2ccf0e1e had wired it, and both steps ran the
+    // same Testcontainers suites on every farm-service and auth-service PR
+    // (INFRA-MEDIUM-228). Presence alone, which the tests above check, is
+    // satisfied by any number of copies.
+    const repeated = [...driven.entries()].flatMap(([target, files]) =>
+      [...new Set(files)]
+        .map((file) => ({ file, count: files.filter((candidate) => candidate === file).length }))
+        .filter(({ count }) => count > 1)
+        .map(({ file, count }) => `${target}: ${file} x${count}`),
+    );
+    expect(repeated).toEqual([]);
+  });
+
   it('keeps the unreachable allowlist honest — no entry that has since been wired or deleted', () => {
     const live = new Set(declared.map((entry) => `${entry.project}:${entry.target}`));
     const stale = Object.keys(UNREACHABLE_ALLOWLIST).filter((key) => {

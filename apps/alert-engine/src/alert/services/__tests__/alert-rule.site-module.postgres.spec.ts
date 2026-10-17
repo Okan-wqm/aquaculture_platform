@@ -1,0 +1,319 @@
+/**
+ * The alarm site + module reads on real Postgres (ALERT-MEDIUM-010,
+ * ALERT-LOW-015).
+ *
+ * countActiveAlerts groups with `getRawMany`: its column aliases, the group
+ * a NULL site or module forms, and the enum strings Postgres hands back are
+ * exactly what a mocked query builder cannot check. These run the real SQL
+ * the query builder generates against the entity's own table, serve the rows
+ * through the code-first GraphQL types, and pin that a count and the list it
+ * opens hold the same rows. They also pin why the origin helpers parse a
+ * site (ALERT-MEDIUM-013): Postgres refuses anything but a UUID in site_id.
+ */
+import 'reflect-metadata';
+import { randomBytes } from 'crypto';
+
+import { stub } from '@aquaculture/testing';
+import { NestFactory } from '@nestjs/core';
+import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory, Query, Resolver } from '@nestjs/graphql';
+import { Test, type TestingModule } from '@nestjs/testing';
+import { getRepositoryToken, TypeOrmModule } from '@nestjs/typeorm';
+import {
+  bootPostgresContainer,
+  type HarnessContext,
+  shutdownHarness,
+} from '@platform/migration-harness';
+import { graphql, type GraphQLSchema } from 'graphql';
+import { type Repository } from 'typeorm';
+
+import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.entity';
+import { ActiveAlertCount, ActiveAlertCountDimension } from '../../dto/active-alert-count.type';
+import { AlertHistory } from '../../entities/alert-history.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
+import { AlertEvaluationService } from '../alert-evaluation.service';
+import { sensorOrigin } from '../alert-origin';
+import { AlertRuleService } from '../alert-rule.service';
+
+jest.setTimeout(180_000);
+
+const TENANT = '6d0f3a41-5d0b-4c3e-9a51-0f6f3c1b7e21';
+const OTHER_TENANT = '7e1f4b52-6e1c-4d4f-8b62-1a7a4d2c8f32';
+const SITE_A = '0a0a0a0a-0000-4000-8000-00000000000a';
+const SITE_B = '0b0b0b0b-0000-4000-8000-00000000000b';
+
+/** Serves ActiveAlertCount rows through the code-first schema, as the subgraph does. */
+@Resolver()
+class ActiveAlertCountProbeResolver {
+  @Query(() => [ActiveAlertCount])
+  activeAlertCountsProbe(): ActiveAlertCount[] {
+    return [];
+  }
+}
+
+interface Seed {
+  readonly severity: AlertSeverity;
+  readonly acknowledged: boolean;
+  readonly module: AlertModule | null;
+  readonly siteId: string | null;
+  readonly resolved?: boolean;
+  readonly tenantId?: string;
+}
+
+const SEEDS: readonly Seed[] = [
+  {
+    severity: AlertSeverity.CRITICAL,
+    acknowledged: false,
+    module: AlertModule.SENSOR,
+    siteId: SITE_A,
+  },
+  {
+    severity: AlertSeverity.CRITICAL,
+    acknowledged: false,
+    module: AlertModule.SENSOR,
+    siteId: SITE_A,
+  },
+  {
+    severity: AlertSeverity.CRITICAL,
+    acknowledged: true,
+    module: AlertModule.SENSOR,
+    siteId: SITE_B,
+  },
+  {
+    severity: AlertSeverity.WARNING,
+    acknowledged: false,
+    module: AlertModule.FARM,
+    siteId: SITE_A,
+  },
+  { severity: AlertSeverity.WARNING, acknowledged: false, module: AlertModule.FARM, siteId: null },
+  // Recorded before alarms carried a module or a site.
+  { severity: AlertSeverity.MEDIUM, acknowledged: false, module: null, siteId: null },
+  // Not counted: resolved, or another tenant's.
+  {
+    severity: AlertSeverity.CRITICAL,
+    acknowledged: false,
+    module: AlertModule.SENSOR,
+    siteId: SITE_A,
+    resolved: true,
+  },
+  {
+    severity: AlertSeverity.CRITICAL,
+    acknowledged: false,
+    module: AlertModule.SENSOR,
+    siteId: SITE_A,
+    tenantId: OTHER_TENANT,
+  },
+];
+
+/** The list a GraphQL field served. */
+function servedList(value: unknown): unknown[] {
+  if (!Array.isArray(value)) throw new Error('the probe query served no list');
+  return value;
+}
+
+/** Group order is Postgres's to choose; compare as sets. */
+function sorted<T>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+}
+
+describe('AlertRuleService site + module reads — real Postgres', () => {
+  let harness: HarnessContext | undefined;
+  let testing: TestingModule | undefined;
+  let history: Repository<AlertHistory>;
+  let service: AlertRuleService;
+  let schema: GraphQLSchema;
+
+  function alarm(seed: Seed): AlertHistory {
+    return history.create({
+      ruleId: `rule-${randomBytes(4).toString('hex')}`,
+      ruleName: 'Rule',
+      tenantId: seed.tenantId ?? TENANT,
+      severity: seed.severity,
+      acknowledged: seed.acknowledged,
+      resolved: seed.resolved ?? false,
+      module: seed.module,
+      siteId: seed.siteId,
+      message: 'alarm',
+      triggeringData: {},
+      triggeredAt: new Date('2026-10-17T06:00:00.000Z'),
+    });
+  }
+
+  beforeAll(async () => {
+    harness = await bootPostgresContainer({ startTimeoutMs: 120_000 });
+    await harness.dataSource.query('CREATE SCHEMA alert');
+    // Wired as alert-engine wires it: the service's history repository is the
+    // one TypeOrmModule injects. The rule side is off these paths; its doubles
+    // are plain stubs because Nest probes every provider for lifecycle hooks.
+    testing = await Test.createTestingModule({
+      imports: [
+        TypeOrmModule.forRoot({
+          type: 'postgres',
+          ...harness.connectionOptions,
+          schema: 'alert',
+          entities: [AlertHistory],
+          synchronize: true,
+          logging: false,
+        }),
+        TypeOrmModule.forFeature([AlertHistory]),
+      ],
+      providers: [
+        AlertRuleService,
+        {
+          provide: getRepositoryToken(AlertRule),
+          useValue: stub<Repository<AlertRule>>({}),
+        },
+        {
+          provide: AlertEvaluationService,
+          useValue: stub<AlertEvaluationService>({}),
+        },
+      ],
+    }).compile();
+    history = testing.get<Repository<AlertHistory>>(getRepositoryToken(AlertHistory));
+    service = testing.get(AlertRuleService);
+    await history.save(SEEDS.map(alarm));
+
+    const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, {
+      logger: false,
+    });
+    schema = await app
+      .get(GraphQLSchemaFactory)
+      .create([ActiveAlertCountProbeResolver], [], { skipCheck: true, orphanedTypes: [] });
+    await app.close();
+  });
+
+  afterAll(async () => {
+    if (testing) await testing.close();
+    if (harness) await shutdownHarness(harness);
+  });
+
+  it('counts per severity and acknowledgement without a grouping, as the annunciator reads it', async () => {
+    const counts = await service.countActiveAlerts(TENANT);
+
+    expect(sorted(counts)).toEqual(
+      sorted([
+        { severity: AlertSeverity.CRITICAL, acknowledged: false, count: 2 },
+        { severity: AlertSeverity.CRITICAL, acknowledged: true, count: 1 },
+        { severity: AlertSeverity.WARNING, acknowledged: false, count: 2 },
+        { severity: AlertSeverity.MEDIUM, acknowledged: false, count: 1 },
+      ]),
+    );
+  });
+
+  it('groups by module, alarms without one in their own null group', async () => {
+    const counts = await service.countActiveAlerts(TENANT, {
+      groupBy: [ActiveAlertCountDimension.MODULE],
+    });
+
+    expect(sorted(counts)).toEqual(
+      sorted([
+        {
+          severity: AlertSeverity.CRITICAL,
+          acknowledged: false,
+          module: AlertModule.SENSOR,
+          count: 2,
+        },
+        {
+          severity: AlertSeverity.CRITICAL,
+          acknowledged: true,
+          module: AlertModule.SENSOR,
+          count: 1,
+        },
+        {
+          severity: AlertSeverity.WARNING,
+          acknowledged: false,
+          module: AlertModule.FARM,
+          count: 2,
+        },
+        { severity: AlertSeverity.MEDIUM, acknowledged: false, module: null, count: 1 },
+      ]),
+    );
+  });
+
+  it('groups one module’s alarms by site, alarms without one in their own null group', async () => {
+    const counts = await service.countActiveAlerts(TENANT, {
+      module: AlertModule.FARM,
+      groupBy: [ActiveAlertCountDimension.SITE],
+    });
+
+    expect(sorted(counts)).toEqual(
+      sorted([
+        { severity: AlertSeverity.WARNING, acknowledged: false, siteId: SITE_A, count: 1 },
+        { severity: AlertSeverity.WARNING, acknowledged: false, siteId: null, count: 1 },
+      ]),
+    );
+  });
+
+  it('counts exactly the rows the list it opens holds', async () => {
+    const counts = await service.countActiveAlerts(TENANT, { siteId: SITE_A });
+    const list = await service.getAlertHistory(
+      TENANT,
+      { siteId: SITE_A, resolved: false },
+      { page: 1, limit: 100 },
+    );
+
+    expect(counts.reduce((sum, row) => sum + row.count, 0)).toBe(3);
+    expect(list.total).toBe(3);
+    expect(sorted(list.items.map((row) => [row.severity, row.acknowledged]))).toEqual(
+      sorted(
+        counts.flatMap((row) =>
+          Array.from({ length: row.count }, () => [row.severity, row.acknowledged]),
+        ),
+      ),
+    );
+    const sensorList = await service.getAlertHistory(
+      TENANT,
+      { siteId: SITE_A, module: AlertModule.SENSOR, resolved: false },
+      { page: 1, limit: 100 },
+    );
+    expect(sensorList.items.map((row) => row.module)).toEqual([
+      AlertModule.SENSOR,
+      AlertModule.SENSOR,
+    ]);
+  });
+
+  it('serves the raw rows through the GraphQL enums: modules and severities by name, null groups as null', async () => {
+    const counts = await service.countActiveAlerts(TENANT, {
+      groupBy: [ActiveAlertCountDimension.MODULE, ActiveAlertCountDimension.SITE],
+    });
+
+    const result = await graphql({
+      schema,
+      source: '{ activeAlertCountsProbe { severity acknowledged module siteId count } }',
+      rootValue: { activeAlertCountsProbe: counts },
+    });
+
+    expect(result.errors).toBeUndefined();
+    expect(sorted(servedList(result.data ? result.data['activeAlertCountsProbe'] : null))).toEqual(
+      sorted([
+        { severity: 'CRITICAL', acknowledged: false, module: 'SENSOR', siteId: SITE_A, count: 2 },
+        { severity: 'CRITICAL', acknowledged: true, module: 'SENSOR', siteId: SITE_B, count: 1 },
+        { severity: 'WARNING', acknowledged: false, module: 'FARM', siteId: SITE_A, count: 1 },
+        { severity: 'WARNING', acknowledged: false, module: 'FARM', siteId: null, count: 1 },
+        { severity: 'MEDIUM', acknowledged: false, module: null, siteId: null, count: 1 },
+      ]),
+    );
+  });
+
+  it('refuses a site that is not a UUID; the origin helper records it as no site (ALERT-MEDIUM-013)', async () => {
+    const label = 'Hatchery North';
+    const asGiven = history.create({
+      ...alarm({
+        severity: AlertSeverity.HIGH,
+        acknowledged: false,
+        module: AlertModule.SENSOR,
+        siteId: null,
+      }),
+      siteId: label,
+    });
+    await expect(history.save(asGiven)).rejects.toMatchObject({ driverError: { code: '22P02' } });
+
+    const parsed = history.create({
+      ...alarm({ severity: AlertSeverity.HIGH, acknowledged: false, module: null, siteId: null }),
+      ...sensorOrigin(label),
+    });
+    const saved = await history.save(parsed);
+    const stored = await history.findOneByOrFail({ id: saved.id });
+    expect([stored.module, stored.siteId]).toEqual([AlertModule.SENSOR, null]);
+    await history.delete({ id: saved.id });
+  });
+});

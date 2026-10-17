@@ -72,6 +72,60 @@ class AStreamJsonTranscriptIsScrubbedEventForEvent(unittest.TestCase):
         self.assertNotEqual(hashlib.sha256(data).hexdigest(), hashlib.sha256(_STREAM.encode("utf-8")).hexdigest())
 
 
+def _tool_result(content: str) -> str:
+    return json.dumps({"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t9", "content": content}]}}, ensure_ascii=False, separators=(",", ":"))
+
+
+def _surviving_runs(text: str, secret: str) -> list[str]:
+    width = min(4, len(secret))
+    return sorted({secret[i:i + width] for i in range(len(secret) - width + 1) if secret[i:i + width] in text})
+
+
+class AToolThatPrintsAnEnvFileLeavesNoSecret(unittest.TestCase):
+    """The remaining gap of ARIA-HIGH-448 (triage 2026-10-16): the one writer scrubbed token shapes,
+    but a tool that cats an env file, a compose file or a connection string published the generic
+    ``KEY=value`` secrets, URL-embedded passwords and a JSON ``password`` field verbatim."""
+
+    PASSWORD = "Zx9qLm2vB7tR"
+    SAMPLES = {
+        "env_file_cat_n": "     1\tPOSTGRES_USER=app\n     2\tPOSTGRES_" + "PASSWORD=" + PASSWORD + "\n",
+        "docker_run": "docker run -e POSTGRES_" + "PASSWORD=" + PASSWORD + " postgres:16",
+        "jwt_private_key": "JWT_PRIVATE_" + "KEY=" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC" + PASSWORD,
+        "stripe_secret_key_name": "export STRIPE_SECRET_" + "KEY=" + "rk_" + "x" + PASSWORD,
+        "quoted_value_with_space": 'DB_PASS' + 'WORD="' + PASSWORD[:6] + " " + PASSWORD[6:] + '"',
+        "redis_url_empty_user": "REDIS_URL=redis://:" + PASSWORD + "@redis:6379/0",
+        "libpq_dsn": "host=db user=app pass" + "word=" + PASSWORD + " dbname=aqua",
+        "cli_flag": "psql --pass" + "word=" + PASSWORD + " -h db",
+        "compose_mapping": "    POSTGRES_PASS" + "WORD: " + PASSWORD,
+    }
+
+    def test_every_sample_is_redacted_in_a_tool_result(self) -> None:
+        for name, content in self.SAMPLES.items():
+            with self.subTest(sample=name):
+                scrubbed = scrub_transcript(_tool_result(content) + "\n")
+                self.assertEqual(_surviving_runs(scrubbed, self.PASSWORD), [])
+                json.loads(scrubbed)
+
+    def test_a_json_password_field_is_redacted(self) -> None:
+        # A tool_use input or a printed config carries the password under a key, not a KEY=value.
+        event = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t8", "name": "db", "input": {"user": "app", "password": self.PASSWORD,
+                                                                   "db_passwd": self.PASSWORD}}]}}
+        scrubbed = scrub_transcript(json.dumps(event, separators=(",", ":")) + "\n")
+        self.assertEqual(_surviving_runs(scrubbed, self.PASSWORD), [])
+        self.assertEqual(json.loads(scrubbed)["message"]["content"][0]["input"]["user"], "app")
+
+    def test_references_and_markers_in_a_transcript_keep_their_bytes(self) -> None:
+        for line in (
+            _tool_result("GH_TOKEN=${{ github.token }}\nmax_tokens=4096 TOKEN_BUDGET=1000"),
+            _tool_result("GH_TOKEN=<secret-redacted> and PASSWORD=$DB_PASSWORD"),
+            _tool_result("see apps/x.ts:12 and sha256:" + "ab" * 32),
+        ):
+            with self.subTest(line=line[-40:]):
+                self.assertEqual(scrub_transcript(line + "\n"), line + "\n")
+
+
 def _raw_transcript_writes(relative: str, source: str | None = None) -> list[str]:
     """Each `<…transcript…>.write_text/.write_bytes(...)` or `open(<…transcript…>, …)` in a module."""
     tree = ast.parse(source if source is not None else (_REPO_ROOT / relative).read_text(encoding="utf-8"))

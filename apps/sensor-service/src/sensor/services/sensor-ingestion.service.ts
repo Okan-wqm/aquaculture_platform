@@ -59,6 +59,7 @@ import {
   MAX_DATA_PATH_DEPTH,
 } from '../validation/input-sanitizer';
 import { withRetry, RetryableErrors, CircuitBreaker } from '../utils/retry.util';
+import { siteOfSensor } from '../utils/sensor-site.util';
 
 /**
  * Ingest reading data input
@@ -988,8 +989,9 @@ export class SensorIngestionService {
    * mutations, parent routing), yet the SensorReading it publishes must carry
    * the sensor's site — alert-engine places the alarm a rule raises from it
    * there (ALERT-MEDIUM-010). The client is never asked for a site: the
-   * sensor's own row is the one source. A sensor bound to no site maps to
-   * nothing, and its event carries no site.
+   * sensor's own row is the one source. A sensor bound to no site, or to a
+   * label that is not a site UUID (ALERT-MEDIUM-013), maps to nothing, and its
+   * event carries no site.
    */
   private async sitesOfSensors(
     manager: EntityManager,
@@ -1002,7 +1004,8 @@ export class SensorIngestionService {
     });
     const sites = new Map<string, string>();
     for (const sensor of sensors) {
-      if (sensor.siteId) sites.set(sensor.id, sensor.siteId);
+      const siteId = siteOfSensor(sensor);
+      if (siteId !== undefined) sites.set(sensor.id, siteId);
     }
     return sites;
   }

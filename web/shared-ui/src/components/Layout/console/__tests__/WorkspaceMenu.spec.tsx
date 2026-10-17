@@ -188,6 +188,25 @@ describe('WorkspaceMenu', () => {
     expect(within(menu()).queryByRole('button', { name: 'alarms org' })).toBeNull();
   });
 
+  it('says what the alarm counts hold when it draws them (FE-LOW-347)', () => {
+    renderMenu({ renderAlarms: (id) => (id === 'org' ? null : <span>1</span>) });
+    const scope =
+      'The counts beside a module are its active alarms from the alarm list. ' +
+      'PLC and SCADA alarms are not included.';
+    expect(within(menu()).getByText(scope)).toBeInTheDocument();
+    expect(menu()).toHaveAccessibleDescription(
+      `The menu and colour follow the module. The alarm panel is shared by every module. ${scope}`,
+    );
+  });
+
+  it('says nothing of alarm counts when it draws none', () => {
+    renderMenu();
+    expect(within(menu()).queryByText(/PLC and SCADA alarms/)).toBeNull();
+    expect(menu()).toHaveAccessibleDescription(
+      'The menu and colour follow the module. The alarm panel is shared by every module.',
+    );
+  });
+
   it('closes a preview chip’s tooltip on Escape without closing the menu; the next Escape closes it', () => {
     const props = renderMenu({
       renderAlarms: (id) =>

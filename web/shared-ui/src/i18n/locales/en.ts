@@ -1729,6 +1729,10 @@ export const en = {
   'console.workspaceMenu.title': 'Module',
   'console.workspaceMenu.hint':
     'The menu and colour follow the module. The alarm panel is shared by every module.',
+  // FE-LOW-347: what the per-module counts hold — alert-engine alarms only
+  // (SENSOR-MEDIUM-188: PLC and SCADA alarms never reach it).
+  'console.workspaceMenu.alarmsScope':
+    'The counts beside a module are its active alarms from the alarm list. PLC and SCADA alarms are not included.',
   // ── Console shell (FE-HIGH-334; web/shell console/, mounted by MainLayout):
   //    the role names the user menu shows and the command palette's person
   //    and device hints ──

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .artifact_safety import scrub_json
+from .artifact_safety import sanitized_json_text, scrub_json
 from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, is_sha256_digest, load_declared_jsonl, load_jsonl, verify_jsonl
 from .ledger import (
     LEDGER_ROW_MAX_BYTES as _LEDGER_ROW_MAX_BYTES,
@@ -167,9 +167,15 @@ def write_run_artifact(
         "created_at": utc_now(),
         "payload": scrub_json(payload),
     }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    digest = _sha256_bytes(encoded)
     try:
+        # ARIA-LOW-547 — the published surface (runtime_artifact_hot) is
+        # written only through the boundary's encoder: a credential in a
+        # mapping key, or a refusal hit the ASCII escaping forms, is refused
+        # and takes the write_failed path below; nothing is written.
+        encoded = sanitized_json_text(
+            payload, where=artifact_id, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        ).encode("utf-8")
+        digest = _sha256_bytes(encoded)
         _atomic_write_bytes(artifact_path, encoded)
         actual = _sha256_bytes(artifact_path.read_bytes())
         if actual != digest:

@@ -83,16 +83,24 @@ class TheExecutableIsTheOneResolved(_Fixture):
     def test_it_is_bound_read_only_and_run_by_absolute_path(self) -> None:
         command = self._wrap()
         real = str((self.install / "2.1.269").resolve())
-        self.assertEqual(command[command.index("--") + 1:], [real, "-p", "--model", "opus"])
+        # ARIA-HIGH-143 — the room's first process is the egress relay, which
+        # execs the CLI in its own place: by absolute path, after the relay's
+        # own separator.
+        door = [impl.sandbox_interpreter(), "-I", impl.SANDBOX_EGRESS_RELAY, impl.SANDBOX_EGRESS_PROXY_SOCKET, "--"]
+        self.assertEqual(command[command.index("--") + 1:], [*door, real, "-p", "--model", "opus"])
         self.assertIn((real, real), _pairs(command, "--ro-bind"))
-        # ARIA-HIGH-143 — the spawn is isolated from the host's PID, IPC and
-        # UTS namespaces and its controlling session, not just reaped with
-        # its parent. The network namespace is deliberately NOT unshared:
-        # the CLI reaches its provider through the egress proxy.
+        # ARIA-HIGH-143 — the spawn is isolated from the host's PID, IPC,
+        # UTS and NETWORK namespaces and its controlling session, not just
+        # reaped with its parent: the CLI reaches its provider through the
+        # kernel's allowlist proxy, whose socket is the room's one road out.
         prefix = command[:command.index("--")]
-        for flag in ("--unshare-pid", "--unshare-ipc", "--unshare-uts", "--new-session", "--die-with-parent"):
+        for flag in ("--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--new-session",
+                     "--die-with-parent"):
             self.assertIn(flag, prefix, flag)
-        self.assertNotIn("--unshare-net", prefix)
+        self.assertEqual([target for _, target in _pairs(prefix, "--bind")
+                          if target == impl.SANDBOX_EGRESS_PROXY_SOCKET], [impl.SANDBOX_EGRESS_PROXY_SOCKET])
+        self.assertIn((str(impl.EGRESS_RELAY_SOURCE), impl.SANDBOX_EGRESS_RELAY), _pairs(prefix, "--ro-bind"))
+        self.assertNotIn("/etc/resolv.conf", [source for source, _ in _pairs(prefix, "--ro-bind")])
 
 
 class TheSpawnDocumentsAreVisible(_Fixture):
@@ -167,7 +175,7 @@ class TheBaseSandboxIsKept(_Fixture):
         self.assertIn((kernel, kernel), _pairs(command, "--ro-bind"))
         self.assertIn(("--tmpfs", "/tmp"), list(zip(command, command[1:])))
         self.assertIn(("--tmpfs", SANDBOX_HOME), list(zip(command, command[1:])))
-        self.assertNotIn("--unshare-net", command)
+        self.assertIn("--unshare-net", command[:command.index("--")])
         self.assertEqual((os.path.isabs(command[0]), os.path.basename(command[0])), (True, "bwrap"))
 
     def test_the_git_binds_and_the_broker_socket_reach_the_base_wrapper_unchanged(self) -> None:

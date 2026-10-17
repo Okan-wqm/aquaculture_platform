@@ -222,6 +222,7 @@ def _notify_operator(root: Path, handed: list[str], now: datetime) -> None:
         title="ARIA: expired requests need an operator",
         body=f"{len(handed)} expired request(s) need an operator. No producer recovers them; each record names why.\n"
              + "\n".join(handed[:50]),
+        record="human-required/",
     )
 
 

@@ -404,6 +404,13 @@ describe('NatsIngestionConsumerService', () => {
       expect(asRecord(bus.publish.mock.calls[0]?.[0])['siteId']).toBeUndefined();
     });
 
+    it('carries no site for a site label that is not a UUID (ALERT-MEDIUM-013)', async () => {
+      const bus = makeBus();
+      const { svc } = makeService({ bus, sensor: fakeSensor({ siteId: 'Hatchery North' }) });
+      await svc.handle(fakeEvent());
+      expect(asRecord(bus.publish.mock.calls[0]?.[0])['siteId']).toBeUndefined();
+    });
+
     it('publish failure does not abort persistence — enqueue already happened', async () => {
       const bus = makeBus();
       bus.publish.mockRejectedValueOnce(new Error('broker down'));

@@ -449,13 +449,13 @@ def dispatch_one_pending_planner_request(
     # admission reads the same rows and refuses the malformed one by name.
     from datetime import datetime, timezone
 
-    from .provider_outage import cooled_providers, provider_outage
+    from .provider_outage import cooled_providers, host_providers, provider_outage
 
     try:
         moment = datetime.now(timezone.utc)
         outage = provider_outage(
             str(request.get("role") or ""), cooled_providers(root, now=moment),
-            now=moment, target_agent=target_agent,
+            now=moment, target_agent=target_agent, present=host_providers(),
         )
     except GovernanceError:
         outage = None

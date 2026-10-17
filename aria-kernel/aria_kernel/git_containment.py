@@ -679,10 +679,47 @@ def stand_on_implementation_branch(containment: GitContainment, *, branch: str, 
 # command reads it, so stripping it changes nothing but that redirect.
 _AMBIENT_GIT_CONFIG_NAMES: frozenset[str] = frozenset({"GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"})
 _AMBIENT_GIT_CONFIG_PREFIXES: tuple[str, ...] = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+# ARIA-LOW-447 — the variables that redirect git rather than configure it,
+# each read by git 2.43 (its binaries name them):
+# * which program it runs: GIT_EXEC_PATH is where it looks up every helper (a
+#   local push runs `git-receive-pack` from it, an https push
+#   `git-remote-https`); GIT_SSH / GIT_SSH_COMMAND / GIT_PROXY_COMMAND are the
+#   transport's program; GIT_EXTERNAL_DIFF runs for diff porcelain;
+# * where it asks for a credential: GIT_ASKPASS, SSH_ASKPASS;
+# * whom the transport trusts and as whom it connects: every GIT_SSL_* and
+#   GIT_PROXY_SSL_* (verification off, CA, client certificate and key);
+# * what a new repository starts with: GIT_TEMPLATE_DIR (`git init` copies
+#   its hooks and its config);
+# * whether a trace prints the credential: GIT_TRACE_REDACT=0 writes the
+#   push's Authorization header into GIT_TRACE_CURL / GIT_CURL_VERBOSE
+#   output (redacted while it is absent).
+# Kept, because none can point git at another program, endpoint, credential
+# or configuration: GIT_CEILING_DIRECTORIES (it only stops discovery), the
+# other traces (redacted), GIT_TERMINAL_PROMPT (it only disables prompts),
+# editors and pagers (no call with a message and no tty runs them), HOME,
+# GIT_CONFIG_GLOBAL/SYSTEM and proxies (host plumbing every child needs).
+_AMBIENT_GIT_REDIRECT_NAMES: frozenset[str] = frozenset({
+    "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_PROXY_COMMAND", "GIT_EXTERNAL_DIFF",
+    "GIT_ASKPASS", "SSH_ASKPASS", "GIT_TEMPLATE_DIR", "GIT_TRACE_REDACT",
+})
+_AMBIENT_GIT_REDIRECT_PREFIXES: tuple[str, ...] = ("GIT_SSL_", "GIT_PROXY_SSL_")
+
+
+def without_ambient_git_redirects(environ: Mapping[str, str]) -> dict[str, str]:
+    """``environ`` without any variable that redirects git's program lookup,
+    transport, credential prompt, new-repository template or trace redaction.
+
+    The state store's git builds on this alone (``state_store``): its publish
+    step sets the ``GIT_CONFIG_*`` credential the store pushes with, on
+    purpose, and a helper planted through a redirect must not run beside it.
+    """
+    return {name: value for name, value in environ.items()
+            if name not in _AMBIENT_GIT_REDIRECT_NAMES and not name.startswith(_AMBIENT_GIT_REDIRECT_PREFIXES)}
 
 
 def without_ambient_git_config(environ: Mapping[str, str]) -> dict[str, str]:
-    """``environ`` without any git configuration it injects.
+    """``environ`` without any git configuration it injects, and without any
+    redirect (``without_ambient_git_redirects``).
 
     The base every kernel seam builds a git or ``gh`` child's environment
     from: the delivery's push (``_publish_environment``), ``gh pr create``
@@ -690,7 +727,7 @@ def without_ambient_git_config(environ: Mapping[str, str]) -> dict[str, str]:
     and the commit-identity check (``implementation_identity``). What the
     child should carry is added after this, by the caller who chose it.
     """
-    return {name: value for name, value in environ.items()
+    return {name: value for name, value in without_ambient_git_redirects(environ).items()
             if name not in _AMBIENT_GIT_CONFIG_NAMES and not name.startswith(_AMBIENT_GIT_CONFIG_PREFIXES)}
 
 
@@ -926,4 +963,5 @@ __all__ = [
     "publish_quarantine",
     "stand_on_implementation_branch",
     "without_ambient_git_config",
+    "without_ambient_git_redirects",
 ]

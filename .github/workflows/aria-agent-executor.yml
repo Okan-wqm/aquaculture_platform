@@ -525,10 +525,16 @@ jobs:
             fi
             claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \
               || { echo "::error::Claude Code CLI preflight failed" >&2; cat /tmp/aria-claude-auth.err >&2; exit 1; }
+            # ARIA-HIGH-441 — a missing managed login is reported, not a job
+            # refusal: whether a request needs Claude is its route's question.
+            # The native admission probes `claude auth status` and cools a
+            # logged-out anthropic (claude_logged_out, which opens its outage);
+            # the spawn lane's pre-claim gate and the worker child cool it the
+            # same way. Work routed to Z.ai runs; work only Claude can run waits
+            # by name. Exiting here held every request, Z.ai's included.
             CLAUDE_AUTH_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
             if [ ! -f "${CLAUDE_AUTH_DIR}/.credentials.json" ] && [ ! -f "${CLAUDE_AUTH_DIR}/config.json" ]; then
-              echo "::error::Claude Code managed-auth session not found on the trusted runner" >&2
-              exit 1
+              echo "::warning::Claude Code managed-auth session not found on the trusted runner; requests routed to Claude are cooled and wait, requests routed to Z.ai run" >&2
             fi
           fi
 

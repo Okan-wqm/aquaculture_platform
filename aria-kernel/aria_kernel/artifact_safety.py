@@ -80,6 +80,46 @@ def scrub_json(value: Any) -> Any:
     return value
 
 
+def scrub_transcript(text: str) -> str:
+    """A run's transcript with every secret shape redacted, line for line.
+
+    ARIA-HIGH-448 — every executor lane wrote the run's stdout to its
+    transcript raw, and the kernel seals those bytes content-addressed and
+    publishes them on aria/state: a key a tool read, echoed or was handed
+    reached the store verbatim. A transcript is JSON Lines (Claude
+    stream-json, Codex events, a vendor's JSON body, the executor's own
+    records), so each line that parses is scrubbed as data (``scrub_json``:
+    secret shapes in every string, and a string under a credential-named
+    key) and written back compact, keys in their order, non-ASCII as is, so
+    every reader still parses the same events; a line with nothing to redact
+    keeps its exact bytes. A line that does not parse (a vendor's prose, a
+    pretty-printed fragment) goes through ``scrub_text``.
+    """
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        body = line.rstrip("\r")
+        if not body.strip():
+            continue
+        try:
+            parsed = json.loads(body)
+        except ValueError:
+            lines[index] = scrub_text(line)
+            continue
+        scrubbed = scrub_json(parsed)
+        if scrubbed != parsed:
+            lines[index] = json.dumps(scrubbed, ensure_ascii=False, separators=(",", ":")) + line[len(body):]
+    return "\n".join(lines)
+
+
+def write_sanitized_transcript(path: str | Path, text: str) -> None:
+    """THE transcript write of every executor lane (ARIA-HIGH-448): scrubbed
+    before the bytes exist, so the hash the executor submits and the kernel
+    seals is the scrubbed bytes' and nothing raw reaches the store."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(scrub_transcript(text), encoding="utf-8")
+
+
 def assert_real_mode_env_safe(env: dict[str, str]) -> None:
     for name in FORBIDDEN_REAL_MODE_ENV:
         if env.get(name) == "1":

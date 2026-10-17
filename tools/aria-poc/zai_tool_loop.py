@@ -667,6 +667,23 @@ def claude_run_result(
     )
 
 
+def prepare_zai_credential(model: str) -> ZaiExecutionContext:
+    """The Z.ai context for a rung, or the provider fact its absence is.
+
+    The boundary refusing (no key named, an unreadable or group-readable
+    file, both boundaries set) is `ProviderCredentialAbsent` for zai under
+    `zai_auth_refusal`: the lane holding the claim cools Z.ai with it.
+    """
+    from claude_runtime import ProviderCredentialAbsent
+    from zai_runtime import ZaiCredentialUnavailable, prepare_zai_context
+
+    try:
+        return prepare_zai_context(dict(os.environ), default_model=model)
+    except ZaiCredentialUnavailable as exc:
+        raise ProviderCredentialAbsent(f"zai_{exc.reason}: {exc}", provider="zai", model=model,
+                                       signature="zai_auth_refusal", marker=f"zai_{exc.reason}") from exc
+
+
 def run_zai_writer(
     *, seat: RoomSeat, model: str, effort: str | None, system: str, user: str, timeout_seconds: int,
     usage_recording: UsageRecording | None,
@@ -680,14 +697,11 @@ def run_zai_writer(
     stream-json transcript, so the executor's transcript file holds every
     turn and its envelope builder reads the final answer from it.
     """
-    from claude_runtime import ClaudeAuthUnavailable, ClaudeProviderUnreachable, _record_usage_best_effort, parse_claude_jsonl
+    from claude_runtime import ClaudeProviderUnreachable, _record_usage_best_effort, parse_claude_jsonl
     from aria_kernel.model_fleet import dispatching_provider_for_model
-    from zai_runtime import ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context
+    from zai_runtime import ZaiTransportUnavailable, prepare_zai_context
 
-    try:
-        context = prepare_zai_context(dict(os.environ), default_model=model)
-    except ZaiCredentialUnavailable as exc:
-        raise ClaudeAuthUnavailable(f"zai_{exc.reason}: {exc}") from exc
+    context = prepare_zai_credential(model)
     try:
         completed = run_zai_tool_loop(context, seat=seat, model=model, effort=effort, system=system, user=user,
                                       timeout_seconds=timeout_seconds)
@@ -706,6 +720,6 @@ def run_zai_writer(
 __all__ = [
     "BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS", "COMPLETIONS_PER_BUDGETED_TURN", "CallVerdict",
     "ROOM_ALLOW_NETWORK", "ROOM_BUILTIN_TOOLS", "ROOM_CHILD", "ROOM_SYSTEM_PROMPT", "RoomPolicy", "RoomSeat",
-    "STOP_COMPLETED", "ZaiLoopResult", "claude_run_result", "decide_call", "room_policy", "run_zai_tool_loop",
-    "run_zai_writer",
+    "STOP_COMPLETED", "ZaiLoopResult", "claude_run_result", "decide_call", "prepare_zai_credential", "room_policy",
+    "run_zai_tool_loop", "run_zai_writer",
 ]

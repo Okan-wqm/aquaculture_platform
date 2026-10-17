@@ -49,3 +49,22 @@ sweep fails and emits no `FCRAlert`. On main this was hidden behind FARM-CRITICA
 unit spec mocks `manager.query`. Introduced by f4d5a39fb (W5, FARM-LOW-291).
 
 Planned fix: bind the status from `FeedingProgramStatus.ACTIVE` as a query parameter.
+
+## FARM-MEDIUM-446
+
+Live batches show a stored FCR of 0.00. Found while re-landing FARM-CRITICAL-444, whose fix
+decides alerts from the computed running FCR and writes nothing back to `fcr.actual`.
+
+- `apps/farm-service/src/batch/entities/batch.entity.ts:265-267`: GraphQL `Batch.fcr` exposes
+  the stored document, and only `close-batch.handler.ts:207` writes `fcr.actual`.
+- `web/modules/farm-module/src/pages/production/tabs/BatchOverviewTab.tsx:122` and
+  `components/UpdateBatchModal.tsx:262` show 0.00 for every live batch.
+- `web/modules/farm-module/src/pages/production/tabs/BatchInputTab.tsx:115` averages those
+  zeros, and `:213-215` colours 0.00 as on target.
+- `apps/farm-service/src/events/listeners/harvest-completed.listener.ts:349`: the harvest
+  report's FCR reads the same stored copy.
+
+The old branch `feat/aquamobil-v4-merge` (826690623) projected the running FCR onto the column
+from the sweep. Who owns the displayed value is a separate decision, so it was not re-landed
+with FARM-CRITICAL-444. A fix serves the running FCR from the authority, as a projection it owns
+or a field batched through `calculateCumulativeFCRMany`, and moves every reader onto it.

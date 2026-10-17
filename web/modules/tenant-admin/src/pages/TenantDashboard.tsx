@@ -27,6 +27,7 @@ import type { User, MyModule } from '../lib/types';
 import { useTenantStats } from '../hooks/useTenantData';
 import { formatRelativeTime, formatDate } from '../utils/date-utils';
 import { SD_CARD, SD_CARD_LABEL, SD_STAT_TITLE, SD_STAT_VALUE } from '../components/ui/suderra';
+import ModuleIcon from '../components/modules/ModuleIcon';
 
 /**
  * Stat card data type
@@ -47,11 +48,11 @@ interface StatCard {
 interface ModuleStatus {
   id: string;
   name: string;
-  code: string;
   status: 'active' | 'inactive' | 'pending';
   users: number;
   lastActivity: string;
-  icon: string;
+  /** The module record's lucide icon name, drawn by ModuleIcon. */
+  icon: string | null;
 }
 
 /**
@@ -68,16 +69,10 @@ interface RecentActivity {
 // User and SubscriptionInfo types imported from lib/types
 
 /**
- * Module icon mapping
- */
-const moduleIconMap: Record<string, string> = {
-  farm: '🐟',
-  sensor: '📊',
-  hr: '👥',
-};
-
-/**
- * Color mapping for stat cards
+ * Color mapping for stat cards. A stat's icon is decoration, so none takes a
+ * hazard colour: in the console only red and amber signal (README §7.8).
+ * green and blue resolve to the graphite ramp inside the console scope;
+ * yellow and purple take the workspace accent.
  */
 const colorClasses = {
   green: {
@@ -91,14 +86,14 @@ const colorClasses = {
     text: 'text-info-600 dark:text-info-400',
   },
   yellow: {
-    bg: 'bg-warning-50 dark:bg-warning-900/20',
-    icon: 'bg-warning-100 dark:bg-warning-900/40 text-warning-600 dark:text-warning-400',
-    text: 'text-warning-600 dark:text-warning-400',
+    bg: 'bg-primary-50 dark:bg-primary-900/20',
+    icon: 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300',
+    text: 'text-primary-700 dark:text-primary-300',
   },
   purple: {
-    bg: 'bg-warning-50 dark:bg-warning-900/20',
-    icon: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-    text: 'text-warning-700 dark:text-warning-300',
+    bg: 'bg-primary-50 dark:bg-primary-900/20',
+    icon: 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300',
+    text: 'text-primary-700 dark:text-primary-300',
   },
 };
 
@@ -128,7 +123,7 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({ status }) =
 
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
+      className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${config.bg} ${config.text}`}
     >
       {config.icon}
       {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -155,24 +150,16 @@ const TenantDashboard: React.FC = () => {
     queryKey: createTenantQueryKey(getTenantId(), 'dashboard', 'modules'),
     queryFn: async () => {
       const modules = await getMyModules();
-      return (modules || []).map((m: MyModule): ModuleStatus => {
-        const code = m.name?.toLowerCase().includes('farm')
-          ? 'farm'
-          : m.name?.toLowerCase().includes('hr') || m.name?.toLowerCase().includes('insan')
-            ? 'hr'
-            : m.name?.toLowerCase().includes('sensor') || m.name?.toLowerCase().includes('sens')
-              ? 'sensor'
-              : 'default';
-        return {
+      return (modules || []).map(
+        (m: MyModule): ModuleStatus => ({
           id: m.id,
           name: m.name,
-          code,
           status: m.isEnabled ? 'active' : 'inactive',
           users: 0,
           lastActivity: 'Active',
-          icon: moduleIconMap[code] || m.icon || '📦',
-        };
-      });
+          icon: m.icon,
+        }),
+      );
     },
     staleTime: 2 * 60 * 1000,
   });
@@ -340,7 +327,7 @@ const TenantDashboard: React.FC = () => {
 
       {/* Subscription Banner */}
       {subscription && (
-        <div className="bg-gradient-to-r from-success-50 via-info-50 to-warning-50 rounded-[14px] border border-success-200 dark:border-success-800 p-6">
+        <div className={`${SD_CARD} p-6`}>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-xl bg-success-100 dark:bg-success-900/40">
@@ -352,7 +339,7 @@ const TenantDashboard: React.FC = () => {
                     {subscription.planName}
                   </h3>
                   <span
-                    className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                    className={`px-2 py-0.5 text-xs font-medium rounded ${
                       subscription.status === 'active'
                         ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                         : subscription.status === 'trial'
@@ -386,7 +373,7 @@ const TenantDashboard: React.FC = () => {
             </div>
             <div className="flex items-center gap-6">
               <div className="text-right">
-                <p className="font-display text-[30px] leading-none text-gray-900 dark:text-gray-100">
+                <p className="font-display text-[30px] font-semibold leading-none tabular-nums text-gray-900 dark:text-gray-100">
                   ${parseMoney(subscription.pricing.basePriceDecimal)}
                   <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/mo</span>
                 </p>
@@ -435,7 +422,7 @@ const TenantDashboard: React.FC = () => {
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Modules Status - Takes 2 columns */}
-        <div className={`lg:col-span-2 overflow-hidden ${SD_CARD}`}>
+        <div className={`lg:col-span-2 ${SD_CARD}`}>
           <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <h2 className={SD_CARD_LABEL}>Module Status</h2>
@@ -463,8 +450,8 @@ const TenantDashboard: React.FC = () => {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-success-100 dark:bg-success-900/40 flex items-center justify-center text-xl">
-                        {module.icon}
+                      <div className="w-10 h-10 rounded-lg bg-success-100 dark:bg-success-900/40 flex items-center justify-center text-success-600 dark:text-success-400">
+                        <ModuleIcon name={module.icon} className="w-5 h-5" />
                       </div>
                       <div>
                         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -538,28 +525,25 @@ const TenantDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-[14px] p-6 text-white">
+      {/* Quick Actions — a blueprint card like the rest of the page: in the
+          console the only filled object is the primary button (README §7.7). */}
+      <div className={`${SD_CARD} p-6`}>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h3 className="text-lg font-semibold">Need to add more users?</h3>
-            <p className="text-primary-100 text-sm mt-1">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Need to add more users?
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
               Invite team members to collaborate on your aquaculture operations.
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/tenant/modules')}
-              className="px-4 py-2 text-sm font-medium text-primary-700 bg-white dark:bg-gray-900 dark:text-primary-200 rounded-full hover:bg-primary-50 transition-colors"
-            >
+            <Button variant="secondary" onClick={() => navigate('/tenant/modules')}>
               View Modules
-            </button>
-            <button
-              onClick={() => navigate('/tenant/users')}
-              className="px-4 py-2 text-sm font-medium text-white bg-primary-900 rounded-full hover:bg-primary-800 transition-colors"
-            >
+            </Button>
+            <Button variant="primary" onClick={() => navigate('/tenant/users')}>
               Invite Users
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -17,8 +17,10 @@ const EXPIRY_WARNING_DAYS = 30;
  * Determines the Tailwind CSS background class for an inventory row
  * based on its expiry date proximity.
  *
- * - Red (`bg-red-50`):  expired — safety hazard, must be disposed or used immediately.
- * - Amber (`bg-amber-50`): expiring within 30 days — plan to use or risk waste.
+ * - Error (`bg-error-50`, hazard red in the console): expired — safety hazard,
+ *   must be disposed or used immediately.
+ * - Warning (`bg-warning-50`, hazard amber in the console): expiring within 30
+ *   days — plan to use or risk waste.
  * - Empty string: normal, no urgency.
  *
  * @param expiryDate - ISO date string, or undefined if the item has no expiry.

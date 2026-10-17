@@ -36,12 +36,30 @@ export const MIN_REASON_LENGTH = 30;
  * @returns {string[]}        empty when the entry is well formed and live
  */
 export function validateReviewedException(entry, where, today) {
-  const problems = [];
+  const problems = reviewedExceptionShapeProblems(entry, where);
+  if (isReviewedExceptionExpired(entry, today)) {
+    problems.push(`${where}: expired ${entry.expires_on} (${entry.finding_id ?? 'no finding'})`);
+  }
+  return problems;
+}
 
+/**
+ * Every problem with an entry's SHAPE, its expiry left out. A malformed
+ * entry is an authoring error a commit introduced; an expired one is a well
+ * formed entry whose clock ran out, and a gate may answer the two
+ * differently (scripts/ci/lib/affected-target-policy.mjs gates the project
+ * of an expired entry instead of refusing the whole file).
+ *
+ * @param {unknown} entry
+ * @param {string}  where
+ * @returns {string[]}
+ */
+export function reviewedExceptionShapeProblems(entry, where) {
   if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
     return [`${where}: entry must be an object {owner, reason, expires_on, finding_id}`];
   }
 
+  const problems = [];
   if (typeof entry.owner !== 'string' || entry.owner.trim().length === 0) {
     problems.push(`${where}: owner is required`);
   }
@@ -50,12 +68,28 @@ export function validateReviewedException(entry, where, today) {
   }
   if (typeof entry.expires_on !== 'string' || !ISO_DATE.test(entry.expires_on)) {
     problems.push(`${where}: expires_on must be YYYY-MM-DD`);
-  } else if (entry.expires_on < today) {
-    problems.push(`${where}: expired ${entry.expires_on} (${entry.finding_id ?? 'no finding'})`);
   }
   if (typeof entry.finding_id !== 'string' || !FINDING_ID.test(entry.finding_id)) {
     problems.push(`${where}: finding_id must be a registry id like INFRA-HIGH-001`);
   }
-
   return problems;
+}
+
+/**
+ * Whether a dated entry is past its expiry on `today` (ISO dates compare as
+ * strings). An entry with no valid date is not "expired"; it is malformed,
+ * which reviewedExceptionShapeProblems reports.
+ *
+ * @param {unknown} entry
+ * @param {string}  today
+ * @returns {boolean}
+ */
+export function isReviewedExceptionExpired(entry, today) {
+  return (
+    entry !== null &&
+    typeof entry === 'object' &&
+    typeof entry.expires_on === 'string' &&
+    ISO_DATE.test(entry.expires_on) &&
+    entry.expires_on < today
+  );
 }

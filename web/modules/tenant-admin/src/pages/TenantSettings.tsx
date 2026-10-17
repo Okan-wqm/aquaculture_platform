@@ -18,6 +18,8 @@ import {
   MobileSettings,
   AiAssistantSettings,
 } from '../components/settings';
+import { SD_CARD } from '../components/ui/suderra';
+import { SelectableRow } from '../components/ui/SelectableRow';
 
 /**
  * Settings section definition.
@@ -133,49 +135,63 @@ const TenantSettings: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Sidebar Navigation */}
         <div className="lg:col-span-1">
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className={SD_CARD}>
+            {/* The section shown is the nav's current page: SelectableRow
+                announces it (aria-current="page") and marks it with the
+                accent line and fill, not by hue alone — in the Company
+                workspace the slate accent sits 1.35:1 from the gray label. */}
             <nav className="divide-y divide-gray-100 dark:divide-gray-700">
-              {visibleSections.map((section) => (
-                <button
-                  key={section.id}
-                  onClick={() => setActiveSection(section.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                    activeSection === section.id
-                      ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <span
-                    className={`flex-shrink-0 ${
-                      activeSection === section.id
-                        ? 'text-success-600 dark:text-success-400'
-                        : 'text-gray-500 dark:text-gray-400'
+              {visibleSections.map((section) => {
+                const current = activeSection === section.id;
+                return (
+                  <SelectableRow
+                    key={section.id}
+                    current={current}
+                    currentKind="page"
+                    onSelect={() => setActiveSection(section.id)}
+                    className={`flex items-center gap-3 px-4 py-3 ${
+                      current
+                        ? 'text-primary-900 dark:text-primary-100'
+                        : 'text-gray-700 dark:text-gray-300'
                     }`}
                   >
-                    {section.icon}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{section.title}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block">
-                      {section.description}
-                    </p>
-                  </div>
-                  <ChevronRight
-                    className={`w-4 h-4 flex-shrink-0 ${
-                      activeSection === section.id
-                        ? 'text-success-600 dark:text-success-400'
-                        : 'text-gray-500 dark:text-gray-400'
-                    }`}
-                  />
-                </button>
-              ))}
+                    <span
+                      className={`flex-shrink-0 ${
+                        current
+                          ? 'text-primary-700 dark:text-primary-300'
+                          : 'text-gray-500 dark:text-gray-400'
+                      }`}
+                    >
+                      {section.icon}
+                    </span>
+                    <span className="block flex-1 min-w-0">
+                      <span
+                        className={`block text-sm truncate ${current ? 'font-semibold' : 'font-medium'}`}
+                      >
+                        {section.title}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block">
+                        {section.description}
+                      </span>
+                    </span>
+                    <ChevronRight
+                      aria-hidden="true"
+                      className={`w-4 h-4 flex-shrink-0 ${
+                        current
+                          ? 'text-primary-700 dark:text-primary-300'
+                          : 'text-gray-500 dark:text-gray-400'
+                      }`}
+                    />
+                  </SelectableRow>
+                );
+              })}
             </nav>
           </div>
         </div>
 
         {/* Settings Content */}
         <div className="lg:col-span-3">
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
+          <div className={`${SD_CARD} p-6`}>
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {settingsSections.find((s) => s.id === activeSection)?.title}

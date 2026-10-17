@@ -13,7 +13,12 @@ const sizeClasses: Record<string, string> = {
 };
 
 /**
- * Renders a user avatar with initials fallback.
+ * Renders a user avatar with initials fallback — the one avatar every
+ * tenant-admin list and dialog draws. The fallback is the console's initials
+ * plate (the header's user menu, README §7.4): the accent's lightest step, a
+ * hairline of its 300 step, the initials in the condensed display face. The
+ * `sd-accent` ramp follows the theme and the workspace by itself, so it needs
+ * no `dark:` sibling. Round, as avatars stay.
  */
 export const UserAvatar = memo<UserAvatarProps>(({ name, avatarUrl, size = 'md' }) => {
   const initials = name
@@ -35,7 +40,7 @@ export const UserAvatar = memo<UserAvatarProps>(({ name, avatarUrl, size = 'md' 
 
   return (
     <div
-      className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-primary-600 to-primary-800 flex items-center justify-center text-white font-medium`}
+      className={`${sizeClasses[size]} rounded-full border border-sd-accent-300 bg-sd-accent-100 flex shrink-0 items-center justify-center font-display-sd font-semibold text-sd-accent-800`}
     >
       {initials || '??'}
     </div>

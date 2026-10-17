@@ -4,7 +4,6 @@
 @import '../../../shared-ui/src/styles/theme.css';
 @source '../../../shared-ui/src';
 
-
 /* v4 defaults border-color to currentColor; restore Tailwind 3's gray-200. */
 @layer base {
   *,
@@ -16,21 +15,23 @@
   }
 }
 
-
-/* Scrollbar Styling */
+/* Scrollbar Styling — the standalone dev entry's (main.tsx); in production
+   the shell owns the page chrome. Neutral like the shell's `scrollbar-thin`:
+   the green thumb and the slate track were raw hues outside the design-system
+   scales, and Industry keeps green out of the UI (README §7.8). */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-gray-100 dark:bg-slate-800;
+  @apply bg-gray-100 dark:bg-gray-800;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-green-400 dark:bg-green-600 rounded-full;
+  @apply bg-gray-300 dark:bg-gray-600;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-green-500 dark:bg-green-700;
+  @apply bg-gray-400 dark:bg-gray-500;
 }

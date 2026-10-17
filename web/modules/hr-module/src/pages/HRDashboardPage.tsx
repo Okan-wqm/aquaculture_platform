@@ -80,7 +80,7 @@ const StatCard: React.FC<StatCardProps> = ({
   };
 
   return (
-    <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+    <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{title}</p>
@@ -108,7 +108,7 @@ const QuickAction: React.FC<QuickActionProps> = ({
   return (
     <Link
       to={to}
-      className="flex items-center gap-4 rounded-lg border border-gray-100 bg-white p-4 transition-all hover:border-gray-200 hover:shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:hover:border-gray-600"
+      className="flex items-center gap-4 rounded-lg border border-gray-100 bg-white p-4 transition-all hover:border-gray-200 hover:shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800 dark:hover:border-gray-600"
     >
       <div className={`rounded-lg p-3 ${color}`}>{icon}</div>
       <div className="flex-1">
@@ -116,7 +116,7 @@ const QuickAction: React.FC<QuickActionProps> = ({
         <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
       </div>
       {badge !== undefined && badge > 0 && (
-        <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-error-100 px-2 text-xs font-medium text-error-700 dark:bg-error-900/30 dark:text-error-400">
+        <span className="flex h-6 min-w-6 items-center justify-center rounded-md bg-error-100 px-2 text-xs font-medium text-error-700 dark:bg-error-900/30 dark:text-error-400">
           {badge}
         </span>
       )}
@@ -195,8 +195,8 @@ export function HRDashboardPage() {
         <StatCard
           title="On Leave"
           value={onLeaveCount}
-          icon={<Calendar className="h-6 w-6 text-warning-600 dark:text-warning-400" />}
-          color="bg-warning-50 dark:bg-warning-900/30"
+          icon={<Calendar className="h-6 w-6 text-gray-600 dark:text-gray-400" />}
+          color="bg-gray-50 dark:bg-gray-900/30"
           isLoading={loadingStats}
         />
         <StatCard
@@ -250,7 +250,7 @@ export function HRDashboardPage() {
       )}
 
       {/* Aquaculture-Specific: Sea/Land Crew Split */}
-      <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Anchor className="h-5 w-5 text-primary-600 dark:text-primary-400" />
@@ -272,7 +272,7 @@ export function HRDashboardPage() {
       {/* Quick Actions Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* People Management */}
-        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
           <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
             People Management
           </h3>
@@ -287,9 +287,9 @@ export function HRDashboardPage() {
             <QuickAction
               title="Leave Management"
               description="Handle leave requests and balances"
-              icon={<Calendar className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
+              icon={<Calendar className="h-5 w-5 text-gray-600 dark:text-gray-400" />}
               to="/hr/leaves"
-              color="bg-warning-50 dark:bg-warning-900/30"
+              color="bg-gray-50 dark:bg-gray-900/30"
               badge={pendingLeavesCount}
             />
             <QuickAction
@@ -310,7 +310,7 @@ export function HRDashboardPage() {
         </div>
 
         {/* Aquaculture & Compliance */}
-        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
           <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
             Aquaculture & Compliance
           </h3>
@@ -333,16 +333,16 @@ export function HRDashboardPage() {
             <QuickAction
               title="Training Programs"
               description="Courses and compliance training"
-              icon={<GraduationCap className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
+              icon={<GraduationCap className="h-5 w-5 text-gray-600 dark:text-gray-400" />}
               to="/hr/training"
-              color="bg-accent-50 dark:bg-accent-900/30"
+              color="bg-gray-50 dark:bg-gray-700"
             />
             <QuickAction
               title="Offshore Rotations"
               description="View and manage rotation schedules"
-              icon={<RefreshCw className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
+              icon={<RefreshCw className="h-5 w-5 text-gray-600 dark:text-gray-400" />}
               to="/hr/crew/rotations"
-              color="bg-accent-50 dark:bg-accent-900/30"
+              color="bg-gray-50 dark:bg-gray-700"
             />
           </div>
         </div>
@@ -362,8 +362,8 @@ export function HRDashboardPage() {
         <StatCard
           title="Active Certifications"
           value={expiringCertsCount}
-          icon={<Award className="h-6 w-6 text-accent-600 dark:text-accent-400" />}
-          color="bg-accent-50 dark:bg-accent-900/30"
+          icon={<Award className="h-6 w-6 text-gray-600 dark:text-gray-400" />}
+          color="bg-gray-50 dark:bg-gray-700"
           isLoading={loadingCerts}
         />
         <StatCard
@@ -371,8 +371,8 @@ export function HRDashboardPage() {
           value={workAreas?.length || 0}
           change="Operational sites"
           changeType="neutral"
-          icon={<Building2 className="h-6 w-6 text-slate-600" />}
-          color="bg-slate-50 dark:bg-slate-900/30"
+          icon={<Building2 className="h-6 w-6 text-gray-600 dark:text-gray-400" />}
+          color="bg-gray-50 dark:bg-gray-700"
         />
         <StatCard
           title="Expiring Certs"
@@ -387,7 +387,7 @@ export function HRDashboardPage() {
 
       {/* Analytics & Performance */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
           <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
             Performance & Analytics
           </h3>
@@ -395,16 +395,16 @@ export function HRDashboardPage() {
             <QuickAction
               title="Performance Reviews"
               description="Employee evaluations and feedback"
-              icon={<TrendingUp className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
+              icon={<TrendingUp className="h-5 w-5 text-gray-600 dark:text-gray-400" />}
               to="/hr/performance"
-              color="bg-accent-50 dark:bg-accent-900/30"
+              color="bg-gray-50 dark:bg-gray-700"
             />
             <QuickAction
               title="HR Analytics"
               description="Detailed reports and insights"
-              icon={<BarChart3 className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
+              icon={<BarChart3 className="h-5 w-5 text-gray-600 dark:text-gray-400" />}
               to="/hr/analytics"
-              color="bg-accent-50 dark:bg-accent-900/30"
+              color="bg-gray-50 dark:bg-gray-700"
             />
             <QuickAction
               title="Departments"
@@ -417,7 +417,7 @@ export function HRDashboardPage() {
         </div>
 
         {/* Recent Activity */}
-        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
           <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
             Recent Activity
           </h3>

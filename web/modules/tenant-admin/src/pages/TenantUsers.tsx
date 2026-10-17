@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserPlus, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { ConfirmModal, useAuth, PageHeader, Button, useI18n } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { UserFilters } from '../components/users/UserFilters';
@@ -90,9 +91,16 @@ const TenantUsers: React.FC = () => {
   const canManageSiteAccess = canManageUserSiteAccess(currentUser?.role);
   const queryClient = useQueryClient();
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Filters. The console's command palette links a person here as
+  // `?search=<name>` (FE-HIGH-334): the list opens filtered to them, and a
+  // later link while the page is open re-filters it.
+  const [searchParams] = useSearchParams();
+  const linkedSearch = searchParams.get('search');
+  const [searchQuery, setSearchQuery] = useState(linkedSearch ?? '');
+  const [debouncedSearch, setDebouncedSearch] = useState(linkedSearch ?? '');
+  useEffect(() => {
+    if (linkedSearch !== null) setSearchQuery(linkedSearch);
+  }, [linkedSearch]);
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 

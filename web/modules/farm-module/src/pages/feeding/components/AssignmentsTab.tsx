@@ -420,7 +420,7 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                     />
                     {override && (
                       <>
-                        <span className="inline-flex rounded-full bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200 px-2 py-0.5 text-xs">
+                        <span className="inline-flex rounded bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200 px-2 py-0.5 text-xs">
                           {t('feedingV2.assignments.fcrOverride.overridden')}
                         </span>
                         <Button
@@ -579,7 +579,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
               {protocol?.name ?? assignment.protocolId}
             </div>
             {overrideCount > 0 && (
-              <span className="inline-flex rounded-full bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200 px-2 py-0.5 text-xs mt-0.5">
+              <span className="inline-flex rounded bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200 px-2 py-0.5 text-xs mt-0.5">
                 {t('feedingV2.assignments.fcrOverride.overridden')} ({overrideCount})
               </span>
             )}
@@ -593,7 +593,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
       render: (_value, assignment) => (
         <>
           <span
-            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ASSIGNMENT_STATUS_BADGE[assignment.status]}`}
+            className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${ASSIGNMENT_STATUS_BADGE[assignment.status]}`}
           >
             {t(ASSIGNMENT_STATUS_KEY[assignment.status])}
           </span>
@@ -615,7 +615,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
             {temp ? (
               <div>
                 <span
-                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${TEMP_SOURCE_BADGE[temp.source]}`}
+                  className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${TEMP_SOURCE_BADGE[temp.source]}`}
                   title={
                     temp.source === 'none'
                       ? t('feedingV2.assignments.tempNoneHint')
@@ -710,7 +710,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
       )}
 
       {!isLoading && assignments.length === 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center text-sm text-gray-500 dark:text-gray-400">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-12 text-center text-sm text-gray-500 dark:text-gray-400">
           {t('feedingV2.assignments.empty')}
         </div>
       )}

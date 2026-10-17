@@ -10,17 +10,16 @@ import {
 import { CalibrationEvent } from './calibration-event.entity';
 import { RecordCalibrationInput } from './dto/calibration.dto';
 import { lockChannel } from '../registration/services/channel-row-lock';
+import type { RecordedActor } from '../common/recorded-actor';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
  * Identity of the operator recording a calibration. Threaded from the resolver's
  * authenticated `@CurrentUser` so the event carries a real actor, not a log line.
+ * The service-wide recorded-actor shape, named for this record.
  */
-export interface CalibrationActor {
-  userId: string;
-  email?: string;
-}
+export type CalibrationActor = RecordedActor;
 
 /**
  * CalibrationRecordingService — the calibration aggregate (SENSOR-HIGH-083).

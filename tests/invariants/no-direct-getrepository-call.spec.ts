@@ -1,9 +1,10 @@
 /**
  * Invariant — every `.getRepository(` callsite on a real code line
  * is either (a) annotated with `// eslint-disable-next-line
- * no-restricted-syntax -- <rationale>` on the immediately preceding
- * non-comment line, OR (b) inside a path the rule structurally exempts
- * (tests/__tests__/__mocks__/migrations).
+ * no-restricted-syntax -- <rationale>` on the line directly above the
+ * line its statement starts on (the literal line ESLint's directive
+ * covers, a comment or blank line in between breaks it), OR (b) inside a
+ * path the rule structurally exempts (tests/__tests__/__mocks__/migrations).
  *
  * # Why this exists (the architectural gap it closes)
  *
@@ -60,14 +61,20 @@
  *     contract handles the upstream invariant (the wrapper injects
  *     tenantId regardless of caller intent).
  *   - It does not scan documentation strings, JSDoc, or string literals
- *     containing the literal substring `.getRepository(`. The scan
- *     skips comment lines, mirroring how ESLint's AST traversal
- *     ignores them.
+ *     containing the literal substring `.getRepository(`. A call that
+ *     appears only inside a comment is no call; ESLint's AST has no
+ *     node for it either.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
+
+import {
+  NEXT_LINE_DIRECTIVE_TOKEN,
+  isCoveredByNoRestrictedSyntaxDirective,
+  statementStartIndex,
+} from './helpers/eslint-next-line-directive';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
@@ -120,20 +127,6 @@ function listTrackedFiles(): readonly string[] {
 }
 
 /**
- * A line is a comment / blank line iff it is empty after trimming OR
- * begins with `//`, `/*`, or `*` (continuation of a JSDoc block).
- * The annotation lookup walks past these line shapes.
- */
-function isBlankOrCommentLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (trimmed === '') return true;
-  if (trimmed.startsWith('//')) return true;
-  if (trimmed.startsWith('/*')) return true;
-  if (trimmed.startsWith('*')) return true;
-  return false;
-}
-
-/**
  * Return true iff the given physical line, taken in isolation, is
  * just inside-a-comment text (i.e. the substring `.getRepository(`
  * appears in a JSDoc, line-comment, or string literal — NOT as a
@@ -160,14 +153,14 @@ function isInCommentOrJsdoc(line: string, callIndex: number): boolean {
   return false;
 }
 
-const LINT_ANNOTATION_TOKEN = ['eslint', 'disable', 'next', 'line'].join('-');
-const ANNOTATION_RE = new RegExp(`//\\s*${LINT_ANNOTATION_TOKEN}\\s+no-restricted-syntax`);
-
 const CALL_RE = /\.getRepository\(/;
 
 function scanFile(file: string): readonly Hit[] {
   const path = resolve(REPO_ROOT, file);
-  const lines = readFileSync(path, 'utf-8').split(/\r?\n/);
+  return scanLines(file, readFileSync(path, 'utf-8').split(/\r?\n/));
+}
+
+function scanLines(file: string, lines: readonly string[]): readonly Hit[] {
   const hits: Hit[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -176,70 +169,14 @@ function scanFile(file: string): readonly Hit[] {
     if (callIdx < 0) continue;
     if (isInCommentOrJsdoc(line, callIdx)) continue;
 
-    // Walk backward to the most recent non-blank, non-comment line.
-    // That line is the candidate annotation site. ESLint's
-    // `eslint-disable-next-line` only covers the NEXT line, so we
-    // require the annotation to be the immediate previous code line
-    // (with comment lines as the only acceptable preamble — they are
-    // skipped because ESLint also skips them when resolving directive
-    // scope).
-    //
-    // For multi-line callees like
-    //
-    //   const x = await manager
-    //     .getRepository(Entity)
-    //
-    // the call is on a continuation line; the annotation belongs on
-    // the line preceding the STATEMENT START (the `const x = ...`
-    // line). We resolve "statement start" as the nearest preceding
-    // line that does NOT begin with one of the continuation-tokens
-    // also recognised by SEC-REVIEW-003's positional-binding spec.
-    const isContinuation = (s: string): boolean => {
-      const t = s.trim();
-      return (
-        t.startsWith('.') ||
-        t.startsWith('?.') ||
-        t.startsWith(',') ||
-        t.startsWith(')') ||
-        t.startsWith(']') ||
-        t.startsWith('&&') ||
-        t.startsWith('||') ||
-        t.startsWith('??') ||
-        t.startsWith('+') ||
-        t.startsWith('-') ||
-        t.startsWith('*') ||
-        t.startsWith('/') ||
-        t.startsWith('?') ||
-        t.startsWith(':') ||
-        t.startsWith('=')
-      );
-    };
-    // Walk backward through continuation-prefixed lines (the call
-    // line itself may be `.getRepository(...)` — i.e. a continuation
-    // of a statement that started earlier). The statement start is
-    // the first line above that does NOT begin with a continuation
-    // token. The annotation, if present, sits above the statement
-    // start (possibly with a comment band between).
-    let statementStart = i;
-    while (statementStart > 0 && isContinuation(lines[statementStart] ?? '')) {
-      statementStart--;
-    }
-
-    // Now walk backwards from statementStart-1 through any comment
-    // band, looking for the annotation. The annotation may sit
-    // directly above the statement, or above a JSDoc/comment band
-    // that is between annotation and statement (ESLint allows this).
-    let cursor = statementStart - 1;
-    let foundAnnotation = false;
-    while (cursor >= 0) {
-      const prev = lines[cursor] ?? '';
-      if (ANNOTATION_RE.test(prev)) {
-        foundAnnotation = true;
-        break;
-      }
-      if (!isBlankOrCommentLine(prev)) break;
-      cursor--;
-    }
+    // ESLint reports the CallExpression at the start of its statement (a
+    // fluent `manager\n  .getRepository(...)` chain starts on the
+    // `manager` line), and the next-line directive covers only the literal
+    // line below it. The binding model is shared with the positional spec.
+    const foundAnnotation = isCoveredByNoRestrictedSyntaxDirective(
+      lines,
+      statementStartIndex(lines, i),
+    );
 
     if (!foundAnnotation) {
       hits.push({ file, line: i + 1, text: line.trim() });
@@ -247,6 +184,34 @@ function scanFile(file: string): readonly Hit[] {
   }
   return hits;
 }
+
+describe('a next-line directive binds only the literal next line, as ESLint binds it', () => {
+  const directive = `// ${NEXT_LINE_DIRECTIVE_TOKEN} no-restricted-syntax -- library-level implementation`;
+  // Built from parts, like the directive token, so the fixture text is not
+  // itself a raw repository call to the banned-construct gate.
+  const rawCall = `${['get', 'Repository'].join('')}(Plan)`;
+
+  it('accepts the directive directly above the statement', () => {
+    expect(scanLines('fixture.ts', [directive, `const repo = manager.${rawCall};`])).toEqual([]);
+  });
+
+  it('accepts the directive above the start of a multi-line statement', () => {
+    const lines = [directive, 'const repo = await manager', `  .${rawCall}`, '  .findOne();'];
+    expect(scanLines('fixture.ts', lines)).toEqual([]);
+  });
+
+  it('reports a call whose directive is separated from it by a comment line', () => {
+    // ESLint covers the comment line and still reports the call: the
+    // tenantManagerRepo defect this branch paid down.
+    const lines = [directive, '// the rationale, continued', `const repo = manager.${rawCall};`];
+    expect(scanLines('fixture.ts', lines)).toHaveLength(1);
+  });
+
+  it('reports a call whose directive is separated from it by a blank line', () => {
+    const lines = [directive, '', `const repo = manager.${rawCall};`];
+    expect(scanLines('fixture.ts', lines)).toHaveLength(1);
+  });
+});
 
 describe('INVARIANT: every .getRepository() callsite is annotated or in an exempt path', () => {
   const files = listTrackedFiles();

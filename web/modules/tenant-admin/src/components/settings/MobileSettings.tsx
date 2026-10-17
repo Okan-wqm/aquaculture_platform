@@ -3,6 +3,7 @@ import { Smartphone, Save, Check, RefreshCw, AlertCircle, Info } from 'lucide-re
 import { useMobileUsersData, useUpdateMobileUserSettings } from '../../hooks/useTenantData';
 import type { MobileUserSettingsData } from '../../hooks/useTenantData';
 import { logError } from '../../utils/error-handling';
+import { UserAvatar } from '../ui/UserAvatar';
 import { SmallToggle } from './Toggle';
 import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 
@@ -13,6 +14,9 @@ const FEATURE_COLUMNS = [
   { key: 'harvest' as const, label: 'Harvest' },
   { key: 'tankView' as const, label: 'Tank View' },
 ] as const;
+
+/** The access column's header; also the second half of its switches' names. */
+const MOBILE_COLUMN = 'Mobile';
 
 const DEFAULT_ALLOWED_FEATURES: MobileUserSettingsData['allowedFeatures'] = {
   mortality: true,
@@ -162,6 +166,10 @@ const MobileSettings: React.FC = () => {
   }
 
   type MobileUserRow = (typeof mobileUsers)[number];
+  const displayName = (user: MobileUserRow): string =>
+    `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+  // A cell's switch has no label beside it: its name is the row's user and
+  // the column it sits in ("Ada Lovelace: Harvest").
   const featureColumns: DataTableColumn<MobileUserRow>[] = FEATURE_COLUMNS.map((col) => ({
     key: col.key,
     header: col.label,
@@ -170,6 +178,7 @@ const MobileSettings: React.FC = () => {
       <SmallToggle
         enabled={getUserSettings(user.id).allowedFeatures[col.key]}
         onChange={(v) => updateUserMobileSetting(user.id, col.key, v)}
+        label={`${displayName(user)}: ${col.label}`}
       />
     ),
   }));
@@ -178,18 +187,10 @@ const MobileSettings: React.FC = () => {
       key: 'user',
       header: 'User',
       render: (_value, user) => {
-        const name =
-          `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+        const name = displayName(user);
         return (
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-success-500 to-success-700 flex items-center justify-center text-white text-xs font-semibold">
-              {name
-                .split(' ')
-                .map((n) => n[0])
-                .join('')
-                .toUpperCase()
-                .slice(0, 2)}
-            </div>
+            <UserAvatar name={name} size="sm" />
             <div>
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{name}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">{user.email}</p>
@@ -200,12 +201,13 @@ const MobileSettings: React.FC = () => {
     },
     {
       key: 'mobile',
-      header: 'Mobile',
+      header: MOBILE_COLUMN,
       align: 'center',
       render: (_value, user) => (
         <SmallToggle
           enabled={getUserSettings(user.id).isMobileEnabled}
           onChange={(v) => updateUserMobileSetting(user.id, 'isMobileEnabled', v)}
+          label={`${displayName(user)}: ${MOBILE_COLUMN}`}
         />
       ),
     },

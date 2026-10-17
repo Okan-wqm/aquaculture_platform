@@ -1729,10 +1729,15 @@ export class AuthenticationService {
         redirectPath = '/';
     }
 
+    // The effective tenant's name, from the same cross-tenant tenant row login
+    // reads (D14); a platform SUPER_ADMIN has no tenant and reads no row.
+    const tenant = await this.resolveTenantForUser(user.tenantId);
+
     return {
       user,
       modules,
       redirectPath,
+      tenantName: tenant === null ? null : tenant.name,
     };
   }
 
@@ -2156,8 +2161,9 @@ export class AuthenticationService {
   }
 
   /**
-   * Load the user's tenant row for the MFA-enrollment gate on the
-   * password-backed token-minting paths (acceptInvitation, resetPassword).
+   * Load the user's tenant row — for the MFA-enrollment gate on the
+   * password-backed token-minting paths (acceptInvitation, resetPassword) and
+   * for the tenant name `me` reports with the session.
    * `auth.tenants` is cross-tenant by design (D14) and readable without a
    * tenant context — the same direct read login performs for its tenant-status
    * gate. Platform users (tenantId NULL) have no tenant.

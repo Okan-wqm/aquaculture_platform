@@ -38,7 +38,13 @@ import { useDataProvider } from '../../../providers';
 import { useOperatorStore } from '../../../store/scada/operatorStore';
 import { useAlarmRuntimeStore } from '../../../hooks/useAlarmRuntime';
 import { useTagWrite } from '../../../hooks/useTagWrite';
-import { QualityIndicator, Button, Input } from '@aquaculture/shared-ui';
+import {
+  QualityIndicator,
+  Button,
+  Input,
+  normalizeSeverity,
+  severityClasses,
+} from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Local types                                                         */
@@ -65,20 +71,6 @@ interface DataRow {
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
 /* ------------------------------------------------------------------ */
-
-const ALARM_SEVERITY_BG: Record<AlarmSeverity, string> = {
-  critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  high: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  warning: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  info: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-};
-
-const ALARM_SEVERITY_DOT: Record<AlarmSeverity, string> = {
-  critical: 'bg-error-500',
-  high: 'bg-accent-500',
-  warning: 'bg-warning-500',
-  info: 'bg-info-500',
-};
 
 function formatCellValue(
   val: unknown,
@@ -548,21 +540,21 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
             {pageRows.map((row) => {
               const alarm = alarmForRow(row.id);
               const severity = row.cells['severity'] as AlarmSeverity;
-              const bgClass =
-                ALARM_SEVERITY_BG[severity] ??
-                'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
-              const dotClass = ALARM_SEVERITY_DOT[severity] ?? 'bg-gray-500';
+              // The shared severity palette (an unknown value reads as info, the
+              // neutral tag); the dot takes the tag's own ink, so HIGH's filled
+              // amber and WARNING's amber-ink surface stay apart in the console.
+              const severityClass = severityClasses(normalizeSeverity(severity), 'soft');
               return (
                 <tr
                   key={row.id}
-                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-accent-50 transition-colors"
+                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 >
                   <td className="px-2 py-1.5">
                     <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${bgClass}`}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold ${severityClass}`}
                     >
                       <span
-                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`}
+                        className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-current"
                         aria-hidden="true"
                       />
                       {severity}

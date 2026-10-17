@@ -178,7 +178,7 @@ export const CompanyPage: React.FC = () => {
           )}
 
           {/* Company Information Form */}
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
               Company Details
             </h2>
@@ -211,7 +211,7 @@ export const CompanyPage: React.FC = () => {
           </div>
 
           {/* Address */}
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
               Company Address
             </h2>

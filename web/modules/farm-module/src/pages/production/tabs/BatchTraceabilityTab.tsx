@@ -48,7 +48,7 @@ const EVENT_CHIP_COLOURS: Record<string, string> = {
   CREATED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   STATUS_CHANGED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   ALLOCATED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  TRANSFERRED: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  TRANSFERRED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   MORTALITY: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   CULL: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   FEEDING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
@@ -136,7 +136,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
           <div className="font-medium text-gray-900 dark:text-gray-100">
             {residency.tankName ?? '—'}
             {residency.isCurrent && (
-              <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
+              <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                 current
               </span>
             )}
@@ -269,7 +269,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span
-                    className={`px-2 py-0.5 text-xs font-semibold rounded-full capitalize ${
+                    className={`px-2 py-0.5 text-xs font-semibold rounded capitalize ${
                       EVENT_CHIP_COLOURS[event.eventType] ??
                       'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                     }`}

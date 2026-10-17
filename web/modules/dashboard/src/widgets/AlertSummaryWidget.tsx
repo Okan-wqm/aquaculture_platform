@@ -80,6 +80,18 @@ export interface AlertSummaryWidgetProps {
 // Severity Configuration
 // ============================================================================
 
+/**
+ * WHAT: each severity's tint, edge, icon ink and badge.
+ * WHY these scales: inside the tenant console the scope re-maps error to the
+ * hazard red, warning to the hazard amber and info / success / gray to the
+ * neutrals (README §7.5 / §7.8: red and amber are the only alarm colours).
+ * HIGH is the amber tile, one step stronger than MEDIUM's, and paints from
+ * warning directly: `accent` (where it used to paint) is the design system's
+ * High tier and only reaches amber through the console scope's alias, while
+ * warning names the alarm amber and puts HIGH and MEDIUM on one scale a step
+ * apart.
+ */
+
 export const severityConfig: Record<
   AlertSeverity,
   {
@@ -100,9 +112,9 @@ export const severityConfig: Record<
     priority: 5,
   },
   high: {
-    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
-    borderColor: 'border-accent-200 dark:border-accent-800',
-    iconColor: 'text-accent-600 dark:text-accent-400',
+    bgColor: 'bg-warning-100 dark:bg-warning-900/30',
+    borderColor: 'border-warning-300 dark:border-warning-700',
+    iconColor: 'text-warning-700 dark:text-warning-400',
     badgeVariant: 'warning',
     label: 'Yüksek',
     priority: 4,
@@ -230,13 +242,16 @@ interface AlertIconProps {
   className?: string;
 }
 
+// Industry has no round shapes (README §6 "Köşe: 0"): the icon tile, the
+// filter chips and the empty / error / loading marks below carry a radius
+// token, which the console scope squares, not `rounded-full`, which it cannot.
 export const AlertIcon: React.FC<AlertIconProps> = ({ severity, className = '' }) => {
   const config = severityConfig[severity];
 
   return (
     <div
       className={`
-        flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center
+        flex-shrink-0 w-8 h-8 rounded flex items-center justify-center
         ${config.bgColor} ${config.iconColor}
         ${className}
       `}
@@ -354,8 +369,9 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
             </span>
           </div>
 
+          {/* The repeat count is information, not an alarm: neutral ink. */}
           {alert.occurrenceCount > 1 && (
-            <span className="text-xs text-accent-600 dark:text-accent-400 mt-1 inline-block">
+            <span className="text-xs text-gray-600 dark:text-gray-400 mt-1 inline-block">
               {alert.occurrenceCount} kez tekrarlandı
             </span>
           )}
@@ -438,7 +454,7 @@ export const SeverityFilter: React.FC<SeverityFilterProps> = ({
             type="button"
             onClick={() => toggleSeverity(severity)}
             className={`
-              px-2 py-1 text-xs rounded-full transition-colors
+              px-2 py-1 text-xs rounded transition-colors
               ${isSelected ? `${config.bgColor} ${config.iconColor}` : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
               ${count === 0 ? 'opacity-50' : ''}
             `}
@@ -458,7 +474,7 @@ interface EmptyStateProps {
 
 export const EmptyState: React.FC<EmptyStateProps> = ({ message = 'Aktif uyarı bulunmuyor' }) => (
   <div className="p-8 text-center" data-testid="empty-state">
-    <div className="mx-auto w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mb-3">
+    <div className="mx-auto w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded flex items-center justify-center mb-3">
       <CheckIcon className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
     </div>
     <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
@@ -473,7 +489,7 @@ export const LoadingState: React.FC<LoadingStateProps> = ({ count = 3 }) => (
   <div className="p-4 space-y-3" data-testid="loading-state">
     {Array.from({ length: count }).map((_, i) => (
       <div key={i} className="animate-pulse flex space-x-3">
-        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full" />
+        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded" />
         <div className="flex-1 space-y-2">
           <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
           <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
@@ -525,7 +541,7 @@ interface ErrorStateProps {
 
 export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
   <div className="p-8 text-center" data-testid="error-state">
-    <div className="mx-auto w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-3">
+    <div className="mx-auto w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded flex items-center justify-center mb-3">
       <CircleAlert className="w-6 h-6 text-error-600 dark:text-error-400" aria-hidden="true" />
     </div>
     {/* DASH-SEC-007: never render raw backend error string — map to safe message */}

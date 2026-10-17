@@ -216,7 +216,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           <span className="ml-auto text-gray-400 dark:text-gray-500">&#9662;</span>
         </Button>
         {showPresetMenu && (
-          <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[110px]">
+          <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-(--shadow-sd-lg) py-1 min-w-[110px]">
             {SCADA_RANGE_TOKENS.map((preset) => (
               <button
                 key={preset.token}
@@ -269,7 +269,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
       {/* Custom date range inputs */}
       {showCustom && (
         <div
-          className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-sm"
+          className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-(--shadow-sd-sm)"
           onClick={(e) => e.stopPropagation()}
         >
           <span className="text-gray-500 dark:text-gray-400">{rangeLabels.from}</span>
@@ -311,7 +311,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
             <span className="ml-1 text-gray-400 dark:text-gray-500">&#9662;</span>
           </Button>
           {showAggMenu && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[100px]">
+            <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-(--shadow-sd-lg) py-1 min-w-[100px]">
               {AGGREGATION_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -369,7 +369,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           <span className="ml-1 text-gray-400 dark:text-gray-500">&#9662;</span>
         </Button>
         {showRefreshMenu && (
-          <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[90px]">
+          <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-(--shadow-sd-lg) py-1 min-w-[90px]">
             {AUTO_REFRESH_OPTIONS.map((opt) => (
               <button
                 key={opt.label}

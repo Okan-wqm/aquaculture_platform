@@ -66,14 +66,11 @@ const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 const categoryColors: Record<string, string> = {
-  [ChemicalType.ANTIPARASITIC]:
-    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [ChemicalType.ANTIPARASITIC]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   [ChemicalType.ANTIBIOTIC]: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  [ChemicalType.ANTIFUNGAL]:
-    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [ChemicalType.ANTIFUNGAL]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   [ChemicalType.VACCINE]: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  [ChemicalType.ANESTHETIC]:
-    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [ChemicalType.ANESTHETIC]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   [ChemicalType.DISINFECTANT]:
     'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   [ChemicalType.PROBIOTIC]:
@@ -377,7 +374,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
       render: (_value, item) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${categoryColors[item.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {getCategoryLabel(item.type)}
           </span>
@@ -419,7 +416,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
       render: (_value, item) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {statusLabels[item.status] || item.status}
           </span>
@@ -479,7 +476,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
         <DataTable<ItemRow>
           data={filtered}
           columns={itemRowColumns}

@@ -232,7 +232,7 @@ const FeedingPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 shadow">
+      <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)">
         <div className="px-4 sm:px-6 py-6">
           <PageHeader
             title="Feeding Management"
@@ -261,7 +261,7 @@ const FeedingPage: React.FC = () => {
       <div className="px-4 sm:px-6 py-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Total Biomass */}
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
             <div className="flex items-center">
               <div className="flex-shrink-0 bg-info-100 dark:bg-info-900/40 rounded-lg p-3">
                 <Scale className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />
@@ -281,7 +281,7 @@ const FeedingPage: React.FC = () => {
           </div>
 
           {/* Today's Feed */}
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
             <div className="flex items-center">
               <div className="flex-shrink-0 bg-success-100 dark:bg-success-900/40 rounded-lg p-3">
                 <Calculator
@@ -305,10 +305,10 @@ const FeedingPage: React.FC = () => {
           </div>
 
           {/* Total Stock */}
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
             <div className="flex items-center">
-              <div className="flex-shrink-0 bg-accent-100 dark:bg-accent-900/40 rounded-lg p-3">
-                <Box className="w-6 h-6 text-accent-600 dark:text-accent-400" aria-hidden="true" />
+              <div className="flex-shrink-0 bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
+                <Box className="w-6 h-6 text-gray-600 dark:text-gray-400" aria-hidden="true" />
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Feed Stock</p>
@@ -328,7 +328,7 @@ const FeedingPage: React.FC = () => {
 
           {/* Alerts */}
           <div
-            className={`rounded-lg shadow p-4 ${alertCount > 0 ? 'bg-error-50 dark:bg-error-900/20' : 'bg-white dark:bg-gray-900'}`}
+            className={`rounded-lg shadow-(--shadow-sd-sm) p-4 ${alertCount > 0 ? 'bg-error-50 dark:bg-error-900/20' : 'bg-white dark:bg-gray-900'}`}
           >
             <div className="flex items-center">
               <div
@@ -424,7 +424,7 @@ const FeedingPage: React.FC = () => {
         {/* BUG-023: Sampling tab had no dedicated component — was incorrectly rendering GrowthTab.
             Replaced with a placeholder until a SamplingTab component is implemented. */}
         {activeTab === 'sampling' && (
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-12 text-center">
             <FlaskConical
               className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-4"
               aria-hidden="true"

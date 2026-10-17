@@ -32,7 +32,7 @@ export const WidgetTooltip: React.FC<WidgetTooltipProps> = ({
 
   return (
     <div
-      className="fixed z-[9999] pointer-events-none bg-gray-900/90 text-white text-[10px] leading-relaxed rounded-md px-2.5 py-1.5 shadow-lg max-w-[200px]"
+      className="fixed z-[9999] pointer-events-none bg-gray-900/90 text-white text-[10px] leading-relaxed rounded-md px-2.5 py-1.5 shadow-(--shadow-sd-lg) max-w-[200px]"
       style={{ left: x + 12, top: y + 12 }}
     >
       <div className="font-medium text-info-300">{widgetType}</div>

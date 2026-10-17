@@ -61,6 +61,8 @@ import type {
 // Constants
 // ============================================================================
 
+// A category is not a state: under the Industry console its tag is neutral or
+// the workspace accent, never the amber / red that signal risk (README §7.8).
 const CERTIFICATION_CATEGORY_CONFIG: Record<
   CertificationCategory,
   { label: string; color: string; icon: React.ReactNode }
@@ -72,7 +74,7 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
   },
   SAFETY: {
     label: 'Safety',
-    color: 'bg-error-100 text-error-700 dark:bg-error-900/30 dark:text-error-400',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
     icon: <Shield className="h-4 w-4" />,
   },
   VESSEL: {
@@ -82,7 +84,7 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
   },
   EQUIPMENT: {
     label: 'Equipment',
-    color: 'bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-400',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
     icon: <Award className="h-4 w-4" />,
   },
   FIRST_AID: {
@@ -92,12 +94,12 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
   },
   FOOD_HANDLING: {
     label: 'Food Handling',
-    color: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-400',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
     icon: <Shield className="h-4 w-4" />,
   },
   ENVIRONMENTAL: {
     label: 'Environmental',
-    color: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-400',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
     icon: <Shield className="h-4 w-4" />,
   },
   MANAGEMENT: {
@@ -112,7 +114,7 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
   },
   OTHER: {
     label: 'Other',
-    color: 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
     icon: <FileText className="h-4 w-4" />,
   },
 };
@@ -152,7 +154,7 @@ const StatCard: React.FC<StatCardProps> = ({
   trend,
   isLoading,
 }) => (
-  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
     <div className="flex items-center justify-between">
       <div>
         <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{title}</p>
@@ -190,7 +192,7 @@ const CertificationTypeCard: React.FC<{
     CERTIFICATION_CATEGORY_CONFIG[type.category] || CERTIFICATION_CATEGORY_CONFIG.OTHER;
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
+    <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-(--shadow-sd-md) dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className={cn('rounded-lg p-2', categoryConfig.color)}>{categoryConfig.icon}</div>
@@ -522,8 +524,8 @@ export function CertificationDashboardPage() {
           title="Critical"
           value={expiringIn7Days}
           subtitle="Within 7 days"
-          icon={<AlertTriangle className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
-          color="bg-accent-50 dark:bg-accent-900/30"
+          icon={<AlertTriangle className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
+          color="bg-warning-50 dark:bg-warning-900/30"
         />
         <StatCard
           title="Expired"
@@ -602,7 +604,7 @@ export function CertificationDashboardPage() {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Certification Types by Category */}
-          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
             <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
               Certification Types
             </h3>
@@ -628,7 +630,7 @@ export function CertificationDashboardPage() {
           </div>
 
           {/* Recent Certifications */}
-          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Recent Certifications
@@ -762,7 +764,7 @@ export function CertificationDashboardPage() {
       {activeTab === 'compliance' && (
         <div className="space-y-6">
           {/* Compliance Summary */}
-          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
             <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
               Compliance Summary
             </h3>
@@ -861,7 +863,7 @@ export function CertificationDashboardPage() {
           </div>
 
           {/* Mandatory Certifications Status */}
-          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
             <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
               Mandatory Certification Status
             </h3>
@@ -889,10 +891,10 @@ export function CertificationDashboardPage() {
                           {certifiedCount}/{totalEmployees} ({percentage}%)
                         </span>
                       </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                      <div className="h-2 overflow-hidden rounded-sm bg-gray-200 dark:bg-gray-700">
                         <div
                           className={cn(
-                            'h-full rounded-full transition-all',
+                            'h-full rounded-sm transition-all',
                             percentage >= 90
                               ? 'bg-success-500'
                               : percentage >= 70

@@ -139,7 +139,7 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
       case 'POND':
         return 'text-info-600 dark:text-info-400';
       case 'CAGE':
-        return 'text-accent-600 dark:text-accent-400';
+        return 'text-gray-600 dark:text-gray-400';
       default:
         return 'text-gray-600 dark:text-gray-400';
     }
@@ -152,7 +152,7 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
       case 'POND':
         return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
       case 'CAGE':
-        return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
       default:
         return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
     }

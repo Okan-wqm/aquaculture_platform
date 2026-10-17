@@ -134,6 +134,14 @@ export * from './utils';
 
 export * from './water-chemistry';
 
+// ============================================================================
+// Preview path (FE-MEDIUM-337) — labelled sample data for a view whose backend
+// does not exist yet: definePreviewData in a *.preview.ts file, rendered only
+// through MockPreview (tests/invariants/web-preview-data-path.spec.ts).
+// ============================================================================
+
+export * from './preview';
+
 // Error Types
 export {
   ErrorCode,
@@ -203,6 +211,7 @@ export {
   getStoredLocale,
   persistLocale,
   resolveInitialLocale,
+  toIntlLocale,
 } from './i18n';
 export {
   useGraphQLQuery,

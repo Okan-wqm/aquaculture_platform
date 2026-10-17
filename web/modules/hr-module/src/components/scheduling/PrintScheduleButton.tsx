@@ -29,13 +29,13 @@ interface PrintScheduleButtonProps {
 }
 
 const WEEKDAYS: WeekDay[] = [
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-  'sunday',
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY',
+  'SUNDAY',
 ];
 
 export function PrintScheduleButton({
@@ -96,13 +96,13 @@ function generatePrintableHTML(
         const dayEntry = emp.days.find((d) => d.dayOfWeek === day);
         if (!dayEntry) return '<td class="cell">-</td>';
 
-        if (dayEntry.entryType === 'off') {
+        if (dayEntry.entryType === 'OFF') {
           return '<td class="cell off">TATIL</td>';
         }
-        if (dayEntry.entryType === 'leave') {
+        if (dayEntry.entryType === 'LEAVE') {
           return '<td class="cell leave">IZIN</td>';
         }
-        if (dayEntry.entryType === 'holiday') {
+        if (dayEntry.entryType === 'HOLIDAY') {
           return '<td class="cell holiday">RESMI</td>';
         }
 

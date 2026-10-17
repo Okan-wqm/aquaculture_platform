@@ -7,7 +7,7 @@
 
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Spinner } from '@aquaculture/shared-ui';
+import { PageTitle, Spinner } from '@aquaculture/shared-ui';
 
 // All pages are lazy-loaded to minimize initial chunk size (PERF-010)
 const HRDashboardPage = lazy(() => import('./pages/HRDashboardPage'));
@@ -30,6 +30,7 @@ const WeeklySchedulePage = lazy(() => import('./pages/scheduling/WeeklyScheduleP
 const TeamOverviewPage = lazy(() => import('./pages/scheduling/TeamOverviewPage'));
 const SchedulingSettingsPage = lazy(() => import('./pages/scheduling/SchedulingSettingsPage'));
 const HRFinancePage = lazy(() => import('./pages/finance/HRFinancePage'));
+const TodayPage = lazy(() => import('./pages/today/TodayPage'));
 
 // Loading fallback
 function PageLoader() {
@@ -44,7 +45,7 @@ function PageLoader() {
 function PlaceholderPage({ title }: { title: string }) {
   return (
     <div className="flex h-64 flex-col items-center justify-center p-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
+      <PageTitle className="text-2xl font-bold text-gray-900 dark:text-white">{title}</PageTitle>
       <p className="mt-2 text-gray-500 dark:text-gray-400">This page is coming soon.</p>
     </div>
   );
@@ -67,6 +68,9 @@ const HRModule: React.FC = () => {
           {/* Dashboard */}
           <Route index element={<HRDashboardPage />} />
           <Route path="dashboard" element={<HRDashboardPage />} />
+
+          {/* Today: who is on shift, late or absent, open leave, sites with no responsible person */}
+          <Route path="today" element={<TodayPage />} />
 
           {/* Employees - Use modernized page */}
           <Route path="employees" element={<EmployeesListPage />} />

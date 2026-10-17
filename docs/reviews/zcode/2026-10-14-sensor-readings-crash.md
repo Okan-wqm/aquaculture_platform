@@ -16,7 +16,7 @@ ErrorBoundary had caught a render-phase exception — invisible in production
 A seeded TENANT_ADMIN probe with a real browser crashed deterministically
 5 s after mount. The console carried the exact exception:
 
-```
+```text
 Error: useDataProvider() must be called inside a <DataProviderRoot> tree.
     at …/remotes/sensor-module/assets/ReadingsPage-7uKJ4srR.js
 ```

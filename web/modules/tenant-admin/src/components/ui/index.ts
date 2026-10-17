@@ -4,3 +4,5 @@ export { RoleBadge } from './RoleBadge';
 export type { RoleBadgeProps } from './RoleBadge';
 export { UserAvatar } from './UserAvatar';
 export type { UserAvatarProps } from './UserAvatar';
+export { SelectableRow } from './SelectableRow';
+export type { SelectableRowProps } from './SelectableRow';

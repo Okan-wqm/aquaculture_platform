@@ -100,7 +100,7 @@ export const GlobalAlarmBanner: React.FC = () => {
   const barClasses = [
     'flex items-center justify-between px-4 h-8 text-xs select-none',
     hasCritical
-      ? 'bg-error-600 text-white animate-pulse'
+      ? 'bg-error-600 text-white motion-safe:animate-pulse'
       : 'bg-gray-800 text-gray-500 dark:text-gray-400',
   ].join(' ');
 
@@ -138,7 +138,7 @@ export const GlobalAlarmBanner: React.FC = () => {
                     </span>
                   )}
                   <span
-                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full ${cfg.pillBg} ${cfg.pillText}`}
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${cfg.pillBg} ${cfg.pillText}`}
                   >
                     <span className="font-semibold">{counts[sev]}</span>
                     <span>{cfg.label}</span>
@@ -154,7 +154,7 @@ export const GlobalAlarmBanner: React.FC = () => {
       <div className="flex items-center gap-1.5 min-w-0">
         <AlertTriangle className="w-3 h-3 flex-shrink-0 opacity-60" />
         <span
-          className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-medium ${
+          className={`inline-flex items-center px-1.5 py-0.5 rounded font-medium ${
             isEmpty
               ? 'bg-gray-700 text-gray-500 dark:text-gray-400'
               : hasCritical

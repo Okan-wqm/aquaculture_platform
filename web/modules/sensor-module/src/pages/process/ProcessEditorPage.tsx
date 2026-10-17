@@ -437,7 +437,7 @@ const ProcessEditorPage: React.FC = () => {
     <div className="process-editor-container flex flex-col h-screen bg-gray-100 dark:bg-gray-800">
       <DesktopOnlyNotice tool="The process editor" />
       {/* Toolbar */}
-      <div className="toolbar flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="toolbar flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-(--shadow-sd-sm)">
         {/* Left Section */}
         <div className="flex items-center gap-4">
           <Link
@@ -557,7 +557,7 @@ const ProcessEditorPage: React.FC = () => {
               <ChevronDown className="w-4 h-4" />
             </button>
             {isDeployMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-30 py-1">
+              <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) z-30 py-1">
                 <Button
                   variant="ghost"
                   leftIcon={<Cpu className="w-4 h-4 text-primary-600 dark:text-primary-400" />}
@@ -584,7 +584,7 @@ const ProcessEditorPage: React.FC = () => {
                 <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
                 <Button
                   variant="ghost"
-                  leftIcon={<Monitor className="w-4 h-4 text-accent-600 dark:text-accent-400" />}
+                  leftIcon={<Monitor className="w-4 h-4 text-primary-600 dark:text-primary-400" />}
                   onClick={() => {
                     setIsDeployMenuOpen(false);
                     navigate(
@@ -692,7 +692,7 @@ const ProcessEditorPage: React.FC = () => {
             </>
           ) : (
             <>
-              <span className="w-2 h-2 rounded-full bg-warning-500 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-warning-500 motion-safe:animate-pulse" />
               <span>Initializing...</span>
             </>
           )}

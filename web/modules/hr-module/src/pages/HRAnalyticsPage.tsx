@@ -95,7 +95,7 @@ const HRAnalyticsPage: React.FC = () => {
           ))
         ) : (
           <>
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Total Employees</p>
@@ -112,7 +112,7 @@ const HRAnalyticsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Departments</p>
@@ -126,7 +126,7 @@ const HRAnalyticsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Offshore</p>
@@ -143,7 +143,7 @@ const HRAnalyticsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">On Leave</p>
@@ -151,8 +151,8 @@ const HRAnalyticsPage: React.FC = () => {
                     {stats?.onLeaveEmployees ?? '-'}
                   </p>
                 </div>
-                <div className="rounded-lg bg-warning-50 p-3 dark:bg-warning-900/30">
-                  <Calendar className="h-6 w-6 text-warning-600 dark:text-warning-400" />
+                <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900/30">
+                  <Calendar className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 </div>
               </div>
             </div>
@@ -162,7 +162,7 @@ const HRAnalyticsPage: React.FC = () => {
 
       {/* Department Breakdown */}
       {departments && departments.length > 0 && (
-        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
           <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
             Department Breakdown
           </h3>
@@ -180,9 +180,9 @@ const HRAnalyticsPage: React.FC = () => {
                   <span className="w-40 truncate text-sm text-gray-700 dark:text-gray-300">
                     {dept.name}
                   </span>
-                  <div className="flex-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700">
+                  <div className="flex-1 h-1.5 rounded-sm bg-gray-200 dark:bg-gray-700">
                     <div
-                      className="h-full rounded-full"
+                      className="h-full rounded-sm"
                       style={{
                         width: `${widthPct}%`,
                         backgroundColor: dept.colorCode || colors.primary[500],

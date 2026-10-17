@@ -22,27 +22,39 @@ import type {
 import { WeeklySchedulePage } from '../WeeklySchedulePage';
 
 const WEEKDAYS: readonly WeekDay[] = [
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-  'sunday',
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY',
+  'SUNDAY',
 ];
 
 type DayPattern = 'S' | 'A' | 'off' | 'leave';
 
-/** A day of the week of 2026-09-14, as the overview query returns it. */
+/**
+ * A day of the week of 2026-09-14, as the overview query returns it: graphql-js
+ * sends the absent shift fields of an off or leave day as `null`.
+ */
 function entryOn(weekday: WeekDay, index: number, pattern: DayPattern): DayEntry {
   const date = `2026-09-${String(14 + index).padStart(2, '0')}`;
   if (pattern === 'off' || pattern === 'leave') {
-    return { dayOfWeek: weekday, date, entryType: pattern, plannedMinutes: 0 };
+    return {
+      dayOfWeek: weekday,
+      date,
+      entryType: pattern === 'off' ? 'OFF' : 'LEAVE',
+      shiftCode: null,
+      shiftName: null,
+      startTime: null,
+      endTime: null,
+      plannedMinutes: 0,
+    };
   }
   return {
     dayOfWeek: weekday,
     date,
-    entryType: 'work',
+    entryType: 'WORK',
     shiftCode: pattern,
     shiftName: pattern === 'S' ? 'Sabah' : 'Akşam',
     startTime: pattern === 'S' ? '08:00:00' : '16:00:00',
@@ -80,9 +92,12 @@ function overviewFor(weekStartDate: string): TeamWeeklyOverview {
       overtimeMinutes: 0,
     },
     {
-      // No plan for the week: the API reports seven off days and no plan id.
+      // No plan for the week: the API reports seven off days and a null plan id.
       employeeId: 'e-fatma',
       employeeName: 'Fatma Demir',
+      position: null,
+      weeklyPlanId: null,
+      planStatus: null,
       days: week(['off', 'off', 'off', 'off', 'off', 'off', 'off']),
       totalWorkDays: 0,
       totalMinutes: 0,

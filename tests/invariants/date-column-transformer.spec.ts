@@ -20,7 +20,7 @@
  *
  * # LEGACY ALLOWLIST
  *
- * 39 pre-existing columns (farm/hr/billing/admin) predate the transformer and
+ * 36 pre-existing columns (farm/hr/billing/admin) predate the transformer and
  * are swept under tracked finding FARM-MEDIUM-424 (each entry must be
  * verified for string-format dependencies before transforming). The allowlist
  * exists so NEW columns cannot regress — adding a Date-typed date column
@@ -50,7 +50,6 @@ const LEGACY_UNTRANSFORMED = new Set([
   'apps/farm-service/src/worker/entities/worker.entity.ts:hireDate',
   'apps/hr-service/src/aquaculture/entities/work-rotation.entity.ts:startDate',
   'apps/hr-service/src/aquaculture/entities/work-rotation.entity.ts:endDate',
-  'apps/hr-service/src/attendance/entities/attendance-record.entity.ts:date',
   'apps/hr-service/src/attendance/entities/schedule-entry.entity.ts:date',
   'apps/hr-service/src/attendance/entities/schedule.entity.ts:startDate',
   'apps/hr-service/src/attendance/entities/schedule.entity.ts:endDate',
@@ -58,8 +57,6 @@ const LEGACY_UNTRANSFORMED = new Set([
   'apps/hr-service/src/hr/entities/employee.entity.ts:hireDate',
   'apps/hr-service/src/hr/entities/payroll.entity.ts:payPeriodStart',
   'apps/hr-service/src/hr/entities/payroll.entity.ts:payPeriodEnd',
-  'apps/hr-service/src/leave/entities/leave-request.entity.ts:startDate',
-  'apps/hr-service/src/leave/entities/leave-request.entity.ts:endDate',
   'apps/hr-service/src/performance/entities/goal.entity.ts:startDate',
   'apps/hr-service/src/performance/entities/goal.entity.ts:targetDate',
   'apps/hr-service/src/performance/entities/kpi.entity.ts:periodStart',

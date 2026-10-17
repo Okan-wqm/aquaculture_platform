@@ -1,4 +1,4 @@
-import { Button, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Button, PageTitle, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import { MessageSquare, Sparkles, Users, RefreshCw, AlertCircle } from 'lucide-react';
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -60,7 +60,7 @@ const ChannelListPage: React.FC = () => {
     <div className="sd-page sd-stack max-w-[520px]">
       <div className="sd-pagehead">
         <span className="sd-eyebrow">{t('messaging.overview')}</span>
-        <h1 className="sd-page-title">{t('messaging.title')}</h1>
+        <PageTitle className="sd-page-title">{t('messaging.title')}</PageTitle>
         <span className="sd-page-sub">{t('messaging.subtitle')}</span>
       </div>
 

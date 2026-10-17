@@ -4,7 +4,7 @@ import { federation } from '@module-federation/vite';
 import svgr from 'vite-plugin-svgr';
 import { resolve } from 'path';
 import { getSharedConfigWithReactFlowAndRecharts } from '../../shared-ui/src/federation/federationSharedConfig';
-import { resolveSharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
+import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
@@ -15,8 +15,6 @@ import createVitestTestPolicy from '@aquaculture/testing/vitest';
  * Uses getSharedConfigWithReactFlow() for SCADA builder reactflow support.
  */
 export default defineConfig(({ mode }) => {
-  const sharedUiAlias = resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode);
-
   return {
     plugins: [
       react(),
@@ -43,7 +41,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src'),
-        '@aquaculture/shared-ui': sharedUiAlias,
+        ...sharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
         '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
         // Water-chemistry engine (browser-safe, shared SSoT). tsc resolves this via
         // tsconfig.base paths, but Vite needs the explicit alias or dev/build fails.

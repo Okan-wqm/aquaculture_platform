@@ -42,7 +42,7 @@ const Slider: React.FC<{
       step={step}
       value={value}
       onChange={(e) => onChange(parseFloat(e.target.value))}
-      className="w-full h-1.5 accent-info-600"
+      className="w-full h-1.5 accent-primary-600"
       disabled={disabled}
     />
   </div>
@@ -299,7 +299,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         />
       </div>
 
-      {/* Usage Summary */}
+      {/* Usage Summary — each row in the pump bars' legend (acid = error,
+          base = success, nutrient = primary), scales the tenant console
+          re-maps to Industry. Nutrient is the workspace accent: dosing it is
+          normal operation, and README §7.8 keeps amber for alarm and risk. */}
       <div className="mb-4">
         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
           Usage
@@ -321,16 +324,18 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               {state.baseTotalGrams.toFixed(1)}g / {baseML.toFixed(0)}mL
             </span>
           </div>
-          <div className="flex justify-between items-center bg-accent-50 dark:bg-accent-900/20 rounded px-2 py-1.5">
-            <span className="text-accent-700 dark:text-accent-300 font-semibold">Nutrient</span>
-            <span className="text-accent-600 dark:text-accent-400">
+          <div className="flex justify-between items-center bg-primary-50 dark:bg-primary-900/20 rounded px-2 py-1.5">
+            <span className="text-primary-700 dark:text-primary-300 font-semibold">Nutrient</span>
+            <span className="text-primary-600 dark:text-primary-400">
               {state.nutTotalML.toFixed(0)}mL
             </span>
           </div>
         </div>
       </div>
 
-      {/* Disturbances */}
+      {/* Disturbances — EC +0.3 adds nutrient, so it paints from the
+          nutrient pump's primary. The `accent` scale it used to borrow is the
+          design system's High alarm tier and paints amber in the console. */}
       <div className="mb-4">
         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
           Disturbances
@@ -352,7 +357,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </button>
           <button
             onClick={() => onDisturbance('ecUp')}
-            className="px-2 py-1.5 text-xs bg-accent-50 dark:bg-accent-900/20 hover:bg-accent-100 dark:hover:bg-accent-900/50 text-accent-700 dark:text-accent-300 rounded border border-accent-200 dark:border-accent-800"
+            className="px-2 py-1.5 text-xs bg-primary-50 dark:bg-primary-900/20 hover:bg-primary-100 dark:hover:bg-primary-900/50 text-primary-700 dark:text-primary-300 rounded border border-primary-200 dark:border-primary-800"
             disabled={!running}
           >
             EC +0.3
@@ -367,7 +372,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         </div>
       </div>
 
-      {/* Speed */}
+      {/* Speed — the selected step is an Industry segment: the workspace
+          accent fill (primary), the colour of the sliders' thumbs too. */}
       <div className="mb-4">
         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
           Speed
@@ -379,7 +385,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               onClick={() => onConfigChange({ ...config, speedMultiplier: s })}
               className={`flex-1 py-1 text-xs rounded border ${
                 config.speedMultiplier === s
-                  ? 'bg-info-600 text-white border-info-700'
+                  ? 'bg-primary-600 text-white border-primary-700'
                   : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
             >

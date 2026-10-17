@@ -224,7 +224,7 @@ export const DeadlineIcon: React.FC<DeadlineIconProps> = ({ urgency, className =
   return (
     <div
       className={`
-        flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center
+        flex-shrink-0 w-8 h-8 rounded flex items-center justify-center
         ${config.bgColor} ${config.iconColor}
         ${className}
       `}
@@ -277,7 +277,7 @@ export const DeadlineItemCard: React.FC<DeadlineItemCardProps> = ({
               {reportConfig.icon} {deadline.reportName}
             </p>
             <span
-              className={`text-xs font-medium px-2 py-0.5 rounded-full ${config.bgColor} ${config.textColor}`}
+              className={`text-xs font-medium px-2 py-0.5 rounded ${config.bgColor} ${config.textColor}`}
             >
               {config.label}
             </span>
@@ -343,7 +343,7 @@ export const UrgencyFilter: React.FC<UrgencyFilterProps> = ({
             type="button"
             onClick={() => toggleUrgency(urgency)}
             className={`
-              px-2 py-1 text-xs rounded-full transition-colors
+              px-2 py-1 text-xs rounded transition-colors
               ${isSelected ? `${config.bgColor} ${config.iconColor}` : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
               ${count === 0 ? 'opacity-50' : ''}
             `}
@@ -363,7 +363,7 @@ interface EmptyStateProps {
 
 export const EmptyState: React.FC<EmptyStateProps> = ({ message = 'No upcoming deadlines' }) => (
   <div className="p-8 text-center" data-testid="empty-state">
-    <div className="mx-auto w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mb-3">
+    <div className="mx-auto w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded flex items-center justify-center mb-3">
       <Check className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
     </div>
     <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
@@ -378,7 +378,7 @@ export const LoadingState: React.FC<LoadingStateProps> = ({ count = 3 }) => (
   <div className="p-4 space-y-3" data-testid="loading-state">
     {Array.from({ length: count }).map((_, i) => (
       <div key={i} className="animate-pulse flex space-x-3">
-        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full" />
+        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded" />
         <div className="flex-1 space-y-2">
           <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
           <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
@@ -395,7 +395,7 @@ interface ErrorStateProps {
 
 export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
   <div className="p-8 text-center" data-testid="error-state">
-    <div className="mx-auto w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-3">
+    <div className="mx-auto w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded flex items-center justify-center mb-3">
       <CircleAlert className="w-6 h-6 text-error-600 dark:text-error-400" aria-hidden="true" />
     </div>
     <p className="text-sm text-error-600 dark:text-error-400 mb-2">{message}</p>
@@ -446,7 +446,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
 
   return (
     <div
-      className={`bg-white dark:bg-gray-900 rounded-lg shadow border border-gray-200 dark:border-gray-700 ${className}`}
+      className={`bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 ${className}`}
       data-testid="deadline-widget"
     >
       {/* Header */}
@@ -458,7 +458,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
           <div className="flex items-center space-x-2">
             {overdueCount > 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300"
+                className="text-xs font-medium px-2 py-0.5 rounded bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300"
                 data-testid="overdue-count"
               >
                 {overdueCount} Overdue
@@ -466,7 +466,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
             )}
             {todayCount > 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
+                className="text-xs font-medium px-2 py-0.5 rounded bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
                 data-testid="today-count"
               >
                 {todayCount} Today
@@ -474,7 +474,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
             )}
             {overdueCount === 0 && todayCount === 0 && totalPending === 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
+                className="text-xs font-medium px-2 py-0.5 rounded bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
                 data-testid="all-clear"
               >
                 All Clear

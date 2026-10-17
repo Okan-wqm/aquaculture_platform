@@ -993,6 +993,10 @@ lane-wiring domain. Registry ids, verbatim, for cross-reference:
   lanes without a runner need a full-stack CI environment.
 - INFRA-MEDIUM-144 — new, found while closing 020. Open: lint quarantine
   umbrella until each project's eslint debt clears.
+  - **Landed (2026-10-16, as INFRA-MEDIUM-154):** all 36 projects measured
+    clean (`scripts/ci/lint-debt-measurement.json`, commit `340df8b7e`) and
+    left the lint quarantine. The 4 entries left cite ORPHAN-HIGH-588.
+    `affected-target-quarantine-ssot.spec.ts` ratchets the lint count to 4.
 
 ## References
 

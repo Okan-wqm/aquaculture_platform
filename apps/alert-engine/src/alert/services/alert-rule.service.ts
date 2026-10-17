@@ -13,6 +13,7 @@ import {
   AlertSeverity,
 } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { ActiveAlertCount } from '../dto/active-alert-count.type';
 import { AlertEvaluationService } from './alert-evaluation.service';
 
 /**
@@ -197,19 +198,34 @@ export class AlertRuleService {
   }
 
   /**
-   * Get alert history for a tenant
+   * Get alert history for a tenant.
+   *
+   * `severity` narrows to one severity (AquaMobil's filter); `severities` to a
+   * set, because the tenant console reads alarms by priority and one priority
+   * spans several severities (P3 = MEDIUM + WARNING, see web/shared-ui
+   * AnnunciatorPriority). Given both, an alarm must pass both. An empty set
+   * admits no severity, so it matches no alarm and is answered without a
+   * query; an absent one reads every severity. `resolved` narrows to the open
+   * (false) or the cleared (true) alarms: a tile counts open alarms only
+   * (countActiveAlerts), and the list it opens must hold the same rows.
    */
   async getAlertHistory(
     tenantId: string,
     filters?: {
       ruleId?: string;
-      severity?: string;
+      severity?: AlertSeverity;
+      severities?: readonly AlertSeverity[];
       acknowledged?: boolean;
+      resolved?: boolean;
       startDate?: Date;
       endDate?: Date;
     },
     pagination?: { page: number; limit: number },
   ): Promise<{ items: AlertHistory[]; total: number }> {
+    if (filters?.severities !== undefined && filters.severities.length === 0) {
+      return { items: [], total: 0 };
+    }
+
     const query = this.historyRepository
       .createQueryBuilder('alert')
       .where('alert.tenantId = :tenantId', { tenantId });
@@ -224,10 +240,20 @@ export class AlertRuleService {
       });
     }
 
+    if (filters?.severities !== undefined) {
+      query.andWhere('alert.severity IN (:...severities)', {
+        severities: filters.severities,
+      });
+    }
+
     if (filters?.acknowledged !== undefined) {
       query.andWhere('alert.acknowledged = :acknowledged', {
         acknowledged: filters.acknowledged,
       });
+    }
+
+    if (filters?.resolved !== undefined) {
+      query.andWhere('alert.resolved = :resolved', { resolved: filters.resolved });
     }
 
     if (filters?.startDate) {
@@ -254,6 +280,32 @@ export class AlertRuleService {
     const [items, total] = await query.getManyAndCount();
 
     return { items, total };
+  }
+
+  /**
+   * The tenant's unresolved alarms counted per (severity, acknowledged) — the
+   * exact figures behind the console's annunciator (see ActiveAlertCount).
+   * One grouped query, no paging, so a count can neither be capped nor lose a
+   * row to newer ones; the (severity, acknowledged) index serves the grouping.
+   */
+  async countActiveAlerts(tenantId: string): Promise<ActiveAlertCount[]> {
+    const rows = await this.historyRepository
+      .createQueryBuilder('alert')
+      .select('alert.severity', 'severity')
+      .addSelect('alert.acknowledged', 'acknowledged')
+      .addSelect('COUNT(*)', 'count')
+      .where('alert.tenantId = :tenantId', { tenantId })
+      .andWhere('alert.resolved = :resolved', { resolved: false })
+      .groupBy('alert.severity')
+      .addGroupBy('alert.acknowledged')
+      .getRawMany<{ severity: AlertSeverity; acknowledged: boolean; count: string }>();
+
+    // Postgres returns COUNT(*) as a bigint string.
+    return rows.map((row) => ({
+      severity: row.severity,
+      acknowledged: row.acknowledged,
+      count: Number.parseInt(row.count, 10),
+    }));
   }
 
   /**

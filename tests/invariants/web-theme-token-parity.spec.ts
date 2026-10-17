@@ -29,22 +29,26 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { colors } from '../../web/shared-ui/src/styles/theme';
+import {
+  DARK_SCOPE_RULE,
+  SCOPE_RULE,
+  SUDERRA_SOURCE,
+  THEME_CSS,
+  THEME_SOURCE,
+  WORKSPACES,
+  cascade,
+  contrast,
+  luminance,
+  over,
+  page,
+  placements,
+  resolver,
+  themeBlock,
+} from './lib/web-console-theme';
 
 const REPO_ROOT = resolve(__dirname, '../..');
-const THEME_CSS = 'web/shared-ui/src/styles/theme.css';
 
 const TOKEN = /--color-([a-z]+)-(\d+):\s*(#[0-9a-fA-F]{6})\s*;/g;
-
-const THEME_SOURCE = readFileSync(resolve(REPO_ROOT, THEME_CSS), 'utf8');
-
-/** The `@theme { … }` block alone — a `[data-theme='dark']` override further down
- *  re-assigns a token per theme and is not a second definition of it. */
-function themeBlock(): string {
-  const start = THEME_SOURCE.indexOf('@theme {');
-  const end = THEME_SOURCE.indexOf('\n}', start);
-  if (start < 0 || end < 0) throw new Error(`${THEME_CSS} has no @theme block`);
-  return THEME_SOURCE.slice(start, end);
-}
 
 function cssTokens(): Map<string, string> {
   const css = themeBlock();
@@ -278,17 +282,6 @@ describe('INVARIANT (FE-HIGH-074): `--color-gray-400` passes WCAG AA on both the
   /** Tailwind v4's gray-800 (oklch(27.8% 0.033 256.848)) in sRGB — the lighter of the two dark surfaces. */
   const DARK_SURFACE = '#1e2939';
 
-  function luminance(hex: string): number {
-    const channel = (offset: number): number => {
-      const value = parseInt(hex.slice(offset, offset + 2), 16) / 255;
-      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-    };
-    return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
-  }
-  function contrast(foreground: string, background: string): number {
-    const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
-    return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
-  }
   function tokenIn(block: string): string {
     const match = /--color-gray-400:\s*(#[0-9a-fA-F]{6})\s*;/.exec(block);
     if (match?.[1] === undefined)
@@ -312,49 +305,41 @@ describe('INVARIANT (FE-HIGH-074): `--color-gray-400` passes WCAG AA on both the
  * INVARIANT (FE-HIGH-321): the Suderra scope paints only from theme.css, and
  * the contrast it relies on holds in both themes.
  *
- * `sd-page` / `sd-surface` (web/shared-ui/src/styles/suderra.css) re-assign the
- * gray, primary and semantic scales inside the tenant console. The values live
- * in theme.css as `--color-sd-*` tokens; suderra.css may only reference them,
- * so theme.css stays the one owner of every colour value and this file is the
- * one place their contrast is measured. Review of 5435f85ba found a hint token
- * at 2.7:1 on parchment carrying the dialog close icon and chat timestamps.
+ * `sd-content` / `sd-page` / `sd-surface` and, while the console is on screen,
+ * every dialog (web/shared-ui/src/styles/suderra.css) re-assign the gray,
+ * primary and semantic scales inside the tenant console.
+ * The values live in theme.css as `--color-sd-*` tokens; suderra.css may only
+ * reference them, so theme.css stays the one owner of every colour value and
+ * this file is the one place their contrast is measured. Review of 5435f85ba
+ * found a hint token at 2.7:1 on parchment carrying the dialog close icon and
+ * chat timestamps.
+ *
+ * The Industry re-skin (Tenant Console — Industrial, Phase 1) added the
+ * theme-flipping semantic ramps (`sd-accent-*`, `sd-neutral-*`), the hazard
+ * tokens (`sd-hz-*`) and one accent block per workspace (`[data-ws]`). Every
+ * text token is held to 4.5:1 and every icon token to 3:1 on the grounds it
+ * is drawn on, under both themes and in every workspace — a workspace block
+ * that forgot to re-assign a theme-flipping token would shadow the dark value
+ * on <body>. The values come from a model of theme.css's own cascade
+ * (`cascade()` in lib/web-console-theme.ts: specificity, source order,
+ * inheritance), and every
+ * placement of the attributes — the theme on <html>, on the workspace
+ * element, or pinned on a dark island inside it — must resolve to the same
+ * values as the page.
  */
 describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both themes', () => {
-  const SUDERRA_CSS = 'web/shared-ui/src/styles/suderra.css';
-  const suderra = readFileSync(resolve(REPO_ROOT, SUDERRA_CSS), 'utf8');
+  const suderra = SUDERRA_SOURCE;
   const STEPS = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900'];
+  const TEXT = 4.5;
+  const ICON = 3;
 
-  function hexToRgb(hex: string): [number, number, number] {
-    return [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16)) as [
-      number,
-      number,
-      number,
-    ];
-  }
-  function luminance(hex: string): number {
-    const [r, g, b] = hexToRgb(hex).map((value) => {
-      const c = value / 255;
-      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    }) as [number, number, number];
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  }
-  function contrast(a: string, b: string): number {
-    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
-    return (hi + 0.05) / (lo + 0.05);
-  }
-  /** `fg` drawn at `alpha` over `bg` — a tinted surface such as a chat bubble. */
-  function over(fg: string, alpha: number, bg: string): string {
-    const f = hexToRgb(fg);
-    const g = hexToRgb(bg);
-    return `#${f
-      .map((value, i) => Math.round(alpha * value + (1 - alpha) * (g[i] ?? 0)))
-      .map((value) => value.toString(16).padStart(2, '0'))
-      .join('')}`;
+  function hexIn(block: string, name: string): string | undefined {
+    return new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`).exec(block)?.[1]?.toLowerCase();
   }
   function tokenIn(block: string, name: string): string {
-    const match = new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`).exec(block);
-    if (match?.[1] === undefined) throw new Error(`no hex --color-${name} in the block`);
-    return match[1].toLowerCase();
+    const value = hexIn(block, name);
+    if (value === undefined) throw new Error(`no hex --color-${name} in the block`);
+    return value;
   }
   const light = (name: string): string => tokenIn(themeBlock(), name);
   const darkBlock = (() => {
@@ -365,39 +350,75 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
   })();
   const dark = (name: string): string => tokenIn(darkBlock, name);
 
+  /** Every console property theme.css declares — the tokens a placement must agree on. */
+  const SD_PROPERTIES = [
+    ...new Set(
+      [...THEME_SOURCE.matchAll(/(--(?:color|shadow)-sd-[a-z0-9-]+)\s*:/g)].map(([, p = '']) => p),
+    ),
+  ];
+
+  /** Pairs below `min`, as readable rows — an empty list is the pass. */
+  function below(rows: ReadonlyArray<[string, string, string]>, min: number): string[] {
+    return rows
+      .filter(([, fg, bg]) => contrast(fg, bg) < min)
+      .map(([label, fg, bg]) => `${label}: ${fg} on ${bg} = ${contrast(fg, bg).toFixed(2)}`);
+  }
+
+  const scope = SCOPE_RULE;
+  const darkScope = DARK_SCOPE_RULE;
+
   it('suderra.css holds no colour value of its own', () => {
     const code = suderra.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(code.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab)\(/g) ?? []).toEqual([]);
   });
 
   it('the scope re-assigns every step of each scale to its theme.css ramp', () => {
-    const scope = /:where\(\.sd-page, \.sd-surface\) \{([^}]*)\}/.exec(suderra)?.[1] ?? '';
-    const darkScope =
-      /\[data-theme='dark'\] :where\(\.sd-page, \.sd-surface\) \{([^}]*)\}/.exec(suderra)?.[1] ??
-      '';
+    // Success and info follow gray: "good" is not a colour in Industry (README §7.8).
+    // Accent is Severity's "high" tier, Industry's HIGH amber (README §7.5).
     const ramps: Record<string, string> = {
       gray: 'sd-ink',
       primary: 'sd-teal',
-      success: 'sd-mint',
+      success: 'sd-ink',
       warning: 'sd-amber',
+      accent: 'sd-amber',
       error: 'sd-rust',
-      info: 'sd-sea',
+      info: 'sd-ink',
+    };
+    const darkRamps: Record<string, string> = {
+      gray: 'sd-deep',
+      success: 'sd-deep',
+      info: 'sd-deep',
     };
     const missing: string[] = [];
-    for (const [scale, ramp] of Object.entries(ramps)) {
-      for (const step of STEPS) {
-        light(`${ramp}-${step}`);
-        if (!scope.includes(`--color-${scale}-${step}: var(--color-${ramp}-${step});`))
-          missing.push(`${scale}-${step}`);
+    for (const [rule, table] of [
+      [scope, ramps],
+      [darkScope, darkRamps],
+    ] as const) {
+      for (const [scale, ramp] of Object.entries(table)) {
+        for (const step of STEPS) {
+          light(`${ramp}-${step}`);
+          if (!rule.includes(`--color-${scale}-${step}: var(--color-${ramp}-${step});`))
+            missing.push(`${rule === scope ? 'light' : 'dark'} ${scale}-${step}`);
+        }
       }
-    }
-    for (const step of STEPS) {
-      light(`sd-deep-${step}`);
-      if (!darkScope.includes(`--color-gray-${step}: var(--color-sd-deep-${step});`))
-        missing.push(`dark gray-${step}`);
     }
     expect(missing).toEqual([]);
     expect(scope).toContain('--color-white: var(--color-sd-cream);');
+  });
+
+  it('the scope squares every radius token and sets the console faces', () => {
+    expect(themeBlock()).toMatch(/--radius-sd:\s*0;/);
+    const radii = ['', '-xs', '-sm', '-md', '-lg', '-xl', '-2xl', '-3xl', '-4xl'].filter(
+      (suffix) => !scope.includes(`--radius${suffix}: var(--radius-sd);`),
+    );
+    expect(radii).toEqual([]);
+    for (const line of [
+      '--font-sans: var(--font-body-sd);',
+      '--font-display: var(--font-display-sd);',
+      '--page-title-font: var(--font-display-sd);',
+      '--page-title-weight: 600;',
+    ])
+      expect(scope).toContain(line);
   });
 
   it('both gray ramps run light to dark, step by step', () => {
@@ -407,15 +428,15 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
     }
   });
 
-  it('light theme: text tokens read 4.5:1 on parchment, paper and a chat bubble', () => {
+  it('light theme: text tokens read 4.5:1 on parchment, paper and every chat bubble', () => {
     const parchment = light('sd-parchment');
     const paper = light('sd-paper');
-    const bubble = over(light('sd-ink'), 0.09, parchment);
     for (const text of [
       'sd-ink',
       'sd-ink-soft',
       'sd-ink-muted',
       'sd-ink-hint',
+      'sd-teal',
       'sd-teal-deep',
       'sd-danger-ink',
     ]) {
@@ -425,20 +446,21 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
       });
       expect({ text, paper: contrast(light(text), paper) >= 4.5 }).toEqual({ text, paper: true });
     }
-    expect(contrast(light('sd-ink-hint'), bubble)).toBeGreaterThanOrEqual(4.5);
+    // `.sd-msg` is opaque paper, `--mine` the accent tint, `--ai` violet over paper.
+    for (const bubble of [paper, light('sd-accent-100'), over(light('sd-violet'), 0.13, paper)])
+      expect(contrast(light('sd-ink-hint'), bubble)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(light('sd-mint-paper'), light('sd-teal-deep'))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('dark theme: the re-assigned text tokens read 4.5:1 on parchment, paper and a chat bubble', () => {
+  it('dark theme: the re-assigned text tokens read 4.5:1 on parchment, paper and every chat bubble', () => {
     const parchment = dark('sd-parchment');
     const paper = dark('sd-paper');
-    // sd-rule under the dark theme is rail-item (#c6dde4) at 12%.
-    const bubble = over(light('sd-rail-item'), 0.12, parchment);
     for (const text of [
       'sd-ink',
       'sd-ink-soft',
       'sd-ink-muted',
       'sd-ink-hint',
+      'sd-teal',
       'sd-teal-deep',
       'sd-danger-ink',
     ]) {
@@ -448,7 +470,8 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
       });
       expect({ text, paper: contrast(dark(text), paper) >= 4.5 }).toEqual({ text, paper: true });
     }
-    expect(contrast(dark('sd-ink-hint'), bubble)).toBeGreaterThanOrEqual(4.5);
+    for (const bubble of [paper, dark('sd-accent-100'), over(light('sd-violet'), 0.13, paper)])
+      expect(contrast(dark('sd-ink-hint'), bubble)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(dark('sd-mint-paper'), dark('sd-teal-deep'))).toBeGreaterThanOrEqual(4.5);
   });
 
@@ -456,11 +479,214 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
     const cream = light('sd-cream');
     expect(contrast(light('sd-ink-400'), cream)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(light('sd-ink-400'), light('sd-ink-50'))).toBeGreaterThanOrEqual(4.5);
-    for (const fill of ['sd-teal-600', 'sd-mint-600', 'sd-rust-600', 'sd-amber-600']) {
+    for (const fill of ['sd-teal-600', 'sd-rust-600', 'sd-amber-600']) {
       expect({ fill, ok: contrast(cream, light(fill)) >= 4.5 }).toEqual({ fill, ok: true });
     }
     expect(contrast(light('sd-deep-400'), light('sd-deep-900'))).toBeGreaterThanOrEqual(4.5);
     expect(contrast(light('sd-deep-400'), light('sd-deep-800'))).toBeGreaterThanOrEqual(4.5);
     expect(contrast(light('sd-deep-300'), light('sd-deep-800'))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('every workspace, both themes: Industry text holds 4.5:1 and icons 3:1 where they are drawn', () => {
+    const failures: string[] = [];
+    for (const theme of ['light', 'dark'] as const) {
+      for (const ws of WORKSPACES) {
+        const t = resolver(page(theme, ws));
+        const at = `${theme}/${ws}`;
+        const grounds = [t('sd-paper'), t('sd-parchment')];
+        const accentTint = t('sd-accent-100');
+        const aiBubble = over(t('sd-violet'), 0.13, t('sd-paper'));
+        const text: Array<[string, string, string]> = [
+          // text on the page ground and on a raised surface
+          ...[
+            'sd-ink',
+            'sd-ink-soft',
+            'sd-ink-muted',
+            'sd-ink-hint',
+            'sd-teal',
+            'sd-teal-deep',
+            'sd-danger-ink',
+            'sd-neutral-700',
+            'sd-neutral-800',
+            'sd-neutral-900',
+            'sd-accent-700',
+            'sd-accent-800',
+            'sd-accent-900',
+            'sd-hz-amber-ink',
+          ].flatMap((name) =>
+            grounds.map((ground): [string, string, string] => [`${at} ${name}`, t(name), ground]),
+          ),
+          // text on a fill: accent pairs, primary button, bubbles, alarm tiles and tints
+          [`${at} mint-paper on teal-deep`, t('sd-mint-paper'), t('sd-teal-deep')],
+          [`${at} cream on teal-600 (primary button)`, t('sd-cream'), t('sd-teal-600')],
+          [`${at} accent-800 on accent-100 (active tag)`, t('sd-accent-800'), accentTint],
+          [`${at} ink on neutral-300 (OK tag, success banner)`, t('sd-ink'), t('sd-neutral-300')],
+          [`${at} accent-900 on accent-100 (active row)`, t('sd-accent-900'), accentTint],
+          [`${at} ink on accent-100 (own message)`, t('sd-ink'), accentTint],
+          [`${at} hint on accent-100 (own message time)`, t('sd-ink-hint'), accentTint],
+          [`${at} ink on the AI bubble`, t('sd-ink'), aiBubble],
+          [`${at} hint on the AI bubble`, t('sd-ink-hint'), aiBubble],
+          [`${at} on-red on red-deep (CRIT tile)`, t('sd-hz-on-red'), t('sd-hz-red-deep')],
+          [`${at} on-amber on amber (HIGH tile)`, t('sd-hz-on-amber'), t('sd-hz-amber')],
+          [`${at} danger-ink on red tint`, t('sd-danger-ink'), t('sd-hz-red-tint')],
+          [`${at} amber-ink on amber tint`, t('sd-hz-amber-ink'), t('sd-hz-amber-tint')],
+          // the console rail and workspace menu: the current row, and any row under the pointer
+          [`${at} neutral-700 on accent-100 (menu: current row)`, t('sd-neutral-700'), accentTint],
+          [`${at} ink on neutral-200 (rail / menu: hovered row)`, t('sd-ink'), t('sd-neutral-200')],
+          [
+            `${at} neutral-700 on neutral-200 (menu: hovered row)`,
+            t('sd-neutral-700'),
+            t('sd-neutral-200'),
+          ],
+          [
+            `${at} accent-800 on neutral-200 (rail: hovered current area)`,
+            t('sd-accent-800'),
+            t('sd-neutral-200'),
+          ],
+        ];
+        const icons: Array<[string, string, string]> = [
+          ...['sd-accent', 'sd-neutral-600', 'sd-hz-red', 'sd-danger', 'sd-violet-ink'].flatMap(
+            (name) =>
+              grounds.map((ground): [string, string, string] => [
+                `${at} icon ${name}`,
+                t(name),
+                ground,
+              ]),
+          ),
+          [`${at} icon danger on red tint`, t('sd-danger'), t('sd-hz-red-tint')],
+          // the 3px accent bar that marks the user menu's chosen segment and the
+          // workspace menu's current row: their accent-100 fill alone is ~1.1:1
+          // against the paper, so the bar is the state cue (WCAG 1.4.11)
+          [
+            `${at} state bar accent on accent-100 (segment, workspace row)`,
+            t('sd-accent'),
+            accentTint,
+          ],
+          // the workspace menu's alarm glyphs on its current row
+          [`${at} icon hz-red on accent-100 (menu P1 glyph)`, t('sd-hz-red'), accentTint],
+          [
+            `${at} icon amber-ink on accent-100 (menu P2/P3 glyph)`,
+            t('sd-hz-amber-ink'),
+            accentTint,
+          ],
+        ];
+        failures.push(...below(text, TEXT), ...below(icons, ICON));
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  // Forced colours (Windows contrast themes) drop box-shadows and author
+  // backgrounds, which draw every current / pressed / selected cue in the
+  // console (rail bars, palette row, annunciator foot bar, segment and
+  // workspace fills): suderra.css redraws each from its ARIA state as an
+  // outline, which survives in a system colour.
+  it('forced colours: every current, pressed or selected console control draws an outline', () => {
+    const code = suderra.replace(/\/\*[\s\S]*?\*\//g, '');
+    const start = code.indexOf('@media (forced-colors: active)');
+    expect(start).toBeGreaterThan(-1);
+    const block = code.slice(
+      start,
+      code.indexOf('}', code.indexOf('{', code.indexOf('{', start) + 1)),
+    );
+    for (const state of [
+      "[aria-current]:not([aria-current='false'])",
+      "[aria-pressed='true']",
+      "[role='option'][aria-selected='true']",
+      "[role='tab'][aria-selected='true']",
+    ])
+      expect(block).toContain(state);
+    expect(block).toContain('body:has(.sd-content)');
+    // A focused control keeps its focus ring, which is an outline too (WCAG 2.4.7).
+    expect(block).toContain(':not(:focus-visible)');
+    expect(block).toMatch(/outline:\s*2px solid Highlight;/);
+  });
+
+  // The shell's global focus ring is a box-shadow, which forced colours drop;
+  // Tailwind's outline-hidden leaves a transparent outline there, but its
+  // `--tw-outline-style: none` also switched off every focus-visible:outline-*
+  // utility, so a console row, tile or segment showed no focus (WCAG 2.4.7).
+  it('forced colours: the shell keeps focus outlines drawn by utilities', () => {
+    const shellCss = readFileSync(resolve(REPO_ROOT, 'web/shell/src/styles/index.css'), 'utf8');
+    const code = shellCss.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(code).toMatch(
+      /@media \(forced-colors: active\)\s*\{\s*\*:focus-visible\s*\{\s*--tw-outline-style:\s*solid;/,
+    );
+  });
+
+  it('a console token takes one value per theme and workspace, wherever the attributes sit', () => {
+    // The contrast rows above are measured on the page placement; this holds every other
+    // placement to the same values. A dark island inside a workspace once matched only the
+    // theme-wide dark block: steel accent on it, the workspace's primary still inherited.
+    const drift: string[] = [];
+    for (const theme of ['light', 'dark'] as const) {
+      for (const ws of WORKSPACES) {
+        const expected = cascade(page(theme, ws));
+        for (const [where, path] of placements(theme, ws)) {
+          const actual = cascade(path);
+          for (const property of SD_PROPERTIES)
+            if (actual(property) !== expected(property))
+              drift.push(
+                `${theme}/${ws}, ${where}: ${property} ${String(actual(property))} ≠ ${String(expected(property))}`,
+              );
+        }
+      }
+    }
+    expect(SD_PROPERTIES.length).toBeGreaterThan(100);
+    expect(drift).toEqual([]);
+    // Not vacuous: each workspace moves the accent off steel, in both themes.
+    for (const theme of ['light', 'dark'] as const)
+      for (const ws of WORKSPACES.filter((name) => name !== 'aqua'))
+        expect({
+          theme,
+          ws,
+          moved: resolver(page(theme, ws))('sd-teal') !== resolver(page(theme, 'aqua'))('sd-teal'),
+        }).toEqual({ theme, ws, moved: true });
+  });
+
+  it('the console shadows are plain custom properties, so the dark theme reaches `shadow-(--shadow-sd-*)`', () => {
+    // Tailwind v4 copies a @theme shadow value into its utility instead of reading the
+    // variable, so a dark re-assignment of a @theme shadow never reaches the page.
+    expect(themeBlock()).not.toMatch(/--shadow-sd-[a-z0-9-]*\s*:/);
+    for (const step of ['sm', 'md', 'lg']) {
+      const property = `--shadow-sd-${step}`;
+      const lightValue = cascade(page('light', 'aqua'))(property);
+      const darkValue = cascade(page('dark', 'aqua'))(property);
+      expect({
+        property,
+        light: lightValue !== undefined,
+        flips: darkValue !== lightValue,
+      }).toEqual({
+        property,
+        light: true,
+        flips: true,
+      });
+    }
+  });
+});
+
+/**
+ * INVARIANT (FE-MEDIUM-090): every face theme.css names is one the shell loads.
+ *
+ * `web/shell/index.html` is the only font loader. A family named in a
+ * `--font-*` token but missing from its Google Fonts request does not fail
+ * anywhere: the browser falls back down the stack and the product renders in
+ * a face nobody chose (the tenant console's Barlow pair was added this way).
+ * The first family of each stack is the web font; the rest are system faces.
+ */
+describe('INVARIANT (FE-MEDIUM-090): the shell loads every face theme.css names', () => {
+  const INDEX_HTML = readFileSync(resolve(REPO_ROOT, 'web/shell/index.html'), 'utf8');
+
+  it('the first family of every --font-* token is in the Google Fonts request', () => {
+    const request = /https:\/\/fonts\.googleapis\.com\/css2\?[^"]+/.exec(INDEX_HTML)?.[0] ?? '';
+    expect(request).not.toBe('');
+    const families = [...themeBlock().matchAll(/--font-[a-z-]+:\s*([^,;]+)[,;]/g)].map(
+      ([, first]) => (first ?? '').trim().replace(/^'|'$/g, ''),
+    );
+    expect(families.length).toBeGreaterThanOrEqual(5);
+    const unloaded = families.filter(
+      (family) => !request.includes(`family=${family.replace(/ /g, '+')}:`),
+    );
+    expect(unloaded).toEqual([]);
   });
 });

@@ -1,7 +1,8 @@
 /**
  * FE-MEDIUM-312 / FE-HIGH-314 — the tenant-admin pages scoped to the Suderra
- * page surface (production's nine, plus the four the restyle moved into it)
- * keep their `sd-page` root class.
+ * page surface (production's nine, plus the four the restyle moved into it,
+ * plus the two platform reference documents built on it) keep their `sd-page`
+ * root class.
  *
  * The class is how the Suderra stylesheet finds a page's surface; it has no
  * behaviour of its own, so dropping it from a page root (a restyle, a layout
@@ -22,8 +23,10 @@ import { describe, it, expect } from 'vitest';
 const PAGES_DIR = resolve(__dirname, '..');
 
 const SD_PAGE_SCOPED = [
+  'ArchitectureReviewPage.tsx',
   'EdgeDeviceDetailPage.tsx',
   'EdgeDevicesPage.tsx',
+  'PlatformArchitecturePage.tsx',
   'TenantActivityPage.tsx',
   'TenantAnnouncementsPage.tsx',
   'TenantAuditLogPage.tsx',

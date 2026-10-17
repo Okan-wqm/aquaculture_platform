@@ -35,12 +35,12 @@ const ACCENT_CLASSES: Record<
     buttonEnabled: 'bg-info-600 hover:bg-info-700',
   },
   purple: {
-    icon: 'text-accent-600 dark:text-accent-400',
-    checkbox: 'rounded text-accent-600 dark:text-accent-400 focus:ring-accent-500',
-    radio: 'text-accent-600 dark:text-accent-400 focus:ring-accent-500',
-    rowSelected: 'bg-accent-50 dark:bg-accent-900/20 cursor-pointer',
-    buttonDisabled: 'bg-accent-400 cursor-not-allowed',
-    buttonEnabled: 'bg-accent-600 hover:bg-accent-700',
+    icon: 'text-primary-600 dark:text-primary-400',
+    checkbox: 'rounded text-primary-600 dark:text-primary-400 focus:ring-primary-500',
+    radio: 'text-primary-600 dark:text-primary-400 focus:ring-primary-500',
+    rowSelected: 'bg-primary-50 dark:bg-primary-900/20 cursor-pointer',
+    buttonDisabled: 'bg-primary-400 cursor-not-allowed',
+    buttonEnabled: 'bg-primary-600 hover:bg-primary-700',
   },
 };
 

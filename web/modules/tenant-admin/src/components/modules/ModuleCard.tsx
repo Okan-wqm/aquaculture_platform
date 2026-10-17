@@ -14,6 +14,9 @@ import {
   Activity,
   TrendingUp,
 } from 'lucide-react';
+import { UserAvatar } from '../ui/UserAvatar';
+import ModuleIcon from './ModuleIcon';
+import { SD_CARD } from '../ui/suderra';
 
 /**
  * Module for display.
@@ -32,7 +35,8 @@ export interface DisplayModule {
   };
   lastActivity: string;
   features: string[];
-  icon: string;
+  /** The module record's lucide icon name; null until the record is known. */
+  icon: string | null;
   route?: string;
   activatedAt: string;
 }
@@ -105,13 +109,13 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
   const canOpen = !!moduleRoute && module.status === 'active';
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-lg transition-shadow">
+    <div className={`${SD_CARD} transition-colors hover:border-primary-500`}>
       {/* Module Header */}
       <div className="p-6 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-success-50 dark:bg-success-900/20 flex items-center justify-center text-2xl">
-              {module.icon}
+            <div className="w-12 h-12 rounded-xl bg-success-50 dark:bg-success-900/20 flex items-center justify-center text-success-600 dark:text-success-400">
+              <ModuleIcon name={module.icon} className="w-6 h-6" />
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-gray-100">{module.name}</h3>
@@ -145,7 +149,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
 
       {/* Usage Statistics */}
       {usageStats && (
-        <div className="px-6 py-3 bg-success-50/50 border-t border-gray-100 dark:border-gray-700">
+        <div className="px-6 py-3 bg-success-50/50 dark:bg-success-900/20 border-t border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-3.5 h-3.5 text-success-500" />
             <span className="text-xs font-medium text-success-700 dark:text-success-300 uppercase tracking-wider">
@@ -192,14 +196,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
         {module.manager ? (
           <div className="flex items-center justify-between mt-3">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-success-500 to-success-700 flex items-center justify-center text-white text-xs font-medium">
-                {module.manager.name
-                  .split(' ')
-                  .map((n) => n[0])
-                  .join('')
-                  .substring(0, 2)
-                  .toUpperCase()}
-              </div>
+              <UserAvatar name={module.manager.name} size="sm" />
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                   {module.manager.name}

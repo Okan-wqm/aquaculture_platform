@@ -199,7 +199,16 @@ export function useFinanceLedger(filter: FinanceLedgerFilter) {
   );
 }
 
-export function useFinanceSummary(from: string, to: string, granularity: FinanceGranularity) {
+/**
+ * `enabled: false` keeps a mounted caller that is not showing the summary
+ * (the finance page on a tab without it) from reading it.
+ */
+export function useFinanceSummary(
+  from: string,
+  to: string,
+  granularity: FinanceGranularity,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   return useTenantQuery(
     ['finance', 'summary', from, to, granularity],
     async () => {
@@ -209,7 +218,7 @@ export function useFinanceSummary(from: string, to: string, granularity: Finance
       );
       return data.financeSummary;
     },
-    { enabled: Boolean(from && to) },
+    { enabled: enabled && Boolean(from && to) },
   );
 }
 

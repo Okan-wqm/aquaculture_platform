@@ -27,11 +27,14 @@ const urgencyStyles = {
     text: 'text-error-800 dark:text-error-200',
     icon: <AlertCircle className="h-5 w-5 text-error-600 dark:text-error-400" />,
   },
+  // Industry signals risk in amber or red only (console README §7.8): a
+  // certificate due within 14 days is a risk in amber, the expired one the red
+  // alarm above; the icon tells `high` from `medium`.
   high: {
-    bg: 'bg-accent-50 dark:bg-accent-900/20',
-    border: 'border-accent-200 dark:border-accent-800',
-    text: 'text-accent-800 dark:text-accent-200',
-    icon: <AlertTriangle className="h-5 w-5 text-accent-600 dark:text-accent-400" />,
+    bg: 'bg-warning-50 dark:bg-warning-900/20',
+    border: 'border-warning-200 dark:border-warning-800',
+    text: 'text-warning-800 dark:text-warning-200',
+    icon: <AlertTriangle className="h-5 w-5 text-warning-600 dark:text-warning-400" />,
   },
   medium: {
     bg: 'bg-warning-50 dark:bg-warning-900/20',
@@ -107,7 +110,7 @@ export function CertificationExpiryAlert({
         )}
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-success-100 dark:bg-success-900">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success-100 dark:bg-success-900">
             <Check className="h-6 w-6 text-success-600 dark:text-success-400" aria-hidden="true" />
           </div>
           <div>
@@ -133,7 +136,7 @@ export function CertificationExpiryAlert({
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-warning-500" />
           <h3 className="font-semibold text-gray-900 dark:text-white">Certification Alerts</h3>
-          <span className="rounded-full bg-warning-100 px-2 py-0.5 text-xs font-medium text-warning-800 dark:bg-warning-900/30 dark:text-warning-400">
+          <span className="rounded-md bg-warning-100 px-2 py-0.5 text-xs font-medium text-warning-800 dark:bg-warning-900/30 dark:text-warning-400">
             {totalCount}
           </span>
         </div>
@@ -213,7 +216,7 @@ export function CertificationExpiryAlert({
                 {onRenew && (
                   <button
                     onClick={() => onRenew(cert.id)}
-                    className="flex items-center gap-1 rounded-md bg-white px-2 py-1 text-sm font-medium text-primary-600 shadow-sm hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700"
+                    className="flex items-center gap-1 rounded-md bg-white px-2 py-1 text-sm font-medium text-primary-600 shadow-(--shadow-sd-sm) hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700"
                   >
                     <RefreshCw className="h-4 w-4" />
                     Renew

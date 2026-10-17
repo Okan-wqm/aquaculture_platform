@@ -200,10 +200,10 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
   }, [allChannels, rejectProposal]);
 
   return (
-    <div className="bg-gradient-to-r from-accent-50 to-info-50 rounded-xl border border-accent-200 dark:border-accent-800 p-6 mb-4">
+    <div className="bg-primary-50 dark:bg-primary-900/20 rounded-xl border border-primary-200 dark:border-primary-800 p-6 mb-4">
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
-        <Sparkles className="w-5 h-5 text-accent-600 dark:text-accent-400" />
+        <Sparkles className="w-5 h-5 text-primary-600 dark:text-primary-400" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">AI Kanal Tespiti</h3>
       </div>
 
@@ -232,7 +232,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {loadingPending && (
         <div className="flex items-center gap-3 py-4 justify-center">
           <Spinner size="md" />
-          <p className="text-accent-700 dark:text-accent-300 text-sm">
+          <p className="text-primary-700 dark:text-primary-300 text-sm">
             Bekleyen teklifler yükleniyor...
           </p>
         </div>
@@ -313,7 +313,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {detecting && (
         <div className="flex items-center gap-3 py-8 justify-center">
           <Spinner size="md" />
-          <p className="text-accent-700 dark:text-accent-300 text-sm font-medium">
+          <p className="text-primary-700 dark:text-primary-300 text-sm font-medium">
             AI sensor verilerini analiz ediyor...
           </p>
         </div>

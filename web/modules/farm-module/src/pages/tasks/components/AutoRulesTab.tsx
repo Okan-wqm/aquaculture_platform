@@ -46,7 +46,7 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
                         {rule.name}
                       </h3>
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${trigger.bg} ${trigger.color}`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${trigger.bg} ${trigger.color}`}
                       >
                         {trigger.label}
                       </span>

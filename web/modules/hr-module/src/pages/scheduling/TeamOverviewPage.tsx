@@ -17,13 +17,13 @@ import {
 import type { WeekDay, DayEntry } from '../../types/scheduling.types';
 
 const WEEKDAYS: WeekDay[] = [
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-  'sunday',
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY',
+  'SUNDAY',
 ];
 
 interface DayCellProps {
@@ -45,7 +45,7 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
     );
   }
 
-  if (entry.entryType === 'off') {
+  if (entry.entryType === 'OFF') {
     return (
       <td
         className={cn(
@@ -63,7 +63,7 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
     );
   }
 
-  if (entry.entryType === 'leave') {
+  if (entry.entryType === 'LEAVE') {
     return (
       <td
         className={cn(
@@ -81,14 +81,14 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
     );
   }
 
-  if (entry.entryType === 'holiday') {
+  if (entry.entryType === 'HOLIDAY') {
     return (
       <td
         className={cn(
-          'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700 bg-accent-50',
+          'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700 bg-primary-50 dark:bg-primary-900/30',
         )}
       >
-        <span className="text-xs text-accent-700 dark:text-accent-300 font-medium">
+        <span className="text-xs text-primary-700 dark:text-primary-300 font-medium">
           Resmi Tatil
         </span>
       </td>
@@ -212,7 +212,7 @@ export function TeamOverviewPage() {
       {/* Main Content */}
       <div className="p-6">
         {isLoading ? (
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-8">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) p-8">
             <div className="animate-pulse space-y-4">
               <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-full" />
               {[1, 2, 3, 4, 5].map((i) => (
@@ -221,7 +221,7 @@ export function TeamOverviewPage() {
             </div>
           </div>
         ) : error ? (
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-8 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) p-8 text-center">
             <AlertTriangle className="h-12 w-12 text-error-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
               Veri yuklenemedi
@@ -229,7 +229,7 @@ export function TeamOverviewPage() {
             <p className="text-gray-500 dark:text-gray-400">{String(error)}</p>
           </div>
         ) : !overview?.employeePlans.length ? (
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-12 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) p-12 text-center">
             <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
               Bu hafta icin plan bulunamadi
@@ -239,7 +239,7 @@ export function TeamOverviewPage() {
             </p>
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -252,7 +252,7 @@ export function TeamOverviewPage() {
                         key={day}
                         className={cn(
                           'text-center px-2 py-3 text-sm font-semibold min-w-[90px]',
-                          day === 'saturday' || day === 'sunday'
+                          day === 'SATURDAY' || day === 'SUNDAY'
                             ? 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'
                             : 'text-gray-700 dark:text-gray-300',
                         )}
@@ -316,7 +316,7 @@ export function TeamOverviewPage() {
                         {/* Days */}
                         {WEEKDAYS.map((day) => {
                           const dayEntry = emp.days.find((d) => d.dayOfWeek === day);
-                          const isWeekend = day === 'saturday' || day === 'sunday';
+                          const isWeekend = day === 'SATURDAY' || day === 'SUNDAY';
                           return <DayCell key={day} entry={dayEntry} isWeekend={isWeekend} />;
                         })}
 
@@ -397,7 +397,7 @@ export function TeamOverviewPage() {
             <span>Izin</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-accent-100 dark:bg-accent-900/40 border border-accent-200 dark:border-accent-800" />
+            <div className="w-4 h-4 rounded bg-primary-100 dark:bg-primary-900/40 border border-primary-200 dark:border-primary-800" />
             <span>Resmi Tatil</span>
           </div>
         </div>

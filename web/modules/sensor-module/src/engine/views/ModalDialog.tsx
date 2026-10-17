@@ -58,7 +58,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
       {/* Backdrop */}
       <div
         onClick={handleClose}
-        className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[10000]"
+        className="fixed inset-0 bg-sd-scrim/45 backdrop-blur-[2px] z-[10000]"
       />
 
       {/* Dialog */}

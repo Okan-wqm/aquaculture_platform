@@ -18,6 +18,18 @@ export const SUPPORTED_LOCALES: readonly SupportedLocale[] = ['tr', 'en'];
 export const DEFAULT_LOCALE: SupportedLocale = 'tr';
 export const LOCALE_STORAGE_KEY = 'suderra.locale';
 
+/**
+ * The tag Intl formats each locale with — the one owner of this map. English
+ * is en-GB so both locales write day before month on a 24-hour clock; each
+ * keeps its own digit grouping (1,234.5 / 1.234,5).
+ */
+const INTL_LOCALES: Readonly<Record<SupportedLocale, string>> = { en: 'en-GB', tr: 'tr-TR' };
+
+/** The BCP 47 tag to hand Intl.DateTimeFormat / Intl.NumberFormat for a UI locale. */
+export function toIntlLocale(locale: SupportedLocale): string {
+  return INTL_LOCALES[locale];
+}
+
 export function isSupportedLocale(value: unknown): value is SupportedLocale {
   return typeof value === 'string' && (SUPPORTED_LOCALES as readonly string[]).includes(value);
 }

@@ -48,8 +48,20 @@ export class DepartmentResponse {
   @Field(() => GraphQLJSON, { nullable: true })
   settings?: Record<string, unknown>;
 
+  /**
+   * The department's manager, as stored on the department row
+   * (departments.managerUserId / managerName, written by create/update).
+   * WHY these names: the resolvers return the entity itself, so a response
+   * field reads only when it carries the entity column's name — the former
+   * `departmentManager` field mapped to no column and was always null, and the
+   * facility-structure page reported every department as unassigned.
+   */
+  @Field(() => ID, { nullable: true })
+  managerUserId?: string;
+
+  /** Display name stored with the manager (denormalised for listing). */
   @Field({ nullable: true })
-  departmentManager?: string;
+  managerName?: string;
 
   @Field({ nullable: true })
   contactEmail?: string;

@@ -86,7 +86,7 @@ export interface SidebarProps {
   mobileOpen: boolean;
   /** Overlay open-state change handler; `false` from the backdrop, Escape, the close button and navigation */
   onMobileOpenChange: (open: boolean) => void;
-  /** `id` of the aside, the target of the opener's `aria-controls` */
+  /** `id` of the navigation, the target of the opener's `aria-controls` */
   id?: string;
   className?: string;
 }
@@ -366,16 +366,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className = '',
 }) => {
   const themeStyle = sidebarThemeStyles[theme];
-  const asideRef = useRef<HTMLElement>(null);
+  const navRef = useRef<HTMLDivElement>(null);
   const { t } = useI18n();
 
   // Escape, focus handling, scroll lock, closing on the `md` crossing and on
-  // navigation: the overlay behaviour SuderraSidebar shares (navShared.ts).
-  const { closeOverlay, handleNavigate } = useNavOverlay({
+  // navigation: the overlay behaviour IndustrialRail shares (navShared.ts).
+  const { closeOverlay, handleNavigate, landmarkProps } = useNavOverlay({
     mobileOpen,
     onMobileOpenChange,
     onNavigate,
-    containerRef: asideRef,
+    containerRef: navRef,
   });
 
   // `collapsed` is the desktop column's rail mode; the overlay always shows labels.
@@ -395,10 +395,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           data-testid="sidebar-backdrop"
         />
       )}
-      <aside
-        ref={asideRef}
+      {/* One landmark, "Main navigation" — the column's navigation, or the
+          phone overlay's modal dialog (navShared's landmarkProps). */}
+      <div
+        ref={navRef}
         id={id}
         tabIndex={-1}
+        {...landmarkProps}
         aria-label={t('sidebar.mainNavigation')}
         className={`
           flex-col ${placement}
@@ -439,7 +442,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation menu */}
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+        <div className="flex-1 overflow-y-auto p-4 space-y-1">
           {items.map((item) => (
             <MenuItem
               key={item.id}
@@ -452,7 +455,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               customIcons={customIcons}
             />
           ))}
-        </nav>
+        </div>
 
         {/* Footer content */}
         {footer && (
@@ -460,7 +463,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {footer}
           </div>
         )}
-      </aside>
+      </div>
     </>
   );
 };

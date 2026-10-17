@@ -194,7 +194,7 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(
           data-testid={`layer-lock-${widget.id}`}
         >
           {isLocked ? (
-            <Lock className="w-3.5 h-3.5 text-warning-500" />
+            <Lock className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           ) : (
             <Unlock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100" />
           )}

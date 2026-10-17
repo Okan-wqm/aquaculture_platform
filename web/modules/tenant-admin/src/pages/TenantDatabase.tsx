@@ -41,6 +41,7 @@ import {
   downloadJson,
 } from '@aquaculture/shared-ui';
 import { getTableSchema } from '../lib/api';
+import { SD_CARD } from '../components/ui/suderra';
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
@@ -166,8 +167,8 @@ const MODULE_CONFIG: Record<
   hr: {
     label: 'HR Module',
     icon: <Users className="w-5 h-5" />,
-    color: 'text-accent-600 dark:text-accent-400',
-    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    color: 'text-primary-600 dark:text-primary-400',
+    bgColor: 'bg-primary-50 dark:bg-primary-900/20',
   },
   other: {
     label: 'Other Tables',
@@ -245,15 +246,17 @@ const StatCard: React.FC<{
   subValue?: string;
   color: 'green' | 'blue' | 'purple' | 'yellow';
 }> = ({ icon, label, value, subValue, color }) => {
+  // The icon is decoration, so no hazard colour (README §7.8): green and blue
+  // read graphite inside the console scope, purple and yellow the workspace accent.
   const colorClasses = {
     green: 'bg-success-50 dark:bg-success-900/20 text-success-600 dark:text-success-400',
     blue: 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400',
-    purple: 'bg-accent-50 dark:bg-accent-900/20 text-accent-600 dark:text-accent-400',
-    yellow: 'bg-warning-50 dark:bg-warning-900/20 text-warning-600 dark:text-warning-400',
+    purple: 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400',
+    yellow: 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400',
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
+    <div className={`${SD_CARD} p-6`}>
       <div className="flex items-center gap-4">
         <div className={`p-3 rounded-xl ${colorClasses[color]}`}>{icon}</div>
         <div>
@@ -660,7 +663,7 @@ const TenantDatabase: React.FC = () => {
       </div>
 
       {/* Database Info Card */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
+      <div className={`${SD_CARD} p-6`}>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-3 rounded-xl bg-success-50 dark:bg-success-900/20">
@@ -715,7 +718,7 @@ const TenantDatabase: React.FC = () => {
       </div>
 
       {/* Tables List - Grouped by Module */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+      <div className={SD_CARD}>
         <div className="p-6 border-b border-gray-100 dark:border-gray-700">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -765,10 +768,10 @@ const TenantDatabase: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <div className={`${config.color}`}>{config.icon}</div>
                     <span className={`text-sm font-semibold ${config.color}`}>{config.label}</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-900/60 px-2 py-0.5 rounded-full">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-900/60 px-2 py-0.5 rounded">
                       {stats.tableCount} tables
                     </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-900/60 px-2 py-0.5 rounded-full">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-900/60 px-2 py-0.5 rounded">
                       {formatNumber(stats.totalRows)} rows
                     </span>
                   </div>

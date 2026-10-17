@@ -12,6 +12,7 @@ import {
   AfterLoad,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
+import { DateColumnTransformer } from '@aquaculture/backend-common/database';
 import { Employee } from '../../hr/entities/employee.entity';
 import { Shift } from './shift.entity';
 
@@ -171,8 +172,12 @@ export class AttendanceRecord {
   @JoinColumn({ name: 'shiftId' })
   shift?: Shift;
 
+  // DateColumnTransformer: a `date` column hydrates as 'YYYY-MM-DD', which the
+  // GraphQL DateTime scalar refuses (serialize → null), so every read selecting
+  // `date` — attendanceRecords, todaysAttendance — failed as soon as one record
+  // existed (FARM-CRITICAL-406 class; FARM-MEDIUM-424 sweep).
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   date!: Date;
 
   @Field({ nullable: true })

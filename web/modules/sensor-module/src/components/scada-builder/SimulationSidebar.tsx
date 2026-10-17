@@ -122,7 +122,7 @@ const Section: React.FC<{
         {icon}
         <span className="flex-1 text-left">{title}</span>
         {badge !== undefined && (
-          <span className="px-1.5 py-0.5 rounded-full bg-gray-600 text-gray-200 text-[10px] font-medium">
+          <span className="px-1.5 py-0.5 rounded bg-gray-600 text-gray-200 text-[10px] font-medium">
             {badge}
           </span>
         )}
@@ -789,7 +789,7 @@ export const SimulationSidebar: React.FC = () => {
                       )}
                       {isActive && (
                         <span className="text-[9px] text-success-400 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-success-400 animate-pulse" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-success-400 motion-safe:animate-pulse" />
                           Cycle: {simulation.cycleCount}
                         </span>
                       )}

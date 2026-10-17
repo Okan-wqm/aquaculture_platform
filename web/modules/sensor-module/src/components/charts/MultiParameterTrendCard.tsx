@@ -77,7 +77,8 @@ function thresholdZones(thresholds: TrendChannelSpec['thresholds']): ChartLineZo
       min: crit.low ?? Number.NEGATIVE_INFINITY,
       max: crit.high ?? Number.POSITIVE_INFINITY,
       stroke: themeColors.warning[700],
-      fill: 'rgba(176,74,40,0.10)',
+      // The band is its stroke at 10% (hex alpha 1a): one token, not a second literal hue.
+      fill: `${themeColors.warning[700]}1a`,
     });
   }
   if (warn && (warn.low != null || warn.high != null)) {
@@ -85,7 +86,7 @@ function thresholdZones(thresholds: TrendChannelSpec['thresholds']): ChartLineZo
       min: warn.low ?? Number.NEGATIVE_INFINITY,
       max: warn.high ?? Number.POSITIVE_INFINITY,
       stroke: themeColors.accent[600],
-      fill: 'rgba(200,154,60,0.08)',
+      fill: `${themeColors.accent[600]}14`,
     });
   }
   return zones;
@@ -251,7 +252,7 @@ export function MultiParameterTrendCard({
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div className="min-w-0">
           <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">

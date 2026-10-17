@@ -124,7 +124,7 @@ function ParameterCard({
             </span>
             {isReadOnly && (
               <span
-                className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400"
+                className="inline-flex items-center gap-1 rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400"
                 data-testid={`readonly-badge-${param.parameterName}`}
               >
                 <Lock className="h-3 w-3" /> Read Only

@@ -4,6 +4,7 @@ import { UserAvatar } from '../ui/UserAvatar';
 import { RoleBadge } from '../ui/RoleBadge';
 import { StatusBadge } from '../ui/StatusBadge';
 import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
+import { SD_CARD } from '../ui/suderra';
 
 export interface DisplayUser {
   id: string;
@@ -201,7 +202,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className={SD_CARD}>
       <DataTable<DisplayUser>
         data={users}
         columns={displayUserColumns}

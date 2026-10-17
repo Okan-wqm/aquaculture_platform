@@ -28,6 +28,7 @@ import {
   Spinner,
   Button,
   Input,
+  PageTitle,
 } from '@aquaculture/shared-ui';
 import {
   Tags,
@@ -496,7 +497,9 @@ const TagRegistryPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <Tags className="w-5 h-5 text-info-600 dark:text-info-400" />
           <div>
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tag Registry</h1>
+            <PageTitle className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Tag Registry
+            </PageTitle>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               SCADA bağlamalarının, deploy çözümlemesinin ve canlı verinin tek kimlik kaynağı
             </p>

@@ -181,7 +181,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
               id="siteId"
               value={values.siteId || ''}
               onChange={(e) => handleSiteChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-(--shadow-sd-sm) focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500"
               disabled={sitesLoading}
             >
               <option value="">{sitesLoading ? 'Loading sites...' : 'Select Site...'}</option>
@@ -205,7 +205,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
               id="departmentId"
               value={values.departmentId || ''}
               onChange={(e) => handleDepartmentChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-(--shadow-sd-sm) focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.siteId || deptLoading}
             >
               <option value="">
@@ -235,7 +235,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
               id="systemId"
               value={values.systemId || ''}
               onChange={(e) => handleSystemChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-(--shadow-sd-sm) focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.departmentId || sysLoading}
             >
               <option value="">
@@ -265,7 +265,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
               id="equipmentId"
               value={values.tankId ?? values.equipmentId ?? ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-(--shadow-sd-sm) focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.departmentId || equipLoading}
             >
               <option value="">

@@ -1,4 +1,4 @@
-import { Button, RadioGroup, useAuth, useI18n } from '@aquaculture/shared-ui';
+import { Button, PageTitle, RadioGroup, useAuth, useI18n } from '@aquaculture/shared-ui';
 import { ArrowLeft, Sparkles, RefreshCw, AlertCircle } from 'lucide-react';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -57,7 +57,7 @@ const NewAiChatPage: React.FC = () => {
           {t('messaging.backToChannels')}
         </Button>
         <span className="sd-eyebrow">{t('messaging.title')}</span>
-        <h1 className="sd-page-title">{t('messaging.ai.newTitle')}</h1>
+        <PageTitle className="sd-page-title">{t('messaging.ai.newTitle')}</PageTitle>
         <span className="sd-page-sub">{t('messaging.ai.newSubtitle')}</span>
       </div>
 

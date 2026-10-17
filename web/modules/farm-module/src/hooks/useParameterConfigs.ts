@@ -469,7 +469,7 @@ export function getGroupColor(group: ParameterGroup): string {
     case 'METALS':
       return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800';
     case 'BIOLOGICAL':
-      return 'text-accent-600 dark:text-accent-400 bg-accent-100 dark:bg-accent-900/40';
+      return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800';
     case 'ORGANIC':
       return 'text-warning-600 dark:text-warning-400 bg-warning-100 dark:bg-warning-900/40';
     case 'CUSTOM':

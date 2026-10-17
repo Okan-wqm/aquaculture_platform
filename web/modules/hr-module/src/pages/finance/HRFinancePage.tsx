@@ -77,7 +77,7 @@ const HRFinancePage: React.FC = () => {
       <div className="flex min-h-[60vh] items-center justify-center p-6">
         <div
           role="alert"
-          className="max-w-md rounded-md bg-white dark:bg-gray-900 p-8 text-center shadow"
+          className="max-w-md rounded-md bg-white dark:bg-gray-900 p-8 text-center shadow-(--shadow-sd-sm)"
         >
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Finance is restricted
@@ -165,7 +165,10 @@ const HRFinancePage: React.FC = () => {
 
 /** Shown on the salary tabs when the caller lacks `hr_finance:view_salary`. */
 const SalaryRestricted: React.FC = () => (
-  <div role="alert" className="rounded-md bg-white p-8 text-center shadow dark:bg-gray-800">
+  <div
+    role="alert"
+    className="rounded-md bg-white p-8 text-center shadow-(--shadow-sd-sm) dark:bg-gray-800"
+  >
     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Salary is restricted</h2>
     <p className="mx-auto mt-2 max-w-md text-sm text-gray-600 dark:text-gray-400">
       Your role can view headcounts and expenses, but not salary figures. A tenant admin can grant

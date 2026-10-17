@@ -132,7 +132,7 @@ export const CategoriesTab: React.FC = () => {
                 </span>
               )}
               {category.computedRule && (
-                <span className="ml-2 rounded bg-accent-100 dark:bg-accent-900/40 px-1.5 py-0.5 text-xs text-accent-700 dark:text-accent-300">
+                <span className="ml-2 rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 text-xs text-gray-700 dark:text-gray-300">
                   {category.computedRule.percent}% rule
                 </span>
               )}
@@ -196,7 +196,7 @@ export const CategoriesTab: React.FC = () => {
       {canCreate && (
         <form
           onSubmit={handleCreate}
-          className="flex flex-wrap items-end gap-3 rounded-lg bg-white dark:bg-gray-900 p-4 shadow"
+          className="flex flex-wrap items-end gap-3 rounded-lg bg-white dark:bg-gray-900 p-4 shadow-(--shadow-sd-sm)"
         >
           <div className="flex-1 min-w-[200px]">
             <label

@@ -42,9 +42,10 @@ const statusConfig: Record<string, { label: string; color: string }> = {
     label: 'Published',
     color: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
   },
+  // A lifecycle state, not an alarm: neutral, as in utils/automation.utils.ts (README §7.8).
   ARCHIVED: {
     label: 'Archived',
-    color: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
   },
 };
 
@@ -153,7 +154,7 @@ const ScadaPackageListPage: React.FC = () => {
       render: (_value, pkg) => (
         <>
           <Link to={`/sensor/scada-builder/${pkg.id}`} className="block">
-            <div className="font-medium text-gray-900 dark:text-gray-100 hover:text-accent-600">
+            <div className="font-medium text-gray-900 dark:text-gray-100 hover:text-primary-600 dark:hover:text-primary-400">
               {pkg.name}
             </div>
             <div className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1">
@@ -176,7 +177,7 @@ const ScadaPackageListPage: React.FC = () => {
         return (
           <>
             <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
+              className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${config.color}`}
             >
               {config.label}
             </span>
@@ -218,7 +219,7 @@ const ScadaPackageListPage: React.FC = () => {
           </Button>
 
           {activeDropdown === pkg.id && (
-            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10">
+            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 py-1 z-10">
               <Link
                 to={`/sensor/scada-builder/${pkg.id}`}
                 className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -268,7 +269,7 @@ const ScadaPackageListPage: React.FC = () => {
             </Button>
             <Link
               to="/sensor/scada-builder/new"
-              className="flex items-center gap-2 px-4 py-2 text-white bg-accent-600 rounded-lg hover:bg-accent-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
               New Package
@@ -288,7 +289,7 @@ const ScadaPackageListPage: React.FC = () => {
             placeholder="Search packages..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-accent-500"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
@@ -322,7 +323,7 @@ const ScadaPackageListPage: React.FC = () => {
           </p>
           <Link
             to="/sensor/scada-builder/new"
-            className="inline-flex items-center gap-2 px-4 py-2 text-white bg-accent-600 rounded-lg hover:bg-accent-700"
+            className="inline-flex items-center gap-2 px-4 py-2 text-white bg-primary-600 rounded-lg hover:bg-primary-700"
           >
             <Plus className="w-4 h-4" />
             Create Package

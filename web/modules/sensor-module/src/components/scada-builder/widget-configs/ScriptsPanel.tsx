@@ -37,13 +37,9 @@ const TRIGGER_LABELS: Record<ScriptTrigger, string> = {
   load: 'Load',
 };
 
-/** Badge color classes keyed by trigger type */
-const TRIGGER_BADGE_CLASS: Record<ScriptTrigger, string> = {
-  event: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-  tagChange: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-  interval: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-  load: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-};
+/** Trigger badge — one neutral tag: in the tenant console only red and amber signal
+ *  (Industry README §7.8), so a trigger is told apart by its label, not a hue. */
+const TRIGGER_BADGE_CLASS = 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
 
 export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
   scripts,
@@ -150,9 +146,7 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
                 {script.name || 'Unnamed Script'}
               </span>
               <span
-                className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                  TRIGGER_BADGE_CLASS[getTrigger(script)]
-                }`}
+                className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${TRIGGER_BADGE_CLASS}`}
               >
                 {TRIGGER_LABELS[getTrigger(script)]}
               </span>

@@ -10,6 +10,7 @@ import { Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { AlertRule, AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { ActiveAlertCount } from '../dto/active-alert-count.type';
 import { AlertRuleService } from '../services/alert-rule.service';
 import {
   CreateAlertRuleInput,
@@ -66,26 +67,62 @@ export class AlertResolver {
   }
 
   /**
-   * Get alert history
+   * Get alert history. `severity` narrows to one severity (AquaMobil, which
+   * ships as an installed PWA and keeps sending it); `severities` to a set —
+   * one alarm priority of the tenant console spans several (P3 = MEDIUM +
+   * WARNING); `resolved` to the open (false) or the cleared (true) alarms —
+   * an annunciator tile counts open alarms only, and the list it opens must
+   * hold the same rows. Absent, a filter does not narrow.
+   *
+   * WHY every filter argument is typed `T | null`: the schema declares them
+   * nullable, and graphql-js hands an explicit `null` (e.g. a client sending
+   * `severities: list.length ? list : null`) to the resolver as null, not
+   * undefined. Here, at the trust boundary, an explicit null means what an
+   * absent argument means — no filter — so each is turned into the service's
+   * "absent" (undefined) once; the honest type makes the compiler demand it,
+   * and the service never sees a null. The dates name their scalar
+   * explicitly: a `Date | null` parameter reflects as Object.
    */
   @Query(() => [AlertHistory], { name: 'alertHistory' })
   async getAlertHistory(
     @Tenant() tenantId: string,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) rawLimit: number,
-    @Args('ruleId', { type: () => ID, nullable: true }) ruleId?: string,
-    @Args('severity', { type: () => AlertSeverity, nullable: true }) severity?: AlertSeverity,
-    @Args('acknowledged', { type: () => Boolean, nullable: true }) acknowledged?: boolean,
-    @Args('startDate', { nullable: true }) startDate?: Date,
-    @Args('endDate', { nullable: true }) endDate?: Date,
+    @Args('ruleId', { type: () => ID, nullable: true }) ruleId?: string | null,
+    @Args('severity', { type: () => AlertSeverity, nullable: true })
+    severity?: AlertSeverity | null,
+    @Args('severities', { type: () => [AlertSeverity], nullable: true })
+    severities?: AlertSeverity[] | null,
+    @Args('acknowledged', { type: () => Boolean, nullable: true }) acknowledged?: boolean | null,
+    @Args('resolved', { type: () => Boolean, nullable: true }) resolved?: boolean | null,
+    @Args('startDate', { type: () => Date, nullable: true }) startDate?: Date | null,
+    @Args('endDate', { type: () => Date, nullable: true }) endDate?: Date | null,
   ): Promise<AlertHistory[]> {
     const limit = Math.min(Math.max(1, rawLimit), 100);
     const result = await this.alertRuleService.getAlertHistory(
       tenantId,
-      { ruleId, severity, acknowledged, startDate, endDate },
+      {
+        ruleId: ruleId ?? undefined,
+        severity: severity ?? undefined,
+        severities: severities ?? undefined,
+        acknowledged: acknowledged ?? undefined,
+        resolved: resolved ?? undefined,
+        startDate: startDate ?? undefined,
+        endDate: endDate ?? undefined,
+      },
       { page, limit },
     );
     return result.items;
+  }
+
+  /**
+   * Unresolved alarms counted per severity and acknowledgement — exact, for
+   * the tenant console's annunciator (ActiveAlertCount). Readable by whoever
+   * may read alertHistory: the counts summarise the same rows.
+   */
+  @Query(() => [ActiveAlertCount], { name: 'activeAlertCounts' })
+  async getActiveAlertCounts(@Tenant() tenantId: string): Promise<ActiveAlertCount[]> {
+    return await this.alertRuleService.countActiveAlerts(tenantId);
   }
 
   /**

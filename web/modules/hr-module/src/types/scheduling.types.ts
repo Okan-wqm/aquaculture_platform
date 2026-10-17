@@ -1,14 +1,40 @@
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type {
+  DayEntry as WireDayEntry,
+  DaySummary as WireDaySummary,
+  EmployeeWeekSummary as WireEmployeeWeekSummary,
+  TeamWeeklyOverview as WireTeamWeeklyOverview,
+  WeekDay as WireWeekDay,
+  WeeklyPlanEntryType as WireWeeklyPlanEntryType,
+  WeeklyPlanStatus as WireWeeklyPlanStatus,
+} from '@platform/shared-ui/generated/graphql-types';
 
 /**
  * Scheduling Types for Workforce Planning
+ *
+ * WHY the enums and the teamWeeklyOverview shapes are derived from shared-ui's
+ * generated graphql-types (codegen over the composed supergraph) instead of
+ * hand-written: hr-service registers WeekDay, WeeklyPlanStatus and
+ * WeeklyPlanEntryType with registerEnumType, so the wire carries the enum NAME
+ * (MONDAY, PUBLISHED, WORK), not the entity's lower-case column value. The
+ * hand-written lower-case unions matched nothing on the wire — every
+ * day-of-week lookup and entry-type branch fell through — and declared the
+ * nullable fields as `?: string`, while graphql-js sends an absent value as
+ * `null` (teamWeeklyOverview's OFF filler days carry no shift or times). Deriving
+ * them lets tsc catch both drifts instead of the UI.
  */
 
-export type WeekDay = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+export type WeekDay = WireWeekDay;
 
-export type WeeklyPlanStatus = 'draft' | 'published';
+/**
+ * WeeklyPlan.status is the WeeklyPlanStatus enum (DRAFT | PUBLISHED | CLOSED).
+ * NOTE: EmployeeWeekSummary.planStatus is a plain String field that carries
+ * the column value ('draft' | 'published' | 'closed') — a different spelling of
+ * the same state (get-team-weekly-overview.handler.ts).
+ */
+export type WeeklyPlanStatus = WireWeeklyPlanStatus;
 
-export type WeeklyPlanEntryType = 'work' | 'off' | 'leave' | 'holiday' | 'training';
+export type WeeklyPlanEntryType = WireWeeklyPlanEntryType;
 
 export interface SchedulingSettings {
   tenantId: string;
@@ -78,44 +104,12 @@ export interface WeeklyPlanEntry {
 
 export type WeeklyPlanConnection = PaginationResultV1<WeeklyPlan>;
 
-export interface DayEntry {
-  dayOfWeek: WeekDay;
-  date: string;
-  entryType: WeeklyPlanEntryType;
-  shiftCode?: string;
-  shiftName?: string;
-  startTime?: string;
-  endTime?: string;
-  plannedMinutes: number;
-}
-
-export interface EmployeeWeekSummary {
-  employeeId: string;
-  employeeName: string;
-  position?: string;
-  weeklyPlanId?: string;
-  planStatus?: string;
-  days: DayEntry[];
-  totalWorkDays: number;
-  totalMinutes: number;
-  overtimeMinutes: number;
-}
-
-export interface DaySummary {
-  dayOfWeek: WeekDay;
-  date: string;
-  workingCount: number;
-  offCount: number;
-  leaveCount: number;
-}
-
-export interface TeamWeeklyOverview {
-  weekStartDate: string;
-  weekEndDate: string;
-  totalEmployees: number;
-  employeePlans: EmployeeWeekSummary[];
-  daysSummary: DaySummary[];
-}
+// teamWeeklyOverview — GET_TEAM_WEEKLY_OVERVIEW selects every field of these
+// types, so the generated shapes are exactly what the query returns.
+export type DayEntry = WireDayEntry;
+export type EmployeeWeekSummary = WireEmployeeWeekSummary;
+export type DaySummary = WireDaySummary;
+export type TeamWeeklyOverview = WireTeamWeeklyOverview;
 
 export interface EmployeeOvertimeSummary {
   employeeId: string;

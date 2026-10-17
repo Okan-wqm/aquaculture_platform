@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, normalizeSeverity, severityClasses } from '@aquaculture/shared-ui';
 import {
   Settings,
   Tag,
@@ -243,15 +243,10 @@ const HmiWidgetPanel: React.FC = () => {
                         severity: e.target.value as (typeof SEVERITIES)[number],
                       })
                     }
-                    className={`text-xs font-medium rounded px-2 py-1 border-0 ${
-                      rule.severity === 'critical'
-                        ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
-                        : rule.severity === 'high'
-                          ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
-                          : rule.severity === 'warning'
-                            ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
-                            : 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                    }`}
+                    className={`text-xs font-medium rounded px-2 py-1 border ${severityClasses(
+                      normalizeSeverity(rule.severity),
+                      'soft',
+                    )}`}
                   >
                     {SEVERITIES.map((s) => (
                       <option key={s} value={s}>

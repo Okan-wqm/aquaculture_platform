@@ -45,6 +45,29 @@ package-lock.json               @Okan-wqm
 .claude/gates/                   @Okan-wqm
 tools/gates/                     @Okan-wqm
 
+# ── CI gate exceptions and lint policy ────────────────────────────────
+# A quarantine entry turns a required lint or test gate into a warning,
+# and the lint lane also carries the security rules (getRepository,
+# JWT_SECRET, the aquaculture tenant rules). Who may add, renew or widen
+# an entry, the measurement a lint renewal is bound to, and the lint
+# policy that decides what counts as security-class are authority
+# questions (HL safety review 2026-10-16, HL-lint-quarantine). These lines
+# put the files in ARIA's human-merge lane (risk policy L3). GitHub requires
+# no code-owner review on main (required_pull_request_reviews is null), so
+# they bind ARIA's lanes, not every session with merge rights; server-side
+# review is the operator's open decision (HL safety review X1 / PRE-1).
+scripts/ci/affected-target-policy.json       @Okan-wqm
+scripts/ci/write-affected-target-report.mjs  @Okan-wqm
+scripts/ci/lib/affected-target-policy.mjs    @Okan-wqm
+scripts/ci/lib/reviewed-exception.mjs        @Okan-wqm
+scripts/ci/lint-debt-measurement.json        @Okan-wqm
+scripts/ci/lint-debt-measure.mjs             @Okan-wqm
+scripts/ci/lib/lint-debt.mjs                 @Okan-wqm
+scripts/ci/lint-all-exclusions.json          @Okan-wqm
+scripts/ci/lint-all.mjs                      @Okan-wqm
+eslint.config.mjs                            @Okan-wqm
+eslint.project-overrides.mjs                 @Okan-wqm
+
 # ── CI/CD workflows ───────────────────────────────────────────────────
 # Workflow tampering bypasses every gate. Required to land with signed commits.
 .github/workflows/               @Okan-wqm

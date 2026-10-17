@@ -1,9 +1,10 @@
 /**
- * Navigation behaviour shared by the two side navigations — `Sidebar` (the
- * SUPER_ADMIN column and standalone layouts) and `SuderraSidebar` (the tenant
- * console rail). They differ in presentation only; who may see an item, when
- * an item is the current page, and how the phone overlay opens and closes are
- * decided here once, so the two cannot drift apart (FE-HIGH-313).
+ * Navigation behaviour shared by the side navigations — `Sidebar` (the
+ * SUPER_ADMIN column and standalone layouts) and `IndustrialRail` (the tenant
+ * console rail, which takes the phone overlay from here). Who may see an
+ * item, when an item is the current page, and how the phone overlay opens and
+ * closes are decided here once, so the navigations cannot drift apart
+ * (FE-HIGH-313).
  */
 import { useCallback, useEffect, type RefObject } from 'react';
 
@@ -41,17 +42,37 @@ export interface NavOverlayOptions {
   containerRef: RefObject<HTMLElement | null>;
 }
 
+/**
+ * The role of the navigation's outer element. In the column it is the
+ * navigation landmark; as the phone overlay — which traps Tab, locks the
+ * page's scroll and covers it with a scrim — it is a modal dialog, so a
+ * screen reader is told a modal opened and keeps its reading cursor inside
+ * instead of walking into the page behind the scrim. The element is a <div>:
+ * neither <nav> nor <aside> may take the dialog role, and one element keeps
+ * the id the opener's `aria-controls` names. The caller adds its aria-label,
+ * which names both.
+ */
+export type NavLandmarkProps =
+  | { readonly role: 'navigation' }
+  | { readonly role: 'dialog'; readonly 'aria-modal': true };
+
+const COLUMN_LANDMARK: NavLandmarkProps = { role: 'navigation' };
+const OVERLAY_LANDMARK: NavLandmarkProps = { role: 'dialog', 'aria-modal': true };
+
 export interface NavOverlay {
   closeOverlay: () => void;
   /** Navigate, then close the overlay if it is open; the in-flow column stays put. */
   handleNavigate: (path: string) => void;
+  /** Spread on the navigation's outer element (see NavLandmarkProps). */
+  landmarkProps: NavLandmarkProps;
 }
 
 /**
  * The phone overlay: Escape, focus into the panel and back to the opener, and
  * the body scroll lock come from the hook Modal and Drawer share; the overlay
  * closes itself when the viewport grows past `md` (the in-flow column is on
- * screen again) and when a destination is chosen.
+ * screen again) and when a destination is chosen, and it is exposed as the
+ * modal it is (`landmarkProps`).
  */
 export function useNavOverlay({
   mobileOpen,
@@ -87,5 +108,9 @@ export function useNavOverlay({
     [onNavigate, mobileOpen, closeOverlay],
   );
 
-  return { closeOverlay, handleNavigate };
+  return {
+    closeOverlay,
+    handleNavigate,
+    landmarkProps: mobileOpen ? OVERLAY_LANDMARK : COLUMN_LANDMARK,
+  };
 }

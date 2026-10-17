@@ -40,16 +40,19 @@ import {
 
 const TypeIcon: React.FC<{ type: string }> = ({ type }) => {
   const normalized = type.toLowerCase().replace(/-/g, '_');
+  // One neutral colour for every type: the glyph names the measurement, and in the
+  // console only red and amber signal (Industry README §7.8), so a type painted in
+  // either would read as an alarm.
   const icons: Record<string, React.ReactNode> = {
-    temperature: <Thermometer className="w-5 h-5 text-accent-500" />,
-    dissolved_oxygen: <Droplets className="w-5 h-5 text-info-500" />,
-    ph: <Gauge className="w-5 h-5 text-accent-500" />,
-    salinity: <Activity className="w-5 h-5 text-info-500" />,
-    ammonia: <Activity className="w-5 h-5 text-warning-500" />,
-    nitrite: <Activity className="w-5 h-5 text-error-500" />,
-    nitrate: <Activity className="w-5 h-5 text-success-500" />,
-    turbidity: <Activity className="w-5 h-5 text-warning-500" />,
-    water_level: <Activity className="w-5 h-5 text-primary-500" />,
+    temperature: <Thermometer className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
+    dissolved_oxygen: <Droplets className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
+    ph: <Gauge className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
+    salinity: <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
+    ammonia: <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
+    nitrite: <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
+    nitrate: <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
+    turbidity: <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
+    water_level: <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />,
   };
 
   return (
@@ -238,7 +241,7 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Header */}
       <div className="p-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
         <TypeIcon type={type} />
@@ -344,7 +347,7 @@ const ThresholdsPage: React.FC = () => {
 
       {/* Empty State */}
       {sensorTypes.length === 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
             Henüz Sensör Yok
@@ -368,7 +371,7 @@ const ThresholdsPage: React.FC = () => {
 
       {/* Success Toast (optional) */}
       {updating && (
-        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) px-4 py-3 flex items-center gap-3">
           <Spinner size="md" />
           <span className="text-sm text-gray-700 dark:text-gray-300">Kaydediliyor...</span>
         </div>

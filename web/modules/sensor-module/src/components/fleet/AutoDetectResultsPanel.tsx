@@ -70,7 +70,7 @@ interface AutoDetectResultsPanelProps {
 const platformConfig: Record<string, { label: string; color: string }> = {
   RevolutionPi: {
     label: 'Revolution Pi',
-    color: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   },
   RaspberryPi: {
     label: 'Raspberry Pi',
@@ -90,7 +90,7 @@ const PlatformBadge: React.FC<{ platform: string }> = ({ platform }) => {
   const config = platformConfig[platform] ?? platformConfig.Unknown;
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.color}`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${config.color}`}
     >
       <Cpu className="w-3 h-3" />
       {config.label}
@@ -104,9 +104,9 @@ const PlatformBadge: React.FC<{ platform: string }> = ({ platform }) => {
 
 const ioTypeBadgeColors: Record<string, string> = {
   DI: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
-  DO: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  DO: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   AI: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  AO: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  AO: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
 };
 
 const IoTypeBadge: React.FC<{ ioType: string }> = ({ ioType }) => (
@@ -124,7 +124,7 @@ const IoTypeBadge: React.FC<{ ioType: string }> = ({ ioType }) => (
 const sourceBadgeConfig: Record<string, { label: string; color: string }> = {
   picontrol: {
     label: 'piControl',
-    color: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   },
   gpiochip: {
     label: 'GPIO',
@@ -140,11 +140,11 @@ const sourceBadgeConfig: Record<string, { label: string; color: string }> = {
   },
   spi: {
     label: 'SPI',
-    color: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   },
   uart: {
     label: 'UART',
-    color: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   },
 };
 
@@ -376,7 +376,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
   ];
 
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-sm">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-3">

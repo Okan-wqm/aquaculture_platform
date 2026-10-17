@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
-import { useClickOutside, Button } from '@aquaculture/shared-ui';
+import { useClickOutside, Button, severityClasses } from '@aquaculture/shared-ui';
 import { useShallow } from 'zustand/react/shallow';
 import { Menu, Bell, Clock, User, ChevronDown, AlertTriangle, Shield } from 'lucide-react';
 
@@ -26,6 +26,8 @@ import type {
   AlarmSeverity,
   HmiRole,
 } from '../../types/scada-runtime.types';
+
+import { alarmGlyphClass } from './alarmGlyph';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -42,15 +44,8 @@ export interface OperatorHeaderProps {
 /*  Static lookup tables                                                */
 /* ------------------------------------------------------------------ */
 
-const SEVERITY_BADGE: Record<AlarmSeverity, string> = {
-  critical: 'bg-error-600 text-white',
-  high: 'bg-accent-500 text-white',
-  warning: 'bg-warning-500 text-black',
-  info: 'bg-info-500 text-white',
-};
-
 const ROLE_BADGE: Record<HmiRole, string> = {
-  admin: 'bg-accent-700 text-accent-100',
+  admin: 'bg-primary-700 text-primary-100',
   supervisor: 'bg-info-700 text-info-100',
   engineer: 'bg-info-700 text-info-100',
   operator: 'bg-success-700 text-success-100',
@@ -227,9 +222,9 @@ const AlarmBadge = memo(() => {
       {badge ? (
         <AlertTriangle
           size={16}
-          className={
-            badge.severity === 'critical' ? 'text-error-400 animate-pulse' : 'text-warning-400'
-          }
+          className={`${alarmGlyphClass(badge.severity)} ${
+            badge.severity === 'critical' ? 'motion-safe:animate-pulse' : ''
+          }`}
           aria-hidden="true"
         />
       ) : (
@@ -239,9 +234,9 @@ const AlarmBadge = memo(() => {
         <span
           className={`
             absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5
-            flex items-center justify-center rounded-full
+            flex items-center justify-center rounded
             text-[10px] font-bold leading-none pointer-events-none
-            ${SEVERITY_BADGE[badge.severity]}
+            ${severityClasses(badge.severity, 'solid')}
           `}
           aria-hidden="true"
         >
@@ -297,7 +292,7 @@ const UserRoleMenu = memo(() => {
 
       {open && (
         <ul
-          className="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl z-50 overflow-hidden py-1"
+          className="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-(--shadow-sd-lg) z-50 overflow-hidden py-1"
           role="listbox"
           aria-label="Switch HMI role"
         >
@@ -362,6 +357,9 @@ export const OperatorHeader = memo<OperatorHeaderProps>(({ config, projectName }
   const showAlarmBadge = config.showAlarmBadge ?? true;
   const showDateTime = config.showDateTime ?? true;
 
+  // No `banner` role: the operator view mounts inside the console shell's
+  // main landmark, under the console header — the page's one banner. A
+  // header element inside main is the view's own heading strip, not a landmark.
   return (
     <header
       className="
@@ -369,8 +367,6 @@ export const OperatorHeader = memo<OperatorHeaderProps>(({ config, projectName }
           bg-gray-900 border-b border-gray-700
           select-none shrink-0 z-30
         "
-      role="banner"
-      aria-label="Operator shell header"
     >
       {/* ── Hamburger ── */}
       {showHamburger && (

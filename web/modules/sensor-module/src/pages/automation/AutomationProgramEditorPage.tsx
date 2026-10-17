@@ -217,7 +217,7 @@ const TabButton: React.FC<{
       {icon}
       <span>{label}</span>
       {count !== undefined && (
-        <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-800">
+        <span className="ml-1 px-2 py-0.5 text-xs rounded bg-gray-100 dark:bg-gray-800">
           {count}
         </span>
       )}
@@ -269,12 +269,9 @@ const StepCard: React.FC<{
 // I/O Tag Analysis Panel
 // ============================================================================
 
-/** Direction badge color */
-const directionBadge: Record<string, string> = {
-  input: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-  output: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-  inout: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-};
+/** Direction badge — one neutral tag: in the tenant console only red and amber signal
+ *  (Industry README §7.8), so a direction is told apart by its label, not a hue. */
+const DIRECTION_BADGE_CLASS = 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
 
 const directionLabel: Record<string, string> = {
   input: 'INPUT',
@@ -337,9 +334,7 @@ const IoTagAnalysisPanel: React.FC<{
       key: 'direction',
       header: 'Direction',
       render: (_value, b) => (
-        <span
-          className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
-        >
+        <span className={`text-xs px-1.5 py-0.5 rounded ${DIRECTION_BADGE_CLASS}`}>
           {directionLabel[b.direction] || b.direction}
         </span>
       ),
@@ -391,11 +386,11 @@ const IoTagAnalysisPanel: React.FC<{
             <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
               {inputCount} Input
             </span>
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300">
               {outputCount} Output
             </span>
             {inoutCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300">
                 {inoutCount} In/Out
               </span>
             )}
@@ -1793,11 +1788,11 @@ const AutomationProgramEditorPage: React.FC = () => {
               <span className="px-1.5 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
                 {tagAnalysis.inputCount} Input
               </span>
-              <span className="px-1.5 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+              <span className="px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300">
                 {tagAnalysis.outputCount} Output
               </span>
               {tagAnalysis.inoutCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+                <span className="px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300">
                   {tagAnalysis.inoutCount} In/Out
                 </span>
               )}

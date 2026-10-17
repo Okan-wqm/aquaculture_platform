@@ -25,6 +25,7 @@ import { OperatorHeader } from './OperatorHeader';
 import { OperatorSidenav } from './OperatorSidenav';
 import { ViewOverlayManager } from './ViewOverlayManager';
 import { AlarmAnnouncer } from './AlarmAnnouncer';
+import { alarmGlyphClass } from './alarmGlyph';
 import { severityClasses, normalizeSeverity, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
@@ -62,7 +63,7 @@ function AlarmBadgeCount({ count, severity }: { count: number; severity: string 
   const colorClass = severityClasses(normalizeSeverity(severity), 'solid');
   return (
     <span
-      className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1 ${colorClass}`}
+      className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded text-[10px] font-bold px-1 ${colorClass}`}
       aria-label={`${count} ${severity} alarm${count !== 1 ? 's' : ''}`}
     >
       {count > 99 ? '99+' : count}
@@ -94,7 +95,7 @@ const AlarmPanel = React.memo(() => {
 
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col max-h-[40vh]"
+      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-(--shadow-sd-lg) z-40 flex flex-col max-h-[40vh]"
       role="region"
       aria-label="Alarm panel"
     >
@@ -137,15 +138,7 @@ const AlarmPanel = React.memo(() => {
               >
                 <AlertTriangle
                   size={14}
-                  className={
-                    alarm.severity === 'critical'
-                      ? 'text-error-500'
-                      : alarm.severity === 'high'
-                        ? 'text-accent-400'
-                        : alarm.severity === 'warning'
-                          ? 'text-warning-400'
-                          : 'text-info-400'
-                  }
+                  className={alarmGlyphClass(normalizeSeverity(alarm.severity))}
                   aria-hidden="true"
                 />
                 <div className="flex-1 min-w-0">
@@ -293,7 +286,7 @@ export const OperatorShell = React.memo<OperatorShellProps>(
             {showSidenav && sidenavIsOverlay && sidenavOpen && (
               <>
                 <div
-                  className="absolute inset-0 bg-black/50 z-20"
+                  className="absolute inset-0 bg-sd-scrim/45 z-20"
                   onClick={toggleSidenav}
                   aria-hidden="true"
                 />
@@ -306,10 +299,9 @@ export const OperatorShell = React.memo<OperatorShellProps>(
               </>
             )}
 
-            {/* Main content area */}
-            <main className="flex-1 relative min-w-0 overflow-hidden" aria-label="Screen content">
-              {children}
-            </main>
+            {/* Main content area — a div, not a main landmark: the operator view
+                mounts inside the console shell's main, the page's only one. */}
+            <div className="flex-1 relative min-w-0 overflow-hidden">{children}</div>
           </div>
 
           {/* ── Alarm panel (bottom slide-up) ── */}

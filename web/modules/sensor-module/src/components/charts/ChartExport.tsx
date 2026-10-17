@@ -266,7 +266,7 @@ export const ChartExport: React.FC<ChartExportProps> = ({
 
   return (
     <div
-      className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[160px] z-50"
+      className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-(--shadow-sd-lg) py-1 min-w-[160px] z-50"
       role="menu"
       aria-label="Export options"
     >

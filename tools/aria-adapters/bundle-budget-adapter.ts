@@ -93,14 +93,14 @@ export function analyzeBundleBudgets(
   const moduleRoots: string[] = [];
   for (const root of roots) {
     const absolute = resolveInsideWorkspace(workspaceRoot, root);
-    if (!workspacePathExists(absolute)) {
+    if (!workspacePathExists(workspaceRoot, absolute)) {
       continue;
     }
-    if (workspacePathExists(join(absolute, 'package.json'))) {
+    if (workspacePathExists(workspaceRoot, join(absolute, 'package.json'))) {
       moduleRoots.push(absolute);
       continue;
     }
-    for (const config of collectFiles(absolute, { extensions: ['package.json'] })) {
+    for (const config of collectFiles(workspaceRoot, absolute, { extensions: ['package.json'] })) {
       // Only direct children of a container root are modules; deeper
       // package.json files are workspaces-of-workspaces noise.
       if (dirname(dirname(config)) === absolute) {
@@ -113,10 +113,10 @@ export function analyzeBundleBudgets(
     const rel = normalizeWorkspacePath(relative(workspaceRoot, moduleRoot));
     const viteConfig = ['vite.config.ts', 'vite.config.mts', 'vite.config.js']
       .map((name) => join(moduleRoot, name))
-      .find((path) => workspacePathExists(path));
+      .find((path) => workspacePathExists(workspaceRoot, path));
     // A `chunkSizeWarningLimit` is deliberately NOT a budget here: it only
     // moves the build-time warning, and the build still succeeds past it.
-    const hasBudget = workspacePathExists(join(moduleRoot, 'bundle-budget.json'));
+    const hasBudget = workspacePathExists(workspaceRoot, join(moduleRoot, 'bundle-budget.json'));
     if (viteConfig !== undefined) {
       readPaths.push(normalizeWorkspacePath(relative(workspaceRoot, viteConfig)));
     }
@@ -143,8 +143,8 @@ export function analyzeBundleBudgets(
     }
 
     const sources = filterFilesBySnapshot(
-      collectFiles(join(moduleRoot, 'src'), { extensions: ['.ts', '.tsx'] }).filter((path) =>
-        workspacePathExists(path),
+      collectFiles(workspaceRoot, join(moduleRoot, 'src'), { extensions: ['.ts', '.tsx'] }).filter(
+        (path) => workspacePathExists(workspaceRoot, path),
       ),
       workspaceRoot,
       input,
@@ -152,7 +152,7 @@ export function analyzeBundleBudgets(
     for (const source of sources) {
       const sourceRel = normalizeWorkspacePath(relative(workspaceRoot, source));
       readPaths.push(sourceRel);
-      const lines = readWorkspaceFile(source).split('\n');
+      const lines = readWorkspaceFile(workspaceRoot, source).split('\n');
       for (let index = 0; index < lines.length; index += 1) {
         const match = STATIC_IMPORT_RE.exec(lines[index]);
         if (!match) {

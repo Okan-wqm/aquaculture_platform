@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .adapter_room import prepare_adapter_spawn, run_adapter
+from .adapter_room import adapter_stderr_sample, prepare_adapter_spawn, run_adapter
 from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
 from .genesis_adapter_custody import verify_genesis_dispatch
@@ -28,7 +28,6 @@ from .ledger_inline import (
 from .runtime_profile import enforce_profile_for_write
 from .canonical_path import lexical_repo_path
 from .snapshot import build_repo_snapshot, ignored_dirty_path, snapshot_allowed_set
-from .artifact_safety import scrub_text
 from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
 from .tool_registry import GovernanceError, ensure_tools_binding, get_tool, missing_repo_local_dependencies
 
@@ -283,7 +282,7 @@ def run_tool(
             "exit_code": exit_code,
             "timed_out": timed_out,
             "stderr_hash": _sha256(stderr.encode("utf-8")),
-            "stderr_sample": scrub_text(stderr[:4096]),
+            "stderr_sample": adapter_stderr_sample(stderr, store_root=tools_root),
             "raw_observations_count": len(_array_or_empty(raw_observations)),
             "raw_findings_count": len(_array_or_empty(raw_findings)),
             "raw_findings_sample": _raw_finding_sample(_array_or_empty(raw_findings)),

@@ -23,12 +23,14 @@
         "{workspaceRoot}/jest.preset.js",
         "{workspaceRoot}/**/*.rs",
         "{workspaceRoot}/**/Cargo.toml",
-        "{workspaceRoot}/**/UPSTREAM-MANIFEST.sha256"
+        "{workspaceRoot}/**/UPSTREAM-MANIFEST.sha256",
+        "{workspaceRoot}/tools/gates/**/*.ts"
       ],
       "options": {
         "cwd": ".",
         "parallel": false,
         "commands": [
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/adapter-fs.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/bundle-budget-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/doc-staleness-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/event-contracts-adapter.test.ts",
@@ -37,9 +39,12 @@
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/lint-rules-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/rust-source.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/security-boundary-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/shell-script.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/sql-migration-safety-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/tenant-scoping-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/test-gap-adapter.test.ts",
-          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/typeorm-entity-schema-adapter.test.ts"
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/typeorm-entity-schema-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/workflow-shell-safety-adapter.test.ts"
         ]
       }
     }

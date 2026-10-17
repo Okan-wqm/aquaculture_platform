@@ -1,0 +1,23 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["apps"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": [
+      "migration_safety_summary",
+      "migration_safety_file",
+      "migration_change_set"
+    ],
+    "required_observation_values": [
+      {
+        "type": "migration_safety_summary",
+        "details.parse_failures": 0,
+        "details.authorities_complete": true
+      }
+    ],
+    "max_findings": 25
+  }
+}

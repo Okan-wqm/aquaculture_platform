@@ -360,8 +360,8 @@ export function analyzeDocStaleness(
   const docs = filterFilesBySnapshot(
     roots
       .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-      .filter((root) => workspacePathExists(root))
-      .flatMap((root) => collectFiles(root, { extensions: ['.md'] })),
+      .filter((root) => workspacePathExists(workspaceRoot, root))
+      .flatMap((root) => collectFiles(workspaceRoot, root, { extensions: ['.md'] })),
     workspaceRoot,
     input,
   );
@@ -375,11 +375,11 @@ export function analyzeDocStaleness(
     change_target: 0,
   };
   const pathExists = (ref: string): boolean =>
-    workspacePathExists(resolveInsideWorkspace(workspaceRoot, ref));
+    workspacePathExists(workspaceRoot, resolveInsideWorkspace(workspaceRoot, ref));
   for (const doc of docs) {
     const docRel = normalizeWorkspacePath(relative(workspaceRoot, doc));
     readPaths.push(docRel);
-    const lines = readWorkspaceFile(doc).split('\n');
+    const lines = readWorkspaceFile(workspaceRoot, doc).split('\n');
     if (isPointInTimeRecord(docRel, lines)) {
       recordDocs += 1;
       continue;

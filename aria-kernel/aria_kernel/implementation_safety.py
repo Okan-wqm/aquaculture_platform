@@ -2929,16 +2929,19 @@ def _check_no_force_push(context: HardFailContext) -> HardFailResult:
     return _passed(name)
 
 
-def _check_no_no_verify(context: HardFailContext) -> HardFailResult:
-    name = "no_no_verify"
-    if not context.bash_argv:
-        return _passed(name, "no_bash_command_in_action")
-    argv = [str(token) for token in context.bash_argv]
-    is_commit = argv[:2] == ["git", "commit"]
-    for index, token in enumerate(argv):
+def _argv_bypasses_hooks(argv: Sequence[str]) -> str | None:
+    """The refusal detail when ``argv`` skips git's hooks or signing, else ``None``.
+
+    The hook-bypass half of the governance perimeter, as a pure function of
+    the argv so every reader asks the same question (see
+    :func:`governance_bypass_refusal`).
+    """
+    tokens = [str(token) for token in argv]
+    is_commit = tokens[:2] == ["git", "commit"]
+    for index, token in enumerate(tokens):
         lowered = token.lower()
         if lowered in _HOOK_BYPASS_FLAGS:
-            return _failed(name, f"hook_bypass_flag:{token}")
+            return f"hook_bypass_flag:{token}"
         # `git commit -n` is --no-verify; so is any bundled short form
         # such as `-an`. Only meaningful for commit.
         if (
@@ -2947,15 +2950,47 @@ def _check_no_no_verify(context: HardFailContext) -> HardFailResult:
             and not lowered.startswith("--")
             and "n" in lowered[1:]
         ):
-            return _failed(name, f"hook_bypass_flag:{token}")
+            return f"hook_bypass_flag:{token}"
         if _HOOKS_PATH_KEY in lowered:
-            return _failed(name, f"hooks_path_override:{token}")
+            return f"hooks_path_override:{token}"
         # `-c core.hooksPath=...` splits across two argv entries when the
         # caller passes the key separately.
-        if lowered in {"-c", "--config"} and index + 1 < len(argv):
-            if _HOOKS_PATH_KEY in argv[index + 1].lower():
-                return _failed(name, f"hooks_path_override:{argv[index + 1]}")
-    return _passed(name)
+        if lowered in {"-c", "--config"} and index + 1 < len(tokens):
+            if _HOOKS_PATH_KEY in tokens[index + 1].lower():
+                return f"hooks_path_override:{tokens[index + 1]}"
+    return None
+
+
+def governance_bypass_refusal(argv: Sequence[str]) -> tuple[str, str] | None:
+    """``(check, detail)`` when ``argv`` is a governance bypass, else ``None``.
+
+    ARIA-HIGH-013 — the ONE definition of "this command forces a push or
+    skips git's hooks or signing" (CLAUDE.md: force push, ``--no-verify`` and
+    ``--no-gpg-sign`` are forbidden). The pre-PR-open perimeter's
+    ``no_force_push`` and ``no_no_verify`` checks refuse an action's argv
+    with it, and the workflow/shell safety adapter
+    (``tools/aria-adapters/workflow-shell-safety-adapter.ts``) asks it about
+    every git command in the repository's workflows and scripts, so the
+    perimeter and the observation cannot disagree about what a bypass is.
+    ``check`` names the perimeter check that refuses it; ``detail`` is that
+    check's refusal reason.
+    """
+    tokens = [str(token) for token in argv]
+    forced = _argv_forces_a_push(tokens)
+    if forced is not None:
+        return "no_force_push", f"force_flag_in_bash_argv:{forced}"
+    bypass = _argv_bypasses_hooks(tokens)
+    if bypass is not None:
+        return "no_no_verify", bypass
+    return None
+
+
+def _check_no_no_verify(context: HardFailContext) -> HardFailResult:
+    name = "no_no_verify"
+    if not context.bash_argv:
+        return _passed(name, "no_bash_command_in_action")
+    detail = _argv_bypasses_hooks(context.bash_argv)
+    return _failed(name, detail) if detail is not None else _passed(name)
 
 
 def _check_kernel_self_modification_at_mint(
@@ -3519,6 +3554,9 @@ __all__ = (
     # envelope derives its allowed_scope from, and the single-surface rule it
     # shares with the pre-PR-open perimeter check.
     "classify_declared_surface",
+    # ARIA-HIGH-013 — the force-push / hook-bypass definition the perimeter
+    # and the workflow/shell safety adapter share.
+    "governance_bypass_refusal",
     "implementation_allowed_scope",
     "is_gh_api_path_forbidden",
     "SandboxUnavailable",

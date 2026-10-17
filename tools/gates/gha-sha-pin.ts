@@ -68,11 +68,33 @@ function collectYamlFiles(): string[] {
   return out.sort();
 }
 
+/**
+ * The files this gate governs, by repository-relative path: every workflow
+ * (`.github/workflows/<name>.yml|yaml`) and every composite action the repo
+ * owns (`.github/actions/<name>/action.yml|yaml`) — the set `collectYamlFiles`
+ * walks. ARIA's workflow/shell safety adapter (ARIA-HIGH-013) asks this
+ * predicate rather than keeping its own copy of the scope.
+ */
+export function isActionPinScopedPath(path: string): boolean {
+  return (
+    /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path) ||
+    /^\.github\/actions\/[^/]+\/action\.ya?ml$/.test(path)
+  );
+}
+
 function checkFile(path: string): PinViolation[] {
-  const raw = readFileSync(path, 'utf8');
+  return inspectUsesText(path.replace(REPO_ROOT + '/', ''), readFileSync(path, 'utf8'));
+}
+
+/**
+ * The gate's rule over one file's text: every `uses:` reference that is not
+ * a local action and not pinned to a 40-hex commit SHA. Pure, so the gate's
+ * walk and ARIA's workflow/shell safety adapter (ARIA-HIGH-013) read the same
+ * verdict for the same text.
+ */
+export function inspectUsesText(rel: string, raw: string): PinViolation[] {
   const lines = raw.split('\n');
   const violations: PinViolation[] = [];
-  const rel = path.replace(REPO_ROOT + '/', '');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     // Skip comments + empty.
@@ -113,9 +135,7 @@ export function runCheck(): PinViolation[] {
 export function main(argv: readonly string[]): number {
   const jsonMode = argv.includes('--json');
   if (!existsSync(WORKFLOWS_DIR)) {
-    process.stderr.write(
-      `[gha-sha-pin] workflows dir missing: ${WORKFLOWS_DIR}\n`,
-    );
+    process.stderr.write(`[gha-sha-pin] workflows dir missing: ${WORKFLOWS_DIR}\n`);
     return 2;
   }
   const violations = runCheck();
@@ -131,9 +151,7 @@ export function main(argv: readonly string[]): number {
       ) + '\n',
     );
   } else {
-    process.stdout.write(
-      `gha-sha-pin: ${violations.length} violation(s)\n`,
-    );
+    process.stdout.write(`gha-sha-pin: ${violations.length} violation(s)\n`);
     if (violations.length > 0) {
       process.stdout.write('\n── NON-SHA uses: ──\n');
       for (const v of violations) {

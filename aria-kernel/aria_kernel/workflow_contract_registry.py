@@ -42,6 +42,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
+from typing import Any, Mapping
 
 from .ledger import sha256_of_canonical_json
 
@@ -975,6 +976,26 @@ def workflow_job_contract(workflow_id: str, job_id: str) -> WorkflowJobContract 
     return None
 
 
+def workflow_job_contract_for_file(workflow_file: str, job_id: str) -> WorkflowJobContract | None:
+    """The job contract governing ``job_id`` of the workflow at the
+    repository-relative ``workflow_file``, or None when the registry governs
+    no such job. The workflow/shell safety adapter (ARIA-HIGH-013) reads a
+    workflow by its path, not its registry id."""
+    for contract in WORKFLOW_CONTRACTS.values():
+        if contract.workflow_file == workflow_file:
+            return workflow_job_contract(contract.workflow_id, job_id)
+    return None
+
+
+def uncontracted_write_scopes(actual: Mapping[str, Any], required: Mapping[str, str]) -> tuple[str, ...]:
+    """The token scopes ``actual`` grants ``write`` that the job contract's
+    ``required`` permissions do not: the least-privilege half of a governed
+    job's contract (ADR-036). ONE definition, read by the contract verifier
+    (``workflow_contracts._verify_permissions``) and by the workflow/shell
+    safety adapter (ARIA-HIGH-013, ``overbroad_write_token``)."""
+    return tuple(key for key, value in actual.items() if value == "write" and required.get(key) != "write")
+
+
 def workflow_hash(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -1037,6 +1058,8 @@ __all__ = [
     "workflow_contract_hash",
     "workflow_contract_registry",
     "workflow_hash",
+    "uncontracted_write_scopes",
     "workflow_job_contract",
+    "workflow_job_contract_for_file",
     "workflow_job_contract_hash",
 ]

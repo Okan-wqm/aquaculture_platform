@@ -37,6 +37,7 @@ interface OxygenRow {
   unitId: string;
   dissolvedOxygen: string | null;
   observedAt: Date | null;
+  siteId?: string | null;
 }
 
 function entry(overrides: Partial<MealWindowEntry> = {}): MealWindowEntry {
@@ -58,7 +59,7 @@ function entry(overrides: Partial<MealWindowEntry> = {}): MealWindowEntry {
 
 function makeService(rows: OxygenRow[]): FeedingWindowReadinessService {
   runInTenantRead.mockReset();
-  runInTenantRead.mockResolvedValue(rows);
+  runInTenantRead.mockResolvedValue(rows.map((row) => ({ siteId: null, ...row })));
   // The service only uses the DataSource by handing it to runInTenantRead,
   // which is mocked — a bare object is a faithful double, not a cast-around.
   return new FeedingWindowReadinessService(
@@ -79,6 +80,21 @@ describe('FeedingWindowReadinessService', () => {
     expect(verdict?.observedDissolvedOxygen).toBe(4.2);
     expect(verdict?.observedAt).toBe(observedAt.toISOString());
     expect(verdict?.entry.unitCode).toBe('TANK-A');
+  });
+
+  it('carries the DO sensor’s site on the verdict, for the alarm’s site (ALERT-MEDIUM-010)', async () => {
+    const SITE = '44444444-4444-4444-8444-444444444444';
+    const service = makeService([
+      { unitId: UNIT_A, dissolvedOxygen: '4.2', observedAt: new Date(), siteId: SITE },
+      { unitId: UNIT_B, dissolvedOxygen: null, observedAt: null, siteId: 'not-a-site' },
+    ]);
+
+    const verdicts = await service.evaluate(TENANT, [
+      entry(),
+      entry({ unitId: UNIT_B, unitCode: 'TANK-B' }),
+    ]);
+
+    expect(verdicts.map((verdict) => verdict.siteId)).toEqual([SITE, undefined]);
   });
 
   it('stays silent when the reading is at or above the floor', async () => {

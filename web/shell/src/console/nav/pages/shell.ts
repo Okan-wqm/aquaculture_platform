@@ -9,7 +9,21 @@ import type { NavPageDef } from '../types';
 import { pathTabs } from './tabs';
 
 export const SHELL_PAGES = {
+  // Each module workspace opens on a dashboard of its own (the dashboard
+  // remote's pages): Production's site status at /dashboard, Control &
+  // sensors' at /dashboard/control, Greenhouse's at /dashboard/greenhouse.
+  // One label — the palette and the title name the workspace beside it.
   dashboard: { id: 'dashboard', labelKey: 'nav.dashboard', path: '/dashboard' },
+  controlDashboard: {
+    id: 'dashboard-control',
+    labelKey: 'nav.dashboard',
+    path: '/dashboard/control',
+  },
+  greenhouseDashboard: {
+    id: 'dashboard-greenhouse',
+    labelKey: 'nav.dashboard',
+    path: '/dashboard/greenhouse',
+  },
   // Cross-module trends (harvest, sensor, farm distribution). Replaces the
   // module users' dead `/analytics` link, which no route served.
   dashboardAnalytics: {

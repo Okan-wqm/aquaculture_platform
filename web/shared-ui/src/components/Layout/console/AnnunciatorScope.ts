@@ -20,6 +20,15 @@ import type { AlertSeverity } from '../../../generated/graphql-types';
 
 import { ALARM_PRIORITIES, severitiesOf, type AnnunciatorFilter } from './AnnunciatorPriority';
 
+/**
+ * The tenant-scoped query-key segments of the console's alarm counts (the
+ * shell's useActiveAlertCounts, which the annunciator and the workspace menu
+ * read). Declared here, below the shell and every remote, so a surface that
+ * changes an alarm (a dashboard's acknowledge) refreshes the same counts the
+ * tiles show instead of leaving them a poll behind.
+ */
+export const ACTIVE_ALERT_COUNTS_KEY = ['console', 'activeAlertCounts'] as const;
+
 /** An alarm as a tile reads it. */
 export interface AnnunciatorAlarm {
   readonly severity: AlertSeverity;

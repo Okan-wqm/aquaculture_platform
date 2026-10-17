@@ -6,12 +6,14 @@
  */
 import type {
   FeedTypeTransitionedEvent,
+  FeedingWindowReadinessEvent,
   MealMissedEvent,
   MealUnderfedEvent,
   UnfedUnitDetectedEvent,
 } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
 import { FeedingExecutionAlertService } from '../feeding-execution-alert.service';
 import { stub } from '@aquaculture/testing';
 
@@ -180,5 +182,43 @@ describe('FeedingExecutionAlertService', () => {
       }),
     );
     expect(ensureIncident).not.toHaveBeenCalled();
+  });
+
+  it('records each signal on its site, the oxygen guard as the sensor module’s (ALERT-MEDIUM-010)', async () => {
+    const siteId = '77777777-7777-4777-8777-777777777777';
+    await service.recordMealUnderfed(underfedEvent({ siteId }));
+    await service.recordMealMissed(missedEvent({ siteId }));
+    await service.recordUnfedUnit(unfedEvent({ siteId }));
+    await service.recordFeedTransitioned(transitionedEvent({ siteId }));
+    await service.recordFeedingWindowReadiness(
+      stub<FeedingWindowReadinessEvent>({
+        eventType: 'FeedingWindowReadiness',
+        tenantId: TENANT,
+        timestamp: '2026-07-17T07:45:00.000Z',
+        unitId: 'unit-1',
+        unitCode: 'T1',
+        mealId: 'meal-1',
+        dayPlanId: 'dp-1',
+        scheduledAt: '2026-07-17T08:00:00.000Z',
+        status: 'no_reading',
+        minDissolvedOxygen: 6,
+        siteId,
+      }),
+    );
+    // A signal minted before events carried a site.
+    await service.recordMealMissed(missedEvent());
+
+    const origins = create.mock.calls.map(([row]: [{ module: string; siteId: string | null }]) => [
+      row.module,
+      row.siteId,
+    ]);
+    expect(origins).toEqual([
+      [AlertModule.FARM, siteId],
+      [AlertModule.FARM, siteId],
+      [AlertModule.FARM, siteId],
+      [AlertModule.FARM, siteId],
+      [AlertModule.SENSOR, siteId],
+      [AlertModule.FARM, null],
+    ]);
   });
 });

@@ -49,6 +49,21 @@ registerEnumType(AlertSeverity, {
 });
 
 /**
+ * How severe each level is, higher = more severe — the one ranking every
+ * comparison and every severity ordering reads. The enum's string values sort
+ * alphabetically ('critical' < 'warning'), which is backwards, so nothing may
+ * compare or order severities by their value.
+ */
+export const ALERT_SEVERITY_RANK: Readonly<Record<AlertSeverity, number>> = {
+  [AlertSeverity.INFO]: 0,
+  [AlertSeverity.LOW]: 1,
+  [AlertSeverity.WARNING]: 2,
+  [AlertSeverity.MEDIUM]: 3,
+  [AlertSeverity.HIGH]: 4,
+  [AlertSeverity.CRITICAL]: 5,
+};
+
+/**
  * Alert condition structure
  */
 @ObjectType('AlertCondition')

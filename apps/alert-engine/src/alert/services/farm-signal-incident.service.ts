@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { AlertSeverity } from '../../database/entities/alert-rule.entity';
+import { ALERT_SEVERITY_RANK, AlertSeverity } from '../../database/entities/alert-rule.entity';
 import {
   AlertIncident,
   IncidentStatus,
@@ -30,24 +30,12 @@ export interface FarmSignalIncidentSpec {
 }
 
 /**
- * Severity ordering — the ONLY place the enum's implicit ranking is made
- * explicit. `AlertSeverity` is a string enum, so `>` on its members compares
- * words alphabetically ('critical' < 'warning'), which is exactly backwards
- * for the two values farm signals actually use. Ranking it once here means no
- * caller can accidentally compare severities lexically.
+ * True when `next` is strictly more severe than `current` — by
+ * ALERT_SEVERITY_RANK, never by the enum's string values (which sort
+ * 'critical' < 'warning', backwards for the two values farm signals use).
  */
-const SEVERITY_RANK: Record<AlertSeverity, number> = {
-  [AlertSeverity.INFO]: 0,
-  [AlertSeverity.LOW]: 1,
-  [AlertSeverity.WARNING]: 2,
-  [AlertSeverity.MEDIUM]: 3,
-  [AlertSeverity.HIGH]: 4,
-  [AlertSeverity.CRITICAL]: 5,
-};
-
-/** True when `next` is strictly more severe than `current`. */
 export function isSeverityEscalation(current: AlertSeverity, next: AlertSeverity): boolean {
-  return SEVERITY_RANK[next] > SEVERITY_RANK[current];
+  return ALERT_SEVERITY_RANK[next] > ALERT_SEVERITY_RANK[current];
 }
 
 /**

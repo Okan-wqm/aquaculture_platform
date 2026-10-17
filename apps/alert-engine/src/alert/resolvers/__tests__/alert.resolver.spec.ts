@@ -1,11 +1,18 @@
 import { collaborator } from '@aquaculture/testing';
+import { BadRequestException, type PipeTransform } from '@nestjs/common';
+import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { type Repository } from 'typeorm';
 
 import { AlertResolver } from '../alert.resolver';
 import { AlertEvaluationService } from '../../services/alert-evaluation.service';
 import { AlertRuleService } from '../../services/alert-rule.service';
 import { AlertHistory } from '../../entities/alert-history.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
+import { ActiveAlertCountDimension } from '../../dto/active-alert-count.type';
+import { AlertHistoryOrder } from '../../dto/alert-history-order.enum';
 import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.entity';
+
+const SITE_ID = '33333333-3333-4333-8333-333333333333';
 
 function alarm(id: string): AlertHistory {
   return Object.assign(new AlertHistory(), { id });
@@ -75,35 +82,107 @@ describe('AlertResolver.alertHistory', () => {
           resolved: false,
         }),
         { page: 1, limit: 20 },
+        AlertHistoryOrder.NEWEST_FIRST,
       );
       expect(items).toEqual([alarm('alert-1')]);
     });
 
     it('hands the service an absent filter for every explicit null', async () => {
-      await resolver.getAlertHistory(tenantId, 1, 20, null, null, null, null, null, null, null);
+      await resolver.getAlertHistory(
+        tenantId,
+        1,
+        20,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+      );
+
+      const filters = getAlertHistory.mock.calls.at(0)?.[1];
+      expect(Object.entries(filters ?? {})).toEqual([
+        ['ruleId', undefined],
+        ['severity', undefined],
+        ['severities', undefined],
+        ['acknowledged', undefined],
+        ['resolved', undefined],
+        ['startDate', undefined],
+        ['endDate', undefined],
+        ['siteId', undefined],
+        ['module', undefined],
+      ]);
+      expect(getAlertHistory).toHaveBeenCalledWith(
+        tenantId,
+        expect.anything(),
+        { page: 1, limit: 20 },
+        AlertHistoryOrder.NEWEST_FIRST,
+      );
+    });
+
+    it('forwards the site and module scope of a module dashboard’s alarm panel', async () => {
+      await resolver.getAlertHistory(
+        tenantId,
+        1,
+        20,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        SITE_ID,
+        AlertModule.FARM,
+      );
 
       expect(getAlertHistory).toHaveBeenCalledWith(
         tenantId,
-        {
-          ruleId: undefined,
-          severity: undefined,
-          severities: undefined,
-          acknowledged: undefined,
-          resolved: undefined,
-          startDate: undefined,
-          endDate: undefined,
-        },
+        expect.objectContaining({ resolved: false, siteId: SITE_ID, module: AlertModule.FARM }),
         { page: 1, limit: 20 },
+        AlertHistoryOrder.NEWEST_FIRST,
       );
+    });
+
+    it('forwards the most-severe-first order a dashboard panel asks for; null pages newest first', async () => {
+      const page = (orderBy: AlertHistoryOrder | null): Promise<unknown> =>
+        resolver.getAlertHistory(
+          tenantId,
+          1,
+          50,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          AlertModule.FARM,
+          orderBy,
+        );
+
+      await page(AlertHistoryOrder.MOST_SEVERE_FIRST);
+      await page(null);
+
+      expect(getAlertHistory.mock.calls.map((call) => call[3])).toEqual([
+        AlertHistoryOrder.MOST_SEVERE_FIRST,
+        AlertHistoryOrder.NEWEST_FIRST,
+      ]);
     });
 
     it('caps the page size at 100', async () => {
       await resolver.getAlertHistory(tenantId, 2, 500);
 
-      expect(getAlertHistory).toHaveBeenCalledWith(tenantId, expect.anything(), {
-        page: 2,
-        limit: 100,
-      });
+      expect(getAlertHistory).toHaveBeenCalledWith(
+        tenantId,
+        expect.anything(),
+        { page: 2, limit: 100 },
+        AlertHistoryOrder.NEWEST_FIRST,
+      );
     });
   });
 
@@ -112,6 +191,7 @@ describe('AlertResolver.alertHistory', () => {
       where: jest.Mock;
       andWhere: jest.Mock;
       orderBy: jest.Mock;
+      addOrderBy: jest.Mock;
       skip: jest.Mock;
       take: jest.Mock;
       getManyAndCount: jest.Mock;
@@ -123,6 +203,7 @@ describe('AlertResolver.alertHistory', () => {
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
         skip: jest.fn().mockReturnThis(),
         take: jest.fn().mockReturnThis(),
         getManyAndCount: jest.fn().mockResolvedValue([[{ id: 'alert-1' }], 1]),
@@ -153,5 +234,103 @@ describe('AlertResolver.alertHistory', () => {
       const clauses = query.andWhere.mock.calls.map(([clause]: [string]) => clause);
       expect(clauses).toEqual(['alert.severity IN (:...severities)']);
     });
+  });
+});
+
+/**
+ * AlertResolver.activeAlertCounts — the scope and grouping reach the service.
+ *
+ * Without arguments the annunciator's request is unchanged; the workspace
+ * menu asks `groupBy: [MODULE]`, a module dashboard `module` + `groupBy:
+ * [SITE]`. An explicit null is an absent argument, as on alertHistory.
+ */
+describe('AlertResolver.activeAlertCounts', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111';
+  let countActiveAlerts: jest.SpyInstance<
+    ReturnType<AlertRuleService['countActiveAlerts']>,
+    Parameters<AlertRuleService['countActiveAlerts']>
+  >;
+  let resolver: AlertResolver;
+
+  beforeEach(() => {
+    const service = alertRuleService();
+    countActiveAlerts = jest.spyOn(service, 'countActiveAlerts').mockResolvedValue([]);
+    resolver = new AlertResolver(service);
+  });
+
+  it('asks for the tenant-wide counts when no argument is given', async () => {
+    await resolver.getActiveAlertCounts(tenantId);
+
+    expect(countActiveAlerts).toHaveBeenCalledWith(tenantId, {
+      siteId: undefined,
+      module: undefined,
+      groupBy: undefined,
+    });
+  });
+
+  it('forwards the module filter and the per-site grouping', async () => {
+    await resolver.getActiveAlertCounts(tenantId, null, AlertModule.SENSOR, [
+      ActiveAlertCountDimension.SITE,
+    ]);
+
+    expect(countActiveAlerts).toHaveBeenCalledWith(tenantId, {
+      siteId: undefined,
+      module: AlertModule.SENSOR,
+      groupBy: [ActiveAlertCountDimension.SITE],
+    });
+  });
+
+  it('forwards a site filter and treats an explicit null grouping as none', async () => {
+    await resolver.getActiveAlertCounts(tenantId, SITE_ID, null, null);
+
+    expect(countActiveAlerts).toHaveBeenCalledWith(tenantId, {
+      siteId: SITE_ID,
+      module: undefined,
+      groupBy: undefined,
+    });
+  });
+});
+
+/**
+ * The siteId arguments parse a UUID (ALERT-LOW-014). `site_id` is a uuid
+ * column: a value that is not one must be a validation error, not a 22P02 the
+ * database hands the client. Nest runs an argument's pipes before the method;
+ * the specs above call the method directly and never reach them, so this runs
+ * the pipes the `@Args` decorator registered, as Nest does.
+ */
+describe('AlertResolver siteId arguments (ALERT-LOW-014)', () => {
+  type SiteFiltered = 'getAlertHistory' | 'getActiveAlertCounts';
+
+  interface RegisteredArg {
+    readonly data?: unknown;
+    readonly pipes: readonly PipeTransform[];
+  }
+
+  async function parsedSiteId(method: SiteFiltered, value: unknown): Promise<unknown> {
+    const registered: Record<string, RegisteredArg> = Reflect.getMetadata(
+      ROUTE_ARGS_METADATA,
+      AlertResolver,
+      method,
+    );
+    const siteArg = Object.values(registered).find((arg) => arg.data === 'siteId');
+    if (siteArg === undefined) throw new Error(`${method} registers no siteId argument`);
+    expect(siteArg.pipes.length).toBeGreaterThan(0);
+    let parsed = value;
+    for (const pipe of siteArg.pipes) {
+      parsed = await pipe.transform(parsed, { type: 'custom', data: 'siteId' });
+    }
+    return parsed;
+  }
+
+  const methods: readonly SiteFiltered[] = ['getAlertHistory', 'getActiveAlertCounts'];
+
+  it.each(methods)('%s passes a site UUID, and an absent or null site', async (method) => {
+    await expect(parsedSiteId(method, SITE_ID)).resolves.toBe(SITE_ID);
+    await expect(parsedSiteId(method, undefined)).resolves.toBeUndefined();
+    await expect(parsedSiteId(method, null)).resolves.toBeNull();
+  });
+
+  it.each(methods)('%s refuses a site that is not a UUID as a bad request', async (method) => {
+    await expect(parsedSiteId(method, 'site-1')).rejects.toBeInstanceOf(BadRequestException);
   });
 });

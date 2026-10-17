@@ -26,7 +26,6 @@ import {
 } from '../utils/api-client';
 import { tokenLifecycle, decodeResourcePermissions } from '../utils/token-lifecycle';
 import { logoutCleanup } from '../utils/logout-cleanup';
-import { validateNavigationUrl } from '../utils/url-allowlist';
 
 // ============================================================================
 // Types
@@ -88,7 +87,6 @@ export interface AuthUser {
 interface AuthState {
   user: AuthUser | null;
   modules: UserModule[];
-  redirectPath: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   error: string | null;
@@ -97,7 +95,6 @@ interface AuthState {
 type AuthBridgeSnapshot = Readonly<{
   user: AuthUser;
   modules: UserModule[];
-  redirectPath: string;
   isAuthenticated: true;
   isLoading: false;
   error: null;
@@ -122,7 +119,7 @@ type AuthAction =
   | { type: 'AUTH_START' }
   | {
       type: 'AUTH_SUCCESS';
-      payload: { user: AuthUser; modules: UserModule[]; redirectPath: string };
+      payload: { user: AuthUser; modules: UserModule[] };
     }
   | { type: 'AUTH_FAILURE'; payload: string }
   | { type: 'LOGOUT' }
@@ -153,8 +150,15 @@ export interface MfaChallengeResult {
 }
 
 /**
- * Login result — either a redirect path (normal login) or MFA challenge
+ * A completed sign-in: a session exists. It names no destination — where a
+ * signed-in user starts is the shell's one decision (its `/` route,
+ * console/nav rootLanding), never a path the server or this context
+ * suggests (FE-MEDIUM-355).
  */
+export interface SignedInResult {
+  signedIn: true;
+}
+
 /**
  * MFA-setup-required result (ADR-046) — returned when the tenant ENFORCES MFA
  * but this user has no second factor enrolled. NO session tokens are issued;
@@ -168,11 +172,11 @@ export interface MfaSetupRequiredResult {
 }
 
 /**
- * Login result — a redirect path (normal login), an MFA challenge (the user has
- * MFA and must verify), or an MFA-setup requirement (the tenant enforces MFA
- * and the user must enroll first).
+ * Login result — a completed sign-in, an MFA challenge (the user has MFA and
+ * must verify), or an MFA-setup requirement (the tenant enforces MFA and the
+ * user must enroll first).
  */
-export type LoginResult = { redirectPath: string } | MfaChallengeResult | MfaSetupRequiredResult;
+export type LoginResult = SignedInResult | MfaChallengeResult | MfaSetupRequiredResult;
 
 /**
  * Verify MFA login payload
@@ -187,7 +191,7 @@ interface VerifyMfaLoginPayload {
  */
 interface AuthContextValue extends AuthState {
   login: (payload: LoginPayload) => Promise<LoginResult>;
-  verifyMfaLogin: (payload: VerifyMfaLoginPayload) => Promise<{ redirectPath: string }>;
+  verifyMfaLogin: (payload: VerifyMfaLoginPayload) => Promise<SignedInResult>;
   logout: () => Promise<void>;
   clearError: () => void;
   refreshAuth: () => Promise<void>;
@@ -253,12 +257,10 @@ function getAuthBridgeState(): AuthBridgeState | null {
 function createAuthBridgeSnapshot(payload: {
   user: AuthUser;
   modules: UserModule[];
-  redirectPath: string;
 }): AuthBridgeSnapshot {
   return Object.freeze({
     user: Object.freeze({ ...payload.user }),
     modules: Object.freeze(payload.modules.map((m) => Object.freeze({ ...m }))) as UserModule[],
-    redirectPath: payload.redirectPath,
     isAuthenticated: true,
     isLoading: false,
     error: null,
@@ -269,7 +271,6 @@ function publishAuthBridgeSnapshot(
   payload: {
     user: AuthUser;
     modules: UserModule[];
-    redirectPath: string;
   } | null,
 ): void {
   const bridge = getAuthBridgeState();
@@ -284,7 +285,6 @@ function publishAuthBridgeSnapshot(
 const initialState: AuthState = {
   user: null,
   modules: [],
-  redirectPath: null,
   isLoading: true,
   isAuthenticated: false,
   error: null,
@@ -300,7 +300,6 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         ...state,
         user: action.payload.user,
         modules: action.payload.modules,
-        redirectPath: action.payload.redirectPath,
         isLoading: false,
         isAuthenticated: true,
         error: null,
@@ -311,7 +310,6 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         ...state,
         user: null,
         modules: [],
-        redirectPath: null,
         isLoading: false,
         isAuthenticated: false,
         error: action.payload,
@@ -355,7 +353,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   const fetchMe = useCallback(async (): Promise<{
     user: AuthUser;
     modules: UserModule[];
-    redirectPath: string;
   } | null> => {
     try {
       // WHY: Fetch accessType so frontend can enforce platform access restrictions
@@ -379,7 +376,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
               name
               defaultRoute
             }
-            redirectPath
             tenantName
           }
         }
@@ -389,7 +385,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         me: {
           user: AuthUser;
           modules: UserModule[];
-          redirectPath: string;
           tenantName: string | null;
         };
       }>(ME_QUERY);
@@ -469,7 +464,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   }, [autoCheck, fetchMe]);
 
   /**
-   * Login - returns redirect path for navigation, or MFA challenge if MFA is enabled
+   * Login — signs in and says so (never where to go), or returns the MFA challenge or setup requirement
    */
   const login = useCallback(
     async (payload: LoginPayload): Promise<LoginResult> => {
@@ -483,7 +478,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           login(input: $input) {
             accessToken
             refreshToken
-            redirectUrl
             mfaRequired
             mfaToken
             mfaSetupRequired
@@ -506,7 +500,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           login: {
             accessToken: string;
             refreshToken: string;
-            redirectUrl: string;
             mfaRequired?: boolean;
             mfaToken?: string;
             mfaSetupRequired?: boolean;
@@ -547,7 +540,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           };
         }
 
-        const { accessToken: loginAccessToken, user, redirectUrl } = response.login;
+        const { accessToken: loginAccessToken, user } = response.login;
 
         // Save access token in memory (refresh token is set as httpOnly cookie by server)
         setTokens(loginAccessToken);
@@ -555,10 +548,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         // Save tenant ID for multi-tenant context. Null clears stale tenant scope
         // for platform-level SUPER_ADMIN sessions.
         setTenantId(user.tenantId ?? null);
-
-        // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
-        const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
-        const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
 
         // Fetch user data with modules after login
         const meData = await fetchMe();
@@ -569,11 +558,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         }
 
         setTenantId(meData.user.tenantId ?? null);
-        const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
+        const authSuccessPayload = { user: meData.user, modules: meData.modules };
         publishAuthBridgeSnapshot(authSuccessPayload);
         dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
 
-        return { redirectPath };
+        return { signedIn: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Login failed';
         dispatch({ type: 'AUTH_FAILURE', payload: message });
@@ -587,7 +576,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
    * Verify MFA login — completes login after MFA challenge
    */
   const verifyMfaLogin = useCallback(
-    async (payload: VerifyMfaLoginPayload): Promise<{ redirectPath: string }> => {
+    async (payload: VerifyMfaLoginPayload): Promise<SignedInResult> => {
       dispatch({ type: 'AUTH_START' });
 
       try {
@@ -596,7 +585,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           verifyMfaLogin(input: $input) {
             accessToken
             refreshToken
-            redirectUrl
             user {
               id
               email
@@ -615,7 +603,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           verifyMfaLogin: {
             accessToken: string;
             refreshToken: string;
-            redirectUrl: string;
             user: AuthUser;
           };
         }>(VERIFY_MFA_LOGIN_MUTATION, {
@@ -629,7 +616,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           throw new Error('Invalid server response');
         }
 
-        const { accessToken: loginAccessToken, user, redirectUrl } = response.verifyMfaLogin;
+        const { accessToken: loginAccessToken, user } = response.verifyMfaLogin;
 
         // Save access token in memory (refresh token is set as httpOnly cookie by server)
         setTokens(loginAccessToken);
@@ -637,10 +624,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         // Save tenant ID for multi-tenant context. Null clears stale tenant scope
         // for platform-level SUPER_ADMIN sessions.
         setTenantId(user.tenantId ?? null);
-
-        // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
-        const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
-        const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
 
         // Fetch user data with modules after login
         const meData = await fetchMe();
@@ -651,11 +634,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         }
 
         setTenantId(meData.user.tenantId ?? null);
-        const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
+        const authSuccessPayload = { user: meData.user, modules: meData.modules };
         publishAuthBridgeSnapshot(authSuccessPayload);
         dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
 
-        return { redirectPath };
+        return { signedIn: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : 'MFA verification failed';
         dispatch({ type: 'AUTH_FAILURE', payload: message });
@@ -776,34 +759,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 };
 
 // ============================================================================
-// Helpers
-// ============================================================================
-
-/**
- * Sanitize redirectUrl to prevent open redirect attacks (SEC-005).
- * The central navigation allowlist owns URL parsing; auth redirects narrow its
- * accepted result to internal paths because React Router handles this value.
- */
-function sanitizeRedirectUrl(url?: string | null): string | null {
-  const validated = validateNavigationUrl(url);
-  return validated?.startsWith('/') ? validated : null;
-}
-
-function getDefaultRedirect(role: UserRole): string {
-  switch (role) {
-    case 'SUPER_ADMIN':
-      return '/admin';
-    case 'TENANT_ADMIN':
-      return '/tenant';
-    case 'MODULE_MANAGER':
-    case 'MODULE_USER':
-      return '/dashboard';
-    default:
-      return '/';
-  }
-}
-
-// ============================================================================
 // Hook
 // ============================================================================
 
@@ -821,16 +776,17 @@ export function useAuthContext(): AuthContextValue {
   const bridgeSnapshot = getAuthBridgeState()?.snapshot ?? null;
   const bridgeToken = getAccessToken();
   if (bridgeSnapshot && bridgeToken) {
-    const { user, modules, redirectPath } = bridgeSnapshot;
+    const { user, modules } = bridgeSnapshot;
+    // The session the snapshot stands for exists: signing in again is done.
+    const signedIn = async (): Promise<SignedInResult> => ({ signedIn: true });
     return {
       user,
       modules,
-      redirectPath,
       isLoading: false,
       isAuthenticated: true,
       error: null,
-      login: async () => ({ redirectPath }),
-      verifyMfaLogin: async () => ({ redirectPath }),
+      login: signedIn,
+      verifyMfaLogin: signedIn,
       logout: async () => {
         await logoutCleanup();
         publishAuthBridgeSnapshot(null);
@@ -861,21 +817,15 @@ export function useAuthContext(): AuthContextValue {
   const fallbackValue: AuthContextValue = {
     user: null,
     modules: [],
-    redirectPath: null,
     isLoading: false,
     isAuthenticated: false,
     error: null,
+    // Fail closed: outside AuthProvider nothing can sign in, so nothing claims it did.
     login: async () => {
-      if (import.meta.env.DEV) {
-        console.warn('Login not available in microfrontend context');
-      }
-      return { redirectPath: '/' };
+      throw new Error('Login is not available outside AuthProvider');
     },
     verifyMfaLogin: async () => {
-      if (import.meta.env.DEV) {
-        console.warn('MFA verification not available in microfrontend context');
-      }
-      return { redirectPath: '/' };
+      throw new Error('MFA verification is not available outside AuthProvider');
     },
     logout: async () => {
       // FE-HIGH-005: Complete cleanup even in MFE fallback context

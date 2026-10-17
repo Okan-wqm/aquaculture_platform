@@ -5,6 +5,7 @@
  */
 import { FARM_OPERATION_PAGES as OPS } from '../pages/farmOperations';
 import { HYDROPONICS_PAGES as HYD } from '../pages/hydroponics';
+import { SHELL_PAGES } from '../pages/shell';
 import type { WorkspaceDef } from '../types';
 
 import { PRODUCTION_FINANCE, financeArea, moduleOverviewArea, teamArea } from './shared';
@@ -16,7 +17,7 @@ export const GH_WORKSPACE: WorkspaceDef = {
   accentToken: '--color-sd-ws-gh',
   module: 'hydroponics',
   areas: [
-    moduleOverviewArea('gh-home'),
+    moduleOverviewArea('gh-home', SHELL_PAGES.greenhouseDashboard),
     {
       id: 'gh-operations',
       labelKey: 'nav.area.operations',

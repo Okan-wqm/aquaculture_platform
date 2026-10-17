@@ -165,6 +165,7 @@ export type {
   MfaChallengeResult,
   MfaSetupRequiredResult,
   LoginResult,
+  SignedInResult,
   AccessType,
   AuthUser,
 } from './contexts/AuthContext';

@@ -123,6 +123,7 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
           readings,
           farmId: event.farmId,
           pondId: event.pondId,
+          siteId: event.siteId,
           timestamp: event.timestamp,
         });
       });

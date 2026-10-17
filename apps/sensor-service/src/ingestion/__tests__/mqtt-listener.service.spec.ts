@@ -415,6 +415,68 @@ describe('MqttListenerService', () => {
       expect(readingEvents()[2]!['eventId']).not.toBe(readingEvents()[0]!['eventId']);
     });
 
+    it('carries the sensor’s site on SensorReading, for the alarm’s site (ALERT-MEDIUM-010)', async () => {
+      const SITE_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const qr = dataSource.createQueryRunner();
+      mockTenantSensorReload(qr, createSensor({ siteId: SITE_ID }));
+      const channelRepo = (qr.manager.getRepository as jest.Mock)();
+      channelRepo.find.mockResolvedValue([
+        {
+          id: '66666666-6666-4666-8666-666666666666',
+          sensorId: SENSOR_ID,
+          channelKey: 'temperature',
+          dataPath: null,
+          isEnabled: true,
+          applyCalibration: (v: number) => v,
+          validateValue: () => ({ valid: true, level: 'good' }),
+        },
+      ]);
+
+      await callHandleMessage(
+        service,
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+        JSON.stringify({ temperature: 23.5, ts: 1_730_000_000_000 }),
+      );
+
+      const reading = (eventBus.publish as jest.Mock).mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .find((e) => e['eventType'] === 'SensorReading');
+      expect(reading?.['siteId']).toBe(SITE_ID);
+    });
+
+    it('carries no site for a site label that is not a UUID (ALERT-MEDIUM-013)', async () => {
+      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const qr = dataSource.createQueryRunner();
+      mockTenantSensorReload(qr, createSensor({ siteId: 'Hatchery North' }));
+      const channelRepo = (qr.manager.getRepository as jest.Mock)();
+      channelRepo.find.mockResolvedValue([
+        {
+          id: '66666666-6666-4666-8666-666666666666',
+          sensorId: SENSOR_ID,
+          channelKey: 'temperature',
+          dataPath: null,
+          isEnabled: true,
+          applyCalibration: (v: number) => v,
+          validateValue: () => ({ valid: true, level: 'good' }),
+        },
+      ]);
+
+      await callHandleMessage(
+        service,
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+        JSON.stringify({ temperature: 23.5, ts: 1_730_000_000_000 }),
+      );
+
+      const reading = (eventBus.publish as jest.Mock).mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .find((e) => e['eventType'] === 'SensorReading');
+      expect(reading).toBeDefined();
+      expect(reading).not.toHaveProperty('siteId');
+    });
+
     it('should parse aquaculture/{tenantId}/sensors/{sensorId} pattern correctly', async () => {
       const { service, sensorTopicCache, dataSource } = buildService();
       const topic = `aquaculture/${TENANT_ID}/sensors/${SENSOR_ID}`;

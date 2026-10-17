@@ -532,6 +532,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   // A parameter's value at a point and a water-chemistry set's inputs: reads,
   // site-gated for MODULE_USER at the point's site like parameterSourcesAtPoint.
   resolvedParameterValue: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  resolvedUnitParameterValues: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterChemistryInputs: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
 });
 

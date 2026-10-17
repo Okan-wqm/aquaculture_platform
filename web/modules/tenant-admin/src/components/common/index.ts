@@ -6,4 +6,8 @@
  * @module components/common
  */
 
-export { RequireTenantAdmin, RequireTenantCapability } from './RequireTenantAdmin';
+export {
+  RequireTenantAdmin,
+  RequireTenantCapability,
+  RequireTenantMember,
+} from './RequireTenantAdmin';

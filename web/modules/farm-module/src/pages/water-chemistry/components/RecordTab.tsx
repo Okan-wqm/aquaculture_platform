@@ -195,7 +195,7 @@ export const RecordTab: React.FC = () => {
       render: (_value, entry) => (
         <>
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
               entry.overallStatus === 'OPTIMAL'
                 ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                 : entry.overallStatus === 'WARNING'
@@ -220,7 +220,7 @@ export const RecordTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Selectors Row */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* System selector (optional) */}
           <div>
@@ -269,7 +269,7 @@ export const RecordTab: React.FC = () => {
 
       {/* Empty state: no equipment selected */}
       {!selectedEquipmentId && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-8 text-center">
           <Clipboard
             className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
             aria-hidden="true"
@@ -287,7 +287,7 @@ export const RecordTab: React.FC = () => {
       {selectedEquipmentId &&
         !parameterConfigs.isLoading &&
         (parameterConfigs.data?.length ?? 0) === 0 && (
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-8 text-center">
             <TriangleAlert className="mx-auto h-12 w-12 text-warning-400" aria-hidden="true" />
             <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
               No parameters configured for this equipment
@@ -301,7 +301,7 @@ export const RecordTab: React.FC = () => {
 
       {/* Loading state */}
       {selectedEquipmentId && parameterConfigs.isLoading && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-8 text-center">
           <Spinner size="lg" block />
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             Loading parameter configuration...
@@ -313,7 +313,7 @@ export const RecordTab: React.FC = () => {
       {selectedEquipmentId &&
         !parameterConfigs.isLoading &&
         (parameterConfigs.data?.length ?? 0) > 0 && (
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">
               Record Measurement — {selectedEquipmentName}
             </h3>
@@ -344,7 +344,7 @@ export const RecordTab: React.FC = () => {
 
       {/* Recent Entries Panel */}
       {selectedEquipmentId && recentEntries.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm)">
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               Recent Entries — {selectedEquipmentName}

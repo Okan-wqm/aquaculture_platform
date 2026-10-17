@@ -263,7 +263,10 @@ export interface FeedingParameter {
   checksum?: string;
   createdAt: string;
   updatedAt: string;
+  /** The author's user id (JWT subject). */
   createdBy?: string;
+  /** The author's e-mail when the set was created; null on sets created before it was recorded. */
+  createdByEmail?: string | null;
   connection?: { id: string; name: string; status: PlcConnectionStatus };
 }
 
@@ -386,6 +389,8 @@ export interface FeedingParameterFilter {
   tankId?: string;
   status?: ParameterStatus;
   search?: string;
+  /** Only sets that left the draft state (sent, sending or failed) — the command log's feeding sends. */
+  sentOnly?: boolean;
 }
 
 export interface PlcAlarmFilter {

@@ -402,7 +402,7 @@ const WaterChemistryPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 shadow">
+      <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)">
         <PageHeader
           title="Water Chemistry"
           description="Calculator, analysis, and historical water quality data"

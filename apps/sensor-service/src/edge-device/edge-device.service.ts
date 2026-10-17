@@ -28,7 +28,7 @@ import {
   type ScheduledJobExecutor,
 } from '@aquaculture/backend-common/scheduling';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
+import { Repository, DataSource, FindOptionsWhere, ILike, In } from 'typeorm';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
@@ -39,6 +39,7 @@ import {
   DeviceLifecycleState,
   DeviceModel,
   EdgeDevice,
+  IN_SERVICE_STATES,
   isTerminalLifecycleState,
   mayHoldBrokerSession,
 } from './entities/edge-device.entity';
@@ -120,6 +121,10 @@ export interface EdgeDeviceStats {
   total: number;
   online: number;
   offline: number;
+  /** total without terminal lifecycle states (isTerminalLifecycleState). */
+  inService: number;
+  /** online among inService. */
+  onlineInService: number;
   byState: Array<{ state: DeviceLifecycleState; count: number }>;
   byModel: Array<{ model: DeviceModel; count: number }>;
 }
@@ -568,6 +573,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
     options?: {
       siteId?: string;
       lifecycleState?: DeviceLifecycleState;
+      /** Only devices in service: no decommissioned or revoked one (IN_SERVICE_STATES). */
+      inService?: boolean;
       isOnline?: boolean;
       search?: string;
       page?: number;
@@ -584,7 +591,14 @@ export class EdgeDeviceService implements OnModuleDestroy {
       where.siteId = options.siteId;
     }
     if (options?.lifecycleState) {
+      // A terminal state is out of service by definition: asked for both, no
+      // device qualifies, and there is nothing to query.
+      if (options.inService === true && isTerminalLifecycleState(options.lifecycleState)) {
+        return createStandardPaginatedResult([], 0, page, limit);
+      }
       where.lifecycleState = options.lifecycleState;
+    } else if (options?.inService === true) {
+      where.lifecycleState = In([...IN_SERVICE_STATES]);
     }
     if (options?.isOnline !== undefined) {
       where.isOnline = options.isOnline;
@@ -938,18 +952,30 @@ export class EdgeDeviceService implements OnModuleDestroy {
       (qr) => qr.query(query, [tenantId]),
     );
 
-    // Process results
+    // Each row is one (lifecycle_state, device_model) group, so its total/online/
+    // offline count that group only: the tenant totals are their SUM. Assigning
+    // them instead reported the last group as the whole fleet.
+    // inService / onlineInService are the same sums over the groups whose
+    // state is not terminal — the fleet a "devices online" figure means.
     const byState: Map<DeviceLifecycleState, number> = new Map();
     const byModel: Map<DeviceModel, number> = new Map();
     let total = 0;
     let online = 0;
     let offline = 0;
+    let inService = 0;
+    let onlineInService = 0;
 
     for (const row of results) {
       const count = parseInt(row.count, 10);
-      total = parseInt(row.total, 10);
-      online = parseInt(row.online, 10);
-      offline = parseInt(row.offline, 10);
+      const groupTotal = parseInt(row.total, 10);
+      const groupOnline = parseInt(row.online, 10);
+      total += groupTotal;
+      online += groupOnline;
+      offline += parseInt(row.offline, 10);
+      if (!isTerminalLifecycleState(row.lifecycle_state)) {
+        inService += groupTotal;
+        onlineInService += groupOnline;
+      }
 
       const existingState = byState.get(row.lifecycle_state) || 0;
       byState.set(row.lifecycle_state, existingState + count);
@@ -962,6 +988,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
       total,
       online,
       offline,
+      inService,
+      onlineInService,
       byState: Array.from(byState.entries()).map(([state, count]) => ({
         state,
         count,

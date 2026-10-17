@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useCallback, useMemo, useState } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, PageTitle } from '@aquaculture/shared-ui';
 import { useParams } from 'react-router-dom';
 import { Settings, HelpCircle, Cpu, FileText, Zap, History, ChevronDown } from 'lucide-react';
 import { useVfdProgrammingStore } from '../store/vfdProgrammingStore';
@@ -127,9 +127,9 @@ export function VfdProgrammingPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Settings className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <PageTitle className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               VFD Programming
-            </h1>
+            </PageTitle>
             <span className="text-gray-300">|</span>
             {/* Device Selector */}
             <div className="relative">
@@ -185,8 +185,8 @@ export function VfdProgrammingPage() {
         </nav>
       </header>
 
-      {/* Tab content */}
-      <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+      {/* Tab content — a div, not a second main landmark: the console shell's main holds the page. */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         {activeTab === 'parameters' && (
           <div role="tabpanel" id="tabpanel-parameters" aria-labelledby="tab-parameters">
             <VfdParameterBrowser
@@ -241,7 +241,7 @@ export function VfdProgrammingPage() {
             />
           </div>
         )}
-      </main>
+      </div>
 
       {/* Draft bar */}
       <VfdDraftBar />

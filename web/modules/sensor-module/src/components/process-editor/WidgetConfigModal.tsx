@@ -151,7 +151,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
               <button
                 key={wt.type}
                 onClick={() => handleTypeSelect(wt.type)}
-                className={`p-4 border rounded-lg text-left transition-all hover:border-info-500 hover:shadow-md ${
+                className={`p-4 border rounded-lg text-left transition-all hover:border-info-500 hover:shadow-(--shadow-sd-md) ${
                   selectedType === wt.type
                     ? 'border-info-500 bg-info-50 dark:bg-info-900/20 ring-2 ring-info-200'
                     : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'

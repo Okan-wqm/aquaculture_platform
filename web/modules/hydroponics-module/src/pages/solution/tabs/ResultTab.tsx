@@ -105,9 +105,13 @@ const ResultTab: React.FC = () => {
   const fertilizerRows: FertilizerRow[] = ['A', 'B', 'Acid', 'Micro', 'Silicon'].flatMap((tank) =>
     (fertByTank[tank] ?? []).map((f, i) => ({ ...f, tank, firstOfTank: i === 0 })),
   );
+  // Tank badges paint from scales the tenant console re-maps to Industry: B
+  // takes the workspace accent (primary), not the `accent` scale — the
+  // design system's High alarm tier, amber in the console — since a tank is a
+  // category, not an alarm (README §7.8).
   const TANK_BADGE: Record<string, string> = {
     A: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-    B: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
+    B: 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300',
     Acid: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
     Micro: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
   };
@@ -118,7 +122,7 @@ const ResultTab: React.FC = () => {
       render: (_value, row) =>
         row.firstOfTank ? (
           <span
-            className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+            className={`inline-flex items-center justify-center w-8 h-8 rounded text-xs font-bold ${
               TANK_BADGE[row.tank] ??
               'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
             }`}
@@ -158,13 +162,15 @@ const ResultTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Action Bar */}
+      {/* Action Bar — Save is the tab's primary action, so it carries the
+          workspace accent (primary); the success scale is graphite in the
+          tenant console, where "good" is not a colour. */}
       <div className="flex items-center gap-3">
         <button
           onClick={save}
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             isDirty
-              ? 'bg-success-600 text-white hover:bg-success-700'
+              ? 'bg-primary-600 text-white hover:bg-primary-700'
               : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed'
           }`}
           disabled={!isDirty}

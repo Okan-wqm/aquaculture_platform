@@ -46,10 +46,10 @@ const typeColors: Record<string, string> = {
   STARTER: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   GROWER: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   FINISHER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  BROODSTOCK: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  BROODSTOCK: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   MEDICATED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   LARVAL: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  FRY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  FRY: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -629,7 +629,7 @@ export const FeedsTab: React.FC = () => {
           {filteredFeeds.map((feed) => (
             <div
               key={feed.id}
-              className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden"
+              className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden"
             >
               {/* Feed Header */}
               <div
@@ -650,7 +650,7 @@ export const FeedsTab: React.FC = () => {
                           {feed.name}
                         </h3>
                         <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[feed.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${typeColors[feed.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                         >
                           {typeLabels[feed.type] || feed.type}
                         </span>

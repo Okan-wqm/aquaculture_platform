@@ -31,7 +31,7 @@ const statusColors: Record<string, string> = {
   PLANNED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   IN_PROGRESS: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   COMPLETED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
-  APPROVED: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  APPROVED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
 };
 
 /** All available status values for the filter dropdown */
@@ -167,7 +167,7 @@ export const InventoryCountTab: React.FC = () => {
       render: (_value, ic) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
               statusColors[ic.status] ||
               'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
@@ -227,7 +227,7 @@ export const InventoryCountTab: React.FC = () => {
 
       {/* Main table */}
       {!isLoading && !error && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<IcRow>
             data={counts}
             columns={icRowColumns}

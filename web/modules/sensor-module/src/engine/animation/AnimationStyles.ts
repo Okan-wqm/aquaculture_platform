@@ -32,6 +32,9 @@ const STYLE_ELEMENT_ID = 'scada-animation-keyframes';
  *
  * Handle hover CSS was previously rendered as a <style> tag inside every ScadaWidgetNode.
  * Now all nodes share the same CSS via a single global injection.
+ *
+ * The handle glow is canvas chrome, not HMI content: it reads the console accent
+ * (`--color-sd-accent`, theme- and workspace-aware) like the handles in process-editor.css.
  */
 const CSS = `
 @keyframes scada-rotate-cw { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
@@ -45,8 +48,8 @@ const CSS = `
 }
 @keyframes scada-fade-in { from{opacity:0;transform:scale(.96)} to{opacity:1;transform:scale(1)} }
 @keyframes handle-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
-  50% { box-shadow: 0 0 0 6px rgba(6, 182, 212, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-sd-accent) 40%, transparent); }
+  50% { box-shadow: 0 0 0 6px transparent; }
 }
 .scada-pump-spinning { animation: scada-rotate-cw var(--scada-spin-speed, 2s) linear infinite; transform-origin: center center; }
 .scada-blinking { animation: scada-blink var(--scada-blink-interval, 1s) ease-in-out infinite; }
@@ -55,7 +58,7 @@ const CSS = `
 .scada-pistoning { animation: scada-piston var(--piston-duration, 1s) ease-in-out infinite; }
 .react-flow__handle:hover {
   transform: scale(1.5);
-  box-shadow: 0 0 6px 2px rgba(6, 182, 212, 0.5);
+  box-shadow: 0 0 6px 2px color-mix(in srgb, var(--color-sd-accent) 50%, transparent);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .react-flow__handle.connecting {

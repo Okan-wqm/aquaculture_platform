@@ -14,7 +14,7 @@
  *   100              [1.1]  [1.2]  [1.3]  [1.4]
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { colors, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { TriangleAlert } from 'lucide-react';
 
 export interface FeedingMatrix2D {
@@ -61,35 +61,34 @@ const createEmptyMatrix = (): FeedingMatrix2D => ({
   weightUnit: 'gram',
 });
 
-// Color gradient based on feeding rate value (lower = cooler, higher = warmer)
+/**
+ * Cell paint for a feeding rate (0–6 %): the primary token at a strength that
+ * grows with the rate — one hue from faint to strong, so a high rate reads as
+ * "more" and not as an alarm. WHY a token and not computed RGB: the former
+ * blue → green → yellow → red ramp was four literal Tailwind hues, so inside
+ * the tenant console it painted alarm red on an ordinary rate; `primary` is
+ * the workspace accent there (suderra.css) and keeps the product blue
+ * elsewhere, and the legend below reads the same function.
+ */
 const getRateColor = (rate: number): string => {
-  // Map rate (0-6%) to color
   const normalized = Math.min(Math.max(rate, 0), 6) / 6;
-  if (normalized < 0.33) {
-    // Blue to green
-    const t = normalized / 0.33;
-    return `rgb(${Math.round(59 + (34 - 59) * t)}, ${Math.round(130 + (197 - 130) * t)}, ${Math.round(246 + (94 - 246) * t)})`;
-  } else if (normalized < 0.66) {
-    // Green to yellow
-    const t = (normalized - 0.33) / 0.33;
-    return `rgb(${Math.round(34 + (234 - 34) * t)}, ${Math.round(197 + (179 - 197) * t)}, ${Math.round(94 + (8 - 94) * t)})`;
-  } else {
-    // Yellow to red
-    const t = (normalized - 0.66) / 0.34;
-    return `rgb(${Math.round(234 + (239 - 234) * t)}, ${Math.round(179 + (68 - 179) * t)}, ${Math.round(8 + (68 - 8) * t)})`;
-  }
+  const strength = Math.round(12 + normalized * 63);
+  return `color-mix(in srgb, var(--color-primary-500) ${strength}%, transparent)`;
 };
 
+/**
+ * Cell paint for an FCR (0.7–1.5, lower is better): the same three tokens the
+ * FCR legend paints with (`bg-success-500` / `bg-warning-500` /
+ * `bg-error-500`), read at paint time. WHY not `colors.*`: those are the
+ * theme.ts values, which no scope can re-assign — the cells stayed green while
+ * the legend beside them followed the console, where "good" is neutral and
+ * only amber and red signal (README §7.8).
+ */
 const getFCRColor = (fcr: number): string => {
-  // Map FCR (0.7-1.5) to color - lower is better (green), higher is worse (red)
   const normalized = Math.min(Math.max(fcr - 0.7, 0), 0.8) / 0.8;
-  if (normalized < 0.33) {
-    return colors.success[500]; // Green - excellent
-  } else if (normalized < 0.66) {
-    return colors.warning[500]; // Yellow - good
-  } else {
-    return colors.error[500]; // Red - needs improvement
-  }
+  if (normalized < 0.33) return 'var(--color-success-500)';
+  if (normalized < 0.66) return 'var(--color-warning-500)';
+  return 'var(--color-error-500)';
 };
 
 // Bilinear interpolation helper

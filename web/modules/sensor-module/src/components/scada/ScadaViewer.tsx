@@ -161,7 +161,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
       />
 
       {/* Process info panel */}
-      <div className="absolute top-3 left-3 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 z-20">
+      <div className="absolute top-3 left-3 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 p-3 z-20">
         <h3 className="font-medium text-gray-900 dark:text-gray-100 text-sm">
           {selectedProcess.name}
         </h3>
@@ -173,7 +173,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
         <div className="flex items-center gap-2 mt-2">
           <span
             className={`
-              px-2 py-0.5 rounded-full text-xs font-medium
+              px-2 py-0.5 rounded text-xs font-medium
               ${
                 selectedProcess.status === 'active'
                   ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
@@ -200,7 +200,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
       </div>
 
       {/* Controls panel */}
-      <div className="absolute bottom-3 left-3 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-1 z-20">
+      <div className="absolute bottom-3 left-3 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 p-1 z-20">
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"

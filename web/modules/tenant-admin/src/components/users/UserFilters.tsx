@@ -1,6 +1,7 @@
 import React from 'react';
 import { Select } from '@aquaculture/shared-ui';
 import { Search } from 'lucide-react';
+import { SD_CARD } from '../ui/suderra';
 
 export interface UserFiltersProps {
   onSearchChange: (value: string) => void;
@@ -23,7 +24,7 @@ export const UserFilters: React.FC<UserFiltersProps> = ({
   currentFilters,
 }) => {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
+    <div className={`${SD_CARD} p-4`}>
       <div className="flex flex-col md:flex-row md:items-center gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -32,7 +33,7 @@ export const UserFilters: React.FC<UserFiltersProps> = ({
             placeholder="Search users by name or email..."
             value={currentFilters.search}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           />
         </div>
         <Select

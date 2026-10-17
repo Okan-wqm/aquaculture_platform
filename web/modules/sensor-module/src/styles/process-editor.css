@@ -1,6 +1,21 @@
 /**
  * Process Editor Styles
- * Custom styles for the ReactFlow-based process editor
+ * Layout for the ReactFlow-based process editor, and the ReactFlow chrome
+ * painted from the console tokens.
+ *
+ * WHY the editor's own boxes carry no paint here: styles.css imports this
+ * file ahead of Tailwind, unlayered, so a colour, border, radius or shadow
+ * written here beats the component's own utilities — `bg-white
+ * dark:bg-gray-900` on the panels, the status tint, `rounded-lg` and the
+ * elevation on an equipment node — and held them light, rounded and
+ * status-blind under the tenant console's Industry scope and its dark theme.
+ * The components paint themselves; this file keeps their layout.
+ *
+ * WHY `--color-sd-*` for the ReactFlow parts: no component class reaches a
+ * handle, an edge path, the controls or the minimap, and they render on every
+ * ReactFlow canvas of the module (process editor, SCADA builder). The `sd-*`
+ * tokens follow the shell's theme toggle, a surface pinned dark and the
+ * workspace accent, so the canvas chrome needs no `[data-theme]` copy.
  */
 
 /* ============================================================================
@@ -11,22 +26,6 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background-color: #f9fafb;
-}
-
-/* ============================================================================
-   Toolbar
-   ============================================================================ */
-
-.editor-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.5rem 1rem;
-  background-color: white;
-  border-bottom: 1px solid #e5e7eb;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  z-index: 10;
 }
 
 /* ============================================================================
@@ -41,7 +40,6 @@
 
 .editor-canvas {
   flex: 1;
-  background-color: #f9fafb;
   position: relative;
 }
 
@@ -51,8 +49,6 @@
 
 .equipment-panel {
   width: 18rem;
-  background-color: white;
-  border-right: 1px solid #e5e7eb;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -74,8 +70,6 @@
 
 .properties-panel {
   width: 18rem;
-  background-color: white;
-  border-left: 1px solid #e5e7eb;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -88,61 +82,13 @@
 }
 
 /* ============================================================================
-   Equipment Node Styles
+   Equipment Node — size bounds only; EquipmentNode paints the status tint
    ============================================================================ */
 
 .equipment-node {
-  background: white;
   padding: 0;
-  border-radius: 0.5rem;
-  border: 2px solid #e5e7eb;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  transition: all 0.2s ease;
   min-width: 140px;
   max-width: 180px;
-}
-
-.equipment-node:hover {
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.equipment-node.selected {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
-}
-
-.equipment-node .node-content {
-  padding: 0.75rem;
-}
-
-.equipment-node .node-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  margin: 0 auto 0.5rem;
-  background-color: #f3f4f6;
-  border-radius: 0.5rem;
-}
-
-.equipment-node .node-label {
-  font-weight: 500;
-  font-size: 0.875rem;
-  color: #111827;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.equipment-node .node-code {
-  font-size: 0.75rem;
-  color: #6b7280;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ============================================================================
@@ -153,7 +99,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid white;
+  border: 2px solid var(--color-sd-paper);
 }
 
 .react-flow__handle-top {
@@ -172,13 +118,14 @@
   right: -6px;
 }
 
-/* Handle colors by type */
-.react-flow__handle[data-handletype="target"] {
-  background-color: #3b82f6;
+/* Handle colours by type: an input takes the workspace accent, an output the
+   neutral, so the two ends of a connection stay distinct without a hue. */
+.react-flow__handle[data-handletype='target'] {
+  background-color: var(--color-sd-accent);
 }
 
-.react-flow__handle[data-handletype="source"] {
-  background-color: #06b6d4;
+.react-flow__handle[data-handletype='source'] {
+  background-color: var(--color-sd-neutral-600);
 }
 
 /* ============================================================================
@@ -187,33 +134,13 @@
 
 /* Default edge */
 .react-flow__edge-path {
-  stroke: #94a3b8;
+  stroke: var(--color-sd-neutral-500);
   stroke-width: 2;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
-  stroke: #3b82f6;
+  stroke: var(--color-sd-accent);
   stroke-width: 3;
-}
-
-/* Pipe connection */
-.react-flow__edge.pipe .react-flow__edge-path {
-  stroke: #06b6d4;
-  stroke-width: 3;
-}
-
-/* Electrical cable */
-.react-flow__edge.cable .react-flow__edge-path {
-  stroke: #eab308;
-  stroke-width: 2;
-  stroke-dasharray: 5 3;
-}
-
-/* Signal line */
-.react-flow__edge.signal .react-flow__edge-path {
-  stroke: #a855f7;
-  stroke-width: 2;
-  stroke-dasharray: 3 3;
 }
 
 /* Animated edge */
@@ -235,25 +162,25 @@
    ============================================================================ */
 
 .react-flow__controls {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border-radius: 0.5rem;
+  box-shadow: var(--shadow-sd-sm);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 .react-flow__controls-button {
-  background-color: white;
+  background-color: var(--color-sd-parchment);
   border: none;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-sd-rule);
 }
 
 .react-flow__controls-button:hover {
-  background-color: #f3f4f6;
+  background-color: var(--color-sd-neutral-200);
 }
 
 .react-flow__minimap {
-  background-color: white;
-  border-radius: 0.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background-color: var(--color-sd-parchment);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sd-sm);
   overflow: hidden;
 }
 
@@ -262,43 +189,7 @@
    ============================================================================ */
 
 .react-flow__background {
-  background-color: #f9fafb;
-}
-
-/* ============================================================================
-   Status-based Node Colors
-   ============================================================================ */
-
-.equipment-node.operational,
-.equipment-node.active {
-  border-color: #22c55e;
-  background-color: #f0fdf4;
-}
-
-.equipment-node.maintenance {
-  border-color: #eab308;
-  background-color: #fefce8;
-}
-
-.equipment-node.repair {
-  border-color: #f97316;
-  background-color: #fff7ed;
-}
-
-.equipment-node.out_of_service {
-  border-color: #ef4444;
-  background-color: #fef2f2;
-}
-
-.equipment-node.decommissioned {
-  border-color: #9ca3af;
-  background-color: #f9fafb;
-  opacity: 0.7;
-}
-
-.equipment-node.standby {
-  border-color: #3b82f6;
-  background-color: #eff6ff;
+  background-color: var(--color-sd-paper);
 }
 
 /* ============================================================================
@@ -307,10 +198,6 @@
 
 .equipment-panel .dragging {
   opacity: 0.5;
-}
-
-.editor-canvas.drag-over {
-  background-color: #eff6ff;
 }
 
 /* ============================================================================

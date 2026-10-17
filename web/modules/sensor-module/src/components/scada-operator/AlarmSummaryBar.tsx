@@ -21,18 +21,28 @@ import { Drawer, severityClasses } from '@aquaculture/shared-ui';
 import type { AlarmStatusSummary } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
 import { AlarmPanel } from './AlarmPanel';
+import { alarmGlyphClass } from './alarmGlyph';
 
 /* ------------------------------------------------------------------ */
 /*  CSS keyframes injected once                                         */
 /* ------------------------------------------------------------------ */
 
+/* The glow and edge are the console's hazard red (theme.css `--color-sd-hz-red*`),
+   not a second literal red; a reader who asked for reduced motion keeps the red
+   edge without the pulse. */
 const BLINK_CSS = `
 @keyframes alarm-critical-blink {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); border-color: rgb(220,38,38); }
-  50%       { box-shadow: 0 0 12px 4px rgba(220,38,38,0.6); border-color: rgb(239,68,68); }
+  0%, 100% { box-shadow: 0 0 0 0 transparent; border-color: var(--color-sd-hz-red-deep); }
+  50%       { box-shadow: 0 0 12px 4px color-mix(in srgb, var(--color-sd-hz-red) 60%, transparent); border-color: var(--color-sd-hz-red); }
 }
 .alarm-critical-blink {
   animation: alarm-critical-blink 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .alarm-critical-blink {
+    animation: none;
+    border-color: var(--color-sd-hz-red-deep);
+  }
 }
 `;
 
@@ -62,7 +72,7 @@ const SeverityChip = memo(({ count, label, icon, activeClass, mutedClass }: Seve
   const isActive = count > 0;
   return (
     <div
-      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
+      className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
         isActive ? activeClass : mutedClass
       }`}
     >
@@ -154,11 +164,11 @@ export const AlarmSummaryBar = memo(
           <AlertTriangle
             className={`h-4 w-4 flex-shrink-0 ${
               criticalCount > 0
-                ? 'text-error-500 animate-pulse'
+                ? `${alarmGlyphClass('critical')} motion-safe:animate-pulse`
                 : highCount > 0
-                  ? 'text-accent-400'
+                  ? alarmGlyphClass('high')
                   : warningCount > 0
-                    ? 'text-warning-400'
+                    ? alarmGlyphClass('warning')
                     : 'text-gray-500 dark:text-gray-400'
             }`}
           />

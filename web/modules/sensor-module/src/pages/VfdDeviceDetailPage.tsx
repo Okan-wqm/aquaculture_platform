@@ -124,7 +124,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
       </Link>
 
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
         <PageHeader
           title={device.name}
           description={
@@ -142,7 +142,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
           actions={
             <>
               <span
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-medium ${
                   connected
                     ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
@@ -151,7 +151,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
                 {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
                 {connected ? 'Çevrimiçi' : 'Çevrimdışı'}
               </span>
-              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+              <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                 {device.status}
               </span>
               {/*
@@ -171,7 +171,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
       </div>
 
       {/* Lifecycle — the only place a drive can be made operable */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 space-y-3">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6 space-y-3">
         <div className="flex items-center gap-3">
           {device.status === VfdDeviceStatus.ACTIVE ? (
             <button
@@ -229,7 +229,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
       {deviceId && <VfdControlPanel deviceId={deviceId} deviceStatus={device.status} />}
 
       {/* Identity */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6 grid grid-cols-2 md:grid-cols-3 gap-4">
         <Field label="Marka" value={VFD_BRAND_NAMES[device.brand] ?? device.brand} />
         <Field label="Model" value={device.model} />
         <Field label="Seri No" value={device.serialNumber} />
@@ -258,7 +258,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
 
       {/* Description */}
       {device.description && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
           <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
             Açıklama / Notlar
           </p>
@@ -270,7 +270,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
 
       {/* Latest reading */}
       {device.latestReading && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
           <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 inline-flex items-center gap-2">
             <Activity className="w-4 h-4 text-info-600 dark:text-info-400" /> Son Okuma
           </p>

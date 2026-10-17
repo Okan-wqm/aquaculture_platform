@@ -132,7 +132,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
               {facility.name}
             </span>
             {facility.isDefault && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
                 Default
               </span>
             )}
@@ -154,7 +154,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
       render: (_value, facility) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
               facility.isActive
                 ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'

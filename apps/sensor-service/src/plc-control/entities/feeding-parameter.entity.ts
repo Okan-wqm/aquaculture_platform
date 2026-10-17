@@ -199,7 +199,17 @@ export class FeedingParameter {
   @UpdateDateColumn()
   updatedAt!: Date;
 
+  /** The author's JWT subject. */
   @Field({ nullable: true })
   @Column({ nullable: true })
   createdBy?: string;
+
+  /**
+   * The author's e-mail as it was when the set was created — what the command
+   * log shows (a UUID names nobody). NULL on sets created before it was
+   * recorded. Named like its sibling columns (camelCase, TypeORM default).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  createdByEmail?: string | null;
 }

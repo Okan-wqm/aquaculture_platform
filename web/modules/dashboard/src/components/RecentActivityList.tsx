@@ -39,7 +39,7 @@ const severityColors: Record<NonNullable<RecentActivity['severity']>, string> = 
 const ActivitySkeleton: React.FC = () => (
   <div className="px-4 py-3">
     <div className="flex items-start space-x-3 animate-pulse">
-      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700" />
+      <div className="flex-shrink-0 w-10 h-10 rounded bg-gray-200 dark:bg-gray-700" />
       <div className="flex-1 space-y-2">
         <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
         <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
@@ -109,10 +109,12 @@ const RecentActivityList: React.FC = () => {
               className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
             >
               <div className="flex items-start space-x-3">
-                {/* Ikon */}
+                {/* Ikon — a square tile in Industry (README §6 "Köşe: 0"); the
+                    radius token follows the console scope, `rounded-full`
+                    would keep it a circle. */}
                 <div
                   className={`
-                    flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center
+                    flex-shrink-0 w-10 h-10 rounded flex items-center justify-center
                     ${severityColors[activity.severity || 'info']}
                   `}
                 >

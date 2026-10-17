@@ -392,7 +392,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
               disabled={operationPending}
               className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                 confirmationIsAssignment
-                  ? 'bg-success-600 hover:bg-success-700'
+                  ? 'bg-primary-600 hover:bg-primary-700'
                   : 'bg-error-600 hover:bg-error-700'
               }`}
             >
@@ -565,7 +565,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                           </div>
                           <div className="flex items-center justify-between gap-3 sm:justify-end">
                             <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                              className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${
                                 isAssigned
                                   ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'

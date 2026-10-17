@@ -101,7 +101,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
             aria-pressed={activeGroup === 'widget-scoped'}
             className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
               activeGroup === 'widget-scoped'
-                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             } min-h-9`}
           >
@@ -117,7 +117,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
               </>
             )}
             {!hasWidgetSelected && !hasEdgeSelected && activeGroup === 'widget-scoped' && (
-              <span className="ml-1 text-[11px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">
+              <span className="ml-1 text-[11px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
                 no selection
               </span>
             )}
@@ -128,7 +128,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
             aria-pressed={activeGroup === 'package-scoped'}
             className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
               activeGroup === 'package-scoped'
-                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             } min-h-9`}
           >

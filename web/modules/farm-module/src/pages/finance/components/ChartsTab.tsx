@@ -90,7 +90,7 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
   return (
     <div className="space-y-6">
       {/* Trend over time */}
-      <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+      <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow-(--shadow-sd-sm)">
         <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
           Cost & revenue trend ({period.granularity.toLowerCase()} buckets, {summary.currency})
         </h2>
@@ -109,7 +109,7 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         {/* Cost by category — magnitude job, one hue */}
-        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow-(--shadow-sd-sm)">
           <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
             Operational cost by category ({summary.currency})
           </h2>
@@ -133,7 +133,7 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
         </div>
 
         {/* Cost & revenue per batch */}
-        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow-(--shadow-sd-sm)">
           <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
             Cost & revenue per batch ({summary.currency})
           </h2>

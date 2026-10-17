@@ -248,7 +248,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                         {key.name || `Key ${key.id.substring(0, 8)}`}
                       </span>
                       <span
-                        className={`ml-2 px-1.5 py-0.5 rounded-full ${key.isActive ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'}`}
+                        className={`ml-2 px-1.5 py-0.5 rounded ${key.isActive ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'}`}
                       >
                         {key.isActive ? 'Active' : 'Revoked'}
                       </span>
@@ -275,15 +275,17 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               Kurulum Komutu
             </label>
             <div className="relative">
-              <pre className="bg-gray-900 text-success-400 p-4 rounded-xl text-sm font-mono overflow-x-auto whitespace-pre-wrap break-all">
+              {/* A dark code panel in both themes: light gray text, since inside
+                  the console scope success is graphite (under 3:1 on gray-900). */}
+              <pre className="bg-gray-900 text-gray-100 p-4 rounded-xl text-sm font-mono overflow-x-auto whitespace-pre-wrap break-all">
                 {result.installerCommand}
               </pre>
               <button
                 onClick={() => handleCopy(result.installerCommand)}
-                className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-white rounded-md text-xs transition-colors"
+                className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-gray-700 text-gray-300 hover:text-white rounded-md text-xs transition-colors"
               >
                 {copied ? (
-                  <Check className="w-3.5 h-3.5 text-success-400" />
+                  <Check className="w-3.5 h-3.5" aria-hidden="true" />
                 ) : (
                   <Copy className="w-3.5 h-3.5" />
                 )}

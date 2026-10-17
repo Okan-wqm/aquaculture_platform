@@ -49,7 +49,7 @@ describe('deploy archived guard (SENSOR-HIGH-043)', () => {
         packageData: { meta: {} },
       });
       await expect(
-        service.deployScadaWithAutomation('pkg-1', 'dev-1', TENANT, 'user-1'),
+        service.deployScadaWithAutomation('pkg-1', 'dev-1', TENANT, { userId: 'user-1' }),
       ).rejects.toThrow(BadRequestException);
     });
   });

@@ -136,7 +136,7 @@ const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
   const config = SEVERITY_OPTIONS.find((s) => s.value === severity) || SEVERITY_OPTIONS[3];
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}
+      className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium border ${config.className}`}
     >
       {config.label}
     </span>
@@ -323,7 +323,7 @@ const RuleForm: React.FC<{
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           {mode === 'create' ? 'Yeni Alarm Kuralı' : 'Alarm Kuralını Düzenle'}
@@ -550,7 +550,7 @@ const RuleCard: React.FC<{
 
   return (
     <div
-      className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 transition-all ${
+      className={`bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-5 transition-all ${
         !rule.isActive ? 'opacity-60' : ''
       }`}
     >
@@ -561,7 +561,7 @@ const RuleCard: React.FC<{
             <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{rule.name}</h3>
             <SeverityBadge severity={rule.severity || maxSeverity} />
             <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                 rule.isActive
                   ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 border border-success-200 dark:border-success-800'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
@@ -667,7 +667,7 @@ const RuleCard: React.FC<{
                 {rule.recipients.map((r, i) => (
                   <span
                     key={i}
-                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                    className="inline-flex items-center px-2.5 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                   >
                     {r}
                   </span>
@@ -883,7 +883,7 @@ const AlertRulesPage: React.FC = () => {
       />
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
@@ -902,7 +902,7 @@ const AlertRulesPage: React.FC = () => {
                 onClick={() => setFilterIsActive(tab.value)}
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   filterIsActive === tab.value
-                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
@@ -995,7 +995,7 @@ const AlertRulesPage: React.FC = () => {
 
       {/* Empty State */}
       {ruleList.length === 0 && !isLoading && formMode === 'closed' && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Shield className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
             Alarm Kuralı Bulunamadı

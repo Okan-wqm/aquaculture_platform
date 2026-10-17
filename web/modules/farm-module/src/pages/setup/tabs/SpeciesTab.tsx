@@ -517,7 +517,7 @@ export const SpeciesTab: React.FC = () => {
           {filteredSpecies.map((species) => (
             <div
               key={species.id}
-              className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
+              className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 hover:shadow-(--shadow-sd-md) transition-shadow"
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -540,17 +540,17 @@ export const SpeciesTab: React.FC = () => {
                   </div>
                   <div className="flex flex-col gap-1 items-end">
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesCategoryColors[species.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${speciesCategoryColors[species.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesCategoryLabels[species.category] || species.category}
                     </span>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${waterTypeColors[species.waterType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${waterTypeColors[species.waterType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesWaterTypeLabels[species.waterType] || species.waterType}
                     </span>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesStatusColors[species.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${speciesStatusColors[species.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesStatusLabels[species.status] || species.status}
                     </span>
@@ -584,7 +584,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.temperature && (
                       <div className="flex items-center">
-                        <ChartColumn className="w-4 h-4 mr-2 text-accent-500" aria-hidden="true" />
+                        <ChartColumn className="w-4 h-4 mr-2 text-gray-500" aria-hidden="true" />
                         <span>
                           Temp: {species.optimalConditions.temperature.min}-
                           {species.optimalConditions.temperature.max}°C
@@ -594,7 +594,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.ph && (
                       <div className="flex items-center">
-                        <SwatchBook className="w-4 h-4 mr-2 text-accent-500" aria-hidden="true" />
+                        <SwatchBook className="w-4 h-4 mr-2 text-gray-500" aria-hidden="true" />
                         <span>
                           pH: {species.optimalConditions.ph.min}-{species.optimalConditions.ph.max}
                         </span>
@@ -833,7 +833,7 @@ export const SpeciesTab: React.FC = () => {
                       key={tag}
                       type="button"
                       onClick={() => handleTagToggle(tag)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                      className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                         formData.tags.includes(tag)
                           ? 'bg-info-500 text-white'
                           : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -875,7 +875,7 @@ export const SpeciesTab: React.FC = () => {
                         .map((tag) => (
                           <span
                             key={tag}
-                            className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
+                            className="inline-flex items-center px-3 py-1 rounded text-sm bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
                           >
                             {tag}
                             <Button

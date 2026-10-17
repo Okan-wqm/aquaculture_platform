@@ -128,6 +128,7 @@ export interface LeaveCalendarEntry {
   employeeName: string;
   leaveTypeName: string;
   leaveTypeColor: string;
+  /** DateTime of the stored calendar day at UTC midnight, e.g. `2026-10-12T00:00:00.000Z`. */
   startDate: string;
   endDate: string;
   totalDays: number;

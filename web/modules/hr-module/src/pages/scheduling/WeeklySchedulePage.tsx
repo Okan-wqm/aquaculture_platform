@@ -71,19 +71,19 @@ const NO_SHIFTS: readonly Shift[] = [];
 function weekdayOf(date: Date): WeekDay {
   switch (date.getDay()) {
     case 0:
-      return 'sunday';
+      return 'SUNDAY';
     case 1:
-      return 'monday';
+      return 'MONDAY';
     case 2:
-      return 'tuesday';
+      return 'TUESDAY';
     case 3:
-      return 'wednesday';
+      return 'WEDNESDAY';
     case 4:
-      return 'thursday';
+      return 'THURSDAY';
     case 5:
-      return 'friday';
+      return 'FRIDAY';
     default:
-      return 'saturday';
+      return 'SATURDAY';
   }
 }
 
@@ -127,7 +127,7 @@ function isWeekend(date: Date): boolean {
 }
 
 function isWorkingEntry(entry: DayEntry): boolean {
-  return entry.entryType === 'work' || entry.entryType === 'training';
+  return entry.entryType === 'WORK' || entry.entryType === 'TRAINING';
 }
 
 function timeRange(start: string, end: string): string {
@@ -168,11 +168,13 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
       </span>
     );
   }
-  if (cell.plan.weeklyPlanId === undefined) {
+  // An employee with no plan this week arrives with weeklyPlanId: null (and
+  // OFF filler days); the cell is empty until a shift is assigned.
+  if (cell.plan.weeklyPlanId == null) {
     return <span className={cn(faceShell, size, 'text-gray-300 dark:text-gray-600')}>·</span>;
   }
   switch (cell.entry.entryType) {
-    case 'off':
+    case 'OFF':
       return (
         <span
           className={cn(
@@ -186,7 +188,7 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
           {!compact && 'Tatil'}
         </span>
       );
-    case 'leave':
+    case 'LEAVE':
       return (
         <span
           className={cn(
@@ -200,28 +202,28 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
           {!compact && 'İzin'}
         </span>
       );
-    case 'holiday':
+    case 'HOLIDAY':
       return (
         <span
           className={cn(
             faceShell,
             size,
-            'bg-accent-100 text-accent-700 dark:bg-accent-900/40 dark:text-accent-300',
+            'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300',
           )}
           title="Resmi tatil"
         >
           {compact ? 'RT' : 'Resmi tatil'}
         </span>
       );
-    case 'work':
-    case 'training': {
+    case 'WORK':
+    case 'TRAINING': {
       const title =
         shift === undefined
           ? (cell.entry.shiftName ?? 'Vardiya atanmadı')
           : `${shift.name} · ${timeRange(shift.startTime, shift.endTime)}`;
       return (
         <span
-          className={cn(faceShell, size, 'text-white shadow-sm')}
+          className={cn(faceShell, size, 'text-white shadow-(--shadow-sd-sm)')}
           style={{
             backgroundColor: sanitizeColor(
               shift === undefined ? null : shift.colorCode,
@@ -301,7 +303,7 @@ export function WeeklySchedulePage(): React.JSX.Element {
           seen.set(plan.employeeId, {
             employeeId: plan.employeeId,
             employeeName: plan.employeeName,
-            position: plan.position,
+            position: plan.position ?? undefined,
           });
         }
       }
@@ -406,9 +408,7 @@ export function WeeklySchedulePage(): React.JSX.Element {
       weekOverview === undefined
         ? []
         : weekOverview.employeePlans.flatMap((plan) =>
-            plan.weeklyPlanId !== undefined && plan.planStatus === 'draft'
-              ? [plan.weeklyPlanId]
-              : [],
+            plan.weeklyPlanId != null && plan.planStatus === 'draft' ? [plan.weeklyPlanId] : [],
           ),
     [weekOverview],
   );
@@ -448,13 +448,12 @@ export function WeeklySchedulePage(): React.JSX.Element {
       pending !== undefined &&
       pending.employeeId === employee.employeeId &&
       pending.date === dateStr;
-    const shift =
-      cell.entry.shiftCode === undefined ? undefined : shiftByCode.get(cell.entry.shiftCode);
+    const shift = cell.entry.shiftCode == null ? undefined : shiftByCode.get(cell.entry.shiftCode);
     const face = <CellFace cell={cell} shift={shift} compact={compact} saving={saving} />;
     const locked =
       cell.plan.planStatus === 'published' ||
-      cell.entry.entryType === 'leave' ||
-      cell.entry.entryType === 'holiday';
+      cell.entry.entryType === 'LEAVE' ||
+      cell.entry.entryType === 'HOLIDAY';
     if (locked) {
       return (
         <td key={dateStr} className={tdClass}>
@@ -467,7 +466,9 @@ export function WeeklySchedulePage(): React.JSX.Element {
       assign.mutate({
         employeeId: employee.employeeId,
         weekStartDate: cell.weekStart,
-        weeklyPlanId: cell.plan.weeklyPlanId,
+        // No plan yet (null on the wire) → undefined, which makes the assign
+        // mutation create the week's plan before assigning the shift.
+        weeklyPlanId: cell.plan.weeklyPlanId ?? undefined,
         date: dateStr,
         shiftId,
       });
@@ -689,7 +690,7 @@ export function WeeklySchedulePage(): React.JSX.Element {
           {shifts.map((shift) => (
             <span
               key={shift.id}
-              className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-xs dark:bg-gray-800"
+              className="inline-flex items-center gap-1.5 rounded-md bg-gray-100 px-2.5 py-1 text-xs dark:bg-gray-800"
             >
               <span
                 className="h-3 w-3 rounded-full"
@@ -724,7 +725,7 @@ export function WeeklySchedulePage(): React.JSX.Element {
       <div className="p-4">
         <div
           className={cn(
-            'overflow-auto rounded-xl bg-white shadow-sm dark:bg-gray-900',
+            'overflow-auto rounded-xl bg-white shadow-(--shadow-sd-sm) dark:bg-gray-900',
             compact && 'max-h-[calc(100vh-220px)]',
           )}
         >

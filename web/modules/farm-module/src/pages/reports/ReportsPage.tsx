@@ -174,7 +174,7 @@ const Badge: React.FC<BadgeProps> = ({ count, variant }) => {
 
   return (
     <span
-      className={`ml-2 inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full ${variantClasses[variant]}`}
+      className={`ml-2 inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded ${variantClasses[variant]}`}
     >
       {count}
     </span>

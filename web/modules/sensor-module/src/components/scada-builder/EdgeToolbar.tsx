@@ -95,7 +95,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
   const signalLines = CONNECTION_TYPES.filter((ct) => SIGNAL_LINE_IDS.includes(ct.id));
 
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-2 py-1.5">
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) px-2 py-1.5">
       {/* Edge Type Selector */}
       <div className="flex flex-col gap-0.5 border-r border-gray-200 dark:border-gray-700 pr-2">
         <span className="text-[9px] text-gray-500 dark:text-gray-400 font-medium leading-none px-0.5">
@@ -158,7 +158,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
         </div>
 
         {showConnectionTypes && (
-          <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-1 z-40">
+          <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) py-1 z-40">
             {/* Process Lines */}
             <div className="px-3 pt-1.5 pb-0.5">
               <span className="text-[9px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider">

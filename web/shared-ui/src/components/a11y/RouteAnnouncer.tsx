@@ -1,102 +1,119 @@
 /**
- * RouteAnnouncer Component
+ * RouteAnnouncer — the page's identity: the document title and the
+ * announcement of every navigation (FE-HIGH-017; WCAG 2.4.2 Page Titled,
+ * 4.1.3 Status Messages).
  *
- * Announces route changes to screen readers via an aria-live region.
- * Without this, screen reader users have no feedback when SPA navigation
- * changes the page content.
+ * WHY the frames name the page: only the frame that draws a page knows its
+ * name — the tenant console from its nav entry (page, tab, workspace, all
+ * localized), the admin console from its navigation, an auth form from its
+ * heading — never the router. The announcer this replaces built an English
+ * sentence from the path segments ("Navigated to Sites Environment") whatever
+ * the locale, stayed silent on a change of the query alone (`?tab=`, the
+ * annunciator's `?priority=`), and nothing set the document title, so every
+ * page was the index.html "Aquaculture Platform".
  *
- * FE-HIGH-017: Part of the a11y primitive set that makes accessibility
- * violations structurally impossible rather than relying on individual fixes.
- *
- * @see FE-HIGH-017
+ * WHAT: wrap the routes once and pass the router's location (path + query;
+ * the primitive takes it as a value, so it binds to no router instance). A
+ * frame calls usePageTitle(name). The provider sets `document.title` to
+ * "name · app name" (the app name is the title index.html gave the document)
+ * and, on each navigation — path or query — announces the name in a polite
+ * status region that is in the page from the start (a region inserted with
+ * its text is not read). The first page is not announced: the screen reader
+ * reads a newly loaded document's title itself. A location no frame names
+ * announces nothing and shows the app name alone.
  *
  * @example
- * // Place once in the app shell, typically near the root
- * <RouteAnnouncer />
- * // Screen readers will announce: "Navigated to Dashboard"
- * // when the route changes to /dashboard.
+ * const { pathname, search } = useLocation();
+ * <RouteAnnouncer location={`${pathname}${search}`}>
+ *   <Routes>…</Routes>
+ * </RouteAnnouncer>
+ * // in a frame: usePageTitle(t('nav.feeding'));
  */
-
-import React, { useEffect, useState, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
-
-// ============================================================================
-// Types
-// ============================================================================
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 
 export interface RouteAnnouncerProps {
-  /**
-   * Optional function to derive the announcement message from the pathname.
-   * Default implementation converts pathname segments to a human-readable title.
-   */
-  getAnnouncement?: (pathname: string) => string;
+  /** The current path and query; a change is a navigation, and is announced. */
+  readonly location: string;
+  /** The routes whose frames name their pages. */
+  readonly children: ReactNode;
 }
 
-// ============================================================================
-// Default Announcement Generator
-// ============================================================================
+interface PageIdentity {
+  /** The page's localized name; '' when the frame names none. */
+  readonly setTitle: (title: string) => void;
+}
+
+const PageIdentityContext = createContext<PageIdentity | null>(null);
+
+interface Announcement {
+  readonly text: string;
+  /** A new node per announcement, so the same name on a new page is read again. */
+  readonly id: number;
+}
+
+export function RouteAnnouncer({ location, children }: RouteAnnouncerProps): ReactElement {
+  const [appName] = useState(() => document.title);
+  const title = useRef('');
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
+
+  const identity = useMemo(
+    (): PageIdentity => ({
+      setTitle: (next: string): void => {
+        title.current = next;
+        document.title = next === '' ? appName : `${next} · ${appName}`;
+      },
+    }),
+    [appName],
+  );
+
+  // A parent's effects run after its children's in the same commit, so the
+  // frame below has already named the page this location shows.
+  const announcedAt = useRef<string | null>(null);
+  useEffect(() => {
+    if (announcedAt.current === location) return;
+    const firstPage = announcedAt.current === null;
+    announcedAt.current = location;
+    if (firstPage || title.current === '') return;
+    const text = title.current;
+    setAnnouncement((previous) => ({ text, id: previous === null ? 1 : previous.id + 1 }));
+  }, [location]);
+
+  useEffect(
+    () => () => {
+      document.title = appName;
+    },
+    [appName],
+  );
+
+  return (
+    <PageIdentityContext.Provider value={identity}>
+      <div role="status" className="sr-only">
+        {announcement !== null && <span key={announcement.id}>{announcement.text}</span>}
+      </div>
+      {children}
+    </PageIdentityContext.Provider>
+  );
+}
 
 /**
- * Convert a pathname like "/sites/farm-detail/123" into "Navigated to Sites Farm Detail"
+ * Names the page the calling frame draws: the document title, and what the
+ * next navigation announces. Pass the localized name; '' names none. Outside
+ * a RouteAnnouncer it does nothing.
  */
-function defaultGetAnnouncement(pathname: string): string {
-  if (pathname === '/') return 'Navigated to Home';
-
-  const segments = pathname
-    .split('/')
-    .filter(Boolean)
-    // Skip UUID-like segments (they're IDs, not page names)
-    .filter((s) => !/^[0-9a-f-]{8,}$/i.test(s))
-    // Convert kebab-case to Title Case
-    .map((s) =>
-      s
-        .split('-')
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' '),
-    );
-
-  return `Navigated to ${segments.join(' ')}`;
-}
-
-// ============================================================================
-// Component
-// ============================================================================
-
-export const RouteAnnouncer: React.FC<RouteAnnouncerProps> = ({
-  getAnnouncement = defaultGetAnnouncement,
-}) => {
-  const location = useLocation();
-  const [announcement, setAnnouncement] = useState('');
-  const prevPathRef = useRef(location.pathname);
-
+export function usePageTitle(title: string): void {
+  const identity = useContext(PageIdentityContext);
   useEffect(() => {
-    // Only announce when pathname actually changes (not on hash/search changes)
-    if (location.pathname !== prevPathRef.current) {
-      prevPathRef.current = location.pathname;
-      setAnnouncement(getAnnouncement(location.pathname));
-    }
-  }, [location.pathname, getAnnouncement]);
-
-  // The visually-hidden aria-live region is read by screen readers
-  // whenever its content changes.
-  return (
-    <div
-      role="status"
-      aria-live="assertive"
-      aria-atomic="true"
-      style={{
-        position: 'absolute',
-        width: '1px',
-        height: '1px',
-        padding: 0,
-        margin: '-1px',
-        overflow: 'hidden',
-        clip: 'rect(0, 0, 0, 0)',
-        whiteSpace: 'nowrap',
-        border: 0,
-      }}
-    >
-      {announcement}
-    </div>
-  );
-};
+    if (identity === null) return undefined;
+    identity.setTitle(title);
+    return () => identity.setTitle('');
+  }, [identity, title]);
+}

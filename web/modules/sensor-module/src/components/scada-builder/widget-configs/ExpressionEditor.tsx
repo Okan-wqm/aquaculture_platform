@@ -179,7 +179,7 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
         {autocompleteOpen && filteredTags.length > 0 && (
           <div
             data-testid="tag-autocomplete-dropdown"
-            className="absolute z-50 mt-0.5 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto"
+            className="absolute z-50 mt-0.5 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) max-h-40 overflow-y-auto"
           >
             {filteredTags.map((tag, idx) => (
               <button

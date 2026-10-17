@@ -92,7 +92,7 @@ const PerformancePage: React.FC = () => {
             reviews.items.map((review) => (
               <div
                 key={review.id}
-                className="flex items-center justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+                className="flex items-center justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800"
               >
                 <div className="flex items-center gap-4">
                   <div className="rounded-lg bg-primary-50 p-3 dark:bg-primary-900/30">
@@ -117,7 +117,7 @@ const PerformancePage: React.FC = () => {
                   )}
                   <span
                     className={cn(
-                      'rounded-full px-2 py-0.5 text-xs font-medium',
+                      'rounded-md px-2 py-0.5 text-xs font-medium',
                       review.status === ReviewStatus.FINALIZED
                         ? 'bg-success-100 text-success-800 dark:bg-success-900/30 dark:text-success-400'
                         : review.status === ReviewStatus.MANAGER_REVIEW ||

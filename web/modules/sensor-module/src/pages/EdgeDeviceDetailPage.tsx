@@ -104,9 +104,7 @@ const StatusBadge: React.FC<{ state: DeviceLifecycleState }> = ({ state }) => {
     blue: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   };
   return (
-    <span
-      className={`px-2.5 py-1 rounded-full text-xs font-medium ${colorMap[color] || colorMap.gray}`}
-    >
+    <span className={`px-2.5 py-1 rounded text-xs font-medium ${colorMap[color] || colorMap.gray}`}>
       {getDeviceStatusText(state)}
     </span>
   );
@@ -832,8 +830,8 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
 
         {/* Analog Scaling — Raw ADC -> Engineering Unit dönüşümü (linear interpolation) */}
         {isAnalog && (
-          <div className="p-4 bg-accent-50 dark:bg-accent-900/20 rounded-lg space-y-3">
-            <p className="text-xs font-medium text-accent-700 dark:text-accent-300 uppercase">
+          <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-lg space-y-3">
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
               Analog Olceklendirme
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -891,8 +889,8 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
         )}
 
         {/* Alarm Thresholds — ISA-18.2 alarm yönetimi standardı sıralaması: LL < L < H < HH */}
-        <div className="p-4 bg-accent-50 dark:bg-accent-900/20 rounded-lg space-y-3">
-          <p className="text-xs font-medium text-accent-700 dark:text-accent-300 uppercase">
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-lg space-y-3">
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
             Alarm Esikleri (ISA-18.2)
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -1197,7 +1195,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
   // ---- Empty state: henüz I/O konfigürasyonu yokken instructional CTA göster ----
   if (configs.length === 0 && !formOpen) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
         <div className="text-center py-12">
           <div className="w-16 h-16 rounded-full bg-info-50 dark:bg-info-900/20 flex items-center justify-center mx-auto mb-4">
             <Settings className="w-8 h-8 text-info-400" />
@@ -1317,10 +1315,11 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
                 <QualityDot quality={live.quality} />
                 {isDigital ? (
                   <span
-                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      // ON/OFF is plain state, not an alarm: red is for alarms only (README §7.8)
                       live.value === true || live.value === 1
-                        ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
-                        : 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
+                        ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                     }`}
                   >
                     {live.value === true || live.value === 1 ? 'ON' : 'OFF'}
@@ -1347,7 +1346,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
         const alarm = getAlarmStatus(live?.value as number | boolean | undefined, io);
         return (
           <span
-            className={`px-2 py-0.5 rounded-full text-xs font-medium ${alarmColorMap[alarm.color] || alarmColorMap.gray}`}
+            className={`px-2 py-0.5 rounded text-xs font-medium ${alarmColorMap[alarm.color] || alarmColorMap.gray}`}
           >
             {alarm.status}
           </span>
@@ -1360,7 +1359,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
       render: (_value, io) => (
         <>
           <span
-            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+            className={`px-2 py-0.5 rounded text-xs font-medium ${
               io.isActive
                 ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
@@ -1428,7 +1427,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
       {/* Header with action buttons */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -1442,7 +1441,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
           <button
             onClick={handlePush}
             disabled={pushMutation.isPending || configs.length === 0}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-accent-700 dark:text-accent-300 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg hover:bg-accent-100 dark:hover:bg-accent-900/50 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg hover:bg-primary-100 dark:hover:bg-primary-900/50 transition-colors disabled:opacity-50"
           >
             {pushMutation.isPending ? (
               <Spinner size="sm" color="inherit" />
@@ -1604,7 +1603,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center gap-2">
           <Spinner size="sm" color="gray" />
           <span className="text-sm text-gray-500 dark:text-gray-400">
@@ -1618,7 +1617,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
   if (!commands) return null;
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center gap-2 mb-4">
         <Download className="w-5 h-5 text-gray-600 dark:text-gray-400" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -1721,7 +1720,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
   }, [selectedVersion, device.id, updateMutation, refetch]);
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
       <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Firmware Yonetimi
       </h3>
@@ -2046,7 +2045,9 @@ const EdgeDeviceDetailPage: React.FC = () => {
               variant="ghost"
               size="sm"
               leftIcon={
-                <Activity className={`w-4 h-4 ${pingMutation.isPending ? 'animate-pulse' : ''}`} />
+                <Activity
+                  className={`w-4 h-4 ${pingMutation.isPending ? 'motion-safe:animate-pulse' : ''}`}
+                />
               }
               onClick={handlePing}
               disabled={pingMutation.isPending}
@@ -2139,7 +2140,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Device Info */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
             <div className="flex flex-col items-center text-center mb-6">
               <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-3">
                 <Server className="w-8 h-8 text-gray-600 dark:text-gray-400" />
@@ -2204,7 +2205,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
           {/* System Metrics + Stats */}
           <div className="lg:col-span-2 space-y-6">
             {/* Metrics */}
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 Sistem Metrikleri
               </h3>
@@ -2217,12 +2218,12 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 <MetricBar
                   label="Bellek"
                   value={device.memoryUsage}
-                  icon={<MemoryStick className="w-4 h-4 text-accent-500" />}
+                  icon={<MemoryStick className="w-4 h-4 text-gray-500 dark:text-gray-400" />}
                 />
                 <MetricBar
                   label="Depolama"
                   value={device.storageUsage}
-                  icon={<HardDrive className="w-4 h-4 text-accent-500" />}
+                  icon={<HardDrive className="w-4 h-4 text-gray-500 dark:text-gray-400" />}
                 />
                 <MetricBar
                   label="Sicaklik"
@@ -2242,7 +2243,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </div>
 
             {/* Connection Info */}
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 Baglanti Bilgileri
               </h3>
@@ -2282,19 +2283,19 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
             {/* Summary stats */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 text-center">
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {device.sensorCount ?? 0}
                 </p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Sensor</p>
               </div>
-              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 text-center">
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {device.programCount ?? 0}
                 </p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Program</p>
               </div>
-              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 text-center">
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {device.activeAlarmCount ?? 0}
                 </p>
@@ -2352,7 +2353,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Tags */}
           {device.tags && device.tags.length > 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">
                 Etiketler
               </h3>
@@ -2360,7 +2361,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 {device.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="px-3 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full text-sm"
+                    className="px-3 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-sm"
                   >
                     {tag}
                   </span>
@@ -2371,7 +2372,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Capabilities */}
           {device.capabilities && Object.keys(device.capabilities).length > 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">
                 Yetenekler
               </h3>
@@ -2399,7 +2400,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Raw Config */}
           {device.config && Object.keys(device.config).length > 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">
                 Cihaz Konfigurasyonu
               </h3>
@@ -2410,7 +2411,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
           )}
 
           {/* Description */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">
               Açıklama
             </h3>
@@ -2426,7 +2427,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
       {/* Ping result toast */}
       {pingMutation.isSuccess && pingMutation.data && (
-        <div className="fixed bottom-6 right-6 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50 animate-fade-in">
+        <div className="fixed bottom-6 right-6 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 p-4 z-50 animate-fade-in">
           <div className="flex items-center gap-3">
             {pingMutation.data.success ? (
               <CheckCircle className="w-5 h-5 text-success-600 dark:text-success-400" />

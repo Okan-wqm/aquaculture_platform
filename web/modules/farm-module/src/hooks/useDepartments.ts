@@ -26,7 +26,9 @@ export interface Department {
   description?: string;
   capacity?: number;
   currentLoad?: number;
-  departmentManager?: string;
+  /** The department's manager as stored on the department (farm-service). */
+  managerUserId?: string | null;
+  managerName?: string | null;
   contactEmail?: string;
   contactPhone?: string;
   notes?: string;
@@ -43,7 +45,8 @@ export interface CreateDepartmentInput {
   status?: string;
   description?: string;
   capacity?: number;
-  departmentManager?: string;
+  managerId?: string;
+  managerName?: string;
   contactEmail?: string;
   contactPhone?: string;
   notes?: string;
@@ -74,7 +77,8 @@ const DEPARTMENTS_LIST_QUERY = `
         description
         capacity
         currentLoad
-        departmentManager
+        managerUserId
+        managerName
         contactEmail
         contactPhone
         isActive
@@ -122,7 +126,8 @@ const DEPARTMENT_QUERY = `
       description
       capacity
       currentLoad
-      departmentManager
+      managerUserId
+      managerName
       contactEmail
       contactPhone
       isActive

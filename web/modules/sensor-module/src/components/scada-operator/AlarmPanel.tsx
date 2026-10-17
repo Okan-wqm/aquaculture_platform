@@ -359,13 +359,13 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
 
   return (
     <div
-      className={`flex flex-col bg-white dark:bg-gray-900 rounded-lg shadow-xl border
+      className={`flex flex-col bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border
                   border-gray-200 dark:border-gray-700 ${className} min-w-[720px] max-h-[80vh]`}
     >
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-5 w-5 text-accent-500" />
+          <AlertTriangle className="h-5 w-5 text-gray-500 dark:text-gray-400" />
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
             Alarm Management
           </h2>
@@ -463,7 +463,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
           {showSeverityDropdown && (
             <div
               className="absolute z-50 top-full left-0 mt-1 w-44 bg-white dark:bg-gray-800
-                         rounded border border-gray-200 dark:border-gray-600 shadow-lg"
+                         rounded border border-gray-200 dark:border-gray-600 shadow-(--shadow-sd-lg)"
             >
               {SEVERITY_ORDER.map((sev) => (
                 <label

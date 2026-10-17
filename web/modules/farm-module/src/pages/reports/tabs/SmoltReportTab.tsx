@@ -941,7 +941,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     {unit.unitName || `Unit ${i + 1}`}
                   </div>
                   <div className="col-span-1">
-                    <span className="px-1.5 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
+                    <span className="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded">
                       {ext.speciesCode || 'SAL'}
                     </span>
                   </div>

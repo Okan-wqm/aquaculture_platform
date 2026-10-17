@@ -462,7 +462,7 @@ const DeviceDetailPage: React.FC = () => {
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Device Info Card */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
             <div className="flex flex-col items-center text-center">
               <div className="w-20 h-20 rounded-full bg-info-100 dark:bg-info-900/40 flex items-center justify-center mb-4">
                 <Cpu className="w-10 h-10 text-info-600 dark:text-info-400" />
@@ -473,7 +473,7 @@ const DeviceDetailPage: React.FC = () => {
               <p className="text-gray-500 dark:text-gray-400">{device.model || device.type}</p>
               {/* H5: Use full class strings */}
               <span
-                className={`mt-2 px-3 py-1 ${statusInfo.bgClass} ${statusInfo.textClass} rounded-full text-sm font-medium inline-flex items-center gap-1`}
+                className={`mt-2 px-3 py-1 ${statusInfo.bgClass} ${statusInfo.textClass} rounded text-sm font-medium inline-flex items-center gap-1`}
               >
                 {statusInfo.icon}
                 {statusInfo.label}
@@ -527,7 +527,7 @@ const DeviceDetailPage: React.FC = () => {
           {/* Details & Actions */}
           <div className="lg:col-span-2 space-y-6">
             {/* Technical Details */}
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 Teknik Bilgiler
               </h3>
@@ -578,7 +578,7 @@ const DeviceDetailPage: React.FC = () => {
             </div>
 
             {/* Recent Readings */}
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   Son Okumalar

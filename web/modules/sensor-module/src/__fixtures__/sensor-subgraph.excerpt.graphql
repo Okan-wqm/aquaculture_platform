@@ -314,7 +314,40 @@ enum AggregationInterval {
   ONE_WEEK
 }
 
+# The VFD runtime command ledger (apps/sensor-service/src/vfd/entities/
+# vfd-command-audit-log.entity.ts); `command` serialises as the enum NAME.
+enum VfdCommandType {
+  START
+  STOP
+  REVERSE
+  SET_FREQUENCY
+  SET_SPEED
+  FAULT_RESET
+  QUICK_STOP
+  EMERGENCY_STOP
+  JOG_FORWARD
+  JOG_REVERSE
+  COAST_STOP
+}
+
+type VfdCommandAuditLog {
+  id: ID!
+  tenantId: String!
+  vfdDeviceId: String!
+  command: VfdCommandType!
+  value: Float
+  success: Boolean!
+  error: String
+  performedBy: String!
+  performedByEmail: String
+  source: String!
+  latencyMs: Int
+  metadata: JSON
+  timestamp: DateTime!
+}
+
 type Query {
+  vfdCommandAuditLog(vfdDeviceId: ID!, limit: Int): [VfdCommandAuditLog!]!
   sensor(id: ID!): RegisteredSensorType
   dataChannelsBySensor(sensorId: ID!): [DataChannelType!]!
   channelLatestValues(sensorIds: [ID!]!): [ChannelLatestValue!]!

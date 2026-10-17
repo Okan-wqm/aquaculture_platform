@@ -31,14 +31,13 @@ import type { AutomationBinding, VariableBinding } from '../../types/scada-packa
 // Sub-components
 // ---------------------------------------------------------------------------
 
+/** Variable scope badge — one neutral tag: in the tenant console only red and amber signal
+ *  (Industry README §7.8), so a scope is told apart by its label, not a hue. */
+const SCOPE_LABEL_CLASS = 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+
 const ScopeLabel: React.FC<{ scope: VariableBinding['scope'] }> = ({ scope }) => {
-  const colors = {
-    INPUT: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-    OUTPUT: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-    INOUT: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-  };
   return (
-    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${colors[scope]}`}>
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${SCOPE_LABEL_CLASS}`}>
       {scope}
     </span>
   );
@@ -93,7 +92,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
     : allWidgets;
 
   return (
-    <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-60 overflow-hidden flex flex-col">
+    <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) z-50 max-h-60 overflow-hidden flex flex-col">
       <div className="p-2 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
           <Search className="w-3 h-3 text-gray-500 dark:text-gray-400" />
@@ -168,7 +167,7 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({
   const available = programs.filter((p) => !existingProgramIds.includes(p.id));
 
   return (
-    <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-60 overflow-hidden flex flex-col">
+    <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) z-50 max-h-60 overflow-hidden flex flex-col">
       <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
         <h5 className="text-xs font-medium text-gray-700 dark:text-gray-300">
           Select Automation Program

@@ -25,11 +25,29 @@ import {
   ParameterSendResultDto,
 } from '../dto';
 import { PlcPaginationDto } from '../dto/plc-connection.dto';
+import type { RecordedActor } from '../../common/recorded-actor';
 import { OpcUaAdapter } from '../../protocol/adapters/industrial/opcua.adapter';
 import { ConnectionHandle } from '../../protocol/adapters/base-protocol.adapter';
 import { buildOpcUaConfig } from './opcua-config.builder';
 
 export type PaginatedFeedingParameters = IStandardPaginatedResult<FeedingParameter>;
+
+/** The columns `findAll` sorts by as given (a whitelist: sortBy reaches SQL). */
+const SORTABLE_COLUMNS = ['name', 'status', 'version', 'createdAt', 'updatedAt', 'sentAt', 'activatedAt'];
+
+/**
+ * Sort keys that name an ordering rather than a column.
+ *
+ * `lastSendAttemptAt` orders a send log by when the send happened: `sentAt`
+ * once the PLC write succeeded, else the last change of a PENDING or ERROR
+ * set — the attempt itself, since sendToPlc saves the set on every outcome
+ * but stamps `sentAt` only on success. Sorting by `updatedAt` would lift an
+ * older send above a newer one when it is activated later; sorting by
+ * `sentAt` alone would sink every failed send below every success.
+ */
+const SORT_EXPRESSIONS: ReadonlyMap<string, string> = new Map([
+  ['lastSendAttemptAt', 'COALESCE(fp.sentAt, fp.updatedAt)'],
+]);
 
 /**
  * Feeding Parameter Service
@@ -53,7 +71,7 @@ export class FeedingParameterService {
   async create(
     input: CreateFeedingParameterDto,
     tenantId: string,
-    userId?: string,
+    author: RecordedActor,
   ): Promise<FeedingParameter> {
     this.logger.log(`Creating feeding parameter: ${input.name} for tenant ${tenantId}`);
 
@@ -81,7 +99,8 @@ export class FeedingParameterService {
       ...input,
       tenantId,
       status: ParameterStatus.DRAFT,
-      createdBy: userId,
+      createdBy: author.userId,
+      createdByEmail: author.email,
     });
 
     // Calculate checksum for data integrity
@@ -141,6 +160,10 @@ export class FeedingParameterService {
       queryBuilder.andWhere('fp.status = :status', { status: filter.status });
     }
 
+    if (filter?.sentOnly) {
+      queryBuilder.andWhere('fp.status <> :draft', { draft: ParameterStatus.DRAFT });
+    }
+
     if (filter?.search) {
       queryBuilder.andWhere(
         '(fp.name ILIKE :search OR fp.description ILIKE :search)',
@@ -148,11 +171,18 @@ export class FeedingParameterService {
       );
     }
 
-    // Apply sorting — whitelist allowed columns to prevent SQL injection
-    const allowedSortColumns = ['name', 'status', 'version', 'createdAt', 'updatedAt', 'sentAt', 'activatedAt'];
-    const sortBy = allowedSortColumns.includes(pagination?.sortBy || '') ? pagination!.sortBy! : 'createdAt';
+    // Apply sorting — whitelisted columns and named expressions only (sortBy reaches SQL).
+    const requestedSort = pagination?.sortBy ?? '';
     const sortOrder = pagination?.sortOrder || 'DESC';
-    queryBuilder.orderBy(`fp.${sortBy}`, sortOrder);
+    const sortExpression = SORT_EXPRESSIONS.get(requestedSort);
+    if (sortExpression !== undefined) {
+      // Selected under an alias so TypeORM's two-query pagination (joined
+      // relation + skip/take) can order its id page by it as well.
+      queryBuilder.addSelect(sortExpression, 'fp_sort_key').orderBy('fp_sort_key', sortOrder);
+    } else {
+      const sortBy = SORTABLE_COLUMNS.includes(requestedSort) ? requestedSort : 'createdAt';
+      queryBuilder.orderBy(`fp.${sortBy}`, sortOrder);
+    }
 
     // Get total count and items
     const [items, total] = await queryBuilder
@@ -421,8 +451,8 @@ export class FeedingParameterService {
   async clone(
     id: string,
     tenantId: string,
-    newName?: string,
-    userId?: string,
+    newName: string | undefined,
+    author: RecordedActor,
   ): Promise<FeedingParameter> {
     const original = await this.findById(id, tenantId);
 
@@ -440,7 +470,8 @@ export class FeedingParameterService {
       thresholds: original.thresholds,
       vfdSettings: original.vfdSettings,
       status: ParameterStatus.DRAFT,
-      createdBy: userId,
+      createdBy: author.userId,
+      createdByEmail: author.email,
     });
 
     clone.checksum = this.calculateChecksum(clone);

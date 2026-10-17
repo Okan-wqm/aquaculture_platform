@@ -107,7 +107,7 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
       <div
         className={`
           inline-flex items-center gap-1.5
-          rounded-full ${statusCfg.bg} ${config.padding} px-2
+          rounded ${statusCfg.bg} ${config.padding} px-2
           ${className}
         `}
       >
@@ -121,7 +121,9 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
         <StatusIcon
           size={config.iconSize - 4}
           className={`${statusCfg.color} ${
-            reading.status !== 'normal' && reading.status !== 'offline' ? 'animate-pulse' : ''
+            reading.status !== 'normal' && reading.status !== 'offline'
+              ? 'motion-safe:animate-pulse'
+              : ''
           }`}
         />
       </div>
@@ -159,7 +161,7 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
       <div
         className={`
           flex flex-col items-center gap-1
-          ${reading.status !== 'normal' && reading.status !== 'offline' ? 'animate-pulse' : ''}
+          ${reading.status !== 'normal' && reading.status !== 'offline' ? 'motion-safe:animate-pulse' : ''}
         `}
       >
         <StatusIcon size={config.iconSize} className={statusCfg.color} />

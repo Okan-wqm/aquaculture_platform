@@ -188,7 +188,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
         {/* Low-stock banner: items at/below their minimum — restock these first. */}
         {lowStockCount > 0 && (
-          <span className="inline-flex items-center self-center px-3 py-1 rounded-full text-sm font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 whitespace-nowrap">
+          <span className="inline-flex items-center self-center px-3 py-1 rounded text-sm font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 whitespace-nowrap">
             {lowStockCount} low stock
           </span>
         )}

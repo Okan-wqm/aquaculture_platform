@@ -54,7 +54,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
     return (
       <div className="space-y-4">
         {/* Batch Selector */}
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <Select
             label="Select a batch to view feeding summary"
             value={selectedBatchId}
@@ -70,7 +70,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
           />
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-12 text-center">
           <ChartColumn
             className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-4"
             aria-hidden="true"
@@ -142,8 +142,8 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
       key: 'distribution',
       header: 'Distribution',
       render: (_value, ft) => (
-        <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-          <div className="bg-info-500 h-2 rounded-full" style={{ width: `${ft.percentage}%` }} />
+        <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded h-2">
+          <div className="bg-info-500 h-2 rounded" style={{ width: `${ft.percentage}%` }} />
         </div>
       ),
     },
@@ -170,7 +170,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
       )}
 
       {/* Controls */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Batch Selector (if not from parent) */}
           {!batchId && (
@@ -218,7 +218,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
                 Total Feed Given
               </p>
@@ -229,7 +229,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
                 {data.totalFeedings} feedings
               </p>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Planned</p>
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {data.totalPlannedKg.toFixed(1)} kg
@@ -238,7 +238,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
                 Avg: {data.avgFeedingKg.toFixed(1)} kg/feeding
               </p>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Variance</p>
               <p
                 className={`text-2xl font-semibold ${
@@ -255,7 +255,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
                 {data.varianceKg.toFixed(1)} kg
               </p>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Cost</p>
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {parseMoney(data.totalCostDecimal).toFixed(0)} {data.currency || 'NOK'}
@@ -270,7 +270,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
 
           {/* FCR Display */}
           {currentBatch && (
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
                 FCR Analysis
               </h3>
@@ -316,7 +316,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
 
           {/* Feed Type Breakdown */}
           {data.byFeedType && data.byFeedType.length > 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                 <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
                   Feed Type Breakdown

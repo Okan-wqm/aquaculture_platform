@@ -157,7 +157,7 @@ export function VfdAutomationRuleList({
                       {rule.name}
                     </h4>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      className={`rounded px-2 py-0.5 text-xs font-medium ${
                         rule.isActive
                           ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                           : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'

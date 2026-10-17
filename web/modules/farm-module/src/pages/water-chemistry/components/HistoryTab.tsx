@@ -501,7 +501,7 @@ export const HistoryTab: React.FC = () => {
       header: 'Status',
       render: (_value, m) => (
         <span
-          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}
+          className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${getStatusColor(m.overallStatus)}`}
         >
           {getStatusLabel(m.overallStatus)}
         </span>
@@ -521,14 +521,14 @@ export const HistoryTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Filter Bar */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
         <div className="flex flex-wrap items-center gap-4">
           {/* View Mode Toggle */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               View
             </label>
-            <div className="flex rounded-md shadow-sm">
+            <div className="flex rounded-md shadow-(--shadow-sd-sm)">
               <button
                 onClick={() => {
                   setViewMode('tank');
@@ -677,7 +677,10 @@ export const HistoryTab: React.FC = () => {
             const statField = STAT_FIELD_MAP[config.code];
             const statValue = statField && stats ? stats[statField] : null;
             return (
-              <div key={config.code} className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <div
+                key={config.code}
+                className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4"
+              >
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
                   Avg {config.name}
                 </p>
@@ -689,19 +692,19 @@ export const HistoryTab: React.FC = () => {
               </div>
             );
           })}
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Measurements</p>
             <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
               {stats?.measurementCount ?? 0}
             </p>
             <div className="flex items-center space-x-2 mt-1">
               {stats != null && stats.criticalCount > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200">
                   {stats.criticalCount} critical
                 </span>
               )}
               {stats != null && stats.warningCount > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
                   {stats.warningCount} warning
                 </span>
               )}
@@ -712,7 +715,7 @@ export const HistoryTab: React.FC = () => {
 
       {/* Trend Chart */}
       {activeId && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
             Water Quality Trends
           </h3>
@@ -780,7 +783,7 @@ export const HistoryTab: React.FC = () => {
       )}
 
       {/* Data Table */}
-      <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) rounded-lg overflow-hidden">
         {listQuery.isLoading ? (
           <div className="flex items-center justify-center h-64">
             <Spinner size="xl" />

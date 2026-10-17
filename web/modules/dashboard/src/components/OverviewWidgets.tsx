@@ -52,12 +52,17 @@ const waterQualityRanges: Record<string, { min: number; max: number }> = {
 // Skeleton Components
 // ============================================================================
 
+// Industry has no round shapes (README §6 "Köşe: 0"): the skeleton badge and
+// the meter bars below carry a radius token, which the tenant console scope
+// squares, not `rounded-full`, which it cannot; the task status dot is the one
+// round mark kept.
+
 const WidgetSkeleton: React.FC = () => (
   <Card className="p-4">
     <div className="animate-pulse">
       <div className="flex items-center justify-between mb-4">
         <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
-        <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded-full w-16" />
+        <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-16" />
       </div>
       <div className="space-y-3">
         <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-full" />
@@ -151,7 +156,9 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 return (
-                  <div className="bg-white dark:bg-gray-900 shadow-lg rounded-lg px-3 py-2 text-sm">
+                  // Console elevation token: ink-tinted in Drawing, a lit edge
+                  // in Control room; Tailwind's `shadow-lg` is a fixed black.
+                  <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-lg) rounded-lg px-3 py-2 text-sm">
                     <p className="font-medium">{String(payload[0].payload.day)}</p>
                     <p className="text-primary-600 dark:text-primary-400">
                       {payload[0].value} gorev
@@ -262,9 +269,9 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
                   {value.toFixed(1)} {waterQualityUnits[key] ?? ''}
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${
+                  className={`h-full transition-all ${
                     isWarning ? 'bg-warning-500' : 'bg-success-500'
                   }`}
                   style={{ width: `${progress}%` }}
@@ -401,9 +408,9 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
                   {stock.currentQuantity.toFixed(0)} / {stock.minStock.toFixed(0)} {stock.unit}
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${
+                  className={`h-full transition-all ${
                     isLow ? 'bg-error-500' : percentage < 150 ? 'bg-warning-500' : 'bg-success-500'
                   }`}
                   style={{ width: `${Math.min(percentage, 100)}%` }}

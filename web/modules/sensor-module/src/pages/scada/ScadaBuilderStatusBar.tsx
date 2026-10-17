@@ -63,7 +63,7 @@ export const ScadaBuilderStatusBar: React.FC<ScadaBuilderStatusBarProps> = ({
           </span>
         )}
         <span
-          className={`w-2 h-2 rounded-full ${mode === 'simulation' ? 'bg-info-500 animate-pulse' : 'bg-success-500'}`}
+          className={`w-2 h-2 rounded-full ${mode === 'simulation' ? 'bg-info-500 motion-safe:animate-pulse' : 'bg-success-500'}`}
         />
         <span>{mode === 'simulation' ? 'Simulation Active' : 'Ready'}</span>
       </div>

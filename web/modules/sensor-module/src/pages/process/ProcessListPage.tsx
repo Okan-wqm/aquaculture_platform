@@ -39,13 +39,16 @@ const statusConfig: Record<string, { label: string; color: string }> = {
     label: 'Active',
     color: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
   },
+  // Lifecycle states, not alarms: amber and red are kept for alarms (README §7.8),
+  // so inactive and archived are neutral, archived the quieter of the two (as in
+  // utils/automation.utils.ts).
   inactive: {
     label: 'Inactive',
-    color: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   },
   archived: {
     label: 'Archived',
-    color: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
   },
 };
 
@@ -217,7 +220,7 @@ const ProcessListPage: React.FC = () => {
         return (
           <>
             <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
+              className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${config.color}`}
             >
               {config.label}
             </span>
@@ -281,7 +284,7 @@ const ProcessListPage: React.FC = () => {
                 </Button>
 
                 {activeDropdown === process.id && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10">
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 py-1 z-10">
                     <Link
                       to={`/sensor/unified-editor/${process.id}`}
                       className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"

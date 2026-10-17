@@ -19,7 +19,7 @@ const ReagentSelector: React.FC<ReagentSelectorProps> = ({ selected, onChange })
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
       <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3 border-b pb-1">
         Chemical Reagents
       </h4>

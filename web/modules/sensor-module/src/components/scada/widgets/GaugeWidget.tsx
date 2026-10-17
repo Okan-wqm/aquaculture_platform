@@ -226,7 +226,7 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
       {showLabel && (
         <div className="text-center mt-1">
           <span
-            className={`text-xs font-medium capitalize px-2 py-0.5 rounded-full ${
+            className={`text-xs font-medium capitalize px-2 py-0.5 rounded ${
               status === 'normal'
                 ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                 : status === 'warning'

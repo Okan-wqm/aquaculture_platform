@@ -270,14 +270,14 @@ const DialogOverlay = memo<OverlayItemProps>(
       >
         {/* Semi-transparent backdrop */}
         <div
-          className="absolute inset-0 bg-black/50"
+          className="absolute inset-0 bg-sd-scrim/45"
           onClick={handleClose}
           aria-hidden="true"
         />
 
         {/* Dialog panel */}
         <div
-          className="relative flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden"
+          className="relative flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-(--shadow-sd-lg) overflow-hidden"
           style={{
             width:     defaultWidth,
             height:    defaultHeight,
@@ -334,7 +334,7 @@ const CardOverlay = memo<OverlayItemProps>(
     return (
       <div
         className={[
-          'fixed flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden',
+          'fixed flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-(--shadow-sd-lg) overflow-hidden',
           maximised ? '' : 'resize',
         ].join(' ')}
         style={
@@ -408,7 +408,7 @@ const IframeOverlay = memo<OverlayItemProps>(
 
     return (
       <div
-        className="fixed flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden resize"
+        className="fixed flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-(--shadow-sd-lg) overflow-hidden resize"
         style={{
           left:      0,
           top:       0,

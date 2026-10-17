@@ -158,8 +158,8 @@ const STATUS_COLOURS: Record<string, string> = {
   QUARANTINE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   GROWING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  PRE_HARVEST: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  HARVESTING: 'bg-accent-200 dark:bg-accent-800/50 text-accent-900 dark:text-accent-100',
+  PRE_HARVEST: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  HARVESTING: 'bg-primary-200 dark:bg-primary-800/50 text-primary-900 dark:text-primary-100',
   HARVESTED: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
   CLOSED: 'bg-gray-300 text-gray-800 dark:text-gray-200',
   CANCELLED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
@@ -168,7 +168,7 @@ const STATUS_COLOURS: Record<string, string> = {
 const BatchStatusPill: React.FC<{ status: string }> = ({ status }) => {
   const colour =
     STATUS_COLOURS[status] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
-  return <span className={`px-3 py-1 text-xs font-semibold rounded-full ${colour}`}>{status}</span>;
+  return <span className={`px-3 py-1 text-xs font-semibold rounded ${colour}`}>{status}</span>;
 };
 
 export default BatchDetailPage;

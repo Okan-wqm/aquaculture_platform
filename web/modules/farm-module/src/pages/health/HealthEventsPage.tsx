@@ -784,12 +784,12 @@ export const HealthEventsPage: React.FC = () => {
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-accent-600 dark:text-accent-400" />
+              <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Critical</div>
-                <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
+                <div className="text-2xl font-bold text-error-600 dark:text-error-400">
                   {stats.critical}
                 </div>
               </div>

@@ -512,7 +512,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
               onChange={(e) => handleChange('causeDescription', e.target.value)}
               rows={2}
               className={`
-                      block w-full rounded-md shadow-sm text-sm
+                      block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                       ${errors.causeDescription ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                       focus:ring-info-500 focus:border-info-500
                     `}
@@ -596,7 +596,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                           value={unit.unitName}
                           onChange={(e) => handleUnitChange(idx, 'unitName', e.target.value)}
                           className={`
-                                  block w-full rounded-md shadow-sm text-sm
+                                  block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                                   ${errors[`unit_${idx}_unitName`] ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                                   focus:ring-info-500 focus:border-info-500
                                 `}
@@ -670,7 +670,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                           handleUnitChange(idx, 'escapedCount', parseInt(e.target.value) || 0)
                         }
                         className={`
-                                block w-full rounded-md shadow-sm text-sm
+                                block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                                 ${exceedsStock ? 'border-accent-400 ring-1 ring-accent-300' : 'border-gray-300 dark:border-gray-600'}
                                 focus:ring-info-500 focus:border-info-500
                               `}

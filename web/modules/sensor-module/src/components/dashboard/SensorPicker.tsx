@@ -64,11 +64,14 @@ const WIDGET_TYPES: WidgetConfig[] = [
 
 // Sensor type icons
 const getSensorIcon = (type?: string) => {
+  // One neutral colour for every type: the glyph names the measurement, and in the
+  // console only red and amber signal (Industry README §7.8), so a type painted in
+  // either would read as an alarm.
   const iconMap: Record<string, React.ReactNode> = {
-    TEMPERATURE: <Thermometer size={18} className="text-accent-500" />,
-    PH: <Gauge size={18} className="text-accent-500" />,
-    DISSOLVED_OXYGEN: <Droplets size={18} className="text-info-500" />,
-    SALINITY: <Activity size={18} className="text-info-500" />,
+    TEMPERATURE: <Thermometer size={18} className="text-gray-500 dark:text-gray-400" />,
+    PH: <Gauge size={18} className="text-gray-500 dark:text-gray-400" />,
+    DISSOLVED_OXYGEN: <Droplets size={18} className="text-gray-500 dark:text-gray-400" />,
+    SALINITY: <Activity size={18} className="text-gray-500 dark:text-gray-400" />,
   };
   return (
     iconMap[type?.toUpperCase() || ''] || (

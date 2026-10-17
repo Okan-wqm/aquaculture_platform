@@ -31,11 +31,13 @@ interface EquipmentNodeOverlayProps {
 
 /**
  * Tek bir I/O tag'inin canlı değerini gösteren badge component.
- * DI/DO → LED ikonu (yeşil=ON, kırmızı=OFF)
+ * DI/DO → LED ikonu (dolu=ON, boş=OFF)
  * AI/AO → numerik değer gösterimi
  *
  * Tailwind sınıfları kullanılır — inline style yerine tutarlılık için.
- * Renk paleti: green-500/red-500 (LED), green-100/red-100 (bg)
+ * ON/OFF bir alarm değil, düz bir durumdur: ON primary tonunda, OFF nötr gri.
+ * Kırmızı yalnız alarm içindir (README §7.8) — duran pompa ya da kapalı vana
+ * kırmızı etiket taşımaz. Durumu ON/OFF metni ve dolu/boş LED taşır.
  */
 const IoBadge: React.FC<{
   binding: IoBinding;
@@ -49,19 +51,19 @@ const IoBadge: React.FC<{
     const isOn = liveValue === true || liveValue === 1;
     return (
       <div
-        className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
           isOn
-            ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
-            : 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+            ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200'
+            : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
         }`}
         title={`${binding.tagName} (${binding.ioType}): ${isOn ? 'ON' : 'OFF'}`}
       >
         {/* LED ikonu — dolu daire: ON, boş daire: OFF
-            Aktif output'larda Tailwind animate-pulse kullanılır */}
+            Aktif output'larda nabız; azaltılmış hareket tercihinde durur */}
         <span
           className={`inline-block w-2 h-2 rounded-full ${
-            isOn ? 'bg-success-500' : 'bg-error-500'
-          } ${isOn && isOutput ? 'animate-pulse' : ''}`}
+            isOn ? 'bg-primary-500' : 'border border-gray-500 dark:border-gray-400'
+          } ${isOn && isOutput ? 'motion-safe:animate-pulse' : ''}`}
         />
         <span className="truncate max-w-[50px]">{binding.tagName}</span>
       </div>
@@ -78,7 +80,7 @@ const IoBadge: React.FC<{
 
   return (
     <div
-      className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200"
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200"
       title={`${binding.tagName} (${binding.ioType}): ${displayValue}`}
     >
       <span className="truncate max-w-[40px]">{binding.tagName}</span>

@@ -82,7 +82,7 @@ const ErrorMessage: React.FC<{ message: string }> = ({ message }) => (
 );
 
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
+  <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-12 text-center">
     <ChartColumn
       className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
       aria-hidden="true"
@@ -101,7 +101,7 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
   const statusInfo = growthStatusLabels[growthStatus];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-md) overflow-hidden">
       {/* Header */}
       <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
@@ -159,9 +159,9 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
                 : 'Hasat hazir'}
             </span>
           </div>
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2">
             <div
-              className="h-2 rounded-full bg-info-500"
+              className="h-2 rounded bg-info-500"
               style={{
                 width: `${Math.min(
                   getTargetProgress(
@@ -228,7 +228,7 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6">
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
           Buyume Gecmisi
         </h3>
@@ -239,7 +239,7 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
 
   if (!history || history.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6">
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
           Buyume Gecmisi
         </h3>
@@ -256,7 +256,7 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
   const maxWeight = Math.max(...sortedHistory.map((m) => m.averageWeight));
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6">
       <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Buyume Gecmisi</h3>
 
       {/* Simple bar chart visualization */}
@@ -431,7 +431,7 @@ export const GrowthTab: React.FC = () => {
         <>
           {sample.performance ? (
             <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${performanceLabels[sample.performance]?.color ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+              className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${performanceLabels[sample.performance]?.color ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
             >
               {performanceLabels[sample.performance]?.label ?? sample.performance}
             </span>
@@ -523,7 +523,7 @@ export const GrowthTab: React.FC = () => {
                   <BatchAnalysisCard analysis={analysisData} />
 
                   {/* Trend Card */}
-                  <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-4">
+                  <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-md) p-4">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
                       Trend Analizi
                     </h3>
@@ -653,7 +653,7 @@ export const GrowthTab: React.FC = () => {
       ) : measurements.length === 0 ? (
         <EmptyState message="Henuz buyume olcumu bulunmuyor" />
       ) : (
-        <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) rounded-lg overflow-hidden">
           <DataTable<SampleRow>
             data={measurements}
             columns={sampleRowColumns}
@@ -690,7 +690,7 @@ const BatchAnalysisCardWrapper: React.FC<{ batchId: string }> = ({ batchId }) =>
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-md) p-6">
         <div className="animate-pulse space-y-3">
           <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
           <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
@@ -705,7 +705,7 @@ const BatchAnalysisCardWrapper: React.FC<{ batchId: string }> = ({ batchId }) =>
 
   if (error || !analysis) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 text-center text-sm text-gray-400 dark:text-gray-500">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-md) p-6 text-center text-sm text-gray-400 dark:text-gray-500">
         Analiz verisi yuklenemedi
       </div>
     );

@@ -33,7 +33,6 @@ const targets = [
     sublabel: 'Path A',
     description: 'Built-in Rust scripting engine - no PLC required',
     icon: Cpu,
-    color: 'indigo',
   },
   {
     value: DeployTarget.CODESYS_PLC,
@@ -41,7 +40,6 @@ const targets = [
     sublabel: 'Path B',
     description: 'Codesys V3 based PLC - ST source code is sent and compiled on the device',
     icon: Server,
-    color: 'emerald',
   },
   {
     value: DeployTarget.PLC_SETPOINT,
@@ -49,7 +47,6 @@ const targets = [
     sublabel: 'Path C',
     description: 'Closed PLC - setpoint writing only (OPC-UA, Modbus, S7comm)',
     icon: Settings2,
-    color: 'amber',
   },
 ] as const;
 
@@ -70,48 +67,18 @@ const plcModelOptions = [
   { value: 'other', label: 'Other Codesys V3 Runtime' },
 ];
 
-const colorStyles: Record<
-  string,
-  {
-    active: string;
-    inactive: string;
-    icon: string;
-    iconInactive: string;
-    badge: string;
-    badgeInactive: string;
-    dot: string;
-  }
-> = {
-  indigo: {
-    active: 'border-primary-500 bg-primary-50 dark:bg-primary-900/20',
-    inactive:
-      'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500',
-    icon: 'text-primary-600 dark:text-primary-400',
-    iconInactive: 'text-gray-500 dark:text-gray-400',
-    badge: 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300',
-    badgeInactive: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
-    dot: 'bg-primary-500',
-  },
-  emerald: {
-    active: 'border-success-500 bg-success-50 dark:bg-success-900/20',
-    inactive:
-      'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500',
-    icon: 'text-success-600 dark:text-success-400',
-    iconInactive: 'text-gray-500 dark:text-gray-400',
-    badge: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-    badgeInactive: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
-    dot: 'bg-success-500',
-  },
-  amber: {
-    active: 'border-warning-500 bg-warning-50 dark:bg-warning-900/20',
-    inactive:
-      'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500',
-    icon: 'text-warning-600 dark:text-warning-400',
-    iconInactive: 'text-gray-500 dark:text-gray-400',
-    badge: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-    badgeInactive: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
-    dot: 'bg-warning-500',
-  },
+// One selection style for every target. The paths are options, not states: the
+// chosen one takes the workspace accent and the rest stay gray. A colour per
+// path read as meaning in the console — the PLC Setpoint path in amber looked
+// like a caution (README §7.8).
+const targetStyles = {
+  active: 'border-primary-500 bg-primary-50 dark:bg-primary-900/20',
+  inactive: 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500',
+  icon: 'text-primary-600 dark:text-primary-400',
+  iconInactive: 'text-gray-500 dark:text-gray-400',
+  badge: 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300',
+  badgeInactive: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
+  dot: 'bg-primary-500',
 };
 
 const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
@@ -133,7 +100,6 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
         {targets.map((target) => {
           const isActive = value === target.value;
           const Icon = target.icon;
-          const styles = colorStyles[target.color];
           return (
             <button
               key={target.value}
@@ -141,14 +107,16 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
               aria-checked={isActive}
               onClick={() => onChange(target.value)}
               className={`relative p-4 rounded-lg border-2 text-left transition-all ${
-                isActive ? styles.active : styles.inactive
+                isActive ? targetStyles.active : targetStyles.inactive
               }`}
             >
               <div className="flex items-center gap-2 mb-2">
-                <Icon className={`h-5 w-5 ${isActive ? styles.icon : styles.iconInactive}`} />
+                <Icon
+                  className={`h-5 w-5 ${isActive ? targetStyles.icon : targetStyles.iconInactive}`}
+                />
                 <span
                   className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                    isActive ? styles.badge : styles.badgeInactive
+                    isActive ? targetStyles.badge : targetStyles.badgeInactive
                   }`}
                 >
                   {target.sublabel}
@@ -161,7 +129,9 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
               </h4>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{target.description}</p>
               {isActive && (
-                <div className={`absolute top-2 right-2 w-2 h-2 rounded-full ${styles.dot}`} />
+                <div
+                  className={`absolute top-2 right-2 w-2 h-2 rounded-full ${targetStyles.dot}`}
+                />
               )}
             </button>
           );

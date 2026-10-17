@@ -241,6 +241,10 @@
   --animate-fade-in: fadeIn 0.2s ease-out;
   --animate-slide-up: slideUp 0.2s ease-out;
   --animate-slide-down: slideDown 0.2s ease-out;
+  /* The console's alarm blink (ISA-101 "hpblink"): a hard 1 Hz on/off, not a
+     fade, so a flashing CRIT mark reads as an alarm. Use it under
+     `motion-safe:` only — prefers-reduced-motion keeps the mark still. */
+  --animate-sd-blink: sdBlink 1s steps(1, end) infinite;
 
   /* ============ SUDERRA console tokens — the Industry palette ============
      WHAT: the tenant console's visual language (design handoff "Tenant
@@ -266,7 +270,6 @@
   --color-sd-ink-soft: #424244; /* secondary text (neutral-800) */
   --color-sd-ink-muted: #5d5d60; /* tertiary text (neutral-700) — 5.4:1 on parchment, 5.9:1 on paper */
   --color-sd-ink-hint: #5d5d60; /* hint text (neutral-700) — 6.0:1 on the own-message bubble */
-  --color-sd-ink-faint: #a8aaad; /* faint label on the graphite rail (Control-room neutral-700) — 6.2:1 */
   --color-sd-teal: #3c5c7e; /* text-safe accent: links, eyebrows, active tabs (accent-700) */
   --color-sd-teal-deep: #2e4865; /* accent hover, and the solid accent fill under sd-mint-paper (accent-800) */
   --color-sd-mint-paper: #f2f2f3; /* text on sd-teal-deep: the ground colour, so the pair flips together */
@@ -277,24 +280,11 @@
   --color-sd-violet: #8377a9; /* AI accent (chat bubble, channel icon) at Industry chroma */
   --color-sd-violet-ink: #584e75; /* AI icon on paper */
 
-  /* The rail SuderraSidebar paints. It stays one dark ground in both themes —
-     now Control-room graphite instead of deep water — because the sidebar
-     reads one token per role (`rail-bright` is both the logo plate and the
-     brand label, `rail-bottom` also the scrim behind dialogs), and a rail that
-     flipped light would put the logo on a dark plate. The per-theme rail of
-     README §7.2 is its own component in the console's shell phase (Phase 2 of
-     the handoff plan), painting from sd-paper and sd-neutral-* instead. */
-  --color-sd-rail-top: #28292b; /* rail gradient stop 1 (Control-room surface) */
-  --color-sd-rail-mid: #232527; /* rail gradient stop 2 (Control-room neutral-100) */
-  --color-sd-rail-bottom: #202224; /* rail gradient stop 3, dialog and mobile-rail scrim (Control-room bg) */
-  --color-sd-rail-item: #c4c6c9; /* rail item label — 8.5:1 on rail-top */
-  --color-sd-rail-icon: #a8aaad; /* rail item icon */
-  --color-sd-rail-child: #a8aaad; /* rail child and section label — 6.2:1 on rail-top */
-  --color-sd-rail-child-icon: #8c8e91; /* rail child icon */
-  --color-sd-rail-bright: #eceef0; /* brand name, hovered child label, logo plate */
-  --color-sd-rail-accent: #a9cdf0; /* brand caption (Control-room accent-700) */
-  --color-sd-mint: #749dc4; /* rail accent: active icon, focus ring (Control-room accent) */
-  --color-sd-mint-soft: #c6e2fe; /* active rail label (Control-room accent-800) */
+  /* The scrim behind dialogs, the command palette and the console rail's
+     phone overlay: one dark ground in both themes (Control-room bg), used at
+     an alpha (`bg-sd-scrim/45`), so a sheet lifts off the page the same way in
+     Drawing and Control room. */
+  --color-sd-scrim: #202224;
 
   /* Industry semantic ramps (README §6). Step N keeps its ROLE in both themes
      — 100 the subtlest fill, 900 the strongest ink — so the dark block
@@ -430,7 +420,7 @@
 /* SUDERRA tokens under the dark theme — Industry "Control room" (FE-HIGH-313).
    The paper/ink pair, the text accents and the Industry semantic ramps flip
    here once, so every `bg-sd-paper` / `text-sd-ink` / `bg-sd-accent-100`
-   follows the shell's toggle with no `dark:` sibling of its own. The rail,
+   follows the shell's toggle with no `dark:` sibling of its own. The scrim,
    the scope ramps and the hazard fills keep their one value. `mint-paper` is
    the text ON `teal-deep`, so the two flip together and keep their contrast. */
 [data-theme='dark'] {
@@ -628,6 +618,14 @@
   100% {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+@keyframes sdBlink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
   }
 }
 @keyframes slideDown {

@@ -75,6 +75,12 @@ export type ActionType =
   | 'SET_OUTPUT'
   | 'TIMER';
 
+export type ActiveAlertCount = {
+  acknowledged: Scalars['Boolean']['output'];
+  count: Scalars['Int']['output'];
+  severity: AlertSeverity;
+};
+
 export type ActiveTankResponse = {
   avgWeightG: Scalars['Float']['output'];
   batchId?: Maybe<Scalars['ID']['output']>;
@@ -4603,10 +4609,11 @@ export type DepartmentResponse = {
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['ID']['output']>;
   currentLoad?: Maybe<Scalars['Float']['output']>;
-  departmentManager?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
+  managerName?: Maybe<Scalars['String']['output']>;
+  managerUserId?: Maybe<Scalars['ID']['output']>;
   name: Scalars['String']['output'];
   settings?: Maybe<Scalars['JSON']['output']>;
   site?: Maybe<SiteResponse>;
@@ -4723,6 +4730,7 @@ export type DeploymentLog = {
   completedAt?: Maybe<Scalars['DateTime']['output']>;
   deployedAt: Scalars['DateTime']['output'];
   deployedBy?: Maybe<Scalars['String']['output']>;
+  deployedByEmail?: Maybe<Scalars['String']['output']>;
   deviceId: Scalars['String']['output'];
   edgeAckAt?: Maybe<Scalars['DateTime']['output']>;
   edgeScript?: Maybe<Scalars['JSON']['output']>;
@@ -5137,8 +5145,12 @@ export type EdgeDeviceConnection = {
 export type EdgeDeviceStats = {
   byModel: Array<ModelCount>;
   byState: Array<StateCount>;
+  /** Devices not in a terminal lifecycle state (decommissioned, revoked) */
+  inService: Scalars['Int']['output'];
   offline: Scalars['Int']['output'];
   online: Scalars['Int']['output'];
+  /** Online devices among inService */
+  onlineInService: Scalars['Int']['output'];
   total: Scalars['Int']['output'];
 };
 
@@ -6603,6 +6615,7 @@ export type FeedingParameter = {
   connection?: Maybe<PlcConnection>;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
+  createdByEmail?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   errorMessage?: Maybe<Scalars['String']['output']>;
   fcr: Scalars['Float']['output'];
@@ -6624,6 +6637,7 @@ export type FeedingParameter = {
 export type FeedingParameterFilterInput = {
   plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
+  sentOnly?: InputMaybe<Scalars['Boolean']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
   tankId?: InputMaybe<Scalars['ID']['input']>;
 };
@@ -9234,6 +9248,7 @@ export type MattilsynetStatus = {
 export type MePayload = {
   modules: Array<UserModule>;
   redirectPath: Scalars['String']['output'];
+  tenantName?: Maybe<Scalars['String']['output']>;
   user: User;
 };
 
@@ -15603,6 +15618,7 @@ export type QuantityDeclarationReason =
   | 'REDISCOVERY_CLEARED';
 
 export type Query = {
+  activeAlertCounts: Array<ActiveAlertCount>;
   activeEmployees: Array<Employee>;
   activeFeedingParameter?: Maybe<FeedingParameter>;
   /** Aktif yemleme programlarini getir */
@@ -16303,7 +16319,9 @@ export type QueryAlertHistoryArgs = {
   endDate?: InputMaybe<Scalars['DateTime']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
+  resolved?: InputMaybe<Scalars['Boolean']['input']>;
   ruleId?: InputMaybe<Scalars['ID']['input']>;
+  severities?: InputMaybe<Array<AlertSeverity>>;
   severity?: InputMaybe<AlertSeverity>;
   startDate?: InputMaybe<Scalars['DateTime']['input']>;
 };
@@ -16747,6 +16765,7 @@ export type QueryEdgeDeviceArgs = {
 
 
 export type QueryEdgeDevicesArgs = {
+  inService?: InputMaybe<Scalars['Boolean']['input']>;
   isOnline?: InputMaybe<Scalars['Boolean']['input']>;
   lifecycleState?: InputMaybe<DeviceLifecycleState>;
   limit?: InputMaybe<Scalars['Int']['input']>;

@@ -225,7 +225,7 @@ const ScreenTabBar: React.FC = () => {
             }}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
               isActive
-                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm border border-gray-200 dark:border-gray-700'
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700'
                 : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-800 dark:hover:text-gray-100'
             }`}
             style={{
@@ -237,7 +237,7 @@ const ScreenTabBar: React.FC = () => {
           >
             {getScreenIcon(screen.icon)}
             <span>{screen.name}</span>
-            {screen.isDefault && <Star className="w-3 h-3 text-warning-500 fill-warning-400" />}
+            {screen.isDefault && <Star className="w-3 h-3 text-primary-500 fill-primary-500" />}
           </button>
         );
       })}
@@ -279,7 +279,7 @@ const ScreenTabBar: React.FC = () => {
 
         {showAddDropdown && (
           <div
-            className="fixed w-44 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50"
+            className="fixed w-44 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 py-1 z-50"
             style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
           >
             {SCREEN_TYPE_OPTIONS.map((opt) => (
@@ -301,7 +301,7 @@ const ScreenTabBar: React.FC = () => {
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
+          className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <Button

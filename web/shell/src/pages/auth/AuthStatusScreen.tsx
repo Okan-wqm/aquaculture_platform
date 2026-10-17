@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Button, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Button, useI18n, usePageTitle, type MessageKey } from '@aquaculture/shared-ui';
 import { Check, X } from 'lucide-react';
 
 export interface AuthStatusScreenProps {
@@ -28,6 +28,8 @@ export const AuthStatusScreen: React.FC<AuthStatusScreenProps> = ({
 }) => {
   const { t } = useI18n();
   const isSuccess = variant === 'success';
+  // The result names the page in place of the form it replaced (document title).
+  usePageTitle(t(titleKey));
 
   // This screen mounts in place of the form (no route change), so move focus to
   // the heading on mount and mark the region role=status/alert so assistive tech

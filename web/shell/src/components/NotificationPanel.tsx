@@ -12,11 +12,27 @@
  * - Navigation to relevant page based on notification type/data
  * - Empty state when no notifications
  * - Click-outside to close
+ *
+ * Every word is a message key and every date follows the active locale
+ * (FE-HIGH-089): the bell sits in the tenant console header beside controls
+ * that speak the reader's language, and a Turkish reader was told
+ * "Notifications (3 unread)". In that header the panel hangs from the header
+ * at its gutter where the row wraps (the Popover's `header-gutter` anchor, as
+ * the user menu does): anchored to the bell, it opened past the screen's left
+ * edge on a phone. The unread badge is error-600: its white 12px bold text
+ * holds 4.5:1 there in both themes and every console workspace (error-500 was
+ * 3.55:1).
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { validateNavigationUrl, Popover } from '@aquaculture/shared-ui';
+import {
+  validateNavigationUrl,
+  Popover,
+  toIntlLocale,
+  useI18n,
+  type I18nContextValue,
+} from '@aquaculture/shared-ui';
 import {
   useNotifications,
   type InAppNotification,
@@ -92,12 +108,17 @@ function resolveNotificationRoute(data: NotificationData | null): string | null 
 // ============================================================================
 
 /**
- * Format a timestamp into a human-readable relative time.
+ * Format a timestamp into a human-readable relative time, in the reader's
+ * language: the relative steps are message keys, an older date is formatted
+ * for the active locale.
  *
  * FE-HIGH-022: Uses Intl.DateTimeFormat with explicit timezone instead of
  * bare toLocaleDateString() which shows server UTC times as local times.
  */
-function formatTimeAgo(dateString: string): string {
+function formatTimeAgo(
+  dateString: string,
+  { t, locale }: Pick<I18nContextValue, 't' | 'locale'>,
+): string {
   const now = new Date();
   const date = new Date(dateString);
   const diffMs = now.getTime() - date.getTime();
@@ -105,13 +126,13 @@ function formatTimeAgo(dateString: string): string {
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMinutes < 1) return 'just now';
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffMinutes < 1) return t('notifications.timeAgo.justNow');
+  if (diffMinutes < 60) return t('notifications.timeAgo.minutes', { count: diffMinutes });
+  if (diffHours < 24) return t('notifications.timeAgo.hours', { count: diffHours });
+  if (diffDays < 7) return t('notifications.timeAgo.days', { count: diffDays });
 
   // FE-HIGH-022: Always include timezone to prevent UTC/local mismatch
-  return new Intl.DateTimeFormat('en-US', {
+  return new Intl.DateTimeFormat(toIntlLocale(locale), {
     month: 'short',
     day: 'numeric',
     timeZone: 'Europe/Istanbul',
@@ -145,6 +166,7 @@ const NotificationItem: React.FC<{
   data: NotificationData | null;
   onClick: () => void;
 }> = ({ notification, data, onClick }) => {
+  const i18n = useI18n();
   const indicator = getNotificationIndicator(data);
 
   return (
@@ -175,7 +197,7 @@ const NotificationItem: React.FC<{
           {notification.body}
         </p>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-          {formatTimeAgo(notification.createdAt)}
+          {formatTimeAgo(notification.createdAt, i18n)}
         </p>
       </div>
 
@@ -190,13 +212,20 @@ const NotificationItem: React.FC<{
 };
 
 /** Empty state */
-const EmptyState: React.FC = () => (
-  <div className="py-12 px-4 text-center">
-    <Bell className="w-12 h-12 mx-auto text-gray-300 mb-3" aria-hidden="true" />
-    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No notifications</p>
-    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">You're all caught up!</p>
-  </div>
-);
+const EmptyState: React.FC = () => {
+  const { t } = useI18n();
+  return (
+    <div className="py-12 px-4 text-center">
+      <Bell className="w-12 h-12 mx-auto text-gray-300 mb-3" aria-hidden="true" />
+      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+        {t('notifications.empty.title')}
+      </p>
+      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+        {t('notifications.empty.subtitle')}
+      </p>
+    </div>
+  );
+};
 
 /** Loading skeleton */
 const LoadingSkeleton: React.FC = () => (
@@ -220,6 +249,7 @@ const LoadingSkeleton: React.FC = () => (
 
 export const NotificationPanel: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
 
@@ -305,18 +335,23 @@ export const NotificationPanel: React.FC = () => {
     <Popover
       open={isOpen}
       onOpenChange={handleOpenChange}
-      aria-label="Notifications"
+      aria-label={t('notifications.title')}
+      anchor="header-gutter"
       panelClassName="w-96"
       trigger={(props) => (
         <button
           {...props}
           type="button"
           className="relative p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
+          aria-label={
+            unreadCount > 0
+              ? t('notifications.triggerUnread', { count: unreadCount })
+              : t('notifications.title')
+          }
         >
           <Bell className="w-6 h-6" aria-hidden="true" />
           {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-error-500 rounded-full">
+            <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-error-600 rounded-full">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
@@ -330,11 +365,11 @@ export const NotificationPanel: React.FC = () => {
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                Notifications
+                {t('notifications.title')}
               </h3>
               {unreadCount > 0 && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
-                  {unreadCount} new
+                  {t('notifications.new', { count: unreadCount })}
                 </span>
               )}
             </div>
@@ -344,7 +379,7 @@ export const NotificationPanel: React.FC = () => {
                 onClick={handleMarkAllRead}
                 className="text-xs font-medium text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 transition-colors"
               >
-                Mark all as read
+                {t('notifications.markAllRead')}
               </button>
             )}
           </div>
@@ -372,7 +407,7 @@ export const NotificationPanel: React.FC = () => {
                     onClick={handleLoadMore}
                     className="w-full py-2 text-xs font-medium text-info-600 hover:text-info-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
-                    Load more ({notifications.length - visibleCount} remaining)
+                    {t('notifications.loadMore', { count: notifications.length - visibleCount })}
                   </button>
                 )}
               </>

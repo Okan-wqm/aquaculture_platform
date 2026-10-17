@@ -50,7 +50,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
         const cat = CATEGORY_CONFIG[tmpl.category];
         return (
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cat.bg} ${cat.color}`}
           >
             {cat.label}
           </span>
@@ -65,7 +65,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
         return (
           <div>
             <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${freq.bg} ${freq.color}`}
+              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${freq.bg} ${freq.color}`}
             >
               {freq.label}
             </span>
@@ -85,7 +85,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
         const pri = PRIORITY_CONFIG[tmpl.priority];
         return (
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${pri.bg} ${pri.color}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${pri.bg} ${pri.color}`}
           >
             {pri.label}
           </span>
@@ -174,7 +174,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       </div>
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
         <DataTable<TmplRow>
           data={filtered}
           columns={tmplRowColumns}

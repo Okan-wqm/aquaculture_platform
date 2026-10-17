@@ -10,13 +10,13 @@ Owner: claude (implementation), okan (review).
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
 2026-10-24.
 
-### Symptom
+### Symptom (FE-MEDIUM-345)
 
 On production `/tenant` (Company dashboard, dark theme) the Module Status list showed the words
 "users" beside Human Resources and "sprout" beside Hydroponics Management, overflowing their icon
 tiles. Fish Farm Management and Sensor Monitoring showed the emoji 🐟 and 📊.
 
-### Root cause
+### Root cause (FE-MEDIUM-345)
 
 Line references are to `main` before this fix.
 
@@ -40,14 +40,14 @@ The console already owns a typed map from Lucide names to components for the rai
 (`web/shared-ui/src/components/Layout/console/railIcons.ts`), which covered four of the six
 catalogue names.
 
-### Evidence
+### Evidence (FE-MEDIUM-345)
 
 - Screenshot of production `/tenant`: the Human Resources and Hydroponics Management rows show
   the text "users" and "sprout" where the other rows show an emoji.
 - Before the fix, `TenantDashboard.spec.tsx` renders the list from records named `users`,
   `sprout`, `fish`, an unknown name and `null`, and finds no `svg` in any icon tile.
 
-### Fix
+### Fix (FE-MEDIUM-345)
 
 - `railIcons.ts` is now the console's single icon vocabulary. It adds `bell` and `brain`, so
   every catalogue name resolves. `consoleIconFor(name: string | null)` returns the name's
@@ -61,7 +61,7 @@ catalogue names.
   icon in the login payload, so the refs query (`MyModuleRefs`, formerly `MyModulesWithIds`) also
   selects `icon`. `useModuleRefs` returns each module's id and icon by code.
 
-### Tests
+### Tests (FE-MEDIUM-345)
 
 - `web/shared-ui/src/components/Layout/console/__tests__/railIcons.spec.ts`: known names
   resolve to their Lucide component; unknown, `null` and prototype names resolve to `Package`.
@@ -76,7 +76,7 @@ catalogue names.
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline
 2026-10-24.
 
-### Symptom
+### Symptom (INFRA-HIGH-230)
 
 CI - Affected run 38990686731 (`ffd6aa2f4`, `deploy-development / deploy`) ended with
 `status=rollback_failed`. Afterwards `ghcr.io/okan-wqm/aquaculture_platform/<svc>:ffd6aa2f4...`
@@ -86,7 +86,7 @@ named the pre-release image for every app service (`shell` → `ebc6d366dea1`, t
 so any later `TAG=ffd6aa2f4... docker compose up` started old code against a schema two
 migrations ahead of it.
 
-### Root cause
+### Root cause (INFRA-HIGH-230)
 
 The job logs of attempts 3 and 4 (release ids `ffd6aa2f4...-20261017T<time>`) show two defects
 in the same rollback path, plus a compose recreate that cannot survive its own failure.
@@ -119,7 +119,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
    The rollback's own `compose up` hit the same wall (`f33602842a24_aqua-auth`). The selective
    path (`:1612`) ran compose with no check for either state.
 
-### Fix
+### Fix (INFRA-HIGH-230)
 
 - **Release tags have one writer.** `pull_deploy_image_required` pins `<svc>:<DEPLOY_SHA>` and
   `<svc>:latest` from the release digest and fails the deploy if either pin fails. The rollback
@@ -145,7 +145,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
 - The rollback and image-reference code moved from `droplet-up.sh` into
   `scripts/deploy/lib/release-rollback.sh`, so the specs can source it.
 
-### Tests
+### Tests (INFRA-HIGH-230)
 
 - `tests/invariants/deploy-rollback-release-tag.spec.ts` runs capture and restore against a
   fake Docker daemon (`tests/invariants/helpers/fake-deploy-docker.ts`). Attempt 4 is refused
@@ -160,7 +160,7 @@ in the same rollback path, plus a compose recreate that cannot survive its own f
   the name fails with no `rm`, `stop` or `up`. Temp names of other projects are left alone and
   undefined services are refused.
 
-### Not changed
+### Not changed (INFRA-HIGH-230)
 
 - The full-stack path runs `compose down` and force-removes every `aqua-*` container before
   `compose up`, so no leftover can block it. Its rollback goes through the same

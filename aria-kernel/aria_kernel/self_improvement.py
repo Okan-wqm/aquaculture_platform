@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from .artifact_safety import scrub_text
-from .doctor import DoctorCheck
+from .doctor import DoctorCheck, DoctorReport
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 SELF_IMPROVEMENT_SOURCE_KIND = "self_improvement"
@@ -245,8 +245,25 @@ def doctor_signals(check: DoctorCheck) -> list[Signal]:
             for cause in check.causes]
 
 
-def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> list[Signal]:
+def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path,
+                 doctor_report: DoctorReport | None = None) -> list[Signal]:
+    """Every signal the store raises tonight.
+
+    ARIA-LOW-559 — ``doctor_report`` is the report the doctor already wrote
+    for this store (the live lane's doctor step, `gateway.scheduler.
+    load_doctor_report`); its failing organs are read from it and the doctor
+    is not run again — a second full run cost the nightly about four minutes
+    (doctor 229 s, self_improve 245 s on the 2026-10-10 store). Without one
+    (the gateway daemon's own `self_improve` slot, the `self-improve` CLI)
+    the doctor runs here. A report of another store or another workspace is
+    refused: its organs describe a different tree.
+    """
     root = ensure_tools_dir(base_dir)
+    if doctor_report is not None:
+        if Path(doctor_report.tools_dir).resolve() != Path(root).resolve():
+            raise GovernanceError(f"doctor_report_store_mismatch:{doctor_report.tools_dir!r}")
+        if Path(doctor_report.workspace_root).resolve() != Path(workspace_root).resolve():
+            raise GovernanceError(f"doctor_report_workspace_mismatch:{doctor_report.workspace_root!r}")
     signals: list[Signal] = []
     try:
         from .capability_gap import latest_capability_gaps
@@ -291,7 +308,8 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> 
     try:
         from .doctor import run_doctor
 
-        for check in run_doctor(base_dir=root, workspace_root=workspace_root).checks:
+        report = doctor_report if doctor_report is not None else run_doctor(base_dir=root, workspace_root=workspace_root)
+        for check in report.checks:
             if check.status == "fail":
                 signals.extend(doctor_signals(check))
     except Exception:  # noqa: BLE001
@@ -323,7 +341,8 @@ def self_change_signals(signals: list[Signal]) -> list[Signal]:
     return sorted((s for s in signals if s.remedy == SELF_CHANGE_REMEDY), key=lambda s: (s.priority, s.kind, s.key))
 
 
-def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_root: str | Path, max_new: int = 3) -> list[dict[str, Any]]:
+def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_root: str | Path, max_new: int = 3,
+                                   doctor_report: DoctorReport | None = None) -> list[dict[str, Any]]:
     """Self-change signals → missions (idempotent on source id); never more than `max_new` NEW missions per call.
 
     ARIA-MEDIUM-417 — the budget counts what this call OPENED. A re-sighting
@@ -339,7 +358,7 @@ def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_roo
     repo_hash = canonical_identity(Path(workspace_root).resolve())
     opened: list[dict[str, Any]] = []
     new = 0
-    for signal in self_change_signals(scan_signals(base_dir=root, workspace_root=workspace_root)):
+    for signal in self_change_signals(scan_signals(base_dir=root, workspace_root=workspace_root, doctor_report=doctor_report)):
         if new >= max_new:
             break
         source_id = f"{signal.kind}:{signal.key}"

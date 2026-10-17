@@ -19,11 +19,12 @@ take a slot from a self-change row beside it.
 from __future__ import annotations
 
 import dataclasses
-
+import io
 import json
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -309,6 +310,102 @@ class RepairLoop(_Store):
 
         self.assertEqual(breaker.title, "Doctor organ breakers failing: breaker_tripped:cost_breaker")
         self.assertEqual(tools.title, "Doctor organ tools failing: tools_degraded_human_required:a-adapter")
+
+
+class TheLaneReadsTheDoctorStepsReport(_Store):
+    """ARIA-LOW-559 — the nightly's self-improve step ran the whole doctor
+    again inside `scan_signals`, minutes after the doctor step had written
+    its report (doctor 229 s, self_improve 245 s on the 2026-10-10 store).
+    The doctor action's output now carries the report and the self-improve
+    action reads it."""
+
+    QUEUE = DoctorCheck("queue", "fail", "human_required_open:628")
+
+    def doctor_step_output(self, *checks: DoctorCheck, tools_dir: str | None = None,
+                           workspace_root: str | None = None) -> Path:
+        """What the lane's doctor step writes: `schedule run --action doctor`'s output."""
+        from aria_kernel import doctor as doctor_module
+        from aria_kernel.cli import main
+
+        report = DoctorReport(checks=checks, tools_dir=tools_dir or str(self.tools),
+                              workspace_root=workspace_root or str(self.ws))
+        out = Path(self._tmp.name) / "aria-doctor.json"
+        with mock.patch.object(doctor_module, "run_doctor", lambda **_kwargs: report), \
+                redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(main(["--tools-dir", str(self.tools), "schedule", "run", "--action", "doctor",
+                                   "--workspace-root", str(self.ws)]), 0)
+        out.write_text(stdout.getvalue(), encoding="utf-8")
+        return out
+
+    def test_the_report_reads_back_whole(self) -> None:
+        from aria_kernel.doctor import DoctorCause
+
+        report = DoctorReport(checks=(
+            DoctorCheck("orchestrator", "fail", "orchestrator_exits_all_failed:2", {"window": 3},
+                        (DoctorCause("bridge:phase_failed", "bridge phase_failed: x"),)),
+            DoctorCheck("tools", "ok"),
+        ), tools_dir=str(self.tools), workspace_root=str(self.ws))
+
+        self.assertEqual(DoctorReport.from_dict(json.loads(json.dumps(report.to_dict()))), report)
+        with self.assertRaises(GovernanceError) as refused:
+            DoctorReport.from_dict({**report.to_dict(), "schema_version": 2})
+        self.assertEqual(str(refused.exception), "doctor_report_schema_unsupported:2")
+
+    def test_self_improve_mints_from_the_doctor_steps_report_and_runs_no_doctor(self) -> None:
+        from aria_kernel import doctor as doctor_module
+        from aria_kernel.cli import main
+
+        output = self.doctor_step_output(self.QUEUE, DoctorCheck("tools", "ok"))
+        with mock.patch.object(doctor_module, "run_doctor") as doctor_run, \
+                redirect_stdout(io.StringIO()) as stdout:
+            rc = main(["--tools-dir", str(self.tools), "schedule", "run", "--action", "self_improve",
+                       "--workspace-root", str(self.ws), "--doctor-report", str(output)])
+
+        self.assertEqual(rc, 0)
+        doctor_run.assert_not_called()
+        self.assertEqual(json.loads(stdout.getvalue())["detail"]["doctor"], "report_read")
+        self.assertEqual([m["source_id"] for m in self.self_improvement_missions()], ["doctor_fail:queue"])
+
+    def test_without_a_report_the_action_runs_the_doctor(self) -> None:
+        """The gateway daemon's own `self_improve` slot has no doctor step before it."""
+        from aria_kernel import doctor as doctor_module
+        from aria_kernel.gateway import scheduler
+
+        report = DoctorReport(checks=(self.QUEUE,), tools_dir=str(self.tools), workspace_root=str(self.ws))
+        with mock.patch.object(doctor_module, "run_doctor", return_value=report) as doctor_run:
+            result = scheduler.run_action("self_improve", base_dir=self.tools, workspace_root=self.ws)
+
+        doctor_run.assert_called_once()
+
+        self.assertEqual(result["detail"]["doctor"], "ran")
+        self.assertEqual([m["source_id"] for m in self.self_improvement_missions()], ["doctor_fail:queue"])
+
+    def test_a_report_of_another_store_or_workspace_is_refused(self) -> None:
+        from aria_kernel.gateway import scheduler
+
+        other = Path(self._tmp.name)
+        for foreign, refusal in ((dict(tools_dir=str(other / "other-tools")), "doctor_report_store_mismatch:"),
+                                 (dict(workspace_root=str(other / "other-repo")), "doctor_report_workspace_mismatch:")):
+            with self.subTest(refusal=refusal):
+                output = self.doctor_step_output(self.QUEUE, **foreign)
+                with self.assertRaises(GovernanceError) as refused:
+                    si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws,
+                                                      doctor_report=scheduler.load_doctor_report(output))
+                self.assertTrue(str(refused.exception).startswith(refusal), refused.exception)
+                self.assertEqual(self.self_improvement_missions(), [])
+
+    def test_only_a_doctor_actions_output_is_a_report_and_only_self_improve_takes_one(self) -> None:
+        from aria_kernel.gateway import scheduler
+
+        deliver = Path(self._tmp.name) / "aria-deliver.json"
+        deliver.write_text(json.dumps({"action": "deliver", "status": "ran", "detail": {}}), encoding="utf-8")
+        with self.assertRaises(GovernanceError) as refused:
+            scheduler.load_doctor_report(deliver)
+        self.assertEqual(str(refused.exception), "doctor_report_not_a_doctor_result:'deliver'")
+
+        report = scheduler.load_doctor_report(self.doctor_step_output(self.QUEUE))
+        with self.assertRaises(ValueError):
+            scheduler.run_action("deliver", base_dir=self.tools, workspace_root=self.ws, doctor_report=report)
 
 
 if __name__ == "__main__":

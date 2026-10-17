@@ -57,6 +57,7 @@ def claude_cli_version_floor(repo_root: str | Path | None = None) -> str:
     return floor.strip()
 
 CHECK_STATUSES: tuple[str, ...] = ("ok", "warn", "fail")
+DOCTOR_REPORT_SCHEMA_VERSION = 1
 DOCTOR_EXIT_HEALTHY = 0
 DOCTOR_EXIT_UNHEALTHY = 3
 
@@ -102,7 +103,7 @@ class DoctorReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": DOCTOR_REPORT_SCHEMA_VERSION,
             "healthy": self.healthy,
             "exit_code": self.exit_code,
             "tools_dir": self.tools_dir,
@@ -113,6 +114,27 @@ class DoctorReport:
             },
             "checks": [asdict(check) for check in self.checks],
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "DoctorReport":
+        """The report ``to_dict`` wrote, read back whole (ARIA-LOW-559).
+
+        The lane's self-improve step reads the report its doctor step wrote
+        instead of running every organ a second time. Strict: another schema
+        or a status outside ``CHECK_STATUSES`` is refused by name, and a
+        missing key raises — a report this module did not write is not one.
+        """
+        if data.get("schema_version") != DOCTOR_REPORT_SCHEMA_VERSION:
+            raise GovernanceError(f"doctor_report_schema_unsupported:{data.get('schema_version')!r}")
+        checks: list[DoctorCheck] = []
+        for row in data["checks"]:
+            if row["status"] not in CHECK_STATUSES:
+                raise GovernanceError(f"doctor_report_check_status_unknown:{row['name']}:{row['status']!r}")
+            checks.append(DoctorCheck(
+                name=row["name"], status=row["status"], reason=row["reason"], detail=dict(row["detail"]),
+                causes=tuple(DoctorCause(key=cause["key"], summary=cause["summary"]) for cause in row["causes"]),
+            ))
+        return cls(checks=tuple(checks), tools_dir=data["tools_dir"], workspace_root=data["workspace_root"])
 
 
 def _version_tuple(text: str) -> tuple[int, ...]:

@@ -81,12 +81,23 @@ class TheObservationStepsRunInTheLiveLane(unittest.TestCase):
             step = _step(name)
             self.assertEqual(step["if"], _POST_IF, name)
             self.assertIsInstance(step.get("timeout-minutes"), int, name)
-            # Least privilege: only the steps that write an issue hold the token.
-            expected = _NOTIFY_ENV if name != _OBSERVATION_STEPS[1] else {
-                key: value for key, value in _NOTIFY_ENV.items() if key != "GH_TOKEN"
-            }
-            self.assertEqual(step["env"], expected, name)
+            # Least privilege: only the steps that write an issue hold the
+            # token and the channel. Self-improve writes missions, and since
+            # ARIA-LOW-559 it no longer runs the doctor whose notifications
+            # organ judged the lane's channel, so it holds neither.
+            expected = _NOTIFY_ENV if name != _OBSERVATION_STEPS[1] else None
+            self.assertEqual(step.get("env"), expected, name)
             self.assertIn("schedule run --action", step["run"], name)
+
+    def test_self_improve_reads_the_report_the_doctor_step_wrote(self) -> None:
+        """ARIA-LOW-559 — one doctor run a night: the doctor step writes its
+        action's output (which carries the report) and the self-improve step
+        hands that same file to `--doctor-report` instead of running every
+        organ again."""
+        report = '"$RUNNER_TEMP/aria-doctor.json"'
+        self.assertIn("--action doctor", _step(_OBSERVATION_STEPS[0])["run"])
+        self.assertIn(f"> {report}", _step(_OBSERVATION_STEPS[0])["run"])
+        self.assertIn(f"--doctor-report {report}", _step(_OBSERVATION_STEPS[1])["run"])
 
     def test_the_cycle_step_names_the_channel_and_the_executor_lane_names_none(self) -> None:
         env = _step(_WORK_STEP)["env"]

@@ -912,6 +912,11 @@ export interface MealUnderfedEvent extends BaseEvent {
   actualKg: number;
   variancePercent: number;
   thresholdPercent: number;
+  /**
+   * The day plan's site — the alarm's site in alert-engine (ALERT-MEDIUM-010).
+   * Additive and optional: absent on events minted before the field existed.
+   */
+  siteId?: string;
 }
 
 /** Penceresi geçmiş, hiç döküm görmemiş öğün (05:30 süpürmesi işaretler). */
@@ -922,6 +927,8 @@ export interface MealMissedEvent extends BaseEvent {
   mealId: string;
   dayPlanId: string;
   scheduledAt: string;
+  /** The day plan's site (ALERT-MEDIUM-010); absent on events minted before it. */
+  siteId?: string;
 }
 
 /** Ağırlık bandı geçişi — otomatik (histerezisli) veya manuel (P-12). */
@@ -936,6 +943,11 @@ export interface FeedTypeTransitionedEvent extends BaseEvent {
   bandIndex: number;
   avgWeightG: number;
   automatic: boolean;
+  /**
+   * The unit's site, from its day plan or feeding assignment — the audit
+   * row's site in alert-engine (ALERT-MEDIUM-010). Additive and optional.
+   */
+  siteId?: string;
 }
 
 /**
@@ -1536,6 +1548,12 @@ export interface MortalityAlertRaisedEvent extends BaseEvent {
   mortalityRate: number;
   reason: MortalityReasonCode;
   recordedAt: string;
+  /**
+   * The site of the tank the mortality was recorded in, carried over from
+   * MortalityRecorded — the alarm's site in alert-engine (ALERT-MEDIUM-010).
+   * Absent when the tank has no site and on events minted before the field.
+   */
+  siteId?: string;
 }
 
 /**

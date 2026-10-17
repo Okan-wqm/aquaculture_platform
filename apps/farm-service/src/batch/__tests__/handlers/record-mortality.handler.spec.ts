@@ -519,6 +519,31 @@ describe('RecordMortalityHandler', () => {
       expect(outboxPublisher.enqueue).toHaveBeenCalled();
     });
 
+    it('carries the tank’s site on MortalityRecorded, for the alarm’s site (ALERT-MEDIUM-010)', async () => {
+      const { handler, manager, outboxPublisher } = buildHandler();
+      wireSiteResolution(manager, SITE_A);
+
+      await handler.execute(
+        makeCommand(50, { userRoles: [Role.MODULE_MANAGER], callerAssignedSiteIds: [] }),
+      );
+      expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'MortalityRecorded', siteId: SITE_A }),
+        manager,
+      );
+    });
+
+    it('carries no site when the tank’s department has none', async () => {
+      const { handler, manager, outboxPublisher } = buildHandler();
+      wireSiteResolution(manager, null);
+
+      await handler.execute(
+        makeCommand(50, { userRoles: [Role.MODULE_MANAGER], callerAssignedSiteIds: [] }),
+      );
+      const [event] = (outboxPublisher.enqueue as jest.Mock).mock.calls[0] ?? [];
+      expect(event).toMatchObject({ eventType: 'MortalityRecorded' });
+      expect(event).not.toHaveProperty('siteId');
+    });
+
     it('allows a MODULE_MANAGER with no assigned sites (canonical hierarchy bypass)', async () => {
       const { handler, manager, outboxPublisher } = buildHandler();
       wireSiteResolution(manager, SITE_A);

@@ -10,6 +10,7 @@
 import { FARM_OPERATION_PAGES as OPS } from '../pages/farmOperations';
 import { FARM_SETUP_PAGES as SETUP } from '../pages/farmSetup';
 import { SENSOR_PAGES } from '../pages/sensor';
+import { SHELL_PAGES } from '../pages/shell';
 import { TENANT_PAGES } from '../pages/tenant';
 import type { WorkspaceDef } from '../types';
 
@@ -22,7 +23,7 @@ export const AQUA_WORKSPACE: WorkspaceDef = {
   accentToken: '--color-sd-ws-aqua',
   module: 'farm',
   areas: [
-    moduleOverviewArea('aq-home'),
+    moduleOverviewArea('aq-home', SHELL_PAGES.dashboard),
     {
       id: 'aq-operations',
       labelKey: 'nav.area.operations',

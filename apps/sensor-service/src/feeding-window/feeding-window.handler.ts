@@ -107,6 +107,7 @@ export class FeedingWindowEventHandler
           observedDissolvedOxygen: verdict.observedDissolvedOxygen,
           observedAt: verdict.observedAt,
           lowOxygenReductionPercent: verdict.entry.lowOxygenReductionPercent,
+          ...(verdict.siteId !== undefined ? { siteId: verdict.siteId } : {}),
         };
         await bus.publish<FeedingWindowReadinessEvent>(readiness);
       }

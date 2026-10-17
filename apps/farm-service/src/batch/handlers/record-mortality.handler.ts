@@ -367,6 +367,10 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         userId: recordedBy,
         batchId,
         tankId: payload.tankId,
+        // The tank's site, resolved above for the authorization check — the
+        // contract always had the field, and the mortality alarm alert-engine
+        // raises from this event is placed on it (ALERT-MEDIUM-010).
+        ...(tankSiteId !== null ? { siteId: tankSiteId } : {}),
         quantity: payload.quantity,
         reason: toMortalityReasonCode(payload.reason),
         mortalityDate: toEventIso(payload.observedAt),

@@ -30,8 +30,14 @@ describe('workspaceHome', () => {
     );
     const adminOrg = admin.find((workspace) => workspace.id === 'org');
     const userOrg = user.find((workspace) => workspace.id === 'org');
+    // The company dashboard opens for every member (an admin's cards or a
+    // member's notices), so it is Company's home for both.
     expect(adminOrg && workspaceHome(adminOrg)).toBe('/tenant');
-    expect(userOrg && workspaceHome(userOrg)).toBe('/dashboard');
+    expect(userOrg && workspaceHome(userOrg)).toBe('/tenant');
+    const ctlUser = buildConsoleNav(
+      navInput({ role: 'MODULE_USER', modules: ['sensor'], permissions: [] }),
+    ).find((workspace) => workspace.id === 'ctl');
+    expect(ctlUser && workspaceHome(ctlUser)).toBe('/dashboard/control');
   });
 
   it('has no home for a workspace with nothing in it', () => {

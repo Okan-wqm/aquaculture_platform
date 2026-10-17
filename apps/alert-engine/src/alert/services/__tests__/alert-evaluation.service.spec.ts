@@ -10,6 +10,7 @@ import {
   AlertSeverity,
 } from '../../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../../entities/alert-history.entity';
+import { AlertModule } from '../../entities/alert-module.enum';
 import { AlertIncident, IncidentStatus } from '../../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../../escalation/escalation-manager.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -28,6 +29,7 @@ import { RedisService } from '@aquaculture/backend-common/redis';
  */
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A transaction mock whose callback receives the shared mock manager. */
 function createMockManager(): { save: jest.Mock; findOne: jest.Mock } {
@@ -82,6 +84,8 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
   async function buildService(
     overrides: {
       outboxOverride?: { enqueue: jest.Mock };
+      ruleOverride?: Partial<AlertRule>;
+      setNx?: jest.Mock;
     } = {},
   ): Promise<void> {
     manager = createMockManager();
@@ -101,7 +105,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
     const ruleQueryBuilder = {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
-      getMany: jest.fn().mockResolvedValue([triggeringRule]),
+      getMany: jest.fn().mockResolvedValue([overrides.ruleOverride ?? triggeringRule]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -142,7 +146,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
           useValue: {
             get: jest.fn().mockResolvedValue(null),
             set: jest.fn().mockResolvedValue(undefined),
-            setNx: jest.fn().mockResolvedValue(true),
+            setNx: overrides.setNx ?? jest.fn().mockResolvedValue(true),
             deletePattern: jest.fn().mockResolvedValue(undefined),
           },
         },
@@ -228,6 +232,60 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
           sourceEventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         }),
       );
+    });
+
+    it('records the rule alarm as the sensor module’s, on the sensor’s site (ALERT-MEDIUM-010)', async () => {
+      await buildService();
+      const siteId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+      await service.evaluateSensorReading({ ...reading, siteId });
+
+      expect(manager.save).toHaveBeenCalledWith(
+        AlertHistory,
+        expect.objectContaining({ module: AlertModule.SENSOR, siteId }),
+      );
+    });
+
+    it('records a site-less sensor’s alarm with no site', async () => {
+      await buildService();
+
+      await service.evaluateSensorReading({ ...reading, siteId: undefined });
+
+      expect(manager.save).toHaveBeenCalledWith(
+        AlertHistory,
+        expect.objectContaining({ module: AlertModule.SENSOR, siteId: null }),
+      );
+    });
+
+    it('records the alarm of a sensor whose site is not a UUID, with no site (ALERT-MEDIUM-013)', async () => {
+      // Redis SET NX semantics: the first delivery claims the cooldown, a
+      // redelivery inside the window is suppressed.
+      const claimed = new Set<string>();
+      const setNx = jest.fn().mockImplementation(async (key: string) => {
+        if (claimed.has(key)) return false;
+        claimed.add(key);
+        return true;
+      });
+      await buildService({ ruleOverride: { ...triggeringRule, cooldownMinutes: 5 }, setNx });
+      // Postgres refuses anything but a UUID in alert_history.site_id.
+      manager.save.mockImplementation((entity: unknown, row: Partial<AlertHistory>) => {
+        if (entity === AlertHistory && typeof row.siteId === 'string' && !UUID.test(row.siteId)) {
+          throw Object.assign(new Error('invalid input syntax for type uuid'), { code: '22P02' });
+        }
+        return row;
+      });
+      const delivered: SensorReadingData = { ...reading, siteId: 'Hatchery North' };
+
+      await expect(service.evaluateSensorReading(delivered)).resolves.toBeUndefined();
+      // The redelivery is suppressed by the cooldown the first delivery
+      // claimed, so the first delivery is the one that must record the alarm.
+      await service.evaluateSensorReading(delivered);
+
+      const historySaves = manager.save.mock.calls.filter(([entity]) => entity === AlertHistory);
+      expect(historySaves).toEqual([
+        [AlertHistory, expect.objectContaining({ module: AlertModule.SENSOR, siteId: null })],
+      ]);
+      expect(outbox.enqueue).toHaveBeenCalledTimes(1);
     });
 
     it('suppresses a duplicate (rule_id, source_event_id) idempotently — no re-fire, no event', async () => {

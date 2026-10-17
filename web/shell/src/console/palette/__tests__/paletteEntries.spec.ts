@@ -56,7 +56,7 @@ describe('paletteSuggestions', () => {
     // Design (tenant-core paletteItems): dashboard, users, roles, devices,
     // billing, tanks — only those the current workspace's nav has.
     expect(paletteSuggestions(ADMIN, 'org')).toEqual([
-      '/dashboard',
+      '/tenant',
       '/tenant/users',
       '/tenant/roles',
       '/tenant/devices',
@@ -68,7 +68,7 @@ describe('paletteSuggestions', () => {
       '/sites/tanks',
     ]);
     expect(paletteSuggestions(ADMIN, 'ctl')).toEqual([
-      '/dashboard',
+      '/dashboard/control',
       '/tenant/roles',
       '/sensor/devices',
     ]);

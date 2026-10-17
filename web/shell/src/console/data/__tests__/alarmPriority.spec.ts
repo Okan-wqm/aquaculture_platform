@@ -17,7 +17,9 @@ import { ANNUNCIATOR_FILTERS, isOnTile } from '@aquaculture/shared-ui';
 import type { AlertSeverity } from '@platform/shared-ui/generated/graphql-types';
 import { describe, expect, it } from 'vitest';
 
-import { summariseAlarms, type AlarmCountRow } from '../alarmPriority';
+import { CONSOLE_WORKSPACES } from '../../nav/workspaces';
+import { ALARM_WORKSPACES, ALARM_WORKSPACE_MODULE } from '../../rail/alarmWorkspaces';
+import { summariseAlarms, workspaceAlarmTallies, type AlarmCountRow } from '../alarmPriority';
 
 const ALL_SEVERITIES: readonly AlertSeverity[] = [
   'CRITICAL',
@@ -91,6 +93,66 @@ describe('summariseAlarms', () => {
         .filter((row) => isOnTile(tile, { ...row, resolved: false }))
         .reduce((sum, row) => sum + row.count, 0);
       expect(counts[tile]).toBe(onTile);
+    }
+  });
+});
+
+/**
+ * workspaceAlarmTallies — the workspace menu's per-module counts
+ * (ALERT-MEDIUM-010): each module workspace counts the alarms alert-engine
+ * recorded for its own module, on the same tiles as the annunciator.
+ */
+describe('workspaceAlarmTallies', () => {
+  it('counts each workspace’s own module only', () => {
+    const tallies = workspaceAlarmTallies([
+      { severity: 'CRITICAL', acknowledged: false, module: 'FARM', count: 1 },
+      { severity: 'WARNING', acknowledged: true, module: 'FARM', count: 2 },
+      { severity: 'HIGH', acknowledged: false, module: 'SENSOR', count: 3 },
+      { severity: 'MEDIUM', acknowledged: false, module: 'HYDROPONICS', count: 4 },
+      { severity: 'INFO', acknowledged: false, module: 'SENSOR', count: 90 },
+    ]);
+
+    expect(tallies).toEqual({
+      aqua: { p1: 1, p2: 0, p3: 2 },
+      ctl: { p1: 0, p2: 3, p3: 0 },
+      gh: { p1: 0, p2: 0, p3: 4 },
+    });
+  });
+
+  it('places an alarm recorded without a module in no workspace, while the annunciator counts it', () => {
+    const rows: AlarmCountRow[] = [
+      { severity: 'CRITICAL', acknowledged: false, module: null, count: 1 },
+    ];
+
+    expect(workspaceAlarmTallies(rows)).toEqual({
+      aqua: { p1: 0, p2: 0, p3: 0 },
+      ctl: { p1: 0, p2: 0, p3: 0 },
+      gh: { p1: 0, p2: 0, p3: 0 },
+    });
+    expect(summariseAlarms(rows).p1).toBe(1);
+  });
+
+  it('adds up to the annunciator’s counts when every alarm has a module', () => {
+    const rows: AlarmCountRow[] = ALL_SEVERITIES.flatMap((severity, s) =>
+      (['FARM', 'SENSOR', 'HYDROPONICS'] as const).map((module, m) => ({
+        severity,
+        acknowledged: m % 2 === 0,
+        module,
+        count: s + m + 1,
+      })),
+    );
+    const tallies = Object.values(workspaceAlarmTallies(rows));
+    const summed = (priority: 'p1' | 'p2' | 'p3'): number =>
+      tallies.reduce((sum, tally) => sum + tally[priority], 0);
+    const total = summariseAlarms(rows);
+
+    expect([summed('p1'), summed('p2'), summed('p3')]).toEqual([total.p1, total.p2, total.p3]);
+  });
+
+  it('maps each alarm workspace to the module the workspace itself declares', () => {
+    for (const id of ALARM_WORKSPACES) {
+      const workspace = CONSOLE_WORKSPACES.find((candidate) => candidate.id === id);
+      expect(workspace?.module?.toUpperCase()).toBe(ALARM_WORKSPACE_MODULE[id]);
     }
   });
 });

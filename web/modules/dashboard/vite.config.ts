@@ -25,10 +25,10 @@ export default defineConfig(({ mode }) => ({
       name: 'dashboard',
       filename: 'remoteEntry.js',
       // Expose edilen modüller
+      // Only the module: the shell mounts its routes (the module dashboards
+      // and analytics); the KPI page and its widgets were removed with it.
       exposes: {
         './Module': './src/Module.tsx',
-        './DashboardPage': './src/pages/DashboardPage.tsx',
-        './OverviewWidgets': './src/components/OverviewWidgets.tsx',
       },
       // FE-HIGH-004/FE-HIGH-005: single source of truth — recharts moved
       // into federationSharedConfig so no shared-entry literal lives here
@@ -40,7 +40,15 @@ export default defineConfig(({ mode }) => ({
     alias: {
       '@': resolve(__dirname, 'src'),
       ...sharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
+      // Zero-dependency cross-stack contracts (the many-unit read bound the
+      // site rows batch by) — path-aliased, as sensor-module and shared-ui do.
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
     },
+    // The federation shares these as singletons at runtime; specs resolve
+    // shared-ui from source, so they must see the one copy too — a second
+    // react-router is a second Router context, and shared-ui's route guards
+    // (RequireRole on each dashboard route) could not navigate inside it.
+    dedupe: ['react', 'react-dom', 'react-router', 'react-router-dom'],
   },
   server: {
     port: 3001,

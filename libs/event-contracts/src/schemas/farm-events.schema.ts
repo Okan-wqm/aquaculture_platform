@@ -322,6 +322,7 @@ interface WireMealUnderfed extends WireBaseEvent {
   actualKg: number;
   variancePercent: number;
   thresholdPercent: number;
+  siteId?: string;
 }
 
 interface WireMealMissed extends WireBaseEvent {
@@ -331,6 +332,7 @@ interface WireMealMissed extends WireBaseEvent {
   mealId: string;
   dayPlanId: string;
   scheduledAt: string;
+  siteId?: string;
 }
 
 interface WireFeedTypeTransitioned extends WireBaseEvent {
@@ -344,6 +346,7 @@ interface WireFeedTypeTransitioned extends WireBaseEvent {
   bandIndex: number;
   avgWeightG: number;
   automatic: boolean;
+  siteId?: string;
 }
 
 interface WireFeedStockoutForecast extends WireBaseEvent {
@@ -424,6 +427,7 @@ interface WireMortalityAlertRaised extends WireBaseEvent {
   mortalityRate: number;
   reason: (typeof MORTALITY_REASONS)[number];
   recordedAt: string;
+  siteId?: string;
 }
 
 interface WireHarvestRegulatoryRecorded extends WireBaseEvent {
@@ -1208,6 +1212,8 @@ export const mealUnderfedSchema: JSONSchemaType<WireMealUnderfed> = {
     actualKg: NON_NEGATIVE_NUMBER,
     variancePercent: { type: 'number' },
     thresholdPercent: NON_NEGATIVE_NUMBER,
+    // Additive (ALERT-MEDIUM-010): the day plan's site, the alarm's site.
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
   },
   required: [
     ...BASE_EVENT_REQUIRED,
@@ -1282,6 +1288,8 @@ export const mealMissedSchema: JSONSchemaType<WireMealMissed> = {
     mealId: UUID_SCHEMA,
     dayPlanId: UUID_SCHEMA,
     scheduledAt: ISO_DATE_STRING,
+    // Additive (ALERT-MEDIUM-010): the day plan's site, the alarm's site.
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
   },
   required: [...BASE_EVENT_REQUIRED, 'unitId', 'unitCode', 'mealId', 'dayPlanId', 'scheduledAt'],
 };
@@ -1300,6 +1308,8 @@ export const feedTypeTransitionedSchema: JSONSchemaType<WireFeedTypeTransitioned
     bandIndex: NON_NEGATIVE_INT,
     avgWeightG: NON_NEGATIVE_NUMBER,
     automatic: { type: 'boolean' },
+    // Additive (ALERT-MEDIUM-010): the unit's site, the audit row's site.
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
   },
   required: [
     ...BASE_EVENT_REQUIRED,
@@ -1414,6 +1424,8 @@ export const mortalityAlertRaisedSchema: JSONSchemaType<WireMortalityAlertRaised
     mortalityRate: NON_NEGATIVE_NUMBER,
     reason: { type: 'string', enum: [...MORTALITY_REASONS] },
     recordedAt: ISO_DATE_STRING,
+    // Additive (ALERT-MEDIUM-010): the tank's site, the alarm's site.
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
   },
   required: [
     ...BASE_EVENT_REQUIRED,

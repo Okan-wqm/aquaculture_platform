@@ -13,8 +13,16 @@ import {
   AlertSeverity,
 } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
-import { ActiveAlertCount } from '../dto/active-alert-count.type';
+import { ActiveAlertCount, ActiveAlertCountDimension } from '../dto/active-alert-count.type';
+import { AlertHistoryOrder, severityRankSql } from '../dto/alert-history-order.enum';
+import { AlertModule } from '../entities/alert-module.enum';
 import { AlertEvaluationService } from './alert-evaluation.service';
+import { applyAlertHistoryScope, type AlertHistoryScope } from './alert-history-scope';
+
+/** Narrowing and grouping of countActiveAlerts; every part optional. */
+export interface ActiveAlertCountOptions extends AlertHistoryScope {
+  readonly groupBy?: readonly ActiveAlertCountDimension[];
+}
 
 /**
  * Create alert rule data
@@ -208,10 +216,14 @@ export class AlertRuleService {
    * query; an absent one reads every severity. `resolved` narrows to the open
    * (false) or the cleared (true) alarms: a tile counts open alarms only
    * (countActiveAlerts), and the list it opens must hold the same rows.
+   * `siteId` / `module` narrow to one site's or one module's alarms — the
+   * same scope the counts take (applyAlertHistoryScope). `order` pages the
+   * newest first (default) or the most severe first (AlertHistoryOrder), so
+   * a limited page never drops an older CRITICAL behind newer, milder rows.
    */
   async getAlertHistory(
     tenantId: string,
-    filters?: {
+    filters?: AlertHistoryScope & {
       ruleId?: string;
       severity?: AlertSeverity;
       severities?: readonly AlertSeverity[];
@@ -221,6 +233,7 @@ export class AlertRuleService {
       endDate?: Date;
     },
     pagination?: { page: number; limit: number },
+    order: AlertHistoryOrder = AlertHistoryOrder.NEWEST_FIRST,
   ): Promise<{ items: AlertHistory[]; total: number }> {
     if (filters?.severities !== undefined && filters.severities.length === 0) {
       return { items: [], total: 0 };
@@ -268,7 +281,16 @@ export class AlertRuleService {
       });
     }
 
-    query.orderBy('alert.triggeredAt', 'DESC');
+    applyAlertHistoryScope(query, filters);
+
+    if (order === AlertHistoryOrder.MOST_SEVERE_FIRST) {
+      query.orderBy(severityRankSql('alert'), 'DESC').addOrderBy('alert.triggeredAt', 'DESC');
+    } else {
+      query.orderBy('alert.triggeredAt', 'DESC');
+    }
+    // A unique last key: OFFSET paging over rows that tie on every other key
+    // is otherwise free to repeat one row and skip another between pages.
+    query.addOrderBy('alert.id', 'DESC');
 
     const MAX_LIMIT = 500;
     const page = pagination?.page || 1;
@@ -287,23 +309,44 @@ export class AlertRuleService {
    * exact figures behind the console's annunciator (see ActiveAlertCount).
    * One grouped query, no paging, so a count can neither be capped nor lose a
    * row to newer ones; the (severity, acknowledged) index serves the grouping.
+   * `options` narrows to a site and/or module (the alarm list's scope) and
+   * splits the counts further per site and/or module (`groupBy`), for the
+   * workspace menu and the module dashboards.
    */
-  async countActiveAlerts(tenantId: string): Promise<ActiveAlertCount[]> {
-    const rows = await this.historyRepository
+  async countActiveAlerts(
+    tenantId: string,
+    options: ActiveAlertCountOptions = {},
+  ): Promise<ActiveAlertCount[]> {
+    const bySite = options.groupBy?.includes(ActiveAlertCountDimension.SITE) ?? false;
+    const byModule = options.groupBy?.includes(ActiveAlertCountDimension.MODULE) ?? false;
+
+    const query = this.historyRepository
       .createQueryBuilder('alert')
       .select('alert.severity', 'severity')
       .addSelect('alert.acknowledged', 'acknowledged')
       .addSelect('COUNT(*)', 'count')
       .where('alert.tenantId = :tenantId', { tenantId })
-      .andWhere('alert.resolved = :resolved', { resolved: false })
-      .groupBy('alert.severity')
-      .addGroupBy('alert.acknowledged')
-      .getRawMany<{ severity: AlertSeverity; acknowledged: boolean; count: string }>();
+      .andWhere('alert.resolved = :resolved', { resolved: false });
+    applyAlertHistoryScope(query, options);
+    query.groupBy('alert.severity').addGroupBy('alert.acknowledged');
+    if (bySite) query.addSelect('alert.siteId', 'siteId').addGroupBy('alert.siteId');
+    if (byModule) query.addSelect('alert.module', 'module').addGroupBy('alert.module');
 
-    // Postgres returns COUNT(*) as a bigint string.
+    const rows = await query.getRawMany<{
+      severity: AlertSeverity;
+      acknowledged: boolean;
+      siteId?: string | null;
+      module?: AlertModule | null;
+      count: string;
+    }>();
+
+    // Postgres returns COUNT(*) as a bigint string. A dimension not grouped by
+    // is left off the row, so GraphQL answers null for it.
     return rows.map((row) => ({
       severity: row.severity,
       acknowledged: row.acknowledged,
+      ...(bySite ? { siteId: row.siteId ?? null } : {}),
+      ...(byModule ? { module: row.module ?? null } : {}),
       count: Number.parseInt(row.count, 10),
     }));
   }

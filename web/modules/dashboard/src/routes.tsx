@@ -5,8 +5,10 @@
  * This file re-exports the module for convenience and documents the routes.
  *
  * Routes:
- *   /dashboard           → DashboardPage
- *   /dashboard/analytics → AnalyticsPage
+ *   /dashboard            → ProductionDashboardPage
+ *   /dashboard/control    → ControlDashboardPage
+ *   /dashboard/greenhouse → GreenhouseDashboardPage
+ *   /dashboard/analytics  → AnalyticsPage
  */
 
 export { default } from './Module';

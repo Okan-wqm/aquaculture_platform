@@ -210,6 +210,20 @@ export class ParameterReading {
   unresolved!: ReadingUnresolved | null;
 }
 
+@ObjectType({ description: 'One asked unit of a many-unit read, and its reading' })
+export class UnitParameterReading {
+  @Field(() => ID, { description: 'The unit id as asked' })
+  unitId!: string;
+
+  @Field(() => ParameterReading, {
+    nullable: true,
+    description:
+      'Null when no active tank or water equipment has this id in the tenant (retired or ' +
+      'deleted since it was named): the other units are still read',
+  })
+  reading!: ParameterReading | null;
+}
+
 @ObjectType({ description: 'One input of a water-chemistry calculation, resolved at the point' })
 export class WaterChemistryInputStatus {
   @Field({ description: 'The WaterChemistryInputs field it feeds, e.g. tempC, h2sUgL' })

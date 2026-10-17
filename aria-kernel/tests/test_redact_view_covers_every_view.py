@@ -173,6 +173,25 @@ class AnAssignmentLosesItsValueOnly(unittest.TestCase):
         self.assertEqual(scrub_text(probe), probe)
 
 
+class AKeyPrefixStartsAToken(unittest.TestCase):
+    """``sk-`` inside a word is not a key; at the start of a token it still is."""
+
+    def test_a_task_or_risk_id_is_published_whole(self) -> None:
+        for text in ("follow-up for ta" + "s" + "k-0123456789abcdefghij0123 done",
+                     "ri" + "s" + "k-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7",
+                     "di" + "s" + "k-" + "Zq8" * 12 + "-full"):
+            with self.subTest(text=text):
+                self.assertEqual(scrub_text(text), text)
+                self.assertEqual(secret_scrub.scrub_text(text), (text, []))
+
+    def test_a_key_after_any_delimiter_is_still_redacted(self) -> None:
+        key = "i9" * 20
+        for before in (" ", "=", ":", "'", '"', "(", "\n", "_", "-"):
+            with self.subTest(before=before):
+                out = scrub_text("x" + before + "sk" + "-" + key + " y")
+                self.assertEqual(_surviving_runs(out, key), [])
+
+
 class OneGitHubTokenFamily(unittest.TestCase):
     """One prefix table: the write door classifies by it, habitat flags its user prefixes, the boundary redacts all."""
 

@@ -281,6 +281,38 @@ class FailingCiPlansAreGroundedInTheirWorkflowTests(_Checkout):
         self.assertEqual(envelope.metadata["_candidate_id"], "ci-run-36785618591")
 
 
+class GithubIssueMissionsConvertTests(_Checkout):
+    """ARIA-MEDIUM-249 — the issue source was scanned and never converted: the
+    conversion's allowlist left ``github_issue`` out, so every candidate came
+    back as a nameless no-plan. An issue mission is now planned from the refs
+    the mission holds, under the same rule as every source."""
+
+    def _candidate(self, evidence: list[str]) -> dict[str, Any]:
+        return {
+            "source_type": "github_issue", "candidate_id": "m-94d4bea861b82506", "source_id": "issue-54",
+            "mission_state": "DISCOVERED", "priority": 1, "created_at": "2026-10-01T00:00:00Z",
+            "title_hint": "GitHub issue #54: login fails", "evidence": evidence,
+        }
+
+    def test_an_issue_mission_holding_citable_evidence_converts_to_a_plan(self) -> None:
+        envelope = self.synthesize([self._candidate([f"{GROUNDED_FILE}:12"])])
+
+        self.assertIsNotNone(envelope)
+        self.assertEqual(envelope.content["evidence_refs"], [f"{GROUNDED_FILE}:12"])
+        self.assertEqual(envelope.content["affected_surfaces"], [GROUNDED_FILE])
+        self.assertEqual(envelope.content["provenance_refs"], ["mission:m-94d4bea861b82506"])
+        self.assertNotIn("finding_id", envelope.content)
+        self.assertEqual(envelope.metadata["_pressure_source_type"], "github_issue")
+        self.assert_challenger_can_ground(envelope.content)
+
+    def test_an_issue_mission_holding_no_evidence_is_skipped_by_name(self) -> None:
+        self.assertIsNone(self.synthesize([self._candidate([])]))
+
+        skipped = self.governance("plan_candidate_conversion_skipped")
+        self.assertEqual([(s["candidate_id"], s["reason"]) for s in skipped],
+                         [("m-94d4bea861b82506", "plan_evidence_inadmissible")])
+
+
 class NoAdmissibleRefMeansNoPlanTests(_Checkout):
     def test_an_orphan_whose_refs_resolve_nowhere_is_skipped_once_by_name(self) -> None:
         candidate = {

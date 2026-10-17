@@ -561,79 +561,82 @@ _SOURCE_SCAN_SLOW_SECONDS: float = 2.0
 # -----------------------------------------------------------------------------
 
 def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 source — ORPHAN findings from
-    ``docs/reviews/orphan-findings.md``.
+    """Plan ARIA-V9.4 source — the ORPHAN findings of
+    ``docs/reviews/orphan-findings.md`` that are OPEN.
 
-    Scans for headings matching ``^## ORPHAN-(?P<severity>[A-Z]+)-(?P<id>\\d+)``
-    with subsequent ``Status: OPEN`` line. Each match becomes a
-    candidate dict carrying severity + id + source_type.
+    ARIA-MEDIUM-249 — OPEN is read from the finding registry, the SSoT of a
+    finding's lifecycle (``docs/reviews/_registry/README.md``), through the
+    one registry view every kernel reader uses (``read_registry_view``, delta
+    rows folded). This scanner used to parse the markdown for
+    ``^## ORPHAN-<SEV>-<n>$`` followed by a ``Status: OPEN`` line: the
+    register's headings read ``## ORPHAN-HIGH-811 — <title> — OPEN``, so the
+    pattern matched none of its 721 headings and the source never produced a
+    candidate, and the status the markdown carries disagrees with the
+    registry for most findings anyway (a heading still saying OPEN on a
+    finding the registry closed, and the reverse).
 
-    Returns ordered by severity (CRITICAL > HIGH > MEDIUM > LOW) then
-    by id. Capped at _MAX_CANDIDATES_PER_SOURCE.
+    A candidate is a registry row whose ``id`` is an ORPHAN id the plan
+    origin accepts (``plan_origin.ORPHAN_FINDING_ID_RE``), whose state is
+    OPEN and whose ``review_file`` is the register: the plan's ``Closes:``
+    trailer names that file (``plan_origin``). Its evidence is the row's
+    ``evidence`` list (ORPHAN-312), and its ``heading_line`` the line of the
+    finding's first heading in the register, the citable anchor
+    (``orphan-findings.md:<line>``, ORPHAN-HIGH-519), when the register holds
+    one. No registry in this checkout -> no candidates.
+
+    Returns ordered by severity (CRITICAL > HIGH > MEDIUM > LOW) then by id.
+    Capped at _MAX_CANDIDATES_PER_SOURCE.
     """
-    path = Path(workspace_root) / "docs" / "reviews" / "orphan-findings.md"
-    if not path.exists():
+    from .plan_origin import ORPHAN_FINDING_ID_RE, ORPHAN_FINDINGS_DOCUMENT
+    from .report_ingestion import REGISTRY_FINDINGS_RELPATH, read_registry_view
+
+    root = Path(workspace_root)
+    if not root.joinpath(*REGISTRY_FINDINGS_RELPATH).is_file():
         return []
     severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
-    heading_re = re.compile(r"^##\s+ORPHAN-([A-Z]+)-(\d+)\s*$", re.MULTILINE)
-    text = path.read_text(encoding="utf-8", errors="replace")
+    heading_lines: dict[str, int] = {}
+    register = root / ORPHAN_FINDINGS_DOCUMENT
+    if register.is_file():
+        for number, line in enumerate(register.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+            heading = _ORPHAN_HEADING_RE.match(line)
+            if heading is not None:
+                heading_lines.setdefault(heading.group(1), number)
     candidates: list[dict[str, Any]] = []
-    matches = list(heading_re.finditer(text))
-    # ORPHAN-HIGH-519 — the heading's line is the register's citable anchor
-    # (`orphan-findings.md:<line>`); `#<id>` names no file the rule can read.
-    heading_line, counted_to = 1, 0
-    for i, m in enumerate(matches):
-        heading_line += text.count("\n", counted_to, m.start())
-        counted_to = m.start()
-        severity = m.group(1)
-        finding_id = m.group(2)
-        # Look at next ~500 chars for "Status: OPEN" — bounded scan.
-        section_end = matches[i + 1].start() if i + 1 < len(matches) else m.end() + 2000
-        body = text[m.end():section_end]
-        if "Status: OPEN" not in body:
+    # Tolerant mode: a corrupt or refused row is skipped WITH a
+    # ledger_row_corrupt diagnostic / malformed record, not silently swallowed.
+    for row in read_registry_view(root, strict=False).rows:
+        finding_id = row.get("id")
+        if (
+            not isinstance(finding_id, str)
+            or ORPHAN_FINDING_ID_RE.match(finding_id) is None
+            or row.get("state") != "OPEN"
+            or row.get("review_file") != ORPHAN_FINDINGS_DOCUMENT
+        ):
             continue
-        if severity not in severity_order:
-            continue
-        candidates.append({
+        _orphan, severity, raw_id = finding_id.split("-", 2)
+        candidate: dict[str, Any] = {
             "source_type": PlanCandidateSource.ORPHAN_FINDING.value,
-            "candidate_id": f"ORPHAN-{severity}-{finding_id}",
+            "candidate_id": finding_id,
             "severity": severity,
             "severity_rank": severity_order[severity],
-            "raw_id": finding_id,
-            "heading_line": heading_line,
-            "title_hint": f"Address ORPHAN-{severity}-{finding_id}",
-        })
+            "raw_id": raw_id,
+            "title_hint": f"Address {finding_id}",
+        }
+        if finding_id in heading_lines:
+            candidate["heading_line"] = heading_lines[finding_id]
+        evidence = row.get("evidence")
+        if isinstance(evidence, list):
+            refs = [ref for ref in evidence if isinstance(ref, str)]
+            if refs:
+                candidate["evidence"] = refs
+        candidates.append(candidate)
     candidates.sort(key=lambda c: (c["severity_rank"], c["raw_id"]))
-    candidates = candidates[:_MAX_CANDIDATES_PER_SOURCE]
-    # ORPHAN-312 — attach each finding's real code evidence from the registry
-    # SSoT so convert_candidate_to_plan_content can ground the plan in code,
-    # not the orphan-findings.md doc. Read-only, bounded to the selected ids.
-    _attach_orphan_registry_evidence(workspace_root, candidates)
-    return candidates
+    return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
-def _attach_orphan_registry_evidence(
-    workspace_root: str | Path, candidates: list[dict[str, Any]],
-) -> None:
-    if not candidates:
-        return
-    # The one registry view (ARIA-HIGH-279): evidence a merged delta row
-    # recorded is the finding's evidence. Tolerant mode: a corrupt or refused
-    # row is skipped WITH a ledger_row_corrupt diagnostic / malformed record,
-    # not silently swallowed. No registry in this checkout → nothing attached.
-    from .report_ingestion import REGISTRY_FINDINGS_RELPATH, read_registry_view
-    if not Path(workspace_root).joinpath(*REGISTRY_FINDINGS_RELPATH).is_file():
-        return
-    wanted = {c["candidate_id"] for c in candidates}
-    evidence_by_id: dict[str, list[str]] = {}
-    for row in read_registry_view(workspace_root, strict=False).rows:
-        rid = row.get("id")
-        if rid in wanted and isinstance(row.get("evidence"), list):
-            evidence_by_id[rid] = [e for e in row["evidence"] if isinstance(e, str)]
-    for c in candidates:
-        ev = evidence_by_id.get(c["candidate_id"])
-        if ev:
-            c["evidence"] = ev
+# A finding's heading in the register: `## ORPHAN-<SEV>-<n>`, then its title
+# and status (`## ORPHAN-HIGH-811 — <title> — OPEN`).
+_ORPHAN_HEADING_RE = re.compile(r"^##\s+(ORPHAN-[A-Z]+-\d+)\b")
 
 
 def scan_f_findings(findings: Mapping[str, Mapping[str, Any]] | None) -> list[dict[str, Any]]:
@@ -1119,7 +1122,12 @@ def scan_github_issue_missions(workspace_root: str | Path) -> list[dict[str, Any
             "priority": mission.get("priority") if isinstance(mission.get("priority"), int) else 1,
             "created_at": mission.get("opened_at"),
             "title_hint": str(mission.get("title") or "")[:200],
+            # ARIA-MEDIUM-249 — what the conversion grounds the plan in: the
+            # refs the mission holds (`mission.open_mission` records them).
+            "evidence": [ref for ref in mission.get("evidence_refs") or [] if isinstance(ref, str)],
         })
+    # This scanner owns its order (the merge keeps it): priority, then oldest.
+    candidates.sort(key=lambda c: (c["priority"], str(c.get("created_at") or "")))
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
@@ -1132,9 +1140,10 @@ def rank_candidate_sources(
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 — scan all 5 sources + return ranked candidates.
 
-    Order: per-source priority (OPERATOR_FEEDBACK > FAILING_CI >
-    ORPHAN > F_FINDING > GIT_DIFF) then within-source severity / age
-    rank. Empty list when no source has candidates.
+    Order: per-source priority (OPERATOR_FEEDBACK > FAILING_CI =
+    GITHUB_ISSUE > ORPHAN > F_FINDING > GIT_DIFF), then each source's own
+    order as its scanner returns it. Empty list when no source has
+    candidates.
 
     Per-source scan timing emitted as ``plan_source_scan_slow``
     governance event when single source > 2s (perf HIGH-005).
@@ -1190,19 +1199,13 @@ def rank_candidate_sources(
                     c["_scan_slow_seconds"] = elapsed
                     break
 
-    # Stable sort: priority, then per-source rank.
-    def _key(c: dict[str, Any]) -> tuple:
-        source_priority = _SOURCE_PRIORITY.get(c.get("source_type", ""), 99)
-        # Within-source secondary key: severity_rank for ORPHAN; age for F;
-        # priority for OPERATOR; created_at for CI.
-        secondary = c.get("severity_rank", c.get("priority", c.get("age_seconds", 0)))
-        if isinstance(secondary, str):
-            secondary_int = {"high": 0, "medium": 1, "low": 2}.get(secondary, 99)
-        else:
-            secondary_int = secondary
-        return (source_priority, secondary_int)
-
-    all_candidates.sort(key=_key)
+    # ARIA-MEDIUM-249 — sorted by source priority ALONE. The sort is stable
+    # and each scanner returns its candidates in its own documented order
+    # (operator feedback by priority then age, ORPHAN by severity then id,
+    # F findings oldest first), so the scanner is the one owner of its rank.
+    # A secondary key re-derived here ranked F findings by `age_seconds`
+    # ascending: newest first, against the scanner's oldest-first contract.
+    all_candidates.sort(key=lambda c: _SOURCE_PRIORITY.get(c.get("source_type", ""), 99))
     return all_candidates
 
 
@@ -1418,6 +1421,8 @@ def convert_candidate_to_plan_content(
       evidence, title_hint }
     * `f_finding` — { candidate_id, created_at, age_seconds,
       title_hint }
+    * `github_issue` — { candidate_id (the mission id), source_id,
+      mission_state, priority, created_at, title_hint, evidence }
     * `git_diff` — synthesized by V7GitDiffProvider, not by this
       function.
     """
@@ -1432,6 +1437,7 @@ def convert_candidate_to_plan_content(
         PlanCandidateSource.FAILING_CI.value,
         PlanCandidateSource.ORPHAN_FINDING.value,
         PlanCandidateSource.F_FINDING.value,
+        PlanCandidateSource.GITHUB_ISSUE.value,
     }:
         # GIT_DIFF goes through V7GitDiffProvider; unknown source
         # types skipped + caller falls back.
@@ -1529,6 +1535,22 @@ def convert_candidate_to_plan_content(
         if isinstance(heading, int) and not isinstance(heading, bool) and heading > 0:
             evidence_refs.append(f"{ORPHAN_FINDINGS_DOCUMENT}:{heading}")
         affected_surfaces = []
+    elif source_type == PlanCandidateSource.GITHUB_ISSUE.value:
+        # ARIA-MEDIUM-249 — scanned and never converted: an issue mission is
+        # a plan grounded in the refs the mission holds, like any other
+        # source, and refused by name (`plan_evidence_inadmissible`) when it
+        # holds none. Its title is the gateway's label-gated summary of text
+        # an outside party wrote, so it is sanitized like operator prose.
+        issue = sanitize_untrusted_text(candidate.get("source_id") or "", max_len=64)
+        title_hint = sanitize_untrusted_text(f"Triage {title_hint}", max_len=200)
+        summary = (
+            f"Triage GitHub issue mission {candidate_id} ({issue}): {title_hint}; "
+            "diagnose the cited code and land a root-cause fix."
+        )
+        mission_evidence = candidate.get("evidence")
+        evidence_refs = _finding_refs(mission_evidence if isinstance(mission_evidence, list) else [])
+        provenance_refs = [f"mission:{candidate_id}"]
+        affected_surfaces = []
     else:  # F_FINDING
         if admission.finding_id != candidate_id:
             return _NO_PLAN
@@ -1555,6 +1577,11 @@ def convert_candidate_to_plan_content(
                           + refusal.refused_evidence_refs)
     if not evidence_refs:
         return refusal
+    if source_type == PlanCandidateSource.GITHUB_ISSUE.value:
+        # A surface is the path the fix touches, never the cited line.
+        affected_surfaces = list(dict.fromkeys(
+            parsed[0] for parsed in map(parse_evidence_ref, evidence_refs) if parsed is not None
+        ))
     if source_type == PlanCandidateSource.ORPHAN_FINDING.value:
         # ARIA-HIGH-211 — a surface is the path the fix touches (the line is
         # not part of it); the register is the surface only when no code ref

@@ -14,6 +14,13 @@
 export const BRAND = {
   /** Product/brand display name. */
   name: 'Suderra',
+  /**
+   * The brand mark (the fish-S), served from the shell's public root. Every
+   * federated page renders in the shell's document, so the one path serves
+   * the console rail, the BrandLoader and the boot splash in
+   * web/shell/index.html alike (FE-MEDIUM-349).
+   */
+  mark: '/logo4-mark.png',
   /** Hand-written tagline shown under the auth logo (Caveat script). */
   tagline: 'Unlocks the power of farm management intelligence',
   /** In-app support route. */

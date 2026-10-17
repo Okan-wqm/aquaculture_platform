@@ -10,6 +10,7 @@
  * if the shell guard is bypassed or misconfigured.
  */
 
+import { BrandLoader } from '@aquaculture/shared-ui';
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
@@ -42,15 +43,6 @@ const PlatformArchitecturePage = React.lazy(() => import('./pages/PlatformArchit
 const ArchitectureReviewPage = React.lazy(() => import('./pages/ArchitectureReviewPage'));
 
 /**
- * Suspense fallback shown while lazy-loaded page chunks are being fetched.
- */
-const PageLoadingFallback: React.FC = () => (
-  <div className="flex items-center justify-center h-48 text-gray-500 dark:text-gray-400 text-sm">
-    Loading page...
-  </div>
-);
-
-/**
  * Tenant Admin Module
  *
  * Routes:
@@ -71,7 +63,8 @@ const PageLoadingFallback: React.FC = () => (
 const TenantAdminModule: React.FC = () => {
   return (
     <RequireTenantAdmin>
-      <Suspense fallback={<PageLoadingFallback />}>
+      {/* A page chunk loading is the one loading screen (FE-MEDIUM-349). */}
+      <Suspense fallback={<BrandLoader />}>
         <Routes>
           {/*
            * Per-page capability gates (MT-HIGH-060). TENANT_ADMIN bypasses every

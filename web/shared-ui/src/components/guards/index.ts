@@ -12,9 +12,9 @@
  *   (panel entry, then per-page capability/adminOnly).
  * - `ErrorBoundary` — crash isolation at module/page altitude.
  *
- * Loading: the family's default in-flight surface is the light `GuardLoading`;
- * the full-screen `PageLoading` (components/Loading) stays the top-level route
- * surface — one PageLoading, one GuardLoading, no per-module copies.
+ * Loading: the family's default in-flight surface is `GuardLoading`, the
+ * BrandLoader (components/Loading) naming the session check — the same one
+ * loading screen the shell's routes and the boot splash show (FE-MEDIUM-349).
  *
  * All gates read auth from `useAuthContext()` and capability rules from
  * `utils/tenant-capabilities` — the FE capability SSoT. Fail-closed.

@@ -6,7 +6,7 @@
  * main.tsx does only `import('./bootstrap')` to trigger this asynchronously.
  */
 
-import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, ToastProvider, ConfirmProvider, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
+import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, ToastProvider, ConfirmProvider, holdBootSplashTurn, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
 import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -153,6 +153,12 @@ const root = document.getElementById('root');
 if (!root) {
   throw new Error('Root element not found');
 }
+
+// The first render replaces index.html's boot splash with React's BrandLoader,
+// the same markup; reading the splash mark's turn now lets the new mark carry
+// on at the angle the old one had reached instead of snapping back
+// (FE-MEDIUM-349).
+holdBootSplashTurn(root);
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>

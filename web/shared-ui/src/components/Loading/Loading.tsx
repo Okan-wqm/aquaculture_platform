@@ -306,24 +306,7 @@ export const SkeletonTable: React.FC<SkeletonTableProps> = ({
   );
 };
 
-// ============================================================================
-// Page Loading Bileşeni
-// ============================================================================
-
-/**
- * Tam sayfa yükleme durumu
- */
-export const PageLoading: React.FC<{ text?: string }> = ({ text: textProp }) => {
-  const { t } = useI18n();
-  const text = textProp ?? t('common.pageLoading');
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-800">
-      <div className="text-center">
-        <Spinner size="xl" />
-        <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">{text}</p>
-      </div>
-    </div>
-  );
-};
+// A full-screen or route loading state is BrandLoader (./BrandLoader.tsx,
+// FE-MEDIUM-349): one loading screen, the boot splash's twin.
 
 export default Spinner;

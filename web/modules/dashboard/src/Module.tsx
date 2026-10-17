@@ -7,27 +7,13 @@
 
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { RequireAuth } from '@aquaculture/shared-ui';
 import DashboardPage from './pages/DashboardPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 
-// ============================================================================
-// Auth Guard (DASH-SEC-006: defense-in-depth, not relying solely on shell)
-// ============================================================================
-
-const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuthContext();
-
-  if (isLoading) {
-    return null;
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
-};
+// DASH-SEC-006: defense-in-depth, not relying solely on the shell. The guard
+// family's RequireAuth is the one gate; its session check shows the one
+// loading screen (FE-MEDIUM-349) where this module's copy drew nothing.
 
 // ============================================================================
 // Dashboard Module

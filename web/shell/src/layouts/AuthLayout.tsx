@@ -10,11 +10,11 @@ import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
 import {
   BRAND,
+  BrandLoader,
   getAccessToken,
   tokenLifecycle,
   useAuthContext,
   useI18n,
-  Spinner,
 } from '@aquaculture/shared-ui';
 import ReefScene from '../components/ReefScene';
 import { Lock } from 'lucide-react';
@@ -29,15 +29,12 @@ const SecureLockIcon: React.FC = () => <Lock aria-hidden="true" size={12} />;
 
 const AuthLayout: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuthContext();
+  const { t } = useI18n();
 
+  // A refresh on a sign-in page waits for the session like every other page:
+  // the full-screen BrandLoader, the boot splash's twin (FE-MEDIUM-349).
   if (isLoading) {
-    return (
-      <div className="industrial-auth-loading min-h-screen flex items-center justify-center">
-        <div role="status" aria-label="Loading authentication">
-          <Spinner size="lg" color="inherit" className="text-primary-300" />
-        </div>
-      </div>
-    );
+    return <BrandLoader variant="screen" label={t('guards.checkingSession')} />;
   }
 
   const hasLiveSession =

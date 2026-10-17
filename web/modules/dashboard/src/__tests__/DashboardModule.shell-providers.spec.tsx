@@ -10,7 +10,8 @@
  * ConfirmProvider — with the real shared-ui providers.
  *
  * Two collaborators are stubbed: the session (AuthProvider's bootstrap is a
- * token refresh plus a `me` request) and the dashboard's GraphQL hooks.
+ * token refresh plus a `me` request) — the signed-in user and the guard
+ * family's RequireAuth that admits them — and the dashboard's GraphQL hooks.
  *
  * Under vitest the shell's providers and the remote's hooks resolve to one
  * shared-ui module by construction. In a browser that needs the federation
@@ -49,6 +50,9 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
       isAuthenticated: true,
       isLoading: false,
     }),
+    // The module's session gate (FE-MEDIUM-349: the shared one, not a copy) reads the
+    // session inside shared-ui; with the session stubbed it admits the signed-in user.
+    RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   };
 });
 

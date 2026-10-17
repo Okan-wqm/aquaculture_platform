@@ -30,3 +30,22 @@ closed and inactive by construction, so the query matches nothing in any tenant.
 
 Planned fix: the sweep selects live batches by lifecycle alone and takes each running FCR from
 the single authority, `FCRCalculationService.calculateCumulativeFCR`, in one bulk pass.
+
+## FARM-HIGH-445
+
+The bulk FCR target query throws on PostgreSQL. Found while re-landing FARM-CRITICAL-444: with
+the sweep selecting live batches, a real database run failed inside the target lookup.
+
+- `apps/farm-service/src/growth/services/fcr-calculation.service.ts:837`: the legacy leg of
+  `prefetchTargetFcrContext` filters on the literal `'ACTIVE'`.
+- `apps/farm-service/src/feeding/entities/feeding-program.entity.ts:81` and the baseline
+  migration (`1800000000000-Baseline.ts:348`): the enum value is `active`.
+- `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts:1200`: the 18:00
+  sweep is the only caller of `getTargetFCRForBatches`.
+
+Failure scenario: once the sweep selects a live batch with realized growth, PostgreSQL rejects
+the query with `invalid input value for enum feeding_programs_status_enum: "ACTIVE"`. The tenant
+sweep fails and emits no `FCRAlert`. On main this was hidden behind FARM-CRITICAL-444, and the
+unit spec mocks `manager.query`. Introduced by f4d5a39fb (W5, FARM-LOW-291).
+
+Planned fix: bind the status from `FeedingProgramStatus.ACTIVE` as a query parameter.

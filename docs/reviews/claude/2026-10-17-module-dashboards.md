@@ -341,6 +341,20 @@ SCADA alarm active the row reads as no alarms.
 - `web/shared-ui/src/components/Layout/console/WorkspaceMenu.tsx:175-178`
 - `web/shell/src/console/rail/alarmWorkspaces.ts:4`
 
+### Fix (FE-LOW-347)
+
+When the menu draws alarm counts, its header adds a line that says what they hold:
+`console.workspaceMenu.alarmsScope` ("The counts beside a module are its active alarms from the
+alarm list. PLC and SCADA alarms are not included.", and the Turkish equivalent). The line joins
+the dialog's accessible description. A menu without an alarm column says nothing about alarm
+counts. `alarmWorkspaces.ts` no longer calls the Control & sensors column equipment alarms; it
+names the sources it counts and points at SENSOR-MEDIUM-188 for the ones it does not.
+
+### Tests (FE-LOW-347)
+
+`WorkspaceMenu.spec.tsx` pins the line and the accessible description with an alarm column, and
+their absence without one.
+
 ## ALERT-LOW-014
 
 **State:** OPEN. Resolved by the PR whose commit carries `Closes:` for this ID. Deadline

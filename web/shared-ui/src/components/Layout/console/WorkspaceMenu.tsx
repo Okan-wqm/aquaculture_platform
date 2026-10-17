@@ -4,7 +4,10 @@
  * WHAT: a panel under the rail's header, one row per workspace the viewer may
  * use (Production, Greenhouse, Control & sensors, Company — the shell filters
  * them by the tenant's modules): a fixed colour stripe, the name, what the
- * workspace holds, and that workspace's alarm counts. The current workspace's
+ * workspace holds, and that workspace's alarm counts. With the counts drawn,
+ * the header says what they hold (FE-LOW-347): the alarm list's active
+ * alarms, not PLC or SCADA alarms, which alert-engine does not record
+ * (SENSOR-MEDIUM-188). The current workspace's
  * row is pressed, drawn on the accent-100 fill with a 3px accent bar on its
  * right edge — the bar is the cue (WCAG 1.4.11, 1.4.1): the fill is
  * 1.03–1.14:1 against the paper and a hovered row, the bar 3:1 on the fill
@@ -81,6 +84,7 @@ export function WorkspaceMenu({
   const { t } = useI18n();
   const titleId = useId();
   const hintId = useId();
+  const alarmsScopeId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -161,7 +165,7 @@ export function WorkspaceMenu({
       id={id}
       role="dialog"
       aria-labelledby={titleId}
-      aria-describedby={hintId}
+      aria-describedby={renderAlarms === undefined ? hintId : `${hintId} ${alarmsScopeId}`}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
       className="sd-corners fixed left-3 top-[86px] z-[71] flex w-[min(400px,calc(100vw-24px))] flex-col border border-sd-rule bg-sd-paper text-sd-ink shadow-(--shadow-sd-lg)"
@@ -176,6 +180,11 @@ export function WorkspaceMenu({
         <p id={hintId} className="text-pretty text-sm leading-[1.4] text-sd-neutral-800">
           {t('console.workspaceMenu.hint')}
         </p>
+        {renderAlarms !== undefined && (
+          <p id={alarmsScopeId} className="text-pretty text-sm leading-[1.4] text-sd-neutral-800">
+            {t('console.workspaceMenu.alarmsScope')}
+          </p>
+        )}
       </div>
       <ul className="flex flex-col">
         {workspaces.map((workspace) => {

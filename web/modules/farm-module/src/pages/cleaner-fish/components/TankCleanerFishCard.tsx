@@ -40,7 +40,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 animate-pulse">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6 animate-pulse">
         <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-4" />
         <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-4" />
         <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded" />
@@ -53,7 +53,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
   // card and surfaces a non-blocking strip below (stale-on-error).
   if (isBlockingError(error, Boolean(tankInfo))) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="font-medium text-gray-900 dark:text-gray-100">{tankName}</h3>
@@ -68,7 +68,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
   const hasCleanerFish = tankInfo && tankInfo.cleanerFishQuantity > 0;
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) overflow-hidden">
       {/* Non-blocking refresh error — keeps the last-loaded card visible. */}
       {error && (
         <div className="flex items-center justify-between border-b border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 px-4 py-2">
@@ -100,7 +100,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
                 <p className="text-xs text-gray-500 dark:text-gray-400">fish</p>
               </>
             ) : (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
                 No cleaner fish
               </span>
             )}
@@ -153,7 +153,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
               <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-2">
                 <span>Deployed: {formatDate(detail.deployedAt)}</span>
                 <span
-                  className={`px-2 py-0.5 rounded-full ${
+                  className={`px-2 py-0.5 rounded ${
                     detail.sourceType === 'farmed'
                       ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                       : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'

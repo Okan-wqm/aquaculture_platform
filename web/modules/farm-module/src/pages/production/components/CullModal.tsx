@@ -188,7 +188,7 @@ export const CullModal: React.FC<CullModalProps> = ({ isOpen, onClose, tank, onS
               htmlFor="quantity"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Culled Fish Count <span className="text-accent-500">*</span>
+              Culled Fish Count <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -276,7 +276,7 @@ export const CullModal: React.FC<CullModalProps> = ({ isOpen, onClose, tank, onS
               htmlFor="notes"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Why were the fish culled? <span className="text-accent-500">*</span>
+              Why were the fish culled? <span className="text-error-500">*</span>
             </label>
             <Textarea
               fullWidth

@@ -9,7 +9,7 @@ import './styles.css';
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
-import { chartChrome, colors, useI18n } from '@aquaculture/shared-ui';
+import { chartChrome, useI18n } from '@aquaculture/shared-ui';
 
 // PERF-HIGH-004: every page-level route is code-split with React.lazy so the
 // farm-module remote no longer ships all page code (the heavy 8-tab regulatory
@@ -141,14 +141,12 @@ const FarmModule: React.FC = () => {
   return (
     <Suspense
       fallback={
+        // Muted text from the gray scale, which the console scope maps to its
+        // neutral ramp (a theme.ts value in a style would keep the old grey).
         <div
           role="status"
           aria-live="polite"
-          style={{
-            padding: '2rem',
-            textAlign: 'center',
-            color: `var(--color-text-muted, ${colors.gray[400]})`,
-          }}
+          className="p-8 text-center text-gray-500 dark:text-gray-400"
         >
           {t('common.pageLoading')}
         </div>

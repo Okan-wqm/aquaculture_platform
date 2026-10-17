@@ -37,7 +37,7 @@ import { SD_CARD } from '../components/ui/suderra';
 const RoleBadge = memo<{ role: TenantRole }>(({ role }) => {
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-white"
       style={{ backgroundColor: role.color || DEFAULT_ROLE_COLOR }}
     >
       <Shield className="w-3 h-3" />
@@ -250,14 +250,15 @@ const RoleModal = memo<RoleModalProps>(
               <ColorPicker value={formData.color} onChange={handleColorChange} />
             </div>
 
-            {/* Default Role Toggle */}
-            <div className="flex items-center gap-3 p-4 bg-warning-50 dark:bg-warning-900/20 rounded-xl border border-warning-100 dark:border-warning-800">
+            {/* Default Role Toggle — in the accent: a default is a setting, and
+                amber is the console's warning colour (README §7.8). */}
+            <div className="flex items-center gap-3 p-4 bg-primary-50 dark:bg-primary-900/20 rounded-xl border border-primary-100 dark:border-primary-800">
               <input
                 type="checkbox"
                 id="isDefault"
                 checked={formData.isDefault}
                 onChange={handleIsDefaultChange}
-                className="rounded border-gray-300 dark:border-gray-600 text-success-600 focus:ring-success-500"
+                className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
               />
               <label htmlFor="isDefault" className="flex-1">
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -267,7 +268,7 @@ const RoleModal = memo<RoleModalProps>(
                   New users will be assigned this role by default
                 </p>
               </label>
-              <Star className="w-5 h-5 text-warning-500" />
+              <Star className="w-5 h-5 text-primary-500" />
             </div>
 
             {/* Permissions */}

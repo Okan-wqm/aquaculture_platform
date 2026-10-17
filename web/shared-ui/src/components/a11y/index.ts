@@ -13,7 +13,7 @@ export type { VisuallyHiddenProps } from './VisuallyHidden';
 export { FocusTrap } from './FocusTrap';
 export type { FocusTrapProps } from './FocusTrap';
 
-export { RouteAnnouncer } from './RouteAnnouncer';
+export { RouteAnnouncer, usePageTitle } from './RouteAnnouncer';
 export type { RouteAnnouncerProps } from './RouteAnnouncer';
 
 export { SkipToContent } from './SkipToContent';

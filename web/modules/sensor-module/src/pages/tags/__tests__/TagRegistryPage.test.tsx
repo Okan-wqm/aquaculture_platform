@@ -34,6 +34,8 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
     ConfirmModal: actual.ConfirmModal,
     // The registry list renders through the real DataTable (empty state, rows).
     DataTable: actual.DataTable,
+    // The toolbar title follows the console's title scope (real primitive).
+    PageTitle: actual.PageTitle,
     useAuth: () => ({ tenantId: 'tenant-1', token: 't' }),
     createTenantQueryKey: (tenantId: string, ...rest: unknown[]) => ['tenant', tenantId, ...rest],
     // Faithful stub of the SSoT hook: tenant-prefixed key + the given fetcher

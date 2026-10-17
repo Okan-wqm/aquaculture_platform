@@ -134,7 +134,7 @@ export function AttendancePage() {
       {activeTab === 'overview' && (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Present Today</p>
@@ -151,7 +151,7 @@ export function AttendancePage() {
                 </div>
               </div>
             </div>
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Absent Today</p>
@@ -168,24 +168,24 @@ export function AttendancePage() {
                 </div>
               </div>
             </div>
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">On Leave</p>
                   {loadingOverview ? (
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
-                    <p className="mt-1 text-2xl font-bold text-warning-600 dark:text-warning-400">
+                    <p className="mt-1 text-2xl font-bold text-gray-600 dark:text-gray-400">
                       {overview?.onLeave ?? '-'}
                     </p>
                   )}
                 </div>
-                <div className="rounded-lg bg-warning-50 p-3 dark:bg-warning-900/30">
-                  <Calendar className="h-6 w-6 text-warning-600 dark:text-warning-400" />
+                <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900/30">
+                  <Calendar className="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 </div>
               </div>
             </div>
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Attendance Rate</p>

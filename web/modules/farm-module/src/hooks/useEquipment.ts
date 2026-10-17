@@ -341,17 +341,24 @@ function isTenantEquipmentQuery(queryKey: readonly unknown[], tenantId?: string 
 }
 
 /**
- * Hook to fetch equipment list
+ * Hook to fetch equipment list.
+ *
+ * `options.enabled` lets a caller that only needs the list for some of the
+ * records it shows (the facility structure panel reads a system's equipment,
+ * not a site's) keep the hook unconditional; it is ANDed with the tenant gate.
  */
-export function useEquipmentList(filter?: {
-  departmentId?: string;
-  siteId?: string;
-  systemId?: string;
-  equipmentTypeId?: string;
-  status?: string;
-  isActive?: boolean;
-  search?: string;
-}) {
+export function useEquipmentList(
+  filter?: {
+    departmentId?: string;
+    siteId?: string;
+    systemId?: string;
+    equipmentTypeId?: string;
+    status?: string;
+    isActive?: boolean;
+    search?: string;
+  },
+  options: { enabled?: boolean } = {},
+) {
   return useTenantQuery(
     ['equipment', 'list', filter],
     async () => {
@@ -361,7 +368,7 @@ export function useEquipmentList(filter?: {
       );
       return data.equipmentList;
     },
-    { staleTime: 30000 },
+    { staleTime: 30000, enabled: options.enabled ?? true },
   );
 }
 

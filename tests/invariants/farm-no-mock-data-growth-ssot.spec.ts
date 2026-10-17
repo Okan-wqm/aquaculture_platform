@@ -12,6 +12,14 @@
  *
  * This is the tier-3 ("make it detectable") half of the fix; the tier-1 removal
  * (real backend report aggregations) is the tracked follow-on.
+ *
+ * PREVIEW DATA (Okan decision 2026-10-16, FE-MEDIUM-337): a view whose backend
+ * does not exist yet shows LABELLED sample data only through the typed preview
+ * path — `definePreviewData` in a `*.preview.ts` file, rendered through shared-ui
+ * `MockPreview` behind an unresolved tracked finding. That path imports nothing
+ * named mock, so it does not loosen this gate: the baseline stays frozen and
+ * empty. `web-preview-data-path.spec.ts` holds the same no-mock-import rule for
+ * every production file under web/ and governs the preview files themselves.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';

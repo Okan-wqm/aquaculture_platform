@@ -38,6 +38,10 @@ const CROSS_SUBGRAPH_FIELDS: Record<string, string> = {
   // apps/auth-service/src/modules/tenant/resolvers/tenant.resolver.ts —
   // hr-module resolves tenant users (e.g. to attribute an approver).
   tenantUsers: 'auth-service',
+  // apps/farm-service/src/site/site.resolver.ts — the Today page reads active
+  // sites with their Site.contacts to flag sites nobody is responsible for
+  // (web/modules/hr-module/src/graphql/site-responsibility.operations.ts).
+  activeSites: 'farm-service',
 };
 
 interface FrontendRootField {

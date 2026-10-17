@@ -217,7 +217,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               htmlFor="sub-eq-name"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Name <span className="text-accent-500">*</span>
+              Name <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -233,7 +233,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               htmlFor="sub-eq-code"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Code <span className="text-accent-500">*</span>
+              Code <span className="text-error-500">*</span>
             </label>
             <Input
               fullWidth
@@ -371,12 +371,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
           <Button variant="secondary" onClick={handleClose}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            onClick={handleSubmit}
-            disabled={!isValid || submitting}
-            className="bg-accent-600 hover:bg-accent-700"
-          >
+          <Button variant="primary" onClick={handleSubmit} disabled={!isValid || submitting}>
             {submitting ? 'Saving…' : mode === 'create' ? 'Create sub-equipment' : 'Save changes'}
           </Button>
         </div>

@@ -17,6 +17,7 @@ import { render, screen, cleanup, fireEvent, within, act } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import { severityClasses } from '@aquaculture/shared-ui';
 
 import { VfdParameterBrowser } from '../components/vfd/VfdParameterBrowser';
 import { VfdChangeSetList } from '../components/vfd/VfdChangeSetList';
@@ -365,7 +366,8 @@ describe('VfdParameterBrowser', () => {
     const medBadge = screen.getByTestId('risk-badge-P005');
     expect(medBadge.textContent).toContain('MEDIUM');
     expect(medBadge.dataset.severity).toBe('medium');
-    expect(medBadge.className).toContain('bg-warning-100');
+    // the shared palette's medium: an amber-ink surface, not a fill
+    expect(medBadge.className).toContain(severityClasses('medium', 'soft'));
   });
 
   it('shows loading state', () => {
@@ -623,11 +625,13 @@ describe('VfdAuditLogViewer', () => {
 
     const medRisk = screen.getByTestId('risk-log-1');
     expect(medRisk.dataset.severity).toBe('medium');
-    expect(medRisk.className).toContain('bg-warning-100');
+    expect(medRisk.className).toContain(severityClasses('medium', 'soft'));
 
+    // high is the filled hazard tile, so the two risks never paint alike
     const highRisk = screen.getByTestId('risk-log-3');
     expect(highRisk.dataset.severity).toBe('high');
-    expect(highRisk.className).toContain('bg-accent-100');
+    expect(highRisk.className).toContain(severityClasses('high', 'soft'));
+    expect(severityClasses('high', 'soft')).not.toBe(severityClasses('medium', 'soft'));
   });
 
   it('shows empty state', () => {

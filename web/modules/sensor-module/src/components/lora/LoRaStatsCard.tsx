@@ -21,7 +21,7 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
   const pct = total > 0 ? Math.round((joined / total) * 100) : 0;
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center gap-2 mb-4">
         <Radio className="w-5 h-5 text-info-600 dark:text-info-400" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">LoRa Ozet</h3>

@@ -47,6 +47,14 @@ export function isTerminalLifecycleState(state: DeviceLifecycleState): boolean {
 }
 
 /**
+ * The states {@link isTerminalLifecycleState} leaves in service, for SQL
+ * filters — the fleet a "devices online" figure or a device picker means.
+ */
+export const IN_SERVICE_STATES: readonly DeviceLifecycleState[] = Object.values(
+  DeviceLifecycleState,
+).filter((state) => !isTerminalLifecycleState(state));
+
+/**
  * Which lifecycle states may hold an MQTT broker session — the ONE allow-list
  * the CONNECT check and the per-message ACL both consult.
  *

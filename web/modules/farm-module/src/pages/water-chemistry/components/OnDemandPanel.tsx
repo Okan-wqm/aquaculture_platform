@@ -42,10 +42,10 @@ const OnDemandPanel: React.FC<OnDemandPanelProps> = ({ steps, co2ToxicMgL }) => 
               <span className="inline-block w-2 h-2 rounded-full bg-info-500 mr-1.5 align-middle" />
             )}
             {isFinal && !isStart && (
-              <span className="inline-block w-2 h-2 rounded-full bg-accent-500 mr-1.5 align-middle" />
+              <span className="inline-block w-2 h-2 rounded-full bg-primary-500 mr-1.5 align-middle" />
             )}
             {!isStart && !isFinal && (
-              <span className="inline-block w-2 h-2 border border-accent-400 rounded-full mr-1.5 align-middle" />
+              <span className="inline-block w-2 h-2 border border-primary-400 rounded-full mr-1.5 align-middle" />
             )}
             {step.label}
           </>
@@ -79,7 +79,7 @@ const OnDemandPanel: React.FC<OnDemandPanelProps> = ({ steps, co2ToxicMgL }) => 
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
       <div className="mb-3">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           Dosing Simulator — Results

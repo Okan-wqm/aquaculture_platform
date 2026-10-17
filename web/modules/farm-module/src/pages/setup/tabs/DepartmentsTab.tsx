@@ -54,12 +54,12 @@ const typeColors: Record<string, string> = {
   QUALITY_CONTROL: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   FEED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   ADMINISTRATION: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  HATCHERY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  HATCHERY: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   NURSERY: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   GROW_OUT: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   BROODSTOCK: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  PROCESSING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  PROCESSING: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   LABORATORY: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
@@ -282,7 +282,7 @@ export const DepartmentsTab: React.FC = () => {
       render: (_value, dept) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[dept.type || ''] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${typeColors[dept.type || ''] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {typeLabels[dept.type || ''] || dept.type || '-'}
           </span>
@@ -320,9 +320,9 @@ export const DepartmentsTab: React.FC = () => {
               <>
                 <div className="flex items-center">
                   <div className="flex-1 max-w-[100px]">
-                    <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden">
                       <div
-                        className={`h-full ${getLoadColor(loadPercentage)} rounded-full transition-all`}
+                        className={`h-full ${getLoadColor(loadPercentage)} rounded transition-all`}
                         style={{ width: `${loadPercentage}%` }}
                       />
                     </div>
@@ -434,7 +434,7 @@ export const DepartmentsTab: React.FC = () => {
 
       {/* Departments Table */}
       {!isLoading && !error && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<DeptRow>
             data={filteredDepartments}
             columns={deptRowColumns}
@@ -485,7 +485,7 @@ export const DepartmentsTab: React.FC = () => {
                   if (formErrors.name && e.target.value.trim())
                     setFormErrors((prev) => ({ ...prev, name: undefined }));
                 }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.name ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
+                className={`mt-1 block w-full border rounded-md shadow-(--shadow-sd-sm) py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.name ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
               />
               {formErrors.name && (
                 <p className="mt-1 text-sm text-error-600 dark:text-error-400">{formErrors.name}</p>
@@ -504,7 +504,7 @@ export const DepartmentsTab: React.FC = () => {
                   if (formErrors.code && e.target.value.trim())
                     setFormErrors((prev) => ({ ...prev, code: undefined }));
                 }}
-                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.code ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
+                className={`mt-1 block w-full border rounded-md shadow-(--shadow-sd-sm) py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500 ${formErrors.code ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}`}
               />
               {formErrors.code && (
                 <p className="mt-1 text-sm text-error-600 dark:text-error-400">{formErrors.code}</p>

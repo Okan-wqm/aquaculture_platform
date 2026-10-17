@@ -138,7 +138,7 @@ vi.mock('../../lib/api', () => ({
   assignModuleManager: mockUnexpectedTenantApiCall('assignModuleManager'),
   removeModuleManager: mockUnexpectedTenantApiCall('removeModuleManager'),
   updateTenant: mockUnexpectedTenantApiCall('updateTenant'),
-  getMyModuleIds: mockUnexpectedTenantApiCall('getMyModuleIds'),
+  getMyModuleRefs: mockUnexpectedTenantApiCall('getMyModuleRefs'),
   getModuleUsageStats: mockUnexpectedTenantApiCall('getModuleUsageStats'),
   getEdgeDevices: mockUnexpectedTenantApiCall('getEdgeDevices'),
   getDeviceEvents: mockUnexpectedTenantApiCall('getDeviceEvents'),
@@ -290,14 +290,18 @@ function getTenantUsersFixture(options: TenantUserQueryOptions = {}) {
 // Helpers
 // --------------------------------------------------------------------------
 
-function renderPage() {
+function renderPage(path = '/tenant/users') {
   const queryClient = createTenantAdminTestQueryClient();
 
   return render(
     React.createElement(
       QueryClientProvider,
       { client: queryClient },
-      React.createElement(MemoryRouter, null, React.createElement(TenantUsers)),
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: [path] },
+        React.createElement(TenantUsers),
+      ),
     ),
   );
 }
@@ -702,6 +706,16 @@ describe('TenantUsers Page', () => {
         expect(screen.getByText('Jane Smith')).toBeInTheDocument();
         expect(screen.queryByText('John Doe')).not.toBeInTheDocument();
       });
+    });
+
+    it('opens filtered to the person a console palette link names (?search=)', async () => {
+      renderPage('/tenant/users?search=Jane');
+
+      await waitFor(() => {
+        expect(screen.getByText('Jane Smith')).toBeInTheDocument();
+        expect(screen.queryByText('John Doe')).not.toBeInTheDocument();
+      });
+      expect(screen.getByPlaceholderText(/search users/i)).toHaveValue('Jane');
     });
 
     it('should filter users by email search', async () => {

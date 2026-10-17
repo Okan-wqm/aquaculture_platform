@@ -239,7 +239,7 @@ const DepartmentsPage: React.FC = () => {
             return (
               <div
                 key={department.id}
-                className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+                className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-(--shadow-sd-sm) transition-shadow hover:shadow-(--shadow-sd-md) dark:border-gray-700 dark:bg-gray-800"
               >
                 <div className="h-2" style={{ backgroundColor: color }} />
                 <div className="p-6">
@@ -314,7 +314,7 @@ const DepartmentsPage: React.FC = () => {
       )}
 
       {/* Organization Chart placeholder */}
-      <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
         <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
           Organization Chart
         </h3>

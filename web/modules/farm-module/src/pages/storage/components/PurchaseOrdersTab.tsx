@@ -30,7 +30,8 @@ const statusColors: Record<string, string> = {
   SUBMITTED: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   APPROVED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   ORDERED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
-  PARTIALLY_RECEIVED: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  PARTIALLY_RECEIVED:
+    'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   RECEIVED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   CANCELLED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
@@ -39,7 +40,7 @@ const categoryColors: Record<string, string> = {
   FEED: 'bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300',
   CHEMICAL: 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300',
   CONSUMABLE: 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300',
-  HEALTHCARE: 'bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300',
+  HEALTHCARE: 'bg-gray-50 dark:bg-gray-900/20 text-gray-700 dark:text-gray-300',
 };
 
 const STATUSES: PurchaseOrderStatus[] = [
@@ -139,7 +140,7 @@ export const PurchaseOrdersTab: React.FC = () => {
       header: 'Category',
       render: (_value, po) => (
         <span
-          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[po.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${categoryColors[po.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
         >
           {po.category}
         </span>
@@ -195,7 +196,7 @@ export const PurchaseOrdersTab: React.FC = () => {
       header: 'Status',
       render: (_value, po) => (
         <span
-          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
         >
           {po.status.replace('_', ' ')}
         </span>
@@ -322,7 +323,7 @@ export const PurchaseOrdersTab: React.FC = () => {
       )}
 
       {!isLoading && !error && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<PoRow>
             data={orders}
             columns={poRowColumns}

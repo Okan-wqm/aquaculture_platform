@@ -105,7 +105,7 @@ const SensorScadaPage: React.FC = () => {
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-100 dark:bg-gray-800">
       {/* Compact Header Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-(--shadow-sd-sm)">
         <div className="flex items-center gap-3">
           <ProcessSelector />
           <div className="h-6 w-px bg-gray-200 dark:bg-gray-700" />
@@ -257,7 +257,7 @@ const SensorScadaPage: React.FC = () => {
         </span>
         <span className="flex items-center gap-1.5">
           <span
-            className={`w-1.5 h-1.5 rounded-full ${isLiveMode ? 'bg-success-500 animate-pulse' : 'bg-warning-500'}`}
+            className={`w-1.5 h-1.5 rounded-full ${isLiveMode ? 'bg-success-500 motion-safe:animate-pulse' : 'bg-warning-500'}`}
           />
           {isLiveMode ? 'Canlı' : 'Durduruldu'}
         </span>

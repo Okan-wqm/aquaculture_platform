@@ -1,6 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
 
+import { recordedActorOf } from '../../common/recorded-actor';
 import {
   CreateProcessInput,
   UpdateProcessInput,
@@ -447,7 +448,7 @@ export class ProcessResolver {
         input.packageId,
         input.deviceId,
         tenantId,
-        user.sub,
+        recordedActorOf(user),
         input.programIds,
       );
       return {

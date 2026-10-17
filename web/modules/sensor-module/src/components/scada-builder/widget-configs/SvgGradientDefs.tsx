@@ -123,8 +123,8 @@ const FilterDef: React.FC<{
       <filter id={id} x="-50%" y="-50%" width="200%" height="200%">
         {/* Create the shadow layer */}
         <feFlood floodColor={color} floodOpacity={opacity} result="shadowColor" />
-        <feComposite in="shadowColor" in2="SourceAlpha" operator="in" result="shadow" />
-        <feGaussianBlur in="shadow" stdDeviation={blur} result="blurredShadow" />
+        <feComposite in="shadowColor" in2="SourceAlpha" operator="in" result="shadowShape" />
+        <feGaussianBlur in="shadowShape" stdDeviation={blur} result="blurredShadow" />
         <feOffset in="blurredShadow" dx={dx} dy={dy} result="offsetShadow" />
         {/* Merge shadow behind the original graphic */}
         <feMerge>

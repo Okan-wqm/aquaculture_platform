@@ -53,7 +53,7 @@ const CalibrationStatusBadge: React.FC<{ channel: CalibrationChannel }> = ({ cha
 
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colorClass}`}
+      className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium border ${colorClass}`}
     >
       {label}
     </span>
@@ -329,7 +329,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Header */}
       <div className="p-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
         <Gauge className="w-5 h-5 text-info-500" />
@@ -436,7 +436,7 @@ const CalibrationPage: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-xl p-4 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-xl p-4 shadow-(--shadow-sd-sm)">
           <div className="flex items-center gap-3">
             <Activity className="w-7 h-7 text-gray-500 dark:text-gray-400" />
             <div>
@@ -519,7 +519,7 @@ const CalibrationPage: React.FC = () => {
 
       {/* Empty State */}
       {sensorIds.length === 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Gauge className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
             Kalibre Edilecek Kanal Yok
@@ -544,7 +544,7 @@ const CalibrationPage: React.FC = () => {
 
       {/* Saving indicator */}
       {updating && (
-        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) px-4 py-3 flex items-center gap-3">
           <Spinner size="md" />
           <span className="text-sm text-gray-700 dark:text-gray-300">Kaydediliyor...</span>
         </div>

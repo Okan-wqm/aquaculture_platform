@@ -611,7 +611,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         {/* Floating tooltip */}
         {tooltip.visible && (
           <div
-            className="pointer-events-none absolute z-10 rounded border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-900/90 px-2 py-1.5 shadow-md text-xs backdrop-blur-sm"
+            className="pointer-events-none absolute z-10 rounded border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-900/90 px-2 py-1.5 shadow-(--shadow-sd-md) text-xs backdrop-blur-sm"
             style={{ left: tooltip.left + 12, top: tooltip.top - 8 }}
           >
             {tooltip.time && (

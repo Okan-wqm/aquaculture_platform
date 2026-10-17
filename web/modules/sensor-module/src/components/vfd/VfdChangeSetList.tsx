@@ -288,7 +288,7 @@ export function VfdChangeSetList({
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}
+                          className={`inline-flex items-center gap-1 rounded px-2 py-0.5 font-medium ${style.bg} ${style.text}`}
                         >
                           {style.icon} {formatStatus(cs.status)}
                         </span>

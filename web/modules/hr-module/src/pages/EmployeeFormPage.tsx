@@ -46,7 +46,7 @@ const inputDisabledClass =
   'w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:disabled:bg-gray-800';
 const labelClass = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2';
 const sectionClass =
-  'bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800';
+  'bg-white rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800';
 
 const CURRENCY_OPTIONS = [
   { value: 'USD', label: 'USD - US Dollar' },

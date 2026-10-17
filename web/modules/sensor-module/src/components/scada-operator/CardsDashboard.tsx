@@ -158,7 +158,7 @@ const DashboardCard = memo<DashboardCardProps>(
 
     return (
       <div
-        className="flex flex-col bg-gray-900 border border-gray-700 rounded-md overflow-hidden shadow-lg"
+        className="flex flex-col bg-gray-900 border border-gray-700 rounded-md overflow-hidden shadow-(--shadow-sd-lg)"
         style={gridStyle}
         data-card-id={card.id}
         role="region"

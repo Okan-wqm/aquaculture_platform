@@ -43,15 +43,11 @@ import {
   UPDATE_MY_PROFILE,
   VERIFY_MFA_SETUP,
 } from '../graphql/settings.operations';
-import {
-  type ThemePreference,
-  getStoredThemePreference,
-  persistThemePreference,
-  resolveThemePreference,
-  subscribeToSystemThemePreference,
-} from '../utils/theme';
+import { useAccountLanguage } from '../hooks/useAccountLanguage';
 
 import ConsentSettingsPage from './ConsentSettingsPage';
+import { AppearanceSettings } from './settings/AppearanceSettings';
+import { NotificationToggle } from './settings/NotificationToggle';
 import {
   Bell,
   Fingerprint,
@@ -60,7 +56,6 @@ import {
   Lock,
   ShieldCheck,
   SlidersHorizontal,
-  SwatchBook,
   User as UserIcon,
 } from 'lucide-react';
 
@@ -217,7 +212,10 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
             Profile Picture
           </h3>
           <div className="flex items-center gap-6">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-info-500 to-info-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
+            {/* The console's initials plate (README §7.4, the header's user menu):
+                the accent's lightest step and a hairline of its 300 step, which
+                follow the theme and the workspace by themselves. */}
+            <div className="w-20 h-20 shrink-0 rounded-full border border-sd-accent-300 bg-sd-accent-100 flex items-center justify-center font-display-sd text-2xl font-semibold text-sd-accent-800">
               {(user?.firstName?.[0] || user?.email?.[0] || '?').toUpperCase()}
             </div>
             <div>
@@ -774,7 +772,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
               </div>
             </div>
             <span
-              className={`px-3 py-1 rounded-full text-xs font-medium ${
+              className={`px-3 py-1 rounded text-xs font-medium ${
                 mfaEnabled && mfaAvailable
                   ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                   : mfaEnabled && !mfaAvailable
@@ -847,9 +845,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-accent-100 dark:bg-accent-900/40 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/40 rounded-lg flex items-center justify-center">
               <Fingerprint
-                className="w-5 h-5 text-accent-600 dark:text-accent-400"
+                className="w-5 h-5 text-primary-600 dark:text-primary-400"
                 strokeWidth={1.5}
                 aria-hidden="true"
               />
@@ -891,9 +889,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                   className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-accent-100 dark:bg-accent-900/40 rounded-lg flex items-center justify-center">
+                    <div className="w-8 h-8 bg-primary-100 dark:bg-primary-900/40 rounded-lg flex items-center justify-center">
                       <Fingerprint
-                        className="w-4 h-4 text-accent-600 dark:text-accent-400"
+                        className="w-4 h-4 text-primary-600 dark:text-primary-400"
                         strokeWidth={1.5}
                         aria-hidden="true"
                       />
@@ -1029,7 +1027,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                   variant: 'info',
                 });
               }}
-              className="text-sm text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 font-medium"
+              className="text-sm text-primary-700 dark:text-primary-300 hover:text-primary-800 dark:hover:text-primary-200 font-medium"
             >
               Copy All
             </button>
@@ -1185,15 +1183,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
 // ============================================================================
 
 const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
-  const { locale, setLocale, t } = useI18n();
-  const { refreshAuth } = useAuthContext();
+  const { locale, t } = useI18n();
+  const saveAccountLanguage = useAccountLanguage();
   const [languageSaving, setLanguageSaving] = useState(false);
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
-    getStoredThemePreference(),
-  );
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() =>
-    resolveThemePreference(getStoredThemePreference()),
-  );
   const [notifPrefs, setNotifPrefs] = useState({
     emailEnabled: true,
     smsEnabled: false,
@@ -1208,23 +1200,15 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
   const [notifLoading, setNotifLoading] = useState(true);
   const [notifSaving, setNotifSaving] = useState(false);
 
-  useEffect(() => {
-    return subscribeToSystemThemePreference(
-      () => themePreference,
-      (theme) => setResolvedTheme(theme),
-    );
-  }, [themePreference]);
-
   /**
    * The language follows the user (FE-HIGH-089): applied to this session at
-   * once, then saved on the account so the next device opens in it too.
+   * once, then saved on the account so the next device opens in it too — the
+   * one path the console's user menu and palette share (useAccountLanguage).
    */
   const updateLanguage = async (code: SupportedLocale): Promise<void> => {
-    setLocale(code);
     setLanguageSaving(true);
     try {
-      await graphqlClient.request(UPDATE_MY_PROFILE, { input: { preferredLanguage: code } });
-      await refreshAuth();
+      await saveAccountLanguage(code);
       showToast({
         title: t('settings.language.saved'),
         description: t('settings.language.savedDescription'),
@@ -1239,16 +1223,6 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
     } finally {
       setLanguageSaving(false);
     }
-  };
-
-  const updateThemePreference = (preference: ThemePreference): void => {
-    setThemePreference(preference);
-    setResolvedTheme(persistThemePreference(preference));
-    showToast({
-      title: 'Saved',
-      description: 'Appearance preference updated.',
-      variant: 'success',
-    });
   };
 
   // Load notification preferences on mount
@@ -1314,80 +1288,10 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
     }
   };
 
-  const NotifToggle: React.FC<{
-    enabled: boolean;
-    onChange: (v: boolean) => void;
-    label: string;
-    desc: string;
-  }> = ({ enabled, onChange, label, desc }) => (
-    <div className="flex items-center justify-between py-3">
-      <div>
-        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</p>
-        <p className="text-xs text-gray-500 dark:text-gray-400">{desc}</p>
-      </div>
-      <button
-        type="button"
-        onClick={() => onChange(!enabled)}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:ring-offset-2 ${
-          enabled ? 'bg-info-600' : 'bg-gray-300'
-        }`}
-      >
-        <span
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
-            enabled ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-      </button>
-    </div>
-  );
-
   return (
     <div className="space-y-6">
-      {/* Theme */}
-      <Card>
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/40 rounded-lg flex items-center justify-center">
-              <SwatchBook
-                className="w-5 h-5 text-primary-600 dark:text-primary-400"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Appearance</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Customize the look and feel of the application
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-md">
-            {[
-              { id: 'light', label: 'Light' },
-              { id: 'dark', label: 'Dark' },
-              { id: 'system', label: 'System' },
-            ].map((theme) => (
-              <button
-                key={theme.id}
-                type="button"
-                onClick={() => updateThemePreference(theme.id as ThemePreference)}
-                className={`p-3 rounded-lg border-2 text-center text-sm font-medium transition-all ${
-                  themePreference === theme.id
-                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
-                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
-                }`}
-                aria-pressed={themePreference === theme.id}
-              >
-                {theme.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
-            Current theme: {resolvedTheme === 'dark' ? 'Dark' : 'Light'}
-          </p>
-        </div>
-      </Card>
+      {/* Theme — read from the store every surface writes */}
+      <AppearanceSettings showToast={showToast} />
 
       {/* Language — applied now, saved on the account, followed on every device (FE-HIGH-089) */}
       <Card>
@@ -1442,9 +1346,9 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-warning-100 dark:bg-warning-900/40 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/40 rounded-lg flex items-center justify-center">
               <Bell
-                className="w-5 h-5 text-warning-600 dark:text-warning-400"
+                className="w-5 h-5 text-primary-600 dark:text-primary-400"
                 strokeWidth={1.5}
                 aria-hidden="true"
               />
@@ -1471,19 +1375,19 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                   Channels
                 </p>
                 <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                  <NotifToggle
+                  <NotificationToggle
                     enabled={notifPrefs.emailEnabled}
                     onChange={(v) => updatePref('emailEnabled', v)}
                     label="Email Notifications"
                     desc="Receive notifications via email"
                   />
-                  <NotifToggle
+                  <NotificationToggle
                     enabled={notifPrefs.smsEnabled}
                     onChange={(v) => updatePref('smsEnabled', v)}
                     label="SMS Notifications"
                     desc="Receive critical alerts via text message"
                   />
-                  <NotifToggle
+                  <NotificationToggle
                     enabled={notifPrefs.pushEnabled}
                     onChange={(v) => updatePref('pushEnabled', v)}
                     label="Push Notifications"
@@ -1498,19 +1402,19 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                   Categories
                 </p>
                 <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                  <NotifToggle
+                  <NotificationToggle
                     enabled={notifPrefs.alertNotifications}
                     onChange={(v) => updatePref('alertNotifications', v)}
                     label="Sensor Alerts"
                     desc="Sensor threshold breaches and critical alerts"
                   />
-                  <NotifToggle
+                  <NotificationToggle
                     enabled={notifPrefs.taskNotifications}
                     onChange={(v) => updatePref('taskNotifications', v)}
                     label="Task Notifications"
                     desc="Task assignments, updates, and reminders"
                   />
-                  <NotifToggle
+                  <NotificationToggle
                     enabled={notifPrefs.systemNotifications}
                     onChange={(v) => updatePref('systemNotifications', v)}
                     label="System Notifications"
@@ -1540,7 +1444,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       type="time"
                       value={notifPrefs.quietHoursStart}
                       onChange={(e) => updatePref('quietHoursStart', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -1555,7 +1459,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       type="time"
                       value={notifPrefs.quietHoursEnd}
                       onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -1569,7 +1473,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       id="quiet-hours-timezone"
                       value={notifPrefs.quietHoursTimezone}
                       onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     >
                       <option value="Europe/Istanbul">Istanbul (UTC+3)</option>
                       <option value="UTC">UTC</option>

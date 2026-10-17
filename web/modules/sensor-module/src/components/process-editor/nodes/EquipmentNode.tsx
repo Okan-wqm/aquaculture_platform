@@ -54,9 +54,9 @@ const statusColors: Record<string, { bg: string; border: string; text: string }>
     text: 'text-info-700 dark:text-info-300',
   },
   preparing: {
-    bg: 'bg-accent-50 dark:bg-accent-900/20',
-    border: 'border-accent-400',
-    text: 'text-accent-700 dark:text-accent-300',
+    bg: 'bg-primary-50 dark:bg-primary-900/20',
+    border: 'border-primary-400',
+    text: 'text-primary-700 dark:text-primary-300',
   },
   cleaning: {
     bg: 'bg-info-50 dark:bg-info-900/20',
@@ -64,11 +64,15 @@ const statusColors: Record<string, { bg: string; border: string; text: string }>
     text: 'text-info-700 dark:text-info-300',
   },
   harvesting: {
-    bg: 'bg-warning-50 dark:bg-warning-900/20',
-    border: 'border-warning-400',
-    text: 'text-warning-700 dark:text-warning-300',
+    bg: 'bg-primary-50 dark:bg-primary-900/20',
+    border: 'border-primary-400',
+    text: 'text-primary-700 dark:text-primary-300',
   },
-  fallow: { bg: 'bg-stone-50', border: 'border-stone-400', text: 'text-stone-600' },
+  fallow: {
+    bg: 'bg-gray-50 dark:bg-gray-800',
+    border: 'border-gray-400',
+    text: 'text-gray-600 dark:text-gray-400',
+  },
   quarantine: {
     bg: 'bg-error-50 dark:bg-error-900/20',
     border: 'border-error-400',
@@ -157,10 +161,10 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
       <div
         className={`
           equipment-node relative
-          rounded-lg border-2 shadow-md
+          rounded-lg border-2 shadow-(--shadow-sd-md)
           transition-all duration-200
           ${statusStyle.bg} ${statusStyle.border}
-          ${selected ? 'ring-2 ring-info-500 ring-offset-2 shadow-lg scale-105' : 'hover:shadow-lg'}
+          ${selected ? 'ring-2 ring-info-500 ring-offset-2 shadow-(--shadow-sd-lg) scale-105' : 'hover:shadow-(--shadow-sd-lg)'}
         `}
         style={{
           width: size.width,
@@ -252,14 +256,14 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
           <div className="flex items-center justify-center mt-2">
             <span
               className={`
-                inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
                 ${statusStyle.bg} ${statusStyle.text}
               `}
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
                   data.status === 'operational' || data.status === 'active'
-                    ? 'bg-success-500 animate-pulse'
+                    ? 'bg-success-500 motion-safe:animate-pulse'
                     : statusStyle.text.replace('text-', 'bg-')
                 }`}
               />

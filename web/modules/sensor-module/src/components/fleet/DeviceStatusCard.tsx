@@ -91,7 +91,7 @@ const OnlineIndicator: React.FC<{ isOnline: boolean; connectionQuality?: number 
       <div className="flex items-center gap-1">
         <div className="relative">
           <Wifi size={16} className="text-success-500" />
-          <span className="absolute -top-1 -right-1 w-2 h-2 bg-success-500 rounded-full animate-pulse" />
+          <span className="absolute -top-1 -right-1 w-2 h-2 bg-success-500 rounded-full motion-safe:animate-pulse" />
         </div>
         {connectionQuality !== undefined && (
           <span className="text-xs text-gray-500 dark:text-gray-400">{connectionQuality}%</span>
@@ -126,7 +126,7 @@ const StateBadge: React.FC<{ state: DeviceLifecycleState }> = ({ state }) => {
 
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
         colorClasses[color] || colorClasses.gray
       }`}
     >
@@ -175,7 +175,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
   if (compact) {
     return (
       <div
-        className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:shadow-md transition-shadow cursor-pointer"
+        className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:shadow-(--shadow-sd-md) transition-shadow cursor-pointer"
         onClick={() => onViewDetail?.(device)}
       >
         <div className="flex items-center justify-between">
@@ -200,12 +200,12 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-(--shadow-sd-sm) hover:shadow-(--shadow-sd-md) transition-shadow">
       {/* Header */}
       <div className="p-4 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-info-500 to-info-600 rounded-lg flex items-center justify-center">
+            <div className="w-12 h-12 bg-info-600 rounded-lg flex items-center justify-center">
               <Server size={24} className="text-white" />
             </div>
             <div>

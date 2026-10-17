@@ -105,6 +105,15 @@ export class MePayload {
 
   @Field()
   redirectPath!: string;
+
+  /**
+   * The display name of the session's effective tenant (`auth.tenants.name`);
+   * null for a platform SUPER_ADMIN, who has none. WHY on the session: the
+   * tenant console names the tenant in its rail for every tenant role, and
+   * `myTenant` is TENANT_ADMIN-only — a module user had no source for it.
+   */
+  @Field(() => String, { nullable: true })
+  tenantName!: string | null;
 }
 
 @ObjectType()

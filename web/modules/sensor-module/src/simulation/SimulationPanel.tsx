@@ -96,7 +96,7 @@ const StatusIndicator: React.FC<{ state: SimulationState }> = ({ state }) => {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-500">
       <span
-        className={`w-2 h-2 rounded-full ${color} ${state === 'running' ? 'animate-pulse' : ''}`}
+        className={`w-2 h-2 rounded-full ${color} ${state === 'running' ? 'motion-safe:animate-pulse' : ''}`}
       />
       {label}
     </span>

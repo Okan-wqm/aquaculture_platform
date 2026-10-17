@@ -5,9 +5,10 @@
 
 import React from 'react';
 import { Ship, Building2, Plane, Calendar, Users } from 'lucide-react';
-import { cn, Spinner } from '@aquaculture/shared-ui';
+import { cn, Spinner, useI18n } from '@aquaculture/shared-ui';
 import { useSeaLandSplit, useOffshoreHeadcount } from '../../hooks';
 import { EmployeeAvatar } from '../common/EmployeeAvatar';
+import { CREW_LOCATIONS, CREW_LOCATION_TONE, type CrewLocation } from './crewLocationTone';
 
 interface SeaLandSplitViewProps {
   departmentId?: string;
@@ -92,68 +93,68 @@ function CrewSection({
   );
 }
 
-function SummaryView({ data }: { data: ReturnType<typeof useSeaLandSplit>['data'] }) {
+type SplitData = NonNullable<ReturnType<typeof useSeaLandSplit>['data']>;
+
+/** Each crew location's head count, in bar order. */
+function locationCounts(data: SplitData): { location: CrewLocation; count: number }[] {
+  const counts: Record<CrewLocation, number> = {
+    offshore: data.offshore.count,
+    onshore: data.onshore.count,
+    transit: data.inTransit.count,
+    leave: data.onLeave.count,
+  };
+  return CREW_LOCATIONS.map((location) => ({ location, count: counts[location] }));
+}
+
+/**
+ * The split as one bar and its legend. The four fills differ in lightness
+ * only in the Company workspace (crewLocationTone), so each segment is an
+ * image named "<location>: <count>" and the bar a named group: the location
+ * is never carried by colour alone.
+ */
+function SummaryView({ data }: { data: SplitData | undefined }): React.JSX.Element | null {
+  const { t } = useI18n();
   if (!data) return null;
 
-  const total =
-    data.offshore.count + data.onshore.count + data.inTransit.count + data.onLeave.count;
-  const offshorePercent = total > 0 ? (data.offshore.count / total) * 100 : 0;
-  const onshorePercent = total > 0 ? (data.onshore.count / total) * 100 : 0;
-  const transitPercent = total > 0 ? (data.inTransit.count / total) * 100 : 0;
-  const leavePercent = total > 0 ? (data.onLeave.count / total) * 100 : 0;
+  const counts = locationCounts(data);
+  const total = counts.reduce((sum, { count }) => sum + count, 0);
+  const name = (location: CrewLocation, count: number): string =>
+    t('hr.crew.split.segment', { location: t(CREW_LOCATION_TONE[location].label), count });
 
   return (
     <div className="space-y-3">
-      <div className="flex h-4 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-        {offshorePercent > 0 && (
-          <div
-            className="bg-info-500 transition-all"
-            style={{ width: `${offshorePercent}%` }}
-            title={`Offshore: ${data.offshore.count}`}
-          />
-        )}
-        {onshorePercent > 0 && (
-          <div
-            className="bg-success-500 transition-all"
-            style={{ width: `${onshorePercent}%` }}
-            title={`Onshore: ${data.onshore.count}`}
-          />
-        )}
-        {transitPercent > 0 && (
-          <div
-            className="bg-warning-500 transition-all"
-            style={{ width: `${transitPercent}%` }}
-            title={`In Transit: ${data.inTransit.count}`}
-          />
-        )}
-        {leavePercent > 0 && (
-          <div
-            className="bg-gray-400 transition-all"
-            style={{ width: `${leavePercent}%` }}
-            title={`On Leave: ${data.onLeave.count}`}
-          />
-        )}
+      <div
+        role="group"
+        aria-label={t('hr.crew.split.label')}
+        className="flex h-4 overflow-hidden rounded-sm bg-gray-200 dark:bg-gray-700"
+      >
+        {counts
+          .filter(({ count }) => count > 0)
+          .map(({ location, count }) => (
+            <div
+              key={location}
+              role="img"
+              aria-label={name(location, count)}
+              title={name(location, count)}
+              className={cn(
+                CREW_LOCATION_TONE[location].fill,
+                'transition-all motion-reduce:transition-none',
+              )}
+              style={{ width: `${(count / total) * 100}%` }}
+            />
+          ))}
       </div>
 
       <div className="flex flex-wrap gap-4 text-sm">
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-info-500" />
-          <span className="text-gray-600 dark:text-gray-400">Offshore: {data.offshore.count}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-success-500" />
-          <span className="text-gray-600 dark:text-gray-400">Onshore: {data.onshore.count}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-warning-500" />
-          <span className="text-gray-600 dark:text-gray-400">
-            In Transit: {data.inTransit.count}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-gray-400" />
-          <span className="text-gray-600 dark:text-gray-400">On Leave: {data.onLeave.count}</span>
-        </div>
+        {counts.map(({ location, count }) => (
+          <div key={location} className="flex items-center gap-2">
+            <div
+              aria-hidden="true"
+              className={cn('h-3 w-3 rounded-full', CREW_LOCATION_TONE[location].fill)}
+            />
+            <span className="text-gray-600 dark:text-gray-400">{name(location, count)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -223,7 +224,7 @@ export function SeaLandSplitView({
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="text-center">
               <div className="flex items-center justify-center">
-                <Ship className="h-5 w-5 text-info-500" />
+                <Ship className={cn('h-5 w-5', CREW_LOCATION_TONE.offshore.icon)} />
               </div>
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.offshore.count}
@@ -232,7 +233,7 @@ export function SeaLandSplitView({
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-success-500" />
+                <Building2 className={cn('h-5 w-5', CREW_LOCATION_TONE.onshore.icon)} />
               </div>
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.onshore.count}
@@ -241,7 +242,7 @@ export function SeaLandSplitView({
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center">
-                <Plane className="h-5 w-5 text-warning-500" />
+                <Plane className={cn('h-5 w-5', CREW_LOCATION_TONE.transit.icon)} />
               </div>
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.inTransit.count}
@@ -250,7 +251,7 @@ export function SeaLandSplitView({
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center">
-                <Calendar className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                <Calendar className={cn('h-5 w-5', CREW_LOCATION_TONE.leave.icon)} />
               </div>
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.onLeave.count}
@@ -262,35 +263,35 @@ export function SeaLandSplitView({
           <div className="grid gap-4 md:grid-cols-2">
             <CrewSection
               title="Offshore"
-              icon={<Ship className="h-4 w-4 text-white" />}
+              icon={<Ship className={cn('h-4 w-4', CREW_LOCATION_TONE.offshore.onFill)} />}
               count={data.offshore.count}
               employees={data.offshore.employees}
-              color="bg-info-500"
-              bgColor="bg-info-50 dark:bg-info-900/20"
+              color={CREW_LOCATION_TONE.offshore.fill}
+              bgColor={CREW_LOCATION_TONE.offshore.tint}
             />
             <CrewSection
               title="Onshore"
-              icon={<Building2 className="h-4 w-4 text-white" />}
+              icon={<Building2 className={cn('h-4 w-4', CREW_LOCATION_TONE.onshore.onFill)} />}
               count={data.onshore.count}
               employees={data.onshore.employees}
-              color="bg-success-500"
-              bgColor="bg-success-50 dark:bg-success-900/20"
+              color={CREW_LOCATION_TONE.onshore.fill}
+              bgColor={CREW_LOCATION_TONE.onshore.tint}
             />
             <CrewSection
               title="In Transit"
-              icon={<Plane className="h-4 w-4 text-white" />}
+              icon={<Plane className={cn('h-4 w-4', CREW_LOCATION_TONE.transit.onFill)} />}
               count={data.inTransit.count}
               employees={data.inTransit.employees}
-              color="bg-warning-500"
-              bgColor="bg-warning-50 dark:bg-warning-900/20"
+              color={CREW_LOCATION_TONE.transit.fill}
+              bgColor={CREW_LOCATION_TONE.transit.tint}
             />
             <CrewSection
               title="On Leave"
-              icon={<Calendar className="h-4 w-4 text-white" />}
+              icon={<Calendar className={cn('h-4 w-4', CREW_LOCATION_TONE.leave.onFill)} />}
               count={data.onLeave.count}
               employees={data.onLeave.employees}
-              color="bg-gray-400"
-              bgColor="bg-gray-50 dark:bg-gray-900/20"
+              color={CREW_LOCATION_TONE.leave.fill}
+              bgColor={CREW_LOCATION_TONE.leave.tint}
             />
           </div>
         )}
@@ -310,7 +311,7 @@ export function SeaLandSplitView({
                     <span className="min-w-0 flex-1 truncate text-sm text-gray-600 dark:text-gray-400">
                       {area.workAreaName}
                     </span>
-                    <div className="h-2 w-24 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                    <div className="h-2 w-24 overflow-hidden rounded-sm bg-gray-200 dark:bg-gray-700">
                       <div
                         className={cn(
                           'h-full transition-all',

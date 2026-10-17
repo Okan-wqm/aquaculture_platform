@@ -123,7 +123,7 @@ export function EmployeesListPage() {
         render: (_value, row) => (
           <span
             className={cn(
-              'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium',
+              'inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-medium',
               row.seaWorthy
                 ? 'bg-success-100 text-success-700 dark:bg-success-900/30 dark:text-success-400'
                 : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
@@ -144,7 +144,7 @@ export function EmployeesListPage() {
               toggleFarmWorker.mutate({ id: row.id, isFarmWorker: !row.isFarmWorker });
             }}
             className={cn(
-              'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors',
+              'inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-medium transition-colors',
               row.isFarmWorker
                 ? 'bg-success-100 text-success-700 hover:bg-success-200 dark:bg-success-900/30 dark:text-success-400'
                 : 'bg-gray-100 text-gray-400 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-500',

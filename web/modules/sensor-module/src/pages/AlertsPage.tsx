@@ -8,9 +8,15 @@
  * - 30-second auto-refresh polling
  * - Pagination
  * - Loading/error/empty states
+ *
+ * The console annunciator links its tiles here as `?priority=p1|p2|p3|unack`
+ * (README §7.5): the list opens on the alarms the tile counted — the open
+ * ones, for UNACK the unacknowledged — and keeps the parameter in step with
+ * its filters (pages/alerts/useAlertPriorityParam).
  */
 
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   Bell,
@@ -24,7 +30,22 @@ import {
   Activity,
 } from 'lucide-react';
 import { useAlerts, AlertHistoryItem, AlertSeverity, AlertStatusFilter } from '../hooks/useAlerts';
-import { Spinner, PageHeader, severityClasses, Button, Select } from '@aquaculture/shared-ui';
+import {
+  Spinner,
+  PageHeader,
+  severityClasses,
+  Button,
+  Select,
+  useI18n,
+  type MessageKey,
+} from '@aquaculture/shared-ui';
+import { initialAlertFilter, useAlertPriorityParam } from './alerts/useAlertPriorityParam';
+import {
+  SEVERITY_CHOICES,
+  choiceByValue,
+  severityChoiceOf,
+  type SeverityChoiceValue,
+} from './alerts/severityChoices';
 
 // ============================================================================
 // Types
@@ -46,55 +67,85 @@ type StatusConfig = {
 // Constants
 // ============================================================================
 
+// Keyed by the supergraph's AlertSeverity names, the values alertHistory returns.
 const SEVERITY_CONFIG: Record<AlertSeverity, SeverityConfig> = {
-  critical: {
+  CRITICAL: {
     label: 'Kritik',
     className: severityClasses('critical'),
     borderClass: severityClasses('critical', 'bar'),
   },
-  high: {
+  HIGH: {
     label: 'Yüksek',
     className: severityClasses('high'),
     borderClass: severityClasses('high', 'bar'),
   },
-  warning: {
+  WARNING: {
     label: 'Uyarı',
     className: severityClasses('warning'),
     borderClass: severityClasses('warning', 'bar'),
   },
-  medium: {
+  MEDIUM: {
     label: 'Orta',
     className: severityClasses('medium'),
     borderClass: severityClasses('medium', 'bar'),
   },
-  low: {
+  LOW: {
     label: 'Düşük',
     className: severityClasses('low'),
     borderClass: severityClasses('low', 'bar'),
   },
-  info: {
+  INFO: {
     label: 'Bilgi',
     className: severityClasses('info'),
     borderClass: severityClasses('info', 'bar'),
   },
 };
 
-const STATUS_TABS: { value: AlertStatusFilter; label: string }[] = [
-  { value: 'all', label: 'Tümü' },
-  { value: 'active', label: 'Aktif' },
-  { value: 'acknowledged', label: 'Onaylandı' },
-  { value: 'resolved', label: 'Çözüldü' },
+/**
+ * The severity select's option labels. The groups an annunciator tile lands
+ * on — P1–P3 (UNACK's) and P3 (medium + warning, the MED tile) — are message
+ * keys; the rest keep this page's labels.
+ */
+function severityChoiceLabel(value: SeverityChoiceValue, t: (key: MessageKey) => string): string {
+  if (value === 'all') return 'Tüm Önem Dereceleri';
+  if (value === 'alarms') return t('alerts.severityFilter.alarms');
+  if (value === 'p3') return t('alerts.severityFilter.p3');
+  return SEVERITY_CONFIG[value].label;
+}
+
+/**
+ * The status tabs, in display order. 'open' (unresolved, acknowledged or not)
+ * is where a priority tile lands, and its label is a message key; the rest
+ * keep this page's labels.
+ */
+const STATUS_TABS: readonly AlertStatusFilter[] = [
+  'all',
+  'open',
+  'active',
+  'acknowledged',
+  'resolved',
 ];
+
+const STATUS_LABELS: Readonly<Record<Exclude<AlertStatusFilter, 'open'>, string>> = {
+  all: 'Tümü',
+  active: 'Aktif',
+  acknowledged: 'Onaylandı',
+  resolved: 'Çözüldü',
+};
+
+function statusTabLabel(value: AlertStatusFilter, t: (key: MessageKey) => string): string {
+  return value === 'open' ? t('alerts.status.open') : STATUS_LABELS[value];
+}
 
 // ============================================================================
 // Components
 // ============================================================================
 
 const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
-  const config = SEVERITY_CONFIG[severity] || SEVERITY_CONFIG.info;
+  const config = SEVERITY_CONFIG[severity];
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}
+      className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium border ${config.className}`}
     >
       {config.label}
     </span>
@@ -139,7 +190,7 @@ const AlertCard: React.FC<{
   mutating: string | null;
 }> = ({ alert, onAcknowledge, onResolve, mutating }) => {
   const isMutating = mutating === alert.id;
-  const sevConfig = SEVERITY_CONFIG[alert.severity] || SEVERITY_CONFIG.info;
+  const sevConfig = SEVERITY_CONFIG[alert.severity];
 
   // Extract triggering value from triggeringData
   const triggeringValue = alert.triggeringData?.value ?? alert.triggeringData?.currentValue;
@@ -148,7 +199,7 @@ const AlertCard: React.FC<{
 
   return (
     <div
-      className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border-l-4 p-6 hover:shadow-md transition-shadow ${sevConfig.borderClass}`}
+      className={`bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border-l-4 p-6 hover:shadow-(--shadow-sd-md) transition-shadow ${sevConfig.borderClass}`}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
@@ -238,6 +289,8 @@ const AlertCard: React.FC<{
 // ============================================================================
 
 const AlertsPage: React.FC = () => {
+  const { t } = useI18n();
+  const [searchParams] = useSearchParams();
   const {
     alerts,
     loading,
@@ -250,7 +303,9 @@ const AlertsPage: React.FC = () => {
     acknowledgeAlert,
     resolveAlert,
     refetch,
-  } = useAlerts();
+  } = useAlerts(initialAlertFilter(searchParams));
+  // The status tab and severity set, in step with the console's ?priority=.
+  const chooseFilter = useAlertPriorityParam(updateFilters);
 
   const [acknowledgeNote, setAcknowledgeNote] = useState<{ id: string; note: string } | null>(null);
 
@@ -354,14 +409,16 @@ const AlertsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-100 dark:border-warning-800 rounded-xl p-4">
+        {/* Acknowledged is a workflow state, not a severity: neutral, so the amber
+            stays the High card's alone (README §7.8). */}
+        <div className="bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <Clock className="w-8 h-8 text-warning-600 dark:text-warning-400" />
+            <Clock className="w-8 h-8 text-gray-500 dark:text-gray-400" />
             <div>
-              <p className="text-2xl font-bold text-warning-900 dark:text-warning-100">
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {stats.acknowledged}
               </p>
-              <p className="text-sm text-warning-600 dark:text-warning-400">Beklemede</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Beklemede</p>
             </div>
           </div>
         </div>
@@ -379,21 +436,22 @@ const AlertsPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
           {/* Status Tabs */}
           <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-            {STATUS_TABS.map((tab) => (
+            {STATUS_TABS.map((status) => (
               <button
-                key={tab.value}
-                onClick={() => updateFilters({ status: tab.value })}
+                key={status}
+                aria-pressed={filters.status === status}
+                onClick={() => chooseFilter({ status, severities: filters.severities })}
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  filters.status === tab.value
-                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                  filters.status === status
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
-                {tab.label}
+                {statusTabLabel(status, t)}
               </button>
             ))}
           </div>
@@ -402,28 +460,21 @@ const AlertsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <Select
-              options={[
-                { value: 'all', label: 'Tüm Önem Dereceleri' },
-                { value: 'critical', label: 'Kritik' },
-                { value: 'high', label: 'Yüksek' },
-                { value: 'warning', label: 'Uyarı' },
-                { value: 'medium', label: 'Orta' },
-                { value: 'low', label: 'Düşük' },
-                { value: 'info', label: 'Bilgi' },
-              ]}
-              value={filters.severity || 'all'}
-              onChange={(e) =>
-                updateFilters({
-                  severity:
-                    e.target.value === 'all' ? undefined : (e.target.value as AlertSeverity),
-                })
-              }
+              options={SEVERITY_CHOICES.map((choice) => ({
+                value: choice.value,
+                label: severityChoiceLabel(choice.value, t),
+              }))}
+              value={severityChoiceOf(filters.severities)}
+              onChange={(e) => {
+                const choice = choiceByValue(e.target.value);
+                if (choice) chooseFilter({ status: filters.status, severities: choice.severities });
+              }}
             />
           </div>
 
           {/* Auto-refresh indicator */}
           <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-            <div className="w-2 h-2 rounded-full bg-success-400 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-success-400 motion-safe:animate-pulse" />
             Otomatik yenileme: 30s
           </div>
         </div>
@@ -442,13 +493,13 @@ const AlertsPage: React.FC = () => {
 
       {/* Empty State */}
       {alerts.length === 0 && !loading && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
             Uyarı Bulunamadı
           </h3>
           <p className="text-gray-500 dark:text-gray-400 text-sm">
-            {filters.status !== 'all' || filters.severity
+            {filters.status !== 'all' || filters.severities.length > 0
               ? 'Seçili filtrelerle eşleşen uyarı bulunamadı. Filtreleri değiştirmeyi deneyin.'
               : 'Henüz tetiklenmiş uyarı bulunmuyor.'}
           </p>
@@ -470,7 +521,7 @@ const AlertsPage: React.FC = () => {
 
       {/* Pagination */}
       {alerts.length > 0 && (
-        <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+        <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Sayfa {filters.page} - {alerts.length} sonuç gösteriliyor
           </p>
@@ -502,7 +553,7 @@ const AlertsPage: React.FC = () => {
 
       {/* Loading overlay for background refresh */}
       {loading && alerts.length > 0 && (
-        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) px-4 py-3 flex items-center gap-3">
           <Spinner size="md" />
           <span className="text-sm text-gray-700 dark:text-gray-300">Güncelleniyor...</span>
         </div>

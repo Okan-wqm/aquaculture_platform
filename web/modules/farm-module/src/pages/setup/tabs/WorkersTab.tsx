@@ -206,7 +206,7 @@ export const WorkersTab: React.FC = () => {
       render: (_value, item) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {statusLabels[item.status] || item.status}
           </span>
@@ -276,7 +276,7 @@ export const WorkersTab: React.FC = () => {
 
       {/* Table */}
       {!isLoading && !error && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<ItemRow>
             data={filtered}
             columns={itemRowColumns}

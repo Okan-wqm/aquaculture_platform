@@ -8,6 +8,7 @@ import {
   IsUUID,
   IsNumber,
   IsArray,
+  IsBoolean,
   Min,
   Max,
   MaxLength,
@@ -301,6 +302,16 @@ export class FeedingParameterFilterDto {
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  /**
+   * Only the sets that left the draft state — sent, being sent, or failed to
+   * send. The command log reads feeding sends through it, so the server pages
+   * over sends and drafts never take a page's room.
+   */
+  @Field(() => Boolean, { nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  sentOnly?: boolean;
 }
 
 /**

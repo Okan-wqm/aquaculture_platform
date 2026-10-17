@@ -111,7 +111,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
         <div className="flex items-center gap-2">
           <span
             className={`
-              px-2 py-1 rounded-full text-xs font-medium
+              px-2 py-1 rounded text-xs font-medium
               ${
                 equipmentData.status === 'operational' || equipmentData.status === 'active'
                   ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'

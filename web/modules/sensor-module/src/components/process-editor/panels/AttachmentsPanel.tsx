@@ -109,10 +109,10 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-gray-900 dark:text-gray-100">Equipment</h3>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20 px-2 py-1 rounded-full">
+            <span className="text-xs text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20 px-2 py-1 rounded">
               {linkedCount} linked
             </span>
-            <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
+            <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
               {unlinkedCount} available
             </span>
           </div>

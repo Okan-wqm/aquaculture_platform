@@ -79,7 +79,7 @@ const statusColors: Record<string, string> = {
   PREPARING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  HARVESTING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  HARVESTING: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   FALLOW: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   OUT_OF_SERVICE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
@@ -584,11 +584,11 @@ export const TanksPage: React.FC = () => {
       case 'category':
         return (
           <span
-            className={`px-2 py-1 rounded-full text-xs font-medium ${
+            className={`px-2 py-1 rounded text-xs font-medium ${
               tank.category === 'pond'
                 ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
                 : tank.category === 'cage'
-                  ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                   : 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
             }`}
           >
@@ -598,7 +598,7 @@ export const TanksPage: React.FC = () => {
       case 'status':
         return (
           <span
-            className={`px-2 py-1 rounded-full text-xs font-medium ${
+            className={`px-2 py-1 rounded text-xs font-medium ${
               statusColors[tank.status] ||
               'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
@@ -713,9 +713,9 @@ export const TanksPage: React.FC = () => {
       case 'capacityUsedPercent':
         return tank.capacityUsedPercent !== undefined ? (
           <div className="flex items-center gap-2">
-            <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+            <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded h-2">
               <div
-                className={`h-2 rounded-full ${
+                className={`h-2 rounded ${
                   tank.capacityUsedPercent > 100
                     ? 'bg-error-500'
                     : tank.capacityUsedPercent > 80
@@ -780,11 +780,11 @@ export const TanksPage: React.FC = () => {
         case 'category':
           return (
             <span
-              className={`px-2 py-1 rounded-full text-xs font-medium ${
+              className={`px-2 py-1 rounded text-xs font-medium ${
                 tank.category === 'pond'
                   ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
                   : tank.category === 'cage'
-                    ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                     : 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
               }`}
             >
@@ -794,7 +794,7 @@ export const TanksPage: React.FC = () => {
         case 'status':
           return (
             <span
-              className={`px-2 py-1 rounded-full text-xs font-medium ${
+              className={`px-2 py-1 rounded text-xs font-medium ${
                 statusColors[tank.status] ||
                 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
               }`}
@@ -1227,7 +1227,7 @@ export const TanksPage: React.FC = () => {
           }`}
         >
           Production Batches
-          <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300">
+          <span className="ml-2 px-2 py-0.5 text-xs rounded bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300">
             {filteredData.filter((t) => t.batchNumber).length}
           </span>
         </button>
@@ -1240,7 +1240,7 @@ export const TanksPage: React.FC = () => {
           }`}
         >
           Cleaner Fish
-          <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
+          <span className="ml-2 px-2 py-0.5 text-xs rounded bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
             {filteredData.filter((t) => t.hasCleanerFish).length}
           </span>
         </button>

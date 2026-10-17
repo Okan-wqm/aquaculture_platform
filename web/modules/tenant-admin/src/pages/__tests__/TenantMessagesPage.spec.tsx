@@ -130,6 +130,24 @@ describe('TenantMessagesPage — responsive master-detail', () => {
     expect(screen.getByText('Select a conversation')).toBeInTheDocument();
   });
 
+  it('opens a thread from the keyboard and announces it as the current one', async () => {
+    // The row was a `<div onClick>`: no tab stop, no key handler, and the
+    // selection drawn only in colour. It is a SelectableRow button now.
+    const user = userEvent.setup();
+    renderPage();
+
+    const row = screen.getByRole('button', { name: /Billing question/ });
+    expect(row).not.toHaveAttribute('aria-current');
+    row.focus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('button', { name: /Billing question/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    expect(screen.getByLabelText('Back to conversations')).toBeInTheDocument();
+  });
+
   it('stats grid stacks 2-up on mobile (repo responsive idiom)', () => {
     renderPage();
 

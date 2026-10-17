@@ -22,8 +22,8 @@ const statusColors: Record<BatchStatus, string> = {
   QUARANTINE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   GROWING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  PRE_HARVEST: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  HARVESTING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  PRE_HARVEST: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  HARVESTING: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   HARVESTED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   TRANSFERRED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   FAILED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
@@ -161,7 +161,7 @@ export const BatchInputTab: React.FC = () => {
       header: 'Status',
       render: (_value, batch) => (
         <span
-          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[batch.status]}`}
+          className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[batch.status]}`}
         >
           {statusLabels[batch.status]}
         </span>
@@ -240,7 +240,7 @@ export const BatchInputTab: React.FC = () => {
               placeholder="Search batches..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm pl-10"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-(--shadow-sd-sm) focus:border-info-500 focus:ring-info-500 sm:text-sm pl-10"
             />
             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
               <SearchIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
@@ -279,7 +279,7 @@ export const BatchInputTab: React.FC = () => {
 
       {/* Loading State */}
       {isLoading && (
-        <div className="bg-white dark:bg-gray-900 shadow rounded-lg p-8">
+        <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) rounded-lg p-8">
           <div className="flex flex-col items-center justify-center">
             <Spinner size="lg" className="mb-4" />
             <p className="text-gray-500 dark:text-gray-400">Loading batches...</p>
@@ -289,7 +289,7 @@ export const BatchInputTab: React.FC = () => {
 
       {/* Batch Table */}
       {!isLoading && !error && (
-        <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) rounded-lg overflow-hidden">
           <DataTable<BatchRow>
             data={filteredBatches}
             columns={batchRowColumns}
@@ -319,7 +319,7 @@ export const BatchInputTab: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="p-3 bg-info-100 dark:bg-info-900/40 rounded-lg">
@@ -335,7 +335,7 @@ export const BatchInputTab: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="p-3 bg-success-100 dark:bg-success-900/40 rounded-lg">
@@ -354,14 +354,11 @@ export const BatchInputTab: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
-                <Scale
-                  className="w-6 h-6 text-accent-600 dark:text-accent-400"
-                  aria-hidden="true"
-                />
+              <div className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                <Scale className="w-6 h-6 text-gray-600 dark:text-gray-400" aria-hidden="true" />
               </div>
             </div>
             <div className="ml-4">
@@ -374,7 +371,7 @@ export const BatchInputTab: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="p-3 bg-warning-100 dark:bg-warning-900/40 rounded-lg">

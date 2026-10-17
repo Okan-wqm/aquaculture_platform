@@ -10,7 +10,7 @@ import {
   JoinColumn,
   BeforeInsert,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DateColumnTransformer, DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveType } from './leave-type.entity';
@@ -116,12 +116,16 @@ export class LeaveRequest {
   @JoinColumn({ name: 'leaveTypeId' })
   leaveType?: LeaveType;
 
+  // DateColumnTransformer: a `date` column hydrates as 'YYYY-MM-DD', which the
+  // GraphQL DateTime scalar refuses (serialize → null), so every read selecting
+  // the leave's dates — leaveRequests, teamLeaveCalendar — failed with
+  // INTERNAL_SERVER_ERROR (FARM-CRITICAL-406 class; FARM-MEDIUM-424 sweep).
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   startDate!: Date;
 
   @Field()
-  @Column({ type: 'date' })
+  @Column({ type: 'date', transformer: new DateColumnTransformer() })
   endDate!: Date;
 
   @Field(() => Float)

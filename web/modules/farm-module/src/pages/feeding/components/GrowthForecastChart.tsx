@@ -100,7 +100,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
 
   if (batches.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 text-center text-gray-500 dark:text-gray-400">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6 text-center text-gray-500 dark:text-gray-400">
         No active batches found. Create a batch to see growth forecasts.
       </div>
     );
@@ -147,7 +147,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
   return (
     <div className="space-y-6">
       {/* Controls */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Batch Selector */}
           <div>
@@ -208,7 +208,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
 
       {/* Loading State */}
       {isLoading && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-12 text-center">
           <Spinner size="xl" block />
           <p className="mt-4 text-gray-500 dark:text-gray-400">Calculating growth projections...</p>
         </div>
@@ -216,7 +216,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
 
       {/* Error State */}
       {error && (
-        <div className="bg-error-50 dark:bg-error-900/20 rounded-lg shadow p-6 text-center text-error-600 dark:text-error-400">
+        <div className="bg-error-50 dark:bg-error-900/20 rounded-lg shadow-(--shadow-sd-sm) p-6 text-center text-error-600 dark:text-error-400">
           Error loading growth simulation. Please try again.
         </div>
       )}
@@ -226,7 +226,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
               <p className="text-sm text-gray-500 dark:text-gray-400">Projected Weight</p>
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {simulationData.summary.endWeight.toFixed(0)}g
@@ -243,7 +243,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
                 %)
               </p>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
               <p className="text-sm text-gray-500 dark:text-gray-400">Projected Biomass</p>
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {(simulationData.summary.endBiomass / 1000).toFixed(2)}t
@@ -257,7 +257,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
                 t
               </p>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
               <p className="text-sm text-gray-500 dark:text-gray-400">Total Feed Required</p>
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {simulationData.summary.totalFeedKg.toFixed(0)} kg
@@ -266,7 +266,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
                 {(simulationData.summary.totalFeedKg / 1000).toFixed(2)}t
               </p>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
               <p className="text-sm text-gray-500 dark:text-gray-400">Expected FCR</p>
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {simulationData.summary.avgFCR.toFixed(2)}
@@ -278,7 +278,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
           </div>
 
           {/* Weight & Biomass Chart */}
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
               Weight & Biomass Projection
             </h3>
@@ -321,7 +321,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
           </div>
 
           {/* Daily Feed Chart */}
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
               Daily Feed Requirements
             </h3>
@@ -362,7 +362,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
 
           {/* Feed Requirements Summary */}
           {simulationData.feedRequirements.length > 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm)">
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                 <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
                   Feed Requirements by Type

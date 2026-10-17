@@ -15,11 +15,13 @@ const TrainingPage: React.FC = () => {
   // Only fetch active courses
   const { data: courses, isLoading } = useTrainingCourses({ isActive: true });
 
+  // A course category is not a state: neutral or the workspace accent under the
+  // Industry console, never the amber / red that signal risk (README §7.8).
   const categoryColors: Record<string, string> = {
-    safety: 'bg-error-100 text-error-800 dark:bg-error-900/30 dark:text-error-400',
+    safety: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
     technical: 'bg-info-100 text-info-800 dark:bg-info-900/30 dark:text-info-400',
-    compliance: 'bg-accent-100 text-accent-800 dark:bg-accent-900/30 dark:text-accent-400',
-    soft_skills: 'bg-accent-100 text-accent-800 dark:bg-accent-900/30 dark:text-accent-400',
+    compliance: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
+    soft_skills: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
   };
 
   return (
@@ -54,7 +56,7 @@ const TrainingPage: React.FC = () => {
           {courses.map((course) => (
             <div
               key={course.id}
-              className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+              className="rounded-xl border border-gray-100 bg-white p-5 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800"
             >
               <div className="mb-3 flex items-start justify-between">
                 <div className="rounded-lg bg-primary-50 p-2 dark:bg-primary-900/30">
@@ -63,7 +65,7 @@ const TrainingPage: React.FC = () => {
                 {course.trainingType && (
                   <span
                     className={cn(
-                      'rounded-full px-2 py-0.5 text-xs font-medium',
+                      'rounded-md px-2 py-0.5 text-xs font-medium',
                       categoryColors[course.trainingType.toLowerCase()] ||
                         'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
                     )}
@@ -92,7 +94,7 @@ const TrainingPage: React.FC = () => {
                   </div>
                 )}
                 {course.isMandatory && (
-                  <span className="rounded-full bg-error-100 px-2 py-0.5 text-xs font-medium text-error-700 dark:bg-error-900/30 dark:text-error-400">
+                  <span className="rounded-md bg-error-100 px-2 py-0.5 text-xs font-medium text-error-700 dark:bg-error-900/30 dark:text-error-400">
                     Required
                   </span>
                 )}

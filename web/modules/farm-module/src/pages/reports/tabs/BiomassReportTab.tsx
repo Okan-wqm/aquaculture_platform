@@ -1047,12 +1047,12 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
       )}
 
       {/* Total Summary */}
-      <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-accent-800 dark:text-accent-200">
+          <span className="text-sm font-medium text-info-800 dark:text-info-200">
             Total Feed Consumption
           </span>
-          <span className="text-2xl font-bold text-accent-700 dark:text-accent-300">
+          <span className="text-2xl font-bold text-info-700 dark:text-info-300">
             {formatWeight(formData.feedConsumption.totalKg)}
           </span>
         </div>
@@ -1220,12 +1220,10 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
             </span>
           </div>
         </div>
-        <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
+        <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-accent-800 dark:text-accent-200">
-              Outgoing
-            </span>
-            <span className="text-xl font-bold text-accent-700 dark:text-accent-300">
+            <span className="text-sm font-medium text-info-800 dark:text-info-200">Outgoing</span>
+            <span className="text-xl font-bold text-info-700 dark:text-info-300">
               {outgoingCount}
             </span>
           </div>
@@ -1256,10 +1254,10 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
                     Transfer #{index + 1}
                   </span>
                   <span
-                    className={`px-2 py-0.5 text-xs rounded-full ${
+                    className={`px-2 py-0.5 text-xs rounded ${
                       transfer.direction === 'incoming'
                         ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                        : 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
+                        : 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                     }`}
                   >
                     {transfer.direction === 'incoming' ? 'IN' : 'OUT'}
@@ -1436,7 +1434,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Mortality</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {formatWeight(formData.feedConsumption.totalKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Feed Used</div>
@@ -1541,7 +1539,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.feedConsumption.byFeedType.map((f, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm bg-accent-50 dark:bg-accent-900/20 rounded p-2"
+                className="flex items-center justify-between text-sm bg-info-50 dark:bg-info-900/20 rounded p-2"
               >
                 <div>
                   <span className="text-gray-700 dark:text-gray-300">
@@ -1553,7 +1551,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     </span>
                   )}
                 </div>
-                <span className="font-medium text-accent-700 dark:text-accent-300">
+                <span className="font-medium text-info-700 dark:text-info-300">
                   {formatWeight(f.quantityKg)}
                 </span>
               </div>
@@ -1602,14 +1600,12 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           )}
           {outgoingTransfers.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-accent-600 dark:text-accent-400 mb-1">
-                Outgoing
-              </p>
+              <p className="text-xs font-medium text-info-600 dark:text-info-400 mb-1">Outgoing</p>
               <div className="space-y-1">
                 {outgoingTransfers.map((t, i) => (
                   <div
                     key={i}
-                    className="flex items-center justify-between text-sm bg-accent-50 dark:bg-accent-900/20 rounded p-2"
+                    className="flex items-center justify-between text-sm bg-info-50 dark:bg-info-900/20 rounded p-2"
                   >
                     <div>
                       <span className="text-gray-700 dark:text-gray-300">
@@ -1622,7 +1618,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                       )}
                     </div>
                     <div className="text-right">
-                      <span className="font-medium text-accent-700 dark:text-accent-300">
+                      <span className="font-medium text-info-700 dark:text-info-300">
                         {formatNumber(t.quantity)} fish
                       </span>
                       <span className="text-gray-500 dark:text-gray-400 ml-2">
@@ -2067,7 +2063,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
                     {getMonthLabel(row.reportMonth - 1, row.reportYear)}
                   </span>
                   <span
-                    className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
+                    className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded ${
                       biomassStatusChip(row.status).className
                     }`}
                   >

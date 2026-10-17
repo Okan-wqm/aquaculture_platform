@@ -413,7 +413,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                   Maskinporten Integration
                 </h3>
                 {settingsData?.maskinportenConfigured && (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                     Configured
                   </span>
                 )}
@@ -633,7 +633,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
               </p>
               <div className="mt-2">
                 <span
-                  className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
+                  className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded ${
                     statusData?.hasSlaughterApproval
                       ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                       : 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'

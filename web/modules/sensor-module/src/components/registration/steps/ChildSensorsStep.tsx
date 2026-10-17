@@ -172,12 +172,12 @@ export function ChildSensorsStep({
                       {sensor.selected && (
                         <>
                           {sensor.isConfigured ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                               <Check className="w-3 h-3 mr-1" aria-hidden="true" />
                               Configured
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
                               <TriangleAlert className="w-3 h-3 mr-1" aria-hidden="true" />
                               Needs Config
                             </span>
@@ -207,7 +207,7 @@ export function ChildSensorsStep({
                         </span>
                       )}
                       {sensor.calibrationEnabled && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                           Calibration: x{sensor.calibrationMultiplier} +{sensor.calibrationOffset}
                         </span>
                       )}
@@ -224,7 +224,7 @@ export function ChildSensorsStep({
                         </span>
                       )}
                       {sensor.displaySettings?.showOnDashboard && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                           Dashboard
                         </span>
                       )}

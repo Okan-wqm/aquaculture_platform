@@ -70,7 +70,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
         {statCards.map((card) => (
           <div
             key={card.label}
-            className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4"
+            className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 p-4"
           >
             <div className="flex items-center justify-between">
               <div>
@@ -151,7 +151,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
             return (
               <div
                 key={task.id}
-                className={`bg-white dark:bg-gray-900 rounded-lg border ${isOverdue ? 'border-error-300 dark:border-error-700 bg-error-50 dark:bg-error-900/20' : 'border-gray-200 dark:border-gray-700'} p-4 hover:shadow-sm transition-shadow`}
+                className={`bg-white dark:bg-gray-900 rounded-lg border ${isOverdue ? 'border-error-300 dark:border-error-700 bg-error-50 dark:bg-error-900/20' : 'border-gray-200 dark:border-gray-700'} p-4 hover:shadow-(--shadow-sd-sm) transition-shadow`}
               >
                 <div className="flex items-start gap-3">
                   {/* Checkbox */}
@@ -171,17 +171,17 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                         {task.title}
                       </span>
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cat.bg} ${cat.color}`}
                       >
                         {cat.label}
                       </span>
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${pri.bg} ${pri.color}`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${pri.bg} ${pri.color}`}
                       >
                         {pri.label}
                       </span>
                       {isOverdue && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200">
                           Gecikmiş
                         </span>
                       )}

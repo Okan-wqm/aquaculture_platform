@@ -14,6 +14,7 @@ import {
   Context,
 } from '@nestjs/graphql';
 
+import { recordedActorOf } from '../../common/recorded-actor';
 import {
   CreatePlcConnectionDto,
   UpdatePlcConnectionDto,
@@ -436,10 +437,10 @@ export class PlcControlResolver {
   async createFeedingParameter(
     @Args('input') input: CreateFeedingParameterDto,
     @Tenant() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<FeedingParameter> {
     this.logger.log(`Creating feeding parameter: ${input.name}`);
-    return this.feedingParameterService.create(input, tenantId, userId);
+    return this.feedingParameterService.create(input, tenantId, recordedActorOf(user));
   }
 
   /**
@@ -508,10 +509,10 @@ export class PlcControlResolver {
     @Args('id', { type: () => ID }) id: string,
     @Args('newName', { type: () => String, nullable: true }) newName: string | undefined,
     @Tenant() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<FeedingParameter> {
     this.logger.log(`Cloning feeding parameter: ${id}`);
-    return this.feedingParameterService.clone(id, tenantId, newName, userId);
+    return this.feedingParameterService.clone(id, tenantId, newName, recordedActorOf(user));
   }
 
   // ==================== Alarm Queries ====================

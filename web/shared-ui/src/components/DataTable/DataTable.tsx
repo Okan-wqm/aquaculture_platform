@@ -957,9 +957,11 @@ export function DataTable<T>({
       {pagination && (
         <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 dark:border-gray-700">
           <div className="text-sm text-gray-600 dark:text-gray-300">
-            Showing {Math.min((pagination.page - 1) * pagination.limit + 1, pagination.total)} to{' '}
-            {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}{' '}
-            results
+            {t('table.showingRange', {
+              from: Math.min((pagination.page - 1) * pagination.limit + 1, pagination.total),
+              to: Math.min(pagination.page * pagination.limit, pagination.total),
+              total: pagination.total,
+            })}
           </div>
 
           <div className="flex items-center gap-4">

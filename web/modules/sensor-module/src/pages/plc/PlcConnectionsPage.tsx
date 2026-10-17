@@ -1018,7 +1018,7 @@ const PlcConnectionsPage: React.FC = () => {
         return (
           <>
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.bgColor}`}
+              className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-0.5 text-xs font-medium ${statusCfg.bgColor}`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${statusCfg.dotColor}`} />
               {statusCfg.label}
@@ -1086,7 +1086,7 @@ const PlcConnectionsPage: React.FC = () => {
             <MoreVertical className="h-4 w-4" />
           </Button>
           {menuOpenId === conn.id && (
-            <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-lg">
+            <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-(--shadow-sd-lg)">
               <Button
                 variant="ghost"
                 size="sm"

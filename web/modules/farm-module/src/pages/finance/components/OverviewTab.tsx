@@ -67,7 +67,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
     <div className="space-y-6">
       {/* Headline cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow-(--shadow-sd-sm)">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Operational cost</p>
           <p className="mt-1 text-3xl font-semibold text-gray-900 dark:text-gray-100">
             {formatMoney(summary.totalExpenseDecimal, summary.currency)}
@@ -76,14 +76,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
             {period.from} → {period.to}
           </p>
         </div>
-        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow-(--shadow-sd-sm)">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Revenue</p>
           <p className="mt-1 text-3xl font-semibold text-gray-900 dark:text-gray-100">
             {formatMoney(summary.totalRevenueDecimal, summary.currency)}
           </p>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Harvest sales</p>
         </div>
-        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow-(--shadow-sd-sm)">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Net result</p>
           <p
             className={`mt-1 text-3xl font-semibold ${
@@ -132,7 +132,7 @@ const categoryColumns = (currency: string): DataTableColumn<CategoryRow>[] => [
           </span>
         )}
         {row.isComputed && (
-          <span className="ml-2 rounded bg-accent-100 dark:bg-accent-900/40 px-1.5 py-0.5 text-xs text-accent-700 dark:text-accent-300">
+          <span className="ml-2 rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 text-xs text-gray-700 dark:text-gray-300">
             calculated
           </span>
         )}
@@ -152,7 +152,7 @@ const CategoryTable: React.FC<{
   rows: FinanceSummary['byCategory'];
   currency: string;
 }> = ({ title, rows, currency }) => (
-  <div className="overflow-hidden rounded-lg bg-white dark:bg-gray-900 shadow">
+  <div className="overflow-hidden rounded-lg bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)">
     <div className="border-b border-gray-200 dark:border-gray-700 px-5 py-4">
       <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
     </div>

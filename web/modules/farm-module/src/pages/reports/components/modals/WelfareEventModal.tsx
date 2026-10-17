@@ -497,7 +497,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   value={formData.mortalityRate}
                   onChange={(e) => handleChange('mortalityRate', e.target.value)}
                   className={`
-                          block w-full rounded-md shadow-sm text-sm
+                          block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                           ${errors.mortalityRate ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-info-500 focus:border-info-500
                         `}
@@ -518,7 +518,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   value={formData.mortalityCount}
                   onChange={(e) => handleChange('mortalityCount', e.target.value)}
                   className={`
-                          block w-full rounded-md shadow-sm text-sm
+                          block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                           ${errors.mortalityCount ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-info-500 focus:border-info-500
                         `}
@@ -662,7 +662,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                         setEquipmentSearch('');
                       }
                     }}
-                    className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                    className={`px-3 py-1 text-xs rounded border transition-colors ${
                       formData.equipmentType === type
                         ? 'bg-info-100 dark:bg-info-900/40 border-info-400 text-info-800 dark:text-info-200'
                         : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
@@ -687,7 +687,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                     setEquipmentSearch(e.target.value);
                   }}
                   className={`
-                          block w-full rounded-md shadow-sm text-sm
+                          block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                           ${errors.equipmentName ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-info-500 focus:border-info-500
                         `}
@@ -771,7 +771,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 onChange={(e) => handleChange('description', e.target.value)}
                 rows={3}
                 className={`
-                        block w-full rounded-md shadow-sm text-sm
+                        block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                         ${errors.description ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                         focus:ring-info-500 focus:border-info-500
                       `}
@@ -793,7 +793,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   value={formData.affectedFishEstimate}
                   onChange={(e) => handleChange('affectedFishEstimate', e.target.value)}
                   className={`
-                          block w-full rounded-md shadow-sm text-sm
+                          block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                           ${errors.affectedFishEstimate ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-info-500 focus:border-info-500
                         `}
@@ -845,7 +845,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                     type="button"
                     onClick={() => addSuggestedAction(action)}
                     disabled={isAdded}
-                    className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                    className={`px-3 py-1.5 text-xs rounded border transition-colors ${
                       isAdded
                         ? 'bg-success-100 dark:bg-success-900/40 border-success-300 dark:border-success-700 text-success-700 dark:text-success-300 cursor-default'
                         : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-500'

@@ -174,7 +174,9 @@ export const BarChart: React.FC<BarChartProps> = ({
     <div className={`relative flex flex-col w-full h-full ${className ?? ''}`}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-gray-900/60 z-10">
-          <span className="text-xs text-gray-500 dark:text-gray-400 animate-pulse">Loading...</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 motion-safe:animate-pulse">
+            Loading...
+          </span>
         </div>
       )}
       {error && (
@@ -238,7 +240,7 @@ export const BarChart: React.FC<BarChartProps> = ({
                 fontSize: '12px',
                 color: colors.tooltipText,
               }}
-              cursor={{ fill: 'rgba(14, 165, 233, 0.08)' }}
+              cursor={{ fill: colors.gridColor }}
             />
             {showLegend && series.length > 1 && (
               <Legend wrapperStyle={{ fontSize: '11px' }} iconType="rect" iconSize={10} />

@@ -114,7 +114,7 @@ const statusColors: Record<string, string> = {
   ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   PREPARING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  HARVESTING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  HARVESTING: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   FALLOW: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
   QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
@@ -742,7 +742,7 @@ export const EquipmentTab: React.FC = () => {
       render: (_value, eq) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {eq.status}
           </span>
@@ -889,7 +889,7 @@ export const EquipmentTab: React.FC = () => {
           {filteredEquipment.map((eq) => (
             <div
               key={eq.id}
-              className={`rounded-lg shadow-sm border-2 hover:shadow-md transition-shadow ${
+              className={`rounded-lg shadow-(--shadow-sd-sm) border-2 hover:shadow-(--shadow-sd-md) transition-shadow ${
                 (eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0)
                   ? 'bg-white dark:bg-gray-900 border-info-500'
                   : 'bg-error-50 dark:bg-error-900/20 border-error-500'
@@ -909,7 +909,7 @@ export const EquipmentTab: React.FC = () => {
                     </div>
                   </div>
                   <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                   >
                     {eq.status}
                   </span>
@@ -1274,7 +1274,7 @@ export const EquipmentTab: React.FC = () => {
                                 {child.name} ({child.code})
                               </span>
                               <span
-                                className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                                className={`px-2 py-0.5 text-xs rounded ${statusColors[child.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                               >
                                 {child.status}
                               </span>

@@ -39,6 +39,7 @@ import {
   type Message,
 } from '../hooks/useTenantData';
 import { sanitizeErrorMessage } from '../utils/error-handling';
+import { SelectableRow } from '../components/ui/SelectableRow';
 
 // ============================================================================
 // Component
@@ -194,7 +195,7 @@ const TenantMessagesPage: React.FC = () => {
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-success-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
             </div>
             <div className="flex items-center gap-2">
@@ -239,14 +240,11 @@ const TenantMessagesPage: React.FC = () => {
               </div>
             ) : (
               filteredThreads.map((thread) => (
-                <div
+                <SelectableRow
                   key={thread.id}
-                  onClick={() => setSelectedThread(thread)}
-                  className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
-                    selectedThread?.id === thread.id
-                      ? 'bg-success-50 dark:bg-success-900/20 border-l-4 border-l-green-500'
-                      : ''
-                  }`}
+                  current={selectedThread?.id === thread.id}
+                  onSelect={() => setSelectedThread(thread)}
+                  className="p-4 border-b border-gray-100 dark:border-gray-700"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
@@ -255,7 +253,7 @@ const TenantMessagesPage: React.FC = () => {
                           {thread.subject}
                         </span>
                         {thread.unreadCount > 0 && (
-                          <span className="px-1.5 py-0.5 bg-success-600 text-white text-xs rounded-full">
+                          <span className="px-1.5 py-0.5 bg-primary-600 text-white text-xs rounded">
                             {thread.unreadCount}
                           </span>
                         )}
@@ -278,7 +276,7 @@ const TenantMessagesPage: React.FC = () => {
                       )}
                     </div>
                   </div>
-                </div>
+                </SelectableRow>
               ))
             )}
           </div>

@@ -101,6 +101,12 @@ export class EdgeDeviceResolver {
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @Args('lifecycleState', { type: () => DeviceLifecycleState, nullable: true })
     lifecycleState?: DeviceLifecycleState,
+    @Args('inService', {
+      type: () => Boolean,
+      nullable: true,
+      description: 'Only devices in service: no decommissioned or revoked device',
+    })
+    inService?: boolean,
     @Args('isOnline', { type: () => Boolean, nullable: true }) isOnline?: boolean,
     @Args('search', { type: () => String, nullable: true }) search?: string,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
@@ -109,6 +115,7 @@ export class EdgeDeviceResolver {
     return await this.edgeDeviceService.findAll(tenantId, {
       siteId,
       lifecycleState,
+      inService,
       isOnline,
       search,
       page,

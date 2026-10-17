@@ -518,7 +518,9 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             <Button
               variant="ghost"
               size="xs"
-              leftIcon={<Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} />}
+              leftIcon={
+                <Save className={`w-3.5 h-3.5 ${isSaving ? 'motion-safe:animate-pulse' : ''}`} />
+              }
               onClick={save}
               disabled={isSaving}
               title="Save (Ctrl+S)"

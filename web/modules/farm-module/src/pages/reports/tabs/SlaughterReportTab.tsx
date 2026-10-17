@@ -525,7 +525,7 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Slaughter Facility
           </h4>
-          <span className="px-2 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
+          <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded">
             Required
           </span>
         </div>
@@ -1167,7 +1167,7 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
           )}
           {/* Visual bar */}
           {gradeSum > 0 && (
-            <div className="flex h-4 rounded-full overflow-hidden mt-3 bg-gray-100 dark:bg-gray-800">
+            <div className="flex h-4 rounded overflow-hidden mt-3 bg-gray-100 dark:bg-gray-800">
               {formData.gradeDistribution.superior > 0 && (
                 <div
                   className="bg-success-500 transition-all"
@@ -1298,8 +1298,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Slaughter Facility */}
-      <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
-        <h5 className="text-xs font-medium text-accent-800 dark:text-accent-200 uppercase mb-2">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h5 className="text-xs font-medium text-info-800 dark:text-info-200 uppercase mb-2">
           Slaughter Facility
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -1484,7 +1484,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             </div>
           </div>
           {/* Visual bar */}
-          <div className="flex h-3 rounded-full overflow-hidden mt-3 bg-gray-100 dark:bg-gray-800">
+          <div className="flex h-3 rounded overflow-hidden mt-3 bg-gray-100 dark:bg-gray-800">
             {formData.gradeDistribution.superior > 0 && (
               <div
                 className="bg-success-500"

@@ -104,7 +104,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
   };
 
   return (
-    <div className="absolute bottom-14 right-3 z-20 flex items-center gap-1 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 dark:border-gray-700 px-2 py-1 text-xs">
+    <div className="absolute bottom-14 right-3 z-20 flex items-center gap-1 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg shadow-(--shadow-sd-md) border border-gray-200 dark:border-gray-700 px-2 py-1 text-xs">
       {/* Grid Snap Toggle */}
       <Toggle
         label="Grid Snap"

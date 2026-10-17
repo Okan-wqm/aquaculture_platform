@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   Cpu,
   Plus,
@@ -19,14 +19,17 @@ import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
 import { useEdgeDevices, tenantKeys } from '../hooks/useTenantData';
 import { formatRelativeTime } from '../utils/date-utils';
 import { PageHeader, Button, Select } from '@aquaculture/shared-ui';
+import { SD_CARD } from '../components/ui/suderra';
 
+// Maintenance is a planned state, not an alarm: it takes the workspace accent,
+// since in the console only red and amber signal (README §7.8).
 const stateColors: Record<string, string> = {
   active: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   pending_approval: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   registered: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   provisioning: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   offline: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  maintenance: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  maintenance: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   error: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   revoked: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   decommissioned: 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
@@ -41,7 +44,6 @@ const stateIcons: Record<string, React.ReactNode> = {
 };
 
 const EdgeDevicesPage: React.FC = () => {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -130,8 +132,9 @@ const EdgeDevicesPage: React.FC = () => {
           {
             label: 'Maintenance',
             value: getStateCount('MAINTENANCE'),
-            color: 'bg-accent-50 dark:bg-accent-900/20 border-accent-200 dark:border-accent-800',
-            textColor: 'text-accent-700 dark:text-accent-300',
+            color:
+              'bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800',
+            textColor: 'text-primary-700 dark:text-primary-300',
           },
         ].map((stat) => (
           <div key={stat.label} className={`${stat.color} border rounded-xl p-4`}>
@@ -190,7 +193,7 @@ const EdgeDevicesPage: React.FC = () => {
               }}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                 onlineFilter === opt.value
-                  ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                  ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
@@ -229,11 +232,13 @@ const EdgeDevicesPage: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {/* A card opens the device's page: it is a link (Tab, Enter, open in
+              a new tab), not a clickable div, drawn as the blueprint frame. */}
           {devices.map((device) => (
-            <div
+            <Link
               key={device.id}
-              onClick={() => navigate(`/tenant/devices/${device.id}`)}
-              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 hover:shadow-md hover:border-primary-200 transition-all cursor-pointer group"
+              to={`/tenant/devices/${device.id}`}
+              className={`${SD_CARD} group block p-5 transition-colors hover:border-primary-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600`}
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-3">
@@ -268,7 +273,7 @@ const EdgeDevicesPage: React.FC = () => {
               {/* State Badge */}
               <div className="flex items-center gap-2 mb-3">
                 <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
                     stateColors[device.lifecycleState] ||
                     'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                   }`}
@@ -292,9 +297,9 @@ const EdgeDevicesPage: React.FC = () => {
                         <span className="text-gray-500 dark:text-gray-400">CPU</span>
                         <span className="font-medium">{device.cpuUsage}%</span>
                       </div>
-                      <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all ${
+                          className={`h-full rounded transition-all ${
                             device.cpuUsage > 80
                               ? 'bg-error-500'
                               : device.cpuUsage > 60
@@ -312,9 +317,9 @@ const EdgeDevicesPage: React.FC = () => {
                         <span className="text-gray-500 dark:text-gray-400">MEM</span>
                         <span className="font-medium">{device.memoryUsage}%</span>
                       </div>
-                      <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all ${
+                          className={`h-full rounded transition-all ${
                             device.memoryUsage > 80
                               ? 'bg-error-500'
                               : device.memoryUsage > 60
@@ -334,7 +339,7 @@ const EdgeDevicesPage: React.FC = () => {
                 <span>{device.ipAddress || device.deviceModel}</span>
                 <span>{formatRelativeTime(device.lastSeenAt ?? null)}</span>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

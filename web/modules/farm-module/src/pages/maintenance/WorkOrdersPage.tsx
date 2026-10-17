@@ -50,7 +50,7 @@ const statusColors: Record<WorkOrderStatus, string> = {
   PENDING_APPROVAL: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   APPROVED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   SCHEDULED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
-  IN_PROGRESS: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  IN_PROGRESS: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   ON_HOLD: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   COMPLETED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   VERIFIED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
@@ -186,9 +186,9 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'start',
         label: 'Başlat',
-        color: 'text-accent-700 dark:text-accent-300',
-        bgColor: 'bg-accent-50 dark:bg-accent-900/20',
-        hoverColor: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
+        color: 'text-primary-700 dark:text-primary-300',
+        bgColor: 'bg-primary-50 dark:bg-primary-900/20',
+        hoverColor: 'hover:bg-primary-100 dark:hover:bg-primary-900/50',
         needsReason: false,
       });
       actions.push({
@@ -235,9 +235,9 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'resume',
         label: 'Devam Et',
-        color: 'text-accent-700 dark:text-accent-300',
-        bgColor: 'bg-accent-50 dark:bg-accent-900/20',
-        hoverColor: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
+        color: 'text-primary-700 dark:text-primary-300',
+        bgColor: 'bg-primary-50 dark:bg-primary-900/20',
+        hoverColor: 'hover:bg-primary-100 dark:hover:bg-primary-900/50',
         needsReason: false,
       });
       actions.push({
@@ -901,9 +901,9 @@ export const WorkOrdersPage: React.FC = () => {
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Kontrol Listesi İlerlemesi
                   </h3>
-                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2.5">
                     <div
-                      className="bg-info-600 h-2.5 rounded-full"
+                      className="bg-info-600 h-2.5 rounded"
                       style={{ width: `${selectedWorkOrder.checklistProgress}%` }}
                     />
                   </div>

@@ -37,6 +37,10 @@ const TenantAuditLogPage = React.lazy(() => import('./pages/TenantAuditLogPage')
 const TenantBillingPage = React.lazy(() => import('./pages/TenantBillingPage'));
 const TenantActivityPage = React.lazy(() => import('./pages/TenantActivityPage'));
 
+// Platform reference documents (static content, no data source)
+const PlatformArchitecturePage = React.lazy(() => import('./pages/PlatformArchitecturePage'));
+const ArchitectureReviewPage = React.lazy(() => import('./pages/ArchitectureReviewPage'));
+
 /**
  * Suspense fallback shown while lazy-loaded page chunks are being fetched.
  */
@@ -61,6 +65,8 @@ const PageLoadingFallback: React.FC = () => (
  * - /tenant/audit-log - Audit log viewer (Wave 4)
  * - /tenant/billing - Subscription & billing overview (Wave 4, read-only)
  * - /tenant/activity - User activity dashboard (Wave 4)
+ * - /tenant/architecture - Platform architecture v4 reference document
+ * - /tenant/architecture/review - End-to-end review of the architecture
  */
 const TenantAdminModule: React.FC = () => {
   return (
@@ -105,6 +111,10 @@ const TenantAdminModule: React.FC = () => {
           <Route path="audit-log" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Audit Log"><TenantAuditLogPage /></PageErrorBoundary></RequireTenantCapability>} />
           <Route path="billing" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Billing"><TenantBillingPage /></PageErrorBoundary></RequireTenantCapability>} />
           <Route path="activity" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Activity"><TenantActivityPage /></PageErrorBoundary></RequireTenantCapability>} />
+
+          {/* Platform reference documents (admin-only, static) */}
+          <Route path="architecture" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Platform Architecture"><PlatformArchitecturePage /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="architecture/review" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Architecture Review"><ArchitectureReviewPage /></PageErrorBoundary></RequireTenantCapability>} />
 
           {/* Catch-all redirect to dashboard */}
           <Route path="*" element={<Navigate to="/tenant" replace />} />

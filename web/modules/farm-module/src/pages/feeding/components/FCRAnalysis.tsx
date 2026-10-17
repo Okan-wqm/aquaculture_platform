@@ -112,7 +112,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
 
   if (batches.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 text-center text-gray-500 dark:text-gray-400">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-6 text-center text-gray-500 dark:text-gray-400">
         No active batches found. Create a batch to analyze FCR.
       </div>
     );
@@ -203,7 +203,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
     <div className="space-y-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Average FCR</p>
           <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             {avgActualFCR.toFixed(2)}
@@ -212,21 +212,21 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
             {getPerformanceRating(avgActualFCR, avgTargetFCR).label}
           </p>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Target FCR</p>
           <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             {avgTargetFCR.toFixed(2)}
           </p>
           <p className="text-sm text-gray-500 dark:text-gray-400">Industry standard</p>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Average SGR</p>
           <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             {avgSGR.toFixed(2)}%
           </p>
           <p className="text-sm text-gray-500 dark:text-gray-400">Daily growth rate</p>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Batches Analyzed</p>
           <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             {batchFCRData.length}
@@ -236,7 +236,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       </div>
 
       {/* Metric Toggle */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
         <div className="flex items-center space-x-4 mb-4">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">View:</span>
           <button
@@ -302,7 +302,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       </div>
 
       {/* Historical Trend */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-4">
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
           FCR Historical Trend
         </h3>
@@ -318,7 +318,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       </div>
 
       {/* Detailed Batch Table */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
             Batch FCR Details
@@ -336,7 +336,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       </div>
 
       {/* FCR Optimization Tips */}
-      <div className="bg-info-50 dark:bg-info-900/20 rounded-lg shadow p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 rounded-lg shadow-(--shadow-sd-sm) p-4">
         <h3 className="text-lg font-medium text-info-900 dark:text-info-100 mb-2">
           FCR Optimization Tips
         </h3>

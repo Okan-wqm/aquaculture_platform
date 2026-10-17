@@ -57,6 +57,20 @@ const SCALE_OF: Record<Severity, Scale> = {
 };
 
 // Literal strings on purpose: Tailwind only emits utilities it can read here.
+//
+// High and medium differ by treatment, not only by hue. Inside the tenant
+// console the scope (suderra.css) paints `accent` and `warning` from the one
+// hazard-amber ramp — Industry has one amber (README §7.5) — so two tints of
+// "the same colour" would make HIGH and MEDIUM indistinguishable there. The
+// annunciator draws them apart, and so does this palette:
+//   - high is the filled HIGH tile: amber-400 (= --color-sd-hz-amber) with ink
+//     text, the same in both themes because the hazard fill does not flip;
+//   - medium / warning is a surface with an amber mark: no fill, amber-ink text
+//     (amber-700 / dark amber-300 = --color-sd-hz-amber-ink), an amber rule
+//     only on the solid tone, and a fainter row tint and bar than high.
+// Outside the scope the same classes keep the legacy coral / amber scales, so
+// the two levels stay apart there by hue as well. Severity.spec.tsx resolves
+// every tone through the scope and fails if high and medium paint alike.
 const TONES: Record<Scale, Record<SeverityTone, string>> = {
   error: {
     solid: 'bg-error-600 text-white',
@@ -66,18 +80,19 @@ const TONES: Record<Scale, Record<SeverityTone, string>> = {
     text: 'text-error-600 dark:text-error-400',
   },
   accent: {
-    solid: 'bg-accent-600 text-white',
-    soft: 'bg-accent-100 text-accent-800 border-accent-200 dark:bg-accent-900/30 dark:text-accent-200 dark:border-accent-800',
-    row: 'bg-accent-50 dark:bg-accent-900/20',
+    solid: 'bg-accent-400 text-gray-900',
+    soft: 'bg-accent-400 text-gray-900 border-accent-500',
+    row: 'bg-accent-100 dark:bg-accent-900/40',
     bar: 'border-l-accent-500',
-    text: 'text-accent-600 dark:text-accent-400',
+    text: 'text-accent-800 dark:text-accent-200',
   },
   warning: {
-    solid: 'bg-warning-500 text-gray-900',
-    soft: 'bg-warning-100 text-warning-800 border-warning-200 dark:bg-warning-900/30 dark:text-warning-200 dark:border-warning-800',
+    solid:
+      'bg-white text-gray-900 border border-warning-600 dark:bg-gray-900 dark:text-gray-100 dark:border-warning-400',
+    soft: 'bg-transparent text-warning-700 border-gray-300 dark:text-warning-300 dark:border-gray-600',
     row: 'bg-warning-50 dark:bg-warning-900/20',
-    bar: 'border-l-warning-500',
-    text: 'text-warning-600 dark:text-warning-400',
+    bar: 'border-l-warning-300 dark:border-l-warning-700',
+    text: 'text-warning-700 dark:text-warning-300',
   },
   info: {
     solid: 'bg-info-500 text-white',
@@ -87,7 +102,9 @@ const TONES: Record<Scale, Record<SeverityTone, string>> = {
     text: 'text-info-600 dark:text-info-400',
   },
   neutral: {
-    solid: 'bg-neutral-500 text-white',
+    // gray, not the legacy slate `neutral` scale: the console scope re-maps gray
+    // (graphite in both themes), never `neutral`.
+    solid: 'bg-gray-600 text-white',
     soft: 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700',
     row: 'bg-gray-50 dark:bg-gray-800/40',
     bar: 'border-l-gray-400',
@@ -106,7 +123,8 @@ export function severityColor(severity: Severity): { bg: string; text: string } 
     case 'error':
       return { bg: colors.error[600], text: colors.white };
     case 'accent':
-      return { bg: colors.accent[600], text: colors.white };
+      // The filled HIGH tile with ink text, as in severityClasses' solid tone.
+      return { bg: colors.accent[400], text: colors.black };
     case 'warning':
       return { bg: colors.warning[500], text: colors.black };
     case 'info':

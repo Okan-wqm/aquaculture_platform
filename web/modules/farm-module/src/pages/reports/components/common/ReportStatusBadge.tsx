@@ -99,7 +99,7 @@ export const ReportStatusBadge: React.FC<ReportStatusBadgeProps> = ({
     <span
       className={`
         inline-flex items-center ${sizes.gap} ${sizes.padding} ${sizes.text}
-        font-medium rounded-full ${config.bgColor} ${config.textColor}
+        font-medium rounded ${config.bgColor} ${config.textColor}
       `}
     >
       {showIcon && config.icon ? (

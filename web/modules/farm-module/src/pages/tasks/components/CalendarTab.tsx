@@ -80,17 +80,17 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
   const getCategoryDot = (category: string) => {
     const colors: Record<string, string> = {
-      FEEDING: 'bg-accent-400',
+      FEEDING: 'bg-gray-400',
       WATER_QUALITY: 'bg-info-400',
       HEALTH_CHECK: 'bg-error-400',
       EQUIPMENT_MAINTENANCE: 'bg-gray-400',
-      STOCK_MANAGEMENT: 'bg-accent-400',
+      STOCK_MANAGEMENT: 'bg-gray-400',
       CLEANING: 'bg-info-400',
       REGULATORY: 'bg-primary-400',
       HARVEST: 'bg-success-400',
       ENVIRONMENTAL: 'bg-success-400',
       SAFETY: 'bg-warning-400',
-      GENERAL: 'bg-slate-400',
+      GENERAL: 'bg-gray-400',
     };
     return colors[category] || 'bg-gray-400';
   };
@@ -126,13 +126,13 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
           <button
             onClick={() => setViewMode('week')}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'week' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'week' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
           >
             Hafta
           </button>
           <button
             onClick={() => setViewMode('month')}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'month' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'month' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
           >
             Ay
           </button>
@@ -141,7 +141,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
       {/* Weekly View */}
       {viewMode === 'week' && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700">
           <div className="grid grid-cols-7 border-b border-gray-200 dark:border-gray-700">
             {weekDays.map((day, i) => {
               const isToday = formatDate(day) === todayStr;
@@ -209,7 +209,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
       {/* Monthly View */}
       {viewMode === 'month' && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700">
           {/* Day names header */}
           <div className="grid grid-cols-7 border-b border-gray-200 dark:border-gray-700">
             {dayNames.map((name) => (

@@ -90,7 +90,7 @@ export class SchedulingErrorBoundary extends Component<
         >
           <div className="text-center max-w-lg">
             {/* Error Icon */}
-            <div className="mx-auto w-16 h-16 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-6">
+            <div className="mx-auto w-16 h-16 bg-error-100 dark:bg-error-900/40 rounded-lg flex items-center justify-center mb-6">
               <AlertTriangle
                 className="w-8 h-8 text-error-600 dark:text-error-400"
                 aria-hidden="true"

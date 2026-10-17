@@ -69,6 +69,18 @@ html[data-theme='dark'] {
     @apply outline-hidden ring-2 ring-primary-500 ring-offset-2;
   }
 
+  /* Forced colours (Windows contrast themes) drop the ring, a box-shadow.
+     outline-hidden leaves a transparent outline there, which the system
+     colours — but its `--tw-outline-style: none` also switched off every
+     `focus-visible:outline-*` utility (they read the variable), so a control
+     that draws its own focus outline (the console's rows, tiles, segments)
+     showed no focus at all (WCAG 2.4.7). The variable is solid again here. */
+  @media (forced-colors: active) {
+    *:focus-visible {
+      --tw-outline-style: solid;
+    }
+  }
+
   /* Selection rengi */
   ::selection {
     @apply bg-primary-100 text-primary-900;

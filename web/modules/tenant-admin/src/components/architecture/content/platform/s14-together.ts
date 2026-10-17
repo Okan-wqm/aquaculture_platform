@@ -1,0 +1,172 @@
+/**
+ * Platform architecture v4 — §14 Hepsi birlikte.
+ *
+ * Reference content ported verbatim from the design document "Platform
+ * Mimarisi v4"; the body stays in Turkish, the document's own language.
+ * Box coordinates are on the section's fixed canvas (width × height) and
+ * diagramGeometry routes the links between box sides.
+ */
+import type { ArchitectureSection } from '../../types';
+
+import { box, link } from './builders';
+
+export const section14: ArchitectureSection = {
+  num: '14',
+  title: 'Hepsi birlikte',
+  width: 1170,
+  height: 700,
+  intro:
+    'Bütün bölümler aynı yer ağacını paylaşır ve yere tarihli bir bağla bağlanır. Zaman modeli hepsinin altındadır. Bölümlerin birbirine ne verdiği aşağıdaki tabloda.',
+  boxes: [
+    box('hub', 465, 230, 'Yer ağacı', {
+      w: 240,
+      h: 120,
+      ref: 'Bölüm 01',
+      sub: 'Saha › Alan › Sistem › Ünite › Pozisyon · izin ve hizmet oranı',
+      kind: 'hub',
+    }),
+    box('a', 465, 40, 'Alarm', {
+      w: 240,
+      ref: 'Bölüm 07',
+      sub: 'sınıf, kural, yönlendirme, eskalasyon',
+    }),
+    box('e', 465, 430, 'Enerji ve finans', {
+      w: 240,
+      ref: 'Bölüm 06',
+      sub: 'sayaç, tarife, dağıtım, maliyet merkezi, gelir',
+      kind: 'calc',
+    }),
+    box('zm', 465, 580, 'Zaman ve denetim izi', {
+      w: 240,
+      ref: 'Bölüm 13',
+      sub: 'iki zaman, dönem kilidi, düzeltme, sürüm',
+      kind: 'hub',
+    }),
+    box('d', 40, 60, 'Veri', {
+      w: 230,
+      h: 104,
+      ref: 'Bölüm 02',
+      sub: 'edge → kanal → tag → seri',
+      kind: 'data',
+    }),
+    box('iz', 40, 228, 'İzlenebilirlik', {
+      w: 230,
+      h: 104,
+      ref: 'Bölüm 09',
+      sub: 'parti + yerleşim + zaman · şeritler',
+      kind: 'calc',
+    }),
+    box('k', 40, 396, 'Kişiler', {
+      w: 230,
+      h: 104,
+      ref: 'Bölüm 03',
+      sub: 'çalışan, hesap, rol, sorumluluk türü, nöbet',
+      kind: 'org',
+    }),
+    box('st', 40, 564, 'Stok, taraf, belge', {
+      w: 230,
+      h: 104,
+      ref: 'Bölüm 12',
+      sub: 'malzeme lotu, depo hareketi, taraf',
+      kind: 'asset',
+    }),
+    box('u', 900, 60, 'Üretim', {
+      w: 230,
+      h: 104,
+      ref: 'Bölüm 04',
+      sub: 'parti, yerleşim, olay, plan, sevkiyat',
+    }),
+    box('rp', 900, 228, 'Raporlama', {
+      w: 230,
+      h: 104,
+      ref: 'Bölüm 08',
+      sub: 'mutabakat, operasyonel, resmi',
+      kind: 'calc',
+    }),
+    box('b', 900, 396, 'Bakım', {
+      w: 230,
+      h: 104,
+      ref: 'Bölüm 05',
+      sub: 'varlık, plan, iş emri, kalibrasyon',
+      kind: 'asset',
+    }),
+    box('ct', 900, 564, 'Kontrol', {
+      w: 230,
+      h: 104,
+      ref: 'Bölüm 11',
+      sub: 'komut, yetki, kilit, günlük',
+      kind: 'data',
+    }),
+  ],
+  links: [
+    link('d', 'hub', 'kanal → tag · tarihli', { k: 'data', tf: 0.3 }),
+    link('iz', 'hub', 'parti + yerleşim + zaman', { k: 'data', tf: 0.417, at: [367, 296] }),
+    link('k', 'hub', 'sorumlu + vekil · tarihli', { k: 'assign', tf: 0.7 }),
+    link('st', 'e', 'ölçülmeyen kaynak', { tf: 0.8 }),
+    link('u', 'hub', 'parti → ünite · tarihli', { fs: 'l', ts: 'r', tf: 0.25, at: [802, 160] }),
+    link('b', 'hub', 'varlık → pozisyon · tarihli', { fs: 'l', ts: 'r', tf: 0.75, at: [802, 400] }),
+    link('ct', 'b', 'bakımda komut kilidi', { k: 'ctrl', fs: 't', ts: 'b' }),
+    link('a', 'hub', 'yere bağlı', { fs: 'b', ts: 't' }),
+    link('e', 'hub', 'sayaç ve maliyet merkezi → yer', { fs: 't', ts: 'b' }),
+    link('zm', 'e', 'dönem kilidi · iki zaman', { k: 'ctrl', fs: 't', ts: 'b' }),
+    link('rp', 'hub', 'yer, parti, dönem', { fs: 'l', ts: 'r', at: [802, 266] }),
+  ],
+  notes: [
+    'Modüller yer ağacının kopyasını tutmaz; Üretim, Sera ve Kontrol aynı ağacı kendi görünümüyle kullanır.',
+    'Bütün bağlar tarihlidir ve iki zaman taşır (Bölüm 13). Geçmiş bir rapor, o tarihteki bağlara ve o tarihteki formül sürümüne göre hesaplanır.',
+    'İleri akış: ölçüm veya olay (yer + zaman) → kalite → yer seviyesinde toplam → yukarı (sistem, alan, saha) → maliyet merkezi → o tarihte o ünitedeki partiler. Geri akış: parti → yerleşim → yer → o tarihteki sorumluluk, varlık, kanal ve komut bağları. Tek sorgu.',
+  ],
+  flows: [
+    ['Veri', 'Alarm', 'ölçülen değer ve kalite kodu; geç veri işareti'],
+    ['Veri', 'Üretim', 'su kalitesi; yerleşim kaydıyla partiye'],
+    ['Veri', 'Bakım', 'çalışma saati, akım, titreşim → bakım planı'],
+    ['Veri', 'Enerji ve finans', 'sayaç okumaları'],
+    ['Veri', 'Raporlama', 'su kalitesi ve deşarj ölçümleri'],
+    ['Veri', 'İzlenebilirlik', 'yerleşim dönemindeki su kimyası'],
+    ['Üretim', 'Alarm', 'tür ve evreye göre eşik; en sıkı eşik'],
+    [
+      'Üretim',
+      'Enerji ve finans',
+      'biyokütle: kWh/kg ve paylaştırma anahtarı; sevkiyat ve satış → gelir',
+    ],
+    ['Üretim', 'Raporlama', 'olaylar, stok mutabakatı, plan–gerçekleşen'],
+    ['Üretim', 'İzlenebilirlik', 'olaylar, yerleşim, soy ağacı, sevkiyat'],
+    ['Üretim', 'Bakım', 'ünite doluysa canlı güvenliği kilidi: sistem durdurulamaz'],
+    ['Kişiler', 'Alarm', 'sorumluluk türü, vekil, vardiya, izin, nöbet'],
+    ['Kişiler', 'Bakım', 'teknisyen, yüklenici ve vardiya'],
+    ['Kişiler', 'Enerji ve finans', 'puantajdan işçilik maliyeti'],
+    ['Kişiler', 'Raporlama', 'onaylayan sorumluluk türleri'],
+    ['Kişiler', 'Üretim', 'olayı giren kişi, yetkinlik şartı'],
+    ['Kişiler', 'İzlenebilirlik', '“kim” her olayda'],
+    ['Kişiler', 'Kontrol', 'komut yetkisi ve onaylayan'],
+    ['Bakım', 'Alarm', 'devam eden iş emrinde bakım modu'],
+    ['Bakım', 'Veri', 'kalibrasyon kaydı ve katsayı sürümü → kalite kuralları'],
+    ['Bakım', 'Enerji ve finans', 'bakım gideri maliyet merkezine'],
+    ['Bakım', 'Tesis', 'kapanış: varlık söküldü / takıldı, varlık durumu'],
+    ['Bakım', 'Üretim', 'devam eden iş emri: stoklama ve transfer uyarısı'],
+    ['Bakım', 'Kontrol', 'devam eden iş emrinde komut kilidi'],
+    ['Alarm', 'Bakım', 'arıza alarmı iş emri açar'],
+    ['Alarm', 'İzlenebilirlik', 'alarm geçmişi, yerleşim dönemiyle partiye'],
+    ['Alarm', 'Raporlama', 'alarm sayısı, onay ve çözüm süresi'],
+    ['Enerji ve finans', 'Üretim', 'parti maliyeti ve sonucu'],
+    ['Raporlama', 'Üretim', 'onaylı dönem kilitlenir; düzeltme ayrı kayıt'],
+    ['Raporlama', 'Enerji ve finans', 'dönem kilidi finansı da kilitler'],
+    ['İzlenebilirlik', 'Raporlama', 'hasat ve satış kaydı, geri çağırma listesi'],
+    ['Kontrol', 'Veri', 'komut sonucu ve etkin setpoint tag olarak'],
+    ['Kontrol', 'Alarm', 'iletilemeyen veya reddedilen komut'],
+    ['Kontrol', 'İzlenebilirlik', 'komut günlüğü: programı kuran kişi'],
+    ['Stok', 'Üretim', 'lot, SKT, karışım oranı; reçete ilaç lotu'],
+    ['Stok', 'Bakım', 'yedek parça lotu'],
+    ['Stok', 'Enerji ve finans', 'ölçülmeyen kaynak tüketimi: oksijen, yakıt, gaz'],
+    ['Stok', 'Kişiler', 'dış hesabın bağlı olduğu taraf'],
+    ['Stok', 'Raporlama', 'belgeler: irsaliye, sertifika, reçete; gönderim tarafı'],
+    ['Tesis', 'Alarm', 'izin limitleri eşik olarak'],
+    ['Tesis', 'Raporlama', 'ruhsat kapasitesine karşı kullanım'],
+    ['Tesis', 'Enerji ve finans', 'hizmet oranı: dağıtım anahtarı'],
+    [
+      'Zaman',
+      'Hepsi',
+      'iki zaman, tarihli bağ kuralları, dönem kilidi, düzeltme, denetim izi, hesap sürümü',
+    ],
+  ],
+};

@@ -128,7 +128,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {/* Error Code Badge */}
             {error && (
               <div className="mb-6">
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                <span className="inline-flex items-center px-3 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                   Error Code: {error.code}
                 </span>
               </div>
@@ -177,9 +177,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                   )}
                 </Button>
 
+                {/* A dark code panel in both themes. Its text takes the light end
+                    of the gray ramp: inside the console scope success is
+                    graphite, and terminal green on gray-900 fell under 3:1. */}
                 {showDetails && (
                   <div className="bg-gray-900 rounded-lg p-4 text-left overflow-auto max-h-64">
-                    <pre className="text-xs text-success-400 font-mono whitespace-pre-wrap">
+                    <pre className="text-xs text-gray-100 font-mono whitespace-pre-wrap">
                       {JSON.stringify(
                         {
                           code: error?.code,
@@ -194,9 +197,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                     {errorInfo?.componentStack && (
                       <>
                         <hr className="border-gray-700 my-3" />
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                          Component Stack:
-                        </p>
+                        <p className="text-xs text-gray-300 mb-2">Component Stack:</p>
                         <pre className="text-xs text-error-400 font-mono whitespace-pre-wrap">
                           {errorInfo.componentStack}
                         </pre>

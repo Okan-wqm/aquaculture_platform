@@ -182,10 +182,10 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
     <Modal isOpen={isOpen} onClose={handleClose} title="Grade Fish" size="lg">
       <div className="space-y-6">
         {/* Source Tank Info Header */}
-        <div className="bg-accent-50 dark:bg-accent-900/20 rounded-lg p-4">
+        <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-accent-600 dark:text-accent-400 uppercase font-medium">
+              <p className="text-xs text-info-600 dark:text-info-400 uppercase font-medium">
                 Source Tank
               </p>
               <h3 className="font-medium text-gray-900 dark:text-gray-100">{tank.tankName}</h3>
@@ -222,7 +222,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
               type="button"
               onClick={addRow}
               disabled={rows.length >= MAX_OUTPUTS}
-              className="px-2 py-1 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 hover:bg-accent-200 dark:hover:bg-accent-800/60 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-2 py-1 text-xs bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 hover:bg-primary-200 dark:hover:bg-primary-800/60 rounded disabled:opacity-40 disabled:cursor-not-allowed"
             >
               + Add Output
             </button>
@@ -255,7 +255,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
                     htmlFor={`grading-destination-${index}`}
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
-                    Destination Tank <span className="text-accent-500">*</span>
+                    Destination Tank <span className="text-error-500">*</span>
                   </label>
                   {tanksLoading ? (
                     <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -288,7 +288,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
                     htmlFor={`grading-quantity-${index}`}
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
-                    Quantity <span className="text-accent-500">*</span>
+                    Quantity <span className="text-error-500">*</span>
                   </label>
                   <Input
                     fullWidth
@@ -307,7 +307,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
                     htmlFor={`grading-avgweight-${index}`}
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
-                    Avg Weight (g) <span className="text-accent-500">*</span>
+                    Avg Weight (g) <span className="text-error-500">*</span>
                   </label>
                   <Input
                     fullWidth
@@ -390,16 +390,14 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
 
         {/* Totals summary */}
         {totalQuantity > 0 && (
-          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
+          <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
               <div>
-                <p className="text-xs text-accent-600 dark:text-accent-400 uppercase">
-                  Total Graded
-                </p>
-                <p className="text-lg font-bold text-accent-700 dark:text-accent-300">
+                <p className="text-xs text-info-600 dark:text-info-400 uppercase">Total Graded</p>
+                <p className="text-lg font-bold text-info-700 dark:text-info-300">
                   {totalQuantity.toLocaleString()} fish
                 </p>
-                <p className="text-xs text-accent-600 dark:text-accent-400">
+                <p className="text-xs text-info-600 dark:text-info-400">
                   {totalBiomassKg.toFixed(1)} kg
                 </p>
               </div>
@@ -439,7 +437,6 @@ export const GradingModal: React.FC<GradingModalProps> = ({ isOpen, onClose, tan
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || recordGrading.isPending}
-            className="bg-accent-600 hover:bg-accent-700"
           >
             {recordGrading.isPending ? 'Grading...' : 'Grade Fish'}
           </Button>

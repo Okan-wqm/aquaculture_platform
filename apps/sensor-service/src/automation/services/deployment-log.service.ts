@@ -30,6 +30,8 @@ export class DeploymentLogService {
     version: number;
     edgeScript?: Record<string, unknown>;
     deployedBy?: string;
+    /** The deployer's e-mail, kept next to the id for the command log. */
+    deployedByEmail?: string;
     artifactId?: string;
     checksumSha256?: string;
   }): Promise<DeploymentLog> {
@@ -42,6 +44,7 @@ export class DeploymentLogService {
       status: DeploymentStatus.PENDING,
       edgeScript: params.edgeScript,
       deployedBy: params.deployedBy,
+      deployedByEmail: params.deployedByEmail,
       artifactId: params.artifactId,
       checksumSha256: params.checksumSha256,
       deployedAt: new Date(),

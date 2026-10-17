@@ -135,7 +135,7 @@ export const SensorReadingsCard: React.FC<SensorReadingsCardProps> = ({
   const topic = sensor.protocolConfiguration?.['topic'];
 
   return (
-    <section className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <section className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 overflow-hidden">
       <button
         type="button"
         className="w-full flex items-center gap-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -156,7 +156,7 @@ export const SensorReadingsCard: React.FC<SensorReadingsCardProps> = ({
               {sensor.name}
             </h3>
             <span
-              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${FRESHNESS_BADGE[state].className}`}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${FRESHNESS_BADGE[state].className}`}
             >
               {state === 'live' ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               {FRESHNESS_BADGE[state].label}

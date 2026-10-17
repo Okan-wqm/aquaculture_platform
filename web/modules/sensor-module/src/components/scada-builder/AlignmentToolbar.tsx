@@ -74,7 +74,7 @@ export const AlignmentToolbar: React.FC = () => {
   const canDistribute = selectedWidgetIds.length >= 3;
 
   return (
-    <div role="toolbar" aria-label="Alignment" className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1">
+    <div role="toolbar" aria-label="Alignment" className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 px-2 py-1">
       {/* Count badge */}
       <span className="text-xs text-gray-500 dark:text-gray-400 mr-1.5 select-none whitespace-nowrap">
         {selectedWidgetIds.length} selected

@@ -200,7 +200,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
       )}
 
       {!ledgerQuery.isLoading && !ledgerQuery.error && (
-        <div className="overflow-hidden rounded-lg bg-white dark:bg-gray-900 shadow">
+        <div className="overflow-hidden rounded-lg bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)">
           <DataTable<ItemRow>
             data={items}
             columns={itemRowColumns}

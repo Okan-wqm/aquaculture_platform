@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { ChevronDown, Search, X } from 'lucide-react';
 import { useDeviceTags, TagInfo } from '../../hooks/useDeviceTags';
-import { IoType } from '../../hooks/useEdgeDevices';
 import { Spinner, Button } from '@aquaculture/shared-ui';
 
 interface TagBrowserProps {
@@ -12,12 +11,9 @@ interface TagBrowserProps {
   multiple?: boolean;
 }
 
-const IO_BADGE_COLORS: Record<IoType, string> = {
-  [IoType.AI]: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-  [IoType.AO]: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-  [IoType.DI]: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-  [IoType.DO]: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-};
+/** I/O type badge — one neutral tag: in the tenant console only red and amber signal
+ *  (Industry README §7.8), so a channel type is told apart by its label, not a hue. */
+const IO_BADGE_CLASS = 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
 
 export const TagBrowser: React.FC<TagBrowserProps> = ({
   deviceId,
@@ -150,7 +146,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
         }`}
       >
         <span
-          className={`shrink-0 px-1.5 py-0.5 text-[10px] font-semibold rounded ${IO_BADGE_COLORS[tag.ioType]}`}
+          className={`shrink-0 px-1.5 py-0.5 text-[10px] font-semibold rounded ${IO_BADGE_CLASS}`}
         >
           {tag.ioType}
         </span>
@@ -209,7 +205,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
           {selectedTags.map((tag) => (
             <span
               key={tag}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border border-info-200 dark:border-info-800 rounded-full"
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border border-info-200 dark:border-info-800 rounded"
             >
               {tag}
               <Button
@@ -261,7 +257,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) max-h-64 overflow-y-auto">
           {renderDropdownContent()}
         </div>
       )}

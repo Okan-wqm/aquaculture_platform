@@ -148,7 +148,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
       {/* Progress bar */}
       <div className="relative">
-        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden">
           <div
             className={`h-full transition-all ${
               isOverAllocated

@@ -7,9 +7,12 @@
  * component — which draws ONLY from the glass-surface foreground tokens — makes
  * that bug structurally impossible: a form cannot choose a low-contrast color
  * because it never renders its own heading.
+ *
+ * Its heading also names the page (usePageTitle): the document title, and
+ * what RouteAnnouncer reads when the reader moves between the auth pages.
  */
 import React from 'react';
-import { Alert, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Alert, useI18n, usePageTitle, type MessageKey } from '@aquaculture/shared-ui';
 
 export interface AuthFormShellProps {
   titleKey: MessageKey;
@@ -31,6 +34,7 @@ export const AuthFormShell: React.FC<AuthFormShellProps> = ({
   children,
 }) => {
   const { t } = useI18n();
+  usePageTitle(t(titleKey));
 
   return (
     <div className="auth-form-shell">

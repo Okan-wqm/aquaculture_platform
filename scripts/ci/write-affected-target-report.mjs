@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-import { validateReviewedException } from './lib/reviewed-exception.mjs';
+import { partitionAffectedProjects } from './lib/affected-target-policy.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -68,51 +68,24 @@ function projectNames(path) {
   return names;
 }
 
-// A quarantine entry is tracked debt, and tracked debt has an owner, a reason,
-// an expiry and a finding. That shape is shared with every other reviewed
-// exception in the repository (dormant invariants, npm advisories) and lives in
-// scripts/ci/lib/reviewed-exception.mjs — a bare reason string was the previous
-// shape here, and 19 `test` entries carried one with no owner, no clock and no
-// finding for four months (PROC-MEDIUM-025). The policy file is refused whole
-// when any entry of any target is malformed or expired, so the lane fails
-// closed instead of warning about debt nobody owns.
-const POLICY_VERSION = 2;
-
-function validateQuarantine(policy, today) {
-  if (policy.version !== POLICY_VERSION) {
-    throw new Error(`affected-target policy version ${policy.version} is not ${POLICY_VERSION}`);
-  }
-  const problems = [];
-  for (const [target, config] of Object.entries(policy.targets ?? {})) {
-    for (const [project, entry] of Object.entries(config.knownUnstableProjects ?? {})) {
-      problems.push(...validateReviewedException(entry, `${target}/${project}`, today));
-    }
-  }
-  if (problems.length > 0) {
-    throw new Error(`affected-target policy quarantine is invalid:\n  ${problems.join('\n  ')}`);
-  }
-}
-
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = JSON.parse(readFileSync(args.policy, 'utf8'));
-  validateQuarantine(policy, new Date().toISOString().slice(0, 10));
   const affectedProjects = projectNames(args.affectedProjects);
-  const explicitExcludes = new Set(lines(args.explicitExcludes));
-  const knownUnstable = policy.targets?.[args.target]?.knownUnstableProjects ?? {};
-  const strictProjects = [];
-  const explicitlyExcludedProjects = [];
-  const quarantinedProjects = [];
-
-  for (const project of affectedProjects) {
-    if (explicitExcludes.has(project)) {
-      explicitlyExcludedProjects.push(project);
-    } else if (Object.prototype.hasOwnProperty.call(knownUnstable, project)) {
-      quarantinedProjects.push({ project, ...knownUnstable[project] });
-    } else {
-      strictProjects.push(project);
-    }
-  }
+  // Which affected project is gated, quarantined or lapsed back to strict is
+  // owned by scripts/ci/lib/affected-target-policy.mjs: a malformed policy is
+  // refused whole, an expired entry gates its own project strictly.
+  const {
+    strictProjects,
+    explicitlyExcludedProjects,
+    quarantinedProjects,
+    expiredQuarantineProjects,
+  } = partitionAffectedProjects(policy, {
+    target: args.target,
+    affectedProjects,
+    explicitExcludes: lines(args.explicitExcludes),
+    today: new Date().toISOString().slice(0, 10),
+  });
 
   writeFileSync(
     args.strictProjects,
@@ -130,6 +103,7 @@ function main() {
     strictProjects,
     explicitlyExcludedProjects,
     quarantinedProjects,
+    expiredQuarantineProjects,
   };
 
   console.log(`CI affected target policy: target=${args.target}`);
@@ -148,6 +122,18 @@ function main() {
       console.log(`  - ${entry.project}: ${entry.reason} [${tracked}]`);
       console.log(
         `::warning title=CI affected ${args.target} quarantine (${tracked})::${entry.project}: ${entry.reason}`,
+      );
+    }
+  }
+
+  if (expiredQuarantineProjects.length > 0) {
+    console.log('Expired quarantine entries, gated strictly again (pay the debt down or renew):');
+    for (const entry of expiredQuarantineProjects) {
+      const tracked = `${entry.finding_id}, owner ${entry.owner}`;
+      console.log(`  - ${entry.project}: expired ${entry.expires_on} [${tracked}]`);
+      console.log(
+        `::warning title=CI affected ${args.target} quarantine expired (${tracked})::` +
+          `${entry.project}: expired ${entry.expires_on}; the ${args.target} target gates it strictly`,
       );
     }
   }

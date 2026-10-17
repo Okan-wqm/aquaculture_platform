@@ -7,34 +7,38 @@ import React from 'react';
 import { AlertTriangle, AlertCircle, Info, Zap, Bell, CheckCircle, WifiOff } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData, WidgetDataPoint } from '../../../hooks/useWidgetData';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, severityClasses } from '@aquaculture/shared-ui';
 
 interface AlertWidgetContentProps {
   config: WidgetConfig;
 }
 
-// Alert severity styles
+// Alert severity styles. The PLC vocabulary is one step off the product's:
+// EMERGENCY is critical and CRITICAL takes the high tier, so the two stay apart.
+// Fill, row tint and ink come from the shared severity palette, where HIGH is
+// the filled hazard amber and WARNING an amber-ink surface (README §7.5); only
+// the frame is local.
 const severityConfig = {
   EMERGENCY: {
     icon: Zap,
-    bg: 'bg-error-100 dark:bg-error-900/40',
-    text: 'text-error-800 dark:text-error-200',
+    bg: severityClasses('critical', 'row'),
+    text: severityClasses('critical', 'text'),
     border: 'border-error-300 dark:border-error-700',
-    badge: 'bg-error-600 text-white',
+    badge: severityClasses('critical', 'solid'),
   },
   CRITICAL: {
     icon: AlertCircle,
-    bg: 'bg-accent-100 dark:bg-accent-900/40',
-    text: 'text-accent-800 dark:text-accent-200',
-    border: 'border-accent-300 dark:border-accent-700',
-    badge: 'bg-accent-500 text-white',
+    bg: severityClasses('high', 'row'),
+    text: severityClasses('high', 'text'),
+    border: 'border-accent-500',
+    badge: severityClasses('high', 'solid'),
   },
   WARNING: {
     icon: AlertTriangle,
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
-    text: 'text-warning-800 dark:text-warning-200',
-    border: 'border-warning-300 dark:border-warning-700',
-    badge: 'bg-warning-500 text-white',
+    bg: severityClasses('warning', 'row'),
+    text: severityClasses('warning', 'text'),
+    border: 'border-gray-300 dark:border-gray-600',
+    badge: severityClasses('warning', 'solid'),
   },
   OFFLINE: {
     icon: WifiOff,
@@ -45,10 +49,10 @@ const severityConfig = {
   },
   INFO: {
     icon: Info,
-    bg: 'bg-info-100 dark:bg-info-900/40',
-    text: 'text-info-800 dark:text-info-200',
-    border: 'border-info-300 dark:border-info-700',
-    badge: 'bg-info-500 text-white',
+    bg: severityClasses('info', 'row'),
+    text: severityClasses('info', 'text'),
+    border: 'border-gray-300 dark:border-gray-600',
+    badge: severityClasses('info', 'solid'),
   },
 };
 

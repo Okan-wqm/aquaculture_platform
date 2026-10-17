@@ -10,6 +10,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, LayoutGrid, Activity, Settings } from 'lucide-react';
+import { PageTitle } from '@aquaculture/shared-ui';
 import { GridStackDashboard } from '../components/dashboard/GridStackDashboard';
 
 // ============================================================================
@@ -35,9 +36,9 @@ const WidgetDashboardPage: React.FC = () => {
             <div className="flex items-center gap-2">
               <LayoutGrid size={24} className="text-info-600 dark:text-info-400" />
               <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                <PageTitle className="text-xl font-bold text-gray-900 dark:text-gray-100">
                   Widget Dashboard
-                </h1>
+                </PageTitle>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Sürükle-bırak özelleştirilebilir sensör gösterge paneli
                 </p>

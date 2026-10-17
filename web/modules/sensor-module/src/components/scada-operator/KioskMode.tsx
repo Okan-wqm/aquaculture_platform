@@ -199,7 +199,7 @@ export const KioskMode = React.memo<KioskModeProps>(
       <div
         ref={containerRef}
         className={[
-          'fixed inset-0 bg-black z-50 overflow-hidden focus:outline-hidden',
+          'fixed inset-0 bg-sd-scrim z-50 overflow-hidden focus:outline-hidden',
           cursorHidden ? 'cursor-none' : 'cursor-default',
         ].join(' ')}
         tabIndex={-1}
@@ -222,7 +222,7 @@ export const KioskMode = React.memo<KioskModeProps>(
             className="
               absolute top-3 right-3 z-10
               flex items-center gap-1.5 px-2.5 py-1.5 rounded-md
-              bg-black/70 text-gray-300 text-xs
+              bg-sd-scrim/70 text-gray-300 text-xs
               hover:bg-gray-800 hover:text-gray-100
               transition-colors border border-gray-700
               focus:outline-hidden focus-visible:ring-2 focus-visible:ring-info-400

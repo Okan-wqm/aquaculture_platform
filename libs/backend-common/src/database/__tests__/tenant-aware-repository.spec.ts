@@ -59,10 +59,11 @@ describe('TenantAwareRepository', () => {
     );
   });
 
-  describe('getRepository() deprecation', () => {
-    it('should throw an error explaining deprecation', () => {
-      expect(() => repo.getRepository()).toThrow(/deprecated/i);
-      expect(() => repo.getRepository()).toThrow(/getScopedRepository/i);
+  describe('raw repository access', () => {
+    // The always-throwing getRepository() tombstone is gone: a call to it is a
+    // compile error now, not a runtime one. Pin that no raw accessor returns.
+    it('exposes no getRepository accessor', () => {
+      expect('getRepository' in repo).toBe(false);
     });
   });
 

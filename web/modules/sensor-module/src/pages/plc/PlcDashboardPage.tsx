@@ -199,7 +199,7 @@ const ConnectionCard: React.FC<{
   return (
     <Link
       to={`/sensor/plc/connections`}
-      className="block rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm transition-shadow hover:shadow-md"
+      className="block rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-(--shadow-sd-sm) transition-shadow hover:shadow-(--shadow-sd-md)"
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
@@ -210,7 +210,7 @@ const ConnectionCard: React.FC<{
           </h3>
         </div>
         <span
-          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}
+          className={`inline-flex items-center gap-1 rounded border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}
         >
           <StatusIcon className="h-3 w-3" />
           {statusCfg.label}
@@ -229,14 +229,14 @@ const ConnectionCard: React.FC<{
           )}
           {telem.temperature != null && (
             <div className="flex items-center gap-1.5">
-              <Thermometer className="h-4 w-4 text-accent-500" />
+              <Thermometer className="h-4 w-4 text-info-500" />
               <span className="text-gray-600 dark:text-gray-400">Sicaklik:</span>
               <span className="font-medium">{telem.temperature.toFixed(1)} C</span>
             </div>
           )}
           {telem.ph != null && (
             <div className="flex items-center gap-1.5">
-              <Activity className="h-4 w-4 text-accent-500" />
+              <Activity className="h-4 w-4 text-info-500" />
               <span className="text-gray-600 dark:text-gray-400">pH:</span>
               <span className="font-medium">{telem.ph.toFixed(2)}</span>
             </div>
@@ -334,7 +334,7 @@ const PlcDashboardPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Link
               to="/sensor/plc/connections"
-              className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm hover:shadow-md transition-shadow"
+              className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-(--shadow-sd-sm) hover:shadow-(--shadow-sd-md) transition-shadow"
             >
               <div className="rounded-lg bg-primary-50 dark:bg-primary-900/20 p-2">
                 <Server className="h-5 w-5 text-primary-600 dark:text-primary-400" />
@@ -349,7 +349,7 @@ const PlcDashboardPage: React.FC = () => {
             </Link>
             <Link
               to="/sensor/plc/feeding"
-              className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm hover:shadow-md transition-shadow"
+              className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-(--shadow-sd-sm) hover:shadow-(--shadow-sd-md) transition-shadow"
             >
               <div className="rounded-lg bg-success-50 dark:bg-success-900/20 p-2">
                 <BarChart3 className="h-5 w-5 text-success-600 dark:text-success-400" />
@@ -366,7 +366,7 @@ const PlcDashboardPage: React.FC = () => {
             </Link>
             <Link
               to="/sensor/plc/alarms"
-              className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm hover:shadow-md transition-shadow"
+              className="flex items-center gap-3 rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-(--shadow-sd-sm) hover:shadow-(--shadow-sd-md) transition-shadow"
             >
               <div className="rounded-lg bg-error-50 dark:bg-error-900/20 p-2">
                 <Bell className="h-5 w-5 text-error-600 dark:text-error-400" />

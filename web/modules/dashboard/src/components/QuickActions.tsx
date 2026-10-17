@@ -21,7 +21,6 @@ interface QuickAction {
   description: string;
   icon: React.ReactNode;
   path: string;
-  color: string;
   /** Minimum role required to see this action */
   minRole?: 'TENANT_ADMIN' | 'SUPER_ADMIN';
 }
@@ -37,7 +36,6 @@ const quickActions: QuickAction[] = [
     label: 'Yeni Çiftlik',
     description: 'Çiftlik ekle',
     path: '/sites/new',
-    color: 'bg-info-500',
     icon: <PlusIcon />,
   },
   {
@@ -48,7 +46,6 @@ const quickActions: QuickAction[] = [
     // `/sites/sensors/new` target never had a route and fell through
     // to the farm catch-all (map page).
     path: '/sensor/devices',
-    color: 'bg-success-500',
     icon: <SensorIcon />,
   },
   {
@@ -56,7 +53,6 @@ const quickActions: QuickAction[] = [
     label: 'Görev Oluştur',
     description: 'Yeni görev',
     path: '/tasks/new',
-    color: 'bg-accent-500',
     icon: <TaskIcon />,
   },
   {
@@ -64,7 +60,6 @@ const quickActions: QuickAction[] = [
     label: 'Rapor Oluştur',
     description: 'Yeni rapor',
     path: '/reports/new',
-    color: 'bg-accent-500',
     icon: <FileChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
   {
@@ -74,7 +69,6 @@ const quickActions: QuickAction[] = [
     // The sensor module is mounted at /sensor and the new-process editor route is
     // `process/new` (singular) — `/processes/new` resolves to no route (blank).
     path: '/sensor/process/new',
-    color: 'bg-info-500',
     icon: <CirclePlay className="w-5 h-5" aria-hidden="true" />,
   },
   {
@@ -82,7 +76,6 @@ const quickActions: QuickAction[] = [
     label: 'Kullanıcılar',
     description: 'Kullanıcı yönet',
     path: '/admin/users',
-    color: 'bg-accent-500',
     // DASH-SEC-004: Admin route only visible to admin roles
     minRole: 'TENANT_ADMIN',
     icon: <Users className="w-5 h-5" aria-hidden="true" />,
@@ -125,16 +118,25 @@ const QuickActions: React.FC = () => {
             to={action.path}
             className="
               group flex flex-col items-center p-3 rounded-lg
-              border border-gray-200 hover:border-primary-300
-              hover:bg-primary-50 transition-all duration-200
+              border border-gray-200 dark:border-gray-700
+              hover:border-primary-300 dark:hover:border-primary-700
+              hover:bg-primary-50 dark:hover:bg-primary-900/30 transition-all duration-200
             "
           >
+            {/* Industry tile (README §7.7, §7.8): a square hairline box with
+                the glyph in the workspace accent. The tiles used to be filled
+                circles in one hue each — one of them the `accent` scale, the
+                design system's High alarm tier, which paints amber in the
+                tenant console: a shortcut is not an alarm. */}
             <div
-              className={`
-                w-10 h-10 rounded-full flex items-center justify-center
-                text-white ${action.color}
-                group-hover:scale-110 transition-transform duration-200
-              `}
+              data-testid="quick-action-icon"
+              className="
+                w-10 h-10 rounded flex items-center justify-center
+                border border-gray-200 dark:border-gray-700
+                text-primary-700 dark:text-primary-300
+                group-hover:border-primary-300 dark:group-hover:border-primary-700
+                motion-safe:group-hover:scale-110 transition-transform duration-200
+              "
             >
               {action.icon}
             </div>

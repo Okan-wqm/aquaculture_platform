@@ -232,7 +232,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
           aria-checked={mapping.isActive}
         >
           <span
-            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) ring-0 transition duration-200 ease-in-out ${
               mapping.isActive ? 'translate-x-4' : 'translate-x-0'
             }`}
           />

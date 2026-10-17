@@ -46,12 +46,13 @@ export const MY_TENANT_MODULES_QUERY = `
   }
 `;
 
-/** Lightweight query for module UUIDs only (BUG-019) */
-export const MY_MODULES_ID_QUERY = `
-  query MyModulesWithIds {
+/** Lightweight query for each assigned module's UUID (BUG-019) and icon name */
+export const MY_MODULE_REFS_QUERY = `
+  query MyModuleRefs {
     myModules {
       id
       code
+      icon
     }
   }
 `;

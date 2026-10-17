@@ -14,6 +14,20 @@ name: aria-kernel
 
 on:
   workflow_dispatch:
+    # ARIA-LOW-510 — the `state` job's compaction step reads this input
+    # (RETAIN_DAYS below). Its env is pinned byte for byte to
+    # aria-state-maintenance.yml's step (aria-kernel/tests/
+    # test_state_compaction_gate.py), so the input is declared here with that
+    # lane's description and default: a manual run re-checks the gate at the
+    # window an operator dispatched maintenance with. An undeclared read always
+    # gave '7' and GitHub refuses a dispatch carrying an undeclared input;
+    # tests/invariants/aria-workflow-input-injection.spec.ts now fails on any
+    # workflow that reads an input it does not declare.
+    inputs:
+      retain_days:
+        description: 'Days of data to retain (default 7)'
+        default: '7'
+        required: false
   # INFRA-HIGH-215 — no `paths:` here. `aria-kernel` is a required context
   # (.github/manifests/main-required-status-checks.json), and a filtered
   # trigger starts no run for a PR outside the filter, so GitHub waits on the

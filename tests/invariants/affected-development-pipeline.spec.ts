@@ -1758,7 +1758,7 @@ describe('affected development workflow contract', () => {
       'if ! docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1; then',
     );
     expect(droplet).toContain(
-      'if ! docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate ${RESTART_SERVICES} 2>&1; then',
+      'if ! compose_recreate_services "${TAG}" ${RESTART_SERVICES} 2>&1; then',
     );
     expect(droplet).toContain('record_release_ledger "failed" "service_recreate"');
     expect(droplet).toContain('rollback_and_record "service_recreate" || true');

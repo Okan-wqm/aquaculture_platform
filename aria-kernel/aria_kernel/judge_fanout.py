@@ -206,19 +206,30 @@ def pending_judge_counts(
 ) -> dict[str, int]:
     """Y2 (ORPHAN-704) — live (non-terminal) envelope count per judge role.
 
-    Bounded to the anchor window: anything older is ANCHOR_STALE by
-    definition, so deriving its state would only re-prove it dead.
+    Bounded to the anchor window: an envelope the window has retired is
+    ANCHOR_STALE by definition, whether or not the sweep has recorded it
+    yet. ARIA-LOW-557 — the window is the requests' own
+    (`agent_invocations._anchor_expiry_reason`: the policy's
+    ``agent_request_anchor.max_age_seconds`` in PROVIDER-AVAILABLE time,
+    ARIA-HIGH-365), not four wall days: an envelope that waited out a long
+    outage of its role's provider is still live, and a wall horizon dropped
+    it from the count, so the gate minted pairs past the per-role cap.
     ``states`` and ``requests`` are a caller's own ``derive_request_states``
     result and request rows, so a sweep that already holds them does not
     load the ledgers again.
     """
-    from datetime import datetime, timedelta, timezone
-
-    from .agent_invocations import derive_request_states, list_agent_invocation_requests
+    from .agent_invocations import (
+        _anchor_expiry_reason, _anchor_max_age_seconds, _parse_iso, _utc_now_dt,
+        derive_request_states, list_agent_invocation_requests,
+    )
     from .agent_surface import TERMINAL_REQUEST_STATES
+    from .provider_clock import provider_clock
 
     root = ensure_tools_dir(base_dir)
-    horizon = datetime.now(timezone.utc) - timedelta(days=4)
+    now = _utc_now_dt()
+    max_age_seconds = _anchor_max_age_seconds(root)
+    # Read lazily: only an envelope older than the window by the wall clock asks it.
+    clock = provider_clock(root)
     counts: dict[str, int] = {role: 0 for role, _ in JUDGE_FANOUT}
     # ORPHAN-HIGH-794 — one batch derivation instead of a per-row derive
     # (each of which reloaded all three ledgers — the OOM churn class).
@@ -228,12 +239,9 @@ def pending_judge_counts(
         role = str(row.get("role") or "")
         if role not in counts:
             continue
-        created = str(row.get("created_at") or "")
-        try:
-            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-        except ValueError:
-            created_dt = None
-        if created_dt is not None and created_dt < horizon:
+        created = _parse_iso(row.get("created_at"))
+        if created is not None and _anchor_expiry_reason(
+                row, created, now, clock=clock, max_age_seconds=max_age_seconds) is not None:
             continue
         state = states.get(str(row.get("request_id")), "PENDING")
         if state not in TERMINAL_REQUEST_STATES:

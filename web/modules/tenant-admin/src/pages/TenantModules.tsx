@@ -2,9 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Search, RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuthContext, PageHeader, Button, Select } from '@aquaculture/shared-ui';
-import { useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
+import { useModuleRefs, useModuleUsageStats } from '../hooks/useTenantData';
 import { ModuleCard, AssignManagerModal, ModuleDetailsModal } from '../components/modules';
 import type { DisplayModule } from '../components/modules';
+import type { MyModuleRef } from '../lib/types';
 import { SD_CARD } from '../components/ui/suderra';
 
 /** Module route mapping -- correct dashboard routes. */
@@ -13,13 +14,6 @@ const moduleRouteMap: Record<string, string> = {
   sensor: '/sensor/dashboard',
   hr: '/hr/dashboard',
   hydroponics: '/hydroponics/setup',
-};
-
-const moduleIconMap: Record<string, string> = {
-  farm: '\uD83D\uDC1F',
-  sensor: '\uD83D\uDCCA',
-  hr: '\uD83D\uDC65',
-  hydroponics: '\uD83C\uDF31',
 };
 
 const moduleFeaturesMap: Record<string, string[]> = {
@@ -40,7 +34,8 @@ const moduleFeaturesMap: Record<string, string[]> = {
  *
  * Uses AuthContext modules (from login) as the source of truth for display,
  * augmented by a myModules GraphQL call to obtain real module UUIDs needed
- * for mutations such as assignModuleManager (BUG-019).
+ * for mutations such as assignModuleManager (BUG-019) and the icon name each
+ * module record carries (drawn by ModuleIcon; the login payload has none).
  *
  * FIX MED-08: Uses module.code as stable React key instead of module.id
  * (which changes when the UUID lookup resolves) to prevent card flicker.
@@ -57,14 +52,14 @@ const TenantModules: React.FC = () => {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedModule, setSelectedModule] = useState<DisplayModule | null>(null);
 
-  // BUG-019: Fetch real module UUIDs from GraphQL
-  const { data: moduleIdByCode = {}, error: moduleIdError } = useModuleIds();
+  // BUG-019: Fetch real module UUIDs (and each record's icon name) from GraphQL
+  const { data: moduleRefByCode = {}, error: moduleRefError } = useModuleRefs();
 
   // Wave 4: Fetch module usage stats (graceful fallback)
   const { data: usageStats = {}, error: usageError } = useModuleUsageStats();
 
   // FIX MED-17: Surface fetch errors
-  const fetchError = moduleIdError || usageError;
+  const fetchError = moduleRefError || usageError;
 
   // Transform AuthContext modules to DisplayModule format
   const modules = useMemo<DisplayModule[]>(() => {
@@ -73,8 +68,9 @@ const TenantModules: React.FC = () => {
     return authModules.map((m) => {
       const code = m.code || '';
       const stats = usageStats[code];
+      const ref: MyModuleRef | undefined = moduleRefByCode[code];
       return {
-        id: moduleIdByCode[code] || code,
+        id: ref ? ref.id : code,
         code,
         name: m.name || code.charAt(0).toUpperCase() + code.slice(1),
         description: `${m.name || code} module for your tenant`,
@@ -85,12 +81,12 @@ const TenantModules: React.FC = () => {
           ? new Date(stats.lastAccessAt).toLocaleDateString()
           : 'Recently',
         features: moduleFeaturesMap[code] || [],
-        icon: moduleIconMap[code] || '\uD83D\uDCE6',
+        icon: ref ? ref.icon : null,
         route: m.defaultRoute || moduleRouteMap[code],
         activatedAt: new Date().toISOString(),
       };
     });
-  }, [authModules, moduleIdByCode, usageStats]);
+  }, [authModules, moduleRefByCode, usageStats]);
 
   const filteredModules = modules.filter((module) => {
     const matchesSearch = module.name.toLowerCase().includes(searchQuery.toLowerCase());

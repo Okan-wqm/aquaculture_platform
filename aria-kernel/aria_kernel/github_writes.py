@@ -13,11 +13,13 @@ kernel went on to verify.
 WHAT: a kernel write runs only on a GitHub App installation token: the job
 token, or an App token the kernel minted for a delivery. GitHub authors those
 writes as a Bot, and the verifier refuses a Bot by construction. The class of a
-credential is read from its own prefix. In GitHub's token format ``ghs_`` is a
-server-to-server installation token, and ``ghp_``, ``github_pat_``, ``gho_`` and
-``ghu_`` act as a user. The check makes no network call. It refuses by name
-anything it cannot classify, including an environment with no token, where
-``gh`` would fall back to its stored login.
+credential is read from its own prefix, by the one GitHub prefix table
+(``secret_scrub.GITHUB_TOKEN_CLASSES``, which the boundary's redaction and the
+habitat probe read too; ARIA-MEDIUM-546). In GitHub's token format ``ghs_`` is
+a server-to-server installation token, and ``ghp_``, ``github_pat_``, ``gho_``,
+``ghu_`` and ``ghr_`` act as a user. The check makes no network call. It refuses
+by name anything it cannot classify, including an environment with no token,
+where ``gh`` would fall back to its stored login.
 
 ``tests/test_github_write_paths.py`` fails any ``gh`` write argv in the kernel
 that is not handed to :func:`run_gh_write`.
@@ -29,19 +31,10 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+from .secret_scrub import GITHUB_INSTALLATION_TOKEN_CLASS, GITHUB_TOKEN_CLASSES
 from .tool_registry import GovernanceError
 
-INSTALLATION_TOKEN_CLASS = "installation"
-
-# GitHub's token format (2021). Every prefix but ``ghs_`` names a credential
-# that acts as a user account.
-_TOKEN_CLASSES: tuple[tuple[str, str], ...] = (
-    ("ghs_", INSTALLATION_TOKEN_CLASS),
-    ("ghp_", "personal_access_token"),
-    ("github_pat_", "fine_grained_personal_access_token"),
-    ("gho_", "oauth_user_token"),
-    ("ghu_", "user_to_server_token"),
-)
+INSTALLATION_TOKEN_CLASS = GITHUB_INSTALLATION_TOKEN_CLASS
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
@@ -60,7 +53,7 @@ def credential_class(environ: Mapping[str, str]) -> str:
     token = (environ.get("GH_TOKEN") or environ.get("GITHUB_TOKEN") or "").strip()
     if not token:
         return "absent"
-    for prefix, name in _TOKEN_CLASSES:
+    for prefix, name in GITHUB_TOKEN_CLASSES:
         if token.startswith(prefix):
             return name
     return "unrecognised"

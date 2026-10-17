@@ -49,9 +49,8 @@ class AuthFailureDetectionTest(unittest.TestCase):
     def test_names_the_message_production_actually_emitted(self) -> None:
         detected = cr.extract_auth_failure(
             returncode=1,
-            stdout="",
             stderr="Failed to authenticate: OAuth session expired and could not be refreshed",
-            final_message="",
+            events=(),
         )
 
         self.assertIsNotNone(detected)
@@ -67,17 +66,15 @@ class AuthFailureDetectionTest(unittest.TestCase):
         self.assertIsNone(
             cr.extract_auth_failure(
                 returncode=0,
-                stdout="the handler raises when the oauth session expired",
                 stderr="",
-                final_message="",
+                events=({"type": "assistant", "message": {"model": "claude-opus-5", "content": [
+                    {"type": "text", "text": "the handler raises when the oauth session expired"}]}},),
             )
         )
 
     def test_an_ordinary_failure_is_left_alone(self) -> None:
         self.assertIsNone(
-            cr.extract_auth_failure(
-                returncode=1, stdout="", stderr="segmentation fault", final_message=""
-            )
+            cr.extract_auth_failure(returncode=1, stderr="segmentation fault", events=())
         )
 
 

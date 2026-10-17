@@ -128,9 +128,93 @@ class TheAllowlist(unittest.TestCase):
         with self.assertRaises(ValueError):
             egress_proxy.Allowlist.parse(["api.anthropic.com"])
 
-    def test_an_empty_allowlist_refuses_to_start(self) -> None:
-        with self.assertRaises(SystemExit):
-            egress_proxy.main(["--listen", "127.0.0.1:0"])
+    def test_an_empty_allowlist_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            egress_proxy.Allowlist.parse([])
+
+    def test_the_kernels_allowlist_is_the_provider_endpoints_and_no_more(self) -> None:
+        # ARIA-HIGH-143 — the policy is reviewed code, one tuple. The OAuth
+        # refresh host is on it (the managed login refreshes inside the room,
+        # ARIA-HIGH-157); nothing local or private is.
+        allowlist = egress_proxy.Allowlist.parse(egress_proxy.PROVIDER_ENDPOINTS)
+        self.assertTrue(allowlist.admits("api.anthropic.com", 443))
+        self.assertTrue(allowlist.admits("platform.claude.com", 443))
+        for host, port in allowlist.targets:
+            self.assertEqual(port, 443, host)
+            self.assertNotIn(host, ("localhost", "127.0.0.1", "::1"))
+
+
+class TheKernelsProxy(unittest.TestCase):
+    """``kernel_egress_socket`` — the proxy the process that builds a room
+    serves for it, from a thread, for the process's life."""
+
+    def test_one_proxy_per_process_serving_the_provider_allowlist(self) -> None:
+        import socket
+
+        first = egress_proxy.kernel_egress_socket()
+        self.assertEqual(egress_proxy.kernel_egress_socket(), first)
+        self.assertTrue(first.is_socket())
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: the kernel proxy's unix socket; the target is refused before any connection
+        client.settimeout(10)
+        try:
+            client.connect(str(first))
+            client.sendall(b"CONNECT 127.0.0.1:5432 HTTP/1.1\r\n\r\n")
+            answer = b""
+            while chunk := client.recv(4096):
+                answer += chunk
+        finally:
+            client.close()
+        self.assertIn(b"403 Forbidden", answer)
+        self.assertIn(b"egress_refused:target_not_allowlisted:127.0.0.1:5432", answer)
+
+    def test_a_stopped_proxy_thread_releases_its_tunnels(self) -> None:
+        directory = tempfile.mkdtemp(prefix="aria-egress-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(directory, ignore_errors=True))
+        proxy = egress_proxy.ProxyThread(
+            egress_proxy.Path(directory) / "proxy.sock", egress_proxy.Allowlist.parse(["api.example.invalid:443"]),
+        ).start()
+        self.assertTrue(proxy.serving())
+        proxy.stop()
+        self.assertFalse(proxy.serving())
+
+    def test_the_socket_directory_follows_the_swept_holders_pattern(self) -> None:
+        socket_path = egress_proxy.kernel_egress_socket()
+        self.assertRegex(socket_path.parent.name, r"^aria-ep-[A-Za-z0-9_]{8}$")
+        self.assertEqual(socket_path.name, "sock")
+
+    def test_a_killed_processs_directory_is_swept_and_a_live_ones_kept(self) -> None:
+        import socket
+
+        temp_root = egress_proxy.Path(tempfile.mkdtemp(prefix="aria-ep-sweep-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(temp_root, ignore_errors=True))
+        live_dir, dead_dir, foreign_dir = (temp_root / name for name in ("aria-ep-live1234", "aria-ep-dead1234", "aria-ep-othr1234"))
+        for directory in (live_dir, dead_dir, foreign_dir):
+            directory.mkdir()
+        live = egress_proxy.ProxyThread(live_dir / "sock", egress_proxy.Allowlist.parse(["a.b:443"])).start()
+        self.addCleanup(live.stop)
+        for directory in (dead_dir, foreign_dir):
+            # A socket file nobody listens on: what a killed process leaves.
+            dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: binds a unix socket file and closes it; nothing is sent
+            dead.bind(str(directory / "sock"))
+            dead.close()
+        (foreign_dir / "note").write_text("not the proxy's")
+        swept = egress_proxy.prune_stale_egress_proxies(temp_root=temp_root)
+        self.assertEqual(swept["swept"], ["aria-ep-dead1234"])
+        self.assertEqual(swept["live"], ["aria-ep-live1234"])
+        self.assertFalse(dead_dir.exists())
+        self.assertTrue(foreign_dir.exists())
+        self.assertEqual(egress_proxy.prune_stale_egress_proxies(temp_root=temp_root)["swept"], [])
+
+    def test_the_orchestrators_startup_sweep_covers_the_proxy(self) -> None:
+        from aria_kernel import autonomy_orchestrator
+
+        source = egress_proxy.Path(autonomy_orchestrator.__file__).read_text(encoding="utf-8")
+        self.assertIn('"egress_proxies": prune_stale_egress_proxies(),', source)
+
+    def test_a_socket_path_the_kernel_cannot_bind_is_refused_by_name(self) -> None:
+        with self.assertRaises(egress_proxy.EgressProxyUnavailable) as refused:
+            egress_proxy.ProxyThread(egress_proxy.Path("/" + "x" * 120), egress_proxy.Allowlist.parse(["a.b:443"]))
+        self.assertIn("egress_proxy_socket_path_too_long", str(refused.exception))
 
 
 if __name__ == "__main__":

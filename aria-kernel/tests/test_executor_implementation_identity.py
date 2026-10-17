@@ -496,32 +496,6 @@ def completed_stderr_index(test: "ExecutorImplementationIdentityTests", stage: s
 
 
 class ExecutorImplementationIdentityTests(unittest.TestCase):
-    def _start_egress_proxy(self) -> str:
-        """A real ``aria_kernel.egress_proxy`` on loopback, allowing one
-        provider host, torn down with the test. Returns its HTTPS_PROXY."""
-        import socket
-        import subprocess as _sp
-
-        sock = socket.socket()  # allowlist-external-network: binds 127.0.0.1:0 only to learn a free local port for the in-test egress proxy; nothing is sent anywhere
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-        sock.close()
-        proc = _sp.Popen(
-            [sys.executable, "-I", str(_REPO_ROOT / "aria-kernel" / "aria_kernel" / "egress_proxy.py"),
-             "--listen", f"127.0.0.1:{port}", "--allow", "api.anthropic.com:443"],
-            stderr=_sp.DEVNULL,
-        )
-        self.addCleanup(lambda: (proc.terminate(), proc.wait(timeout=5)))
-        for _ in range(100):
-            try:
-                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-                break
-            except OSError:
-                time.sleep(0.05)
-        else:
-            self.skipTest("the egress proxy did not come up")
-        return f"http://127.0.0.1:{port}"
-
     def setUp(self) -> None:
         from aria_kernel import agent_invocations as ai
         from aria_kernel.implementation_safety import sandbox_backend
@@ -529,12 +503,6 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
 
         if sandbox_backend() is None:
             self.skipTest("bwrap is not usable on this host; the executor refuses to claim here")
-        # ARIA-HIGH-143 — the pre-claim gate now requires an egress boundary
-        # (the spawn shares the host's network). Stand up the real allowlist
-        # proxy the production unit runs, on loopback, and hand the child its
-        # HTTPS_PROXY: the fixture CLI makes no real egress call, so the proxy
-        # only ever answers the gate's off-allowlist probe with a refusal.
-        https_proxy = self._start_egress_proxy()
         scratch = tempfile.TemporaryDirectory(prefix="aria-115-identity-")
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()
@@ -648,8 +616,6 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
             # the PR is a write, and a write runs on an installation token
             # (ARIA-CRITICAL-246).
             "GH_TOKEN": INSTALLATION_TOKEN,
-            # ARIA-HIGH-143 — the egress boundary the gate probes.
-            "HTTPS_PROXY": https_proxy,
             # The suite's hermetic git layers (tests/_helpers/hermetic_git),
             # so the child's git reads no machine-global signing config.
             **{name: os.environ[name] for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM") if name in os.environ},
@@ -1717,6 +1683,17 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._governance("implementation_delivered"), [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:apply_gate")
         self._assert_settled("apply_gate", "implementation_delivery_unclassified", "unclassified")
+        # ARIA-MEDIUM-539 — the refused output is not on the published
+        # `validation_run_logs` surface: the gate's one log writer redacted it
+        # and recorded the verdict the refusal above was decided from.
+        token = ("gh" + "p_" + "A" * 36).encode("utf-8")
+        logs = self.tools / "validation" / "logs"
+        self.assertEqual([path.name for path in logs.glob("*.log") if token in path.read_bytes()], [])
+        from aria_kernel.validation_runs_ledger import list_validation_runs_for_change
+
+        flagged = [row for row in list_validation_runs_for_change(self.ids["change_id"], base_dir=self.tools)
+                   if row.get("output_secret_scan")]
+        self.assertEqual(len(flagged), 1, flagged)
 
     def test_a_request_whose_implementation_ids_cannot_stand_a_sandbox_is_escalated_not_retried_forever(self) -> None:
         # ARIA-HIGH-124 (round 2) — the request row names a branch that is

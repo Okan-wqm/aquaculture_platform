@@ -15,6 +15,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { UserAvatar } from '../ui/UserAvatar';
+import ModuleIcon from './ModuleIcon';
 import { SD_CARD } from '../ui/suderra';
 
 /**
@@ -34,7 +35,8 @@ export interface DisplayModule {
   };
   lastActivity: string;
   features: string[];
-  icon: string;
+  /** The module record's lucide icon name; null until the record is known. */
+  icon: string | null;
   route?: string;
   activatedAt: string;
 }
@@ -112,8 +114,8 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
       <div className="p-6 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-success-50 dark:bg-success-900/20 flex items-center justify-center text-2xl">
-              {module.icon}
+            <div className="w-12 h-12 rounded-xl bg-success-50 dark:bg-success-900/20 flex items-center justify-center text-success-600 dark:text-success-400">
+              <ModuleIcon name={module.icon} className="w-6 h-6" />
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-gray-100">{module.name}</h3>

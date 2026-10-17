@@ -98,7 +98,11 @@ the request worktree:
    here, before the push. Until round 5 the executor's artifact scrub hid
    such a string from the SUBMITTED envelope while the ledger's log kept
    it raw, so the submit's scan never saw what the ledger carried and the
-   PR landed;
+   PR landed. ARIA-MEDIUM-539: the log is no longer raw — its one writer
+   (``validation._write_run_log``) judges the RAW output with the refusal
+   set, records the verdict on the run's row (``output_secret_scan``) and
+   writes the output redacted, so the refusal is decided from that verdict
+   and the published log never holds the string;
 3. the change ledger's commit row (``change_ledger.emit_change_committed``,
    round 2; the same verdict as step 1, now written with the claim id).
    The contract used to tell the AGENT to call ``emit_change_committed(...)``
@@ -151,8 +155,13 @@ A refusal at any stage is by name (``ImplementationDeliveryRefusal``:
 envelope mint left it; the executor records it, escalates to
 HUMAN_REQUIRED and releases the claim under a request-class reason — a
 retry cannot deliver the same branch again (``implementation_branch_exists``
-refuses the next attempt before a turn is spent), so a person decides. The
-``admission`` and ``credential`` stages (``HOST_STAGES``) are the
+refuses the next attempt before a turn is spent), so a person decides. A
+``result_admissible`` verdict that judged the envelope a credential leak
+(``ImplementationDeliveryRefusal.withholds_output``, ARIA-HIGH-540) is
+SUBMITTED by the executor before it escalates: the submit is the kernel's one
+withholding owner, so the refused envelope and transcript are deleted under a
+withheld row the publish gate reads, and the row, not a release, makes the
+claim terminal. The ``admission`` and ``credential`` stages (``HOST_STAGES``) are the
 exception: they say nothing about the request (the host's window, the
 host's sandbox, the lane's credential source), so the executor releases
 them harness-class (``implementation_delivery_unavailable``) — and decides
@@ -385,14 +394,32 @@ def deadline_refusal(*, job_deadline_epoch: float | None, worst_case_seconds: in
 
 
 class ImplementationDeliveryRefusal(Exception):
-    """The delivery could not complete; ``stage`` and ``reason`` name why."""
+    """The delivery could not complete; ``stage`` and ``reason`` name why.
 
-    def __init__(self, stage: str, reason: str) -> None:
+    ``rejection_codes`` are the codes of the kernel's own verdict on the
+    envelope when the refusal IS that verdict (``result_admissible``,
+    ``result_rejected``), and empty for every other refusal.
+    """
+
+    def __init__(self, stage: str, reason: str, *, rejection_codes: Sequence[str] = ()) -> None:
         if stage not in DELIVERY_STAGES:
             raise ValueError(f"unknown delivery stage {stage!r}")
         super().__init__(f"{stage}:{reason}")
         self.stage = stage
         self.reason = reason
+        self.rejection_codes: tuple[str, ...] = tuple(rejection_codes)
+
+    @property
+    def withholds_output(self) -> bool:
+        """ARIA-HIGH-540 — the verdict judged the envelope's bytes a credential
+        leak (any of ``agent_invocations.CREDENTIAL_REFUSAL_CODES``, the one
+        closed set): those bytes must not outlive the refusal. The kernel's
+        only withholding owner is the submit (``_build_rejection_row``,
+        ``_withhold_submission_sources``), so the executor submits a refusal
+        this answers True for before it escalates it; nothing else does."""
+        from .agent_invocations import CREDENTIAL_REFUSAL_CODES
+
+        return bool(CREDENTIAL_REFUSAL_CODES.intersection(self.rejection_codes))
 
 
 @dataclass(frozen=True)
@@ -464,6 +491,24 @@ def _gate_validation_results(action: Mapping[str, Any], *, base_dir: str | Path 
             "output_head_tail": truncate_validation_result(output),
         })
     return tuple(results)
+
+
+def _secret_shaped_gate_runs(
+    validation_results: Sequence[Mapping[str, Any]], *, base_dir: str | Path | None,
+) -> list[str]:
+    """``<validation_run_id>: <verdict>`` for every run of the gate's group
+    whose raw output the kernel's refusal set fired on, read off the run's
+    row (``output_secret_scan``, ARIA-MEDIUM-539: the log writer's verdict,
+    counts only). Empty when none did."""
+    from .validation_runs_ledger import find_validation_run_by_id
+
+    printed: list[str] = []
+    for result in validation_results:
+        run_id = str(result.get("validation_run_id") or "")
+        row = find_validation_run_by_id(run_id, base_dir=base_dir) or {}
+        if row.get("output_secret_scan"):
+            printed.append(f"{run_id}: {row['output_secret_scan']}")
+    return printed
 
 
 def agent_dispositions(envelope: Mapping[str, Any]) -> dict[str, str]:
@@ -718,6 +763,7 @@ def deliver_implementation(
     publication: QuarantinePublication | None,
     profile: Any,
     job_deadline_epoch: float | None = None,
+    transcript_path: str | Path | None = None,
 ) -> ImplementationDelivery:
     """Verify the tip's identity, admit, verify scope, decide the result, gate (contained), record, mint the credential, push and open the PR for a published implementation branch.
 
@@ -740,10 +786,17 @@ def deliver_implementation(
     dispositions for intended files it left untouched are read off it
     (``agent_dispositions``) and go, with ``claim_id``, on the change
     ledger's commit row; ``job_deadline_epoch`` is the job's
-    ``ARIA_JOB_DEADLINE_EPOCH`` (None binds nothing). Raises
-    ``ImplementationDeliveryRefusal`` by name.
+    ``ARIA_JOB_DEADLINE_EPOCH`` (None binds nothing); ``transcript_path``
+    is the run's transcript the executor will submit beside the envelope,
+    judged with it (ARIA-HIGH-524; None, or no such file, judges none).
+    Raises ``ImplementationDeliveryRefusal`` by name.
     """
-    from .agent_invocations import EVIDENCE_TARGET_AUTO, find_request, judge_claim_submission
+    from .agent_invocations import (
+        EVIDENCE_TARGET_AUTO,
+        find_request,
+        judge_claim_submission,
+        read_submission_transcript,
+    )
     from .apply_engine import run_apply_gate
     from .change_ledger import emit_change_committed, emit_change_validated, verify_change_scope
     from .plan_convergence_bridge import verify_implementation_commit
@@ -859,6 +912,7 @@ def deliver_implementation(
             # kernel: the reading the executor's submit passes as
             # `--evidence-target-sha auto`.
             workspace_root=workspace, evidence_target_sha=EVIDENCE_TARGET_AUTO,
+            transcript=read_submission_transcript(transcript_path) if transcript_path is not None else None,
         )
     except GovernanceErrorType as exc:
         raise ImplementationDeliveryRefusal(RESULT_ADMISSIBLE_STAGE, f"judgment_refused:{str(exc)[:300]}") from exc
@@ -871,6 +925,7 @@ def deliver_implementation(
         raise ImplementationDeliveryRefusal(
             RESULT_ADMISSIBLE_STAGE,
             f"result_rejected:{codes}:reasons={len(judgment.reasons)}:{_first_line(judgment.reasons[0], limit=200)}",
+            rejection_codes=judgment.rejection_codes,
         )
 
     # 2. The apply gate, contained: validation at the branch HEAD in this
@@ -891,6 +946,14 @@ def deliver_implementation(
         raise ImplementationDeliveryRefusal("apply_gate", f"gate_blocked:{blocked}")
     validation_gate_ref = str(action.get("validation_gate_ref") or "")
     validation_results = _gate_validation_results(action, base_dir=base_dir)
+    # ARIA-MEDIUM-539 — the runs' RAW output was judged by their one log
+    # writer (`validation._write_run_log`) and redacted before any byte
+    # reached the published log surface; the verdict rides each run's row.
+    # A suite that printed a credential-shaped string is refused here, by
+    # name, before the push, while its log never held the string.
+    printed = _secret_shaped_gate_runs(validation_results, base_dir=base_dir)
+    if printed:
+        raise ImplementationDeliveryRefusal("apply_gate", f"gate_output_secret_shaped:{'; '.join(printed)[:300]}")
     # The recorded runs are the agent's output, on the ledger and in the
     # stamp (round 5): scanned HERE, before the push, on exactly the rows
     # the stamp carries, with the scanner the submit uses.

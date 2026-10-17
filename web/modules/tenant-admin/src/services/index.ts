@@ -21,7 +21,7 @@ export {
   deleteTenantUser,
   deactivateTenantUser,
   getMyModules,
-  getMyModuleIds,
+  getMyModuleRefs,
   getMyTenantModules,
   getModuleUsageStats,
   assignModuleManager,

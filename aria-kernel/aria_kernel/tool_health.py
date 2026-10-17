@@ -21,12 +21,13 @@ from .feedback_store import (
 from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
 from .quarantine import quarantine_tool
-from .runs_reader import read_runs_rows
+from .runs_reader import READ_PATHS_REF_FIELD, read_paths_reference, read_runs_rows, run_read_paths
 from .runtime_artifacts import (
     append_run_by_cycle,
     run_ledger_format,
     write_run_artifact,
 )
+from .artifact_safety import scrub_json
 from .canonical_path import lexical_repo_path, matches_repo_glob
 from .evidence_trust import SELF_OUTPUT_PREFIXES
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, update_tool, utc_now
@@ -200,7 +201,7 @@ def record_run(
     if ledger_format in ("v2-shadow", "v2"):
         envelope.pop("emitted_observations", None)
         envelope.pop("emitted_findings", None)
-    run_row = append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **envelope})
+    run_row = append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **_ledger_row_fields(envelope)})
     if ledger_format in ("v2-shadow", "v2"):
         append_run_by_cycle(base_dir=base_dir, cycle_uid=envelope["cycle_id"], run_row=run_row)
     record_raw_findings_for_run(envelope, raw_findings, base_dir=base_dir)
@@ -263,7 +264,7 @@ def evaluate_health(
     if latest is None:
         return decision
 
-    quarantine_reason = immediate_quarantine_reason(tool, latest)
+    quarantine_reason = immediate_quarantine_reason(tool, latest, base_dir=base_dir)
     if quarantine_reason is None:
         metrics = compute_metrics(tool, runs, base_dir=base_dir)
         if metrics["critical_false_positives"] > tool["health_thresholds"]["critical_false_positives"]:
@@ -332,6 +333,24 @@ def can_emit_operator_facing(
     return get_tool(tool_id, base_dir)["status"] == "ACTIVE"
 
 
+def _ledger_row_fields(envelope: dict[str, Any]) -> dict[str, Any]:
+    """The run as runs.jsonl stores it: the read set by reference once the artifact holds it.
+
+    ARIA-HIGH-523 — the read set is the one repository-sized field of a run
+    row, and the artifact written above already holds it
+    (``_runtime_artifact_payload`` → ``payload.read_paths``, stored scrubbed,
+    so the address is taken over the scrubbed list). Only a present artifact
+    can stand in for the list: a v1 run writes none and a failed write left
+    nothing else holding it, so those rows keep the list inline, as before.
+    The envelope itself keeps the list: the health check below judges it in
+    memory, before any reader could resolve the artifact.
+    """
+    fields = dict(envelope)
+    if fields.get("artifact_status") == "present" and isinstance(fields.get("artifact_ref"), dict):
+        fields[READ_PATHS_REF_FIELD] = read_paths_reference(scrub_json(fields.pop("read_paths")))
+    return fields
+
+
 def _runtime_artifact_payload(
     envelope: dict[str, Any],
     raw_findings: Any,
@@ -362,8 +381,15 @@ def _runtime_artifact_payload(
     }
 
 
-def immediate_quarantine_reason(tool: dict[str, Any], run: dict[str, Any]) -> str | None:
-    if run["status"] == "scope_violation" or find_scope_violations(tool, run["read_paths"]):
+def immediate_quarantine_reason(
+    tool: dict[str, Any],
+    run: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> str | None:
+    # ``run`` is the writer's in-memory envelope (the list inline) or a stored
+    # row (ARIA-HIGH-523: the set by reference); run_read_paths reads both.
+    if run["status"] == "scope_violation" or find_scope_violations(tool, run_read_paths(run, base_dir=base_dir)):
         return "scope violation: read outside declared scope or forbidden generated/secrets path"
     if run["status"] == "schema_error":
         return "invalid output schema"

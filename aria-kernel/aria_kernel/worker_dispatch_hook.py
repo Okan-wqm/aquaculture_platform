@@ -272,8 +272,9 @@ def dispatch_one_pending_worker_assignment(
     cooldowns = active_provider_cooldowns(root)
     route = worker_route(profile, environ=os.environ, cooled=cooldowns)
     if route is None:
-        # None means the head is cooled (`worker_route`): its row names why.
-        provider = worker_ladder(profile)[0]
+        # None means a rung is cooled and none can serve here
+        # (`worker_route`): the first cooled rung's row names why.
+        provider = next(key for key in worker_ladder(profile) if key in cooldowns)
         cooldown = cooldowns[provider]
     else:
         provider, routed_model = route

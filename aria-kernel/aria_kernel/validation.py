@@ -626,7 +626,7 @@ def _run_one(
                 observer_source=observed,
                 receipt_elapsed=receipt_elapsed,
             )
-    log_path = _write_run_log(
+    log_path, output_secret_scan = _write_run_log(
         base_dir=base_dir,
         cycle_id=cycle_id,
         validation_plan_id=validation_plan_id,
@@ -655,6 +655,7 @@ def _run_one(
         completed_at=utc_now(),
         base_dir=base_dir,
         spawn_environment=spawn_env.report.to_ledger(),
+        output_secret_scan=output_secret_scan,
         **({"input_binding": binding} if binding is not None else {}),
     )
 
@@ -670,14 +671,37 @@ def _write_run_log(
     stdout: str,
     stderr: str,
     input_manifest: dict[str, Any] | None = None,
-) -> Path:
+) -> tuple[Path, str | None]:
     """Persist the run's output on the declared log artifact surface.
 
     ``verify_validation_run`` re-hashes this file at gate time, so the
     log is the content-addressed anchor of the run — not a convenience
     dump. The random suffix keeps two runs of the same command in the
     same plan from overwriting each other's evidence.
+
+    ARIA-MEDIUM-539 — the surface is published (pushed with aria/state),
+    and the command's output is whatever the suite printed: a tree an agent
+    wrote, under the executor's apply gate. It used to be written raw, so a
+    credential-shaped string the suite printed sat on the state branch
+    whether or not the delivery later refused it (the delivery read back
+    only the log's head and tail). The output is now judged and redacted
+    HERE, before any byte exists on the surface: the kernel's refusal set
+    (``implementation_safety.verify_no_secret_in_diff``, the one refusal
+    owner) decides the verdict on the RAW output, which the row carries
+    (``output_secret_scan``: the scanner's counts-only message, None when
+    nothing fired) so the delivery still refuses by name; the one credential
+    table's redaction (``artifact_safety.scrub_text``) is what is written.
+    Returns the log's path and that verdict.
     """
+    from .artifact_safety import scrub_text
+    from .implementation_safety import SecretLeakDetected, verify_no_secret_in_diff
+
+    findings: list[str] = []
+    for stream, text in (("stdout", stdout), ("stderr", stderr)):
+        try:
+            verify_no_secret_in_diff(text)
+        except SecretLeakDetected as exc:
+            findings.append(f"{stream}: {exc}")
     slug = _log_slug(validation_plan_id or cycle_id or "run")
     path = validation_run_log_dir(base_dir) / (
         f"{slug}-{ordinal:03d}-{secrets.token_hex(6)}.log"
@@ -688,16 +712,16 @@ def _write_run_log(
                 f"command: {command}",
                 f"argv: {argv!r}",
                 "--- stdout ---",
-                stdout,
+                scrub_text(stdout),
                 "--- stderr ---",
-                stderr,
+                scrub_text(stderr),
                 *(["input_manifest: " + _canonical_input_json(input_manifest)] if input_manifest is not None else []),
                 "",
             ],
         ),
         encoding="utf-8",
     )
-    return path
+    return path, ("; ".join(findings) or None)
 
 
 def _normalize_input_scope(scope: dict[str, Any]) -> dict[str, list[str]]:

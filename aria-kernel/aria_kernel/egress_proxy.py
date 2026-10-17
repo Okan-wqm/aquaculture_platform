@@ -1,41 +1,91 @@
-"""ARIA-HIGH-143 — the implementer sandbox's one road out: an allowlist
-CONNECT proxy the kernel runs on the host.
+"""ARIA-HIGH-143 / ARIA-HIGH-528 — the one road out of every room that reaches
+a provider: an allowlist CONNECT proxy the kernel serves itself.
 
-The managed spawn shares the host's network namespace so the Claude CLI can
-reach its provider — and until this, that was the whole boundary: the
-policy refuses ``curl`` and ``wget`` by name, but ``pytest`` and ``nx test``
-run whatever the agent wrote into the tree, ``.env`` is bound read-only and
-visible, and ``/etc/resolv.conf`` was bound in. A prompt-injected agent
-needed one test file and one allowed runner to send a secret anywhere. The
-only brake was the model's judgement, which is exactly what an injection
-targets.
+The managed Claude room and the Codex runtime room used to share the host's
+network namespace so the CLI could reach its provider, and this proxy sat
+beside them as ``HTTPS_PROXY`` — advice, not a boundary. The policy refuses
+``curl`` and ``wget`` by name, but ``pytest`` and ``nx test`` run whatever the
+agent wrote into the tree, so one test file opened a socket to any address
+the host could reach (a public host, the production stack's loopback
+services, an abstract unix socket) and sent what the room could read, the
+CLI's own credential included.
 
-This proxy is the boundary. It speaks one verb, ``CONNECT``, to targets on
-an allowlist of ``host:port`` pairs (the provider endpoints, nothing else),
-refuses everything else by name and writes one JSON line per decision. It
-listens on loopback and on a unix socket; the sandbox reaches it through
-``HTTPS_PROXY`` (the CLI honours it) and, once the spawn is netns-isolated,
-only through the socket bound into it. It has no authentication: whoever
-can reach the listener already runs on this host, and every connection it
-admits ends at a provider that authenticates the caller itself.
+Now a room that needs its provider (``implementation_safety._sandbox_argv``
+with ``allow_network=True``) has its OWN network namespace: loopback and
+nothing else. The one thing in it that leads anywhere is this proxy's unix
+socket, bound in at ``SANDBOX_EGRESS_PROXY_SOCKET``; the in-room relay
+(``egress_relay.py``) turns it into the ``HTTPS_PROXY`` the CLIs honour. The
+proxy speaks one verb, ``CONNECT``, to the ``PROVIDER_ENDPOINTS`` allowlist,
+refuses everything else by name before any upstream connection, and writes
+one JSON line per decision to the kernel's stderr.
 
-Standard library only; run by path under ``python3 -I`` from the unit
-(``infrastructure/aria/aria-egress-proxy.service``) — a decision here must
-be readable by an operator in one screen.
+It is served by the kernel process that builds the room
+(:func:`kernel_egress_socket`), for that process's life — not by a host
+service an operator must install and keep in step: a room cannot be built
+without its proxy, and the allowlist is reviewed kernel code. It has no
+authentication: whoever can reach the socket already runs on this host, and
+every connection it admits ends at a provider that authenticates the caller
+itself.
+
+Standard library only — a decision here must be readable by an operator in
+one screen.
 """
 from __future__ import annotations
 
-import argparse
 import asyncio
+import atexit
 import json
 import os
+import re
+import shutil
+import socket
 import sys
+import tempfile
+import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 MAX_HEADER_BYTES = 8192
 CONNECT_TIMEOUT_SECONDS = 20.0
 IDLE_TIMEOUT_SECONDS = 600.0
+
+# The provider endpoints a room may reach — the whole policy. A new endpoint
+# is a reviewed change to this tuple, never an environment variable. Each was
+# read from the CLI that needs it, not guessed:
+PROVIDER_ENDPOINTS: tuple[str, ...] = (
+    # Claude CLI — the Messages API (`BASE_API_URL`, CLI 2.1.278 on the
+    # runner, 2.1.301 on the operator host).
+    "api.anthropic.com:443",
+    # Claude CLI — the managed login's OAuth refresh (`TOKEN_URL` in the same
+    # binaries). Without it an expired access token cannot be refreshed inside
+    # the room: ARIA-HIGH-157's "OAuth session expired and could not be
+    # refreshed".
+    "platform.claude.com:443",
+    # Claude CLI — the GLM rungs' vendor redirect
+    # (`ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`,
+    # `agent_runtime_profile`).
+    "api.z.ai:443",
+    # Codex CLI — the managed ChatGPT session's backend and its token refresh,
+    # and the API route.
+    "chatgpt.com:443",
+    "auth.openai.com:443",
+    "api.openai.com:443",
+)
+_UNIX_SOCKET_PATH_MAX = 107
+_START_TIMEOUT_SECONDS = 10.0
+# The kernel proxy's socket directory, named like the other holders' (hook
+# broker `aria-hb-`, MCP broker `aria-mb-`, signing agent `aria-sa-`) so the
+# orchestrator's startup sweep can tell a killed process's directory by name.
+_SOCKET_DIR_PREFIX = "aria-ep-"
+_SOCKET_NAME = "sock"
+_SOCKET_DIR_RE = re.compile(r"^aria-ep-[A-Za-z0-9_]{8}$")
+
+
+class EgressProxyUnavailable(RuntimeError):
+    """The kernel's egress proxy could not be served, so no room that needs
+    its provider can be built."""
 
 
 @dataclass(frozen=True)
@@ -43,13 +93,15 @@ class Allowlist:
     targets: frozenset[tuple[str, int]]
 
     @classmethod
-    def parse(cls, entries: list[str]) -> "Allowlist":
+    def parse(cls, entries: list[str] | tuple[str, ...]) -> "Allowlist":
         targets: set[tuple[str, int]] = set()
         for entry in entries:
             host, sep, port = entry.rpartition(":")
             if not sep or not host or not port.isdigit():
                 raise ValueError(f"allowlist entry must be host:port, got {entry!r}")
             targets.add((host.lower(), int(port)))
+        if not targets:
+            raise ValueError("an empty allowlist admits nothing and serves no one")
         return cls(frozenset(targets))
 
     def admits(self, host: str, port: int) -> bool:
@@ -143,38 +195,141 @@ async def serve(*, listen: tuple[str, int] | None, unix_socket: str | None, allo
         servers.append(await asyncio.start_unix_server(on_connection, path=unix_socket, limit=MAX_HEADER_BYTES * 2))
         os.chmod(unix_socket, 0o666)
     if not servers:
-        raise ValueError("nothing to listen on: give --listen and/or --unix")
+        raise ValueError("nothing to listen on: give a loopback address and/or a unix socket")
     return servers
 
 
-def _parse_listen(text: str) -> tuple[str, int]:
-    host, sep, port = text.rpartition(":")
-    if not sep or not port.isdigit():
-        raise argparse.ArgumentTypeError(f"--listen must be host:port, got {text!r}")
-    return (host or "127.0.0.1", int(port))
+async def _shutdown(servers: list[asyncio.AbstractServer]) -> None:
+    """Stop listening and end every open tunnel: a stopped proxy carries no
+    traffic, so nothing waits on an idle pump's timeout."""
+    for server in servers:
+        server.close()
+    tunnels = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+    for task in tunnels:
+        task.cancel()
+    await asyncio.gather(*tunnels, return_exceptions=True)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
-    parser.add_argument("--listen", type=_parse_listen, default=None, help="loopback host:port to serve on")
-    parser.add_argument("--unix", default=None, help="unix socket path to serve on (bound into the sandbox)")
-    parser.add_argument("--allow", action="append", default=[], help="host:port admitted for CONNECT (repeatable)")
-    args = parser.parse_args(argv)
-    if not args.allow:
-        parser.error("at least one --allow host:port is required; an empty allowlist admits nothing and serves no one")
-    allowlist = Allowlist.parse(args.allow)
+class ProxyThread:
+    """The proxy served on one unix socket from a daemon thread with its own
+    event loop — how a synchronous kernel process (the executor, a test)
+    keeps a proxy alive beside the rooms it builds."""
 
-    async def run() -> None:
-        servers = await serve(listen=args.listen, unix_socket=args.unix, allowlist=allowlist)
-        _decision(event="egress_proxy_started", listen=args.listen, unix=args.unix, allow=sorted(f"{h}:{p}" for h, p in allowlist.targets))
-        await asyncio.gather(*(server.serve_forever() for server in servers))
+    def __init__(self, socket_path: Path, allowlist: Allowlist) -> None:
+        if len(str(socket_path).encode()) > _UNIX_SOCKET_PATH_MAX:
+            raise EgressProxyUnavailable(f"egress_proxy_socket_path_too_long:{socket_path}")
+        self.socket_path = Path(socket_path)
+        self.allowlist = allowlist
+        self.pid = os.getpid()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
 
+    def start(self) -> "ProxyThread":
+        ready = threading.Event()
+        failure: list[BaseException] = []
+
+        def run() -> None:
+            loop = asyncio.new_event_loop()
+            try:
+                servers = loop.run_until_complete(
+                    serve(listen=None, unix_socket=str(self.socket_path), allowlist=self.allowlist),
+                )
+            except (OSError, ValueError) as exc:
+                failure.append(exc)
+                loop.close()
+                ready.set()
+                return
+            self._loop = loop
+            ready.set()
+            try:
+                loop.run_forever()
+            finally:
+                loop.run_until_complete(_shutdown(servers))
+                loop.close()
+
+        self._thread = threading.Thread(target=run, name="aria-egress-proxy", daemon=True)
+        self._thread.start()
+        if not ready.wait(timeout=_START_TIMEOUT_SECONDS):
+            raise EgressProxyUnavailable("egress_proxy_did_not_start")
+        if failure:
+            raise EgressProxyUnavailable(f"egress_proxy_unavailable:{type(failure[0]).__name__}:{failure[0]}")
+        _decision(event="egress_proxy_started", unix=str(self.socket_path),
+                  allow=sorted(f"{host}:{port}" for host, port in self.allowlist.targets))
+        return self
+
+    def serving(self) -> bool:
+        return (self.pid == os.getpid() and self._thread is not None and self._thread.is_alive()
+                and self.socket_path.is_socket())
+
+    def stop(self) -> None:
+        if self._loop is not None and self._thread is not None and self._thread.is_alive():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join(timeout=5)
+
+
+_KERNEL_PROXY: list[ProxyThread] = []
+_KERNEL_PROXY_LOCK = threading.Lock()
+
+
+def kernel_egress_socket() -> Path:
+    """The unix socket of THIS process's egress proxy, serving
+    ``PROVIDER_ENDPOINTS`` — started on first use, alive for the process.
+
+    One per process (a forked child starts its own): every room the process
+    builds is handed the same socket, so the argv the containment probe
+    proves is the argv a spawn gets. The socket lives in a private 0700
+    directory removed at exit; the room reaches it through its bind alone.
+    A process killed outright never reaches its exit; its directory is the
+    orchestrator's startup sweep's (:func:`prune_stale_egress_proxies`).
+    """
+    with _KERNEL_PROXY_LOCK:
+        if _KERNEL_PROXY and _KERNEL_PROXY[0].serving():
+            return _KERNEL_PROXY[0].socket_path
+        directory = Path(tempfile.mkdtemp(prefix=_SOCKET_DIR_PREFIX))
+        try:
+            proxy = ProxyThread(directory / _SOCKET_NAME, Allowlist.parse(PROVIDER_ENDPOINTS)).start()
+        except EgressProxyUnavailable:
+            shutil.rmtree(directory, ignore_errors=True)
+            raise
+        atexit.register(shutil.rmtree, directory, True)
+        _KERNEL_PROXY[:] = [proxy]
+        return proxy.socket_path
+
+
+def _proxy_answers(socket_path: Path) -> bool:
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        asyncio.run(run())
-    except KeyboardInterrupt:
-        return 0
-    return 0
+        client.settimeout(1.0)
+        client.connect(str(socket_path))
+        return True
+    except OSError:
+        return False
+    finally:
+        client.close()
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def prune_stale_egress_proxies(*, temp_root: str | Path | None = None) -> dict[str, Any]:
+    """Remove the socket directories of kernel proxies that no longer answer
+    (a process killed outright never reached its ``atexit``). A directory
+    whose proxy still answers belongs to a live process and is left alone;
+    one holding anything but the socket is not ours to remove."""
+    root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
+    swept: list[str] = []
+    live: list[str] = []
+    errors: list[str] = []
+    for entry in sorted(root.glob(f"{_SOCKET_DIR_PREFIX}*")):
+        if not entry.is_dir() or not _SOCKET_DIR_RE.match(entry.name):
+            continue
+        socket_path = entry / _SOCKET_NAME
+        if socket_path.is_socket() and _proxy_answers(socket_path):
+            live.append(entry.name)
+            continue
+        try:
+            if any(child.name != _SOCKET_NAME for child in entry.iterdir()):
+                continue
+            shutil.rmtree(entry)
+        except OSError as exc:
+            errors.append(f"{entry.name}:{type(exc).__name__}")
+        else:
+            swept.append(entry.name)
+    return {"scanned": len(swept) + len(live) + len(errors), "swept": swept, "live": live, "errors": errors}

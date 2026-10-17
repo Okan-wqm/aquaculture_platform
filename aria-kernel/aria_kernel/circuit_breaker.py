@@ -464,6 +464,7 @@ def record_failure(
             kind="breaker_tripped", key=f"failure:{kind}", base_dir=root,
             title=f"ARIA circuit breaker tripped ({kind})",
             body=f"reason: {verdict.reason}\nsliding_count: {verdict.sliding_count} threshold: {verdict.threshold} window_hours: {verdict.window_hours}",
+            record=_state_path(root).relative_to(root).as_posix(),
         )
     return row
 

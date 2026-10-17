@@ -109,7 +109,12 @@ branch the replica's HEAD names (the branch the kernel stood the sandbox
 on, adopted by the kernel on the host), so the executor's evidence check grades the agent's
 files against the agent's commit. A crashed executor publishes nothing: the
 quarantine dies with its worktree, and the shared repository never carried
-a byte of it.
+a byte of it. The replica is the agent's tree and the host treats it as such
+(ARIA-HIGH-527): the host walks it, reads it, unlinks in it and renames out
+of it only through ``untrusted_tree.UntrustedTree`` — directory descriptors
+opened without following a link — and a link, FIFO, socket or device the
+agent planted in it refuses the publication by name before anything is
+touched.
 
 A workspace that is not a linked worktree cannot host a commit-capable
 sandbox: a MAIN checkout's ``.git/`` is the repository every worktree
@@ -164,10 +169,12 @@ import shutil
 import subprocess
 import zlib
 from collections.abc import Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .command_policy import ARIA_IMPL_BRANCH_FRAGMENT
+from .untrusted_tree import UntrustedEntryRefused, UntrustedTree
 
 # Where the kernel-held signing agent's socket appears INSIDE the sandbox:
 # under the sandbox's private /tmp tmpfs, so the host path (which may be
@@ -270,6 +277,7 @@ class GitContainmentRefusal(Exception):
     capability), ``git_dir_overlaps_workspace``,
     ``private_git_dir_outside_worktrees``, ``hooks_dir_unresolvable:<why>``,
     ``git_dir_unwritable:<ErrorClass>``, ``loose_refs_exceed_overlay_bound:<n>``,
+    ``replica_removal_follows_links`` (ARIA-HIGH-527),
     ``signing_public_key_outside_keys_dir``,
     ``signing_keys_dir_outside_workspace``, ``signing_agent_socket_missing``,
     ``signing_without_commit_capability``; and for
@@ -422,7 +430,12 @@ class GitContainment:
 class QuarantinePublication:
     """What ``publish_quarantine`` did: objects moved, packs unpacked, refs
     published — and what was refused, by name. ``refusal`` is set when the
-    publication could not run at all (git did not answer)."""
+    publication could not run at all (git did not answer) or stopped:
+    ``replica_entry_refused:<kind>:<path>`` (ARIA-HIGH-527: a link, FIFO,
+    socket or device in the replica, refused before anything was touched),
+    ``replica_unreadable:<ErrorClass>``, ``git_unavailable:<ErrorClass>``,
+    ``object_format_unresolvable``, ``quarantine_migration_failed:<ErrorClass>``,
+    ``quarantine_publication_failed:<ErrorClass>``."""
 
     loose_objects_migrated: int
     packs_unpacked: int
@@ -514,6 +527,12 @@ def _prepare_sandbox_git_dir(private: Path, common: Path) -> Path:
     spawn's HEAD and index, and its unpublished quarantine was discarded
     with that spawn."""
     replica = private / SANDBOX_GIT_DIR_NAME
+    # ARIA-HIGH-527 — a replica a previous spawn left is the agent's tree:
+    # removed only by the standard library's fd-based walk, which unlinks a
+    # planted link and never descends it. Where the platform's rmtree is not
+    # that walk, no replica is made rather than one removed through a link.
+    if not shutil.rmtree.avoids_symlink_attacks:
+        raise GitContainmentRefusal("replica_removal_follows_links")
     try:
         if replica.exists():
             shutil.rmtree(replica)
@@ -679,10 +698,47 @@ def stand_on_implementation_branch(containment: GitContainment, *, branch: str, 
 # command reads it, so stripping it changes nothing but that redirect.
 _AMBIENT_GIT_CONFIG_NAMES: frozenset[str] = frozenset({"GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"})
 _AMBIENT_GIT_CONFIG_PREFIXES: tuple[str, ...] = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+# ARIA-LOW-447 — the variables that redirect git rather than configure it,
+# each read by git 2.43 (its binaries name them):
+# * which program it runs: GIT_EXEC_PATH is where it looks up every helper (a
+#   local push runs `git-receive-pack` from it, an https push
+#   `git-remote-https`); GIT_SSH / GIT_SSH_COMMAND / GIT_PROXY_COMMAND are the
+#   transport's program; GIT_EXTERNAL_DIFF runs for diff porcelain;
+# * where it asks for a credential: GIT_ASKPASS, SSH_ASKPASS;
+# * whom the transport trusts and as whom it connects: every GIT_SSL_* and
+#   GIT_PROXY_SSL_* (verification off, CA, client certificate and key);
+# * what a new repository starts with: GIT_TEMPLATE_DIR (`git init` copies
+#   its hooks and its config);
+# * whether a trace prints the credential: GIT_TRACE_REDACT=0 writes the
+#   push's Authorization header into GIT_TRACE_CURL / GIT_CURL_VERBOSE
+#   output (redacted while it is absent).
+# Kept, because none can point git at another program, endpoint, credential
+# or configuration: GIT_CEILING_DIRECTORIES (it only stops discovery), the
+# other traces (redacted), GIT_TERMINAL_PROMPT (it only disables prompts),
+# editors and pagers (no call with a message and no tty runs them), HOME,
+# GIT_CONFIG_GLOBAL/SYSTEM and proxies (host plumbing every child needs).
+_AMBIENT_GIT_REDIRECT_NAMES: frozenset[str] = frozenset({
+    "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_PROXY_COMMAND", "GIT_EXTERNAL_DIFF",
+    "GIT_ASKPASS", "SSH_ASKPASS", "GIT_TEMPLATE_DIR", "GIT_TRACE_REDACT",
+})
+_AMBIENT_GIT_REDIRECT_PREFIXES: tuple[str, ...] = ("GIT_SSL_", "GIT_PROXY_SSL_")
+
+
+def without_ambient_git_redirects(environ: Mapping[str, str]) -> dict[str, str]:
+    """``environ`` without any variable that redirects git's program lookup,
+    transport, credential prompt, new-repository template or trace redaction.
+
+    The state store's git builds on this alone (``state_store``): its publish
+    step sets the ``GIT_CONFIG_*`` credential the store pushes with, on
+    purpose, and a helper planted through a redirect must not run beside it.
+    """
+    return {name: value for name, value in environ.items()
+            if name not in _AMBIENT_GIT_REDIRECT_NAMES and not name.startswith(_AMBIENT_GIT_REDIRECT_PREFIXES)}
 
 
 def without_ambient_git_config(environ: Mapping[str, str]) -> dict[str, str]:
-    """``environ`` without any git configuration it injects.
+    """``environ`` without any git configuration it injects, and without any
+    redirect (``without_ambient_git_redirects``).
 
     The base every kernel seam builds a git or ``gh`` child's environment
     from: the delivery's push (``_publish_environment``), ``gh pr create``
@@ -690,7 +746,7 @@ def without_ambient_git_config(environ: Mapping[str, str]) -> dict[str, str]:
     and the commit-identity check (``implementation_identity``). What the
     child should carry is added after this, by the caller who chose it.
     """
-    return {name: value for name, value in environ.items()
+    return {name: value for name, value in without_ambient_git_redirects(environ).items()
             if name not in _AMBIENT_GIT_CONFIG_NAMES and not name.startswith(_AMBIENT_GIT_CONFIG_PREFIXES)}
 
 
@@ -721,25 +777,27 @@ def _git(args: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.Compl
     )
 
 
-def _move_into_store(source: Path, target: Path) -> bool:
-    """Rename ``source`` to ``target`` (same filesystem, atomic); an object
-    the store already holds is dropped — content-addressed, never
-    overwritten. True when the store gained the file."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        source.unlink()
-        return False
-    os.replace(source, target)
-    return True
+# ARIA-HIGH-527 — the replica is the AGENT's tree, and the host walks it
+# after the spawn: the host reaches it only through `UntrustedTree`
+# (`untrusted_tree`, which says what the link-following walk destroyed), and
+# the publication walks everything it reads whole before it touches any of it.
+_QUARANTINE_HEADS = "refs/heads"
+_PUBLISHED_REPLICA_ENTRIES: tuple[str, ...] = (COMMON_DIR_OBJECTS, _QUARANTINE_HEADS, "HEAD")
 
 
-def _loose_object_refusal(path: Path, object_id: str, object_format: str) -> str | None:
-    """Why ``path`` may not enter the store under ``object_id``: its bytes
-    do not inflate, or they hash to another name."""
+def _replica_entry_refusal(refused: UntrustedEntryRefused) -> str:
+    # The path last: a file name may carry a colon.
+    return f"replica_entry_refused:{refused.kind}:{refused.relative}"
+
+
+def _loose_object_refusal(replica: UntrustedTree, relative: str, object_id: str, object_format: str) -> str | None:
+    """Why the quarantine's ``relative`` may not enter the store under
+    ``object_id``: its bytes do not inflate, or they hash to another name."""
     try:
-        if path.stat().st_size > _MAX_LOOSE_OBJECT_BYTES:
+        compressed = replica.read(relative, _MAX_LOOSE_OBJECT_BYTES + 1)
+        if len(compressed) > _MAX_LOOSE_OBJECT_BYTES:
             return "object_too_large"
-        inflated = zlib.decompressobj().decompress(path.read_bytes(), _MAX_LOOSE_OBJECT_BYTES + 1)
+        inflated = zlib.decompressobj().decompress(compressed, _MAX_LOOSE_OBJECT_BYTES + 1)
     except (OSError, zlib.error) as exc:
         return f"object_unreadable:{type(exc).__name__}"
     if len(inflated) > _MAX_LOOSE_OBJECT_BYTES:
@@ -750,41 +808,54 @@ def _loose_object_refusal(path: Path, object_id: str, object_format: str) -> str
 
 
 def _migrate_objects(
-    quarantine: Path, store: Path, *, checkout: Path, env: dict[str, str], object_format: str,
+    replica: UntrustedTree, objects: tuple[str, ...], store: Path, *, checkout: Path, env: dict[str, str],
+    object_format: str,
 ) -> tuple[int, int, list[tuple[str, str]]]:
+    """Move the quarantine's verified loose objects into ``store`` and unpack
+    its packs; ``objects`` is every regular file under the quarantine, as
+    ``UntrustedTree.regular_files`` walked it."""
     loose = 0
     packs = 0
     refused: list[tuple[str, str]] = []
-    for fan_out in sorted(quarantine.iterdir()):
-        if not (fan_out.is_dir() and _LOOSE_OBJECT_DIR_RE.match(fan_out.name)):
+    pack_names: list[str] = []
+    for relative in objects:
+        parts = relative.split("/")
+        if len(parts) != 3:
             continue
-        for entry in sorted(fan_out.iterdir()):
-            object_id = fan_out.name + entry.name
-            if not (entry.is_file() and _OBJECT_ID_RE.match(object_id)):
-                continue
-            why = _loose_object_refusal(entry, object_id, object_format)
-            if why is not None:
-                refused.append((object_id, why))
-                entry.unlink()
-                continue
-            if _move_into_store(entry, store / fan_out.name / entry.name):
-                loose += 1
-    pack_dir = quarantine / "pack"
-    if pack_dir.is_dir():
-        for pack in sorted(path for path in pack_dir.iterdir() if path.is_file() and path.suffix == ".pack"):
-            with pack.open("rb") as handle:
-                unpacked = subprocess.run(
-                    ["git", "unpack-objects", "-q", "--strict"], cwd=str(checkout), stdin=handle,
-                    env={**env, GIT_OBJECT_DIRECTORY_ENV: str(store)}, capture_output=True, text=True,
-                    check=False, timeout=_GIT_PUBLISH_TIMEOUT_SECONDS,
-                )
-            if unpacked.returncode == 0:
-                packs += 1
-            else:
-                first = (unpacked.stderr.strip().splitlines() or [f"rc={unpacked.returncode}"])[0][:120]
-                refused.append((pack.name, f"unpack_objects_failed:{first}"))
-            for sibling in pack_dir.glob(pack.stem + ".*"):
-                sibling.unlink()
+        _quarantine, directory, name = parts
+        if directory == "pack":
+            pack_names.append(name)
+            continue
+        object_id = directory + name
+        if not (_LOOSE_OBJECT_DIR_RE.match(directory) and _OBJECT_ID_RE.match(object_id)):
+            continue
+        why = _loose_object_refusal(replica, relative, object_id, object_format)
+        if why is not None:
+            refused.append((object_id, why))
+            replica.unlink(relative)
+            continue
+        if replica.move_out(relative, store / directory / name):
+            loose += 1
+    removed: set[str] = set()
+    for pack in pack_names:
+        if PurePosixPath(pack).suffix != ".pack" or pack in removed:
+            continue
+        with replica.open_file(f"{COMMON_DIR_OBJECTS}/pack/{pack}") as handle:
+            unpacked = subprocess.run(
+                ["git", "unpack-objects", "-q", "--strict"], cwd=str(checkout), stdin=handle,
+                env={**env, GIT_OBJECT_DIRECTORY_ENV: str(store)}, capture_output=True, text=True,
+                check=False, timeout=_GIT_PUBLISH_TIMEOUT_SECONDS,
+            )
+        if unpacked.returncode == 0:
+            packs += 1
+        else:
+            first = (unpacked.stderr.strip().splitlines() or [f"rc={unpacked.returncode}"])[0][:120]
+            refused.append((pack, f"unpack_objects_failed:{first}"))
+        stem = PurePosixPath(pack).stem
+        for sibling in pack_names:
+            if sibling.startswith(stem + ".") and sibling not in removed:
+                replica.unlink(f"{COMMON_DIR_OBJECTS}/pack/{sibling}")
+                removed.add(sibling)
     return loose, packs, refused
 
 
@@ -805,11 +876,42 @@ def publish_quarantine(containment: GitContainment) -> QuarantinePublication:
     kernel seeded (``seeded_refs``), when the agent advanced it. Every other
     quarantine ref is discarded by name. Idempotent: a quarantine already
     published (or never used) publishes nothing.
+
+    ARIA-HIGH-527 — the replica is read as the agent's tree
+    (``untrusted_tree.UntrustedTree``): before anything is moved, unpacked,
+    published or unlinked, every entry the publication reads (``objects``,
+    ``refs/heads``, ``HEAD``) is walked without following a link, and a
+    link, FIFO, socket or device anywhere in it refuses the whole
+    publication by name (``replica_entry_refused:<kind>:<path in the
+    replica>``): nothing is published, and the replica stays as the agent
+    left it until the next derivation removes it without following a link.
     """
-    replica = containment.sandbox_git_dir
-    if not containment.commit_capable or replica is None or not replica.is_dir():
+    replica_root = containment.sandbox_git_dir
+    if not containment.commit_capable or replica_root is None or not replica_root.is_dir():
         return QuarantinePublication(0, 0, (), (), ())
-    quarantine = replica / COMMON_DIR_OBJECTS
+    with ExitStack() as held:
+        try:
+            replica = held.enter_context(UntrustedTree.opened(replica_root))
+            listing = {entry: replica.regular_files(entry) for entry in _PUBLISHED_REPLICA_ENTRIES}
+        except UntrustedEntryRefused as refused:
+            return QuarantinePublication(0, 0, (), (), (), refusal=_replica_entry_refusal(refused))
+        except OSError as exc:
+            return QuarantinePublication(0, 0, (), (), (), refusal=f"replica_unreadable:{type(exc).__name__}")
+        return _publish_walked_replica(containment, replica, listing)
+
+
+def _publication_failure(prefix: str, exc: Exception) -> str:
+    # A replica entry refused mid-publication names itself; anything else is
+    # named by its class under the phase it stopped.
+    return _replica_entry_refusal(exc) if isinstance(exc, UntrustedEntryRefused) else f"{prefix}:{type(exc).__name__}"
+
+
+def _publish_walked_replica(
+    containment: GitContainment, replica: UntrustedTree, listing: Mapping[str, tuple[str, ...]],
+) -> QuarantinePublication:
+    """``publish_quarantine`` once the replica was walked and held nothing
+    but directories and regular files; ``listing`` maps each of
+    ``_PUBLISHED_REPLICA_ENTRIES`` to the regular files at or under it."""
     store = containment.common_git_dir / COMMON_DIR_OBJECTS
     env = _publish_environment()
     # Every git call runs in the worktree (its real private git dir on the
@@ -825,25 +927,24 @@ def publish_quarantine(containment: GitContainment) -> QuarantinePublication:
         return QuarantinePublication(0, 0, (), (), (), refusal="object_format_unresolvable")
     try:
         loose, packs, objects_refused = _migrate_objects(
-            quarantine, store, checkout=checkout, env=env, object_format=object_format,
-        ) if quarantine.is_dir() else (0, 0, [])
-    except (OSError, subprocess.SubprocessError) as exc:
-        return QuarantinePublication(0, 0, (), (), (), refusal=f"quarantine_migration_failed:{type(exc).__name__}")
+            replica, listing[COMMON_DIR_OBJECTS], store, checkout=checkout, env=env, object_format=object_format,
+        )
+    except (OSError, subprocess.SubprocessError, UntrustedEntryRefused) as exc:
+        return QuarantinePublication(0, 0, (), (), (), refusal=_publication_failure("quarantine_migration_failed", exc))
     published: list[str] = []
     discarded: list[tuple[str, str]] = []
-    heads = replica / "refs" / "heads"
+    heads_prefix = f"{_QUARANTINE_HEADS}/"
     shared_heads = containment.common_git_dir / "refs" / "heads"
     # The mountpoints bwrap made in the quarantine for the read-only overlays
     # of existing loose refs: empty files under those names, not the agent's.
     placeholders = {loose.relative_to(shared_heads).as_posix() for loose in containment.loose_refs}
     seeded_names = {name for name, _seed in containment.seeded_refs}
-    ref_files = sorted(path for path in heads.rglob("*") if path.is_file()) if heads.is_dir() else []
     try:
-        for ref_file in ref_files:
-            name = ref_file.relative_to(heads).as_posix()
-            content = ref_file.read_text(encoding="utf-8", errors="replace").strip()
+        for ref_file in listing[_QUARANTINE_HEADS]:
+            name = ref_file.removeprefix(heads_prefix)
+            content = replica.read(ref_file).decode("utf-8", errors="replace").strip()
             if not content and name in placeholders:
-                ref_file.unlink()
+                replica.unlink(ref_file)
                 continue
             refusal = _ref_name_refusal(name, content)
             if refusal is None and name not in seeded_names:
@@ -868,26 +969,30 @@ def publish_quarantine(containment: GitContainment) -> QuarantinePublication:
                                 f"refs/heads/{name}", f"{content}^{{commit}}"], cwd=checkout, env=env)
                 if updated.returncode != 0:
                     refusal = f"update_ref_failed:{(updated.stderr.strip().splitlines() or ['?'])[0][:120]}"
-            ref_file.unlink()
+            replica.unlink(ref_file)
             if refusal is None:
                 published.append(name)
             else:
                 discarded.append((name, refusal))
         head_adopted = _adopt_head(containment, replica, published, env=env)
-    except (OSError, subprocess.SubprocessError) as exc:
+    except (OSError, subprocess.SubprocessError, UntrustedEntryRefused) as exc:
         return QuarantinePublication(loose, packs, tuple(objects_refused), tuple(published), tuple(discarded),
-                                     refusal=f"quarantine_publication_failed:{type(exc).__name__}")
+                                     refusal=_publication_failure("quarantine_publication_failed", exc))
     return QuarantinePublication(loose, packs, tuple(objects_refused), tuple(published), tuple(discarded),
                                  head_adopted=head_adopted)
 
 
-def _adopt_head(containment: GitContainment, replica: Path, published: list[str], *, env: dict[str, str]) -> str | None:
+def _adopt_head(
+    containment: GitContainment, replica: UntrustedTree, published: list[str], *, env: dict[str, str],
+) -> str | None:
     """Point the host worktree's HEAD at the branch the agent switched to in
     the replica, when that branch was published, and bring the index to it
     (the working tree already carries the agent's files): the kernel-made
-    branch the agent committed on inside (ARIA-HIGH-124), adopted outside."""
+    branch the agent committed on inside (ARIA-HIGH-124), adopted outside.
+    A HEAD that is not text names no published branch (decoded with
+    replacement, never raised out of the publication)."""
     try:
-        head = (replica / "HEAD").read_text(encoding="utf-8").strip()
+        head = replica.read("HEAD").decode("utf-8", errors="replace").strip()
     except OSError:
         return None
     prefix = "ref: refs/heads/"
@@ -926,4 +1031,5 @@ __all__ = [
     "publish_quarantine",
     "stand_on_implementation_branch",
     "without_ambient_git_config",
+    "without_ambient_git_redirects",
 ]

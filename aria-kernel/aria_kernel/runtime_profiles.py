@@ -390,23 +390,28 @@ def worker_route(
 ) -> tuple[str, str] | None:
     """(provider, model) for a worker assignment now, or None.
 
-    The ladder head unless it is cooled (`provider_cooldown.
-    active_provider_cooldowns`) — exactly the pre-ARIA-HIGH-434 lane; past a
-    cooled head, the first later rung that is neither cooled nor absent on
-    this host (`model_fleet.available_providers`: the Z.ai credential
-    boundary named), so a host without the Z.ai key never claims a worker
-    it cannot run while Claude is out. None only when the head is cooled
-    and no later rung can serve: the hook holds the assignment by name,
-    under the head's cooldown, with no claim.
+    The first rung of `worker_ladder` that is neither cooled
+    (`provider_cooldown.active_provider_cooldowns`) nor absent on this host
+    (`provider_outage.host_providers`: the claude CLI on PATH, the Z.ai
+    credential boundary named) — the same rule the planner hook's outage
+    gate reads. None when no rung can serve and one is cooled: the hook
+    holds the assignment by name under that cooldown, with no claim. A
+    ladder nothing has cooled and nothing here can run takes its head: no
+    event to wait out, and the child that meets the absence cools the
+    provider (`ProviderCredentialAbsent`), so the next tick holds.
     """
-    from .model_fleet import _FLEET, available_providers, route_model
+    from .model_fleet import _FLEET, route_model
+    from .provider_outage import host_providers
 
     rows = {provider.key: provider for provider in _FLEET}
-    present = {provider.key for provider in available_providers(dict(environ))}
-    for index, key in enumerate(worker_ladder(profile)):
-        if key not in cooled and (index == 0 or key in present):
+    present = host_providers(environ)
+    ladder = worker_ladder(profile)
+    for key in ladder:
+        if key not in cooled and key in present:
             return key, route_model(rows[key], str(profile.model), environ)
-    return None
+    if not ladder or any(key in cooled for key in ladder):
+        return None
+    return ladder[0], route_model(rows[ladder[0]], str(profile.model), environ)
 
 
 def disallowed_tools_for(profile: RuntimeProfile) -> tuple[str, ...]:

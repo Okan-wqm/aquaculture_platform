@@ -3422,6 +3422,7 @@ def build_parser() -> argparse.ArgumentParser:
     notify_send.add_argument("--title", required=True)
     notify_send.add_argument("--body", default="")
     notify_send.add_argument("--key", default=None)
+    notify_send.add_argument("--record", default=None)
     notify_send.add_argument("--channel", action="append", default=None, dest="channels")
     notify_send.add_argument("--dry-run", action="store_true")
     add_subparser(notify_sub, "channels")
@@ -7360,8 +7361,8 @@ def _main(argv: list[str] | None = None) -> int:
         if args.notify_command == "channels":
             print(json.dumps({"configured": list(configured_channels()), "env_names": CHANNEL_ENV_NAMES}, indent=2, sort_keys=True))
             return 0
-        rows = notify(kind=args.kind, title=args.title, body=args.body, key=args.key, base_dir=args.tools_dir,
-                      channels=args.channels, dry_run=args.dry_run)
+        rows = notify(kind=args.kind, title=args.title, body=args.body, key=args.key, record=args.record,
+                      base_dir=args.tools_dir, channels=args.channels, dry_run=args.dry_run)
         print(json.dumps(rows, indent=2, sort_keys=True))
         return 0 if all(r["status"] != "failed" for r in rows) else 1
 

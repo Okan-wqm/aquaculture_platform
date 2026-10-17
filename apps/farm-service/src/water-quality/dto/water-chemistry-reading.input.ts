@@ -6,6 +6,9 @@
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
   IsEnum,
   IsInt,
   IsNumber,
@@ -22,6 +25,9 @@ import { MeasurementPointInput } from './parameter-channel-binding.input';
 
 /** A year: a window longer than this asks for nothing a window should mean. */
 const MAX_AGE_SECONDS_LIMIT = 31_536_000;
+
+/** Units in one many-unit read: a site's units, as effectiveUnitTemperatures bounds them. */
+export const MAX_RESOLVED_UNITS = 200;
 
 @InputType({ description: 'A parameter to read at a measurement point, now' })
 export class ResolvedParameterValueInput {
@@ -48,6 +54,36 @@ export class ResolvedParameterValueInput {
   @Min(0)
   @Max(999.99)
   depthM?: number | null;
+
+  @Field(() => Int, {
+    nullable: true,
+    description: 'Skip a value older than this many seconds; any age when omitted',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(MAX_AGE_SECONDS_LIMIT)
+  maxAgeSeconds?: number | null;
+}
+
+@InputType({
+  description:
+    'A parameter to read at many units now (tanks or water equipment, classified by farm), ' +
+    'each at its representative location',
+})
+export class ResolvedUnitParameterValuesInput {
+  @Field(() => ID)
+  @IsUUID()
+  parameterConfigId!: string;
+
+  @Field(() => [ID], {
+    description: `Tank or water-equipment ids, 1 to ${MAX_RESOLVED_UNITS}; farm decides which each is`,
+  })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_RESOLVED_UNITS)
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  unitIds!: string[];
 
   @Field(() => Int, {
     nullable: true,

@@ -24,7 +24,10 @@ import {
   measurementPointOf,
   sourceLocationOf,
 } from './dto/parameter-channel-binding.input';
-import { ResolvedParameterValueInput } from './dto/water-chemistry-reading.input';
+import {
+  ResolvedParameterValueInput,
+  ResolvedUnitParameterValuesInput,
+} from './dto/water-chemistry-reading.input';
 import {
   ParameterReading,
   WaterChemistryInputsResult,
@@ -32,6 +35,7 @@ import {
 import type { SourceReader } from './queries/parameter-source-queries';
 import {
   ResolveParameterValueQuery,
+  ResolveUnitParameterValuesQuery,
   ResolveWaterChemistryInputsQuery,
 } from './queries/reading-queries';
 
@@ -53,6 +57,32 @@ export class WaterChemistryReadingResolver {
         tenantId,
         input.parameterConfigId,
         sourceLocationOf(input),
+        input.maxAgeSeconds === undefined || input.maxAgeSeconds === null
+          ? null
+          : input.maxAgeSeconds * 1000,
+        user,
+      ),
+    );
+  }
+
+  /**
+   * One parameter at many units (tanks or water equipment) now, each read as
+   * resolvedParameterValue reads one point — in one request, so a site's
+   * units are not one round trip each. Every unit must be live and, for a
+   * MODULE_USER, at an assigned site; the answers keep the asked order.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => [ParameterReading], { name: 'resolvedUnitParameterValues' })
+  async resolvedUnitParameterValues(
+    @Args('input') input: ResolvedUnitParameterValuesInput,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SourceReader,
+  ): Promise<ParameterReading[]> {
+    return this.queryBus.execute(
+      new ResolveUnitParameterValuesQuery(
+        tenantId,
+        input.parameterConfigId,
+        input.unitIds,
         input.maxAgeSeconds === undefined || input.maxAgeSeconds === null
           ? null
           : input.maxAgeSeconds * 1000,

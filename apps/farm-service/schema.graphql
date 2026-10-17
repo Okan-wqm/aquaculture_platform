@@ -6178,6 +6178,7 @@ type Query {
   parameterSourcesAtPoint(point: MeasurementPointInput!): [ParameterSourceStatus!]!
   parameterQuantityDeclarations(parameterConfigId: ID!): [ParameterQuantityDeclaration!]!
   resolvedParameterValue(input: ResolvedParameterValueInput!): ParameterReading!
+  resolvedUnitParameterValues(input: ResolvedUnitParameterValuesInput!): [ParameterReading!]!
   waterChemistryInputs(point: MeasurementPointInput!, set: WaterChemistryInputSet!): WaterChemistryInputsResult!
   parameterConfigs(filter: ParameterConfigFilterInput): [WaterQualityParameterConfig!]!
   parameterConfig(id: ID!): WaterQualityParameterConfig
@@ -6682,6 +6683,19 @@ input ResolvedParameterValueInput {
 
   """Sampling depth in metres"""
   depthM: Float
+
+  """Skip a value older than this many seconds; any age when omitted"""
+  maxAgeSeconds: Int
+}
+
+"""
+A parameter to read at many units now (tanks or water equipment, classified by farm), each at its representative location
+"""
+input ResolvedUnitParameterValuesInput {
+  parameterConfigId: ID!
+
+  """Tank or water-equipment ids, 1 to 200; farm decides which each is"""
+  unitIds: [ID!]!
 
   """Skip a value older than this many seconds; any age when omitted"""
   maxAgeSeconds: Int

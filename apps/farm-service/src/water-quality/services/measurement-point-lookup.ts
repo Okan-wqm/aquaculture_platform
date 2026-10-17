@@ -14,6 +14,7 @@ import {
 import { Site } from '../../site/entities/site.entity';
 import { System } from '../../system/entities/system.entity';
 
+import type { MeasurementUnit } from './measurement-unit';
 import type { MeasurementPoint } from './parameter-sources';
 import { ParameterSourceError } from '../../common/errors/farm-errors';
 import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
@@ -115,10 +116,40 @@ export async function assertPointReadable(
   caller: SiteScopeCaller,
 ): Promise<void> {
   await assertLivePoint(manager, tenantId, point, 'lookup');
-  if (!caller.roles.some((role) => roleHasPermission(role, Role.MODULE_MANAGER))) {
+  if (!readsEverySite(caller)) {
     siteAuth.assertSiteAssignment({
       caller,
       siteId: await siteOfPoint(manager, tenantId, point),
     });
   }
+}
+
+/** MODULE_MANAGER and above read every site's points; anyone below only their assigned sites. */
+function readsEverySite(caller: SiteScopeCaller): boolean {
+  return caller.roles.some((role) => roleHasPermission(role, Role.MODULE_MANAGER));
+}
+
+/**
+ * The units of a many-unit read (resolveMeasurementUnits), each checked as
+ * assertPointReadable checks one: every asked unit is live (else 404, naming
+ * the first that is not), and a caller below MODULE_MANAGER reads only units
+ * at a site assigned to them — a unit whose site resolves to none is denied.
+ * Returns each unit's point, in the asked order.
+ */
+export function assertUnitsReadable(
+  siteAuth: SiteAuthorizationService,
+  unitIds: readonly string[],
+  units: ReadonlyMap<string, MeasurementUnit>,
+  caller: SiteScopeCaller,
+): MeasurementPoint[] {
+  return unitIds.map((unitId) => {
+    const unit = units.get(unitId);
+    if (unit === undefined) {
+      throw new NotFoundException(`No active tank or water equipment '${unitId}' in this tenant`);
+    }
+    if (!readsEverySite(caller)) {
+      siteAuth.assertSiteAssignment({ caller, siteId: unit.siteId });
+    }
+    return { kind: unit.kind, id: unit.id };
+  });
 }

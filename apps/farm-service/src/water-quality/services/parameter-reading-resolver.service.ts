@@ -104,10 +104,59 @@ export class ParameterReadingResolver {
     if (asks.length === 0) {
       return [];
     }
-    const gathered = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
-      gatherLevels(queryRunner.manager, tenantId, location, asks, asOf),
+    const [answers] = await this.resolveMany(tenantId, [{ location, asks }], asOf);
+    if (answers === undefined) {
+      throw new Error('The reading resolver answered no location');
+    }
+    return answers;
+  }
+
+  /**
+   * One parameter's answer at each of many locations, in their order, all as
+   * of `asOf` — the many-unit read (a site's units on the dashboard) in one
+   * tenant read, one directory request and one placement read, never one
+   * round of each per location.
+   */
+  async resolveAcross(
+    tenantId: string,
+    locations: readonly SourceLocation[],
+    ask: ParameterReadAsk,
+    asOf: Date,
+  ): Promise<ResolvedReading[]> {
+    const answers = await this.resolveMany(
+      tenantId,
+      locations.map((location) => ({ location, asks: [ask] })),
+      asOf,
     );
-    const keys = uniqueKeys(gathered.flatMap(({ levels }) => levels.flatMap((l) => l.sources)));
+    return answers.map(([answer]) => {
+      if (answer === undefined) {
+        throw new Error('The reading resolver answered no ask at a location');
+      }
+      return answer.reading;
+    });
+  }
+
+  /** Per location (in order), each of its asks with its answer — the shared body of both reads. */
+  private async resolveMany<Ask extends ParameterReadAsk>(
+    tenantId: string,
+    requests: readonly { readonly location: SourceLocation; readonly asks: readonly Ask[] }[],
+    asOf: Date,
+  ): Promise<{ ask: Ask; reading: ResolvedReading }[][]> {
+    const gathered = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner) => {
+        const perLocation: { ask: Ask; levels: GatheredLevel[] }[][] = [];
+        for (const { location, asks } of requests) {
+          perLocation.push(await gatherLevels(queryRunner.manager, tenantId, location, asks, asOf));
+        }
+        return perLocation;
+      },
+    );
+    const keys = uniqueKeys(
+      gathered.flat().flatMap(({ levels }) => levels.flatMap((level) => level.sources)),
+    );
     const described = keys.length === 0 ? [] : await this.directory.describe(tenantId, keys);
     const descriptions = new Map<string, SensorChannelDescription>(
       described.map((description) => [keyOf(description), description]),
@@ -118,18 +167,20 @@ export class ParameterReadingResolver {
         : await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
             loadFarmPlacement(queryRunner.manager, tenantId, described),
           );
-    return gathered.map(({ ask, levels }) => ({
-      ask,
-      reading: resolveReading(
-        {
-          parameter: { quantity: ask.parameter.effectiveQuantity, unit: ask.parameter.unit },
-          unit: ask.unit,
-          asOf,
-          maxAgeMs: ask.maxAgeMs,
-        },
-        levels.map((level) => readingLevel(ask, level, descriptions, farm)),
-      ),
-    }));
+    return gathered.map((perLocation) =>
+      perLocation.map(({ ask, levels }) => ({
+        ask,
+        reading: resolveReading(
+          {
+            parameter: { quantity: ask.parameter.effectiveQuantity, unit: ask.parameter.unit },
+            unit: ask.unit,
+            asOf,
+            maxAgeMs: ask.maxAgeMs,
+          },
+          levels.map((level) => readingLevel(ask, level, descriptions, farm)),
+        ),
+      })),
+    );
   }
 }
 

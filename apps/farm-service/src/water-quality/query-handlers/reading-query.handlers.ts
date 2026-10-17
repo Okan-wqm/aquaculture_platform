@@ -28,9 +28,11 @@ import {
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import {
   ResolveParameterValueQuery,
+  ResolveUnitParameterValuesQuery,
   ResolveWaterChemistryInputsQuery,
 } from '../queries/reading-queries';
-import { assertPointReadable } from '../services/measurement-point-lookup';
+import { assertPointReadable, assertUnitsReadable } from '../services/measurement-point-lookup';
+import { resolveMeasurementUnits } from '../services/measurement-unit';
 import {
   liveSystemsOfUnit,
   ParameterReadingResolver,
@@ -82,6 +84,64 @@ export class ResolveParameterValueHandler
       asOf,
     );
     return parameterReadingOf(parameter, location, reading);
+  }
+}
+
+/**
+ * One parameter at many units, each at its representative location — the
+ * dashboard's lowest dissolved oxygen of a site's units, read the way one
+ * point is (live channel first, then a person's sample, in the parameter's
+ * unit), in one request: the units classified and authorized in one tenant
+ * read (assertUnitsReadable, the rule assertPointReadable applies to one),
+ * then the one resolver across all of them.
+ */
+@Injectable()
+@QueryHandler(ResolveUnitParameterValuesQuery)
+export class ResolveUnitParameterValuesHandler
+  implements IQueryHandler<ResolveUnitParameterValuesQuery, ParameterReading[]>
+{
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly siteAuth: SiteAuthorizationService,
+    private readonly resolver: ParameterReadingResolver,
+  ) {}
+
+  async execute(query: ResolveUnitParameterValuesQuery): Promise<ParameterReading[]> {
+    const { tenantId, parameterConfigId, unitIds, maxAgeMs, caller } = query;
+    const asOf = new Date();
+    const { parameter, points } = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner) => {
+        const { manager } = queryRunner;
+        const units = await resolveMeasurementUnits(manager, unitIds, tenantId);
+        const readable = assertUnitsReadable(this.siteAuth, unitIds, units, caller);
+        const found = await tenantManagerRepo(
+          manager,
+          WaterQualityParameterConfig,
+          tenantId,
+        ).findOne({ where: { id: parameterConfigId, isActive: true } });
+        if (found === null) {
+          throw new NotFoundException(`No active parameter '${parameterConfigId}' in this tenant`);
+        }
+        return { parameter: found, points: readable };
+      },
+    );
+    const locations = points.map(representativeLocation);
+    const readings = await this.resolver.resolveAcross(
+      tenantId,
+      locations,
+      { parameter, unit: parameter.unit, maxAgeMs },
+      asOf,
+    );
+    return readings.map((reading, index) => {
+      const location = locations[index];
+      if (location === undefined) {
+        throw new Error('The reading resolver answered more locations than it was asked');
+      }
+      return parameterReadingOf(parameter, location, reading);
+    });
   }
 }
 

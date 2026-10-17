@@ -69,7 +69,7 @@ class _Store(unittest.TestCase):
         """``count`` connections that send nothing (a slow-loris caller)."""
         held: list[socket.socket] = []
         for _ in range(count):
-            conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: AF_UNIX client of the broker's own temp socket, no network
             # Blocking connect: it waits for the accept loop instead of
             # failing on a full listen backlog.
             conn.connect(str(socket_path))
@@ -168,7 +168,7 @@ class PayloadsCarryNoAuthority(_Store):
 class TheClientFailsClosed(_Store):
     def _listener(self) -> tuple[socket.socket, Path]:
         path = self.root / "s.sock"
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: AF_UNIX listener on a temp path for the client tests, no network
         server.bind(str(path))
         server.listen(4)
         self.addCleanup(server.close)

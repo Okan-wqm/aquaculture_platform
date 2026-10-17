@@ -368,6 +368,52 @@ the fix. `water-chemistry-reading.postgres.spec.ts` covers the many-unit read on
 **State:** OPEN. Deadline 2026-10-31, owner okan. Replaces PRODUCT-MEDIUM-001 (see there): the
 same gap under the farm-expert prefix. The Greenhouse preview now names this ID.
 
+## FARM-MEDIUM-447
+
+**State:** OPEN until the fix merges. Deadline 2026-10-31, owner okan. Raised by the security
+re-review of PR #1999.
+
+### Symptom (FARM-MEDIUM-447)
+
+`resolvedUnitParameterValues` asked the reading resolver for every unit in one call, but the
+resolver gathered each location's facts on its own. Each place of a unit's chain cost one
+channel-source query and each (place, parameter) one manual-sample query. A loop-homogeneous
+parameter cost two farm-arrangement reads per unit, three queries for the unit and one for its
+loops. Inside one tenant read, a site of 200 units sent more than a thousand statements.
+
+### Fix (FARM-MEDIUM-447)
+
+`gatherReadingFacts` (`reading-facts.ts`) gathers every asked location at once, in a fixed
+number of statements:
+
+- the inheritance chains: two `loadFarmArrangement` reads, the units' tanks, loop links and sites,
+  then every loop they and the asked systems are in. They run only when an ask inherits;
+- every place's live channel sources: one read, an OR of `liveChannelsAtLocation` per place;
+- every place's latest person-taken sample of every asked code: one statement, a `LATERAL`
+  newest-first `LIMIT 1` per (point, code) over the measurement indexes. The window is not applied
+  in SQL, so a sample older than the window is still reported as passed over (`OLDER_THAN_WINDOW`).
+
+`resolveOne`, `resolveAt` and `resolveAcross` share this body, and a single point is a batch of
+one. `liveSystemsOfUnit` applies the same loop rule.
+
+### Tests (FARM-MEDIUM-447)
+
+`parameter-reading-batch.postgres.spec.ts` (real Postgres) counts every statement the resolver sends
+with a TypeORM logger (`StatementLog`). Six unit arrangements, each with its own oxygen and
+temperature source, are read once (6 units) and four times over (24 units):
+
+| Read                    | Before (6 / 24 units) | After (6 / 24 units) | Table reads after |
+| ----------------------- | --------------------- | -------------------- | ----------------- |
+| dissolved oxygen        | 31 / 67               | 21 / 21              | 5                 |
+| temperature (inherited) | 64 / 199              | 25 / 25              | 9                 |
+
+Two tenant reads of eight framing statements each (transaction, search path, tenant context) make
+up the rest. Every answer of the 24-unit read equals `resolveOne` for that unit, for both
+parameters. Several parameters at one point (`resolveAt`) equal each read alone and cost no more
+statements than one. Each arrangement reads from its expected source. The count test failed before
+the fix; the equality tests pass on both. `water-chemistry-reading.postgres.spec.ts`, the
+single-point behaviour, passes unchanged.
+
 ## FE-HIGH-351
 
 **State:** OPEN until the commits that carry `Closes:` for this ID merge. Deadline 2026-10-31,

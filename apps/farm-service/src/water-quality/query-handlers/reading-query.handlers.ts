@@ -33,11 +33,9 @@ import {
 } from '../queries/reading-queries';
 import { assertPointReadable, assertUnitsReadable } from '../services/measurement-point-lookup';
 import { resolveMeasurementUnits } from '../services/measurement-unit';
-import {
-  liveSystemsOfUnit,
-  ParameterReadingResolver,
-} from '../services/parameter-reading-resolver.service';
+import { ParameterReadingResolver } from '../services/parameter-reading-resolver.service';
 import { representativeLocation } from '../services/parameter-sources';
+import { liveSystemsOfUnit } from '../services/reading-facts';
 import {
   evaluateInputSet,
   type InputFacts,
@@ -188,7 +186,7 @@ export class ResolveWaterChemistryInputsHandler
           // loop's carbonate state and volume for a tank only when it is one.
           loopSystemIds:
             point.kind === 'tank' || point.kind === 'equipment'
-              ? (await liveSystemsOfUnit(manager, tenantId, point.id)).live
+              ? await liveSystemsOfUnit(manager, tenantId, point.id)
               : [],
         };
       },

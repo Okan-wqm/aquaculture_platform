@@ -220,6 +220,11 @@ _GITHUB_USER_TOKEN: Final = (
 )
 _GITHUB_TOKEN_BODY: Final = "Gt5" * 12
 
+# A vendor key prefix starts a token: ``sk-`` inside a word (``task-``,
+# ``risk-``, ``disk-`` followed by a long id) is not a key. Without this
+# boundary the sk- rows redacted 304 task and risk ids on aria/state.
+_KEY_START: Final = r"(?<![A-Za-z0-9])"
+
 _REDACT_REFUSE: Final = frozenset({"redact", "refuse"})
 _REDACT: Final = frozenset({"redact"})
 _REFUSE: Final = frozenset({"refuse"})
@@ -298,14 +303,14 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
            redact=r"ghs_[A-Za-z0-9_]{20,}",
            fixture="ghs" + "_" + "g7" * 18, secret="g7" * 18),
     _shape("anthropic_api_key", "credential", _REDACT_REFUSE,
-           detect=r"sk-ant-[A-Za-z0-9-]{32,}",
-           redact=r"sk-ant-[A-Za-z0-9_\-]{32,}",
+           detect=_KEY_START + r"sk-ant-[A-Za-z0-9-]{32,}",
+           redact=_KEY_START + r"sk-ant-[A-Za-z0-9_\-]{32,}",
            fixture="sk-ant" + "-api03-" + "h8" * 15, secret="h8" * 15),
     _shape("openai_api_key", "credential", _REDACT_REFUSE,
-           detect=r"sk-[A-Za-z0-9]{32,}", redact=_DETECT,
+           detect=_KEY_START + r"sk-[A-Za-z0-9]{32,}", redact=_DETECT,
            fixture="sk" + "-" + "i9" * 20, secret="i9" * 20),
     _shape("generic_sk_key", "credential", _REDACT,
-           detect=r"sk-[A-Za-z0-9_-]{20,}", redact=_DETECT,
+           detect=_KEY_START + r"sk-[A-Za-z0-9_-]{20,}", redact=_DETECT,
            fixture="sk" + "-proj_" + "j1" * 10, secret="j1" * 10),
     _shape("named_env_assignment", "credential", _REDACT,
            detect=(
@@ -559,6 +564,12 @@ REFERENCE_SHAPES: Final[tuple[str, ...]] = (
     # validation log. ARIA-MEDIUM-546's assignment rows once replaced each
     # name with its value here, and the record no longer parsed.
     '{"GH_TOKEN": false, "PROBE_SECRET_TOKEN": null, "DB_PASSWORD": true}',
+    # Hyphenated ids whose word ends in "sk": a task, risk or disk slug
+    # followed by a long id. A key prefix starts a token; 304 such ids on
+    # aria/state were redacted as keys before the sk- rows got their left
+    # boundary.
+    "follow-up for task-" + "0123456789abcdefghij0123456789ab" + " done",
+    "risk-" + "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7",
 )
 
 

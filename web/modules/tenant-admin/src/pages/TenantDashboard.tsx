@@ -27,6 +27,7 @@ import type { User, MyModule } from '../lib/types';
 import { useTenantStats } from '../hooks/useTenantData';
 import { formatRelativeTime, formatDate } from '../utils/date-utils';
 import { SD_CARD, SD_CARD_LABEL, SD_STAT_TITLE, SD_STAT_VALUE } from '../components/ui/suderra';
+import ModuleIcon from '../components/modules/ModuleIcon';
 
 /**
  * Stat card data type
@@ -47,11 +48,11 @@ interface StatCard {
 interface ModuleStatus {
   id: string;
   name: string;
-  code: string;
   status: 'active' | 'inactive' | 'pending';
   users: number;
   lastActivity: string;
-  icon: string;
+  /** The module record's lucide icon name, drawn by ModuleIcon. */
+  icon: string | null;
 }
 
 /**
@@ -66,15 +67,6 @@ interface RecentActivity {
 }
 
 // User and SubscriptionInfo types imported from lib/types
-
-/**
- * Module icon mapping
- */
-const moduleIconMap: Record<string, string> = {
-  farm: '🐟',
-  sensor: '📊',
-  hr: '👥',
-};
 
 /**
  * Color mapping for stat cards. A stat's icon is decoration, so none takes a
@@ -158,24 +150,16 @@ const TenantDashboard: React.FC = () => {
     queryKey: createTenantQueryKey(getTenantId(), 'dashboard', 'modules'),
     queryFn: async () => {
       const modules = await getMyModules();
-      return (modules || []).map((m: MyModule): ModuleStatus => {
-        const code = m.name?.toLowerCase().includes('farm')
-          ? 'farm'
-          : m.name?.toLowerCase().includes('hr') || m.name?.toLowerCase().includes('insan')
-            ? 'hr'
-            : m.name?.toLowerCase().includes('sensor') || m.name?.toLowerCase().includes('sens')
-              ? 'sensor'
-              : 'default';
-        return {
+      return (modules || []).map(
+        (m: MyModule): ModuleStatus => ({
           id: m.id,
           name: m.name,
-          code,
           status: m.isEnabled ? 'active' : 'inactive',
           users: 0,
           lastActivity: 'Active',
-          icon: moduleIconMap[code] || m.icon || '📦',
-        };
-      });
+          icon: m.icon,
+        }),
+      );
     },
     staleTime: 2 * 60 * 1000,
   });
@@ -466,8 +450,8 @@ const TenantDashboard: React.FC = () => {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-success-100 dark:bg-success-900/40 flex items-center justify-center text-xl">
-                        {module.icon}
+                      <div className="w-10 h-10 rounded-lg bg-success-100 dark:bg-success-900/40 flex items-center justify-center text-success-600 dark:text-success-400">
+                        <ModuleIcon name={module.icon} className="w-5 h-5" />
                       </div>
                       <div>
                         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">

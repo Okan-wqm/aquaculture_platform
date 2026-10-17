@@ -118,11 +118,15 @@ export interface MyModule {
   code: string;
   name: string;
   description?: string;
-  icon?: string;
+  /** Lucide icon name (`auth.modules.icon`, nullable); drawn through `ModuleIcon`. */
+  icon: string | null;
   color?: string;
   isEnabled: boolean;
   defaultRoute?: string;
 }
+
+/** An assigned module's identity and icon name (the `MyModuleRefs` query). */
+export type MyModuleRef = Pick<MyModule, 'id' | 'code' | 'icon'>;
 
 /**
  * Module usage statistics.

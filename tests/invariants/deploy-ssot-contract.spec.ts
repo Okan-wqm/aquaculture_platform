@@ -352,27 +352,34 @@ describe('deploy SSOT contract', () => {
 
   it('scopes selective rollback to services changed by the current deploy', () => {
     const deploy = read('scripts/deploy/droplet-up.sh');
+    const rollback = read('scripts/deploy/lib/release-rollback.sh');
 
-    expect(deploy).toContain('scope_services=()');
-    expect(deploy).toContain('done < <(restartable_deploy_services)');
-    expect(deploy).toContain('Rollback scope had no restorable images.');
-    expect(deploy).toContain('up -d --no-deps --no-build --force-recreate "${scope_services[@]}"');
+    expect(deploy).toContain('source scripts/deploy/lib/release-rollback.sh');
+    expect(rollback).toContain('scope_services=()');
+    expect(rollback).toContain('done < <(restartable_deploy_services)');
+    expect(rollback).toContain('Rollback scope had no restorable images.');
+    // INFRA-HIGH-230: the restore recreates exactly the restorable subset of
+    // that scope, through the rollback generation's TAG.
+    expect(rollback).toContain(
+      'compose_recreate_services "$(rollback_image_tag)" "${restored[@]}"',
+    );
     expect(deploy).not.toContain('up -d --no-build --remove-orphans');
   });
 
   it('restarts long-running compose consumers when their shared image is deployed', () => {
     const generated = read('infrastructure/deploy/service-catalog.deploy.vars');
     const deploy = read('scripts/deploy/droplet-up.sh');
+    const rollback = read('scripts/deploy/lib/release-rollback.sh');
     expect(generated).toContain(
       "CATALOG_SHARED_IMAGE_RESTART_SERVICES='db-migrate:tenant-schema-provisioner'",
     );
     expect(deploy).toContain(
       'SHARED_IMAGE_RESTART_SERVICES="${CATALOG_SHARED_IMAGE_RESTART_SERVICES:?generated shared image restart services missing}"',
     );
-    expect(deploy).toContain(
+    expect(rollback).toContain(
       'DEPLOY_SERVICES="${APPLICATION_IMAGE_SERVICES}" restartable_deploy_services',
     );
-    expect(deploy).toContain('image_service_for_compose_service "${svc}"');
+    expect(rollback).toContain('image_service_for_compose_service "${svc}"');
 
     const result = spawnSync(
       'bash',

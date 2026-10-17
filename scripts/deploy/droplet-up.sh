@@ -43,6 +43,10 @@ set -euo pipefail
 source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
 # shellcheck source=scripts/deploy/lib/deployment-mode-policy.sh
 source scripts/deploy/lib/deployment-mode-policy.sh
+# shellcheck source=scripts/deploy/lib/compose-recreate.sh
+source scripts/deploy/lib/compose-recreate.sh
+# shellcheck source=scripts/deploy/lib/release-rollback.sh
+source scripts/deploy/lib/release-rollback.sh
 
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 TAG="${TAG:-${DEPLOY_SHA:-}}"
@@ -285,6 +289,17 @@ dump_nonhealthy_container_logs() {
   done
 }
 
+# INFRA-HIGH-230: the release ledger is where every later attempt learns that
+# the schema moved (scripts/deploy/lib/release-rollback.sh,
+# ledger_schema_advanced_at, keeps only rollback images that booted after it).
+# Stamp the moment db-migrate stopped whenever it did not prove it applied
+# nothing; deploy_metadata_json carries the stamp into every ledger write.
+mark_schema_advance() {
+  MIGRATIONS_APPLIED_THIS_RELEASE="${1}"
+  SCHEMA_ADVANCED_AT="$(date -u +%s)"
+  export MIGRATIONS_APPLIED_THIS_RELEASE SCHEMA_ADVANCED_AT
+}
+
 run_db_migrate_or_exit() {
   local deploy_mode="${1:-deploy}"
 
@@ -310,29 +325,35 @@ run_db_migrate_or_exit() {
     echo "--- db-migrate/postgres status ---"
     docker compose -f docker-compose.droplet.yml ps db-migrate postgres 2>&1 || true
     docker compose -f docker-compose.droplet.yml stop db-migrate 2>&1 || true
+    mark_schema_advance "unknown"
     record_release_ledger "failed" "db_migrate_timeout"
     exit 1
   elif [ "${DB_MIGRATE_STATUS}" -ne 0 ]; then
     echo "::error::aqua-db-migrate failed during ${deploy_mode} — aborting BEFORE service containers start."
     echo "--- aqua-db-migrate logs (last 500 lines) ---"
     docker logs aqua-db-migrate --tail=500 2>&1 | redact_sensitive || true
+    mark_schema_advance "unknown"
     record_release_ledger "failed" "db_migrate"
     exit 1
   fi
 
   echo "  aqua-db-migrate completed successfully"
 
-  # ORPHAN-HIGH-381: record how many migrations this release actually applied.
+  # ORPHAN-HIGH-381: record how many migrations this attempt actually applied.
   # rollback_deployed_services uses this to refuse image rollback across a
   # forward-migrated schema (old image + new schema = SchemaDriftValidator
   # fatal crash-loop; the exact 2026-07-12 farm outage). Parse the runner's
   # structured completion line; anything unparseable stays "unknown" and the
-  # rollback guard fails closed.
+  # rollback guard fails closed. The count covers THIS attempt only; the
+  # schema-advance stamp is what carries it to the next attempt.
   MIGRATIONS_APPLIED_THIS_RELEASE=$(docker logs aqua-db-migrate --tail 200 2>/dev/null \
     | grep -o '"totalAppliedMigrations":[0-9]*' | tail -1 | cut -d: -f2 || true)
   MIGRATIONS_APPLIED_THIS_RELEASE="${MIGRATIONS_APPLIED_THIS_RELEASE:-unknown}"
   export MIGRATIONS_APPLIED_THIS_RELEASE
   echo "  Migrations applied this release: ${MIGRATIONS_APPLIED_THIS_RELEASE}"
+  if [ "${MIGRATIONS_APPLIED_THIS_RELEASE}" != "0" ]; then
+    mark_schema_advance "${MIGRATIONS_APPLIED_THIS_RELEASE}"
+  fi
 }
 
 is_application_image_service() {
@@ -342,27 +363,6 @@ is_application_image_service() {
     *" ${svc} "*) return 0 ;;
     *) return 1 ;;
   esac
-}
-
-image_ref_for_service() {
-  local svc="$1"
-  local image_service
-  image_service="$(image_service_for_compose_service "${svc}")"
-  echo "${IMAGE_PREFIX}/${image_service}:latest"
-}
-
-deploy_tag_ref_for_service() {
-  local svc="$1"
-  local image_service
-  image_service="$(image_service_for_compose_service "${svc}")"
-  echo "${IMAGE_PREFIX}/${image_service}:${DEPLOY_SHA}"
-}
-
-rollback_tag_ref_for_service() {
-  local svc="$1"
-  local image_service
-  image_service="$(image_service_for_compose_service "${svc}")"
-  echo "${IMAGE_PREFIX}/${image_service}:rollback-${DEPLOY_RELEASE_ID}"
 }
 
 digest_ref_for_service() {
@@ -442,9 +442,17 @@ pull_deploy_image_required() {
     echo "  Pulling ${svc} (${immutable_ref}) [attempt ${attempt}/${attempts}]..."
     if docker pull "${immutable_ref}" >"${pull_log}" 2>&1; then
       redact_sensitive < "${pull_log}"
-      docker tag "${immutable_ref}" "${compose_ref}"
-      docker tag "${immutable_ref}" "${deploy_tag_ref}" 2>/dev/null || true
-      echo "  ${svc}: pinned ${compose_ref} to ${immutable_ref}"
+      # INFRA-HIGH-230: this is the only writer of the release tags. compose
+      # resolves <svc>:${TAG} (= DEPLOY_SHA), so a pin that silently failed
+      # would let compose start whatever image an earlier attempt left there.
+      if ! docker tag "${immutable_ref}" "${compose_ref}" || \
+         ! docker tag "${immutable_ref}" "${deploy_tag_ref}"; then
+        echo "::error::Could not pin ${deploy_tag_ref} and ${compose_ref} to ${immutable_ref}."
+        record_no_state_changed_failure "image_pin"
+        rm -f "${pull_log}"
+        return 1
+      fi
+      echo "  ${svc}: pinned ${deploy_tag_ref} and ${compose_ref} to ${immutable_ref}"
       rm -f "${pull_log}"
       return 0
     fi
@@ -462,125 +470,6 @@ pull_deploy_image_required() {
   record_no_state_changed_failure "${phase}"
   rm -f "${pull_log}"
   return 1
-}
-
-capture_rollback_manifest() {
-  echo "=== Capturing current application image digests for rollback ==="
-  : > "${ROLLBACK_MANIFEST}"
-
-  local svc
-  local container_id
-  local image_id
-  local health
-  local running
-  local restarts
-  while IFS= read -r svc; do
-    [ -n "${svc}" ] || continue
-    container_id=$(docker compose -f docker-compose.droplet.yml ps -q "$svc" 2>/dev/null || true)
-    if [ -z "${container_id}" ]; then
-      continue
-    fi
-    # ORPHAN-HIGH-381: a rollback point must be a PROVEN-GOOD image. Capturing a
-    # crash-looping container (2026-07-12: farm-service fatal at bootstrap) poisons
-    # the manifest, and every later rollback restores the broken image under the
-    # new release tag — a self-sustaining outage. Skip anything not verifiably
-    # healthy; rollback then leaves that service's tag unchanged (existing
-    # "no prior image" warning path), which is strictly safer.
-    health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || echo "unknown")
-    running=$(docker inspect --format='{{.State.Running}}' "${container_id}" 2>/dev/null || echo "false")
-    restarts=$(docker inspect --format='{{.RestartCount}}' "${container_id}" 2>/dev/null || echo "0")
-    if [ "${running}" != "true" ] || { [ "${health}" != "healthy" ] && [ "${health}" != "none" ]; }; then
-      echo "  WARN: ${svc} is not a valid rollback point (running=${running} health=${health} restarts=${restarts}) — NOT captured."
-      continue
-    fi
-    image_id=$(docker inspect --format='{{.Image}}' "${container_id}" 2>/dev/null || true)
-    if [ -n "${image_id}" ]; then
-      printf '%s\t%s\n' "$svc" "$image_id" >> "${ROLLBACK_MANIFEST}"
-    fi
-  done < <(DEPLOY_SERVICES="${APPLICATION_IMAGE_SERVICES}" restartable_deploy_services)
-
-  local captured
-  captured=$(wc -l < "${ROLLBACK_MANIFEST}" 2>/dev/null || echo 0)
-  echo "  Captured ${captured} service image(s) in ${ROLLBACK_MANIFEST}"
-
-  if [ -s "${ROLLBACK_MANIFEST}" ]; then
-    while IFS="$(printf '\t')" read -r svc image_id; do
-      [ -n "${svc}" ] || continue
-      [ -n "${image_id}" ] || continue
-      docker tag "${image_id}" "$(rollback_tag_ref_for_service "${svc}")" 2>/dev/null || true
-    done < "${ROLLBACK_MANIFEST}"
-    sha256sum "${ROLLBACK_MANIFEST}" | awk '{print $1}' > "${DEPLOY_STATE_DIR}/rollback-images.sha256"
-    echo "  Rollback manifest sha256: $(cat "${DEPLOY_STATE_DIR}/rollback-images.sha256")"
-  fi
-}
-
-rollback_deployed_services() {
-  local reason="${1:-deploy failure}"
-
-  echo "=== Rolling back application images (${reason}) ==="
-
-  # ORPHAN-HIGH-381: image rollback is only safe when the database did NOT move
-  # forward in this release. Migrations are forward-only (blue-green discipline);
-  # restoring a pre-release image against a schema that just dropped or reshaped
-  # its tables boots straight into a SchemaDriftValidator fatal and the service
-  # crash-loops until a human intervenes (2026-07-12 farm_documents outage).
-  # Fail closed on "unknown": every rollback caller runs after db-migrate, so an
-  # unparseable count means the boundary cannot be proven uncrossed.
-  if [ "${MIGRATIONS_APPLIED_THIS_RELEASE:-unknown}" = "unknown" ]; then
-    echo "::error::Rollback refused: applied-migration count for this release is unknown, so image rollback cannot be proven safe. Fix forward (repair the failing gate and redeploy)."
-    export ROLLBACK_SKIPPED_REASON="migration_boundary_unknown"
-    return 1
-  fi
-  if [ "${MIGRATIONS_APPLIED_THIS_RELEASE}" -gt 0 ] 2>/dev/null; then
-    echo "::error::Rollback refused: this release applied ${MIGRATIONS_APPLIED_THIS_RELEASE} database migration(s). Restoring pre-release images against a forward-migrated schema is the crash-loop class that took farm-service down on 2026-07-12 (ORPHAN-HIGH-381). Fix forward (repair the failing gate and redeploy this or a newer release)."
-    export ROLLBACK_SKIPPED_REASON="migration_boundary_crossed"
-    return 1
-  fi
-
-  if [ ! -s "${ROLLBACK_MANIFEST}" ]; then
-    echo "::error::No rollback manifest available; manual intervention required."
-    return 1
-  fi
-
-  local scope_services=()
-  local svc
-  if deploy_uses_full_stack_path; then
-    while IFS= read -r svc; do
-      [ -n "$svc" ] || continue
-      scope_services+=("$svc")
-    done < <(DEPLOY_SERVICES="${APPLICATION_IMAGE_SERVICES}" restartable_deploy_services)
-  else
-    while IFS= read -r svc; do
-      [ -n "$svc" ] || continue
-      scope_services+=("$svc")
-    done < <(restartable_deploy_services)
-  fi
-
-  if [ "${#scope_services[@]}" -eq 0 ]; then
-    echo "  No long-running service images were changed; rollback has no restart scope."
-    return 0
-  fi
-
-  local image_id
-  local restored=0
-  for svc in "${scope_services[@]}"; do
-    image_id="$(awk -F "$(printf '\t')" -v svc="${svc}" '$1 == svc {print $2; exit}' "${ROLLBACK_MANIFEST}")"
-    if [ -z "${image_id}" ]; then
-      echo "::warning::Rollback manifest has no prior image for ${svc}; leaving its current image tag unchanged."
-      continue
-    fi
-    echo "  ${svc}: restoring $(image_ref_for_service "$svc") -> ${image_id}"
-    docker tag "${image_id}" "$(image_ref_for_service "$svc")" 2>/dev/null || true
-    docker tag "${image_id}" "$(deploy_tag_ref_for_service "$svc")" 2>/dev/null || true
-    restored=$((restored + 1))
-  done
-
-  if [ "${restored}" -eq 0 ]; then
-    echo "::error::Rollback scope had no restorable images."
-    return 1
-  fi
-
-  docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate "${scope_services[@]}"
 }
 
 # NATS authorization is loaded only when the broker starts. A selective deploy
@@ -719,12 +608,17 @@ deploy_metadata_json() {
     image_manifest_hash="$(sha256sum "${DEPLOY_IMAGE_DIGESTS_FILE}" | awk '{print $1}')"
   fi
 
-  printf '{"capacity":%s,"imageDigestManifestSha256":"%s","deployMode":"%s","fullDeploy":%s,"migrationRequired":%s}' \
+  # migrationsApplied: not_run before db-migrate, then its count or "unknown".
+  # schemaAdvancedAt: epoch seconds when this attempt may have moved the schema,
+  # null when it did not (INFRA-HIGH-230; read by ledger_schema_advanced_at).
+  printf '{"capacity":%s,"imageDigestManifestSha256":"%s","deployMode":"%s","fullDeploy":%s,"migrationRequired":%s,"migrationsApplied":"%s","schemaAdvancedAt":%s}' \
     "${capacity}" \
     "${image_manifest_hash}" \
     "${DEPLOY_MODE:-unknown}" \
     "$([ "${FULL_DEPLOY:-false}" = "true" ] && echo true || echo false)" \
-    "${RUN_DB_MIGRATE}"
+    "${RUN_DB_MIGRATE}" \
+    "${MIGRATIONS_APPLIED_THIS_RELEASE:-not_run}" \
+    "${SCHEMA_ADVANCED_AT:-null}"
 }
 
 rollback_manifest_sha256() {
@@ -1606,7 +1500,8 @@ else
   if [ -n "${RESTART_SERVICES}" ]; then
     echo "=== Restarting affected services (no-deps): ${RESTART_SERVICES} ==="
     record_release_ledger "apps_restarting" ""
-    if ! docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate ${RESTART_SERVICES} 2>&1; then
+    # shellcheck disable=SC2086 # RESTART_SERVICES is a space-separated service list
+    if ! compose_recreate_services "${TAG}" ${RESTART_SERVICES} 2>&1; then
       echo "::error::Selected service recreation failed before the health gate."
       dump_nonhealthy_container_logs "service-recreate-failure"
       record_release_ledger "failed" "service_recreate"

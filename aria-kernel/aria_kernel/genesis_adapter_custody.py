@@ -85,7 +85,12 @@ CUSTODY_KIND = "adapter_custody"
 _SANDBOX_LEDGER = ("skill-genesis/sandbox.jsonl", "skill_genesis_sandbox")
 _CUSTODY_LEDGER = ("skill-genesis/materializations.jsonl", "skill_genesis_materializations")
 # Manifest fields only the kernel writes; a drafted value is dropped.
-_KERNEL_OWNED_MANIFEST_FIELDS = ("quarantine", "last_transition", "parse_window_signature", "created_at", "updated_at")
+# ARIA-LOW-533 — `security_class` too: a drafter may not declare its adapter
+# cuttable by the calibration actuator; undeclared, it reads as security class
+# (`tool_registry.is_security_class`).
+_KERNEL_OWNED_MANIFEST_FIELDS = (
+    "quarantine", "last_transition", "parse_window_signature", "created_at", "updated_at", "security_class",
+)
 
 
 class GenesisCustodyRefusal(GovernanceError):

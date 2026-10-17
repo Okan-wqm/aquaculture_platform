@@ -26,7 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 # The one origin whose records this key is defined for. Other detectors key
 # their findings differently, or not at all; a key invented for them here
@@ -83,6 +83,59 @@ def adapter_subject_key(subject: str) -> str:
     return SUBJECT_KEY_PREFIX + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
+def normalize_finding_message(message: str) -> str:
+    """A finding message as identity sees it: lower case, whitespace collapsed.
+
+    One rule for every reader that keys on a message: the feedback
+    fingerprint (``feedback_store.finding_fingerprint``) and the spine's
+    violation identity (:func:`adapter_violation_keys`).
+    """
+    return " ".join(message.lower().split())
+
+
+# ARIA-HIGH-045 — the ONLY fields of an adapter finding that say what it is
+# about. An allowlist, not a denylist: a positional field an adapter adds
+# later (``line``, ``column``, an offset, a snippet, a confidence) can only
+# be ignored here, so a moved violation never reads as a new one. Equal keys
+# do not merge silently: they become a multiset (``#0``, ``#1``…).
+_VIOLATION_IDENTITY_FIELDS: tuple[str, ...] = ("rule", "path", "message", "details", "subject")
+
+
+def adapter_violation_keys(findings: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The location-free identities of an adapter's findings, sorted.
+
+    ``<path>::<rule>::<12-hex digest>#<ordinal>``: the digest is over
+    :data:`_VIOLATION_IDENTITY_FIELDS` (the message normalized); the ordinal
+    numbers findings with an equal key in ``(line, id)`` order, so two
+    identical violations in one file stay two and a third one is an
+    introduction. The path and rule lead so an identity is locatable.
+    """
+    keyed: list[tuple[str, int, str]] = []
+    for finding in findings:
+        rule = str(finding.get("rule") or "")
+        path = str(finding.get("path") or "")
+        canonical = json.dumps(
+            {
+                "rule": rule,
+                "path": path,
+                "message": normalize_finding_message(str(finding.get("message") or "")),
+                "details": finding.get("details"),
+                "subject": finding.get("subject"),
+            },
+            sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str,
+        )
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+        line = finding.get("line")
+        keyed.append((f"{path}::{rule}::{digest}", line if isinstance(line, int) else 0, str(finding.get("id") or "")))
+    ordinals: dict[str, int] = {}
+    keys: list[str] = []
+    for base, _line, _id in sorted(keyed):
+        ordinal = ordinals.get(base, 0)
+        ordinals[base] = ordinal + 1
+        keys.append(f"{base}#{ordinal}")
+    return sorted(keys)
+
+
 def _adapter_subject(record: Mapping[str, Any]) -> str | None:
     for fact in record.get("facts") or []:
         if isinstance(fact, str) and fact.startswith(ADAPTER_SUBJECT_FACT_PREFIX):
@@ -137,6 +190,8 @@ __all__ = [
     "CONSENSUS_ORIGIN",
     "DRIFT_ORIGIN",
     "adapter_subject_key",
+    "adapter_violation_keys",
+    "normalize_finding_message",
     "SUBJECT_KEY_PREFIX",
     "drift_class_of",
     "finding_subject_key",

@@ -17,8 +17,10 @@ on read. Pinned here:
    step's side; the same labels never take two steps; a window that cannot
    fill closes as ``held_timeout`` and takes no further step;
 3. undo is hysteretic (the opposite bound) and is followed by a cooldown;
-4. security adapters are raise-only, floor neutral; the set covers every
-   registered adapter that names security, tenant, auth, rls or secret;
+4. security adapters are raise-only, floor neutral. ARIA-LOW-533: the class
+   is the registry row's declared ``security_class`` (each adapter manifest
+   declares it; ``tool_registry.is_security_class``), never a hand-kept id
+   list, and a tool whose row does not declare ``false`` is never cut;
 5. the dial is clamped on read; it changes the tool's raw-delta pressure;
    nothing is written under a profile that may not commit.
 """
@@ -33,12 +35,26 @@ from typing import Any
 from unittest.mock import patch
 
 from aria_kernel.calibration import recommend_calibration
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import ensure_tools_dir, register_tool
 
 TOOL = "doc-staleness-adapter"
 SECURE = "tenant-scoping-adapter"
 T0 = datetime(2026, 10, 10, tzinfo=timezone.utc)
 REPO = Path(__file__).resolve().parents[2]
+
+
+def manifest(tool_id: str) -> dict[str, Any]:
+    return json.loads((REPO / "tools" / "aria-adapters" / f"{tool_id}.tool.json").read_text(encoding="utf-8"))
+
+
+def declared_row(tool_id: str, security_class: bool | None) -> dict[str, Any]:
+    """A registrable adapter row named ``tool_id`` declaring ``security_class`` (None: undeclared)."""
+    from tests.test_enterprise_cycle import shadow_tool
+
+    row = {**shadow_tool(), "tool_id": tool_id}
+    if security_class is not None:
+        row["security_class"] = security_class
+    return row
 
 
 def labels(tool: str, tp: int, fp: int, at: datetime) -> list[dict[str, Any]]:
@@ -50,6 +66,10 @@ class _Store(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.tools = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
+        # ARIA-LOW-533 — the two dials' classes come from their SHIPPED
+        # manifests, registered as the manifest sync registers them.
+        for tool_id in (TOOL, SECURE):
+            register_tool(manifest(tool_id), base_dir=self.tools)
         self.feedback: list[dict[str, Any]] = labels(TOOL, 11, 47, T0 - timedelta(days=9))
 
     def tearDown(self) -> None:
@@ -145,6 +165,8 @@ class StepsNeedFreshSupportingLabelsTests(_Store):
             return {"source": source, "dial": dial, "current_weight": cur, "recommended_weight": to,
                     "feedback_precision": 0.1, "sample_count": 58}
 
+        for tool_id in ("thin-adapter", "mid-adapter"):
+            register_tool(declared_row(tool_id, False), base_dir=self.tools)
         self.feedback += labels("thin-adapter", 0, 4, T0) + labels("mid-adapter", 6, 6, T0)
         out = self.act("cyc-1", T0, {"cycle_id": "c", "pressure_weight_recommendations": [
             rec(TOOL, "tool_pressure_weight", 20, 10), rec(TOOL, "tool_pressure_weight", 50, 65),
@@ -184,21 +206,77 @@ class HysteresisAndCooldownTests(_Store):
 
 class SecurityAdaptersAreRaiseOnlyTests(_Store):
     def test_a_security_adapter_is_never_cut_and_its_floor_is_neutral(self) -> None:
-        from aria_kernel.calibration_dials import dial_bounds
+        from aria_kernel.calibration_dials import dial_bounds, security_classes
 
         self.feedback = labels(SECURE, 11, 47, T0 - timedelta(days=9))
         out = self.act("cyc-1", T0)
         self.assertEqual((self.reasons(out), self.weight(SECURE)), (["security_tool_cut_is_operator_act"], 50))
-        self.assertEqual(dial_bounds(SECURE)[0], 50)
+        self.assertEqual(dial_bounds(SECURE, security_classes(self.tools))[0], 50)
 
-    def test_every_registered_security_adapter_is_in_the_set(self) -> None:
-        from aria_kernel.calibration_dials import SECURITY_TOOLS
+    def test_a_declared_security_adapter_is_raise_only_whatever_its_id(self) -> None:
+        # ARIA-LOW-533 — the id names no security word; the declaration decides.
+        from aria_kernel.calibration_dials import dial_bounds, security_classes
 
-        names = {json.loads(p.read_text(encoding="utf-8")).get("tool_id")
-                 for p in (REPO / "tools" / "aria-adapters").glob("*.tool.json")}
-        sensitive = {n for n in names if n and any(w in n for w in ("security", "tenant", "auth", "rls", "secret"))}
-        self.assertTrue(sensitive)
-        self.assertLessEqual(sensitive, SECURITY_TOOLS)
+        register_tool(declared_row("quiet-adapter", True), base_dir=self.tools)
+        self.feedback = labels("quiet-adapter", 11, 47, T0 - timedelta(days=9))
+        out = self.act("cyc-1", T0)
+        self.assertEqual((self.reasons(out), self.weight("quiet-adapter")),
+                         (["security_tool_cut_is_operator_act"], 50))
+        self.assertEqual(dial_bounds("quiet-adapter", security_classes(self.tools))[0], 50)
+
+    def test_an_adapter_whose_class_is_undeclared_is_never_cut(self) -> None:
+        # Fail-closed: no row, or a row that does not declare false, is security class.
+        from aria_kernel.calibration_dials import dial_bounds, security_classes
+
+        register_tool(declared_row("undeclared-adapter", None), base_dir=self.tools)
+        self.feedback = labels("undeclared-adapter", 11, 47, T0 - timedelta(days=9)) + labels(
+            "unregistered-adapter", 11, 47, T0 - timedelta(days=9))
+        out = self.act("cyc-1", T0)
+        self.assertEqual(out["applied"], [])
+        self.assertEqual(self.reasons(out), ["security_tool_cut_is_operator_act"] * 2)
+        classes = security_classes(self.tools)
+        self.assertEqual((dial_bounds("undeclared-adapter", classes)[0], dial_bounds("unregistered-adapter", classes)[0]),
+                         (50, 50))
+
+    def test_a_shipped_manifest_change_is_what_moves_the_class(self) -> None:
+        # The manifest sync re-registers a manifest; its declaration is the class.
+        register_tool({**manifest(TOOL), "security_class": True}, base_dir=self.tools)
+        self.assertEqual(self.reasons(self.act("cyc-1", T0)), ["security_tool_cut_is_operator_act"])
+
+    def test_every_shipped_adapter_manifest_declares_its_security_class(self) -> None:
+        manifests = {p.name: json.loads(p.read_text(encoding="utf-8"))
+                     for p in sorted((REPO / "tools" / "aria-adapters").glob("*.tool.json"))}
+        self.assertTrue(manifests)
+        for name, declared in manifests.items():
+            with self.subTest(manifest=name):
+                self.assertIsInstance(declared.get("security_class"), bool, "declare true or false, never neither")
+                # A sanity floor, not the source: an id that names its class must declare it.
+                if any(word in declared["tool_id"] for word in ("security", "tenant", "auth", "rls", "secret")):
+                    self.assertIs(declared["security_class"], True)
+
+
+class TheSecurityClassIsGovernedTests(unittest.TestCase):
+    """ARIA-LOW-533 — every write path of the declaration is a governed one."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.tools = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
+
+    def test_a_non_boolean_declaration_is_refused(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError
+
+        for value in ("false", 0, None, "yes"):
+            with self.subTest(value=value), self.assertRaisesRegex(GovernanceError, "security_class"):
+                register_tool({**declared_row("x-adapter", None), "security_class": value}, base_dir=self.tools)
+
+    def test_changing_the_class_through_update_tool_needs_an_operator(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError, get_tool, update_tool
+
+        register_tool(declared_row("x-adapter", True), base_dir=self.tools)
+        with self.assertRaisesRegex(GovernanceError, "requires_operator_approval"):
+            update_tool("x-adapter", {"security_class": False}, base_dir=self.tools)
+        self.assertIs(get_tool("x-adapter", self.tools)["security_class"], True)
 
 
 class TheDialIsClampedOnReadTests(_Store):
@@ -229,7 +307,7 @@ class ProfileAndPressureTests(_Store):
 
         from tests.test_enterprise_cycle import shadow_tool
 
-        register_tool({**shadow_tool(), "tool_id": TOOL}, base_dir=self.tools)
+        register_tool({**shadow_tool(), "tool_id": TOOL, "security_class": False}, base_dir=self.tools)
         base = {"schema_version": 1, "tool_id": TOOL, "status": "ok", "input_hash": "sha256:i",
                 "output_hash": "sha256:o", "read_paths": ["src/app.ts"], "emitted_observations": [],
                 "emitted_findings": [], "evidence_validation": {"valid": True}, "operator_feedback_refs": [],

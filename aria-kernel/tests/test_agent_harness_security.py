@@ -5,8 +5,9 @@ What this suite pins:
 - workflow_run/pull_request_target untrusted checkout fires only on
   the refined trigger surface (NOT on standalone actions/checkout).
 - Spine gate INVARIANT_KINDS contains harness_security.
-- Spine gate _check_harness_security reads the latest adapter run from
-  runs.jsonl + surfaces raw findings/observations counts.
+- The spine gate's harness_security invariant is the adapter's violation
+  set, read from the TOOLS ROOT it is given (never
+  <workspace>/aria-tools/runs.jsonl, ARIA-HIGH-525).
 """
 from __future__ import annotations
 
@@ -22,11 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "aria-poc
 
 from agent_harness_security_adapter import scan  # type: ignore[import-not-found]
 
-from aria_kernel.architecture_spine_gate import (
-    INVARIANT_KINDS,
-    _check_harness_security,
-)
+from aria_kernel import architecture_spine_gate as gate
+from aria_kernel.architecture_spine_gate import INVARIANT_KINDS
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_runner import run_tool
+from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+from tests._helpers.spine_fixture import SpineFixture
 
 
 def _seed_fake_repo() -> Path:
@@ -172,35 +174,43 @@ jobs:
 
 
 class SpineGateInvariantReadTests(unittest.TestCase):
+    """The harness invariant reads its owner's run from the tools root (ARIA-HIGH-525)."""
+
+    HARNESS = "agent-harness-security-adapter"
+
     def setUp(self) -> None:
-        self.repo = Path(tempfile.mkdtemp(prefix="aria-harness-spine-"))
-        (self.repo / "aria-tools").mkdir()
-        ensure_tools_dir(self.repo / "aria-tools")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.workspace = make_local_git_repo(root, name="work", initial_commit=False)
+        commit_files(self.workspace, {"src/agents/a.md": "---\nname: a\n---\n"})
+        # The store sits beside the workspace, as in production.
+        self.tools = ensure_tools_dir(root / "aria-tools")
+        self.spine = SpineFixture(self.workspace, self.tools)
+        self.spine.register_clean()
+        self.spec = next(spec for spec in gate.SPINE_INVARIANTS if spec.kind == "harness_security")
 
-    def tearDown(self) -> None:
-        shutil.rmtree(self.repo, ignore_errors=True)
+    def _measure(self) -> gate.InvariantMeasurement:
+        return gate._measure_adapter_invariant(self.spec, tools_root=self.tools, refresh=None)
 
-    def test_check_harness_security_pending_when_no_runs(self) -> None:
-        # No runs.jsonl yet → pending.
-        meas = _check_harness_security(self.repo)
-        self.assertEqual(meas.invariant, "harness_security")
-        self.assertTrue(meas.measurements.get("pending"))
+    def test_registered_owner_without_a_run_is_unmeasured_not_pending(self) -> None:
+        measurement = self._measure()
+        self.assertEqual((measurement.coverage, measurement.coverage_reason), ("unmeasured", "adapter_run_missing"))
+        self.assertFalse((self.workspace / "aria-tools").exists())
 
-    def test_check_harness_security_reads_latest_run(self) -> None:
-        # Inject a run row.
-        runs = self.repo / "aria-tools" / "runs.jsonl"
-        runs.write_text(json.dumps({
-            "schema_version": 1,
-            "tool_id": "agent-harness-security-adapter",
-            "run_id": "rid-test",
-            "status": "ok",
-            "recorded_at": "2026-05-08T00:00:00+00:00",
-            "runner": {"raw_observations_count": 2, "raw_findings_count": 5},
-        }) + "\n", encoding="utf-8")
-        meas = _check_harness_security(self.repo)
-        self.assertEqual(meas.measurements["raw_findings_count"], 5)
-        self.assertEqual(meas.measurements["raw_observations_count"], 2)
-        self.assertEqual(meas.measurements["adapter_run_status"], "ok")
+    def test_latest_recorded_run_of_the_tools_root_is_the_violation_set(self) -> None:
+        finding = {"id": "f", "rule": "agent_frontmatter_no_tools_allowlist", "path": "src/agents/a.md",
+                   "line": 1, "severity": "high", "message": "agent frontmatter declares no tools allowlist",
+                   "evidence": [{"path": "src/agents/a.md", "line": 1}]}
+        self.spine.set_findings(self.HARNESS, [finding], commit=True)
+        run_tool(self.HARNESS, {"cycle_id": "c"}, "c", workspace_root=self.workspace, base_dir=self.tools)
+        measurement = self._measure()
+        self.assertEqual(measurement.coverage, "measured", measurement)
+        self.assertEqual(measurement.measurements["violation_count"], 1)
+        self.assertTrue(measurement.measurements["violation_identities"][0].startswith(
+            "src/agents/a.md::agent_frontmatter_no_tools_allowlist::"))
+        self.assertEqual(measurement.provenance["selection"], "latest_recorded")
+        self.assertEqual(measurement.source, f"adapter:{self.HARNESS}@1.0.0")
 
 
 if __name__ == "__main__":

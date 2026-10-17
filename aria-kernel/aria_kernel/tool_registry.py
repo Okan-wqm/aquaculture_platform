@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .canonical_path import typed_alternatives
 from .ledger import (
     StateTransaction,
     append_declared_jsonl,
@@ -53,6 +54,15 @@ TOOL_KINDS = ("adapter", "skill", "llm_amplified_skill")
 # operator_approval). This closes the new-tool-direct-ACTIVE bypass.
 INITIAL_LIFECYCLE_STATES = ("SHADOW",)
 RUNNER_REQUIRED_STATUSES = ("SHADOW", "ACTIVE", "CALIBRATE")
+# ARIA-LOW-533 — an adapter's SECURITY CLASS is declared in its manifest
+# (`tools/aria-adapters/<id>.tool.json`, carried into the registry row by the
+# manifest sync), never kept as an id list beside the manifests. A security
+# adapter's findings guard tenant isolation, authorization, the agent
+# harness's security boundary or the tenant-schema invariant, and its
+# calibration dial is raise-only (`calibration_dials`). The declaration is
+# optional on a row, boolean when present, and read through
+# `is_security_class` only, which reads an undeclared row as security class.
+SECURITY_CLASS_FIELD = "security_class"
 RUNNER_TYPES = ("subprocess",)
 # ARIA-MEDIUM-508 — the files a runner executes that the repository does not
 # track (`npm ci` installs them), named workspace-relative. A workspace without
@@ -931,6 +941,10 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("forbidden_read_globs must be an array")
     if not isinstance(candidate["claim_types"], list) or not candidate["claim_types"]:
         raise GovernanceError("claim_types must be a non-empty array")
+    if SECURITY_CLASS_FIELD in candidate and not isinstance(candidate[SECURITY_CLASS_FIELD], bool):
+        raise GovernanceError(
+            f"{SECURITY_CLASS_FIELD} must be a boolean when declared, got {candidate[SECURITY_CLASS_FIELD]!r}"
+        )
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
     if "rules" in candidate:
@@ -1217,6 +1231,42 @@ def get_tool(
     raise GovernanceError(f"tool not found: {tool_id}")
 
 
+def is_dispatchable(tool: dict[str, Any]) -> bool:
+    """A row the runner runs: its lifecycle status is one of RUNNER_REQUIRED_STATUSES."""
+    return tool.get("status") in RUNNER_REQUIRED_STATUSES
+
+
+def is_security_class(tool: dict[str, Any]) -> bool:
+    """Is this registry row a security-class tool (ARIA-LOW-533)?
+
+    Fail-closed: only a row that DECLARES ``security_class: false`` is not.
+    A row written before the field existed, a drafted genesis adapter (the
+    kernel owns the field there, ``genesis_adapter_custody``) and a manifest
+    that forgot it all read as security class, so no tool becomes lowerable
+    by omission.
+    """
+    return tool.get(SECURITY_CLASS_FIELD) is not False
+
+
+def observing_globs(tool: dict[str, Any]) -> tuple[str, ...]:
+    """The globs by which this registry row OBSERVES the tree (ARIA-HIGH-531).
+
+    The one owner of "this row counts as observation": only an adapter the
+    runner dispatches observes anything, and only through the typed
+    alternatives of its ``declared_scope``
+    (``canonical_path.typed_alternatives``). A type-less glob (``**``) is a
+    read allowlist, not a claim to parse every file it matches; a quarantined
+    or non-adapter row observes nothing.
+    """
+    if tool.get("kind") != "adapter" or not is_dispatchable(tool):
+        return ()
+    return tuple(
+        alternative
+        for glob in tool.get("declared_scope") or []
+        for alternative in typed_alternatives(str(glob))
+    )
+
+
 def list_tools(
     status: str | None = None,
     base_dir: str | os.PathLike[str] | None = None,
@@ -1243,6 +1293,9 @@ _OPERATOR_APPROVAL_GATED_FIELDS: tuple[str, ...] = (
     "forbidden_read_globs",
     "declared_scope",
     "health_thresholds",
+    # ARIA-LOW-533 — the class decides whether the calibration actuator may
+    # lower the tool's dial; changing it at runtime is an operator's act.
+    SECURITY_CLASS_FIELD,
 )
 
 

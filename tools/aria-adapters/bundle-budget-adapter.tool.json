@@ -3,6 +3,7 @@
   "kind": "adapter",
   "version": "1.1.0",
   "status": "SHADOW",
+  "security_class": false,
   "declared_scope": ["web/**/*.{ts,tsx,js,json}"],
   "output_schema": {
     "type": "object",

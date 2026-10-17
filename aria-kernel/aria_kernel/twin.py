@@ -40,7 +40,7 @@ from typing import Any
 from .genesis_policy import source_qualification_policy
 from .git_probe import refuse_shallow_checkout
 from .impact_graph import _project_for_path, _project_graph, build_service_analysis_order
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_dir, tools_dir, utc_now
 from .snapshot import (
     _ScopedSourceBudget, _read_scoped_source_bytes, _read_scoped_working_file,
     _read_scoped_membership, _scoped_input_digest, _sha256,
@@ -115,7 +115,7 @@ def build_twin_map(
         }
         for name, meta in graph["projects"].items()
     }
-    projects = _with_test_surface(root, projects)
+    projects = _with_test_surface(root, projects, store=tools_dir(base_dir))
     tested_by = _tested_by_edges(root, _iter_test_files(root))
     twin = {
         "schema_version": TWIN_SCHEMA_VERSION,
@@ -224,8 +224,10 @@ def refresh_twin_map(
     # ARIA-MEDIUM-382 — a spec added or a package.json script changed alters a
     # project's test surface without touching the graph, so it is recomputed on
     # every refresh by the function the full build uses: one pruned walk that
-    # never enters a dependency tree (about 0.1 s on this repository).
-    projects = _with_test_surface(root, projects)
+    # never enters a dependency tree (about 0.1 s on this repository), plus one
+    # run of the Rust reader in the adapter room when the tree holds Rust
+    # (ARIA-LOW-545, ``twin_test_surface.read_rust_test_files``).
+    projects = _with_test_surface(root, projects, store=tools)
 
     tested_by = dict(prior.get("tested_by") or {})
     changed_tests = [p for p in changed if _is_test_file(p)]
@@ -692,15 +694,26 @@ def _impacted_project_view(meta: dict[str, Any]) -> dict[str, Any]:
         view.update(test_targets=list(meta["test_targets"]), spec_file_count=len(specs),
                     spec_files=specs[:CONTEXT_SPEC_FILES_SHOWN],
                     test_surface_modelled=bool(meta.get("test_surface_modelled", True)))
+        if "rust_test_files_unread" in meta:
+            view["rust_test_files_unread"] = dict(meta["rust_test_files_unread"])
     return view
 
 
-def _with_test_surface(root: Path, projects: dict[str, Any]) -> dict[str, Any]:
-    """``projects`` with each entry's test targets and spec files (``twin_test_surface``)."""
-    from .twin_test_surface import project_test_surface, spec_inventory
+def _with_test_surface(root: Path, projects: dict[str, Any], *, store: Path) -> dict[str, Any]:
+    """``projects`` with each entry's test targets and spec files (``twin_test_surface``).
 
-    surface = project_test_surface(root, projects, spec_inventory(root))
-    return {name: {**meta, **surface[name]} for name, meta in projects.items()}
+    ``store`` is the tools root the map is written to; the Rust reader's room
+    masks it (``adapter_room.prepare_adapter_spawn``). Every key the surface
+    owns is replaced, not merged: an incremental refresh starts from the prior
+    entries, and a key this read did not emit must not outlive it.
+    """
+    from .twin_test_surface import TEST_SURFACE_KEYS, project_test_surface, spec_inventory
+
+    surface = project_test_surface(root, projects, spec_inventory(root, store=store))
+    return {
+        name: {**{key: value for key, value in meta.items() if key not in TEST_SURFACE_KEYS}, **surface[name]}
+        for name, meta in projects.items()
+    }
 
 
 # --- layer builders -------------------------------------------------------

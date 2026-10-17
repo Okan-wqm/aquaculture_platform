@@ -2758,18 +2758,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     spine_sub = spine_parser.add_subparsers(dest="spine_command", required=True)
     sp_baseline = add_subparser(spine_sub, "baseline",
-                                       help="Snapshot the 4 architectural invariants for plan_id.")
+                                       help="Measure the 5 architectural invariants (owner-adapter violation sets) for plan_id.")
     sp_baseline.add_argument("--plan-id", required=True)
     sp_baseline.add_argument("--cycle-id", required=True)
     sp_baseline.add_argument("--workspace-root", default=None)
     sp_postcheck = add_subparser(spine_sub, "postcheck",
-                                        help="Re-snapshot + diff vs latest baseline; emit regression event if drift detected.")
+                                        help="Re-measure + compare violation sets with the latest baseline; exit 1 on a regression, 3 when an invariant is unmeasured.")
     sp_postcheck.add_argument("--plan-id", required=True)
     sp_postcheck.add_argument("--cycle-id", required=True)
     sp_postcheck.add_argument("--workspace-root", default=None)
     sp_postcheck.add_argument("--max-regression-rounds", type=int, default=5)
     sp_status = add_subparser(spine_sub, "status",
-                                     help="List baseline / postcheck / regression events.")
+                                     help="List baseline / postcheck / regression / unmeasured events.")
     sp_status.add_argument("--plan-id", default=None)
 
     # Plan 026R §F.1 + §F.3 — autonomy orchestrator CLI surface.
@@ -6221,8 +6221,12 @@ def _main(argv: list[str] | None = None) -> int:
                 max_regression_rounds=args.max_regression_rounds,
             )
             print(json.dumps(row, indent=2, sort_keys=True))
-            # Exit 1 on regression so CI can fail-closed.
-            return 1 if row.get("regression_count", 0) > 0 else 0
+            # Exit 1 on regression so CI can fail-closed; 3 when some
+            # invariant could not be compared (ARIA-HIGH-045: fail-closed and
+            # distinguishable from a regression).
+            if row["regression_count"] > 0:
+                return 1
+            return 3 if row["unmeasured_invariants"] else 0
         if args.spine_command == "status":
             events = list_spine_events(plan_id=args.plan_id, base_dir=args.tools_dir)
             print(json.dumps(events, indent=2, sort_keys=True))

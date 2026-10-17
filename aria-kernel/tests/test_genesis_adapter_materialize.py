@@ -50,6 +50,8 @@ def _drafted_manifest(**overrides) -> dict:
         "health_thresholds": {"precision_min": {"min": 0.0, "max": 0.0}, "max_cost_units": {"min": 0, "max": 10}},
         # What the drafter asked for; the kernel binds all of these.
         "declared_scope": ["**"], "allowed_read_globs": ["**"], "owner": "drafter", "status": "ACTIVE",
+        # ARIA-LOW-533 — a drafter may not declare its adapter cuttable.
+        "security_class": False,
         "runner": {"type": "subprocess", "argv": ["python3", "tools/aria-poc/elsewhere.py"], "cwd": ".",
                    "timeout_ms": 99_999_999, "stdin_json": True},
     })
@@ -102,6 +104,9 @@ class MaterializeTests(_MaterializeLayout):
         self.assertEqual(tool["runner"], {**GENESIS_RUNNER_BASE, "timeout_ms": GENESIS_ADAPTER_TIMEOUT_MS_DEFAULT})
         self.assertEqual(tool["owner"], "skill_genesis")
         self.assertEqual(tool["health_thresholds"]["precision_min"], 0.85, "the kernel's bar, not the drafter's")
+        # The security class is kernel-owned: undeclared, so the calibration
+        # actuator never cuts the drafted adapter (ARIA-LOW-533).
+        self.assertNotIn("security_class", tool)
         # THE PIN: the registered digest IS the passing calibration's digest.
         custody = genesis_custody(TOOL_ID, base_dir=self.tools)
         self.assertEqual(custody["adapter_sha256"], result["adapter_sha256"])

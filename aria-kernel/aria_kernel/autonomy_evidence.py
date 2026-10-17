@@ -1183,7 +1183,11 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             surface="agent_eval_fixture_runs",
             proof_kind="live",
             schema_id="aria/agent-eval-fixture-run/v1",
-            schema_versions=frozenset({1}),
+            # ARIA-MEDIUM-400 — a fixture proof names the code it measured
+            # (workspace_commit_sha + argv_scripts_hash, schema version 2);
+            # a version-1 row names none and proves nothing. Read under
+            # fixture_calibration@2 (capability_semantic_authority.json).
+            schema_versions=frozenset({2}),
             identity_field="execution_run_id",
             integrity_hash_field="ledger_hash",
             authoritative_sha_field=None,

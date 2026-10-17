@@ -43,12 +43,18 @@ SEMANTIC_FIXTURE_REQUIRED_TOOLS = {
 }
 
 FIXTURE_RUN_SCHEMA = "aria/agent-eval-fixture-run/v1"
+# ARIA-MEDIUM-400 — the version the producer writes. Version 2 binds the
+# workspace commit the suite ran against and the digest of the files its
+# runner argv names (`suite_scripts_digest`), both inside `evidence_hash`.
+# A version-1 row stays readable history; `latest_fixture_status` never
+# calls it current, because it names no code.
+FIXTURE_RUN_SCHEMA_VERSION = 2
 FIXTURE_RUN_LEDGER_MAX_BYTES = 64 * 1024 * 1024
 FIXTURE_RUN_LEDGER_MAX_LINE_BYTES = LEDGER_ROW_MAX_BYTES  # ARIA-HIGH-034 / I-V12-LEDGER-02: the reader's cap IS the writer's
 FIXTURE_RUN_LEDGER_MAX_ROWS = 100_000
 _FIXTURE_RUN_READ_CHUNK_BYTES = 1024 * 1024
 _FIXTURE_RUN_SURFACE = "agent_eval_fixture_runs"
-_FIXTURE_RUN_STORED_KEYS = frozenset({
+_FIXTURE_RUN_V1_STORED_KEYS = frozenset({
     "$schema",
     "schema_version",
     "row_type",
@@ -73,6 +79,12 @@ _FIXTURE_RUN_STORED_KEYS = frozenset({
     "previous_ledger_hash",
     "ledger_hash",
 })
+_FIXTURE_RUN_STORED_KEYS: dict[int, frozenset[str]] = {
+    1: _FIXTURE_RUN_V1_STORED_KEYS,
+    2: _FIXTURE_RUN_V1_STORED_KEYS | {"workspace_commit_sha", "argv_scripts_hash"},
+}
+_GIT_COMMIT_SHA_LENGTH = 40
+
 
 def fixture_runs_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "fixture-runs.jsonl"
@@ -87,16 +99,22 @@ def run_fixture_suite(
 ) -> dict[str, Any]:
     tool = get_tool(tool_id, base_dir)
     fixture_dir = resolve_fixture_dir(tool, base_dir, workspace_root=workspace_root)
-    cases_dir = fixture_dir / "cases"
-    if not cases_dir.exists() or not cases_dir.is_dir():
-        raise GovernanceError(f"fixture cases directory does not exist: {cases_dir}")
-
-    case_results = []
-    for case_path in sorted(cases_dir.glob("*.json")):
-        case = read_json(case_path)
-        if not isinstance(case, dict):
-            raise GovernanceError(f"fixture case must be a JSON object: {case_path}")
-        case_results.append(run_fixture_case(tool, case, case_path, fixture_dir, workspace_root, store=base_dir))
+    cases = _suite_cases(fixture_dir)
+    # ARIA-MEDIUM-400 — the code the verdict measures is named before the
+    # cases run and named again after: a commit or an argv-named file that
+    # changed under the run would make the row name code it never measured,
+    # so that suite writes no row (the refresh lane records it as blocked).
+    measured = _measured_code(tool, fixture_dir, workspace_root=workspace_root, store=base_dir)
+    case_results = [
+        run_fixture_case(tool, case, case_path, fixture_dir, workspace_root, store=base_dir)
+        for case_path, case in cases
+    ]
+    after = _measured_code(tool, fixture_dir, workspace_root=workspace_root, store=base_dir)
+    if after != measured:
+        raise GovernanceError(
+            f"fixture_suite_code_changed_during_run: {tool_id} ran against {measured} and ended at {after}"
+        )
+    workspace_commit_sha, argv_scripts_hash = measured
 
     # Plan 023 v3 §A-1 — suite-level provenance fields. execution_run_id
     # is a UUIDv7 issued at this exact run; downstream genesis-sandbox
@@ -110,6 +128,8 @@ def run_fixture_suite(
         cycle_id=cycle_id,
         case_results=case_results,
         execution_run_id=f"exec-{_uuid.uuid4().hex[:24]}",
+        workspace_commit_sha=workspace_commit_sha,
+        argv_scripts_hash=argv_scripts_hash,
     )
     append_declared_jsonl(
         fixture_runs_path(base_dir),
@@ -117,6 +137,109 @@ def run_fixture_suite(
         expected_surface="agent_eval_fixture_runs",
     )
     return summary
+
+
+def _suite_cases(fixture_dir: Path) -> list[tuple[Path, dict[str, Any]]]:
+    """Every case of a suite, in run order: the one reading of a corpus the
+    runner and the scripts digest share."""
+    cases_dir = fixture_dir / "cases"
+    if not cases_dir.exists() or not cases_dir.is_dir():
+        raise GovernanceError(f"fixture cases directory does not exist: {cases_dir}")
+    cases: list[tuple[Path, dict[str, Any]]] = []
+    for case_path in sorted(cases_dir.glob("*.json")):
+        case = read_json(case_path)
+        if not isinstance(case, dict):
+            raise GovernanceError(f"fixture case must be a JSON object: {case_path}")
+        cases.append((case_path, case))
+    return cases
+
+
+def _measured_code(
+    tool: dict[str, Any],
+    fixture_dir: Path,
+    *,
+    workspace_root: str | os.PathLike[str],
+    store: str | os.PathLike[str] | None,
+) -> tuple[str, str]:
+    """(workspace commit, argv scripts digest): the code a suite measures.
+
+    Every room an adapter runs in is a view of a git checkout
+    (``build_workspace_view``), so a suite whose workspace names no commit
+    has nothing a verdict could be bound to and is refused by name.
+    """
+    commit = workspace_head_sha(workspace_root)
+    if commit is None:
+        raise GovernanceError(
+            f"fixture_suite_workspace_has_no_commit: {Path(workspace_root).as_posix()} is not a git checkout with a HEAD"
+        )
+    return commit, suite_scripts_digest(tool, fixture_dir, workspace_root=workspace_root, store=store)
+
+
+def suite_scripts_digest(
+    tool: dict[str, Any],
+    fixture_dir: Path,
+    *,
+    workspace_root: str | os.PathLike[str],
+    store: str | os.PathLike[str] | None,
+) -> str:
+    """ARIA-MEDIUM-400 — the digest of the files a suite's runner argv names, as each case runs them.
+
+    For each case: the command it runs (the verified launcher command of a
+    drafted adapter, ``verify_genesis_dispatch``, else the registered runner
+    argv) and the directory it runs in (``resolve_case_workspace`` + the
+    runner cwd, as ``run_fixture_case`` resolves them). Each argv element that
+    names a regular file — read from that directory as the room resolves it,
+    an absolute element as written — contributes its path and the sha256 of
+    its bytes; every other element contributes its text. Paths are spelled
+    relative to the kernel checkout (an absolute element: by the argv policy,
+    only the kernel's own trusted code) or the workspace, so the same bytes
+    digest the same in any checkout. The producer writes it as
+    ``argv_scripts_hash``; ``latest_fixture_status`` re-computes it.
+
+    NOT covered — what only binding every input a script loads would close:
+    modules an argv-named script imports (the row's ``workspace_commit_sha``
+    names the committed ones), the interpreter a bare first element finds on
+    PATH, and gitignored dependencies a runtime loads beyond the argv-named
+    files (the node_modules packages ts-node requires).
+    """
+    runner = tool.get("runner")
+    if not runner:
+        raise GovernanceError(f"tool has no runner configuration: {tool['tool_id']}")
+    genesis = verify_genesis_dispatch(tool, base_dir=store)
+    argv = [str(part) for part in (genesis.argv if genesis is not None else runner["argv"])]
+    workspace = Path(workspace_root).resolve()
+    commands: dict[str, dict[str, Any]] = {}
+    for _case_path, case in _suite_cases(fixture_dir):
+        cwd = (resolve_case_workspace(case, fixture_dir, workspace) / runner["cwd"]).resolve()
+        command = {
+            "cwd": _portable_path(cwd, workspace=workspace),
+            "argv": [_argv_element(part, cwd=cwd, workspace=workspace) for part in argv],
+        }
+        commands[json.dumps(command, sort_keys=True)] = command
+    return "sha256:" + sha256_of_canonical_json([commands[key] for key in sorted(commands)])
+
+
+def _argv_element(part: str, *, cwd: Path, workspace: Path) -> dict[str, str]:
+    from .evidence_trust import PATH_KIND_FILE, stat_evidence_path
+
+    spelled = Path(part)
+    path = spelled if spelled.is_absolute() else cwd / spelled
+    # The evidence law's stat: an element no file can be named by (a base64
+    # payload past NAME_MAX, an embedded NUL) is text, never an OSError.
+    if not part or stat_evidence_path(path).kind != PATH_KIND_FILE:
+        return {"arg": part}
+    return {
+        "file": _portable_path(path, workspace=workspace) if spelled.is_absolute() else part,
+        "sha256": sha256(path.read_bytes()),
+    }
+
+
+def _portable_path(path: Path, *, workspace: Path) -> str:
+    resolved = path.resolve()
+    for label, root in (("kernel-checkout", KERNEL_CHECKOUT_ROOT), ("workspace", workspace)):
+        if resolved.is_relative_to(root):
+            return f"{label}:{resolved.relative_to(root).as_posix()}"
+    return resolved.as_posix()
 
 
 def fixture_suite_row(
@@ -127,10 +250,16 @@ def fixture_suite_row(
     cycle_id: str,
     case_results: list[dict[str, Any]],
     execution_run_id: str,
+    workspace_commit_sha: str,
+    argv_scripts_hash: str,
 ) -> dict[str, Any]:
     """The one constructor of a fixture-run suite row: the
     fixture_calibration proof row, whose meaning its schema_version declares
-    (pinned by producer fixture in test_capability_semantic_equivalence)."""
+    (pinned by producer fixture in test_capability_semantic_equivalence).
+
+    ARIA-MEDIUM-400 — version 2 names the code it measured: the workspace
+    commit and the argv scripts digest (``suite_scripts_digest``), both
+    inside ``evidence_hash``."""
     # Plan 023 v3 §A-7 — empty case_results is NOT a pass. Pre-fix
     # `all([]) is True` so an empty fixture suite was reported as
     # passed. Post-fix: explicit bool(case_results) gates the pass
@@ -158,7 +287,7 @@ def fixture_suite_row(
 
     base_summary: dict[str, Any] = {
         "$schema": FIXTURE_RUN_SCHEMA,
-        "schema_version": 1,
+        "schema_version": FIXTURE_RUN_SCHEMA_VERSION,
         # Plan 023 v3 §A-1 — explicit row_type so reader helpers can
         # discriminate suite rows from append-only legacy backfill rows.
         "row_type": "fixture_run_suite",
@@ -179,6 +308,8 @@ def fixture_suite_row(
         "execution_run_id": execution_run_id,
         "actual_status": actual_status,
         "error_code": error_code,
+        "workspace_commit_sha": workspace_commit_sha,
+        "argv_scripts_hash": argv_scripts_hash,
     }
     # Plan 023 v3 §A-1 — evidence_hash binds the suite content. The
     # hash payload EXCLUDES evidence_hash itself (avoids self-reference),
@@ -197,7 +328,8 @@ def _compute_suite_evidence_hash(summary: dict[str, Any]) -> str:
       tool_id, tool_version, tool_manifest_hash, fixture_set,
       fixture_set_hash, cycle_id, case_count, passed, actual_status,
       error_code, fixture_lanes, fixture_baseline_passed,
-      semantic_fixture_passed, failed_cases, cases.
+      semantic_fixture_passed, failed_cases, cases; and on a version-2 row
+      workspace_commit_sha and argv_scripts_hash (ARIA-MEDIUM-400).
     EXCLUDED:
       evidence_hash (self-reference), at (volatile timestamp),
       execution_run_id (orthogonal identity), row_type (file shape).
@@ -247,6 +379,13 @@ def latest_fixture_status(
     (``refresh_fixture_suite``) called this reader WITHOUT the workspace it
     had in hand, and the reader's own guess at the checkout was the escape
     that blocked nine tools' refreshes before their suites ever ran.
+
+    ARIA-MEDIUM-400 — a verdict is current only while the files its runner
+    argv names still hash to the row's ``argv_scripts_hash``; the digest is
+    re-computed (``suite_scripts_digest``, from the same root the corpus is
+    found in) only for a passing version-2 verdict whose version, manifest
+    and corpus all still match, the only verdict it can keep current. A
+    version-1 row names no code and is never current.
     """
     rows = load_fixture_runs(tool_id, base_dir=base_dir)
     tool = get_tool(tool_id, base_dir)
@@ -254,20 +393,36 @@ def latest_fixture_status(
     version_matches = latest.get("tool_version") == tool.get("version")
     manifest_matches = latest.get("tool_manifest_hash") == tool_manifest_hash(tool)
     fixture_dir = resolve_fixture_dir(tool, base_dir, workspace_root=workspace_root)
-    fixture_matches = True if latest and "fixture_set_hash" not in latest else latest.get("fixture_set_hash") == fixture_set_hash(fixture_dir)
+    current_fixture_set_hash = fixture_set_hash(fixture_dir)
+    fixture_matches = latest.get("fixture_set_hash") == current_fixture_set_hash
     passed = latest.get("passed") is True
+    current_argv_scripts_hash = (
+        suite_scripts_digest(
+            tool, fixture_dir,
+            workspace_root=_repo_root_for_path_guard(base_dir, workspace_root=workspace_root),
+            store=base_dir,
+        )
+        if passed and version_matches and manifest_matches and fixture_matches
+        and latest.get("schema_version") == FIXTURE_RUN_SCHEMA_VERSION
+        else None
+    )
+    scripts_match = current_argv_scripts_hash is not None and latest.get("argv_scripts_hash") == current_argv_scripts_hash
     return {
         "passed": passed,
-        "current_tool_passed": bool(passed and version_matches and manifest_matches and fixture_matches),
+        "current_tool_passed": bool(passed and version_matches and manifest_matches and fixture_matches and scripts_match),
         "tool_version": latest.get("tool_version"),
         "current_tool_version": tool.get("version"),
         "tool_manifest_hash": latest.get("tool_manifest_hash"),
         "current_tool_manifest_hash": tool_manifest_hash(tool),
         "fixture_set_hash": latest.get("fixture_set_hash"),
-        "current_fixture_set_hash": fixture_set_hash(fixture_dir),
+        "current_fixture_set_hash": current_fixture_set_hash,
+        "workspace_commit_sha": latest.get("workspace_commit_sha"),
+        "argv_scripts_hash": latest.get("argv_scripts_hash"),
+        "current_argv_scripts_hash": current_argv_scripts_hash,
         "version_matches": version_matches,
         "manifest_matches": manifest_matches,
         "fixture_matches": fixture_matches,
+        "scripts_match": scripts_match,
         "fixture_baseline_passed": bool(latest.get("fixture_baseline_passed")),
         "semantic_fixture_passed": bool(latest.get("semantic_fixture_passed")),
         "latest": latest,
@@ -299,6 +454,7 @@ def fixture_status_report(
         "version_matches": status["version_matches"],
         "manifest_matches": status["manifest_matches"],
         "fixture_matches": status["fixture_matches"],
+        "scripts_match": status["scripts_match"],
         "blocked_by": blockers,
         "refresh_command": (
             f"aria-kernel tool fixture-refresh --tool-id {tool_id} "
@@ -650,15 +806,19 @@ def _is_sha256(value: Any) -> bool:
 
 
 def _validate_fixture_run_row(row: dict[str, Any], *, path: Path, line: int) -> None:
+    version = row.get("schema_version")
+    if type(version) is not int or version not in _FIXTURE_RUN_STORED_KEYS:
+        _fixture_run_schema_error(path, line, "schema_version_invalid")
+    stored_keys = _FIXTURE_RUN_STORED_KEYS[version]
     keys = frozenset(row)
-    unexpected = sorted(keys - _FIXTURE_RUN_STORED_KEYS)
+    unexpected = sorted(keys - stored_keys)
     if unexpected:
         _fixture_run_schema_error(
             path,
             line,
             "unexpected_top_level_fields=" + ",".join(unexpected),
         )
-    missing = sorted(_FIXTURE_RUN_STORED_KEYS - keys)
+    missing = sorted(stored_keys - keys)
     if missing:
         _fixture_run_schema_error(
             path,
@@ -668,7 +828,6 @@ def _validate_fixture_run_row(row: dict[str, Any], *, path: Path, line: int) -> 
 
     exact = {
         "$schema": FIXTURE_RUN_SCHEMA,
-        "schema_version": 1,
         "row_type": "fixture_run_suite",
     }
     for field, expected in exact.items():
@@ -697,6 +856,15 @@ def _validate_fixture_run_row(row: dict[str, Any], *, path: Path, line: int) -> 
     previous_hash = row.get("previous_ledger_hash")
     if previous_hash is not None and not _is_sha256(previous_hash):
         _fixture_run_schema_error(path, line, "previous_ledger_hash_invalid")
+    if version >= 2:
+        # ARIA-MEDIUM-400 — the code the verdict measured, named exactly.
+        commit = row.get("workspace_commit_sha")
+        if type(commit) is not str or len(commit) != _GIT_COMMIT_SHA_LENGTH or any(
+            character not in "0123456789abcdef" for character in commit
+        ):
+            _fixture_run_schema_error(path, line, "workspace_commit_sha_invalid")
+        if not _is_sha256(row.get("argv_scripts_hash")):
+            _fixture_run_schema_error(path, line, "argv_scripts_hash_invalid")
     for field in (
         "passed",
         "fixture_baseline_passed",

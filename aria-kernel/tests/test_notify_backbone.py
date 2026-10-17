@@ -27,6 +27,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 from aria_kernel import notify
 from aria_kernel.doctor import DoctorCheck, DoctorReport
@@ -115,22 +116,70 @@ class TheOutboxRecordsTheSelector(_Store):
 
 
 class _FakeGh:
-    """A repository's issues behind `gh`: list is consistent, search is not used."""
+    """A repository's issues behind `gh`, answering as `gh` does.
+
+    Both list surfaces are consistent (search is never used). `issue list`
+    returns the newest `--limit` open issues and no pull requests; `api
+    --paginate --slurp` on the REST issues list returns every page of it,
+    newest first, with pull requests among the rows (the REST list carries
+    them, marked `pull_request`) and the browser link as `html_url`.
+    """
 
     def __init__(self, labels: list[str]) -> None:
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
         self.issues: list[dict[str, Any]] = []
+        self.pull_requests: list[dict[str, Any]] = []
         self.comments: list[tuple[int, str]] = []
         self.labels = list(labels)
+        self._next_number = 100
+
+    def _add(self, into: list[dict[str, Any]], kind: str, title: str, labels: list[str]) -> int:
+        number = self._next_number
+        self._next_number += 1
+        into.append({"number": number, "title": title, "labels": list(labels),
+                     "url": f"https://github.com/o/r/{kind}/{number}", "state": "OPEN"})
+        return number
+
+    def add_issue(self, title: str, labels: list[str]) -> int:
+        return self._add(self.issues, "issues", title, labels)
+
+    def add_pull_request(self, title: str, labels: list[str]) -> int:
+        return self._add(self.pull_requests, "pull", title, labels)
+
+    def _rest_issue_pages(self, argv: list[str]) -> subprocess.CompletedProcess[str]:
+        if "--paginate" not in argv or "--slurp" not in argv:
+            raise AssertionError(f"a REST list read without every page: {argv}")
+        endpoint = urlsplit(argv[-1])
+        query = parse_qs(endpoint.query)
+        # `{owner}/{repo}` is what `gh` resolves from the working directory;
+        # this fake's working directory is the repository `o/r`.
+        if endpoint.path not in ("repos/o/r/issues", "repos/{owner}/{repo}/issues") or query.get("state") != ["open"]:
+            raise AssertionError(f"unexpected REST endpoint {argv[-1]}")
+        wanted = set(query["labels"][0].split(","))
+        per_page = int(query["per_page"][0])
+        rows = [
+            {"number": item["number"], "title": item["title"], "html_url": item["url"],
+             "url": f"https://api.github.com/repos/o/r/issues/{item['number']}",
+             "labels": [{"name": name} for name in item["labels"]], "state": "open",
+             **({"pull_request": {"url": item["url"]}} if item in self.pull_requests else {})}
+            for item in sorted([*self.issues, *self.pull_requests], key=lambda item: -item["number"])
+            if item["state"] == "OPEN" and wanted <= set(item["labels"])
+        ]
+        pages = [rows[start:start + per_page] for start in range(0, len(rows), per_page)] or [[]]
+        return subprocess.CompletedProcess(argv, 0, json.dumps(pages), "")
 
     def __call__(self, argv: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append((list(argv), {k: kwargs.get(k) for k in ("cwd", "timeout")}))
+        if argv[1] == "api":
+            return self._rest_issue_pages(argv)
         verb = " ".join(argv[1:3])
         if verb == "issue list":
             if "--search" in argv:
                 raise AssertionError("the issue lookup must not go through the search index")
             wanted = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--label"]
-            rows = [i for i in self.issues if i["state"] == "OPEN" and set(wanted) <= set(i["labels"])]
+            limit = int(argv[argv.index("--limit") + 1])
+            rows = [i for i in sorted(self.issues, key=lambda item: -item["number"])
+                    if i["state"] == "OPEN" and set(wanted) <= set(i["labels"])][:limit]
             return subprocess.CompletedProcess(argv, 0, json.dumps(rows), "")
         if verb == "label list":
             return subprocess.CompletedProcess(argv, 0, json.dumps([{"name": n} for n in self.labels]), "")
@@ -138,10 +187,8 @@ class _FakeGh:
             self.labels.append(argv[3])
             return subprocess.CompletedProcess(argv, 0, "", "")
         if verb == "issue create":
-            number = 100 + len(self.issues)
             labels = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--label"]
-            self.issues.append({"number": number, "title": argv[argv.index("--title") + 1], "labels": labels,
-                                "url": f"https://github.com/o/r/issues/{number}", "state": "OPEN"})
+            number = self.add_issue(argv[argv.index("--title") + 1], labels)
             return subprocess.CompletedProcess(argv, 0, f"https://github.com/o/r/issues/{number}\n", "")
         if verb == "issue comment":
             self.comments.append((int(argv[3]), argv[argv.index("--body") + 1]))
@@ -170,16 +217,39 @@ class OneIssuePerFixedTitle(_Store):
         self.assertEqual(gh.comments, [(100, "two")])
         self.assertEqual(gh.issues[0]["labels"], ["aria"])
         self.assertIn("aria", gh.labels, "a missing label is created before the issue")
-        # Every call names the configured repository and runs at the notifier's per-call bound.
+        # Every call names the configured repository (`gh api` takes no
+        # `--repo`: its endpoint carries it) and runs at the notifier's
+        # per-call bound.
         for argv, kwargs in gh.calls:
-            self.assertEqual(argv[-2:], ["--repo", "o/r"], argv)
+            if argv[1] == "api":
+                self.assertTrue(argv[-1].startswith("repos/o/r/issues?"), argv)
+            else:
+                self.assertEqual(argv[-2:], ["--repo", "o/r"], argv)
             self.assertEqual(kwargs["timeout"], notify._GH_CALL_TIMEOUT_SECONDS, argv)
+
+    def test_a_fixed_title_behind_more_than_a_hundred_newer_open_issues_is_found(self) -> None:
+        # ARIA-LOW-554 — the lookup read the 100 newest open `aria` issues, so
+        # the fixed-title issue opened first fell outside it once 100 newer
+        # ones were open, and a second issue was opened for the title. An
+        # open PR with the same title and a lower number is not the issue.
+        gh = _FakeGh(labels=["aria"])
+        gh.add_pull_request("ARIA cycle failed", labels=["aria"])
+        oldest = gh.add_issue("ARIA cycle failed", labels=["aria"])
+        for n in range(150):
+            gh.add_issue(f"ARIA HUMAN_REQUIRED [CRITICAL] AIR-{n}", labels=["aria"])
+        env = {"ARIA_NOTIFY_GITHUB_REPO": "o/r", notify.CHANNEL_SELECTOR_ENV: "github_issue"}
+        with mock.patch("aria_kernel.github_adapters.subprocess.run", side_effect=gh):
+            rows = notify.notify(kind="test", title="ARIA cycle failed", body="again", key="k", base_dir=self.tools,
+                                 environ=env)
+        self.assertEqual((rows[0]["status"], rows[0]["detail"]["action"]), ("sent", "commented"))
+        self.assertEqual(gh.comments, [(oldest, "again")])
+        self.assertEqual(len(gh.issues), 151, "no second issue for the title")
 
     def test_a_failed_lookup_creates_nothing_and_is_a_failed_row(self) -> None:
         gh = _FakeGh(labels=["aria"])
 
         def failing(argv: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
-            if argv[1:3] == ["issue", "list"]:
+            if argv[1] == "api":
                 return subprocess.CompletedProcess(argv, 1, "", "HTTP 502")
             return gh(argv, *args, **kwargs)
 
@@ -200,23 +270,26 @@ class OneIssuePerFixedTitle(_Store):
 
         self.assertEqual(HUMAN_REQUIRED_RECORD_WAIT_SECONDS, 2280.0)
 
-    def test_the_freeze_notice_argv_is_unchanged(self) -> None:
-        # The freeze path shares the writer; its argv, cwd and timeout are the
-        # ones it sent before the notifier joined (no --repo, 60 s).
+    def test_the_freeze_notice_argv_names_no_repository(self) -> None:
+        # The freeze path shares the writer; its cwd and timeout are the ones
+        # it sent before the notifier joined (no repository named, 60 s): the
+        # lookup's `{owner}/{repo}` is resolved by `gh` from the working
+        # directory, as `gh issue list` without `--repo` was. The lookup is
+        # the whole open set (ARIA-LOW-554), not the 100 newest.
         gh = _FakeGh(labels=["aria"])
         writer = GhCliIssueWriter(cwd=self.tmp)
         with mock.patch("aria_kernel.github_adapters.subprocess.run", side_effect=gh):
             writer.upsert_issue(title="T: freeze-1", body="one", labels=FREEZE_NOTICE_LABELS)
             writer.upsert_issue(title="T: freeze-1", body="two", labels=FREEZE_NOTICE_LABELS)
+        lookup = ["gh", "api", "--paginate", "--slurp",
+                  "repos/{owner}/{repo}/issues?state=open&labels=aria,self-merge-freeze&per_page=100"]
         expected = [
-            ["gh", "issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url",
-             "--label", "aria", "--label", "self-merge-freeze"],
+            lookup,
             ["gh", "label", "list", "--limit", "500", "--json", "name"],
             ["gh", "label", "create", "self-merge-freeze", "--description", "Written by the ARIA kernel"],
             ["gh", "issue", "create", "--title", "T: freeze-1", "--body", "one", "--label", "aria",
              "--label", "self-merge-freeze"],
-            ["gh", "issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url",
-             "--label", "aria", "--label", "self-merge-freeze"],
+            lookup,
             ["gh", "issue", "edit", "100", "--body", "two"],
         ]
         self.assertEqual([argv for argv, _ in gh.calls], expected)

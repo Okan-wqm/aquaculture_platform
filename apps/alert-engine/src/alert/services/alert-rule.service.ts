@@ -14,6 +14,7 @@ import {
 } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { ActiveAlertCount, ActiveAlertCountDimension } from '../dto/active-alert-count.type';
+import { AlertHistoryOrder, severityRankSql } from '../dto/alert-history-order.enum';
 import { AlertModule } from '../entities/alert-module.enum';
 import { AlertEvaluationService } from './alert-evaluation.service';
 import { applyAlertHistoryScope, type AlertHistoryScope } from './alert-history-scope';
@@ -216,7 +217,9 @@ export class AlertRuleService {
    * (false) or the cleared (true) alarms: a tile counts open alarms only
    * (countActiveAlerts), and the list it opens must hold the same rows.
    * `siteId` / `module` narrow to one site's or one module's alarms — the
-   * same scope the counts take (applyAlertHistoryScope).
+   * same scope the counts take (applyAlertHistoryScope). `order` pages the
+   * newest first (default) or the most severe first (AlertHistoryOrder), so
+   * a limited page never drops an older CRITICAL behind newer, milder rows.
    */
   async getAlertHistory(
     tenantId: string,
@@ -230,6 +233,7 @@ export class AlertRuleService {
       endDate?: Date;
     },
     pagination?: { page: number; limit: number },
+    order: AlertHistoryOrder = AlertHistoryOrder.NEWEST_FIRST,
   ): Promise<{ items: AlertHistory[]; total: number }> {
     if (filters?.severities !== undefined && filters.severities.length === 0) {
       return { items: [], total: 0 };
@@ -279,7 +283,11 @@ export class AlertRuleService {
 
     applyAlertHistoryScope(query, filters);
 
-    query.orderBy('alert.triggeredAt', 'DESC');
+    if (order === AlertHistoryOrder.MOST_SEVERE_FIRST) {
+      query.orderBy(severityRankSql('alert'), 'DESC').addOrderBy('alert.triggeredAt', 'DESC');
+    } else {
+      query.orderBy('alert.triggeredAt', 'DESC');
+    }
 
     const MAX_LIMIT = 500;
     const page = pagination?.page || 1;

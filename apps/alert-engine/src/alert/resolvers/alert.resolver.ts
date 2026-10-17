@@ -4,6 +4,7 @@ import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/de
 import { AlertRule, AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { ActiveAlertCount, ActiveAlertCountDimension } from '../dto/active-alert-count.type';
+import { AlertHistoryOrder } from '../dto/alert-history-order.enum';
 import { AlertModule } from '../entities/alert-module.enum';
 import { AlertRuleService } from '../services/alert-rule.service';
 import {
@@ -68,7 +69,9 @@ export class AlertResolver {
    * an annunciator tile counts open alarms only, and the list it opens must
    * hold the same rows; `siteId` / `module` to one site's or one module's
    * alarms (a module dashboard's alarm panel). Absent, a filter does not
-   * narrow.
+   * narrow. `orderBy` pages the newest first (absent or null) or the most
+   * severe first (AlertHistoryOrder) — a panel that reads only the first
+   * rows asks for the most severe, so the limit never drops an older P1.
    *
    * WHY every filter argument is typed `T | null`: the schema declares them
    * nullable, and graphql-js hands an explicit `null` (e.g. a client sending
@@ -98,6 +101,8 @@ export class AlertResolver {
     @Args('siteId', { type: () => ID, nullable: true }, new ParseUUIDPipe({ optional: true }))
     siteId?: string | null,
     @Args('module', { type: () => AlertModule, nullable: true }) module?: AlertModule | null,
+    @Args('orderBy', { type: () => AlertHistoryOrder, nullable: true })
+    orderBy?: AlertHistoryOrder | null,
   ): Promise<AlertHistory[]> {
     const limit = Math.min(Math.max(1, rawLimit), 100);
     const result = await this.alertRuleService.getAlertHistory(
@@ -114,6 +119,7 @@ export class AlertResolver {
         module: module ?? undefined,
       },
       { page, limit },
+      orderBy ?? AlertHistoryOrder.NEWEST_FIRST,
     );
     return result.items;
   }

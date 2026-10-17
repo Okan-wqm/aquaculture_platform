@@ -9,6 +9,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, In, DataSource, EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import {
+  ALERT_SEVERITY_RANK,
   AlertRule,
   AlertCondition,
   AlertOperator,
@@ -212,18 +213,6 @@ export class AlertEvaluationService {
   }
 
   /**
-   * Severity ranking for comparison (higher = more severe)
-   */
-  private static readonly SEVERITY_RANK: Record<string, number> = {
-    [AlertSeverity.INFO]: 0,
-    [AlertSeverity.LOW]: 1,
-    [AlertSeverity.WARNING]: 2,
-    [AlertSeverity.MEDIUM]: 3,
-    [AlertSeverity.HIGH]: 4,
-    [AlertSeverity.CRITICAL]: 5,
-  };
-
-  /**
    * Check all conditions and return the most severe match
    */
   private checkConditions(
@@ -265,8 +254,8 @@ export class AlertEvaluationService {
         if (!mostSevere) {
           mostSevere = condition;
         } else {
-          const currentRank = AlertEvaluationService.SEVERITY_RANK[condition.severity] ?? 0;
-          const bestRank = AlertEvaluationService.SEVERITY_RANK[mostSevere.severity] ?? 0;
+          const currentRank = ALERT_SEVERITY_RANK[condition.severity];
+          const bestRank = ALERT_SEVERITY_RANK[mostSevere.severity];
           if (currentRank > bestRank) {
             mostSevere = condition;
           }

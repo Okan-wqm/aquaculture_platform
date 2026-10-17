@@ -3,6 +3,7 @@ import { type Repository } from 'typeorm';
 
 import { AlertEvaluationService } from '../alert-evaluation.service';
 import { AlertRuleService } from '../alert-rule.service';
+import { AlertHistoryOrder } from '../../dto/alert-history-order.enum';
 import { AlertHistory } from '../../entities/alert-history.entity';
 import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.entity';
 
@@ -28,6 +29,7 @@ describe('AlertRuleService.getAlertHistory — severities filter', () => {
     where: jest.Mock;
     andWhere: jest.Mock;
     orderBy: jest.Mock;
+    addOrderBy: jest.Mock;
     skip: jest.Mock;
     take: jest.Mock;
     getManyAndCount: jest.Mock;
@@ -40,6 +42,7 @@ describe('AlertRuleService.getAlertHistory — severities filter', () => {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       getManyAndCount: jest.fn().mockResolvedValue([[{ id: 'alert-1' }], 1]),
@@ -122,6 +125,25 @@ describe('AlertRuleService.getAlertHistory — severities filter', () => {
     const clauses = query.andWhere.mock.calls.map(([clause]: [string]) => clause);
     expect(clauses).toEqual(['alert.resolved = :resolved']);
     expect(query.andWhere).toHaveBeenCalledWith('alert.resolved = :resolved', { resolved: true });
+  });
+
+  it('pages the newest first unless asked for the most severe first', async () => {
+    await service.getAlertHistory(tenantId, { resolved: false }, { page: 1, limit: 50 });
+    expect(query.orderBy).toHaveBeenLastCalledWith('alert.triggeredAt', 'DESC');
+    expect(query.addOrderBy).not.toHaveBeenCalled();
+
+    await service.getAlertHistory(
+      tenantId,
+      { resolved: false },
+      { page: 1, limit: 50 },
+      AlertHistoryOrder.MOST_SEVERE_FIRST,
+    );
+    expect(query.orderBy).toHaveBeenLastCalledWith(
+      "CASE alert.severity WHEN 'info' THEN 0 WHEN 'low' THEN 1 WHEN 'warning' THEN 2 " +
+        "WHEN 'medium' THEN 3 WHEN 'high' THEN 4 WHEN 'critical' THEN 5 END",
+      'DESC',
+    );
+    expect(query.addOrderBy).toHaveBeenLastCalledWith('alert.triggeredAt', 'DESC');
   });
 
   it('answers an empty set with no alarms, without querying', async () => {

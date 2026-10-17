@@ -9,6 +9,7 @@ import { AlertRuleService } from '../../services/alert-rule.service';
 import { AlertHistory } from '../../entities/alert-history.entity';
 import { AlertModule } from '../../entities/alert-module.enum';
 import { ActiveAlertCountDimension } from '../../dto/active-alert-count.type';
+import { AlertHistoryOrder } from '../../dto/alert-history-order.enum';
 import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.entity';
 
 const SITE_ID = '33333333-3333-4333-8333-333333333333';
@@ -81,6 +82,7 @@ describe('AlertResolver.alertHistory', () => {
           resolved: false,
         }),
         { page: 1, limit: 20 },
+        AlertHistoryOrder.NEWEST_FIRST,
       );
       expect(items).toEqual([alarm('alert-1')]);
     });
@@ -113,10 +115,12 @@ describe('AlertResolver.alertHistory', () => {
         ['siteId', undefined],
         ['module', undefined],
       ]);
-      expect(getAlertHistory).toHaveBeenCalledWith(tenantId, expect.anything(), {
-        page: 1,
-        limit: 20,
-      });
+      expect(getAlertHistory).toHaveBeenCalledWith(
+        tenantId,
+        expect.anything(),
+        { page: 1, limit: 20 },
+        AlertHistoryOrder.NEWEST_FIRST,
+      );
     });
 
     it('forwards the site and module scope of a module dashboard’s alarm panel', async () => {
@@ -139,16 +143,46 @@ describe('AlertResolver.alertHistory', () => {
         tenantId,
         expect.objectContaining({ resolved: false, siteId: SITE_ID, module: AlertModule.FARM }),
         { page: 1, limit: 20 },
+        AlertHistoryOrder.NEWEST_FIRST,
       );
+    });
+
+    it('forwards the most-severe-first order a dashboard panel asks for; null pages newest first', async () => {
+      const page = (orderBy: AlertHistoryOrder | null): Promise<unknown> =>
+        resolver.getAlertHistory(
+          tenantId,
+          1,
+          50,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          AlertModule.FARM,
+          orderBy,
+        );
+
+      await page(AlertHistoryOrder.MOST_SEVERE_FIRST);
+      await page(null);
+
+      expect(getAlertHistory.mock.calls.map((call) => call[3])).toEqual([
+        AlertHistoryOrder.MOST_SEVERE_FIRST,
+        AlertHistoryOrder.NEWEST_FIRST,
+      ]);
     });
 
     it('caps the page size at 100', async () => {
       await resolver.getAlertHistory(tenantId, 2, 500);
 
-      expect(getAlertHistory).toHaveBeenCalledWith(tenantId, expect.anything(), {
-        page: 2,
-        limit: 100,
-      });
+      expect(getAlertHistory).toHaveBeenCalledWith(
+        tenantId,
+        expect.anything(),
+        { page: 2, limit: 100 },
+        AlertHistoryOrder.NEWEST_FIRST,
+      );
     });
   });
 

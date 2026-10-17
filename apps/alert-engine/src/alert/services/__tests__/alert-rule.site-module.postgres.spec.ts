@@ -28,6 +28,7 @@ import { type Repository } from 'typeorm';
 
 import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import { ActiveAlertCount, ActiveAlertCountDimension } from '../../dto/active-alert-count.type';
+import { AlertHistoryOrder } from '../../dto/alert-history-order.enum';
 import { AlertHistory } from '../../entities/alert-history.entity';
 import { AlertModule } from '../../entities/alert-module.enum';
 import { AlertEvaluationService } from '../alert-evaluation.service';
@@ -38,6 +39,7 @@ jest.setTimeout(180_000);
 
 const TENANT = '6d0f3a41-5d0b-4c3e-9a51-0f6f3c1b7e21';
 const OTHER_TENANT = '7e1f4b52-6e1c-4d4f-8b62-1a7a4d2c8f32';
+const PANEL_TENANT = '8f2a5c63-7f2d-4e5a-9c73-2b8b5e3d9a43';
 const SITE_A = '0a0a0a0a-0000-4000-8000-00000000000a';
 const SITE_B = '0b0b0b0b-0000-4000-8000-00000000000b';
 
@@ -292,6 +294,67 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
         { severity: 'MEDIUM', acknowledged: false, module: null, siteId: null, count: 1 },
       ]),
     );
+  });
+
+  it('pages the most severe first: a short page keeps an older CRITICAL behind newer, milder alarms', async () => {
+    const at = (time: string): Date => new Date(`2026-10-17T${time}:00.000Z`);
+    const seeded = await history.save(
+      (
+        [
+          [AlertSeverity.CRITICAL, '06:00'],
+          [AlertSeverity.WARNING, '07:00'],
+          [AlertSeverity.HIGH, '07:30'],
+          [AlertSeverity.WARNING, '08:00'],
+          [AlertSeverity.MEDIUM, '08:30'],
+        ] as const
+      ).map(([severity, time]) => ({
+        ...alarm({
+          severity,
+          acknowledged: false,
+          module: AlertModule.FARM,
+          siteId: SITE_A,
+          tenantId: PANEL_TENANT,
+        }),
+        triggeredAt: at(time),
+      })),
+    );
+    const page = async (order?: AlertHistoryOrder): Promise<[AlertSeverity, string][]> =>
+      (
+        await service.getAlertHistory(
+          PANEL_TENANT,
+          { module: AlertModule.FARM, resolved: false },
+          { page: 1, limit: 2 },
+          order,
+        )
+      ).items.map((row) => [row.severity, row.triggeredAt.toISOString().slice(11, 16)]);
+
+    expect(await page()).toEqual([
+      [AlertSeverity.MEDIUM, '08:30'],
+      [AlertSeverity.WARNING, '08:00'],
+    ]);
+    expect(await page(AlertHistoryOrder.MOST_SEVERE_FIRST)).toEqual([
+      [AlertSeverity.CRITICAL, '06:00'],
+      [AlertSeverity.HIGH, '07:30'],
+    ]);
+    // Within a severity, the newest first; MEDIUM ranks above WARNING.
+    const all = await service.getAlertHistory(
+      PANEL_TENANT,
+      { resolved: false },
+      { page: 1, limit: 10 },
+      AlertHistoryOrder.MOST_SEVERE_FIRST,
+    );
+    expect(all.items.map((row) => row.severity)).toEqual([
+      AlertSeverity.CRITICAL,
+      AlertSeverity.HIGH,
+      AlertSeverity.MEDIUM,
+      AlertSeverity.WARNING,
+      AlertSeverity.WARNING,
+    ]);
+    expect(all.items.slice(3).map((row) => row.triggeredAt.toISOString().slice(11, 16))).toEqual([
+      '08:00',
+      '07:00',
+    ]);
+    await history.delete(seeded.map((row) => row.id));
   });
 
   it('refuses a site that is not a UUID; the origin helper records it as no site (ALERT-MEDIUM-013)', async () => {

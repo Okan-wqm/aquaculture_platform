@@ -50,6 +50,7 @@ from .runtime_profile import enforce_profile_for_action
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
+    append_tools_governance_rows,
     ensure_tools_dir,
     tools_dir,
     utc_now,
@@ -7180,7 +7181,10 @@ def reap_stale_claims(
     unlocked_results = load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
     if any(_expired_live_lease(claims, unlocked_results, cid, at=looked_at) is not None for cid in candidate_ids):
         _read_lease_context()
-    for cid in candidate_ids:
+
+    def _reap_one(cid: str) -> tuple[str, dict[str, Any]] | None:
+        """Decide ``cid`` under the claims/results lock; its governance row
+        (kind, details) when it was reaped, else None."""
         governance_details: dict[str, Any] | None = None
         read_context_first = False
         while True:
@@ -7283,11 +7287,23 @@ def reap_stale_claims(
                 }
             break
         if governance_details is None:
-            continue
+            return None
         kind = str(governance_details.pop("kind"))
-        append_tools_governance(
-            root,
-            f"agent_claim_{kind}",
-            governance_details,
-        )
+        return f"agent_claim_{kind}", governance_details
+
+    # ARIA-LOW-566 — the sweep's governance rows, one per reaped claim, are
+    # ONE append (`append_tools_governance_rows`, ARIA-HIGH-237's batch):
+    # every append verifies and re-reads the whole governance chain, so a
+    # row per claim cost two full parses of governance.jsonl (25.9 MB on
+    # aria/state) per expired claim. The batch is appended on every exit of
+    # the sweep, so a later claim's failure cannot take an earlier claim's
+    # row with it (each used to be appended right after its claim).
+    governance_rows: list[tuple[str, dict[str, Any]]] = []
+    try:
+        for cid in candidate_ids:
+            governance_row = _reap_one(cid)
+            if governance_row is not None:
+                governance_rows.append(governance_row)
+    finally:
+        append_tools_governance_rows(root, governance_rows)
     return reaped

@@ -495,5 +495,84 @@ class L568TheSweepParsesGovernanceOutsideTheClaimsLock(M1ALeaseAnOutageAteIsNotC
         self.assertEqual(self.context_reads_locked, [False])
 
 
+class L566OneSweepAppendsItsGovernanceRowsOnce(_Store):
+    """ARIA-LOW-566 — every governance append verifies the whole chain and reads it again for
+    the tail hash (ARIA-HIGH-237 pays that once per BATCH, ``append_declared_jsonl_rows``). The
+    sweep appended one ``agent_claim_<kind>`` row per expired claim, each its own append, so N
+    expired claims cost 2N full parses of governance.jsonl (25.9 MB on aria/state) on top of
+    the lookup. The sweep's rows are one batch now: one verification and one tail read,
+    whatever N is, and every row is still written."""
+
+    def _expired(self, n: int) -> None:
+        for index in range(1, n + 1):
+            self.request(f"AIR-{index}")
+            self.claim_row(event="claimed", claim_id=f"CL-{index}", request_id=f"AIR-{index}", agent_id="a",
+                           claimed_at=_iso(_T0), lease_expires_at=_iso(_T0 + timedelta(hours=1)))
+
+    def _sweep_counting_append_parses(self) -> tuple[dict, dict[str, int]]:
+        from unittest.mock import patch
+
+        from aria_kernel import ledger
+        from aria_kernel.agent_invocations import reap_stale_claims
+
+        parses = {"verify_jsonl": 0, "_read_jsonl_stored": 0}
+        real = {name: getattr(ledger, name) for name in parses}
+
+        def counted(name):  # noqa: ANN001, ANN202
+            def call(path, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+                if Path(path).name == "governance.jsonl":
+                    parses[name] += 1
+                return real[name](path, *args, **kwargs)
+            return call
+
+        with patch.object(ledger, "verify_jsonl", counted("verify_jsonl")), \
+                patch.object(ledger, "_read_jsonl_stored", counted("_read_jsonl_stored")):
+            reaped = reap_stale_claims(base_dir=self.tools, now=_T0 + timedelta(hours=2))
+        return reaped, parses
+
+    def _governance_rows(self, kind: str) -> list[dict]:
+        from aria_kernel.ledger import load_declared_jsonl
+
+        return [row for row in load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+                if row.get("kind") == kind]
+
+    def test_three_expired_claims_append_their_rows_as_one_batch(self) -> None:
+        self._expired(3)
+        reaped, parses = self._sweep_counting_append_parses()
+        self.assertEqual(len(reaped["requeued"]), 3)
+        self.assertEqual(parses, {"verify_jsonl": 1, "_read_jsonl_stored": 1})
+        rows = self._governance_rows("agent_claim_requeued")
+        self.assertEqual([row["details"]["claim_id"] for row in rows], ["CL-1", "CL-2", "CL-3"])
+        self.assertEqual({row["details"]["reason"] for row in rows}, {"lease_expired"})
+
+    def test_a_sweep_that_reaps_nothing_appends_nothing(self) -> None:
+        reaped, parses = self._sweep_counting_append_parses()
+        self.assertEqual(reaped["stale"], [])
+        self.assertEqual(parses, {"verify_jsonl": 0, "_read_jsonl_stored": 0})
+
+    def test_a_claim_reaped_before_a_later_claim_fails_keeps_its_governance_row(self) -> None:
+        # The rows used to be appended per claim, right after its claims
+        # transaction; a later claim's failure could not take an earlier
+        # claim's row with it. The batch keeps that: the sweep's rows are
+        # appended on every exit, then the failure propagates.
+        from unittest.mock import patch
+
+        from aria_kernel import agent_invocations
+
+        self._expired(2)
+        real = agent_invocations._expired_live_lease
+
+        def second_fails(claims, results, claim_id, *, at):  # noqa: ANN001, ANN202
+            if claim_id == "CL-2" and any(row.get("event") == "stale" for row in claims):
+                raise OSError("the store went away under the second claim")
+            return real(claims, results, claim_id, at=at)
+
+        with patch.object(agent_invocations, "_expired_live_lease", side_effect=second_fails), \
+                self.assertRaises(OSError):
+            agent_invocations.reap_stale_claims(base_dir=self.tools, now=_T0 + timedelta(hours=2))
+        self.assertEqual([row["details"]["claim_id"] for row in self._governance_rows("agent_claim_requeued")],
+                         ["CL-1"])
+
+
 if __name__ == "__main__":
     unittest.main()

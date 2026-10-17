@@ -327,8 +327,8 @@ jobs:
     runs-on: ubuntu-latest
     # Raised from 40 to 45 when the integration lane joined this job
     # (FARM-MEDIUM-301). The ceiling catches a runaway; it does not pace the
-    # steps, and it is deliberately NOT their sum — the step budgets already add
-    # to 140 minutes and always have, because target filtering means only a
+    # steps, and it is deliberately NOT their sum — the step budgets add to more
+    # than the job budget and always have, because target filtering means only a
     # subset of them does real work on any one PR. Each step carries its own
     # timeout so the STEP names the failure and the job ceiling is the backstop.
     #
@@ -531,6 +531,14 @@ jobs:
       # leaves the fan-out step no room under that ceiling would make the JOB fire
       # first — which is precisely the anonymous-cancellation failure the step
       # budget exists to prevent.
+      #
+      # farm-service and auth-service both declare the target (Testcontainers
+      # *.postgres.spec.ts; INFRA-MEDIUM-158). `--parallel 1` because both
+      # configs are runInBand and every spec owns a container.
+      # This is the ONE step that drives it: a second, identical step ran the
+      # same suites again on every such PR until INFRA-MEDIUM-228, and
+      # tests/invariants/test-target-ci-reachability.spec.ts now fails when a
+      # workflow drives a target through the policy script twice.
       - name: Run integration tests (affected only)
         run: |
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
@@ -580,23 +588,6 @@ jobs:
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
           HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
           bash scripts/ci/affected-target-policy.sh --target test:invariant --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
-        timeout-minutes: 20
-        env:
-          NX_DAEMON: 'false'
-          NX_NO_CLOUD: 'true'
-          NODE_OPTIONS: '--max-old-space-size=4096'
-
-      # INFRA-MEDIUM-158: farm-service and auth-service declare `test:integration`
-      # (Testcontainers-backed *.postgres.spec.ts, each spec boots its own
-      # PostgreSQL; the image is prewarmed by the dependency-aware step above).
-      # Until this step no workflow invoked the target. Same policy machinery as
-      # `test`, `--parallel 1` because both configs are runInBand and every spec
-      # owns a container.
-      - name: Run integration tests (affected, Testcontainers)
-        run: |
-          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
-          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
-          bash scripts/ci/affected-target-policy.sh --target test:integration --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
         timeout-minutes: 20
         env:
           NX_DAEMON: 'false'

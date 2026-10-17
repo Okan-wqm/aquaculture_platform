@@ -19,8 +19,9 @@
  * no action that both kept minio working and cleared the advisory — until
  * libs/storage moved to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) and minio left
  * the tree with stream-json, which is the re-review condition the entry named.
- * The exceptions file is empty again and the invariant's ratchet is at 0; the
- * mechanism stays for the next advisory of this shape.
+ * The mechanism stayed for the next advisory of this shape. How many entries
+ * are live, and the dated history of each change, is the ratchet in
+ * tests/invariants/npm-audit-exception-ssot.spec.ts, not this comment.
  *
  * # What an exception is, and is not
  *
@@ -54,6 +55,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 
 import { validateReviewedException } from './lib/reviewed-exception.mjs';
+import { readStrictJson } from './lib/strict-json.mjs';
 
 const EXCEPTIONS_VERSION = 1;
 const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 };
@@ -111,7 +113,9 @@ function loadExceptions(path, today) {
   if (!existsSync(path)) {
     throw new Error(`exceptions file not found: ${path}`);
   }
-  const doc = JSON.parse(readFileSync(path, 'utf8'));
+  // Strict: a repeated advisory key would apply the last entry while a
+  // reviewer reads the first (INFRA-MEDIUM-228).
+  const doc = readStrictJson(path);
   if (doc.version !== EXCEPTIONS_VERSION) {
     throw new Error(`npm audit exceptions version ${doc.version} is not ${EXCEPTIONS_VERSION}`);
   }

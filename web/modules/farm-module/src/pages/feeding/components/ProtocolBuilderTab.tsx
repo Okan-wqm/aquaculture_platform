@@ -1003,12 +1003,12 @@ export const ProtocolBuilderTab: React.FC = () => {
       render: (_value, protocol) => (
         <>
           <span
-            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[protocol.status]}`}
+            className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[protocol.status]}`}
           >
             {t(STATUS_KEY[protocol.status])}
           </span>
           {protocol.isDefault && (
-            <span className="ml-2 inline-flex rounded-full bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 px-2 py-0.5 text-xs">
+            <span className="ml-2 inline-flex rounded bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200 px-2 py-0.5 text-xs">
               {t('feedingV2.isDefault')}
             </span>
           )}
@@ -1075,7 +1075,7 @@ export const ProtocolBuilderTab: React.FC = () => {
       )}
 
       {!isLoading && !isError && protocols.length === 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center text-sm text-gray-500 dark:text-gray-400">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-12 text-center text-sm text-gray-500 dark:text-gray-400">
           {t('feedingV2.empty')}
         </div>
       )}

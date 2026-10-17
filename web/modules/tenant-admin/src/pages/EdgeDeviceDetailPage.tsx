@@ -30,6 +30,7 @@ import {
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
 import { Modal, useAuthContext, PageHeader, Button, Textarea } from '@aquaculture/shared-ui';
+import { SD_CARD } from '../components/ui/suderra';
 
 type TabId = 'overview' | 'io-config' | 'automation' | 'events';
 
@@ -144,7 +145,7 @@ const HealthGauge: React.FC<{
   icon: React.ReactNode;
   color: string;
 }> = ({ label, value, unit = '%', icon, color }) => (
-  <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+  <div className={`${SD_CARD} p-4`}>
     <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs mb-2">
       {icon}
       <span>{label}</span>
@@ -154,9 +155,9 @@ const HealthGauge: React.FC<{
       <span className="text-sm text-gray-500 dark:text-gray-400 mb-0.5">{unit}</span>
     </div>
     {value != null && (
-      <div className="mt-2 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+      <div className="mt-2 h-2 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all ${color}`}
+          className={`h-full rounded transition-all ${color}`}
           style={{ width: `${Math.min(value, 100)}%` }}
         />
       </div>
@@ -390,7 +391,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </div>
 
             {/* Device Info */}
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+            <div className={`${SD_CARD} p-6`}>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 Cihaz Bilgileri
               </h3>
@@ -423,7 +424,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </div>
 
             {/* Quick Actions */}
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+            <div className={`${SD_CARD} p-6`}>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 İşlemler
               </h3>
@@ -462,7 +463,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         )}
 
         {activeTab === 'io-config' && (
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+          <div className={`${SD_CARD} p-6`}>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">
               I/O Configurations
             </h3>
@@ -481,7 +482,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                       </span>
                     </div>
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${io.isActive ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}
+                      className={`text-xs px-2 py-0.5 rounded ${io.isActive ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}
                     >
                       {io.isActive ? 'Active' : 'Inactive'}
                     </span>
@@ -495,7 +496,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         )}
 
         {activeTab === 'automation' && (
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+          <div className={`${SD_CARD} p-6`}>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">
               Deployed Programs
             </h3>
@@ -508,7 +509,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         )}
 
         {activeTab === 'events' && (
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+          <div className={`${SD_CARD} p-6`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 Device Events

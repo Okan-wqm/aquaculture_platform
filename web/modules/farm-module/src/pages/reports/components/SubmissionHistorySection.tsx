@@ -225,7 +225,7 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
                       {periodLabel(row)}
                     </span>
                     <span
-                      className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_BADGES[row.status]}`}
+                      className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded ${STATUS_BADGES[row.status]}`}
                     >
                       {STATUS_LABELS[row.status]}
                     </span>

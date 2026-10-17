@@ -446,7 +446,7 @@ const PlcAlarmsPage: React.FC = () => {
             return (
               <div
                 key={alarm.id}
-                className={`rounded-lg border bg-white dark:bg-gray-900 shadow-sm border-l-4 ${severityCfg.borderColor} ${alarm.acknowledged ? 'opacity-70' : ''}`}
+                className={`rounded-lg border bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) border-l-4 ${severityCfg.borderColor} ${alarm.acknowledged ? 'opacity-70' : ''}`}
               >
                 <div className="flex items-start gap-3 p-4">
                   <input
@@ -461,7 +461,7 @@ const PlcAlarmsPage: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${severityCfg.color}`}
+                        className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium ${severityCfg.color}`}
                       >
                         {severityCfg.label}
                       </span>
@@ -497,7 +497,7 @@ const PlcAlarmsPage: React.FC = () => {
                         </span>
                       )}
                       {alarm.action && (
-                        <span className="text-accent-600 dark:text-accent-400">
+                        <span className="text-gray-700 dark:text-gray-300">
                           Islem: {alarm.action}
                         </span>
                       )}

@@ -697,7 +697,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               value={formData.estimatedAffected}
               onChange={(e) => handleChange('estimatedAffected', e.target.value)}
               className={`
-                      block w-full rounded-md shadow-sm text-sm
+                      block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                       ${errors.estimatedAffected ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                       focus:ring-info-500 focus:border-info-500
                     `}
@@ -746,7 +746,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                         type="button"
                         onClick={() => addClinicalSign(sign)}
                         disabled={isAdded}
-                        className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                        className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                           isAdded
                             ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300 cursor-default'
                             : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 cursor-pointer'
@@ -917,10 +917,10 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             }}
           >
             <div className="flex items-center gap-2">
-              <FlaskConical className="w-4 h-4 text-accent-500" aria-hidden="true" />
+              <FlaskConical className="w-4 h-4 text-primary-500" aria-hidden="true" />
               <span>Lab Results (Optional)</span>
               {formData.labResults.length > 0 && (
-                <span className="px-1.5 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
+                <span className="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded">
                   {formData.labResults.length}
                 </span>
               )}
@@ -1034,7 +1034,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               <button
                 type="button"
                 onClick={addLabResult}
-                className="mt-2 inline-flex items-center px-3 py-1.5 text-xs font-medium text-accent-700 dark:text-accent-300 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-md hover:bg-accent-100 dark:hover:bg-accent-900/50"
+                className="mt-2 inline-flex items-center px-3 py-1.5 text-xs font-medium text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-md hover:bg-primary-100 dark:hover:bg-primary-900/50"
               >
                 <Plus className="w-3 h-3 mr-1" aria-hidden="true" />
                 Add Lab Result
@@ -1067,7 +1067,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                   value={formData.veterinarianName}
                   onChange={(e) => handleChange('veterinarianName', e.target.value)}
                   className={`
-                          block w-full rounded-md shadow-sm text-sm
+                          block w-full rounded-md shadow-(--shadow-sd-sm) text-sm
                           ${errors.veterinarianName ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-info-500 focus:border-info-500
                         `}

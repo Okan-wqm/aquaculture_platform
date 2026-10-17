@@ -148,7 +148,7 @@ const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
   const config = SEVERITY_OPTIONS.find((s) => s.value === severity) || SEVERITY_OPTIONS[5];
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${config.className}`}
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${config.className}`}
     >
       {config.label}
     </span>
@@ -361,7 +361,7 @@ const PolicyForm: React.FC<{
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           {mode === 'create' ? 'Yeni Eskalasyon Politikasi' : 'Politikayi Düzenle'}
@@ -565,7 +565,7 @@ const SuppressionWindowManager: React.FC<{
   const now = new Date();
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <PauseCircle className="w-5 h-5 text-warning-500" />
@@ -713,12 +713,12 @@ const SuppressionWindowManager: React.FC<{
                       {w.name}
                     </span>
                     {isActive && (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
                         Aktif
                       </span>
                     )}
                     {w.isRecurring && (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300">
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                         Tekrarlayan
                       </span>
                     )}
@@ -903,7 +903,7 @@ const PolicyCard: React.FC<{
 
   return (
     <div
-      className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 transition-all ${
+      className={`bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-5 transition-all ${
         !policy.isActive ? 'opacity-60' : ''
       }`}
     >
@@ -915,13 +915,13 @@ const PolicyCard: React.FC<{
               {policy.name}
             </h3>
             {policy.isDefault && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-800">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-800">
                 <Star className="w-3 h-3" />
                 Varsayilan
               </span>
             )}
             <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                 policy.isActive
                   ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 border border-success-200 dark:border-success-800'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
@@ -1392,7 +1392,7 @@ const EscalationPoliciesPage: React.FC = () => {
       />
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex items-center gap-4">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Durum:</span>
           <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
@@ -1407,7 +1407,7 @@ const EscalationPoliciesPage: React.FC = () => {
                 onClick={() => setFilterStatus(tab.value)}
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   filterStatus === tab.value
-                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
@@ -1506,7 +1506,7 @@ const EscalationPoliciesPage: React.FC = () => {
 
       {/* Empty State */}
       {filteredPolicies.length === 0 && !isLoading && formMode === 'closed' && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Shield className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
             Eskalasyon Politikasi Bulunamadi

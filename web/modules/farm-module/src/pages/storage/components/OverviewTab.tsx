@@ -33,7 +33,7 @@ const movementTypeBadge: Record<string, string> = {
   TRANSFER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   WASTE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   ADJUSTMENT: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  RETURN: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  RETURN: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const CATEGORY_CONFIG: Record<
@@ -79,14 +79,14 @@ const CATEGORY_CONFIG: Record<
   HEALTHCARE: {
     label: 'Healthcare',
     color: colors.primary[700],
-    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
-    borderColor: 'border-accent-200 dark:border-accent-800',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    borderColor: 'border-info-200 dark:border-info-800',
   },
   healthcare: {
     label: 'Healthcare',
     color: colors.primary[700],
-    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
-    borderColor: 'border-accent-200 dark:border-accent-800',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    borderColor: 'border-info-200 dark:border-info-800',
   },
 };
 
@@ -286,7 +286,7 @@ export const OverviewTab: React.FC = () => {
         <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-warning-100 dark:bg-warning-900/40 rounded-full flex items-center justify-center">
+              <div className="flex-shrink-0 w-8 h-8 bg-warning-100 dark:bg-warning-900/40 rounded flex items-center justify-center">
                 <Clock
                   className="w-5 h-5 text-warning-600 dark:text-warning-400"
                   aria-hidden="true"
@@ -337,7 +337,7 @@ export const OverviewTab: React.FC = () => {
             {(['FEED', 'CHEMICAL', 'CONSUMABLE', 'HEALTHCARE'] as const).map((cat) => (
               <label
                 key={cat}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer border transition-all ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium cursor-pointer border transition-all ${
                   visibleCategories.has(cat)
                     ? `${CATEGORY_CONFIG[cat].bgColor} ${CATEGORY_CONFIG[cat].borderColor}`
                     : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500'
@@ -391,7 +391,7 @@ export const OverviewTab: React.FC = () => {
                     onClick={() =>
                       setDrillDownCategory(drillDownCategory === cat.category ? null : cat.category)
                     }
-                    className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                    className={`text-xs px-3 py-1 rounded border transition-all ${
                       drillDownCategory === cat.category
                         ? 'bg-gray-900 text-white border-gray-900'
                         : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
@@ -587,7 +587,7 @@ export const OverviewTab: React.FC = () => {
                   />
                 </Button>
                 {locationDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-(--shadow-sd-lg) py-1 min-w-[200px] max-h-60 overflow-y-auto">
                     {selectedLocationIds.size > 0 && (
                       <Button
                         variant="ghost"
@@ -648,9 +648,9 @@ export const OverviewTab: React.FC = () => {
                     {loc.locationName}
                   </div>
                   <div className="flex-1">
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2">
                       <div
-                        className={`h-2 rounded-full transition-all duration-500 ${loc.fillPercentage > 90 ? 'bg-error-500' : loc.fillPercentage > 70 ? 'bg-warning-500' : 'bg-info-500'}`}
+                        className={`h-2 rounded transition-all duration-500 ${loc.fillPercentage > 90 ? 'bg-error-500' : loc.fillPercentage > 70 ? 'bg-warning-500' : 'bg-info-500'}`}
                         style={{ width: `${Math.min(loc.fillPercentage, 100)}%` }}
                       />
                     </div>

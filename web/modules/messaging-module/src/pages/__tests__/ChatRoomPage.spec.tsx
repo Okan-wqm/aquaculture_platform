@@ -749,6 +749,9 @@ describe('ChatRoomPage — FAZ 3 live cache mutation + UX', () => {
 
     const pill = await screen.findByTestId('new-messages-pill');
     expect(pill).toHaveTextContent('1 new messages');
+    // Industry has no pill shapes (README §6 "Köşe: 0"): the jump-to-latest
+    // button keeps the square primitive corner, which the console scope owns.
+    expect(pill).not.toHaveClass('rounded-full');
 
     const scrollToSpy = vi.fn();
     body.scrollTo = scrollToSpy;

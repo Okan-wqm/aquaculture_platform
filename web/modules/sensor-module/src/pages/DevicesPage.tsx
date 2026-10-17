@@ -121,14 +121,14 @@ const getSensorTypeLabel = (type: string): string => {
 const StatusBadge: React.FC<{ isConnected?: boolean }> = ({ isConnected }) => {
   if (isConnected) {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
         <Wifi className="w-3 h-3" />
         Çevrimiçi
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200">
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200">
       <WifiOff className="w-3 h-3" />
       Çevrimdışı
     </span>
@@ -173,8 +173,8 @@ const StatCard: React.FC<{
 }> = ({ label, value, icon, color, onClick }) => (
   <div
     onClick={onClick}
-    className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 ${
-      onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''
+    className={`bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4 ${
+      onClick ? 'cursor-pointer hover:shadow-(--shadow-sd-md) transition-shadow' : ''
     }`}
   >
     <div className="flex items-center justify-between">
@@ -227,7 +227,7 @@ const DeviceCard: React.FC<{
   const topic = (parent.protocolConfiguration as any)?.topic;
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Device Header */}
       <div
         className="p-5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -643,7 +643,7 @@ const DevicesPage: React.FC = () => {
       header: 'Durum',
       render: (_value, device) => (
         <span
-          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
             device.lifecycleState === DeviceLifecycleState.ACTIVE
               ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
               : device.lifecycleState === DeviceLifecycleState.ERROR
@@ -724,7 +724,7 @@ const DevicesPage: React.FC = () => {
 
             {/* Device Type Selector Dropdown */}
             {showDeviceTypeSelector && (
-              <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 overflow-hidden">
+              <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 z-20 overflow-hidden">
                 <div className="p-2">
                   <Button variant="ghost" onClick={() => handleAddDevice('edge')}>
                     <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
@@ -776,7 +776,7 @@ const DevicesPage: React.FC = () => {
           onClick={() => setActiveTab('edge')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === 'edge'
-              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
           }`}
         >
@@ -789,7 +789,7 @@ const DevicesPage: React.FC = () => {
           onClick={() => setActiveTab('sensors')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === 'sensors'
-              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
           }`}
         >
@@ -802,7 +802,7 @@ const DevicesPage: React.FC = () => {
           onClick={() => setActiveTab('vfd')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === 'vfd'
-              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm)'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
           }`}
         >
@@ -824,7 +824,7 @@ const DevicesPage: React.FC = () => {
               {[...Array(4)].map((_, i) => (
                 <div
                   key={i}
-                  className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 animate-pulse"
+                  className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4 motion-safe:animate-pulse"
                 >
                   <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20 mb-2" />
                   <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-12" />
@@ -868,7 +868,7 @@ const DevicesPage: React.FC = () => {
           ) : null}
 
           {/* Edge Filters */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
             <div className="flex flex-col md:flex-row gap-4">
               {/* Search */}
               <div className="flex-1 relative">
@@ -944,7 +944,7 @@ const DevicesPage: React.FC = () => {
                   onClick={() => setEdgeViewMode('grid')}
                   className={`p-2 rounded-md transition-colors ${
                     edgeViewMode === 'grid'
-                      ? 'bg-white dark:bg-gray-900 shadow-sm'
+                      ? 'bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)'
                       : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}
                   title="Grid Görünümü"
@@ -955,7 +955,7 @@ const DevicesPage: React.FC = () => {
                   onClick={() => setEdgeViewMode('list')}
                   className={`p-2 rounded-md transition-colors ${
                     edgeViewMode === 'list'
-                      ? 'bg-white dark:bg-gray-900 shadow-sm'
+                      ? 'bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)'
                       : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}
                   title="Liste Görünümü"
@@ -989,7 +989,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Edge Loading State */}
           {edgeLoading && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Spinner size="lg" color="inherit" className="mb-3" />
               <p>Edge cihazları yükleniyor...</p>
             </div>
@@ -997,7 +997,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Edge Empty State */}
           {!edgeLoading && edgeDevices.length === 0 && !hasEdgeFilters && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Server className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Henüz edge controller kaydedilmemiş</p>
               <p className="text-sm mt-1 mb-4">
@@ -1017,7 +1017,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Edge No Results State */}
           {!edgeLoading && edgeDevices.length === 0 && hasEdgeFilters && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Search className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Sonuç bulunamadı</p>
               <p className="text-sm mt-1">Arama veya filtre kriterlerini değiştirmeyi deneyin</p>
@@ -1070,7 +1070,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Edge Pagination */}
           {!edgeLoading && edgeTotal > edgeLimit && (
-            <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+            <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 px-4 py-3">
               <div className="text-sm text-gray-500 dark:text-gray-400">
                 {(edgePage - 1) * edgeLimit + 1} - {Math.min(edgePage * edgeLimit, edgeTotal)} /{' '}
                 {edgeTotal} cihaz
@@ -1122,7 +1122,7 @@ const DevicesPage: React.FC = () => {
       {activeTab === 'sensors' && (
         <>
           {/* Filters */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
             <div className="flex flex-col md:flex-row gap-4">
               {/* Search */}
               <div className="flex-1 relative">
@@ -1173,7 +1173,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Loading State */}
           {loading && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Spinner size="lg" color="inherit" className="mb-3" />
               <p>Cihazlar yükleniyor...</p>
             </div>
@@ -1181,7 +1181,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Empty State */}
           {!loading && groupedDevices.length === 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Cpu className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Henüz cihaz kaydedilmemiş</p>
               <p className="text-sm mt-1 mb-4">
@@ -1215,7 +1215,7 @@ const DevicesPage: React.FC = () => {
 
           {/* No Results */}
           {!loading && groupedDevices.length > 0 && filteredDevices.length === 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Search className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Sonuç bulunamadı</p>
               <p className="text-sm mt-1">Arama kriterlerini değiştirmeyi deneyin</p>
@@ -1232,25 +1232,25 @@ const DevicesPage: React.FC = () => {
           {/* VFD stat summary */}
           {vfdStats && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Toplam VFD</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {vfdStats.total ?? vfdTotal}
                 </p>
               </div>
-              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Aktif</p>
                 <p className="text-2xl font-bold text-success-600 dark:text-success-400">
                   {vfdStats.active ?? 0}
                 </p>
               </div>
-              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Arızalı</p>
                 <p className="text-2xl font-bold text-error-600 dark:text-error-400">
                   {vfdStats.faulted ?? 0}
                 </p>
               </div>
-              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Bakım</p>
                 <p className="text-2xl font-bold text-info-600 dark:text-info-400">
                   {vfdStats.maintenance ?? 0}
@@ -1260,7 +1260,7 @@ const DevicesPage: React.FC = () => {
           )}
 
           {/* Filters */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
@@ -1318,7 +1318,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Loading */}
           {vfdLoading && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Spinner size="lg" color="inherit" className="mb-3" />
               <p>VFD cihazları yükleniyor...</p>
             </div>
@@ -1326,7 +1326,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Empty */}
           {!vfdLoading && vfdDevices.length === 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Zap className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">
                 {hasVfdFilters ? 'Sonuç bulunamadı' : 'Henüz VFD cihazı kaydedilmemiş'}
@@ -1368,7 +1368,7 @@ const DevicesPage: React.FC = () => {
                     </p>
                   </div>
                   <StatusBadge isConnected={device.connectionStatus?.isConnected} />
-                  <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                  <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                     {device.status}
                   </span>
                   <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500" />
@@ -1379,7 +1379,7 @@ const DevicesPage: React.FC = () => {
 
           {/* Pagination */}
           {!vfdLoading && vfdTotalPages > 1 && (
-            <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-3">
+            <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-3">
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {vfdTotal} cihaz · Sayfa {vfdPage}/{vfdTotalPages}
               </p>

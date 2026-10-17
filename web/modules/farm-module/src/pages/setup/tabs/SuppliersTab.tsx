@@ -44,8 +44,8 @@ import {
 const typeColors: Record<string, string> = {
   EQUIPMENT: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   FEED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
-  CHEMICAL: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  SERVICE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  CHEMICAL: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  SERVICE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   FRY: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
@@ -428,7 +428,7 @@ export const SuppliersTab: React.FC = () => {
           {filteredSuppliers.map((supplier) => (
             <div
               key={supplier.id}
-              className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
+              className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 hover:shadow-(--shadow-sd-md) transition-shadow"
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -440,12 +440,12 @@ export const SuppliersTab: React.FC = () => {
                   </div>
                   <div className="flex flex-col gap-1 items-end">
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[supplier.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${typeColors[supplier.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {typeLabels[supplier.type] || supplier.type}
                     </span>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[supplier.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[supplier.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {statusLabels[supplier.status] || supplier.status}
                     </span>

@@ -84,7 +84,7 @@ const EmployeeDetailPage: React.FC = () => {
         actions={
           <Link
             to={`/hr/employees/${employeeId}/edit`}
-            className="flex items-center gap-2 px-4 py-2 bg-accent-600 text-white rounded-lg hover:bg-accent-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
           >
             <Edit className="w-4 h-4" />
             Edit
@@ -94,10 +94,10 @@ const EmployeeDetailPage: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Profile Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
+        <div className="bg-white rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
           <div className="flex flex-col items-center text-center">
-            <div className="w-24 h-24 rounded-full bg-accent-100 flex items-center justify-center mb-4 dark:bg-accent-900/30">
-              <span className="text-3xl font-bold text-accent-600 dark:text-accent-400">
+            <div className="w-24 h-24 rounded-full bg-primary-100 flex items-center justify-center mb-4 dark:bg-primary-900/30">
+              <span className="text-3xl font-bold text-primary-600 dark:text-primary-400">
                 {employee.firstName?.[0]}
                 {employee.lastName?.[0]}
               </span>
@@ -105,7 +105,7 @@ const EmployeeDetailPage: React.FC = () => {
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{fullName}</h2>
             <p className="text-gray-500 dark:text-gray-400">{employee.position}</p>
             <span
-              className={`mt-2 px-3 py-1 rounded-full text-sm font-medium ${
+              className={`mt-2 px-3 py-1 rounded-md text-sm font-medium ${
                 employee.status === EmployeeStatus.ACTIVE
                   ? 'bg-success-100 text-success-800 dark:bg-success-900/30 dark:text-success-400'
                   : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
@@ -147,7 +147,7 @@ const EmployeeDetailPage: React.FC = () => {
         {/* Details */}
         <div className="lg:col-span-2 space-y-6">
           {/* Work Info */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
+          <div className="bg-white rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               Work Information
             </h3>
@@ -196,9 +196,9 @@ const EmployeeDetailPage: React.FC = () => {
             </Link>
             <Link
               to={`/hr/leaves?employee=${employeeId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-warning-200 hover:bg-warning-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-warning-800"
+              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-gray-600"
             >
-              <Calendar className="w-8 h-8 text-warning-600 dark:text-warning-400 mb-2" />
+              <Calendar className="w-8 h-8 text-gray-600 dark:text-gray-400 mb-2" />
               <span className="text-sm font-medium text-gray-900 dark:text-white">Leaves</span>
             </Link>
             {/* SEC-005: only show payroll link to authorised roles */}
@@ -213,9 +213,9 @@ const EmployeeDetailPage: React.FC = () => {
             )}
             <Link
               to={`/hr/performance?employee=${employeeId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-accent-200 hover:bg-accent-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-accent-800"
+              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-gray-600"
             >
-              <Award className="w-8 h-8 text-accent-600 dark:text-accent-400 mb-2" />
+              <Award className="w-8 h-8 text-gray-600 dark:text-gray-400 mb-2" />
               <span className="text-sm font-medium text-gray-900 dark:text-white">Performance</span>
             </Link>
             <Link

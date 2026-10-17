@@ -86,7 +86,7 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
       {/* Labour Cost table */}
-      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800 lg:col-span-2">
+      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800 lg:col-span-2">
         <div className="border-b border-gray-100 px-5 py-4 dark:border-gray-700">
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">Labour Cost</h2>
         </div>
@@ -119,7 +119,7 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
       {/* Fund rates editor */}
       <form
         onSubmit={handleSaveRates}
-        className="space-y-4 rounded-xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+        className="space-y-4 rounded-xl border border-gray-100 bg-white p-5 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800"
       >
         <h2 className="text-base font-semibold text-gray-900 dark:text-white">Fund rates</h2>
         <p className="text-xs text-gray-500 dark:text-gray-400">

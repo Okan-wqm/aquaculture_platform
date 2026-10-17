@@ -7,7 +7,7 @@
 
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Spinner } from '@aquaculture/shared-ui';
+import { PageTitle, Spinner } from '@aquaculture/shared-ui';
 
 // All pages are lazy-loaded to minimize initial chunk size (PERF-010)
 const HRDashboardPage = lazy(() => import('./pages/HRDashboardPage'));
@@ -45,7 +45,7 @@ function PageLoader() {
 function PlaceholderPage({ title }: { title: string }) {
   return (
     <div className="flex h-64 flex-col items-center justify-center p-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
+      <PageTitle className="text-2xl font-bold text-gray-900 dark:text-white">{title}</PageTitle>
       <p className="mt-2 text-gray-500 dark:text-gray-400">This page is coming soon.</p>
     </div>
   );

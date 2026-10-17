@@ -251,7 +251,7 @@ function ProtocolGroup({
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center">
             {title}
             {recommended && (
-              <span className="ml-2 text-xs bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 px-2 py-0.5 rounded-full">
+              <span className="ml-2 text-xs bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 px-2 py-0.5 rounded">
                 Önerilen
               </span>
             )}
@@ -269,9 +269,9 @@ function ProtocolGroup({
             <button
               key={protocol}
               onClick={() => onSelect(protocol)}
-              className={`relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md ${
+              className={`relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-(--shadow-sd-md) ${
                 isSelected
-                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 shadow-md'
+                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 shadow-(--shadow-sd-md)'
                   : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500'
               }`}
             >

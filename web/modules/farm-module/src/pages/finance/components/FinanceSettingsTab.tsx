@@ -69,7 +69,7 @@ export const FinanceSettingsTab: React.FC = () => {
     <div className="max-w-xl">
       <form
         onSubmit={handleSave}
-        className="space-y-5 rounded-lg bg-white dark:bg-gray-900 p-6 shadow"
+        className="space-y-5 rounded-lg bg-white dark:bg-gray-900 p-6 shadow-(--shadow-sd-sm)"
       >
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">

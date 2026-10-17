@@ -41,7 +41,7 @@ export const WidgetTemplatePanel: React.FC = () => {
 
   if (widgetTemplates.length === 0) {
     return (
-      <div className="w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-4">
+      <div className="w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) p-4">
         <div className="flex items-center gap-2 mb-3">
           <Bookmark className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Templates</span>
@@ -54,7 +54,7 @@ export const WidgetTemplatePanel: React.FC = () => {
   }
 
   return (
-    <div className="w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden">
+    <div className="w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-(--shadow-sd-lg) overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700">
         <Bookmark className="w-4 h-4 text-gray-500 dark:text-gray-400" />
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Templates</span>

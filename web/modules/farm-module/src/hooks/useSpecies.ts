@@ -499,13 +499,10 @@ export const speciesStatusColors: Record<SpeciesStatus, string> = {
 
 export const speciesCategoryColors: Record<SpeciesCategory, string> = {
   [SpeciesCategory.FISH]: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  [SpeciesCategory.SHRIMP]:
-    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  [SpeciesCategory.PRAWN]:
-    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [SpeciesCategory.SHRIMP]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  [SpeciesCategory.PRAWN]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   [SpeciesCategory.CRAB]: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  [SpeciesCategory.LOBSTER]:
-    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [SpeciesCategory.LOBSTER]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   [SpeciesCategory.MOLLUSK]: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   [SpeciesCategory.SEAWEED]:
     'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',

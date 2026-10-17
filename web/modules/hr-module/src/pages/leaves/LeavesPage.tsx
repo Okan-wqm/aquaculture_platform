@@ -354,7 +354,7 @@ export function LeavesPage() {
         >
           Pending Approvals
           {pendingApprovals && pendingApprovals.length > 0 && (
-            <span className="rounded-full bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs font-medium text-warning-700 dark:text-warning-300">
+            <span className="rounded-md bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs font-medium text-warning-700 dark:text-warning-300">
               {pendingApprovals.length}
             </span>
           )}

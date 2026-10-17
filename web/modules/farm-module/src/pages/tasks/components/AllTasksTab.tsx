@@ -124,7 +124,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
         const cat = CATEGORY_CONFIG[task.category];
         return (
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cat.bg} ${cat.color}`}
           >
             {cat.label}
           </span>
@@ -138,7 +138,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
         const pri = PRIORITY_CONFIG[task.priority];
         return (
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${pri.bg} ${pri.color}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${pri.bg} ${pri.color}`}
           >
             {pri.label}
           </span>
@@ -169,7 +169,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
         const sts = STATUS_CONFIG[task.status];
         return (
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${sts.bg} ${sts.color}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${sts.bg} ${sts.color}`}
           >
             {sts.label}
           </span>
@@ -282,7 +282,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
       )}
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
         <DataTable<TaskRow>
           data={filtered}
           columns={taskRowColumns}

@@ -737,7 +737,7 @@ const PayrollPage: React.FC = () => {
   if (!isAuthorised) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-4 p-6 text-center">
-        <div className="rounded-full bg-error-100 p-4 dark:bg-error-900/30">
+        <div className="rounded-lg bg-error-100 p-4 dark:bg-error-900/30">
           <Lock className="h-8 w-8 text-error-600 dark:text-error-400" />
         </div>
         <div>
@@ -835,7 +835,7 @@ const PayrollPage: React.FC = () => {
         >
           Pending Approval
           {pendingCount > 0 && (
-            <span className="rounded-full bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs font-medium text-warning-700 dark:text-warning-300">
+            <span className="rounded-md bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs font-medium text-warning-700 dark:text-warning-300">
               {pendingCount}
             </span>
           )}

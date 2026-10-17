@@ -323,7 +323,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="text-center py-4">
-          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-error-100 dark:bg-error-900/40 flex items-center justify-center">
+          <div className="w-12 h-12 mx-auto mb-2 rounded bg-error-100 dark:bg-error-900/40 flex items-center justify-center">
             <CircleAlert
               className="w-6 h-6 text-error-600 dark:text-error-400"
               aria-hidden="true"
@@ -340,7 +340,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="text-center py-8">
-          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+          <div className="w-12 h-12 mx-auto mb-2 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
             <Lightbulb className="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" />
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400">Su kalitesi verisi yok</p>
@@ -350,9 +350,11 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
     );
   }
 
+  // The hover lift reads the console elevation token (ink-tinted in Drawing,
+  // a lit edge in Control room), not Tailwind's fixed-black `shadow-md`.
   return (
     <Card
-      className={`p-4 ${config.bgColor} ${config.borderColor} border ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''} ${className}`}
+      className={`p-4 ${config.bgColor} ${config.borderColor} border ${onClick ? 'cursor-pointer hover:shadow-(--shadow-sd-md) transition-shadow' : ''} ${className}`}
       onClick={onClick}
     >
       {/* Header */}

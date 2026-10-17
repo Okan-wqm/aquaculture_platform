@@ -46,6 +46,7 @@ import {
   Textarea,
 } from '@aquaculture/shared-ui';
 import { logError, sanitizeErrorMessage } from '../utils/error-handling';
+import { SelectableRow } from '../components/ui/SelectableRow';
 import {
   useSupportTickets,
   useTicketComments,
@@ -289,7 +290,7 @@ const RatingModal: React.FC<{
             <Star
               className={`w-8 h-8 ${
                 star <= (hoveredRating || rating)
-                  ? 'text-warning-400 fill-warning-400'
+                  ? 'text-primary-500 fill-primary-500'
                   : 'text-gray-500 dark:text-gray-400'
               }`}
             />
@@ -397,14 +398,17 @@ export const TenantSupportPage: React.FC = () => {
     return true;
   });
 
+  // Priority in the console's two hazard colours, strongest first (README
+  // §7.5, §7.8): critical the red tint, high the amber tint, medium an amber
+  // outline on the surface, low neutral.
   const getPriorityColor = (priority: TicketPriority) => {
     switch (priority) {
       case 'critical':
         return 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 border-error-200 dark:border-error-800';
       case 'high':
-        return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border-accent-200 dark:border-accent-800';
-      case 'medium':
         return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800';
+      case 'medium':
+        return 'text-warning-700 dark:text-warning-300 border-warning-600 dark:border-warning-400';
       case 'low':
         return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700';
     }
@@ -415,7 +419,7 @@ export const TenantSupportPage: React.FC = () => {
       case 'open':
         return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
       case 'in_progress':
-        return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
+        return 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300';
       case 'waiting_customer':
         return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300';
       case 'resolved':
@@ -578,9 +582,9 @@ export const TenantSupportPage: React.FC = () => {
               {stats.open}
             </div>
           </div>
-          <div className="bg-accent-50 dark:bg-accent-900/20 rounded-lg p-3">
-            <div className="text-sm text-accent-600 dark:text-accent-400">In Progress</div>
-            <div className="text-xl font-semibold text-accent-700 dark:text-accent-300">
+          <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg p-3">
+            <div className="text-sm text-primary-600 dark:text-primary-400">In Progress</div>
+            <div className="text-xl font-semibold text-primary-700 dark:text-primary-300">
               {stats.inProgress}
             </div>
           </div>
@@ -641,7 +645,7 @@ export const TenantSupportPage: React.FC = () => {
                   placeholder="Search tickets..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-success-500 focus:border-success-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -663,14 +667,11 @@ export const TenantSupportPage: React.FC = () => {
             {/* Ticket List */}
             <div className="flex-1 overflow-y-auto">
               {filteredTickets.map((ticket) => (
-                <div
+                <SelectableRow
                   key={ticket.id}
-                  onClick={() => setSelectedTicketId(ticket.id)}
-                  className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                    selectedTicket?.id === ticket.id
-                      ? 'bg-success-50 dark:bg-success-900/20 border-l-4 border-l-green-500'
-                      : ''
-                  }`}
+                  current={selectedTicket?.id === ticket.id}
+                  onSelect={() => setSelectedTicketId(ticket.id)}
+                  className="p-4 border-b border-gray-100 dark:border-gray-700"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
@@ -686,7 +687,7 @@ export const TenantSupportPage: React.FC = () => {
                           {getStatusLabel(ticket.status)}
                         </span>
                         {ticket.status === 'waiting_customer' && (
-                          <span className="px-2 py-0.5 text-xs rounded bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300">
+                          <span className="px-2 py-0.5 text-xs rounded bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300">
                             Action Required
                           </span>
                         )}
@@ -721,10 +722,11 @@ export const TenantSupportPage: React.FC = () => {
                     </div>
                     <ChevronRight
                       size={18}
+                      aria-hidden="true"
                       className="text-gray-500 dark:text-gray-400 flex-shrink-0"
                     />
                   </div>
-                </div>
+                </SelectableRow>
               ))}
 
               {filteredTickets.length === 0 && (
@@ -930,7 +932,7 @@ export const TenantSupportPage: React.FC = () => {
                           size={16}
                           className={
                             star <= selectedTicket.satisfactionRating!
-                              ? 'text-warning-500 fill-warning-500'
+                              ? 'text-primary-500 fill-primary-500'
                               : 'text-gray-500 dark:text-gray-400'
                           }
                         />

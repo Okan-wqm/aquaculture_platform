@@ -36,6 +36,10 @@ vi.mock(
   '../../../../hooks/useProcessFlows',
   async () => (await import('./structureFixtures')).processFlowsHooks,
 );
+vi.mock(
+  '../useSiteElectricity',
+  async () => (await import('./structureFixtures')).siteElectricityHooks,
+);
 
 beforeEach(() => {
   resetState();

@@ -54,20 +54,23 @@ const TypeIcon: React.FC<{ type: string; className?: string }> = ({
   className = 'w-4 h-4',
 }) => {
   const normalizedType = type?.toLowerCase() || 'unknown';
+  // One neutral colour for every type: the glyph names the measurement, and in the
+  // console only red and amber signal (Industry README §7.8), so a type painted in
+  // either would read as an alarm.
   const icons: Record<string, React.ReactNode> = {
-    temperature: <Thermometer className={`${className} text-accent-500`} />,
-    dissolved_oxygen: <Droplets className={`${className} text-info-500`} />,
-    ph: <Gauge className={`${className} text-accent-500`} />,
-    salinity: <Activity className={`${className} text-info-500`} />,
-    ammonia: <Activity className={`${className} text-warning-500`} />,
-    turbidity: <Activity className={`${className} text-warning-500`} />,
-    conductivity: <Activity className={`${className} text-primary-500`} />,
-    water_level: <Activity className={`${className} text-info-600 dark:text-info-400`} />,
-    flow_rate: <Activity className={`${className} text-info-500`} />,
-    pressure: <Gauge className={`${className} text-error-500`} />,
-    voltage: <Activity className={`${className} text-success-500`} />,
-    current: <Activity className={`${className} text-accent-500`} />,
-    power: <Activity className={`${className} text-accent-500`} />,
+    temperature: <Thermometer className={`${className} text-gray-500 dark:text-gray-400`} />,
+    dissolved_oxygen: <Droplets className={`${className} text-gray-500 dark:text-gray-400`} />,
+    ph: <Gauge className={`${className} text-gray-500 dark:text-gray-400`} />,
+    salinity: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
+    ammonia: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
+    turbidity: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
+    conductivity: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
+    water_level: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
+    flow_rate: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
+    pressure: <Gauge className={`${className} text-gray-500 dark:text-gray-400`} />,
+    voltage: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
+    current: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
+    power: <Activity className={`${className} text-gray-500 dark:text-gray-400`} />,
   };
 
   return (

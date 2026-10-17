@@ -17,20 +17,22 @@
 }
 
 
-/* Scrollbar Styling */
+/* Scrollbar Styling — the console's neutral bar (the shell's .scrollbar-thin):
+   gray is the graphite ramp inside the console scope, and the legacy tenant
+   green is not an Industry colour (README §7.8). */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-gray-100 dark:bg-slate-800;
+  @apply bg-gray-100 dark:bg-gray-800;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-green-400 dark:bg-green-600 rounded-full;
+  @apply bg-gray-300 dark:bg-gray-600 rounded-full;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-green-500 dark:bg-green-700;
+  @apply bg-gray-400 dark:bg-gray-500;
 }

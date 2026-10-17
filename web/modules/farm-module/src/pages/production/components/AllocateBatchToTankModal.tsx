@@ -167,7 +167,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
                 htmlFor="alloc-quantity"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Quantity <span className="text-accent-500">*</span>
+                Quantity <span className="text-error-500">*</span>
               </label>
               <Input
                 fullWidth
@@ -183,7 +183,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
                 htmlFor="alloc-weight"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Avg weight (g) <span className="text-accent-500">*</span>
+                Avg weight (g) <span className="text-error-500">*</span>
               </label>
               <Input
                 fullWidth
@@ -260,7 +260,6 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || allocate.isPending}
-            className="bg-accent-600 hover:bg-accent-700"
           >
             {allocate.isPending ? 'Allocating…' : 'Allocate to tank'}
           </Button>

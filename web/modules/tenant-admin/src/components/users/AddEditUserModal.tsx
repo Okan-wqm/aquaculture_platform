@@ -173,7 +173,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
               onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
               placeholder="user@example.com"
               disabled={isEditing}
-              className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-success-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 ${
+              className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 ${
                 validationErrors.email
                   ? 'border-error-300 dark:border-error-700'
                   : 'border-gray-200 dark:border-gray-700'
@@ -200,7 +200,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                   }))
                 }
                 placeholder="John"
-                className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-success-500 ${
+                className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-primary-500 ${
                   validationErrors.firstName
                     ? 'border-error-300 dark:border-error-700'
                     : 'border-gray-200 dark:border-gray-700'
@@ -224,7 +224,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                   }))
                 }
                 placeholder="Doe"
-                className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-success-500 ${
+                className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-primary-500 ${
                   validationErrors.lastName
                     ? 'border-error-300 dark:border-error-700'
                     : 'border-gray-200 dark:border-gray-700'
@@ -280,10 +280,10 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                     key={role.id}
                     className={`
                         flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer
-                        transition-all hover:border-success-300 dark:hover:border-success-600
+                        transition-all hover:border-primary-300 dark:hover:border-primary-600
                         ${
                           formData.roleId === role.id
-                            ? 'border-success-500 bg-success-50 dark:bg-success-900/20'
+                            ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
                             : 'border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-900'
                         }
                       `}
@@ -323,7 +323,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                       )}
                     </div>
                     {formData.roleId === role.id && (
-                      <Check className="w-5 h-5 text-success-600 dark:text-success-400" />
+                      <Check className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                     )}
                   </label>
                 ))}
@@ -347,7 +347,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                     sendInvitation: e.target.checked,
                   }))
                 }
-                className="rounded border-gray-300 dark:border-gray-600 text-success-600 focus:ring-success-500"
+                className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
               />
               <label htmlFor="sendInvitation" className="flex-1">
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">

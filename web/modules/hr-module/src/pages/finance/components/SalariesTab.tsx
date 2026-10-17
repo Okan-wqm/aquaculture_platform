@@ -69,7 +69,7 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
       searchable={false}
       sortable={false}
       stickyHeader={false}
-      className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
+      className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-(--shadow-sd-sm)"
     />
   );
 };

@@ -30,6 +30,7 @@ import {
 } from '@platform/sensor-contracts/validators';
 
 import { AutomationService } from '../../automation/automation.service';
+import type { RecordedActor } from '../../common/recorded-actor';
 import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';
 import { ProgramVariable } from '../../automation/entities/program-variable.entity';
 import { ArtifactService, canonicalJsonStringify } from '../../deploy-artifact/artifact.service';
@@ -1368,14 +1369,18 @@ export class ScadaPackageService {
    *
    * Bundles are ALWAYS signed — the builder refuses to run without the
    * signing key rather than shipping an unsigned bundle.
+   *
+   * `actor` is who deploys: each program's deployment log records its id and
+   * e-mail (the command log names the person); the SCADA side keeps the id.
    */
   async deployScadaWithAutomation(
     packageId: string,
     deviceId: string,
     tenantId: string,
-    userId?: string,
+    actor: RecordedActor,
     programIdOverrides?: string[],
   ): Promise<UnifiedDeployResult> {
+    const userId = actor.userId;
     const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
     if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
     this.assertPackageDeployable(pkg);
@@ -1438,7 +1443,7 @@ export class ScadaPackageService {
           programId,
           deviceId,
           tenantId,
-          userId || 'system',
+          actor,
         );
         artifactRefs.push({
           artifactId: prep.artifactId,

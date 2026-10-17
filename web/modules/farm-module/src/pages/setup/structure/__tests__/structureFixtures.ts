@@ -9,6 +9,8 @@
  * WHAT: one site (SITE-A) › department A-BUY › system RAS-1 › pump P-101, with
  * switches for the cases the specs exercise.
  */
+import type { SiteElectricityState } from '../useSiteElectricity';
+
 export interface FlowFixture {
   id: string;
   name: string;
@@ -19,6 +21,12 @@ export interface FlowFixture {
 export interface StructureFixtureState {
   /** useCanMutate('deleteSite') — whether the delete-preview counts are readable. */
   canRead: boolean;
+  /** useCanReadFinance() — whether the role may see cost figures. */
+  canReadFinance: boolean;
+  /** What useSiteElectricity answers for the selected site. */
+  electricity: SiteElectricityState;
+  /** Every site id useSiteElectricity was asked about. */
+  electricitySites: string[];
   primaryContact: boolean;
   /** The contacts read still shows the PREVIOUS site's list (keepPreviousData). */
   contactsPlaceholder: boolean;
@@ -34,8 +42,17 @@ export interface StructureFixtureState {
   flowScopes: unknown[];
 }
 
+/** The electricity SITE-A booked this month, as the ledger total reports it. */
+export const BOOKED_ELECTRICITY: SiteElectricityState = {
+  status: 'ready',
+  totals: [{ currency: 'TRY', amount: 12345.6 }],
+};
+
 export const state: StructureFixtureState = {
   canRead: true,
+  canReadFinance: true,
+  electricity: BOOKED_ELECTRICITY,
+  electricitySites: [],
   primaryContact: true,
   contactsPlaceholder: false,
   managerName: null,
@@ -50,6 +67,9 @@ export const state: StructureFixtureState = {
 export function resetState(): void {
   Object.assign(state, {
     canRead: true,
+    canReadFinance: true,
+    electricity: BOOKED_ELECTRICITY,
+    electricitySites: [],
     primaryContact: true,
     contactsPlaceholder: false,
     managerName: null,
@@ -216,5 +236,16 @@ export const processFlowsHooks = {
       flows: state.flows.map((flow) => ({ ...flow, siteId: 'site-a', departmentId: null })),
       total: state.flowsTotal ?? state.flows.length,
     });
+  },
+};
+
+export const financeAccessHooks = {
+  useCanReadFinance: (): boolean => state.canReadFinance,
+};
+
+export const siteElectricityHooks = {
+  useSiteElectricity: (siteId: string): SiteElectricityState => {
+    state.electricitySites.push(siteId);
+    return state.electricity;
   },
 };

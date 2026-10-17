@@ -45,16 +45,19 @@ function getInitials(firstName?: string, lastName?: string): string {
   return first + last || '?';
 }
 
+// The initials sit on a workspace-accent or graphite fill: under the Industry
+// console amber and red signal risk only (README §7.8), so a person's avatar
+// never takes them, and every step keeps the initials at 4.5:1 in both themes.
 function getAvatarColor(name: string): string {
   const colors = [
-    'bg-info-500',
-    'bg-success-500',
-    'bg-warning-500',
-    'bg-error-500',
-    'bg-accent-500',
-    'bg-accent-500',
-    'bg-primary-500',
-    'bg-info-500',
+    'bg-primary-600',
+    'bg-gray-600',
+    'bg-primary-700',
+    'bg-gray-700',
+    'bg-primary-800',
+    'bg-gray-600',
+    'bg-primary-700',
+    'bg-gray-700',
   ];
 
   let hash = 0;

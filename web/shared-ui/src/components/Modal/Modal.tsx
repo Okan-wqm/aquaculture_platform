@@ -180,9 +180,9 @@ export const Modal: React.FC<ModalProps> = ({
       aria-describedby={description ? descriptionId : describedBy}
       {...dialogThemeAttributes(theme)}
     >
-      {/* Overlay — Suderra deep water, blurred (FE-HIGH-313) */}
+      {/* Overlay — the console scrim (sd-scrim), blurred (FE-HIGH-313) */}
       <div
-        className="fixed inset-0 bg-sd-rail-bottom/45 backdrop-blur-sm transition-opacity"
+        className="fixed inset-0 bg-sd-scrim/45 backdrop-blur-sm transition-opacity"
         onClick={handleOverlayClick}
         aria-hidden="true"
       />

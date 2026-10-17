@@ -87,7 +87,7 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
             </span>
           )}
           {forecast.poolScope === 'SITE' && (
-            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+            <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
               {t('feedingV2.forecast.poolScopeSite')}
             </span>
           )}

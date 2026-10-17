@@ -64,7 +64,7 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
       <div className="p-4 space-y-4">
         {/* Equipment Preview */}
         <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
-          <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
+          <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm)">
             <Icon size={32} className="text-gray-700 dark:text-gray-300" />
           </div>
           <div className="flex-1 min-w-0">
@@ -79,7 +79,7 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
             )}
           </div>
           <span
-            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+            className={`px-2 py-0.5 rounded text-xs font-medium ${
               equipment.status === 'operational' || equipment.status === 'active'
                 ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                 : equipment.status === 'maintenance'

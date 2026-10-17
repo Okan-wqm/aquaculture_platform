@@ -33,9 +33,10 @@ function senderName(m: Message, fallback: string): string {
 }
 
 /**
- * Chat room — SUDERRA Tenant Console design (mockup "Messages" right card):
- * mint-gradient own bubbles, violet-tinted AI bubbles, author lines, mint
- * focus rings, teal send button, Enter-to-send / Shift+Enter newline.
+ * Chat room — Tenant Console, Industry (the prototype's message thread):
+ * square bubbles (own message in the workspace-accent tint, AI in the violet
+ * tint), author lines, the accent focus outline, the square accent send
+ * button and new-messages button, Enter-to-send / Shift+Enter newline.
  *
  * DATA SOURCE: 100% real — messaging-service `messages` query,
  * `sendMessage` + `markMessagesRead` mutations, and Socket.IO live updates.
@@ -413,6 +414,9 @@ const ChatRoomPage: React.FC = () => {
               <span className="text-[13.5px] font-semibold text-sd-danger-ink">{t(bannerKey)}</span>
             </div>
           )}
+          {/* Square like every Industry control: the Button's own radius token,
+              which the console scope squares — a `rounded-full` pill reads no
+              token and would stay round. */}
           {unseenCount > 0 && (
             <Button
               type="button"
@@ -421,7 +425,7 @@ const ChatRoomPage: React.FC = () => {
               aria-live="polite"
               onClick={jumpToLatest}
               leftIcon={<ChevronDown size={13} aria-hidden />}
-              className="mx-auto mb-2 flex rounded-full bg-sd-teal-deep text-sd-mint-paper"
+              className="mx-auto mb-2 flex bg-sd-teal-deep text-sd-mint-paper"
             >
               {t('messaging.newMessages', { count: unseenCount })}
             </Button>

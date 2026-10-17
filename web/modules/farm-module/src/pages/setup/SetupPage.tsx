@@ -170,12 +170,12 @@ export const SetupPage: React.FC = () => {
                   <button
                     type="button"
                     disabled
-                    className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 cursor-not-allowed"
+                    className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-(--shadow-sd-sm) text-sm font-medium text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 cursor-not-allowed"
                   >
                     <Upload className="w-4 h-4 mr-2" aria-hidden="true" />
                     Import
                   </button>
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-sm whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-(--shadow-sd-sm) whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                     Coming Soon
                   </span>
                 </div>
@@ -183,12 +183,12 @@ export const SetupPage: React.FC = () => {
                   <button
                     type="button"
                     disabled
-                    className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 cursor-not-allowed"
+                    className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-(--shadow-sd-sm) text-sm font-medium text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 cursor-not-allowed"
                   >
                     <Download className="w-4 h-4 mr-2" aria-hidden="true" />
                     Export
                   </button>
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-sm whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-(--shadow-sd-sm) whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                     Coming Soon
                   </span>
                 </div>

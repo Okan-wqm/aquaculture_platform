@@ -274,7 +274,7 @@ export function ReviewStep({
                   {/* Configuration summary */}
                   <div className="mt-2 ml-9 flex flex-wrap gap-1.5">
                     {sensor.calibrationEnabled && (
-                      <span className="px-1.5 py-0.5 bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300 text-xs rounded">
+                      <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs rounded">
                         Calibration: x{sensor.calibrationMultiplier} +{sensor.calibrationOffset}
                       </span>
                     )}
@@ -291,7 +291,7 @@ export function ReviewStep({
                       </span>
                     )}
                     {sensor.displaySettings?.showOnDashboard && (
-                      <span className="px-1.5 py-0.5 bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300 text-xs rounded">
+                      <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs rounded">
                         Dashboard
                       </span>
                     )}
@@ -334,7 +334,7 @@ export function ReviewStep({
             <div className="text-xs text-gray-500 dark:text-gray-400">Child Sensors</div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg p-3">
-            <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
+            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {1 + selectedChildSensors.length}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Total Records</div>

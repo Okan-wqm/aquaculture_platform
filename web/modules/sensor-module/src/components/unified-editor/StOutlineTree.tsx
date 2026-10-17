@@ -48,15 +48,15 @@ interface StOutlineTreeProps {
 
 const KIND_CONFIG: Record<OutlineNode['kind'], { icon: LucideIcon; color: string }> = {
   program: { icon: Code2, color: 'text-info-400' },
-  functionBlock: { icon: FunctionSquare, color: 'text-accent-400' },
+  functionBlock: { icon: FunctionSquare, color: 'text-primary-400' },
   function: { icon: FunctionSquare, color: 'text-info-400' },
   method: { icon: FunctionSquare, color: 'text-info-300' },
   property: { icon: Variable, color: 'text-success-300' },
-  varBlock: { icon: Braces, color: 'text-warning-400' },
+  varBlock: { icon: Braces, color: 'text-primary-300' },
   variable: { icon: Variable, color: 'text-success-400' },
-  type: { icon: Box, color: 'text-accent-400' },
-  struct: { icon: Layers, color: 'text-accent-300' },
-  enum: { icon: List, color: 'text-accent-400' },
+  type: { icon: Box, color: 'text-primary-400' },
+  struct: { icon: Layers, color: 'text-primary-300' },
+  enum: { icon: List, color: 'text-primary-400' },
 };
 
 const StOutlineTree: React.FC<StOutlineTreeProps> = ({ outline, onNavigate, activeLineNumber }) => {

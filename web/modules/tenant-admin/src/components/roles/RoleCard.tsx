@@ -49,7 +49,7 @@ export interface RoleBadgeProps {
 export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-white"
       style={{ backgroundColor: role.color || DEFAULT_ROLE_COLOR }}
     >
       <Shield className="w-3 h-3" aria-hidden="true" />
@@ -83,7 +83,7 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
  */
 export const RoleCard: React.FC<RoleCardProps> = ({ role, onEdit, onDelete }) => {
   return (
-    <div className={`${SD_CARD} p-5 transition-shadow hover:shadow-md`}>
+    <div className={`${SD_CARD} p-5 transition-colors hover:border-primary-500`}>
       {/* Role Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
@@ -95,11 +95,11 @@ export const RoleCard: React.FC<RoleCardProps> = ({ role, onEdit, onDelete }) =>
             <Shield className="w-5 h-5" style={{ color: role.color || DEFAULT_ROLE_COLOR }} />
           </div>
           <div>
-            <h3 className="font-display text-xl leading-tight text-gray-900 dark:text-gray-100">
+            <h3 className="font-display text-xl font-semibold leading-tight text-gray-900 dark:text-gray-100">
               {role.name}
             </h3>
             {role.isSystem && (
-              <span className="text-xs text-warning-600 dark:text-warning-400 font-medium">
+              <span className="text-xs text-primary-700 dark:text-primary-300 font-medium">
                 System Role
               </span>
             )}

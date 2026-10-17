@@ -48,7 +48,7 @@ export const WizardStepIndicator: React.FC<WizardStepIndicatorProps> = ({
               {/* Circle */}
               <div
                 className={`
-                  flex items-center justify-center rounded-full text-sm font-medium
+                  flex items-center justify-center rounded text-sm font-medium
                   ${compact ? 'w-6 h-6' : 'w-8 h-8'}
                   ${
                     index < currentStep

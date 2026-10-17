@@ -56,7 +56,7 @@ const DeleteConfirmDialog: React.FC<{
 }> = ({ config, onConfirm, onCancel, isDeleting }) => (
   <Modal isOpen onClose={onCancel} size="sm" showCloseButton={false}>
     <div className="flex items-start">
-      <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-error-100 dark:bg-error-900/40 sm:mx-0 sm:h-10 sm:w-10">
+      <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded bg-error-100 dark:bg-error-900/40 sm:mx-0 sm:h-10 sm:w-10">
         <TriangleAlert className="h-6 w-6 text-error-600 dark:text-error-400" aria-hidden="true" />
       </div>
       <div className="ml-4">
@@ -286,7 +286,7 @@ export const ParameterConfigManager: React.FC = () => {
       render: (_value, config) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGroupColor(config.group)}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${getGroupColor(config.group)}`}
           >
             {getGroupLabel(config.group)}
           </span>
@@ -365,7 +365,7 @@ export const ParameterConfigManager: React.FC = () => {
             aria-checked={config.isActive}
           >
             <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) ring-0 transition duration-200 ease-in-out ${
                 config.isActive ? 'translate-x-5' : 'translate-x-0'
               }`}
             />
@@ -449,7 +449,7 @@ export const ParameterConfigManager: React.FC = () => {
       </div>
 
       {/* Parameter Table */}
-      <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) rounded-lg overflow-hidden">
         <DataTable<ConfigRow>
           data={sortedConfigs}
           columns={configRowColumns}

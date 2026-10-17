@@ -284,7 +284,10 @@ function groupScadaByCategory(): Record<string, ScadaTemplate[]> {
 
 const SCADA_BY_CATEGORY = groupScadaByCategory();
 
-// Badge color mapping
+// Badge color mapping. The keys are the templates' colour names; the values stay off
+// red and amber (Industry README §7.8: in the console only alarms carry those hues), so
+// a category painted 'red' or 'amber' renders neutral, and a raw hue (stone, slate)
+// never bypasses the console's scales or its dark theme.
 const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; badgeBg: string }> =
   {
     blue: {
@@ -294,10 +297,10 @@ const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; 
       badgeBg: 'bg-info-500',
     },
     amber: {
-      bg: 'bg-warning-50 dark:bg-warning-900/20',
-      hover: 'hover:bg-warning-100 dark:hover:bg-warning-900/50',
-      border: 'hover:border-warning-200 dark:hover:border-warning-700',
-      badgeBg: 'bg-warning-500',
+      bg: 'bg-gray-50 dark:bg-gray-800/40',
+      hover: 'hover:bg-gray-100 dark:hover:bg-gray-800',
+      border: 'hover:border-gray-300 dark:hover:border-gray-600',
+      badgeBg: 'bg-gray-500',
     },
     teal: {
       bg: 'bg-info-50 dark:bg-info-900/20',
@@ -312,10 +315,10 @@ const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; 
       badgeBg: 'bg-info-500',
     },
     stone: {
-      bg: 'bg-stone-50',
-      hover: 'hover:bg-stone-100',
-      border: 'hover:border-stone-300',
-      badgeBg: 'bg-stone-500',
+      bg: 'bg-gray-50 dark:bg-gray-800/40',
+      hover: 'hover:bg-gray-100 dark:hover:bg-gray-800',
+      border: 'hover:border-gray-300 dark:hover:border-gray-600',
+      badgeBg: 'bg-gray-500',
     },
     sky: {
       bg: 'bg-info-50 dark:bg-info-900/20',
@@ -324,10 +327,10 @@ const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; 
       badgeBg: 'bg-info-500',
     },
     slate: {
-      bg: 'bg-slate-50',
-      hover: 'hover:bg-slate-100',
-      border: 'hover:border-slate-300',
-      badgeBg: 'bg-slate-500',
+      bg: 'bg-gray-50 dark:bg-gray-800/40',
+      hover: 'hover:bg-gray-100 dark:hover:bg-gray-800',
+      border: 'hover:border-gray-300 dark:hover:border-gray-600',
+      badgeBg: 'bg-gray-500',
     },
     emerald: {
       bg: 'bg-success-50 dark:bg-success-900/20',
@@ -342,28 +345,28 @@ const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; 
       badgeBg: 'bg-primary-500',
     },
     purple: {
-      bg: 'bg-accent-50 dark:bg-accent-900/20',
-      hover: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
-      border: 'hover:border-accent-200 dark:hover:border-accent-700',
-      badgeBg: 'bg-accent-500',
+      bg: 'bg-gray-50 dark:bg-gray-800/40',
+      hover: 'hover:bg-gray-100 dark:hover:bg-gray-800',
+      border: 'hover:border-gray-300 dark:hover:border-gray-600',
+      badgeBg: 'bg-gray-500',
     },
     red: {
-      bg: 'bg-error-50 dark:bg-error-900/20',
-      hover: 'hover:bg-error-100 dark:hover:bg-error-900/50',
-      border: 'hover:border-error-200 dark:hover:border-error-700',
-      badgeBg: 'bg-error-500',
+      bg: 'bg-gray-50 dark:bg-gray-800/40',
+      hover: 'hover:bg-gray-100 dark:hover:bg-gray-800',
+      border: 'hover:border-gray-300 dark:hover:border-gray-600',
+      badgeBg: 'bg-gray-500',
     },
     orange: {
-      bg: 'bg-accent-50 dark:bg-accent-900/20',
-      hover: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
-      border: 'hover:border-accent-200 dark:hover:border-accent-700',
-      badgeBg: 'bg-accent-500',
+      bg: 'bg-gray-50 dark:bg-gray-800/40',
+      hover: 'hover:bg-gray-100 dark:hover:bg-gray-800',
+      border: 'hover:border-gray-300 dark:hover:border-gray-600',
+      badgeBg: 'bg-gray-500',
     },
     yellow: {
-      bg: 'bg-warning-50 dark:bg-warning-900/20',
-      hover: 'hover:bg-warning-100 dark:hover:bg-warning-900/50',
-      border: 'hover:border-warning-200 dark:hover:border-warning-700',
-      badgeBg: 'bg-warning-500',
+      bg: 'bg-gray-50 dark:bg-gray-800/40',
+      hover: 'hover:bg-gray-100 dark:hover:bg-gray-800',
+      border: 'hover:border-gray-300 dark:hover:border-gray-600',
+      badgeBg: 'bg-gray-500',
     },
     gray: {
       bg: 'bg-gray-100 dark:bg-gray-800',
@@ -625,7 +628,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
         <ChevronRight className="w-4 h-4" />
       )}
       <span>{label}</span>
-      <span className="ml-auto text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+      <span className="ml-auto text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
         {count}
       </span>
     </Button>
@@ -735,10 +738,11 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                     e.dataTransfer.effectAllowed = 'move';
                     onDragStart(e, template);
                   }}
-                  className="flex items-center gap-2 px-3 py-2 bg-warning-50 dark:bg-warning-900/20 hover:bg-warning-100 dark:hover:bg-warning-900/50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-warning-200 dark:hover:border-warning-700"
+                  className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-gray-200 dark:hover:border-gray-600"
                 >
                   <GripVertical className="w-4 h-4 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
-                  <div className="w-5 h-5 rounded-full bg-warning-400 border-2 border-warning-600" />
+                  {/* A palette item, not a caution: gray like its neighbours (README §7.8) */}
+                  <div className="w-5 h-5 rounded-full bg-gray-300 dark:bg-gray-600 border-2 border-gray-500 dark:border-gray-400" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                       {CONNECTION_POINT_TEMPLATE.name}
@@ -795,7 +799,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                   >
                     <GripVertical className="w-4 h-4 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
                     <div
-                      className="w-5 h-5 rounded-full border-2 border-white shadow-sm"
+                      className="w-5 h-5 rounded-full border-2 border-white shadow-(--shadow-sd-sm)"
                       style={{ backgroundColor: bag.color }}
                     />
                     <div className="flex-1 min-w-0">

@@ -124,6 +124,7 @@ export const DEPLOYMENT_HISTORY_QUERY = `
         status
         version
         deployedBy
+        deployedByEmail
         deployedAt
         completedAt
         edgeAckAt

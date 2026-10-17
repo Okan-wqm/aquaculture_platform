@@ -61,7 +61,7 @@ interface StatCardProps {
 // ============================================================================
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, icon, color, isLoading }) => (
-  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
     <div className="flex items-center justify-between">
       <div>
         <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{title}</p>
@@ -81,6 +81,8 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
   workArea,
   employeeCount,
 }) => {
+  // A work-area type is a category, not a state: neutral under the Industry
+  // console, never the amber / red that signal risk (README §7.8).
   const typeConfig: Record<string, { icon: React.ReactNode; color: string }> = {
     sea_cage: {
       icon: <Anchor className="h-5 w-5" />,
@@ -100,11 +102,11 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
     },
     processing_plant: {
       icon: <Building2 className="h-5 w-5" />,
-      color: 'text-warning-600 bg-warning-50 dark:bg-warning-900/30',
+      color: 'text-gray-600 bg-gray-50 dark:bg-gray-700',
     },
     hatchery: {
       icon: <Building2 className="h-5 w-5" />,
-      color: 'text-accent-600 bg-accent-50 dark:bg-accent-900/30',
+      color: 'text-gray-600 bg-gray-50 dark:bg-gray-700',
     },
     office: {
       icon: <Building2 className="h-5 w-5" />,
@@ -115,7 +117,7 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
   const config = typeConfig[workArea.workAreaType] || typeConfig.office;
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
+    <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-(--shadow-sd-md) dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className={cn('rounded-lg p-2', config.color)}>{config.icon}</div>
@@ -249,9 +251,9 @@ export function CrewAssignmentsPage() {
         header: 'Occupancy',
         render: (_value, row) => (
           <div className="flex items-center gap-2">
-            <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
+            <div className="h-2 w-24 rounded-sm bg-gray-200 dark:bg-gray-700">
               <div
-                className="h-full rounded-full bg-primary-500"
+                className="h-full rounded-sm bg-primary-500"
                 style={{ width: `${Math.min(100, row.occupancyRate)}%` }}
               />
             </div>
@@ -375,8 +377,8 @@ export function CrewAssignmentsPage() {
           title="Work Areas"
           value={activeWorkAreas}
           subtitle="Active sites"
-          icon={<MapPin className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
-          color="bg-accent-50 dark:bg-accent-900/30"
+          icon={<MapPin className="h-5 w-5 text-gray-600 dark:text-gray-400" />}
+          color="bg-gray-50 dark:bg-gray-700"
           isLoading={loadingWorkAreas}
         />
       </div>
@@ -422,7 +424,7 @@ export function CrewAssignmentsPage() {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Sea/Land Split View */}
-          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Crew Distribution
@@ -439,7 +441,7 @@ export function CrewAssignmentsPage() {
 
           {/* Currently Offshore */}
           {offshoreEmployees && offshoreEmployees.length > 0 && (
-            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-(--shadow-sd-sm) dark:border-gray-700 dark:bg-gray-800">
               <div className="mb-4 flex items-center gap-2">
                 <Ship className="h-5 w-5 text-info-600 dark:text-info-400" />
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">

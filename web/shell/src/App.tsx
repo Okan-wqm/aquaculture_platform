@@ -6,7 +6,7 @@
  */
 
 import React, { Suspense, lazy, memo } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import {
   useAuthContext,
   PageLoading,
@@ -158,10 +158,13 @@ const RoleBasedRedirect: React.FC = () => {
 // ============================================================================
 
 const App: React.FC = () => {
+  const { pathname, search } = useLocation();
   return (
-    <>
-    {/* FE-HIGH-017: Announce route changes to screen readers */}
-    <RouteAnnouncer />
+    // FE-HIGH-017: the page's identity — the frame each route renders in
+    // (ConsoleShell, AdminConsole, the auth forms) names its page through
+    // usePageTitle; RouteAnnouncer turns the name into the document title
+    // and announces it on every navigation, path or query.
+    <RouteAnnouncer location={`${pathname}${search}`}>
     <Routes>
       {/* ================================================================ */}
       {/* Auth Routes (Public) */}
@@ -310,7 +313,7 @@ const App: React.FC = () => {
       <Route path="/unauthorized" element={<NotFoundPage type="unauthorized" />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
-    </>
+    </RouteAnnouncer>
   );
 };
 

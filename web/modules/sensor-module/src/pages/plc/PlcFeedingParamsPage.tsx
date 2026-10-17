@@ -731,7 +731,7 @@ const PlcFeedingParamsPage: React.FC = () => {
         return (
           <>
             <span
-              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}
+              className={`inline-flex items-center rounded border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}
             >
               {statusCfg.label}
             </span>
@@ -793,7 +793,7 @@ const PlcFeedingParamsPage: React.FC = () => {
             <MoreVertical className="h-4 w-4" />
           </Button>
           {menuOpenId === param.id && (
-            <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-lg">
+            <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-(--shadow-sd-lg)">
               <Button
                 variant="ghost"
                 size="sm"

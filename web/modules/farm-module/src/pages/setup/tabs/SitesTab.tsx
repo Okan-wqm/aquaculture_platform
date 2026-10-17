@@ -369,7 +369,7 @@ export const SitesTab: React.FC = () => {
           {filteredSites.map((site) => (
             <div
               key={site.id}
-              className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
+              className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 hover:shadow-(--shadow-sd-md) transition-shadow"
             >
               <div className="p-6">
                 <div className="flex items-start justify-between">
@@ -379,7 +379,7 @@ export const SitesTab: React.FC = () => {
                         {site.name}
                       </h3>
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[site.status]}`}
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[site.status]}`}
                       >
                         {site.status}
                       </span>

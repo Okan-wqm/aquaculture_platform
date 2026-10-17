@@ -96,20 +96,16 @@ interface CanvasEdge {
 // Live Tags Panel (used in runtime mode left sidebar)
 // ============================================================================
 
+/** I/O type badge — one neutral tag: in the tenant console only red and amber signal
+ *  (Industry README §7.8), so a channel type is told apart by its label, not a hue. */
+const IO_TYPE_BADGE_CLASS = 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+
 const LiveTagsPanel: React.FC = () => {
   const [search, setSearch] = React.useState('');
   const { tags, loading, error, refetch } = useUnifiedTags(
     search ? { searchTerm: search } : undefined,
     { limit: 100 },
   );
-
-  const IO_TYPE_COLOR: Record<string, string> = {
-    AI: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-    AO: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-    DI: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-    DO: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
-    CALC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
-  };
 
   return (
     <div className="flex flex-col h-full">
@@ -157,7 +153,7 @@ const LiveTagsPanel: React.FC = () => {
               </span>
               {tag.ioType && (
                 <span
-                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${IO_TYPE_COLOR[tag.ioType] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${IO_TYPE_BADGE_CLASS}`}
                 >
                   {tag.ioType}
                 </span>
@@ -710,7 +706,7 @@ const UnifiedEditorPage: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-800">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-(--shadow-sd-sm)">
         {/* Left Section */}
         <div className="flex items-center gap-3">
           <Link
@@ -765,7 +761,7 @@ const UnifiedEditorPage: React.FC = () => {
             </button>
 
             {showDeviceDropdown && (
-              <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1 max-h-60 overflow-y-auto">
+              <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 z-40 py-1 max-h-60 overflow-y-auto">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -950,7 +946,7 @@ const UnifiedEditorPage: React.FC = () => {
               Deploy
             </Button>
             {showDeployMenu && (
-              <div className="absolute right-0 mt-1 w-52 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1">
+              <div className="absolute right-0 mt-1 w-52 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 z-40 py-1">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1201,7 +1197,7 @@ const UnifiedEditorPage: React.FC = () => {
             </>
           ) : (
             <>
-              <span className="w-2 h-2 rounded-full bg-warning-500 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-warning-500 motion-safe:animate-pulse" />
               <span>Initializing...</span>
             </>
           )}

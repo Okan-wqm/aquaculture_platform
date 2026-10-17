@@ -326,7 +326,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
           <>
             {variance !== null ? (
               <span
-                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getVarianceBadgeClass(
+                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getVarianceBadgeClass(
                   variance,
                   item.expectedQuantity,
                 )}`}
@@ -376,14 +376,14 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
           </div>
           {count && (
             <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
                 count.status === InventoryCountStatus.PLANNED
                   ? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                   : count.status === InventoryCountStatus.IN_PROGRESS
                     ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
                     : count.status === InventoryCountStatus.COMPLETED
                       ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
-                      : 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                      : 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200'
               }`}
             >
               {count.status.replace('_', ' ')}
@@ -474,9 +474,9 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
                 </span>
               )}
             </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2">
               <div
-                className="bg-info-600 h-2 rounded-full transition-all duration-300"
+                className="bg-info-600 h-2 rounded transition-all duration-300"
                 style={{
                   width: `${
                     editableItems.length > 0

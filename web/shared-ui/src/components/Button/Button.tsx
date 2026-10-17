@@ -11,7 +11,13 @@ import type { ButtonVariant, Size } from '../../types';
 // Tip Tanımlamaları
 // ============================================================================
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+/**
+ * The default box: a centred, rounded, padded button painted by `variant` (or
+ * `surface`) at `size`.
+ */
+export interface InlineButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  /** Kutu düzeni — `inline` (varsayılan): ortalanmış, yuvarlatılmış, dolgulu buton. */
+  layout?: 'inline';
   /** Buton görünüm varyantı */
   variant?: ButtonVariant;
   /** Buton boyutu */
@@ -34,6 +40,35 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
    */
   surface?: 'default' | 'glass';
 }
+
+/**
+ * A row of a list or a section nav (a master-detail item, a settings section):
+ * the whole row is the button. WHY a layout of Button and not a raw
+ * `<button>` per caller: the row still needs what Button owns — `type="button"`
+ * by default, the disabled cursor, ref forwarding and one keyboard-focus
+ * treatment — while its box is the row's, not a button's: full width, content
+ * from the start edge, no radius, padding or fill. The caller paints the row's
+ * padding, dividers, inner layout and selection marks. Focus is an inset
+ * accent outline, never a ring, so it never reads as the ring a row may draw
+ * as its own selection mark.
+ *
+ * The inline box's props do not exist here (`never`): a row painted by a
+ * variant or sized by `size` would be two boxes fighting over one element.
+ */
+export interface RowButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  layout: 'row';
+  variant?: never;
+  size?: never;
+  fullWidth?: never;
+  isLoading?: never;
+  loading?: never;
+  leftIcon?: never;
+  rightIcon?: never;
+  iconOnly?: never;
+  surface?: never;
+}
+
+export type ButtonProps = InlineButtonProps | RowButtonProps;
 
 // ============================================================================
 // Stil Sınıfları
@@ -130,6 +165,18 @@ const iconOnlySizeStyles: Record<Size, string> = {
   xl: 'p-3 min-w-[56px] min-h-[56px]',
 };
 
+/**
+ * `layout="row"` — the whole box. Replaces the inline base, variant and size
+ * classes rather than adding to them: `block` beside `inline-flex`, or the
+ * caller's padding beside a size's, would be decided by stylesheet order.
+ */
+const rowLayoutStyle = `
+  block w-full text-left
+  transition-colors motion-reduce:transition-none
+  focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-600
+  disabled:cursor-not-allowed
+`;
+
 // ============================================================================
 // Loading Spinner Bileşeni
 // ============================================================================
@@ -188,6 +235,7 @@ const LoadingSpinner: React.FC<{ size: Size }> = ({ size }) => {
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {
+      layout = 'inline',
       variant = 'primary',
       size = 'md',
       fullWidth = false,
@@ -231,15 +279,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     // değiştir, ekleme).
     const variantClass = surface === 'glass' ? glassSurfaceStyle : variantStyles[variant];
 
-    const combinedClassName = `
-      ${baseStyles}
-      ${variantClass}
-      ${sizeClass}
-      ${widthClass}
-      ${className}
-    `
-      .replace(/\s+/g, ' ')
-      .trim();
+    const boxClassName =
+      layout === 'row'
+        ? rowLayoutStyle
+        : `${baseStyles} ${variantClass} ${sizeClass} ${widthClass}`;
+
+    const combinedClassName = `${boxClassName} ${className}`.replace(/\s+/g, ' ').trim();
 
     return (
       <button

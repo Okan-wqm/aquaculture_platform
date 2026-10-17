@@ -8,7 +8,7 @@
  * it, the viewport growing past `md` closes it, and the overlay always shows
  * labels even while the desktop column is collapsed to its rail.
  */
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Sidebar } from '../Sidebar';
@@ -88,7 +88,9 @@ afterEach(cleanup);
 describe('Sidebar overlay below md', () => {
   it('is off-canvas until opened and an in-flow column above md', () => {
     renderSidebar();
-    const aside = screen.getByRole('complementary', { name: 'Main navigation' });
+    const aside = screen.getByRole('navigation', { name: 'Main navigation' });
+    // One landmark: the item list inside is not a second, unnamed navigation.
+    expect(within(aside).queryByRole('navigation')).toBeNull();
     expect(aside.className).toContain('hidden md:flex');
     expect(aside.id).toBe('main-navigation');
     expect(screen.queryByTestId('sidebar-backdrop')).toBeNull();
@@ -96,7 +98,10 @@ describe('Sidebar overlay below md', () => {
 
   it('opens as a fixed overlay over a backdrop; backdrop and close button both close it', () => {
     const { onMobileOpenChange } = renderSidebar({ mobileOpen: true });
-    const aside = screen.getByRole('complementary', { name: 'Main navigation' });
+    // It traps Tab and covers the page, so it is exposed as the modal it is.
+    const aside = screen.getByRole('dialog', { name: 'Main navigation' });
+    expect(aside).toHaveAttribute('aria-modal', 'true');
+    expect(aside.id).toBe('main-navigation');
     expect(aside.className).toContain('fixed inset-y-0 left-0 z-50 w-64');
     expect(aside.className).toContain('md:static');
 
@@ -140,7 +145,7 @@ describe('Sidebar overlay below md', () => {
   it('shows labels in the overlay even while the desktop column is a rail', () => {
     renderSidebar({ mobileOpen: true, collapsed: true, onCollapsedChange: vi.fn() });
     expect(screen.getByText('Sites')).toBeTruthy();
-    const aside = screen.getByRole('complementary', { name: 'Main navigation' });
+    const aside = screen.getByRole('dialog', { name: 'Main navigation' });
     expect(aside.className).toContain('md:w-16');
     // The collapse toggle is the column's control and stays off the phone overlay.
     expect(screen.getByRole('button', { name: 'Expand sidebar' }).className).toContain(

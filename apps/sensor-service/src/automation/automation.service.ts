@@ -31,6 +31,7 @@ import {
   validateDeployProgramParams,
 } from '@platform/sensor-contracts/validators';
 
+import type { RecordedActor } from '../common/recorded-actor';
 import { ArtifactService } from '../deploy-artifact/artifact.service';
 import { DeployArtifactType } from '../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
@@ -1260,14 +1261,19 @@ export class AutomationService {
    * 3. Translates IEC 61131-3 program to edge script format
    * 4. Sends deploy_program command via MQTT
    * 5. Updates program deployment status
+   *
+   * `actor` is who deploys: its id is stored wherever the deployer is
+   * compared (program row, artifact, event); the deployment log also keeps
+   * its e-mail, which is what the command log shows.
    */
   async deployProgram(
     programId: string,
     deviceId: string,
     tenantId: string,
-    deployedBy: string,
+    actor: RecordedActor,
     forceQueue?: boolean,
   ): Promise<DeploymentResult> {
+    const deployedBy = actor.userId;
     // Ensure required services are available
     const edgeService = this.ensureEdgeDeviceServiceAvailable();
     const mqtt = this.ensureMqttAvailable();
@@ -1430,6 +1436,7 @@ export class AutomationService {
         version: program.version,
         edgeScript: deployCommand['params'] as Record<string, unknown>,
         deployedBy,
+        deployedByEmail: actor.email,
         artifactId: artifact?.id,
         checksumSha256: artifact?.contentSha256,
       });
@@ -1497,8 +1504,9 @@ export class AutomationService {
     programId: string,
     deviceId: string,
     tenantId: string,
-    deployedBy: string,
+    actor: RecordedActor,
   ): Promise<ProgramBundleArtifact> {
+    const deployedBy = actor.userId;
     if (!this.artifactService) {
       throw new BadRequestException(
         'Artifact service not available — bundle deploys require the content-addressed store',
@@ -1552,6 +1560,7 @@ export class AutomationService {
         version: program.version,
         edgeScript,
         deployedBy,
+        deployedByEmail: actor.email,
         artifactId: artifact.id,
         checksumSha256: artifact.contentSha256,
       });
@@ -2553,13 +2562,15 @@ export class AutomationService {
    * SECURITY: Four-eyes principle enforcement — the user initiating the rollback
    * must differ from the user who performed the original deployment. This prevents
    * a single compromised account from deploying malicious code AND rolling back
-   * legitimate code on safety-critical PLC/actuator devices.
+   * legitimate code on safety-critical PLC/actuator devices. The rule compares
+   * the actors' ids; the rollback's log entry also keeps the initiator's e-mail.
    */
   async rollbackDeployment(
     deviceId: string,
     tenantId: string,
-    rolledBackBy: string,
+    actor: RecordedActor,
   ): Promise<DeploymentResult> {
+    const rolledBackBy = actor.userId;
     // Ensure required services are available
     const edgeService = this.ensureEdgeDeviceServiceAvailable();
     const mqtt = this.ensureMqttAvailable();
@@ -2619,6 +2630,7 @@ export class AutomationService {
           commandId,
           version: deployedProgram.version,
           deployedBy: rolledBackBy,
+          deployedByEmail: actor.email,
         });
       }
 

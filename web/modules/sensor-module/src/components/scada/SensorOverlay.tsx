@@ -148,7 +148,7 @@ const SensorValueDisplay: React.FC<SensorValueDisplayProps> = ({ reading, compac
   return (
     <div
       className={`
-        flex items-center gap-2 px-2 py-1 rounded-lg shadow-sm
+        flex items-center gap-2 px-2 py-1 rounded-lg shadow-(--shadow-sd-sm)
         ${statusConfig.bg} ${statusConfig.border} border
         transition-all duration-200
       `}
@@ -165,7 +165,9 @@ const SensorValueDisplay: React.FC<SensorValueDisplayProps> = ({ reading, compac
         </div>
       </div>
       {reading.status !== 'normal' && statusConfig.icon && (
-        <span className={`${statusConfig.text} animate-pulse`}>{statusConfig.icon}</span>
+        <span className={`${statusConfig.text} motion-safe:animate-pulse`}>
+          {statusConfig.icon}
+        </span>
       )}
     </div>
   );

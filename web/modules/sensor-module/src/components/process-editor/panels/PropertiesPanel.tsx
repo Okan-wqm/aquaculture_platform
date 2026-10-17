@@ -358,7 +358,7 @@ export const PropertiesPanel: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Icon and Name */}
           <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-            <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
+            <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm)">
               <Icon size={32} className="text-gray-700 dark:text-gray-300" />
             </div>
             <div className="flex-1 min-w-0">
@@ -397,7 +397,7 @@ export const PropertiesPanel: React.FC = () => {
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-gray-500 dark:text-gray-400 w-20">Status:</span>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                  className={`px-2 py-0.5 rounded text-xs font-medium ${
                     selectedNode.data.status === 'operational' ||
                     selectedNode.data.status === 'active'
                       ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
@@ -936,17 +936,9 @@ export const PropertiesPanel: React.FC = () => {
                               }
                               className="text-primary-600 dark:text-primary-400 rounded focus:ring-primary-500"
                             />
-                            <span
-                              className={`inline-block w-6 text-center text-[10px] font-bold rounded px-1 ${
-                                io.ioType === 'DI'
-                                  ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
-                                  : io.ioType === 'DO'
-                                    ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
-                                    : io.ioType === 'AI'
-                                      ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                                      : 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
-                              }`}
-                            >
+                            {/* One neutral tag for every I/O type: in the console only red and
+                                amber signal (Industry README §7.8); the label names the type. */}
+                            <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                               {io.ioType}
                             </span>
                             <span className="flex-1 truncate text-gray-700 dark:text-gray-300">
@@ -975,7 +967,7 @@ export const PropertiesPanel: React.FC = () => {
             // Bağlanmamış durumu — device dropdown
             <div className="space-y-2">
               {isEdgeDevicesLoading ? (
-                <p className="text-xs text-gray-500 dark:text-gray-400 animate-pulse">
+                <p className="text-xs text-gray-500 dark:text-gray-400 motion-safe:animate-pulse">
                   Loading devices...
                 </p>
               ) : edgeDevicesError ? (
@@ -1051,7 +1043,7 @@ export const PropertiesPanel: React.FC = () => {
                     className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300">
+                      <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                         DO
                       </span>
                       <span className="text-sm text-gray-700 dark:text-gray-300">
@@ -1141,9 +1133,10 @@ export const PropertiesPanel: React.FC = () => {
               Set <strong>{doConfirmDialog.tagName}</strong> to{' '}
               <strong
                 className={
+                  // the state to set, not an alarm: OFF is not red (README §7.8)
                   doConfirmDialog.newValue
-                    ? 'text-success-600 dark:text-success-400'
-                    : 'text-error-600 dark:text-error-400'
+                    ? 'text-primary-700 dark:text-primary-300'
+                    : 'text-gray-900 dark:text-gray-100'
                 }
               >
                 {doConfirmDialog.newValue ? 'ON' : 'OFF'}
@@ -1217,7 +1210,7 @@ export const PropertiesPanel: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Connection Preview */}
           <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-            <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
+            <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm)">
               <svg width="32" height="16" className="flex-shrink-0">
                 <line
                   x1="4"

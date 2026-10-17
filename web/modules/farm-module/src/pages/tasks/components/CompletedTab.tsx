@@ -72,7 +72,7 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
       render: (_value, task) => {
         const cat = CATEGORY_CONFIG[task.category];
         return (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cat.bg} ${cat.color}`}>
             {cat.label}
           </span>
         );
@@ -104,7 +104,7 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {statsCards.map(card => (
-          <div key={card.label} className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <div key={card.label} className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">{card.label}</p>
             <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
               {card.value} <span className="text-sm font-normal text-gray-400 dark:text-gray-500">{card.suffix}</span>
@@ -125,7 +125,7 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
       </div>
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) border border-gray-200 dark:border-gray-700 overflow-hidden">
         <DataTable<TaskRow>
           data={completedTasks}
           columns={taskRowColumns}

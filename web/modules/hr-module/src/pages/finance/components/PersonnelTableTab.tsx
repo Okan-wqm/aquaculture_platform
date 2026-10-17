@@ -82,7 +82,7 @@ export const PersonnelTableTab: React.FC<PersonnelTableTabProps> = ({ data, isLo
       searchable={false}
       sortable={false}
       stickyHeader={false}
-      className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
+      className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-(--shadow-sd-sm)"
     />
   );
 };

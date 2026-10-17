@@ -70,7 +70,7 @@ const StatCard: React.FC<{
   value: number;
   label: string;
 }> = ({ icon, tone, value, label }) => (
-  <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+  <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
     <div className="flex items-center gap-3">
       <div className={`p-2 rounded-lg ${tone}`}>{icon}</div>
       <div>
@@ -249,7 +249,7 @@ const ReadingsPage: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
@@ -295,14 +295,14 @@ const ReadingsPage: React.FC = () => {
       )}
 
       {loading && visible.length === 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
           <Spinner size="lg" color="inherit" className="mb-3" />
           <p>Okumalar yükleniyor...</p>
         </div>
       )}
 
       {!loading && visible.length === 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
           <Activity className="w-12 h-12 mb-3 opacity-50" />
           <p className="text-lg font-medium">
             {selectedChannel === 'all'

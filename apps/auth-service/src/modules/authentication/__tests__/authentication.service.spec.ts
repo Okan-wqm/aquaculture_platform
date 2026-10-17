@@ -1182,6 +1182,7 @@ describe('AuthenticationService', () => {
       mockUserRepository.findOne.mockResolvedValue(
         createMockUser({ id: 'admin', role: Role.SUPER_ADMIN, tenantId: null }),
       );
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
       const result = await service.me('admin', '11111111-1111-4111-8111-111111111111');
       expect(result.user.tenantId).toBe('11111111-1111-4111-8111-111111111111');
     });
@@ -1192,6 +1193,31 @@ describe('AuthenticationService', () => {
       );
       const result = await service.me('admin', null);
       expect(result.user.tenantId).toBeNull();
+    });
+
+    // The tenant console names the tenant in its rail for every tenant role;
+    // `myTenant` is TENANT_ADMIN-only, so the session itself carries the name.
+    it("names the session's tenant from auth.tenants, by the effective tenant", async () => {
+      const tenantId = '11111111-1111-4111-8111-111111111111';
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ id: 'operator', role: Role.MODULE_USER, tenantId }),
+      );
+      mockTenantRepository.findOne.mockResolvedValue(
+        createMockTenant({ id: tenantId, name: 'Acme Fish' }),
+      );
+      const result = await service.me('operator', tenantId);
+      expect(mockTenantRepository.findOne).toHaveBeenCalledWith({ where: { id: tenantId } });
+      expect(result.tenantName).toBe('Acme Fish');
+    });
+
+    it('names no tenant for a platform SUPER_ADMIN, and reads no tenant row', async () => {
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ id: 'admin', role: Role.SUPER_ADMIN, tenantId: null }),
+      );
+      mockTenantRepository.findOne.mockClear();
+      const result = await service.me('admin', null);
+      expect(result.tenantName).toBeNull();
+      expect(mockTenantRepository.findOne).not.toHaveBeenCalled();
     });
   });
 

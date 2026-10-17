@@ -103,7 +103,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
   useClickOutside(deployMenuRef, () => setShowDeployMenu(false), showDeployMenu);
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+    <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-(--shadow-sd-sm)">
       {/* Left */}
       <div className="flex items-center gap-3">
         <Link
@@ -162,7 +162,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           </button>
 
           {showDeviceDropdown && (
-            <div className="absolute left-0 mt-1 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1 max-h-64 overflow-y-auto">
+            <div className="absolute left-0 mt-1 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 z-40 py-1 max-h-64 overflow-y-auto">
               <Button
                 variant="ghost"
                 size="sm"
@@ -317,7 +317,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             aria-label="Edit mode"
             className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
               mode === 'edit'
-                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm font-medium'
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm) font-medium'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -331,7 +331,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             aria-label="Preview mode"
             className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
               mode === 'preview'
-                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm font-medium'
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-(--shadow-sd-sm) font-medium'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -345,7 +345,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             aria-label="Simulation mode"
             className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
               mode === 'simulation'
-                ? 'bg-info-600 text-white shadow-sm font-medium'
+                ? 'bg-info-600 text-white shadow-(--shadow-sd-sm) font-medium'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -364,7 +364,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             Deploy
           </Button>
           {showDeployMenu && (
-            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1">
+            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 z-40 py-1">
               <Button
                 variant="ghost"
                 size="sm"

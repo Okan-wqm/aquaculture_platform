@@ -29,22 +29,26 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { colors } from '../../web/shared-ui/src/styles/theme';
+import {
+  DARK_SCOPE_RULE,
+  SCOPE_RULE,
+  SUDERRA_SOURCE,
+  THEME_CSS,
+  THEME_SOURCE,
+  WORKSPACES,
+  cascade,
+  contrast,
+  luminance,
+  over,
+  page,
+  placements,
+  resolver,
+  themeBlock,
+} from './lib/web-console-theme';
 
 const REPO_ROOT = resolve(__dirname, '../..');
-const THEME_CSS = 'web/shared-ui/src/styles/theme.css';
 
 const TOKEN = /--color-([a-z]+)-(\d+):\s*(#[0-9a-fA-F]{6})\s*;/g;
-
-const THEME_SOURCE = readFileSync(resolve(REPO_ROOT, THEME_CSS), 'utf8');
-
-/** The `@theme { … }` block alone — a `[data-theme='dark']` override further down
- *  re-assigns a token per theme and is not a second definition of it. */
-function themeBlock(): string {
-  const start = THEME_SOURCE.indexOf('@theme {');
-  const end = THEME_SOURCE.indexOf('\n}', start);
-  if (start < 0 || end < 0) throw new Error(`${THEME_CSS} has no @theme block`);
-  return THEME_SOURCE.slice(start, end);
-}
 
 function cssTokens(): Map<string, string> {
   const css = themeBlock();
@@ -278,17 +282,6 @@ describe('INVARIANT (FE-HIGH-074): `--color-gray-400` passes WCAG AA on both the
   /** Tailwind v4's gray-800 (oklch(27.8% 0.033 256.848)) in sRGB — the lighter of the two dark surfaces. */
   const DARK_SURFACE = '#1e2939';
 
-  function luminance(hex: string): number {
-    const channel = (offset: number): number => {
-      const value = parseInt(hex.slice(offset, offset + 2), 16) / 255;
-      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-    };
-    return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
-  }
-  function contrast(foreground: string, background: string): number {
-    const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
-    return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
-  }
   function tokenIn(block: string): string {
     const match = /--color-gray-400:\s*(#[0-9a-fA-F]{6})\s*;/.exec(block);
     if (match?.[1] === undefined)
@@ -328,46 +321,18 @@ describe('INVARIANT (FE-HIGH-074): `--color-gray-400` passes WCAG AA on both the
  * is drawn on, under both themes and in every workspace — a workspace block
  * that forgot to re-assign a theme-flipping token would shadow the dark value
  * on <body>. The values come from a model of theme.css's own cascade
- * (`cascade()` below: specificity, source order, inheritance), and every
+ * (`cascade()` in lib/web-console-theme.ts: specificity, source order,
+ * inheritance), and every
  * placement of the attributes — the theme on <html>, on the workspace
  * element, or pinned on a dark island inside it — must resolve to the same
  * values as the page.
  */
 describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both themes', () => {
-  const SUDERRA_CSS = 'web/shared-ui/src/styles/suderra.css';
-  const suderra = readFileSync(resolve(REPO_ROOT, SUDERRA_CSS), 'utf8');
+  const suderra = SUDERRA_SOURCE;
   const STEPS = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900'];
   const TEXT = 4.5;
   const ICON = 3;
-  const WORKSPACES = ['aqua', 'gh', 'ctl', 'org'];
 
-  function hexToRgb(hex: string): [number, number, number] {
-    return [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16)) as [
-      number,
-      number,
-      number,
-    ];
-  }
-  function luminance(hex: string): number {
-    const [r, g, b] = hexToRgb(hex).map((value) => {
-      const c = value / 255;
-      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    }) as [number, number, number];
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  }
-  function contrast(a: string, b: string): number {
-    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
-    return (hi + 0.05) / (lo + 0.05);
-  }
-  /** `fg` drawn at `alpha` over `bg` — a tinted surface such as a chat bubble. */
-  function over(fg: string, alpha: number, bg: string): string {
-    const f = hexToRgb(fg);
-    const g = hexToRgb(bg);
-    return `#${f
-      .map((value, i) => Math.round(alpha * value + (1 - alpha) * (g[i] ?? 0)))
-      .map((value) => value.toString(16).padStart(2, '0'))
-      .join('')}`;
-  }
   function hexIn(block: string, name: string): string | undefined {
     return new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`).exec(block)?.[1]?.toLowerCase();
   }
@@ -385,129 +350,6 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
   })();
   const dark = (name: string): string => tokenIn(darkBlock, name);
 
-  /** An element's attributes, as far as theme.css selects on them (`data-theme`, `data-ws`). */
-  type Attrs = Readonly<Record<string, string>>;
-  /** One compound selector: its `[attr='value']` parts (`:root` as the pair [':root', '']). */
-  type Compound = ReadonlyArray<readonly [string, string]>;
-  /** A top-level theme.css rule keyed on attributes or `:root`: each selector is its
-   *  compounds, ancestor first (descendant combinators only). Kept in source order. */
-  interface AttrRule {
-    readonly selectors: ReadonlyArray<readonly Compound[]>;
-    readonly body: string;
-  }
-  const ATTR_RULES: readonly AttrRule[] = [
-    ...THEME_SOURCE.matchAll(/^((?:\[data-|:root)[^{]*)\{([^}]*)\}/gm),
-  ].map(([, list = '', body = '']) => ({
-    body,
-    selectors: list.split(',').map((selector) =>
-      selector
-        .trim()
-        .split(/\s+/)
-        .map((compound): Compound => {
-          if (compound === ':root') return [[':root', '']];
-          const parts = [...compound.matchAll(/\[([a-z-]+)='([^']*)'\]/g)].map(
-            ([, attr = '', value = '']) => [attr, value] as const,
-          );
-          // A selector shape this model does not read must fail here, not resolve wrongly.
-          if (parts.map(([attr, value]) => `[${attr}='${value}']`).join('') !== compound)
-            throw new Error(`theme.css selector the cascade model cannot read: ${selector.trim()}`);
-          return parts;
-        }),
-    ),
-  }));
-
-  function compoundMatches(compound: Compound, path: readonly Attrs[], index: number): boolean {
-    return compound.every(([attr, value]) =>
-      attr === ':root' ? index === 0 : path[index]?.[attr] === value,
-    );
-  }
-  function selectorMatches(
-    selector: readonly Compound[],
-    path: readonly Attrs[],
-    index: number,
-  ): boolean {
-    const subject = selector[selector.length - 1];
-    if (subject === undefined || !compoundMatches(subject, path, index)) return false;
-    let at = index;
-    for (let k = selector.length - 2; k >= 0; k -= 1) {
-      const compound = selector[k];
-      if (compound === undefined) return false;
-      let found = -1;
-      for (let j = at - 1; j >= 0 && found < 0; j -= 1)
-        if (compoundMatches(compound, path, j)) found = j;
-      if (found < 0) return false;
-      at = found;
-    }
-    return true;
-  }
-  function declared(block: string, property: string): string | undefined {
-    return new RegExp(`(?:^|[\\s;{])${property}:\\s*([^;]+);`)
-      .exec(block)?.[1]
-      ?.trim()
-      .toLowerCase();
-  }
-  /** The value a custom property takes on the last element of `path` (<html> first), by the
-   *  cascade theme.css builds: on each element the most specific, then the latest, matching
-   *  rule that declares it; else the parent's value; past <html>, the `@theme` value (the
-   *  theme layer, under every rule above). Undefined when nothing declares it. */
-  function cascade(path: readonly Attrs[]): (property: string) => string | undefined {
-    return (property) => {
-      for (let index = path.length - 1; index >= 0; index -= 1) {
-        let best: { weight: number; order: number; value: string } | undefined;
-        ATTR_RULES.forEach((rule, order) => {
-          const value = declared(rule.body, property);
-          if (value === undefined) return;
-          for (const selector of rule.selectors) {
-            if (!selectorMatches(selector, path, index)) continue;
-            const weight = selector.reduce((sum, compound) => sum + compound.length, 0);
-            if (
-              best === undefined ||
-              weight > best.weight ||
-              (weight === best.weight && order > best.order)
-            )
-              best = { weight, order, value };
-          }
-        });
-        if (best !== undefined) return best.value;
-      }
-      return declared(themeBlock(), property);
-    };
-  }
-  const DARK: Attrs = { 'data-theme': 'dark' };
-  const wsAttrs = (ws: string): Attrs => (ws === 'aqua' ? {} : { 'data-ws': ws });
-  /** The page: the theme on <html>, the workspace on <body>, a console element under them. */
-  function page(theme: 'light' | 'dark', ws: string): Attrs[] {
-    return [theme === 'dark' ? DARK : {}, wsAttrs(ws), {}];
-  }
-  /** Every other placement of the same theme and workspace — the attributes on one element,
-   *  and a surface that pins the dark theme on itself (a `theme="dark"` Modal or Drawer, the
-   *  SCADA operator view) on a light or a dark page — with the island and a child of it. */
-  function placements(theme: 'light' | 'dark', ws: string): Array<[string, Attrs[]]> {
-    const rows: Array<[string, Attrs[]]> = [
-      [
-        'theme and workspace on <html>',
-        [{ ...(theme === 'dark' ? DARK : {}), ...wsAttrs(ws) }, {}, {}],
-      ],
-    ];
-    if (theme === 'light') return rows;
-    for (const [where, path] of [
-      ['a dark island on a light page', [{}, wsAttrs(ws), DARK]],
-      ['a dark island on a dark page', [DARK, wsAttrs(ws), DARK]],
-      ['a dark island, the workspace on <html>', [wsAttrs(ws), {}, DARK]],
-    ] as Array<[string, Attrs[]]>)
-      rows.push([where, path], [`${where}, a child of it`, [...path, {}]]);
-    return rows;
-  }
-  /** The hex `--color-<name>` takes in a placement. */
-  function resolver(path: readonly Attrs[]): (name: string) => string {
-    const at = cascade(path);
-    return (name) => {
-      const value = at(`--color-${name}`);
-      if (value === undefined || !/^#[0-9a-f]{6}$/.test(value))
-        throw new Error(`--color-${name} has no hex value here: ${String(value)}`);
-      return value;
-    };
-  }
   /** Every console property theme.css declares — the tokens a placement must agree on. */
   const SD_PROPERTIES = [
     ...new Set(
@@ -522,25 +364,8 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
       .map(([label, fg, bg]) => `${label}: ${fg} on ${bg} = ${contrast(fg, bg).toFixed(2)}`);
   }
 
-  /** The scope roots (suderra.css): the console's classes, and every dialog while the
-   *  console is on screen — Modal, ConfirmModal and Drawer portal out of the column. */
-  const SCOPE =
-    ".sd-page, .sd-surface, .sd-content, body:has(.sd-content) :is([role='dialog'], [role='alertdialog'])";
-  const normalize = (selector: string): string =>
-    selector.replace(/\s+/g, ' ').replace(/\(\s/g, '(').replace(/\s\)/g, ')').trim();
-  const SUDERRA_RULES = [
-    ...suderra.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g),
-  ].map(([, selector = '', body = '']): [string, string] => [normalize(selector), body]);
-  function suderraRule(selector: string): string {
-    const body = SUDERRA_RULES.find(([list]) => list === normalize(selector))?.[1];
-    if (body === undefined) throw new Error(`suderra.css has no rule \`${selector}\``);
-    return body;
-  }
-  const scope = suderraRule(`:where(${SCOPE})`);
-  // Dark above a scope root, on one (a dialog pinned dark), or inside one (a dark island).
-  const darkScope = suderraRule(
-    `[data-theme='dark'] :where(${SCOPE}), [data-theme='dark']:where(${SCOPE}), :where(${SCOPE}) [data-theme='dark']`,
-  );
+  const scope = SCOPE_RULE;
+  const darkScope = DARK_SCOPE_RULE;
 
   it('suderra.css holds no colour value of its own', () => {
     const code = suderra.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -549,11 +374,13 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
 
   it('the scope re-assigns every step of each scale to its theme.css ramp', () => {
     // Success and info follow gray: "good" is not a colour in Industry (README §7.8).
+    // Accent is Severity's "high" tier, Industry's HIGH amber (README §7.5).
     const ramps: Record<string, string> = {
       gray: 'sd-ink',
       primary: 'sd-teal',
       success: 'sd-ink',
       warning: 'sd-amber',
+      accent: 'sd-amber',
       error: 'sd-rust',
       info: 'sd-ink',
     };
@@ -703,6 +530,19 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
           [`${at} on-amber on amber (HIGH tile)`, t('sd-hz-on-amber'), t('sd-hz-amber')],
           [`${at} danger-ink on red tint`, t('sd-danger-ink'), t('sd-hz-red-tint')],
           [`${at} amber-ink on amber tint`, t('sd-hz-amber-ink'), t('sd-hz-amber-tint')],
+          // the console rail and workspace menu: the current row, and any row under the pointer
+          [`${at} neutral-700 on accent-100 (menu: current row)`, t('sd-neutral-700'), accentTint],
+          [`${at} ink on neutral-200 (rail / menu: hovered row)`, t('sd-ink'), t('sd-neutral-200')],
+          [
+            `${at} neutral-700 on neutral-200 (menu: hovered row)`,
+            t('sd-neutral-700'),
+            t('sd-neutral-200'),
+          ],
+          [
+            `${at} accent-800 on neutral-200 (rail: hovered current area)`,
+            t('sd-accent-800'),
+            t('sd-neutral-200'),
+          ],
         ];
         const icons: Array<[string, string, string]> = [
           ...['sd-accent', 'sd-neutral-600', 'sd-hz-red', 'sd-danger', 'sd-violet-ink'].flatMap(
@@ -714,11 +554,64 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
               ]),
           ),
           [`${at} icon danger on red tint`, t('sd-danger'), t('sd-hz-red-tint')],
+          // the 3px accent bar that marks the user menu's chosen segment and the
+          // workspace menu's current row: their accent-100 fill alone is ~1.1:1
+          // against the paper, so the bar is the state cue (WCAG 1.4.11)
+          [
+            `${at} state bar accent on accent-100 (segment, workspace row)`,
+            t('sd-accent'),
+            accentTint,
+          ],
+          // the workspace menu's alarm glyphs on its current row
+          [`${at} icon hz-red on accent-100 (menu P1 glyph)`, t('sd-hz-red'), accentTint],
+          [
+            `${at} icon amber-ink on accent-100 (menu P2/P3 glyph)`,
+            t('sd-hz-amber-ink'),
+            accentTint,
+          ],
         ];
         failures.push(...below(text, TEXT), ...below(icons, ICON));
       }
     }
     expect(failures).toEqual([]);
+  });
+
+  // Forced colours (Windows contrast themes) drop box-shadows and author
+  // backgrounds, which draw every current / pressed / selected cue in the
+  // console (rail bars, palette row, annunciator foot bar, segment and
+  // workspace fills): suderra.css redraws each from its ARIA state as an
+  // outline, which survives in a system colour.
+  it('forced colours: every current, pressed or selected console control draws an outline', () => {
+    const code = suderra.replace(/\/\*[\s\S]*?\*\//g, '');
+    const start = code.indexOf('@media (forced-colors: active)');
+    expect(start).toBeGreaterThan(-1);
+    const block = code.slice(
+      start,
+      code.indexOf('}', code.indexOf('{', code.indexOf('{', start) + 1)),
+    );
+    for (const state of [
+      "[aria-current]:not([aria-current='false'])",
+      "[aria-pressed='true']",
+      "[role='option'][aria-selected='true']",
+      "[role='tab'][aria-selected='true']",
+    ])
+      expect(block).toContain(state);
+    expect(block).toContain('body:has(.sd-content)');
+    // A focused control keeps its focus ring, which is an outline too (WCAG 2.4.7).
+    expect(block).toContain(':not(:focus-visible)');
+    expect(block).toMatch(/outline:\s*2px solid Highlight;/);
+  });
+
+  // The shell's global focus ring is a box-shadow, which forced colours drop;
+  // Tailwind's outline-hidden leaves a transparent outline there, but its
+  // `--tw-outline-style: none` also switched off every focus-visible:outline-*
+  // utility, so a console row, tile or segment showed no focus (WCAG 2.4.7).
+  it('forced colours: the shell keeps focus outlines drawn by utilities', () => {
+    const shellCss = readFileSync(resolve(REPO_ROOT, 'web/shell/src/styles/index.css'), 'utf8');
+    const code = shellCss.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(code).toMatch(
+      /@media \(forced-colors: active\)\s*\{\s*\*:focus-visible\s*\{\s*--tw-outline-style:\s*solid;/,
+    );
   });
 
   it('a console token takes one value per theme and workspace, wherever the attributes sit', () => {
@@ -769,28 +662,6 @@ describe('INVARIANT (FE-HIGH-321): Suderra scope — tokens only, AA in both the
         flips: true,
       });
     }
-  });
-
-  it('the graphite rail: labels hold 4.5:1 and icons 3:1 on every stop of its gradient', () => {
-    const stops = ['sd-rail-top', 'sd-rail-mid', 'sd-rail-bottom'].map((stop) => light(stop));
-    const activeRow = over(light('sd-mint'), 0.15, light('sd-rail-top'));
-    const rows = (names: string[], grounds: string[]): Array<[string, string, string]> =>
-      names.flatMap((name) =>
-        grounds.map((ground): [string, string, string] => [name, light(name), ground]),
-      );
-    expect([
-      ...below(
-        [
-          ...rows(
-            ['sd-rail-item', 'sd-rail-child', 'sd-rail-bright', 'sd-rail-accent', 'sd-ink-faint'],
-            stops,
-          ),
-          ...rows(['sd-mint-soft'], [...stops, activeRow]),
-        ],
-        TEXT,
-      ),
-      ...below(rows(['sd-rail-icon', 'sd-rail-child-icon', 'sd-mint'], stops), ICON),
-    ]).toEqual([]);
   });
 });
 

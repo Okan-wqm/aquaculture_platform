@@ -276,7 +276,7 @@ export function MealBoardTab(): React.ReactElement {
       header: t('feedingV2.statusLabel'),
       render: (_value, meal) => (
         <>
-          <span className={`rounded-full px-2 py-0.5 text-xs ${MEAL_STATUS_BADGE[meal.status]}`}>
+          <span className={`rounded px-2 py-0.5 text-xs ${MEAL_STATUS_BADGE[meal.status]}`}>
             {t(MEAL_STATUS_KEY[meal.status])}
           </span>
           {/*
@@ -286,7 +286,7 @@ export function MealBoardTab(): React.ReactElement {
           */}
           {meal.readiness && (
             <span
-              className="ml-2 rounded-full bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs text-warning-800 dark:text-warning-200"
+              className="ml-2 rounded bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs text-warning-800 dark:text-warning-200"
               title={
                 meal.readiness.status === 'low_oxygen'
                   ? t('feedingV2.mealBoard.lowOxygenTitle', {
@@ -451,7 +451,7 @@ export function MealBoardTab(): React.ReactElement {
             {unplannedAssignments.map((assignment) => (
               <span
                 key={assignment.id}
-                className="rounded-full bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs text-warning-800 dark:text-warning-200"
+                className="rounded bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs text-warning-800 dark:text-warning-200"
               >
                 {assignment.unitCode}
               </span>
@@ -485,7 +485,7 @@ export function MealBoardTab(): React.ReactElement {
         return (
           <div
             key={plan.id}
-            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm"
+            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm)"
           >
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
               <div className="flex items-center gap-3">
@@ -494,7 +494,7 @@ export function MealBoardTab(): React.ReactElement {
                 </span>
                 <span className="text-sm text-gray-500 dark:text-gray-400">{plan.unitName}</span>
                 <span
-                  className={`rounded-full px-2 py-0.5 text-xs ${
+                  className={`rounded px-2 py-0.5 text-xs ${
                     plan.status === 'COMPLETED'
                       ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
                       : plan.status === 'IN_PROGRESS'
@@ -505,13 +505,13 @@ export function MealBoardTab(): React.ReactElement {
                   {t(PLAN_STATUS_KEY[plan.status])}
                 </span>
                 {dayUnderfed && (
-                  <span className="rounded-full bg-error-100 dark:bg-error-900/40 px-2 py-0.5 text-xs text-error-800 dark:text-error-200">
+                  <span className="rounded bg-error-100 dark:bg-error-900/40 px-2 py-0.5 text-xs text-error-800 dark:text-error-200">
                     {t('feedingV2.mealBoard.underfed')} {dayVariancePercent.toFixed(1)}%
                   </span>
                 )}
                 {snapshot.mixedBatch && (
                   <span
-                    className="rounded-full bg-accent-100 dark:bg-accent-900/40 px-2 py-0.5 text-xs text-accent-800 dark:text-accent-200"
+                    className="rounded bg-accent-100 dark:bg-accent-900/40 px-2 py-0.5 text-xs text-accent-800 dark:text-accent-200"
                     title={t('feedingV2.mealBoard.mixedBatchTitle')}
                   >
                     {t('feedingV2.mealBoard.mixedBatch')}
@@ -520,7 +520,7 @@ export function MealBoardTab(): React.ReactElement {
                 {snapshot.mixedBatch &&
                   (snapshot.weightCvPercent ?? 0) > HIGH_WEIGHT_CV_WARNING_PERCENT && (
                     <span
-                      className="rounded-full bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs text-warning-800 dark:text-warning-200"
+                      className="rounded bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs text-warning-800 dark:text-warning-200"
                       title={t('feedingV2.mealBoard.highWeightCvTitle')}
                     >
                       {t('feedingV2.mealBoard.highWeightCv')}{' '}

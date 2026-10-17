@@ -487,7 +487,7 @@ export const HeatmapWidgetContent: React.FC<HeatmapWidgetContentProps> = ({ conf
       {/* Tooltip */}
       {tooltip && (
         <div
-          className="fixed z-50 pointer-events-none bg-gray-900 text-white text-xs rounded-lg px-2.5 py-2 shadow-lg"
+          className="fixed z-50 pointer-events-none bg-gray-900 text-white text-xs rounded-lg px-2.5 py-2 shadow-(--shadow-sd-lg)"
           style={{ left: tooltip.x + 12, top: tooltip.y - 8 }}
         >
           <div className="font-semibold truncate max-w-[160px]">{tooltip.label}</div>

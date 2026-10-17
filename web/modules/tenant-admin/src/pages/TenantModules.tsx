@@ -5,6 +5,7 @@ import { useAuthContext, PageHeader, Button, Select } from '@aquaculture/shared-
 import { useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
 import { ModuleCard, AssignManagerModal, ModuleDetailsModal } from '../components/modules';
 import type { DisplayModule } from '../components/modules';
+import { SD_CARD } from '../components/ui/suderra';
 
 /** Module route mapping -- correct dashboard routes. */
 const moduleRouteMap: Record<string, string> = {
@@ -151,7 +152,7 @@ const TenantModules: React.FC = () => {
       )}
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
+      <div className={`${SD_CARD} p-4`}>
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -160,7 +161,7 @@ const TenantModules: React.FC = () => {
               placeholder="Search modules..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
           <Select
@@ -202,7 +203,7 @@ const TenantModules: React.FC = () => {
 
       {/* Empty State */}
       {filteredModules.length === 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 py-12 text-center">
+        <div className={`${SD_CARD} py-12 text-center`}>
           <Package className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
           <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
             {modules.length === 0 ? 'No modules assigned' : 'No modules found'}

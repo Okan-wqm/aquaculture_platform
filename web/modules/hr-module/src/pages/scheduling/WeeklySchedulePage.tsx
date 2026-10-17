@@ -208,7 +208,7 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
           className={cn(
             faceShell,
             size,
-            'bg-accent-100 text-accent-700 dark:bg-accent-900/40 dark:text-accent-300',
+            'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300',
           )}
           title="Resmi tatil"
         >
@@ -223,7 +223,7 @@ function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.El
           : `${shift.name} · ${timeRange(shift.startTime, shift.endTime)}`;
       return (
         <span
-          className={cn(faceShell, size, 'text-white shadow-sm')}
+          className={cn(faceShell, size, 'text-white shadow-(--shadow-sd-sm)')}
           style={{
             backgroundColor: sanitizeColor(
               shift === undefined ? null : shift.colorCode,
@@ -690,7 +690,7 @@ export function WeeklySchedulePage(): React.JSX.Element {
           {shifts.map((shift) => (
             <span
               key={shift.id}
-              className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-xs dark:bg-gray-800"
+              className="inline-flex items-center gap-1.5 rounded-md bg-gray-100 px-2.5 py-1 text-xs dark:bg-gray-800"
             >
               <span
                 className="h-3 w-3 rounded-full"
@@ -725,7 +725,7 @@ export function WeeklySchedulePage(): React.JSX.Element {
       <div className="p-4">
         <div
           className={cn(
-            'overflow-auto rounded-xl bg-white shadow-sm dark:bg-gray-900',
+            'overflow-auto rounded-xl bg-white shadow-(--shadow-sd-sm) dark:bg-gray-900',
             compact && 'max-h-[calc(100vh-220px)]',
           )}
         >

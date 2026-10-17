@@ -40,7 +40,7 @@ export function EmployeeCard({
         className={cn(
           'flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800',
           onClick &&
-            'cursor-pointer hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-sm',
+            'cursor-pointer hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-(--shadow-sd-sm)',
           className,
         )}
         onClick={onClick}
@@ -64,7 +64,7 @@ export function EmployeeCard({
       className={cn(
         'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
         onClick &&
-          'cursor-pointer hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-md transition-shadow',
+          'cursor-pointer hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-(--shadow-sd-md) transition-shadow',
         className,
       )}
       onClick={onClick}
@@ -136,7 +136,7 @@ export function EmployeeCard({
 
           {employee.seaWorthy && (
             <div className="mt-3">
-              <span className="inline-flex items-center gap-1 rounded-full bg-info-100 px-2 py-0.5 text-xs font-medium text-info-800 dark:bg-info-900/30 dark:text-info-400">
+              <span className="inline-flex items-center gap-1 rounded-md bg-info-100 px-2 py-0.5 text-xs font-medium text-info-800 dark:bg-info-900/30 dark:text-info-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-info-500" />
                 Sea Worthy Certified
               </span>

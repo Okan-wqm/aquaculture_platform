@@ -38,7 +38,7 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
 
   if (batches.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-8 text-center">
         <div className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500">
           <Inbox aria-hidden="true" />
         </div>
@@ -123,7 +123,7 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
       render: (_value, batch) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
               batch.sourceType === 'farmed'
                 ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
                 : 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
@@ -140,7 +140,7 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
       render: (_value, batch) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
               BatchStatusColors[batch.status] ||
               'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
@@ -179,7 +179,7 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) overflow-hidden">
       <div className="px-4 py-4 sm:px-6 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
           Cleaner Fish Batches

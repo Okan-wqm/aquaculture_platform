@@ -73,12 +73,12 @@ const statusColors: Record<string, string> = {
 };
 
 const typeColors: Record<string, string> = {
-  RAS: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  RAS: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   FLOW_THROUGH: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   POND: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
-  CAGE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  CAGE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   RACEWAY: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
-  HATCHERY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  HATCHERY: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   NURSERY: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   BIOFLOC: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   AQUAPONICS: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
@@ -413,7 +413,7 @@ export const SystemsTab: React.FC = () => {
           {systems.map((system) => (
             <div
               key={system.id}
-              className={`rounded-lg shadow-sm border hover:shadow-md transition-shadow ${
+              className={`rounded-lg shadow-(--shadow-sd-sm) border hover:shadow-(--shadow-sd-md) transition-shadow ${
                 !system.departmentId
                   ? 'border-error-300 dark:border-error-700 bg-error-50 dark:bg-error-900/20'
                   : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
@@ -427,7 +427,7 @@ export const SystemsTab: React.FC = () => {
                         {system.name}
                       </h3>
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[system.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${statusColors[system.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                       >
                         {system.status}
                       </span>

@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
-import { resolveSharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
+import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
@@ -33,7 +33,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      '@aquaculture/shared-ui': resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
+      ...sharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
       '@platform/pagination-contracts': resolve(
         __dirname,
         '../../../platform/libs/pagination-contracts/src/index.ts',

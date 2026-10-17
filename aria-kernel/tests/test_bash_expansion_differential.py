@@ -3,15 +3,21 @@
 ARIA-CRITICAL-446 (glued operators), ARIA-HIGH-443 (a line break, then the
 line break Python's ``str.rstrip`` hid) and ARIA-HIGH-505 (words bash expands:
 braces, parameters, globs, tilde, backslash-newline) are four instances of one
-missing contract. The gate judges the argv ``shlex.split`` lexes from a line;
-bash runs the argv IT builds from the same line; nothing checked that the two
-agree, and every earlier test pinned a hand-picked list of strings.
+missing contract. The gate judges the argv its lexer
+(``command_policy.shell_words``) reads from a line; bash runs the argv IT
+builds from the same line; nothing checked that the two agree, and every
+earlier test pinned a hand-picked list of strings.
 
 The contract, stated by ``command_policy.unmodelled_shell_syntax``: a line it
-admits (returns None for) is one whose ``shlex.split`` argv is the argv bash
+admits (returns None for) is one whose ``shell_words`` argv is the argv bash
 runs. The one tolerated difference is a comment: bash drops an unquoted
-``#``-word and the rest of its line, ``shlex`` keeps them, so the gate sees
+``#``-word and the rest of its line, the lexer keeps them, so the gate sees
 MORE words than bash runs, never fewer or different ones.
+
+ARIA-MEDIUM-538 replaced the lexer (stdlib ``shlex.split``, superlinear in
+the line) with ``shell_words``; ``TheLexerIsTheOneShlexWas`` pins, on the same
+corpus, that it reads every line as ``shlex.split`` did, unlexable ones
+included.
 
 How it is measured: one ``bash --norc --noprofile`` process per locale (the
 byte locale and a UTF-8 one) reads every line NUL-separated and ``eval``s it
@@ -42,6 +48,7 @@ if str(_KERNEL_ROOT) not in sys.path:
 from aria_kernel.command_policy import (  # noqa: E402
     ANSI_C_QUOTE,
     EXPANSION_MARKERS,
+    shell_words,
     unmodelled_shell_syntax,
 )
 
@@ -65,7 +72,7 @@ HOME = "/h"
 LOCALES: tuple[str, ...] = ("C", "C.UTF-8")
 # One line per scanner RULE (not per marker: the unquoted and the
 # double-quoted `$` are two branches of the scanner returning one marker) on
-# which bash and shlex disagree, so every branch is shown to be load-bearing
+# which bash and the lexer disagree, so every branch is shown to be load-bearing
 # whatever the random sample holds: (rule, marker it returns, line).
 WITNESSES: tuple[tuple[str, str, str], ...] = (
     ("line break", "\n", "f a\na"),
@@ -162,10 +169,8 @@ class AdmittedLinesAreLexedAsBashRunsThem(unittest.TestCase):
         cls.admitted: list[tuple[str, list[str]]] = []
         cls.refused: dict[str, list[tuple[str, list[str]]]] = {}
         for line in _corpus():
-            try:
-                argv = shlex.split(line)[1:]
-            except ValueError:
-                argv = None
+            words = shell_words(line)
+            argv = None if words is None else words[1:]
             marker = unmodelled_shell_syntax(line)
             if marker is not None:
                 if argv is not None:
@@ -177,7 +182,7 @@ class AdmittedLinesAreLexedAsBashRunsThem(unittest.TestCase):
         always = WITNESS_LINES | set(CURATED)
         sample += [case for cases in cls.refused.values() for case in cases[400:] if case[0] in always]
         cases = cls.admitted + sample
-        cls.shlex_of = dict(cases)
+        cls.lexed_of = dict(cases)
         cls.locales = tuple(locale for locale in LOCALES if _locale_is_installed(bash, locale))
         cls.bash_of: dict[str, dict[str, list[str] | None]] = {}
         for locale in cls.locales:
@@ -205,23 +210,46 @@ class AdmittedLinesAreLexedAsBashRunsThem(unittest.TestCase):
                     continue  # a bash syntax error runs nothing
                 if "#" in line and argv[:len(ran)] == ran:
                     continue  # bash dropped a comment the gate still judges: the gate sees more
-                mismatches.append({"line": line, "shlex": argv, "bash": ran})
+                mismatches.append({"line": line, "lexer": argv, "bash": ran})
             with self.subTest(locale=locale):
                 self.assertEqual(mismatches[:20], [], f"{len(mismatches)} admitted lines run a different argv")
 
     def test_every_refusal_rule_is_load_bearing(self) -> None:
         """Each branch of the scanner refuses its witness, on which bash's argv
-        is not shlex's: no refusal is there by superstition."""
+        is not the lexer's: no refusal is there by superstition."""
         for rule, marker, line in WITNESSES:
             with self.subTest(rule=rule):
                 self.assertEqual(unmodelled_shell_syntax(line), marker)
                 for locale in self.locales:
                     ran = self.bash_of[locale][line]
                     self.assertIsNotNone(ran, f"{locale}: bash refused to run the witness {line!r}")
-                    self.assertNotEqual(ran, self.shlex_of[line], f"{locale}: bash and shlex agree on {line!r}")
+                    self.assertNotEqual(ran, self.lexed_of[line], f"{locale}: bash and the lexer agree on {line!r}")
 
     def test_every_expansion_marker_has_a_witness(self) -> None:
         self.assertEqual(set(EXPANSION_MARKERS) - WITNESS_MARKERS, set())
+
+
+class TheLexerIsTheOneShlexWas(unittest.TestCase):
+    """ARIA-MEDIUM-538 — ``shell_words`` replaced ``shlex.split`` (POSIX, no
+    comments) in the gate because shlex's token builder is superlinear; the
+    gate's verdicts stay what they were only if the words do. Every corpus
+    line, admitted or not: the same words, and None exactly where shlex
+    raised (an unterminated quote, a trailing backslash), which the operator
+    detector refuses as ``unlexable_command``."""
+
+    def test_every_corpus_line_lexes_as_shlex_lexed_it(self) -> None:
+        mismatches = []
+        unlexable = 0
+        for line in _corpus() + ['f "a', "f 'a", "f a\\", 'f "a\\"', "f ''", 'f a""b']:
+            try:
+                expected = shlex.split(line)
+            except ValueError:
+                expected = None
+                unlexable += 1
+            if shell_words(line) != expected:
+                mismatches.append(line)
+        self.assertGreater(unlexable, 100)
+        self.assertEqual(mismatches[:20], [], f"{len(mismatches)} lines lexed differently")
 
 
 class TheExpansionBypassIsRealInGit(unittest.TestCase):

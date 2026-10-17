@@ -14,8 +14,10 @@ if __package__ in {None, ""}:
 
 
 def _full_git_sha(value: str) -> str:
-    if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
-        raise argparse.ArgumentTypeError("target SHA must be 40 lowercase hexadecimal characters")
+    from aria_kernel.git_object_id import ANY_OBJECT_FORMAT, is_object_id
+
+    if not is_object_id(value, formats=ANY_OBJECT_FORMAT):
+        raise argparse.ArgumentTypeError("target SHA must be a full lowercase git object id (40 or 64 hex digits)")
     return value
 
 from aria_kernel.cycle import run_cycle

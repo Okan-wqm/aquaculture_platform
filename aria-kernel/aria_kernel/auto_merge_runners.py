@@ -29,6 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .implementation_rejections import V9_MERGE_PATH_DISABLED_REJECTION_CLASS
 from .ledger import load_declared_jsonl
 from .risk_policy import first_present_string
@@ -551,7 +552,7 @@ def resolve_readiness_claim_id_from_claims(
     ]
     if missing:
         raise GovernanceError("readiness_claim_pr_binding_fields_required:" + ",".join(missing))
-    if len(str(head_sha)) != 40 or any(ch not in "0123456789abcdef" for ch in str(head_sha)):
+    if not is_object_id(head_sha, formats=ANY_OBJECT_FORMAT):
         raise GovernanceError("readiness_claim_pr_head_sha_must_be_full_sha")
     rows = load_declared_jsonl(
         ensure_tools_dir(base_dir) / "enterprise" / "readiness-claims.jsonl",

@@ -18,6 +18,7 @@ import time
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Literal, Mapping
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import SEGMENT_OPENED_ROW_TYPE
 from .state_snapshot import (
     MAX_SNAPSHOT_JSON_BYTES,
@@ -55,9 +56,7 @@ class _LegacyKgCanonicalMigrationRequired(RuntimeError):
     """A published KG ledger needs an operator-governed dual-chain migration."""
 
 
-_FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _LEDGER_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
-_GIT_OBJECT_ID = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _OWNER_TASK = re.compile(r"^task-(?:[1-9]|1\d|20a)$")
 _REQUIRED_PREDICATE = re.compile(r"^[a-z][a-z0-9_]+$")
 _REGRESSION_TEST_REF = re.compile(r"(?:^|/)(?:tests?|[^/]*\.(?:spec|test)\.)")
@@ -1467,7 +1466,7 @@ def _summarize_native_rows(
             evidence_target_sha = row.get(sha_field)
             if (
                 not isinstance(evidence_target_sha, str)
-                or not _FULL_SHA.fullmatch(evidence_target_sha)
+                or not is_object_id(evidence_target_sha, formats=ANY_OBJECT_FORMAT)
             ):
                 blockers.add(f"proof_target_sha_invalid:{contract.surface}")
                 continue
@@ -1578,7 +1577,7 @@ def _git_blob_size(
     too_large: str,
 ) -> int:
     """Return one immutable blob's strict decimal Git object size."""
-    if _GIT_OBJECT_ID.fullmatch(object_id) is None:
+    if not is_object_id(object_id, formats=ANY_OBJECT_FORMAT):
         raise RuntimeError("git_blob_object_id_invalid")
     result = _run_git(repo_root, "cat-file", "-s", object_id)
     if result.returncode != 0:
@@ -1763,7 +1762,7 @@ def _git_tree_entry(
     if (
         re.fullmatch(r"[0-7]{6}", mode) is None
         or object_type not in {"blob", "tree", "commit"}
-        or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", object_id) is None
+        or not is_object_id(object_id, formats=ANY_OBJECT_FORMAT)
     ):
         raise RuntimeError("git_authority_tree_invalid")
     return listing.stdout, mode, object_type, object_id
@@ -1825,7 +1824,7 @@ def _git_tree_entries(
         if (
             re.fullmatch(r"[0-7]{6}", mode) is None
             or object_type not in {"blob", "tree", "commit"}
-            or _GIT_OBJECT_ID.fullmatch(object_id) is None
+            or not is_object_id(object_id, formats=ANY_OBJECT_FORMAT)
             or path in entries
         ):
             raise RuntimeError("state_snapshot_tree_invalid")
@@ -2264,7 +2263,7 @@ def _resolve_target_sha(repo_root: Path, target_sha: str | None) -> str:
         "--verify",
         f"{requested}^{{commit}}",
     )
-    if returncode != 0 or not _FULL_SHA.fullmatch(resolved):
+    if returncode != 0 or not is_object_id(resolved, formats=ANY_OBJECT_FORMAT):
         raise ValueError(f"evidence_target_sha_unavailable:{requested}")
     if target_sha is not None and target_sha != resolved:
         raise ValueError(f"evidence_target_sha_not_full:{target_sha}")
@@ -2433,7 +2432,7 @@ def _state_commit_single_parent(store_root: Path, state_commit: str) -> str:
     if (
         len(fields) != 2
         or fields[0] != state_commit
-        or any(_GIT_OBJECT_ID.fullmatch(field) is None for field in fields)
+        or any(not is_object_id(field, formats=ANY_OBJECT_FORMAT) for field in fields)
     ):
         raise RuntimeError("state_snapshot_parent_invalid")
     return fields[1]
@@ -3206,7 +3205,7 @@ def _capture_state_admission(
         head_code, head = _git_text(store.root, "rev-parse", "--verify", "HEAD")
     except RuntimeError:
         head_code, head = 1, ""
-    if head_code != 0 or not _FULL_SHA.fullmatch(head):
+    if head_code != 0 or not is_object_id(head, formats=ANY_OBJECT_FORMAT):
         blockers.add("state_store_head_unavailable")
         head = ""
     try:
@@ -3232,7 +3231,7 @@ def _capture_state_admission(
         )
     except RuntimeError:
         tracking_code, tracking = 1, ""
-    if tracking_code != 0 or not _FULL_SHA.fullmatch(tracking):
+    if tracking_code != 0 or not is_object_id(tracking, formats=ANY_OBJECT_FORMAT):
         blockers.add("state_store_tracking_tip_unavailable")
     elif head and tracking != head:
         blockers.add("state_store_unpublished_head")
@@ -4117,7 +4116,7 @@ def _valid_operator_policy_shape(
         if (
             not isinstance(historical, list)
             or any(
-                not isinstance(sha, str) or _FULL_SHA.fullmatch(sha) is None
+                not isinstance(sha, str) or not is_object_id(sha, formats=ANY_OBJECT_FORMAT)
                 for sha in historical
             )
         ):

@@ -21,11 +21,11 @@ instead, and a disagreement is refused by name rather than resolved.
 """
 from __future__ import annotations
 
-import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
 from .state_store_lifecycle_arcs import GIT_TIMEOUT_SECONDS
 from .tool_registry import GovernanceError
@@ -36,7 +36,6 @@ GH_PR_FILES_LIST_CAP = 100
 
 CHANGE_PATHS_SOURCE = "git diff --name-status -z --no-renames"
 
-_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 # With --no-renames git emits no R/C entry, so every status letter names
 # exactly one path. These are the statuses a change entry can carry.
 CHANGE_STATUSES = frozenset("ADMTUX")
@@ -117,7 +116,7 @@ def read_change_paths(workspace_root: str | Path | None, base_sha: object, head_
 
 
 def _full_sha(name: str, value: object) -> str:
-    if not isinstance(value, str) or _FULL_SHA_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or not is_object_id(value, formats=ANY_OBJECT_FORMAT):
         raise GovernanceError(f"change_paths_unavailable: {name} sha is not a full object id: {value!r}")
     return value
 

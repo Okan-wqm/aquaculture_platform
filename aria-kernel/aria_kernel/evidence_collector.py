@@ -51,6 +51,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id_prefix
 from .tool_registry import ensure_tools_dir, utc_now
 
 
@@ -285,7 +286,7 @@ def _resolve_head_sha(workspace_root: Path) -> str:
 
 def _sha_is_reachable(workspace_root: Path, sha: str) -> bool:
     """Plan §10 item 2 — verify sha reachable from current HEAD."""
-    if not re.fullmatch(r"[0-9a-fA-F]{4,40}", sha or ""):
+    if not is_object_id_prefix(sha, formats=ANY_OBJECT_FORMAT, case_insensitive=True):
         return False
     result = subprocess.run(
         ["git", "cat-file", "-e", f"{sha}^{{commit}}"],

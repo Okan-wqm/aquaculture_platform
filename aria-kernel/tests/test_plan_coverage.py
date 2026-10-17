@@ -249,13 +249,11 @@ class NativePlanCoverageTests(unittest.TestCase):
         self.assertIn(payload["witness"].get("exit_code"), (0, 1), payload)
         self.assertEqual(payload["witness"]["tool"], native_tool_paths[0])
         self.assertEqual(payload["computed_at_sha"], head)
-        generated_graphs = list(witness_tmp.glob("plan-coverage-*/nx-graph.json"))
-        self.assertEqual(len(generated_graphs), 1)
-        graph = json.loads(generated_graphs[0].read_text())["graph"]
-        self.assertEqual(graph["nodes"]["interval-core"]["data"]["root"], "libs/interval-core")
-        self.assertEqual(graph["nodes"]["farm-service"]["data"]["root"], "apps/farm-service")
-        self.assertTrue(any(edge["target"] == "interval-core"
-            for edge in graph["dependencies"]["farm-service"]))
+        # ARIA-LOW-558: the witness builds the real nx graph in a temp dir and
+        # removes it; nothing it made stays under TMPDIR. What the graph said
+        # (both roots, the farm-service -> interval-core edge) is read from the
+        # witness's own closure below, not from a leftover file.
+        self.assertEqual(sorted(path.name for path in witness_tmp.glob("plan-coverage-*")), [])
         manifest_path = tools / "coverage" / (plan_id + "-r1.json")
         manifest_bytes = manifest_path.read_bytes()
         self.assertEqual(payload["closure_manifest_hash"], "sha256:" + hashlib.sha256(manifest_bytes).hexdigest())
@@ -266,7 +264,11 @@ class NativePlanCoverageTests(unittest.TestCase):
         witness_input = json.loads((tools / "coverage" / (plan_id + "-r1-input.json")).read_text())
         self.assertEqual(witness_input["affected_paths"], [source_path, note_path])
         report = json.loads(manifest_bytes)
-        self.assertEqual({row["name"] for row in report["closure"]["projects"]}, {"interval-core", "farm-service"})
+        self.assertEqual(
+            {(row["name"], row["root"], row["reason"]) for row in report["closure"]["projects"]},
+            {("interval-core", "libs/interval-core", "direct"),
+             ("farm-service", "apps/farm-service", "reverse_dependent")},
+        )
         self.assertEqual(report["unmapped_paths"], [note_path])
         self.assertEqual([row["node_id"] for row in payload["uncovered"]], ["project:farm-service"])
         self.assertEqual(payload["closure_summary"]["projects"], 2)

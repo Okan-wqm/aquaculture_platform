@@ -120,6 +120,7 @@ import {
   type EventConsumerIndex,
   scanEventConsumers,
 } from './event-consumer-index';
+import { removeFixtureTree } from './fixture-tree';
 import { loadNatsServices, NATS_SERVICES_YAML, type NatsServiceEntry } from './nats-services';
 
 // ---------------------------------------------------------------------------
@@ -232,14 +233,21 @@ function loadGraph(graphArg: string | undefined, repoRoot: string): NxGraphFile 
   if (graphArg) {
     return JSON.parse(readFileSync(graphArg, 'utf8')) as NxGraphFile;
   }
+  // ARIA-LOW-558: the graph file lives only as long as this read. Every call
+  // without --graph used to leave its directory in the temp dir; the finally
+  // removes it on success and on a failed or timed-out nx run alike.
   const tmp = mkdtempSync(join(tmpdir(), 'plan-coverage-'));
-  const graphPath = join(tmp, 'nx-graph.json');
-  execFileSync('npx', ['nx', 'graph', `--file=${graphPath}`], {
-    cwd: repoRoot,
-    stdio: ['ignore', 'ignore', 'pipe'],
-    timeout: 120_000,
-  });
-  return JSON.parse(readFileSync(graphPath, 'utf8')) as NxGraphFile;
+  try {
+    const graphPath = join(tmp, 'nx-graph.json');
+    execFileSync('npx', ['nx', 'graph', `--file=${graphPath}`], {
+      cwd: repoRoot,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      timeout: 120_000,
+    });
+    return JSON.parse(readFileSync(graphPath, 'utf8')) as NxGraphFile;
+  } finally {
+    removeFixtureTree(tmp);
+  }
 }
 
 /** Longest-prefix owner project for a repo-relative path. */

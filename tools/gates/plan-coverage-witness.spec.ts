@@ -21,6 +21,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -47,11 +48,22 @@ const LIVE_SERVICES_YAML = join(REPO_ROOT, 'infrastructure', 'nats', 'services.y
 /** Run against the live SSoT and the real contracts; the nx graph stays the fixture's. */
 const LIVE_ARGS = ['--services-yaml', LIVE_SERVICES_YAML, '--repo-root', REPO_ROOT];
 
-/** Throwaway repositories this spec creates, removed when it ends. */
+/**
+ * Throwaway directories this spec creates, removed when it ends. Every
+ * directory the spec makes comes from scratchDir (ARIA-LOW-558: three helpers
+ * made their own and left one directory per witness run in the temp dir).
+ */
 const scratchDirs: string[] = [];
 after(() => {
   for (const dir of scratchDirs) removeFixtureTree(dir);
 });
+
+/** A throwaway directory under the system temp dir, removed when the spec ends. */
+function scratchDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  scratchDirs.push(dir);
+  return dir;
+}
 
 // Typed `unknown` so every read of the parsed document is narrowed explicitly.
 const parseYaml: (input: string) => unknown = yamlParse;
@@ -204,14 +216,14 @@ function literalSubscriptionSites(
 }
 
 function writeServicesYaml(source: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'plan-coverage-yaml-'));
+  const dir = scratchDir('plan-coverage-yaml-');
   const path = join(dir, 'services.yaml');
   writeFileSync(path, source, 'utf8');
   return path;
 }
 
 function runWitness(input: object, extraArgs: string[] = []): WitnessRun {
-  const dir = mkdtempSync(join(tmpdir(), 'plan-coverage-spec-'));
+  const dir = scratchDir('plan-coverage-spec-');
   const inputPath = join(dir, 'input.json');
   writeFileSync(inputPath, JSON.stringify(input), 'utf8');
   const args = [
@@ -483,8 +495,7 @@ void test('ARIA-HIGH-313: a catch-all grant is a permission, not a consumer; the
 
 /** A throwaway repository with a minimal event bus, removed when the spec ends. */
 function writeCodeRepo(listener: string): string {
-  const root = mkdtempSync(join(tmpdir(), 'plan-coverage-code-'));
-  scratchDirs.push(root);
+  const root = scratchDir('plan-coverage-code-');
   const files: Record<string, string> = {
     'libs/event-contracts/src/farm-events.ts': readFileSync(
       join(FIXTURE_REPO, 'libs', 'event-contracts', 'src', 'farm-events.ts'),
@@ -838,7 +849,7 @@ void test('missing input file is an environment error (exit 2)', () => {
 });
 
 void test('unreadable graph is an environment error (exit 2), not an empty covered verdict', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'plan-coverage-spec-'));
+  const dir = scratchDir('plan-coverage-spec-');
   const inputPath = join(dir, 'input.json');
   writeFileSync(
     inputPath,
@@ -870,4 +881,97 @@ void test('unreadable graph is an environment error (exit 2), not an empty cover
   } catch (error) {
     assert.equal((error as { status?: number }).status, 2);
   }
+});
+
+/**
+ * ARIA-LOW-558: without --graph the witness builds the nx graph itself into a
+ * temp directory. A fake `npx` first on PATH stands in for `npx nx graph
+ * --file=<path>` (it copies the fixture graph, or fails), and TMPDIR points at
+ * an empty directory, so whatever the witness leaves behind is visible there.
+ */
+function runWitnessBuildingItsGraph(fakeNx: 'writes-graph' | 'fails'): {
+  exitCode: number;
+  verdict: string | undefined;
+  leftovers: string[];
+} {
+  const sandbox = scratchDir('plan-coverage-tmp-');
+  const isolatedTmp = join(sandbox, 'tmp');
+  const fakeBin = join(sandbox, 'bin');
+  mkdirSync(isolatedTmp);
+  mkdirSync(fakeBin);
+  const inputPath = join(sandbox, 'input.json');
+  writeFileSync(
+    inputPath,
+    JSON.stringify({
+      schema_version: 1,
+      affected_paths: ['libs/farm-shared/src/index.ts'],
+      waivers: [],
+    }),
+    'utf8',
+  );
+  const fakeNpx = join(fakeBin, 'npx');
+  writeFileSync(
+    fakeNpx,
+    fakeNx === 'writes-graph'
+      ? '#!/bin/sh\nfor a in "$@"; do case "$a" in --file=*) cp "$FAKE_NX_GRAPH" "${a#--file=}";; esac; done\n'
+      : '#!/bin/sh\necho "nx graph failed" >&2\nexit 1\n',
+    'utf8',
+  );
+  chmodSync(fakeNpx, 0o755);
+  let exitCode = 0;
+  let stdout = '';
+  try {
+    stdout = execFileSync(
+      process.execPath,
+      [
+        require.resolve('ts-node/dist/bin'),
+        '--project',
+        join(REPO_ROOT, 'tools', 'gates', 'tsconfig.json'),
+        WITNESS,
+        '--input',
+        inputPath,
+        '--services-yaml',
+        SERVICES_YAML,
+        '--repo-root',
+        FIXTURE_REPO,
+      ],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          TMPDIR: isolatedTmp,
+          FAKE_NX_GRAPH: GRAPH,
+        },
+      },
+    );
+  } catch (error) {
+    const failed = error as { status?: number; stdout?: string };
+    exitCode = failed.status ?? -1;
+    stdout = failed.stdout ?? '';
+  }
+  const report = stdout.trim().startsWith('{')
+    ? (JSON.parse(stdout) as { verdict?: string })
+    : undefined;
+  return {
+    exitCode,
+    verdict: report?.verdict,
+    leftovers: readdirSync(isolatedTmp).filter((name) => name.startsWith('plan-coverage-')),
+  };
+}
+
+void test('a graph the witness builds itself leaves no temp directory behind', () => {
+  const run = runWitnessBuildingItsGraph('writes-graph');
+  // The fake graph was read: the same verdict the fixture graph gives via --graph.
+  assert.equal(run.exitCode, 1);
+  assert.equal(run.verdict, 'gaps');
+  assert.deepEqual(run.leftovers, []);
+});
+
+void test('a failed nx graph build is exit 2 and leaves no temp directory behind', () => {
+  const run = runWitnessBuildingItsGraph('fails');
+  assert.equal(run.exitCode, 2);
+  assert.deepEqual(run.leftovers, []);
 });

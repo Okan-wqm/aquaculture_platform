@@ -2064,6 +2064,18 @@ made the starvation permanent). A lapsed FAULT still reaches the opener at prior
 `deadlines` organ's own `doctor_fail`. When HIGH-122's adaptation loop owns a contract for a dated
 row, that contract is added to `SIGNAL_REMEDIES` — not to the opener's sort key.
 
+**A signal family the scan cannot read is named, never read as "nothing to improve"
+(ARIA-LOW-587).** `scan_signals` returns a `SignalScan`: the signals, and `unreadable` — one
+`UnreadableSource(family, fault)` per family of `SCAN_FAMILIES` it could not read. Each family absorbs
+only the faults its reader declares next to it (`capability_gap_reader_faults`,
+`knowledge_graph.effectiveness_reader_faults`, `delivery_closure_reader_faults`,
+`mcp_client.quarantine_reader_faults`, all built on `ledger.ledger_read_faults`); a doctor organ whose
+probe raised (`DoctorCheck.probe_fault`) is named `doctor_organ:<organ>:<class>`; a deadline source
+the reader could not read (`DeadlineReadout.undecided`) is named `deadline_due:<source>:<class>`.
+Anything else a reader raises — a `TypeError`, a crash of the doctor run itself — is a kernel defect
+and raises out of the scan. The opener's `MissionOpening`, the `self_improve` action's `detail` and its
+`gateway_action_ran` row, and `aria-kernel self-improve scan|open` all carry `unreadable`.
+
 Not in the registry, on purpose: rolling housekeeping windows (`state_compact` `retain_days`, the
 signing-key 24 h grace in `prune_stale_signing_keys`). Passing those windows IS their design — the row
 is archived, the orphan key is pruned — not a lapse anyone must act on before the day; a "deadline"

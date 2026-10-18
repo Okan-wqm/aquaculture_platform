@@ -57,6 +57,8 @@ def claude_cli_version_floor(repo_root: str | Path | None = None) -> str:
     return floor.strip()
 
 CHECK_STATUSES: tuple[str, ...] = ("ok", "warn", "fail")
+# Where `_guarded` records the class of the exception a probe raised.
+PROBE_FAULT_DETAIL_KEY = "probe_fault"
 DOCTOR_REPORT_SCHEMA_VERSION = 1
 DOCTOR_EXIT_HEALTHY = 0
 DOCTOR_EXIT_UNHEALTHY = 3
@@ -85,6 +87,16 @@ class DoctorCheck:
     detail: dict[str, Any] = field(default_factory=dict)
     # Empty: the organ's name alone identifies its failure.
     causes: tuple[DoctorCause, ...] = ()
+
+    @property
+    def probe_fault(self) -> str | None:
+        """The exception class the organ's probe raised, when it raised
+        (``_guarded``): the organ is a WARN because its verdict could not be
+        judged, not because it judged the store healthy. Read from ``detail``
+        so a report read back from file (``DoctorReport.from_dict``) keeps it
+        (ARIA-LOW-587)."""
+        fault = self.detail.get(PROBE_FAULT_DETAIL_KEY)
+        return str(fault) if fault is not None else None
 
 
 @dataclass(frozen=True)
@@ -157,7 +169,8 @@ def _guarded(name: str, probe: Callable[[], DoctorCheck]) -> DoctorCheck:
     try:
         return probe()
     except Exception as exc:  # noqa: BLE001 — the doctor reports, it does not crash
-        return DoctorCheck(name, "warn", f"check_unreadable:{type(exc).__name__}")
+        fault = type(exc).__name__
+        return DoctorCheck(name, "warn", f"check_unreadable:{fault}", {PROBE_FAULT_DETAIL_KEY: fault})
 
 
 def _check_integrity(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
@@ -831,6 +844,7 @@ __all__ = [
     "DoctorCause",
     "DoctorCheck",
     "DoctorReport",
+    "PROBE_FAULT_DETAIL_KEY",
     "claude_cli_version_floor",
     "render_doctor_text",
     "run_doctor",

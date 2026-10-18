@@ -149,6 +149,17 @@ def _derive_state(rec: DeliveryRecord) -> str:
     return "dispatched"
 
 
+def delivery_closure_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``compute_delivery_closure`` caller may report as an
+    unreadable delivery store (ARIA-LOW-587): the ledger primitives' own
+    (``ledger.ledger_read_faults``) — every row the fold reads comes through
+    ``load_segments`` or ``load_declared_jsonl``. The fold itself is
+    arithmetic over those rows, so anything else it raises is a defect."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 def compute_delivery_closure(*, base_dir: str | Path | None = None) -> DeliveryClosureReport:
     """Fold the delivery ledgers into per-request records + the SLO summary."""
     root = ensure_tools_dir_readonly(base_dir)
@@ -313,5 +324,6 @@ __all__ = [
     "IMPLEMENTATION_ROLE",
     "SLO_VERIFIED_PRS_MIN",
     "compute_delivery_closure",
+    "delivery_closure_reader_faults",
     "render_delivery_text",
 ]

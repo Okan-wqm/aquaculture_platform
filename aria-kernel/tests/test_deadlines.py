@@ -440,7 +440,7 @@ class ReadoutAndConsumers(_Fixture):
         self._seed_all_three()
         self.assertIn("deadline_due", SIGNAL_KINDS)
         with mock.patch.object(deadlines, "datetime", _FrozenClock(self.now)):
-            signals = {(s.kind, s.key): s for s in scan_signals(base_dir=self.tools, workspace_root=self.ws)}
+            signals = {(s.kind, s.key): s for s in scan_signals(base_dir=self.tools, workspace_root=self.ws).signals}
         late = signals[("deadline_due", "human_required_sla:AIR-late")]
         soon = signals[("deadline_due", "registry_finding:SENSOR-CRITICAL-108")]
         later = signals[("deadline_due", "surface_waiver:tool_registry_status.ARCHIVED")]

@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any, NoReturn
 
 from .artifact_safety import scrub_text
@@ -246,9 +247,56 @@ def doctor_signals(check: DoctorCheck) -> list[Signal]:
             for cause in check.causes]
 
 
+# ARIA-LOW-587 — the families `scan_signals` reads, by name. A family is
+# named on the scan's result when its reader raised a fault the reader
+# DECLARES (`*_reader_faults()` next to it): a corrupt or unreadable ledger,
+# a doctor organ whose probe crashed, a deadline source nobody could read.
+# Anything else a reader raises is a kernel defect and raises out of the
+# scan. Before, each family sat in `except Exception: pass`, so a TypeError
+# in a reader, a corrupt ledger and a crashed doctor run all read as
+# "nothing to improve" and the `self_improve` action reported a bare `ran`.
+SCAN_FAMILIES: tuple[str, ...] = (
+    "capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_organ", "deadline_due",
+)
+
+
+@dataclass(frozen=True)
+class UnreadableSource:
+    """One family the scan could not read, and the fault it could not read it
+    through: an exception CLASS name, or ``<organ>:<class>`` /
+    ``<deadline source>:<class>`` where the family has parts. Never an
+    exception message — it reaches the governance ledger and the lane's
+    public output, and a message carries paths and row text."""
+
+    family: str
+    fault: str
+
+    def __post_init__(self) -> None:
+        if self.family not in SCAN_FAMILIES:
+            raise GovernanceError(f"scan_family_unknown:{self.family}")
+
+    @property
+    def label(self) -> str:
+        return f"{self.family}:{self.fault}"
+
+    def to_dict(self) -> dict[str, str]:
+        return {"family": self.family, "fault": self.fault}
+
+
+@dataclass(frozen=True)
+class SignalScan:
+    """What one scan read: the signals, and every family it could not read."""
+
+    signals: tuple[Signal, ...]
+    unreadable: tuple[UnreadableSource, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"signals": [s.to_dict() for s in self.signals], "unreadable": [u.to_dict() for u in self.unreadable]}
+
+
 def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path,
-                 doctor_report: DoctorReport | None = None) -> list[Signal]:
-    """Every signal the store raises tonight.
+                 doctor_report: DoctorReport | None = None) -> SignalScan:
+    """Every signal the store raises tonight, and every family it could not read.
 
     ARIA-LOW-559 — ``doctor_report`` is the report the doctor already wrote
     for this store (the live lane's doctor step, `gateway.scheduler.
@@ -258,7 +306,18 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path,
     (the gateway daemon's own `self_improve` slot, the `self-improve` CLI)
     the doctor runs here. A report of another store or another workspace is
     refused: its organs describe a different tree.
+
+    ARIA-LOW-587 — each family absorbs only its reader's declared faults and
+    names them on ``unreadable``; every other family is still read beside it.
     """
+    from .capability_gap import capability_gap_reader_faults, latest_capability_gaps
+    from .deadlines import read_deadlines, signal_priority
+    from .delivery_closure import compute_delivery_closure, delivery_closure_reader_faults
+    from .doctor import run_doctor
+    from .funnel_health import detect_funnel_stalls
+    from .knowledge_graph import effectiveness_reader_faults, rank_pressure_sources
+    from .mcp_client import quarantine_reader_faults, quarantined_servers
+
     root = ensure_tools_dir(base_dir)
     if doctor_report is not None:
         if Path(doctor_report.tools_dir).resolve() != Path(root).resolve():
@@ -266,75 +325,73 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path,
         if Path(doctor_report.workspace_root).resolve() != Path(workspace_root).resolve():
             raise GovernanceError(f"doctor_report_workspace_mismatch:{doctor_report.workspace_root!r}")
     signals: list[Signal] = []
+    unreadable: list[UnreadableSource] = []
     try:
-        from .capability_gap import latest_capability_gaps
-
+        gaps = latest_capability_gaps(base_dir=root)
+    except capability_gap_reader_faults() as exc:
+        unreadable.append(UnreadableSource("capability_gap", type(exc).__name__))
+    else:
         # A gap its producer marked `blocked_by` (a shadow-run adapter waiting
         # on genesis adjudication) is not a self-change ARIA can make: its
         # answer is outside SELF_CHANGE_ALLOWED_PREFIXES (tools/aria-adapters/)
         # and behind a decision, so it never takes a mission slot.
-        actionable = [gap for gap in latest_capability_gaps(base_dir=root) if not gap.get("blocked_by")]
+        actionable = [gap for gap in gaps if not gap.get("blocked_by")]
         for gap in actionable[:5]:
             key = str(gap.get("capability_gap_key") or gap.get("gap_id"))
             signals.append(Signal("capability_gap", key, f"Close capability gap {key}", {"gap": {k: gap.get(k) for k in ("gap_id", "score", "capability", "kind")}}, 2))
-    except Exception:  # noqa: BLE001 — a missing gap ledger is no gap
-        pass
     try:
-        from .funnel_health import detect_funnel_stalls
-        from .knowledge_graph import rank_pressure_sources
-
-        for stall in detect_funnel_stalls(rank_pressure_sources(base_dir=root)):
+        pressure = rank_pressure_sources(base_dir=root)
+    except effectiveness_reader_faults() as exc:
+        unreadable.append(UnreadableSource("funnel_stall", type(exc).__name__))
+    else:
+        for stall in detect_funnel_stalls(pressure):
             key = f"{stall.stage}:{stall.source_type}"
             signals.append(Signal("funnel_stall", key, f"Unblock funnel stage {stall.stage} for {stall.source_type}",
                                   {"upstream": stall.upstream, "downstream": stall.downstream}, 1))
-    except Exception:  # noqa: BLE001
-        pass
     try:
-        from .delivery_closure import compute_delivery_closure
-
         summary = compute_delivery_closure(base_dir=root).summary
+    except delivery_closure_reader_faults() as exc:
+        unreadable.append(UnreadableSource("delivery_slo_gap", type(exc).__name__))
+    else:
         for gap in summary["slo"]["gaps"]:
             if gap.startswith("verified_prs"):
                 continue  # a count shortfall is not a defect to fix in code
             signals.append(Signal("delivery_slo_gap", gap, f"Delivery closure gap: {gap}", {"summary": {k: summary[k] for k in ("false_success", "duplicate_prs")}}, 1))
-    except Exception:  # noqa: BLE001
-        pass
     try:
-        from .mcp_client import quarantined_servers
-
-        for server in sorted(quarantined_servers(root)):
+        quarantined = quarantined_servers(root)
+    except quarantine_reader_faults() as exc:
+        unreadable.append(UnreadableSource("mcp_quarantine", type(exc).__name__))
+    else:
+        for server in sorted(quarantined):
             signals.append(Signal("mcp_quarantine", server, f"MCP server {server} quarantined for errors", {"server": server}, 2))
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        from .doctor import run_doctor
-
-        report = doctor_report if doctor_report is not None else run_doctor(base_dir=root, workspace_root=workspace_root)
-        for check in report.checks:
-            if check.status == "fail":
-                signals.extend(doctor_signals(check))
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        # ARIA-MEDIUM-128 — every deadline the kernel enforces that is lapsed or
-        # inside the warning window, one signal per row, from the same reader
-        # the doctor organ uses. Its remedy is ANNOUNCE (`SIGNAL_REMEDIES`):
-        # the scan and the CLI carry the row; the opener mints no mission for
-        # it, because a registry finding's or an operator SLA's date is not
-        # answered by a change under `SELF_CHANGE_ALLOWED_PREFIXES`.
-        from .deadlines import read_deadlines, signal_priority
-
-        readout = read_deadlines(tools_dir=root, workspace_root=workspace_root)
-        for row in (*readout.lapsed, *readout.due_soon):
-            days = row.days_left(readout.now)
-            signals.append(Signal("deadline_due", f"{row.kind}:{row.key}", f"Deadline {row.key} ({row.kind}) {'lapsed' if row.lapsed(readout.now) else 'due'} {days:+d}d: {row.consequence}",
-                                  row.to_dict(readout.now), signal_priority(row, readout.now)))
-    except Exception:  # noqa: BLE001
-        pass
-    return signals
+    # The doctor reports, it does not crash: `doctor._guarded` turns a probe
+    # that raised into a WARN carrying the fault (`DoctorCheck.probe_fault`).
+    # Such an organ's FAIL — the signal — could not be judged, so it is named
+    # here by organ. A crash of the doctor run ITSELF is a defect and raises.
+    report = doctor_report if doctor_report is not None else run_doctor(base_dir=root, workspace_root=workspace_root)
+    for check in report.checks:
+        if check.probe_fault is not None:
+            unreadable.append(UnreadableSource("doctor_organ", f"{check.name}:{check.probe_fault}"))
+        if check.status == "fail":
+            signals.extend(doctor_signals(check))
+    # ARIA-MEDIUM-128 — every deadline the kernel enforces that is lapsed or
+    # inside the warning window, one signal per row, from the same reader
+    # the doctor organ uses. Its remedy is ANNOUNCE (`SIGNAL_REMEDIES`):
+    # the scan and the CLI carry the row; the opener mints no mission for
+    # it, because a registry finding's or an operator SLA's date is not
+    # answered by a change under `SELF_CHANGE_ALLOWED_PREFIXES`. The reader
+    # reads every source to the end and names the ones it could not read
+    # (`DeadlineReadout.undecided`), so the scan names them too.
+    readout = read_deadlines(tools_dir=root, workspace_root=workspace_root)
+    unreadable.extend(UnreadableSource("deadline_due", source) for source in readout.undecided)
+    for row in (*readout.lapsed, *readout.due_soon):
+        days = row.days_left(readout.now)
+        signals.append(Signal("deadline_due", f"{row.kind}:{row.key}", f"Deadline {row.key} ({row.kind}) {'lapsed' if row.lapsed(readout.now) else 'due'} {days:+d}d: {row.consequence}",
+                              row.to_dict(readout.now), signal_priority(row, readout.now)))
+    return SignalScan(signals=tuple(signals), unreadable=tuple(unreadable))
 
 
-def self_change_signals(signals: list[Signal]) -> list[Signal]:
+def self_change_signals(signals: Iterable[Signal]) -> list[Signal]:
     """The signals the opener may mint, in the order it mints them: only a
     kind whose remedy is a self-change, then priority, kind, key. Routing by
     remedy BEFORE priority is what keeps an announced row from taking a
@@ -342,8 +399,23 @@ def self_change_signals(signals: list[Signal]) -> list[Signal]:
     return sorted((s for s in signals if s.remedy == SELF_CHANGE_REMEDY), key=lambda s: (s.priority, s.kind, s.key))
 
 
+@dataclass(frozen=True)
+class MissionOpening:
+    """What one opener call did: one row per self-change signal it reached
+    (``mission_id``, ``signal``, ``key``, ``idempotent``), and the families
+    its scan could not read (ARIA-LOW-587) — so a night that opened nothing
+    because a ledger was corrupt does not read like a night with nothing to
+    improve."""
+
+    opened: tuple[dict[str, Any], ...]
+    unreadable: tuple[UnreadableSource, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"opened": list(self.opened), "unreadable": [u.to_dict() for u in self.unreadable]}
+
+
 def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_root: str | Path, max_new: int = 3,
-                                   doctor_report: DoctorReport | None = None) -> list[dict[str, Any]]:
+                                   doctor_report: DoctorReport | None = None) -> MissionOpening:
     """Self-change signals → missions (idempotent on source id); never more than `max_new` NEW missions per call.
 
     ARIA-MEDIUM-417 — the budget counts what this call OPENED. A re-sighting
@@ -357,9 +429,10 @@ def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_roo
 
     root = ensure_tools_dir(base_dir)
     repo_hash = canonical_identity(Path(workspace_root).resolve())
+    scan = scan_signals(base_dir=root, workspace_root=workspace_root, doctor_report=doctor_report)
     opened: list[dict[str, Any]] = []
     new = 0
-    for signal in self_change_signals(scan_signals(base_dir=root, workspace_root=workspace_root, doctor_report=doctor_report)):
+    for signal in self_change_signals(scan.signals):
         if new >= max_new:
             break
         source_id = f"{signal.kind}:{signal.key}"
@@ -372,7 +445,7 @@ def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_roo
         if not idempotent:
             new += 1
         opened.append({"mission_id": mission.get("mission_id"), "signal": signal.kind, "key": signal.key, "idempotent": idempotent})
-    return opened
+    return MissionOpening(opened=tuple(opened), unreadable=scan.unreadable)
 
 
 def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspace_root: str | Path, evidence_paths: list[str],
@@ -425,7 +498,8 @@ def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspa
     return {"proposal": proposal, "human_required": adjudication}
 
 
-__all__ = ["ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "DOCTOR_ORGAN_SIGNAL_KINDS", "SELF_CHANGE_ALLOWED_PREFIXES",
+__all__ = ["ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "DOCTOR_ORGAN_SIGNAL_KINDS", "MissionOpening", "SCAN_FAMILIES",
+           "SELF_CHANGE_ALLOWED_PREFIXES", "SignalScan", "UnreadableSource",
            "SELF_CHANGE_MISSION_REFUSALS", "SELF_CHANGE_MISSION_REFUSED_EVENT", "SELF_CHANGE_NEXT_ACTION", "SELF_CHANGE_PROPOSED_EVENT",
            "SELF_CHANGE_REFUSED_EVENT", "SELF_CHANGE_REMEDY", "SELF_CHANGE_SIGNAL_KINDS", "SELF_IMPROVEMENT_SOURCE_KIND",
            "SIGNAL_KINDS", "SIGNAL_REMEDIES", "Signal", "authority_surface_violations", "is_self_change_mission",

@@ -143,12 +143,13 @@ def plan_016_metric_reader_faults() -> tuple[type[BaseException], ...]:
     row beyond the reader's bound; ``OSError`` — the file system. Anything
     else (``TypeError``, ``KeyError``, ``ValueError``, ``AttributeError``) is
     a defect in this computation and must raise, never read as a store the
-    counters could not open. Resolved lazily, like
-    ``knowledge_graph.effectiveness_reader_faults``.
+    counters could not open. The set is the ledger primitives' own
+    (``ledger.ledger_read_faults``, ARIA-LOW-587): the counters read nothing
+    else. Resolved lazily, like ``knowledge_graph.effectiveness_reader_faults``.
     """
-    from .ledger import LedgerIntegrityError, LedgerReadLimitError
+    from .ledger import ledger_read_faults
 
-    return (LedgerIntegrityError, LedgerReadLimitError, OSError)
+    return ledger_read_faults()
 
 
 def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str, int]:

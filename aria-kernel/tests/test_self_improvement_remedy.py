@@ -114,9 +114,9 @@ class OpenerRouting(_Store):
     def test_lapsed_registry_rows_do_not_starve_a_quarantined_server(self) -> None:
         self.lapsed_registry(5)
         with mock.patch.object(mcp_client, "quarantined_servers", return_value=frozenset({"context7"})), self.doctor_scoped_to("deadlines"):
-            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals
             self.assertEqual(sum(1 for s in signals if s.kind == "deadline_due"), 5, "the rows are still announced by the scan")
-            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
         self.assertEqual([(o["signal"], o["key"], o["idempotent"]) for o in opened], [("mcp_quarantine", "context7", False)])
         self.assertEqual([m["source_id"] for m in self.self_improvement_missions()], ["mcp_quarantine:context7"])
 
@@ -124,7 +124,7 @@ class OpenerRouting(_Store):
         self.lapsed_registry(2)
         record_human_required(request_id="AIR-late", severity="HIGH", reason="late", base_dir=self.tools, now=self.now - timedelta(days=5))
         with self.doctor_scoped_to("deadlines"):
-            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals
             keys = {s.key for s in signals if s.kind == "deadline_due"}
             # The rows, plus the `deadlines` organ's own FAIL, announced under the same kind.
             self.assertEqual(keys, {"registry_finding:X-MEDIUM-000", "registry_finding:X-MEDIUM-001", "human_required_sla:AIR-late", "deadlines"})
@@ -146,7 +146,7 @@ class OpenerRouting(_Store):
             {"capability_gap_key": "repo:evidence_gap:jsonl", "blocked_by": []},
         ]
         with mock.patch("aria_kernel.capability_gap.latest_capability_gaps", return_value=gaps), self.doctor_scoped_to():
-            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals
         self.assertEqual([s.key for s in signals if s.kind == "capability_gap"], ["repo:evidence_gap:jsonl"])
 
 
@@ -177,9 +177,9 @@ class RepairLoop(_Store):
         record_failed_night(self.tools, "cyc-1", failed_phases=[self.PR_REFUSED])
         record_failed_night(self.tools, "cyc-2", failed_phases=[{**self.PR_REFUSED, "error": "3 of 4 PR previews refused: x"}])
         with self.doctor_scoped_to("orchestrator"):
-            first = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            first = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
             record_failed_night(self.tools, "cyc-3", failed_phases=[], runtime_status="integrity_failed")
-            second = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            second = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
 
         self.assertEqual([(o["key"], o["idempotent"]) for o in first], [("orchestrator:pr_lifecycle:phase_failed", False)])
         self.assertEqual(
@@ -204,7 +204,7 @@ class RepairLoop(_Store):
         record_failed_night(self.tools, "cyc-1", failed_phases=[], runtime_status="failed", error=hostile)
         record_failed_night(self.tools, "cyc-2", failed_phases=[], runtime_status="failed", error=hostile)
         with self.doctor_scoped_to("orchestrator"):
-            [opened] = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            [opened] = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
 
         [mission] = [m for m in self.self_improvement_missions() if m["mission_id"] == opened["mission_id"]]
         self.assertEqual(mission["title"], "Doctor organ orchestrator failing: cycle:failed")
@@ -219,11 +219,11 @@ class RepairLoop(_Store):
         record_failed_night(self.tools, "cyc-1", failed_phases=[self.PR_REFUSED])
         record_failed_night(self.tools, "cyc-2", failed_phases=[self.PR_REFUSED])
         with self.doctor_scoped_to("orchestrator"):
-            [minted] = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=1)
+            [minted] = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=1).opened
             transition_mission(mission_id=minted["mission_id"], to_state="SUPERSEDED", reason_code="test", step_id="s", base_dir=self.tools)
             before = self.opened_events()
             with mock.patch.object(mcp_client, "quarantined_servers", return_value=frozenset({"context7"})):
-                again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=1)
+                again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=1).opened
 
         # The id is a hash of the source (mission.mission_id_for), so the same
         # signature folds into the terminal mission: reported, not re-opened,
@@ -237,9 +237,9 @@ class RepairLoop(_Store):
 
     def test_max_new_counts_only_the_missions_this_call_opened(self) -> None:
         signals = [si.Signal("doctor_fail", organ, f"Doctor organ {organ} failing: x", priority=1) for organ in ("a", "b", "c")]
-        with mock.patch.object(si, "scan_signals", return_value=signals):
-            first = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
-            second = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
+        with mock.patch.object(si, "scan_signals", return_value=si.SignalScan(signals=tuple(signals), unreadable=())):
+            first = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2).opened
+            second = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2).opened
 
         self.assertEqual([(o["key"], o["idempotent"]) for o in first], [("a", False), ("b", False)])
         # Before: the two re-sightings spent both slots, and `c` — like every
@@ -250,8 +250,8 @@ class RepairLoop(_Store):
         notifications = DoctorCheck("notifications", "fail", "no_notification_channel_in_ci")
         queue = DoctorCheck("queue", "fail", "human_required_open:628")
         with self.reported(notifications, queue):
-            signals = {(s.kind, s.key): s for s in si.scan_signals(base_dir=self.tools, workspace_root=self.ws)}
-            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            signals = {(s.kind, s.key): s for s in si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals}
+            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
 
         announced = signals[("config_missing", "notifications")]
         self.assertEqual(announced.remedy, si.ANNOUNCE_REMEDY)
@@ -272,8 +272,8 @@ class RepairLoop(_Store):
         )
         queue = DoctorCheck("queue", "fail", "human_required_open:628")
         with self.reported(*host, queue):
-            signals = {(s.kind, s.key): s for s in si.scan_signals(base_dir=self.tools, workspace_root=self.ws)}
-            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=5)
+            signals = {(s.kind, s.key): s for s in si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals}
+            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=5).opened
 
         for check in host:
             announced = signals[("host_fault", check.name)]

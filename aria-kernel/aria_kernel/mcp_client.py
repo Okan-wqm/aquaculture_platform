@@ -144,6 +144,16 @@ def quarantined_servers(base_dir: str | Path | None = None) -> frozenset[str]:
     return frozenset(state)
 
 
+def quarantine_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``quarantined_servers`` caller may report as an
+    unreadable quarantine ledger (ARIA-LOW-587): the ledger primitives' own
+    (``ledger.ledger_read_faults``) — the reader is one strict
+    ``load_declared_jsonl``. Anything else is a defect and raises."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 @dataclass(frozen=True)
 class McpRelayContext:
     """ARIA-HIGH-124 — how a spawn reaches the kernel's own MCP server:
@@ -336,6 +346,6 @@ __all__ = [
     "QUARANTINE_ERROR_RATE", "QUARANTINE_MIN_CALLS", "QUARANTINE_RELPATH", "QUARANTINE_SURFACE", "QUARANTINE_WINDOW",
     "TOOL_CALLS_RELPATH", "TOOL_CALLS_SURFACE", "McpRegistry", "McpRelayContext", "McpServerSpec", "evaluate_mcp_health",
     "kernel_socket_servers", "load_mcp_registry",
-    "mcp_config_for_profile", "mcp_tool_rules", "quarantined_servers", "record_mcp_call", "registry_path",
+    "mcp_config_for_profile", "mcp_tool_rules", "quarantine_reader_faults", "quarantined_servers", "record_mcp_call", "registry_path",
     "release_quarantine", "split_mcp_tool", "write_mcp_config_file",
 ]

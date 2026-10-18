@@ -38,8 +38,8 @@ targets: none" — a false explicit negative, the very failure this finding is
 about. Now:
 
 * ``Cargo.toml`` is a cargo project: target ``cargo test``; its spec evidence
-  is every ``.rs`` file under a ``tests/`` directory and every ``.rs`` file
-  holding a ``#[cfg(test)]`` module.
+  is every ``.rs`` file the Rust reader finds a test function in
+  (:func:`read_rust_test_files`, ARIA-LOW-545).
 * ``pyproject.toml`` / ``setup.cfg`` / ``tox.ini`` naming pytest, a
   ``pytest.ini``, or a ``tests/`` directory of ``test_*.py`` is a pytest
   project: target ``pytest``; its specs are ``test_*.py`` / ``*_test.py``.
@@ -48,15 +48,33 @@ about. Now:
   modelled": the map does not claim a fact it did not read.
 
 :func:`spec_inventory` is one pruned ``os.walk`` (dependency and build trees
-are never entered), measured at about 0.1 s on this repository, so the full
-build and every refresh recompute it instead of patching a stored list.
+are never entered), measured at about 0.1 s on this repository, plus, when
+the tree holds Rust, one run of the Rust reader in the adapter room (4.2 s
+measured on a loaded host for the repository's 444 ``.rs`` files), so the
+full build and every refresh recompute it instead of patching a stored list.
+
+ARIA-LOW-545 — the map had its own Rust rule: a file under ``tests/``, or one
+whose text contains ``#[cfg(test)]``. The adapters' Rust reader
+(``tools/aria-adapters/rust-source.ts``) disagreed with it both ways:
+``sens-api-gateway/src/scripting/bytecode_e2e_tests.rs`` holds four
+``#[tokio::test]`` functions and no ``#[cfg(test)]`` (its declaring ``mod`` is
+the gate), and the substring matched compile-fail inputs, doc comments and
+bare ``#[cfg(test)] mod x;`` declarations. Rust has one reader, and it is
+TypeScript, so the map asks it (``rust-test-files.ts``) through the adapter
+room, the one seam that executes adapter code. When it cannot answer, the
+files it did not read are counted per project and rendered "not modelled",
+never as "no tests".
 """
 from __future__ import annotations
 
 import json
 import os
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Sequence
+
+from .tool_registry import TS_NODE_RUNNER_PREFIX
 
 # The files this module reads to decide a project's test surface.
 MODELLED_MANIFESTS: tuple[str, ...] = (
@@ -68,7 +86,25 @@ _PRUNED_DIRS = frozenset({
     ".worktrees",
 })
 _TS_SPEC_SUFFIXES = (".spec.ts", ".spec.tsx", ".test.ts", ".test.tsx")
-_RUST_TEST_MODULE = "#[cfg(test)]"
+_RUST_SUFFIX = ".rs"
+# The Rust reader's entry point for "which of these files hold tests", run
+# exactly as an adapter manifest's runner is (the normalised repo-local
+# ts-node, the gates compiler configuration), with the workspace as cwd.
+RUST_TEST_FILES_READER = "tools/aria-adapters/rust-test-files.ts"
+RUST_TEST_FILES_ARGV: tuple[str, ...] = (
+    *TS_NODE_RUNNER_PREFIX, "--project", "tools/gates/tsconfig.json", RUST_TEST_FILES_READER,
+)
+RUST_TEST_FILES_TIMEOUT_SECONDS = 120
+# The reason recorded for files the reader was asked about and refused or
+# could not lex (its per-file reasons stay in its own output).
+RUST_FILES_UNREADABLE = "unreadable_by_the_rust_reader"
+# Every key :func:`project_test_surface` owns on a project entry. A merge into
+# a prior entry (``twin._with_test_surface``) replaces all of them, so a key
+# this read did not emit, such as the unread record of a night the reader
+# could not run, never survives an incremental refresh.
+TEST_SURFACE_KEYS: tuple[str, ...] = (
+    "test_targets", "spec_files", "test_surface_modelled", "rust_test_files_unread",
+)
 
 _TEST_TARGET_PREFIXES = ("test:", "test-")
 
@@ -98,29 +134,124 @@ def _is_python_spec(name: str) -> bool:
     return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
 
 
-def _is_rust_spec(path: Path, rel: str) -> bool:
-    if not rel.endswith(".rs"):
-        return False
-    if "/tests/" in f"/{rel}":
-        return True
+class RustReaderUnavailable(Exception):
+    """The Rust reader gave no answer; the message names why."""
+
+
+@dataclass(frozen=True)
+class RustTestFiles:
+    """The Rust reader's answer: which asked files hold tests, and which it could not read."""
+
+    test_files: frozenset[str]
+    unreadable: frozenset[str]
+
+
+RustTestFilesReader = Callable[[Path, Sequence[str], Path | None], RustTestFiles]
+
+
+def read_rust_test_files(root: Path, paths: Sequence[str], store: Path | None) -> RustTestFiles:
+    """Ask the Rust reader, inside the adapter room, which of ``paths`` hold tests.
+
+    The room (``adapter_room``) is the one seam that executes adapter code:
+    no network, the tracked workspace read-only, the store ``store`` masked.
+    Raises :class:`RustReaderUnavailable` naming why when there is no answer:
+    the repository's ts-node is missing, the room cannot be built, the reader
+    fails or times out, or its output is not an answer about ``paths``.
+    """
+    from .adapter_room import prepare_adapter_spawn, run_adapter
+    from .implementation_safety import SandboxUnavailable
+    from .tool_registry import missing_repo_local_dependencies
+
+    missing = missing_repo_local_dependencies({"argv": list(RUST_TEST_FILES_ARGV), "cwd": "."}, workspace_root=root)
+    if missing:
+        raise RustReaderUnavailable("missing_repo_local_dependency:" + ",".join(missing))
     try:
-        return _RUST_TEST_MODULE in path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return False
+        spawn = prepare_adapter_spawn(RUST_TEST_FILES_ARGV, workspace_root=root, cwd=root, store=store)
+        done = run_adapter(spawn, input_text=json.dumps({"paths": list(paths)}),
+                           timeout_seconds=RUST_TEST_FILES_TIMEOUT_SECONDS)
+    except SandboxUnavailable as exc:
+        raise RustReaderUnavailable(f"adapter_room_unavailable:{exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RustReaderUnavailable(f"timeout_after_{RUST_TEST_FILES_TIMEOUT_SECONDS}s") from exc
+    except OSError as exc:
+        raise RustReaderUnavailable(f"spawn_failed:{type(exc).__name__}") from exc
+    if done.returncode != 0:
+        raise RustReaderUnavailable(f"reader_exit_{done.returncode}")
+    return rust_reader_answer(done.stdout, paths)
 
 
-def spec_inventory(root: Path) -> list[str]:
-    """Every spec file in the repository (TS, Python and Rust), repo-relative and sorted; one pruned walk."""
+def rust_reader_answer(stdout: str, asked: Sequence[str]) -> RustTestFiles:
+    """The reader's stdout as an answer about ``asked``, or :class:`RustReaderUnavailable`.
+
+    Every path it names must be one it was asked about, and no asked path may
+    be both a test file and unreadable: an answer about other files is not an
+    answer about these.
+    """
+    try:
+        payload = json.loads(stdout)
+    except ValueError as exc:
+        raise RustReaderUnavailable("reader_output_not_json") from exc
+    if not isinstance(payload, dict):
+        raise RustReaderUnavailable("reader_output_shape")
+    test_files, unreadable = payload.get("test_files"), payload.get("unreadable")
+    if not isinstance(test_files, list) or not isinstance(unreadable, list):
+        raise RustReaderUnavailable("reader_output_shape")
+    unread = [row.get("path") for row in unreadable if isinstance(row, dict)]
+    named = [*test_files, *unread]
+    if len(unread) != len(unreadable) or not all(isinstance(path, str) for path in named):
+        raise RustReaderUnavailable("reader_output_shape")
+    if not set(named) <= set(asked) or set(test_files) & set(unread):
+        raise RustReaderUnavailable("reader_output_names_unasked_paths")
+    return RustTestFiles(test_files=frozenset(test_files), unreadable=frozenset(unread))
+
+
+@dataclass(frozen=True)
+class SpecInventory:
+    """Every spec file the map read, and the Rust files whose tests it does not know.
+
+    ``files`` holds TS and Python specs by name and Rust files the reader
+    found a test function in. ``rust_unread`` holds the ``.rs`` files the
+    reader gave no answer for (all of them when it could not run), and
+    ``rust_unread_reason`` says why; both are empty when every one was read.
+    """
+
+    files: tuple[str, ...]
+    rust_unread: tuple[str, ...] = ()
+    rust_unread_reason: str | None = None
+
+
+def spec_inventory(
+    root: Path, *, store: Path | None = None, read_rust: RustTestFilesReader | None = None,
+) -> SpecInventory:
+    """Every spec file in the repository (TS, Python and Rust), repo-relative and sorted.
+
+    One pruned walk names TS and Python specs and collects the ``.rs`` files;
+    the Rust reader (``read_rust``, :func:`read_rust_test_files` unless a
+    caller supplies one) says which of those hold tests.
+    """
     found: list[str] = []
+    rust: list[str] = []
     for directory, dirs, files in os.walk(root):
         dirs[:] = [name for name in dirs if name not in _PRUNED_DIRS]
-        base = Path(directory)
-        prefix = base.relative_to(root).as_posix()
+        prefix = Path(directory).relative_to(root).as_posix()
         for name in files:
             rel = name if prefix == "." else f"{prefix}/{name}"
-            if name.endswith(_TS_SPEC_SUFFIXES) or _is_python_spec(name) or _is_rust_spec(base / name, rel):
+            if name.endswith(_TS_SPEC_SUFFIXES) or _is_python_spec(name):
                 found.append(rel)
-    return sorted(found)
+            elif name.endswith(_RUST_SUFFIX):
+                rust.append(rel)
+    if not rust:
+        return SpecInventory(files=tuple(sorted(found)))
+    asked = sorted(rust)
+    try:
+        answer = (read_rust or read_rust_test_files)(root, asked, store)
+    except RustReaderUnavailable as exc:
+        return SpecInventory(files=tuple(sorted(found)), rust_unread=tuple(asked), rust_unread_reason=str(exc))
+    return SpecInventory(
+        files=tuple(sorted({*found, *answer.test_files})),
+        rust_unread=tuple(sorted(answer.unreadable)),
+        rust_unread_reason=RUST_FILES_UNREADABLE if answer.unreadable else None,
+    )
 
 
 def _text(path: Path) -> str:
@@ -176,22 +307,37 @@ def _modelled(project_dir: Path) -> bool:
 
 
 def project_test_surface(
-    root: Path, projects: Mapping[str, Mapping[str, Any]], test_files: list[str],
+    root: Path, projects: Mapping[str, Mapping[str, Any]], inventory: SpecInventory,
 ) -> dict[str, dict[str, Any]]:
-    """``{project: {"test_targets", "spec_files", "test_surface_modelled"}}`` for every project in ``projects``."""
+    """``{project: {"test_targets", "spec_files", "test_surface_modelled"}}`` for every project in ``projects``.
+
+    A project holding Rust files the reader gave no answer for also carries
+    ``rust_test_files_unread`` (``{"files", "reason"}``): its spec list is
+    complete only for the files that were read.
+    """
     from .impact_graph import project_for_path
 
     roots = {name: str(meta["root"]) for name, meta in projects.items()}
     specs: dict[str, list[str]] = {name: [] for name in projects}
-    for rel in test_files:
+    unread: dict[str, int] = {name: 0 for name in projects}
+    for rel in inventory.files:
         owner = project_for_path(rel, roots)
         if owner is not None:
             specs[owner].append(rel)
-    return {
-        name: {"test_targets": project_test_targets(root / roots[name]), "spec_files": sorted(specs[name]),
-               "test_surface_modelled": _modelled(root / roots[name])}
-        for name in projects
-    }
+    for rel in inventory.rust_unread:
+        owner = project_for_path(rel, roots)
+        if owner is not None:
+            unread[owner] += 1
+    surface: dict[str, dict[str, Any]] = {}
+    for name in projects:
+        entry: dict[str, Any] = {
+            "test_targets": project_test_targets(root / roots[name]), "spec_files": sorted(specs[name]),
+            "test_surface_modelled": _modelled(root / roots[name]),
+        }
+        if unread[name]:
+            entry["rust_test_files_unread"] = {"files": unread[name], "reason": inventory.rust_unread_reason}
+        surface[name] = entry
+    return surface
 
 
 def render_project_tests(meta: Mapping[str, Any]) -> list[str]:
@@ -217,17 +363,33 @@ def render_project_tests(meta: Mapping[str, Any]) -> list[str]:
     count = int(meta.get("spec_file_count") or len(specs))
     shown = ", ".join(f"`{path}`" for path in specs)
     more = f" (+{count - len(specs)} more)" if count > len(specs) else ""
-    return [
+    unread = meta.get("rust_test_files_unread")
+    lines = [
         f"  - test targets: {rendered}" if targets else "  - test targets: none declared or inferred",
-        f"  - spec files ({count}): {shown}{more}" if count else "  - spec files: none",
+        f"  - spec files ({count}): {shown}{more}" if count
+        else ("  - spec files: none among the files read" if unread else "  - spec files: none"),
     ]
+    if isinstance(unread, dict):
+        # ARIA-LOW-545 — the Rust reader gave no answer for these files: say
+        # so, never let the spec list above read as "they hold no tests".
+        lines.append(f"  - Rust test files: not modelled for {unread.get('files')} file(s) ({unread.get('reason')})")
+    return lines
 
 
 __all__ = [
     "MODELLED_MANIFESTS",
+    "RUST_FILES_UNREADABLE",
+    "RUST_TEST_FILES_ARGV",
+    "RUST_TEST_FILES_READER",
+    "RustReaderUnavailable",
+    "RustTestFiles",
+    "SpecInventory",
+    "TEST_SURFACE_KEYS",
     "is_test_target",
     "project_test_surface",
     "project_test_targets",
+    "read_rust_test_files",
     "render_project_tests",
+    "rust_reader_answer",
     "spec_inventory",
 ]

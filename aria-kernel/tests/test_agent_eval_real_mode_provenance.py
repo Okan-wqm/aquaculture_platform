@@ -82,7 +82,9 @@ def _fixture_ref(tools: Path) -> dict:
     )
 
 
-def _bind_real_provenance(tools: Path, *, transcript_hash: str) -> dict:
+def _bind_real_provenance(
+    tools: Path, *, transcript_hash: str, approval_target_agent: str | None = "test-agent",
+) -> dict:
     request = append_declared_jsonl(
         tools / "agent-invocations" / "requests.jsonl",
         {
@@ -170,6 +172,7 @@ def _bind_real_provenance(tools: Path, *, transcript_hash: str) -> dict:
             "row_type": "operator_approval",
             "operator_provenance_ref": "operator:approval:invocation-uuid-001",
             "operator": "test-operator",
+            "target_agent": approval_target_agent,
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
         },
         expected_surface="operator_provenance",
@@ -275,6 +278,37 @@ class RealModeProvenanceTests(unittest.TestCase):
         self.assertEqual(result["provenance_mode"], "real_invocation")
         self.assertEqual(result["invocation_id"], "invocation-uuid-001")
         self.assertEqual(result["transcript_hash"], transcript_hash)
+
+    def test_an_approval_backs_only_the_agent_it_names(self) -> None:
+        """ARIA-MEDIUM-512: a C4-a approval is scoped to one agent.
+
+        An approval with no ``target_agent`` (the shape the pre-fix writer
+        minted when the operator left the flag out) used to back an eval of
+        ANY agent; one naming another agent was refused only by the shadow
+        bridge's own check, never by the eval's provenance validator that
+        every promotion path shares.
+        """
+        transcript_hash = "sha256:" + "b" * 64
+        for approval_target, reason in ((None, "operator_approval_unscoped"),
+                                        ("another-agent", "operator_approval_scope_mismatch")):
+            with self.subTest(approval_target=approval_target):
+                shutil.rmtree(self.tools, ignore_errors=True)
+                ensure_tools_dir(self.tools)
+                operator_set_profile("strict", base_dir=self.tools)
+                _seed_fixture(self.tools)
+                refs = _bind_real_provenance(
+                    self.tools, transcript_hash=transcript_hash, approval_target_agent=approval_target,
+                )
+                with self.assertRaisesRegex(GovernanceError, reason):
+                    run_agent_eval(
+                        fixture_id="F999_TEST",
+                        base_dir=self.tools,
+                        real_response_envelope=_envelope(),
+                        invocation_id="invocation-uuid-001",
+                        transcript_hash=transcript_hash,
+                        **refs,
+                    )
+                self.assertFalse((self.tools / "agent-evals" / "runs.jsonl").exists())
 
     def test_provenance_producers_emit_source_ledger_identity(self) -> None:
         prompt = record_invocation_prompt(

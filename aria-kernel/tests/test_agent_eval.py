@@ -180,6 +180,7 @@ def _bind_real_invocation(
             "row_type": "operator_approval",
             "operator_provenance_ref": f"operator:{invocation_id}",
             "operator": "test-operator",
+            "target_agent": target_agent,
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
         },
         expected_surface="operator_provenance",

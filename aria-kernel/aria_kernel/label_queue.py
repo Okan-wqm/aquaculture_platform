@@ -23,6 +23,23 @@ The pre-filled verdict file carries ``verdict: null`` and
 ``confirmed_by_operator: false``: an AI verdict is never pre-filled, and
 the batch lane refuses a null verdict and an unconfirmed item, so an
 unchanged file mints nothing.
+
+ARIA-MEDIUM-276 — a label used as ground truth is collected BLIND and with
+its inclusion probability recorded, so a precision estimate built from it
+can be unbiased:
+
+* nothing a labeler reads carries the judges' verdicts: neither the
+  verdict file nor the sample (published on the state store) embeds the
+  votes; the group id joins the label to them afterwards;
+* the draw is a stratified simple random sample without replacement — an
+  equal share per stratum, then the unfilled slots drawn from every
+  stratum's remainder pooled — and each item records the probability it
+  had of being drawn (:func:`_inclusion_probabilities`), with the design
+  itself on the sample (``sampling_design``); the batch lane copies the
+  probability onto the label's provenance;
+* a labeler who cannot decide answers ``cannot_judge``
+  (``feedback_store.LABEL_ABSTENTION``), recorded on the sample as
+  non-response instead of forced into one of the two verdicts.
 """
 from __future__ import annotations
 
@@ -33,6 +50,8 @@ from typing import Any
 from .calibrated_intelligence import deterministic_seed
 from .feedback_store import (
     CALIBRATION_STRATIFIED_STRATEGY,
+    FEEDBACK_VERDICTS,
+    LABEL_ABSTENTION,
     append_jsonl,
     judgment_samples_path,
     load_feedback,
@@ -47,8 +66,33 @@ ESCALATED_REASONS: tuple[str, ...] = (
 DEFAULT_LABEL_QUEUE_LIMIT: int = 15
 
 
+# The design every queue draws under, named on each sample.
+SAMPLING_DESIGN_METHOD = "stratified_srswor_then_pooled_remainder_srswor"
+
+
 def _key(row: dict[str, Any]) -> tuple[str, str, str]:
     return (str(row.get("run_id") or ""), str(row.get("finding_id") or ""), str(row.get("judgment_group_id") or ""))
+
+
+def _inclusion_probabilities(
+    available: dict[str, int], first_draws: dict[str, int], remainder_draws: int,
+) -> dict[str, float]:
+    """Each stratum's per-item probability of being drawn under the queue's two-phase design.
+
+    Phase one draws ``first_draws[s]`` of the ``available[s]`` items of
+    stratum ``s`` without replacement; phase two draws ``remainder_draws``
+    items without replacement from the pool of every stratum's undrawn
+    items. An item of ``s`` is drawn in phase one with probability
+    ``n_s / N_s``, and otherwise lands in a pool of ``M`` items of which
+    ``r`` are drawn: ``pi_s = n_s/N_s + (1 - n_s/N_s) * r/M``.
+    """
+    pool = sum(available[s] - first_draws[s] for s in available)
+    later = remainder_draws / pool if pool else 0.0
+    return {
+        stratum: (first_draws[stratum] / count) + (1 - first_draws[stratum] / count) * later
+        for stratum, count in available.items()
+        if count
+    }
 
 
 def build_label_queue(
@@ -88,42 +132,56 @@ def build_label_queue(
         "pending_random": sorted(k for k in candidates if k not in consensus_keys and k not in escalated_keys),
     }
     rng = random.Random(deterministic_seed("label-queue", tool_id, cycle_id or "", str(limit)))
-    share = max(1, limit // len(LABEL_QUEUE_STRATA))
+    # An equal share per stratum, possibly 0 (a limit below the stratum
+    # count): the share used to be at least 1 and the list was then cut to
+    # the limit in stratum order, so with `limit=1` the later strata could
+    # never be drawn and no probability could describe the cut.
+    share = limit // len(LABEL_QUEUE_STRATA)
     chosen: list[tuple[str, tuple[str, str, str]]] = []
+    first_draws: dict[str, int] = {}
     for stratum in LABEL_QUEUE_STRATA:
         pool = list(strata[stratum])
         rng.shuffle(pool)
+        first_draws[stratum] = min(share, len(pool))
         chosen.extend((stratum, key) for key in pool[:share])
-    if len(chosen) < limit:
-        taken = {key for _s, key in chosen}
-        leftovers = [(stratum, key) for stratum in LABEL_QUEUE_STRATA for key in strata[stratum] if key not in taken]
-        rng.shuffle(leftovers)
-        chosen.extend(leftovers[: limit - len(chosen)])
-    chosen = chosen[:limit]
+    taken = {key for _s, key in chosen}
+    leftovers = [(stratum, key) for stratum in LABEL_QUEUE_STRATA for key in strata[stratum] if key not in taken]
+    rng.shuffle(leftovers)
+    remainder_draws = min(limit - len(chosen), len(leftovers))
+    chosen.extend(leftovers[:remainder_draws])
+    available = {stratum: len(keys) for stratum, keys in strata.items()}
+    probability = _inclusion_probabilities(available, first_draws, remainder_draws)
     items = []
     for stratum, key in chosen:
         votes = candidates[key]
+        # Blind: the judges' votes stay on the feedback ledger, joined by
+        # the group id; the item names the group, never what it voted.
         items.append({
             "run_id": key[0], "finding_id": key[1], "judgment_group_id": key[2], "tool_id": tool_id,
             "finding_fingerprint": next((str(v.get("finding_fingerprint")) for v in votes if v.get("finding_fingerprint")), ""),
             "stratum": stratum,
-            "judge_verdicts": [
-                {"judge_id": v.get("judge_id"), "verdict": v.get("verdict"), "confidence": v.get("confidence"),
-                 "evidence_refs": list(v.get("evidence_refs") or [])}
-                for v in votes
-            ],
+            "inclusion_probability": probability[stratum],
         })
     sample_id = f"labelq-{deterministic_seed('label-queue-id', tool_id, cycle_id or '', utc_now()) % 10**12:012d}"
     sample = {
         "schema_version": 1, "recorded_at": utc_now(), "sample_id": sample_id, "tool_id": tool_id,
         "cycle_id": cycle_id, "strategy": CALIBRATION_STRATIFIED_STRATEGY, "sample_size": limit,
         "min_judged_samples": 0, "status": "pending" if items else "empty", "sampled_count": len(items),
-        "strata_available": {stratum: len(keys) for stratum, keys in strata.items()},
+        "strata_available": available,
+        "sampling_design": {
+            "method": SAMPLING_DESIGN_METHOD,
+            "first_draws": first_draws,
+            "remainder_pool": len(leftovers),
+            "remainder_draws": remainder_draws,
+        },
         "items": items,
         "instructions": {
-            "verdicts": ["true_positive", "false_positive"],
+            "verdicts": [*FEEDBACK_VERDICTS, LABEL_ABSTENTION],
             "lane": "aria-kernel feedback record-batch --sample-id <sample_id> --file <verdicts.json>",
-            "law": "verdict is null until you decide; confirmed_by_operator must be true on every item",
+            "law": (
+                "verdict is null until you decide; answer cannot_judge when the evidence decides neither; "
+                "confirmed_by_operator must be true on every item"
+            ),
         },
     }
     append_jsonl(judgment_samples_path(root), sample)
@@ -131,12 +189,12 @@ def build_label_queue(
         "sample_id": sample_id,
         "verdicts": [
             {"run_id": item["run_id"], "finding_id": item["finding_id"], "judgment_group_id": item["judgment_group_id"],
-             "stratum": item["stratum"], "verdict": None, "severity": "medium", "note": "",
-             "confirmed_by_operator": False}
+             "verdict": None, "severity": "medium", "note": "", "confirmed_by_operator": False}
             for item in items
         ],
     }
     return {"schema_version": 1, "sample": sample, "verdict_file": verdict_file}
 
 
-__all__ = ["DEFAULT_LABEL_QUEUE_LIMIT", "ESCALATED_REASONS", "LABEL_QUEUE_STRATA", "build_label_queue"]
+__all__ = ["DEFAULT_LABEL_QUEUE_LIMIT", "ESCALATED_REASONS", "LABEL_QUEUE_STRATA", "SAMPLING_DESIGN_METHOD",
+           "build_label_queue"]

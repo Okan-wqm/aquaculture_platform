@@ -47,22 +47,16 @@ import type { JetStreamManager, StreamConfig } from '@nats-io/jetstream';
 import { createInbox } from '@nats-io/nats-core';
 import type { NatsConnection } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
-import { parse as parseYaml } from 'yaml';
 
 import {
   certificateCommonName,
   scopedInboxPrefix,
 } from '../../libs/backend-common/src/nats/nats-connection.factory';
+// The one tool-side reader of services.yaml and its NATS matcher (ARIA-MEDIUM-314).
+import { loadNatsServices, type NatsServiceEntry, subjectMatches } from '../gates/nats-services';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const REQUEST_TIMEOUT_MS = 5_000;
-
-interface ServiceEntry {
-  readonly name: string;
-  readonly application: string;
-  readonly publish: readonly string[];
-  readonly subscribe: readonly string[];
-}
 
 interface Finding {
   readonly service: string;
@@ -85,50 +79,8 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function loadServices(): readonly ServiceEntry[] {
-  const document: unknown = parseYaml(
-    readFileSync(resolve(REPO_ROOT, 'infrastructure/nats/services.yaml'), 'utf8'),
-  );
-  if (typeof document !== 'object' || document === null || !('services' in document)) {
-    throw new Error('services.yaml: missing `services`');
-  }
-  const services: unknown = document.services;
-  if (!Array.isArray(services)) throw new Error('services.yaml: `services` is not a list');
-  return services.map((entry: unknown): ServiceEntry => {
-    if (typeof entry !== 'object' || entry === null) throw new Error('services.yaml: bad entry');
-    const record = entry as Record<string, unknown>;
-    const strings = (key: string): readonly string[] =>
-      Array.isArray(record[key])
-        ? record[key].filter((v): v is string => typeof v === 'string')
-        : [];
-    if (typeof record['name'] !== 'string' || typeof record['application'] !== 'string') {
-      throw new Error('services.yaml: entry without name/application');
-    }
-    return {
-      name: record['name'],
-      application: record['application'],
-      publish: strings('publish'),
-      subscribe: strings('subscribe'),
-    };
-  });
-}
-
 function isNestApplication(application: string): boolean {
   return existsSync(resolve(REPO_ROOT, 'apps', application, 'src', 'app.module.ts'));
-}
-
-/** Does `subject` fall inside a `<token>.>` grant? Tokens must be non-empty. */
-function grantCovers(grant: string, subject: string): boolean {
-  const grantTokens = grant.split('.');
-  const subjectTokens = subject.split('.');
-  if (subjectTokens.some((token) => token.length === 0)) return false;
-  for (let index = 0; index < grantTokens.length; index += 1) {
-    const expected = grantTokens[index];
-    if (expected === '>') return subjectTokens.length > index;
-    if (subjectTokens.length <= index) return false;
-    if (expected !== '*' && expected !== subjectTokens[index]) return false;
-  }
-  return grantTokens.length === subjectTokens.length;
 }
 
 function errorMessage(error: unknown): string {
@@ -187,7 +139,7 @@ async function createOrUpdateStreams(
 }
 
 async function smokeService(
-  service: ServiceEntry,
+  service: NatsServiceEntry,
   env: { url: string; ca: string; certDir: string },
 ): Promise<Finding[]> {
   const findings: Finding[] = [];
@@ -211,7 +163,7 @@ async function smokeService(
   const prefix = scopedInboxPrefix(identity);
   const muxInbox = `${createInbox(prefix)}.*`;
   const inboxGrants = service.subscribe.filter((grant) => grant.startsWith('_INBOX'));
-  if (!inboxGrants.some((grant) => grantCovers(grant, muxInbox))) {
+  if (!inboxGrants.some((grant) => subjectMatches(grant, muxInbox))) {
     findings.push({
       service: service.name,
       step: 'inbox grant',
@@ -274,7 +226,7 @@ async function main(): Promise<number> {
   if (!env.url.startsWith('tls://'))
     throw new Error('NATS_URL must be tls:// — the ACL is certificate-mapped');
 
-  const services = loadServices();
+  const services = loadNatsServices();
   const findings: Finding[] = [];
   let checked = 0;
   for (const service of services) {

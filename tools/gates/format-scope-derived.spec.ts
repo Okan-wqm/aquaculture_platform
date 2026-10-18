@@ -48,6 +48,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 import { removeFixtureTree } from './fixture-tree';
+import { hermeticGitEnv } from './hermetic-git';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const QUALITY_DIR = join(REPO_ROOT, 'tools', 'quality');
@@ -77,11 +78,6 @@ interface RunResult {
   readonly status: number | null;
   readonly stdout: string;
   readonly stderr: string;
-}
-
-/** Every GIT_* variable dropped: under the pre-commit hook they point at the OUTER index. */
-function withoutGitEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('GIT_')));
 }
 
 function runFixtureGit(root: string, args: readonly string[]): string {
@@ -148,7 +144,7 @@ function runRunner(root: string, args: readonly string[], base: string): RunResu
   const result = spawnSync('node', [join(root, 'tools', 'quality', 'quality.mjs'), ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...withoutGitEnvironment(process.env), FORMAT_BASE_SHA: base },
+    env: { ...hermeticGitEnv(process.env), FORMAT_BASE_SHA: base },
   });
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }

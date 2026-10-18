@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -139,7 +140,7 @@ def _validate_approval_row(row: dict[str, Any]) -> None:
         raise GovernanceError("policy_approval_stage_unknown")
     if not isinstance(row.get("pr_number"), int) or row["pr_number"] <= 0:
         raise GovernanceError("policy_approval_pr_number_required")
-    if not isinstance(row.get("head_sha"), str) or len(row["head_sha"]) != 40:
+    if not is_object_id(row.get("head_sha"), formats=ANY_OBJECT_FORMAT):
         raise GovernanceError("policy_approval_head_sha_must_be_full_sha")
     if not str(row.get("policy_hash") or "").startswith("sha256:"):
         raise GovernanceError("policy_approval_policy_hash_required")

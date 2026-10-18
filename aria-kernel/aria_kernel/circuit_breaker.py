@@ -695,7 +695,6 @@ __all__ = [
     "BreakerEvidence",
     "BreakerVerdict",
     "FAILURE_KINDS",
-    "assert_within_breaker",
     "current_state",
     "evaluate_breaker",
     "record_attempt_started",

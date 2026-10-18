@@ -58,9 +58,11 @@ def _fixture_row(
     cycle_id: str = "cycle-1",
     **overrides: Any,
 ) -> dict[str, Any]:
+    # The producer's current shape (ARIA-MEDIUM-400: version 2 names the
+    # workspace commit and the argv scripts digest it measured).
     row: dict[str, Any] = {
         "$schema": FIXTURE_RUN_SCHEMA,
-        "schema_version": 1,
+        "schema_version": 2,
         "row_type": "fixture_run_suite",
         "at": "2026-08-23T00:00:00Z",
         "tool_id": tool_id,
@@ -85,6 +87,8 @@ def _fixture_row(
         "execution_run_id": run_id,
         "actual_status": "pass",
         "error_code": None,
+        "workspace_commit_sha": "c" * 40,
+        "argv_scripts_hash": "sha256:" + "3" * 64,
     }
     row.update(overrides)
     row["evidence_hash"] = _suite_evidence_hash(row)
@@ -223,6 +227,11 @@ class FixtureRunStrictReadTests(unittest.TestCase):
                 fixture_runner_module,
                 "fixture_set_hash",
                 return_value=loser_row["fixture_set_hash"],
+            ),
+            patch.object(
+                fixture_runner_module,
+                "suite_scripts_digest",
+                return_value=loser_row["argv_scripts_hash"],
             ),
         ):
             status = latest_fixture_status(
@@ -392,7 +401,10 @@ class FixtureRunStrictReadTests(unittest.TestCase):
     def test_schema_version_and_row_type_drift_are_rejected(self) -> None:
         invalid = (
             {"$schema": "aria/other/v1"},
-            {"schema_version": 2},
+            {"schema_version": 3},
+            # A version-1 row names no code (ARIA-MEDIUM-400), so the binding
+            # fields are drift on it.
+            {"schema_version": 1},
             {"schema_version": True},
             {"row_type": "fixture"},
             {"tool_id": 42},

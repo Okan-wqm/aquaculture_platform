@@ -48,6 +48,7 @@ from typing import Any, Callable, Mapping
 # Bound under a private name: system_one is the only egress path, so the
 # transport is never re-exported from it (tests/test_jev_runtime.py pins that
 # nothing else names it).
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id, object_id_pattern
 from .jev_runtime import JevReply, JevUnavailable
 from .jev_runtime import post_systemone as _transport
 from .ledger import append_declared_jsonl
@@ -72,11 +73,12 @@ PAYLOAD_MAX_BYTES = 110_000  # ~25k tokens of state under the vendor's 32k budge
 VALUE_MAX_CHARS = 60_000
 EXCERPT_RADIUS = 6
 OUTLINE_MAX_LINES = 200
-_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 _FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}$")
 # The ledger's subject names WHAT was asked about, never what was said about it.
-_SUBJECT_RE = re.compile(r"^(?:[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}|PR#[0-9]{1,7}|[0-9a-f]{40})$")
+_SUBJECT_RE = re.compile(
+    rf"(?:[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{{1,6}}|PR#[0-9]{{1,7}}|{object_id_pattern(ANY_OBJECT_FORMAT)})"
+)
 _SENSITIVE_PATH = re.compile(
     r"(?:^|/)(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.netrc|_netrc|kubeconfig(?:\..*)?|id_[a-z0-9]+"
     r"|[^/]*credentials?[^/]*\.json|service[-_]?account[^/]*\.json"
@@ -332,7 +334,7 @@ def _commit(workspace: Path, ref: StateRef) -> str:
     ARIA implementation branch ``aria-impl-*`` included — is admissible as
     soon as it is pushed, and a local ref, however named, never is.
     """
-    if not isinstance(ref.commit, str) or not _COMMIT_RE.match(ref.commit):
+    if not isinstance(ref.commit, str) or not is_object_id(ref.commit, formats=ANY_OBJECT_FORMAT):
         raise _Refusal("commit_not_a_sha")
     _git(workspace, "cat-file", "-e", f"{ref.commit}^{{commit}}")
     holders = _git(workspace, "for-each-ref", "--contains", ref.commit, "--format=%(refname)", PUBLIC_REFS)
@@ -526,7 +528,7 @@ def ask(
     row: dict[str, Any] = {
         "schema_version": 1, "question_id": question_id, "question_version": question.version if question else None,
         "decision_point": decision_point,
-        "subject": subject if isinstance(subject, str) and _SUBJECT_RE.match(subject) else None,
+        "subject": subject if isinstance(subject, str) and _SUBJECT_RE.fullmatch(subject) else None,
         "declared_mode": question.mode if question else None,
         "mode": "shadow", "model_requested": registry.model, "model": None, "state_sha256": None,
         "answer": None, "latency_ms": 0, "input_tokens": None,

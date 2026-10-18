@@ -39,6 +39,31 @@ class _Adapter:
         return self.payload
 
 
+class _GuardedAdapter(_Adapter):
+    """The watchdog read answers; every other adapter call is recorded, so a
+    test sees the merge authority go past the freeze."""
+
+    def __init__(self, payload):
+        super().__init__(payload)
+        self.other_calls = []
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+
+        def record(*_args, **_kwargs):
+            self.other_calls.append(name)
+            return {}
+
+        return record
+
+
+_OPEN_INCIDENT = {
+    "readable": True,
+    "issues": [{"number": 42, "title": "ARIA external watchdog: memory is NOT advancing"}],
+}
+
+
 def _repo_with_manifest(tmp: Path, incident=None) -> Path:
     manifest = {
         "stateBranch": {"ref": "aria/state", "maxTipAgeHours": 50},
@@ -206,13 +231,24 @@ class FreezeScopeTests(unittest.TestCase):
         self.assertNotIn("issue list", workflow)
         self.assertNotIn("watchdog", workflow.lower())
 
-    def test_the_freeze_is_called_from_the_single_real_merge_authority(self):
-        import inspect
+    def test_a_direct_call_with_an_open_incident_refuses_before_any_merge_work(self):
+        # ARIA-LOW-506 — the single real-merge authority refuses on its own,
+        # driven without the merge runner whose loop asks the alarm first. A
+        # source-text check passed with the call kept under `if False:`.
+        from aria_kernel.merge_authority import merge_pr_if_ready
 
-        from aria_kernel import merge_authority
-
-        source = inspect.getsource(merge_authority.merge_pr_if_ready)
-        self.assertIn("assert_merge_not_watchdog_frozen(", source)
+        adapter = _GuardedAdapter(_OPEN_INCIDENT)
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            # Merge authority exists, so the freeze is the gate that refuses.
+            operator_set_profile("autonomous", base_dir=base, scheduler_ceiling="autonomous")
+            with self.assertRaises(GovernanceError) as caught:
+                merge_pr_if_ready(adapter=adapter, pr_number=11, base_dir=base,
+                                  readiness_claim_id="claim-1", workspace_root=base)
+        self.assertIn("merge_frozen_watchdog_incident_open", str(caught.exception))
+        self.assertIn("#42", str(caught.exception))
+        self.assertEqual(adapter.labels_asked, ["aria", "watchdog"])
+        self.assertEqual(adapter.other_calls, [], "nothing past the freeze ran, the merge least of all")
 
 
 if __name__ == "__main__":
@@ -275,6 +311,28 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
         for decision in result["decisions"]:
             self.assertEqual(decision["decision"], "blocked")
             self.assertIn("merge_frozen_watchdog_incident_open", decision["reasons"][0])
+
+    def test_the_run_refuses_before_an_authority_that_would_merge_is_asked(self):
+        # ARIA-LOW-506 — the run's own layer, behind a merge authority that
+        # does not refuse: an open incident blocks every candidate and the
+        # authority is never called. Without this, either layer alone could go
+        # and the other would keep every assertion above green.
+        from unittest import mock
+
+        asked = []
+
+        def would_merge(**kwargs):
+            asked.append(kwargs["pr_number"])
+            return {"decision": "merged", "eligible": True, "pr_number": kwargs["pr_number"]}
+
+        runner = self._runner(_OPEN_INCIDENT)
+        with mock.patch("aria_kernel.auto_merge_runners._merge_candidate", side_effect=would_merge):
+            result = runner(base_dir=self.base, workspace_root=self.base)
+
+        self.assertEqual(asked, [])
+        self.assertEqual(result["reason"], "watchdog_merge_frozen")
+        self.assertEqual(result["merges_completed"], 0)
+        self.assertEqual([d["pr_number"] for d in result["decisions"]], [11, 22, 33])
 
     def test_an_unreadable_alarm_blocks_the_run_rather_than_ending_it(self):
         """Fail-closed must not mean fail-fatal. A transient `gh issue list`

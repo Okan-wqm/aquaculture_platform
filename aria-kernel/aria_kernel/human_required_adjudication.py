@@ -940,15 +940,33 @@ def _execute_panel_disposition(
         )
         _stamp_escalated_to_operator(root, request_id, record, reason="dead_request_obligations_unmintable")
         return {"action": "escalated", "reason": "dead_request_obligations_unmintable"}
+    # ARIA-MEDIUM-385 — the successor is asked on the dead request's refs. A
+    # ref the submit law refuses (a pointer minted before the mint refused
+    # it, as the 2026-10-15/16 ``plan:`` verification envelopes were) is one
+    # the mint refuses now, and a refusal raised out of here would leave the
+    # sweep re-asking this escalation every night: the record is the
+    # operator's, as an obligation the contract refuses is.
+    from .evidence_validator import agent_ref_mint_refusal
+
+    successor_refs = list(dead.get("evidence_refs") or []) + ([adjudication_ref] if adjudication_ref else [])
+    uncitable = [
+        ref for ref in successor_refs
+        if agent_ref_mint_refusal(ref, role=str(dead.get("role") or "")) is not None
+    ]
+    if uncitable:
+        append_tools_governance(
+            root, "human_required_remint_evidence_not_agent_citable",
+            {"escalation_request_id": request_id, "refs": [str(ref)[:200] for ref in uncitable[:5]]},
+        )
+        _stamp_escalated_to_operator(root, request_id, record, reason="dead_request_evidence_not_agent_citable")
+        return {"action": "escalated", "reason": "dead_request_evidence_not_agent_citable"}
     successor = create_agent_invocation_request(
         target_agent=str(dead.get("target_agent") or ""),
         role=str(dead.get("role") or ""),
         suggested_prompt=str(dead.get("suggested_prompt") or ""),
         must_satisfy=must_satisfy,
         allowed_scope=list(dead.get("allowed_scope") or []),
-        evidence_refs=list(dead.get("evidence_refs") or []) + (
-            [adjudication_ref] if adjudication_ref else []
-        ),
+        evidence_refs=successor_refs,
         convergence_id=dead.get("convergence_id"),
         round_number=dead.get("round_number"),
         pressure_event_id=dead.get("pressure_event_id"),

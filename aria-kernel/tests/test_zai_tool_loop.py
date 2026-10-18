@@ -57,6 +57,7 @@ from aria_kernel.ledger import load_declared_jsonl  # noqa: E402
 from aria_kernel.tool_registry import ensure_tools_binding  # noqa: E402
 
 from tests._helpers.git_fixtures import make_repo_with_initial_commit  # noqa: E402
+from tests._helpers.sandbox_pins import require_sandbox_backend  # noqa: E402
 from tests.test_ci_executor_native_zai import _Vendor  # noqa: E402
 
 SECRET = "zai-loop-secret-4c1d0b7e-not-a-real-key"
@@ -81,10 +82,7 @@ class _LoopFixture(unittest.TestCase):
     OUTSIDE the checkout, and a scripted vendor."""
 
     def setUp(self) -> None:
-        from aria_kernel.implementation_safety import sandbox_backend
-
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host; the room cannot be built")
+        require_sandbox_backend()
         scratch = tempfile.TemporaryDirectory(prefix="aria-434-loop-")
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()

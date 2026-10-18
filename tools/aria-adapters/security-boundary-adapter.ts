@@ -23,7 +23,11 @@ type FindingRule =
 interface AdapterInput {
   readonly roots?: readonly string[];
   readonly allowlist?: readonly string[];
-  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
+  readonly repo_snapshot?: {
+    readonly allowed_paths?: readonly string[];
+    readonly snapshot_hash?: string;
+    readonly repo_state_id?: string;
+  };
 }
 
 interface EvidenceRef {
@@ -88,19 +92,28 @@ interface SecurityContext {
 
 const ROUTE_DECORATORS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete', 'Query', 'Mutation']);
 const WRITE_DECORATORS = new Set(['Post', 'Put', 'Patch', 'Delete', 'Mutation']);
-const SECURITY_DECORATORS = new Set(['UseGuards', 'Roles', 'Permissions', 'Public', 'SkipTenantGuard']);
+const SECURITY_DECORATORS = new Set([
+  'UseGuards',
+  'Roles',
+  'Permissions',
+  'Public',
+  'SkipTenantGuard',
+]);
 const SAFE_RAW_IMPORT_ALLOWLIST = [
   'apps/ai-service/src/agent/agent-runner.service.ts',
   'tools/eslint-rules/no-claude-sdk-raw-call.ts',
 ];
 
-export function analyzeSecurityBoundaries(input: AdapterInput, workspaceRoot = process.cwd()): AriaOutput {
+export function analyzeSecurityBoundaries(
+  input: AdapterInput,
+  workspaceRoot = process.cwd(),
+): AriaOutput {
   const roots = requireScanRoots('security-boundary-adapter', input.roots);
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-    .filter((root) => workspacePathExists(root))
-    .flatMap((root) => collectSourceFiles(root));
+    .filter((root) => workspacePathExists(workspaceRoot, root))
+    .flatMap((root) => collectSourceFiles(workspaceRoot, root));
   const snapshotFiles = filterFilesBySnapshot(files, workspaceRoot, input);
   const units = snapshotFiles.map((file) => readSourceUnit(file, workspaceRoot));
   const result: AnalysisResult = {
@@ -120,7 +133,9 @@ export function analyzeSecurityBoundaries(input: AdapterInput, workspaceRoot = p
   result.findings.sort(compareById);
   result.readPaths.sort();
   const evidenceSources = Array.from(
-    new Set(result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path))),
+    new Set(
+      result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path)),
+    ),
   ).sort();
 
   return {
@@ -131,7 +146,8 @@ export function analyzeSecurityBoundaries(input: AdapterInput, workspaceRoot = p
     belief_candidates: [
       {
         belief_id: 'security-boundary:route-and-sensitive-sink-surface',
-        claim: 'backend and web route boundaries expose guard/decorator and sensitive sink surfaces that need deterministic security checks',
+        claim:
+          'backend and web route boundaries expose guard/decorator and sensitive sink surfaces that need deterministic security checks',
         confidence: 0.8,
         evidence_refs: ['apps/**/*.ts', 'web/**/*.tsx', 'libs/backend-common/src/**/*.ts'],
         source_tool_id: 'security-boundary-adapter',
@@ -161,7 +177,12 @@ function analyzeSecurityUnit(
   analyzeExistingGates(unit, result);
 }
 
-function analyzeEndpoints(unit: SourceUnit, result: AnalysisResult, allowlisted: boolean, context: SecurityContext): void {
+function analyzeEndpoints(
+  unit: SourceUnit,
+  result: AnalysisResult,
+  allowlisted: boolean,
+  context: SecurityContext,
+): void {
   const inheritedGuards = serviceGuardsForUnit(unit, context);
   visit(unit.sourceFile, (node) => {
     if (!ts.isMethodDeclaration(node) && !ts.isClassDeclaration(node)) {
@@ -173,11 +194,16 @@ function analyzeEndpoints(unit: SourceUnit, result: AnalysisResult, allowlisted:
       return;
     }
     const line = lineOf(unit.sourceFile, node);
-    const name = ts.isMethodDeclaration(node) ? node.name.getText(unit.sourceFile) : node.name?.text ?? '<anonymous>';
+    const name = ts.isMethodDeclaration(node)
+      ? node.name.getText(unit.sourceFile)
+      : (node.name?.text ?? '<anonymous>');
     const classNode = ts.isMethodDeclaration(node) ? nearestClass(node) : node;
     const classDecorators = classNode ? decoratorNames(classNode) : [];
     const allDecorators = new Set([...decorators, ...classDecorators]);
-    const hasLocalGuardBoundary = allDecorators.has('UseGuards') || allDecorators.has('Roles') || allDecorators.has('Permissions');
+    const hasLocalGuardBoundary =
+      allDecorators.has('UseGuards') ||
+      allDecorators.has('Roles') ||
+      allDecorators.has('Permissions');
     const hasInheritedGuardBoundary = inheritedGuards.length > 0;
     const hasGuardBoundary = hasLocalGuardBoundary || hasInheritedGuardBoundary;
     const isPublic = allDecorators.has('Public');
@@ -192,7 +218,9 @@ function analyzeEndpoints(unit: SourceUnit, result: AnalysisResult, allowlisted:
       name,
       details: {
         routeDecorators: routeDecorators.sort(),
-        securityDecorators: [...allDecorators].filter((decorator) => SECURITY_DECORATORS.has(decorator)).sort(),
+        securityDecorators: [...allDecorators]
+          .filter((decorator) => SECURITY_DECORATORS.has(decorator))
+          .sort(),
         inheritedGuards,
         hasLocalGuardBoundary,
         hasInheritedGuardBoundary,
@@ -231,7 +259,11 @@ function analyzeEndpoints(unit: SourceUnit, result: AnalysisResult, allowlisted:
         details: { name },
       });
     }
-    if (!isPublic && !hasGuardBoundary && routeDecorators.some((decorator) => decorator !== 'Query')) {
+    if (
+      !isPublic &&
+      !hasGuardBoundary &&
+      routeDecorators.some((decorator) => decorator !== 'Query')
+    ) {
       result.findings.push({
         id: `controller-missing-guard-boundary:${unit.relativePath}:${line}`,
         rule: 'controller_missing_guard_boundary',
@@ -246,7 +278,9 @@ function analyzeEndpoints(unit: SourceUnit, result: AnalysisResult, allowlisted:
   });
 }
 
-function collectServiceGuards(units: readonly SourceUnit[]): ReadonlyMap<string, readonly string[]> {
+function collectServiceGuards(
+  units: readonly SourceUnit[],
+): ReadonlyMap<string, readonly string[]> {
   const contexts = new Map<string, readonly string[]>();
   for (const unit of units) {
     if (!unit.relativePath.endsWith('/app.module.ts')) {
@@ -254,7 +288,10 @@ function collectServiceGuards(units: readonly SourceUnit[]): ReadonlyMap<string,
     }
     const guards = new Set<string>();
     visit(unit.sourceFile, (node) => {
-      if (!ts.isObjectLiteralExpression(node) || !objectHasPropertyText(node, 'provide', 'APP_GUARD')) {
+      if (
+        !ts.isObjectLiteralExpression(node) ||
+        !objectHasPropertyText(node, 'provide', 'APP_GUARD')
+      ) {
         return;
       }
       for (const property of node.properties) {
@@ -276,7 +313,11 @@ function collectServiceGuards(units: readonly SourceUnit[]): ReadonlyMap<string,
   return contexts;
 }
 
-function objectHasPropertyText(node: ts.ObjectLiteralExpression, propertyName: string, expectedText: string): boolean {
+function objectHasPropertyText(
+  node: ts.ObjectLiteralExpression,
+  propertyName: string,
+  expectedText: string,
+): boolean {
   return node.properties.some((property) => {
     if (!ts.isPropertyAssignment(property) || property.name.getText() !== propertyName) {
       return false;
@@ -287,9 +328,16 @@ function objectHasPropertyText(node: ts.ObjectLiteralExpression, propertyName: s
 
 function guardNamesInText(text: string): string[] {
   const matches = text.match(/\b[A-Za-z0-9_]*(?:Guard|AuthGuard)\b/g) ?? [];
-  return [...new Set(matches)].filter((name) =>
-    /Guard$/.test(name)
-    || ['AuthGuard', 'GqlAuthGuard', 'JwtAuthGuard', 'PlatformAdminGuard', 'ServiceIdentityGuard'].includes(name),
+  return [...new Set(matches)].filter(
+    (name) =>
+      /Guard$/.test(name) ||
+      [
+        'AuthGuard',
+        'GqlAuthGuard',
+        'JwtAuthGuard',
+        'PlatformAdminGuard',
+        'ServiceIdentityGuard',
+      ].includes(name),
   );
 }
 
@@ -300,7 +348,11 @@ function serviceGuardsForUnit(unit: SourceUnit, context: SecurityContext): reado
   return candidates[0]?.[1] ?? [];
 }
 
-function analyzeDangerousHtml(unit: SourceUnit, result: AnalysisResult, allowlisted: boolean): void {
+function analyzeDangerousHtml(
+  unit: SourceUnit,
+  result: AnalysisResult,
+  allowlisted: boolean,
+): void {
   if (!unit.relativePath.endsWith('.tsx')) {
     return;
   }
@@ -314,7 +366,12 @@ function analyzeDangerousHtml(unit: SourceUnit, result: AnalysisResult, allowlis
       path: unit.relativePath,
       line: sink.line,
       name: 'dangerouslySetInnerHTML',
-      details: { hasSanitizer, hasLocalSanitizer: sink.hasLocalSanitizer, fileHasSanitizerCall, allowlisted },
+      details: {
+        hasSanitizer,
+        hasLocalSanitizer: sink.hasLocalSanitizer,
+        fileHasSanitizerCall,
+        allowlisted,
+      },
     });
     if (!allowlisted && !hasSanitizer) {
       result.findings.push({
@@ -323,14 +380,17 @@ function analyzeDangerousHtml(unit: SourceUnit, result: AnalysisResult, allowlis
         severity: 'high',
         path: unit.relativePath,
         line: sink.line,
-        message: 'dangerouslySetInnerHTML is used without an obvious sanitizer in the sink expression or same file.',
+        message:
+          'dangerouslySetInnerHTML is used without an obvious sanitizer in the sink expression or same file.',
         evidence: [{ path: unit.relativePath, line: sink.line }],
       });
     }
   }
 }
 
-function dangerousHtmlSinks(unit: SourceUnit): Array<{ readonly line: number; readonly hasLocalSanitizer: boolean }> {
+function dangerousHtmlSinks(
+  unit: SourceUnit,
+): Array<{ readonly line: number; readonly hasLocalSanitizer: boolean }> {
   const sinks: Array<{ readonly line: number; readonly hasLocalSanitizer: boolean }> = [];
   visit(unit.sourceFile, (node) => {
     // `JsxAttributeName` is Identifier | JsxNamespacedName since TS 5.1;
@@ -347,7 +407,10 @@ function dangerousHtmlSinks(unit: SourceUnit): Array<{ readonly line: number; re
       });
       return;
     }
-    if (ts.isPropertyAssignment(node) && propertyNameText(node.name, unit.sourceFile) === 'dangerouslySetInnerHTML') {
+    if (
+      ts.isPropertyAssignment(node) &&
+      propertyNameText(node.name, unit.sourceFile) === 'dangerouslySetInnerHTML'
+    ) {
       sinks.push({
         line: lineOf(unit.sourceFile, node),
         hasLocalSanitizer: hasRuntimeSanitizerCall(node.initializer),
@@ -369,9 +432,9 @@ function hasRuntimeSanitizerCall(node: ts.Node): boolean {
       return;
     }
     if (
-      ts.isPropertyAccessExpression(expression)
-      && expression.name.text === 'sanitize'
-      && expression.expression.getText().endsWith('DOMPurify')
+      ts.isPropertyAccessExpression(expression) &&
+      expression.name.text === 'sanitize' &&
+      expression.expression.getText().endsWith('DOMPurify')
     ) {
       found = true;
     }
@@ -386,7 +449,11 @@ function propertyNameText(name: ts.PropertyName, sourceFile: ts.SourceFile): str
   return name.getText(sourceFile);
 }
 
-function analyzeRawSecurityImports(unit: SourceUnit, result: AnalysisResult, allowlisted: boolean): void {
+function analyzeRawSecurityImports(
+  unit: SourceUnit,
+  result: AnalysisResult,
+  allowlisted: boolean,
+): void {
   visit(unit.sourceFile, (node) => {
     if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) {
       return;
@@ -412,7 +479,8 @@ function analyzeRawSecurityImports(unit: SourceUnit, result: AnalysisResult, all
         severity: 'high',
         path: unit.relativePath,
         line,
-        message: 'Raw security-sensitive SDK import should go through the approved wrapper or lint-enforced allowlist.',
+        message:
+          'Raw security-sensitive SDK import should go through the approved wrapper or lint-enforced allowlist.',
         evidence: [{ path: unit.relativePath, line }],
         details: { moduleName },
       });
@@ -424,7 +492,11 @@ function analyzeExistingGates(unit: SourceUnit, result: AnalysisResult): void {
   if (!unit.relativePath.includes('tools/eslint-rules/')) {
     return;
   }
-  if (/no-(direct-event-publish|claude-sdk-raw-call|bare-graphql-query-string)/.test(unit.relativePath)) {
+  if (
+    /no-(direct-event-publish|claude-sdk-raw-call|bare-graphql-query-string)/.test(
+      unit.relativePath,
+    )
+  ) {
     result.observations.push({
       id: `security-existing-gate:${unit.relativePath}`,
       type: 'security_existing_gate',
@@ -436,7 +508,7 @@ function analyzeExistingGates(unit: SourceUnit, result: AnalysisResult): void {
 }
 
 function decoratorNames(node: ts.Node): string[] {
-  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   return decorators
     .map((decorator) => decorator.expression)
     .map((expression) => (ts.isCallExpression(expression) ? expression.expression : expression))
@@ -457,7 +529,7 @@ function nearestClass(node: ts.Node): ts.ClassDeclaration | undefined {
 }
 
 function readSourceUnit(path: string, workspaceRoot: string): SourceUnit {
-  const text = readWorkspaceFile(path);
+  const text = readWorkspaceFile(workspaceRoot, path);
   return {
     path,
     relativePath: normalizePath(relative(workspaceRoot, path)),
@@ -466,8 +538,8 @@ function readSourceUnit(path: string, workspaceRoot: string): SourceUnit {
   };
 }
 
-function collectSourceFiles(root: string): readonly string[] {
-  return collectFiles(root, {
+function collectSourceFiles(workspaceRoot: string, root: string): readonly string[] {
+  return collectFiles(workspaceRoot, root, {
     extensions: ['.ts', '.tsx'],
     includeExcludedDir: (name) => name === '__tests__',
     includeFile: (name) => !isTestFile(name),

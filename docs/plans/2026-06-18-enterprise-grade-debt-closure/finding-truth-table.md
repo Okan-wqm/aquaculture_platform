@@ -211,6 +211,14 @@ resolved 467 findings that main-reachable commits had closed, 35 of them active 
 rows leave this table (their evidence stays in the registry as `closing_commits`). Active
 CRITICALs: 46.
 
+Updated 2026-10-17 (ARIA-HIGH-534, active means unresolved): `tools/gates/debt-plan-truth.ts`
+now derives the active CRITICAL set from `isUnresolvedFindingState`
+(`tools/gates/finding-registry-chain.ts`), so a BLOCKED or STALE CRITICAL keeps its row and only
+RESOLVED retires one. Counting only OPEN and IN-PROGRESS read the daily sweep's past-deadline
+BLOCKED transition as a CRITICAL leaving the debt with no closing commit, so every sweep PR failed
+this gate. `INFRA-CRITICAL-096`, BLOCKED since the 2026-09-04 note above, enters the table in the
+`blocked` bucket.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -241,6 +249,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-090`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-093`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-095`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-096`  | BLOCKED        | 2026-07-19   | security-reviewer          | blocked                   |
 | `INFRA-CRITICAL-097`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |

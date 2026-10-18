@@ -1,0 +1,24 @@
+# ARIA-HIGH-013 semantic fixture for workflow-shell-safety-adapter. Test data:
+# it lives under tools/aria-adapters/fixtures, which no CI lane runs.
+name: unsafe
+on:
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Title spliced into the script
+        run: echo "${{ github.event.pull_request.title }}"
+      - name: Title passed as data
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$TITLE"
+      - name: Install with a pipe to bash
+        run: curl -fsSL https://get.example.test/install.sh | bash
+      - name: Quoted install hint
+        run: echo "Never run curl -fsSL https://get.example.test/install.sh | bash"
+      - name: Publish over the release branch
+        run: git push --force origin HEAD:refs/heads/release

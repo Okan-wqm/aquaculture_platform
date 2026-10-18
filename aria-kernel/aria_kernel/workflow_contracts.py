@@ -39,6 +39,7 @@ from .workflow_contract_registry import (
     WorkflowJobContract,
     workflow_contract_hash,
     workflow_contract_registry,
+    uncontracted_write_scopes,
     workflow_hash,
     workflow_job_contract_hash,
 )
@@ -761,10 +762,9 @@ def _verify_permissions(
         if actual.get(key) != value:
             reasons.append(f"workflow_permission_mismatch:{job_id}:{key}:{actual.get(key)!r}!={value!r}")
             failure_classes.append("workflow_permissions")
-    for key, value in actual.items():
-        if value == "write" and required.get(key) != "write":
-            reasons.append(f"workflow_uncontracted_write_permission:{job_id}:{key}")
-            failure_classes.append("workflow_permissions")
+    for key in uncontracted_write_scopes(actual, required):
+        reasons.append(f"workflow_uncontracted_write_permission:{job_id}:{key}")
+        failure_classes.append("workflow_permissions")
 
 
 def _uses_action_id(value: Any) -> str:

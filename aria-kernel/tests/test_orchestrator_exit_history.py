@@ -164,5 +164,40 @@ class TheStreakCoversWhatItsExitsBracket(_TwoLedgerClock):
         self.assertLess(old_exit, stamp)
 
 
+class ABridgeNightIsAFailedExit(_TwoLedgerClock):
+    """ARIA-MEDIUM-548 — the orchestrator fails closed on a bridge left
+    unreplayed under a strict profile: the cycle-failed notice, a failed
+    ``bridge_replay_required`` phase row, a ``bridge_replay_required`` exit.
+    The streak read ``cycle_failed`` alone, so that night was clean here and
+    its cause (the gate, not the ``ok`` cycle row) was named nowhere."""
+
+    def _bridge_night(self, cycle_id: str) -> None:
+        self._cycle(cycle_id, "ok")
+        stamp = self._tick()
+        with patch("aria_kernel.autonomy_state.utc_now", return_value=stamp):
+            AutonomyStateReducer.transition(
+                self.tools, cycle_id=cycle_id, phase="bridge_replay_required", status="failed",
+                profile="strict", details={"bridge_status": "ok", "pending_after": 2},
+            )
+        self._exit("bridge_replay_required", 0)
+
+    def test_a_bridge_night_is_a_failed_exit_whose_cause_is_the_gate(self) -> None:
+        from aria_kernel import doctor
+
+        self._cycle("cyc-a1", "failed")
+        self._exit("cycle_failed", 0)
+        self._bridge_night("cyc-b1")
+
+        streak = read_orchestrator_exit_streak(self.tools)
+        self.assertTrue(streak.last_failed)
+        self.assertTrue(streak.all_failed)
+        self.assertEqual(self._failed_ids(), ["cyc-b1", "cyc-a1"])
+        self.assertEqual(streak.failed_cycles[0]["failed_phases"],
+                         [{"phase": "bridge", "error": "bridge_status=ok pending_after=2"}])
+        check = doctor._check_orchestrator(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "orchestrator_exits_all_failed:2"))
+        self.assertEqual([cause.key for cause in check.causes], ["bridge:phase_failed", "cycle:failed"])
+
+
 if __name__ == "__main__":
     unittest.main()

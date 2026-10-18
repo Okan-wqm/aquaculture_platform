@@ -245,6 +245,71 @@ class OperatorRequestRecorderTests(unittest.TestCase):
         # GSEC-MEDIUM-005 — the exact subject was shown before ssh-keygen ran.
         self.assertIn(ors.request_signing_bytes(row).decode("ascii"), self.fixture.subjects.getvalue())
 
+    def test_the_operator_reads_the_refs_and_surfaces_the_grounding_digest_authorizes(self) -> None:
+        # ARIA-LOW-266 — the subject carries grounding_digest, a sha256; the
+        # operator was shown that digest and never the refs it covers nor
+        # the surfaces the request lets a plan change.
+        grounding = admit_finding(load_grounding_context(self.fixture.repo), "F-007")
+        self.assertTrue(grounding.evidence_refs and grounding.affected_surfaces)
+        self.fixture.record(finding_id="F-007", request_id="OP-1")
+        shown = self.fixture.subjects.getvalue()
+        signing = shown.index("aria-kernel: signing this subject")
+        for item in (*grounding.evidence_refs, *grounding.affected_surfaces, *grounding.evidence_surfaces):
+            with self.subTest(item=item):
+                self.assertIn(item, shown[:signing], "shown before ssh-keygen runs")
+        self.assertIn(str(grounding.grounding_digest), shown[:signing])
+
+    def test_root_refuses_to_sign_where_another_account_could_have_prepared_the_environment(self) -> None:
+        # ARIA-LOW-266 — ADR-0018's root-owned checkout was a procedure only:
+        # nothing refused a root signer in a checkout, a working directory or
+        # a kernel another account can write.
+        with mock.patch("os.geteuid", return_value=0):
+            os.chmod(self.fixture.repo, 0o777)
+            try:
+                with self.assertRaisesRegex(GovernanceError, "operator_request_signing_environment_untrusted: checkout"):
+                    self.fixture.record(request_id="OP-writable-checkout")
+            finally:
+                os.chmod(self.fixture.repo, 0o755)
+        self.assertEqual(self._rows(), [], "nothing was signed or recorded")
+        self.assertNotIn("aria-kernel: signing this subject", self.fixture.subjects.getvalue())
+        if os.geteuid() != 0:
+            self.skipTest("the cwd and accepted cases need a root-owned fixture")
+        shared = Path(self.tmp.name) / "shared-cwd"
+        shared.mkdir(mode=0o777)
+        os.chmod(shared, 0o777)
+        here = os.getcwd()
+        os.chdir(shared)
+        self.addCleanup(os.chdir, here)
+        with self.assertRaisesRegex(GovernanceError, "operator_request_signing_environment_untrusted: cwd"):
+            self.fixture.record(request_id="OP-writable-cwd")
+        os.chdir(here)
+        self.assertEqual(self.fixture.record(request_id="OP-root-only")["id"], "OP-root-only")
+
+    def test_every_kernel_signer_checks_its_environment_first(self) -> None:
+        # ARIA-LOW-266 — the rule has one owner (refuse_untrusted_signing_environment);
+        # a recorder that signs an operator act without calling it first is caught here.
+        import ast
+
+        package = Path(ors.__file__).resolve().parent
+        primitives = {"sign_operator_subject", "sign_operator_request"}
+        signers: dict[str, bool] = {}
+        for path in sorted(package.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.FunctionDef) or node.name in primitives:
+                    continue
+                calls = [call for call in ast.walk(node) if isinstance(call, ast.Call)]
+                names = [getattr(call.func, "id", getattr(call.func, "attr", None)) for call in calls]
+                if primitives & set(names):
+                    first = min((call.lineno for call, name in zip(calls, names) if name in primitives))
+                    checked = [call.lineno for call, name in zip(calls, names)
+                               if name == "refuse_untrusted_signing_environment"]
+                    signers[f"{path.name}:{node.name}"] = bool(checked) and min(checked) < first
+        self.assertEqual(set(signers), {"operator_feedback_signature.py:record_operator_request",
+                                        "operator_request_signature.py:record_enrolment",
+                                        "mcp_server.py:sign_mcp_write_approval",
+                                        "ack_ledger.py:mint_operator_ack"})
+        self.assertEqual([name for name, checked in signers.items() if not checked], [])
+
     def test_the_recorder_refuses_what_ingestion_would_refuse(self) -> None:
         self.fixture.record(request_id="OP-1")
         self.fixture.seed_finding("F-010", refs=[f"{GROUNDED_FILE}:1"], status="RESOLVED")

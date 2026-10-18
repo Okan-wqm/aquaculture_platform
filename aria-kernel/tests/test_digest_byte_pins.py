@@ -18,6 +18,8 @@ callable that replaces it and keeps the golden value.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -78,15 +80,31 @@ class TruncatedLabelPins(unittest.TestCase):
         )
 
     def test_spine_baseline_hash(self) -> None:
+        # ARIA-HIGH-045 moved the persisted measurement to the v2 shape (the
+        # violation set plus coverage and provenance); the count-only input
+        # the 965e37a9a golden was captured on can no longer be built. The
+        # composition is unchanged: the same canonical bytes, hashed directly
+        # below, give the pinned value.
+        identity = "apps/x/src/a.service.ts::tenant_unscoped_repository_call::0123456789ab#0"
         measurements = [
             architecture_spine_gate.InvariantMeasurement(
                 invariant="tenant_scoping",
                 measured_at="2026-10-15T00:00:00Z",
-                measurements={"violations": 0, "files": 12},
-                source="static:_check",
+                measurements={"violation_count": 1, "violation_identities": [identity]},
+                source="adapter:tenant-scoping-adapter@1.0.0",
             ),
         ]
-        self.assertEqual(architecture_spine_gate._baseline_hash(measurements), "sha256:43e149d2f67b4b5d")
+        canonical = {"tenant_scoping": {
+            "invariant": "tenant_scoping", "measured_at": "2026-10-15T00:00:00Z",
+            "measurements": {"violation_count": 1, "violation_identities": [identity]},
+            "source": "adapter:tenant-scoping-adapter@1.0.0",
+            "coverage": "measured", "coverage_reason": None, "provenance": {},
+        }}
+        direct = "sha256:" + hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+        ).hexdigest()[:16]
+        self.assertEqual(direct, "sha256:c9af6a50ca68d0f0")
+        self.assertEqual(architecture_spine_gate._baseline_hash(measurements), direct)
 
     def test_context_pack_hash(self) -> None:
         decision = context_compiler.DecisionRecord(

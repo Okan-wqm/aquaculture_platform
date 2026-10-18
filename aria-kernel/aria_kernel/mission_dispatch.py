@@ -111,6 +111,32 @@ def contract_for_mission(*, mission_row: dict[str, Any], queue_item_id: str, sou
     return builder(queue_item_id=queue_item_id, source_cycle_id=source_cycle_id, mission_row=mission_row)
 
 
+def drain_can_plan(mission_row: dict[str, Any]) -> bool:
+    """Whether the queue drain could mint a request for this mission (ARIA-HIGH-245).
+
+    The drain (`autonomy_orchestrator._drain_next_cycle_queue`) mints a
+    mission's request either from a kernel contract (a pointer in
+    `NEXT_ACTION_CONTRACTS`: the contract asks the answer to establish its
+    evidence) or from the generic projection, which carries only the
+    mission's own refs the agent law admits — and consumes an item with
+    neither as ``next_cycle_queue_item_unevidenced``. This is the half of that
+    rule that needs no checkout: the ref SHAPE
+    (`pressure_evidence.split_citable_refs`, the test
+    `select_schedulable_pressures` applies to a ranked pressure for the same
+    reason). Whether the cited blob exists at the target commit stays with the
+    drain. A mission this answers ``False`` for is one the drain would spend
+    its slot on and consume unevidenced, every cycle it is selected (the
+    auth-service mission on the live store: 36 cycles), so the scheduler
+    skips it (`mission_scheduler.SKIP_UNEVIDENCED`).
+    """
+    from .pressure_evidence import split_citable_refs
+
+    if str(mission_row.get("next_action") or "") in NEXT_ACTION_CONTRACTS:
+        return True
+    citable, _provenance = split_citable_refs(mission_row.get("evidence_refs") or [])
+    return bool(citable)
+
+
 def in_flight_mission_request(*, mission_id: str, contract: MissionContract, base_dir: str | Path | None) -> dict[str, Any] | None:
     """The request already asking this mission THIS contract, if one is still in flight.
 
@@ -140,4 +166,4 @@ def in_flight_mission_request(*, mission_id: str, contract: MissionContract, bas
 
 
 __all__ = ["GENERIC_PROJECTION_POINTERS", "GenericProjection", "NEXT_ACTION_CONTRACTS", "MissionContract", "contract_for_mission",
-           "in_flight_mission_request"]
+           "drain_can_plan", "in_flight_mission_request"]

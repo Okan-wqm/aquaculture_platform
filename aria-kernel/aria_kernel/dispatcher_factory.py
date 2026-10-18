@@ -121,11 +121,22 @@ def default_dispatcher_config() -> DispatcherConfig:
 # ---------------------------------------------------------------------
 
 
-def select_drafter(*, role: str, config: DispatcherConfig | None = None, cycle_id: str | None = None):
+def select_drafter(
+    *, role: str, base_dir: str | Path, config: DispatcherConfig | None = None, cycle_id: str | None = None,
+):
     """Plan ARIA-V7 §2g v2 — return a DrafterFn for the given role.
 
     role MUST be one of ``"primary_authoring"`` or
     ``"challenger_authoring"``. Unknown role → ValueError.
+
+    ARIA-MEDIUM-507 — ``base_dir`` is the store the drafter mints into and
+    reads the delivered draft back from, bound HERE, by the producer that
+    builds the loop (the drainer's root). It used to be read from
+    ``evidence_pack["_base_dir"]``, a key no producer writes: every mint
+    landed wherever ``tools_dir(None)`` resolved, ``accepted_response``
+    never read a store, and every call polled its full timeout and returned
+    the ``dispatchers_unavailable`` fallback. The evidence pack carries
+    evidence only.
     """
     if role not in DRAFTER_ROLES:
         raise ValueError(
@@ -161,12 +172,14 @@ def select_drafter(*, role: str, config: DispatcherConfig | None = None, cycle_i
             suggested_prompt=prompt,
             must_satisfy=list(must_satisfy or []),
             allowed_scope=[f"convergent/{seed_id}"],
-            evidence_refs=[f"seed:{seed_id}", f"round:{round_number}"],
-            base_dir=evidence_pack.get("_base_dir"),
+            # ARIA-MEDIUM-385 — the seed is named in the prompt and the round
+            # rides on its field; neither is a ref an agent can cite.
+            round_number=round_number,
+            base_dir=base_dir,
             # ARIA-HIGH-364 — a round of an authoring run the drainer already
             # admitted (skill_genesis.authoring_run): critical path.
             admission=admit_request(
-                "convergent_authoring.round_step", role, base_dir=evidence_pack.get("_base_dir"),
+                "convergent_authoring.round_step", role, base_dir=base_dir,
                 cycle_id=cycle_id,
             ),
         )
@@ -174,7 +187,7 @@ def select_drafter(*, role: str, config: DispatcherConfig | None = None, cycle_i
             envelope=envelope,
             role=role,
             cfg=cfg,
-            base_dir=evidence_pack.get("_base_dir"),
+            base_dir=base_dir,
             fallback_role=role,
             seed_id=seed_id,
         )
@@ -187,8 +200,13 @@ def select_drafter(*, role: str, config: DispatcherConfig | None = None, cycle_i
 # ---------------------------------------------------------------------
 
 
-def select_judge(*, role: str, config: DispatcherConfig | None = None, cycle_id: str | None = None):
-    """Plan ARIA-V7 §2g v2 — return a JudgeFn for the given role."""
+def select_judge(
+    *, role: str, base_dir: str | Path, config: DispatcherConfig | None = None, cycle_id: str | None = None,
+):
+    """Plan ARIA-V7 §2g v2 — return a JudgeFn for the given role.
+
+    ``base_dir`` is bound here, as for :func:`select_drafter` (ARIA-MEDIUM-507).
+    """
     if role not in ("evidence_judgment", "adversarial_judgment"):
         raise ValueError(
             f"select_judge_unknown_role: {role!r} (must be "
@@ -208,7 +226,8 @@ def select_judge(*, role: str, config: DispatcherConfig | None = None, cycle_id:
         )
         prompt = (
             f"V6.2 judge verdict for seed "
-            f"{evidence_pack.get('seed_id', 'unknown')}. Read the "
+            f"{evidence_pack.get('seed_id', 'unknown')}; sandbox_result "
+            f"precision {sandbox_result.get('precision')}. Read the "
             f"sandbox_result + primary_draft + evidence_pack; "
             f"return verdict in {{no_gaps, gaps_open}}. Ground "
             f"verdict ONLY in sandbox stdout/stderr + emitted findings."
@@ -225,14 +244,12 @@ def select_judge(*, role: str, config: DispatcherConfig | None = None, cycle_id:
                 ),
             }],
             allowed_scope=[f"convergent/{evidence_pack.get('seed_id')}"],
-            evidence_refs=[
-                f"seed:{evidence_pack.get('seed_id')}",
-                f"sandbox_result:precision={sandbox_result.get('precision')}",
-            ],
-            base_dir=evidence_pack.get("_base_dir"),
+            # ARIA-MEDIUM-385 — the seed and the sandbox precision are named
+            # in the prompt; neither is a ref an agent can cite.
+            base_dir=base_dir,
             # ARIA-HIGH-364 — a judge of an admitted authoring run: critical path.
             admission=admit_request(
-                "convergent_authoring.round_step", role, base_dir=evidence_pack.get("_base_dir"),
+                "convergent_authoring.round_step", role, base_dir=base_dir,
                 cycle_id=cycle_id,
             ),
         )
@@ -240,7 +257,7 @@ def select_judge(*, role: str, config: DispatcherConfig | None = None, cycle_id:
             envelope=envelope,
             role=role,
             cfg=cfg,
-            base_dir=evidence_pack.get("_base_dir"),
+            base_dir=base_dir,
         )
 
     return _judge_fn
@@ -292,7 +309,7 @@ def _poll_for_drafter_response(
     envelope: dict[str, Any],
     role: str,
     cfg: DispatcherConfig,
-    base_dir: str | Path | None,
+    base_dir: str | Path,
     fallback_role: str,
     seed_id: str,
 ) -> dict[str, Any]:
@@ -322,7 +339,7 @@ def _poll_for_judge_response(
     envelope: dict[str, Any],
     role: str,
     cfg: DispatcherConfig,
-    base_dir: str | Path | None,
+    base_dir: str | Path,
 ) -> dict[str, Any]:
     request_id = envelope.get("request_id", "")
     deadline = time.monotonic() + float(cfg.get("poll_timeout_seconds", _DEFAULT_POLL_TIMEOUT_SECONDS))

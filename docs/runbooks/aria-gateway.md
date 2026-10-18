@@ -27,7 +27,10 @@ sudo systemctl daemon-reload && sudo systemctl enable --now aria-gateway.service
 sudo nginx -t && sudo systemctl reload nginx     # infrastructure/nginx/droplet.conf carries /aria/webhook/
 ```
 
-`scripts/aria/provision_runner.sh --dry-run` reports the unit + env-name drift.
+`scripts/aria/provision_gateway.sh --dry-run` reports the unit + env-name drift; run as root
+without `--dry-run`, it installs the repo copies of the gateway and telemetry units and enables
+`aria-gateway.service` and `aria-telemetry.timer`. The runner habitat's provisioner
+(`scripts/aria/provision_runner.sh`) installs neither (ARIA-HIGH-247).
 
 ## GitHub webhook
 

@@ -41,10 +41,11 @@ from unittest import mock
 from aria_kernel import hook_broker as hb
 from aria_kernel import hook_client as hc
 from aria_kernel.claude_settings import HOOK_TIMEOUT_SECONDS, build_settings, hook_client_path, hook_command
-from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, prune_stale_hook_brokers, serve_hook_broker
+from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, serve_hook_broker
 from aria_kernel.hook_client import EXIT_ALLOW, EXIT_BLOCK, call_hook
 from aria_kernel.hooks import HOOK_DECISIONS_RELPATH, HOOK_DECISIONS_SURFACE, journal_rows_for
 from aria_kernel.ledger import load_declared_jsonl
+from aria_kernel.socket_holders import HOOK_BROKER, prune_stale_socket_dirs
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.turn_budget import REASON_IMPLEMENTER_TURN_BUDGET_EXHAUSTED
 
@@ -244,14 +245,14 @@ class SweepTests(_Store):
         with mock.patch.object(tempfile, "tempdir", str(temp_root)):
             with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-s",
                                    turn_budget=None) as broker:
-                swept = prune_stale_hook_brokers(temp_root=temp_root)
+                swept = prune_stale_socket_dirs(HOOK_BROKER, temp_root=temp_root)
                 self.assertTrue(broker.socket_path.is_socket())
                 self.assertEqual(call_hook(str(broker.socket_path), "pre-tool", _payload("Bash", command="git status"))[0],
                                  EXIT_ALLOW, "the live broker still answers after the sweep")
         self.assertEqual(swept["swept"], ["aria-hb-dead0000"])
         self.assertEqual(swept["live"], [broker.socket_path.parent.name])
         self.assertTrue((temp_root / "aria-hb-test-fixture-root").exists(), "not the sweep's to remove")
-        self.assertEqual(prune_stale_hook_brokers(temp_root=temp_root)["swept"], [])
+        self.assertEqual(prune_stale_socket_dirs(HOOK_BROKER, temp_root=temp_root)["swept"], [])
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator, NoReturn
 
 from .digest import is_sha256_digest, sha256_digest, sha256_hex
 from .file_lock import ExclusiveLockHandle, with_exclusive_lock
@@ -762,6 +762,14 @@ def state_transaction(
     holder (a probe that must not wait, a fixture proving lock order); an
     ordinary writer cannot know who holds the group lock and must not
     guess a shorter wait.
+
+    ARIA-MEDIUM-111 — a full disk while the transaction takes its locks or
+    while its body writes leaves it as ``environment_failure:disk_full``
+    (``_reraise_enospc_as_environment``). The translation lives HERE, not in
+    the module-level append wrappers, so the thirty-odd governed writers
+    that append through the transaction object get it with no cooperation;
+    ``StateTransaction`` is constructed nowhere else (pinned in
+    tests/test_bench_hygiene_residues.py).
     """
     concrete_paths = [Path(path).resolve() for path in paths]
     if not concrete_paths:
@@ -814,47 +822,50 @@ def state_transaction(
                     f"path={concrete_path.as_posix()}"
                 )
 
-    with contextlib.ExitStack() as stack:
-        lock_handles: list[ExclusiveLockHandle] = []
-        for ordinal, lock_path in enumerate(lock_paths):
-            remaining = max(0.0, acquisition_deadline - time.monotonic())
-            try:
-                lock_handles.append(
-                    stack.enter_context(
-                        with_exclusive_lock(lock_path, timeout_seconds=remaining)
+    try:
+        with contextlib.ExitStack() as stack:
+            lock_handles: list[ExclusiveLockHandle] = []
+            for ordinal, lock_path in enumerate(lock_paths):
+                remaining = max(0.0, acquisition_deadline - time.monotonic())
+                try:
+                    lock_handles.append(
+                        stack.enter_context(
+                            with_exclusive_lock(lock_path, timeout_seconds=remaining)
+                        )
                     )
+                except TimeoutError as exc:
+                    # The declared root may have vanished while this writer
+                    # waited; that semantic refusal outranks the timeout, as it
+                    # does for the I/O fault below.
+                    if ordinal == 0 and ordered_group_locks and declared_bindings:
+                        assert_declared_bindings_unchanged()
+                    # Name the bound that fired and where: the helper's message
+                    # says only which side-car was contended, and a reader of
+                    # the log needs to know the writer waited the WHOLE
+                    # transaction bound, not a per-lock default.
+                    raise TimeoutError(
+                        "state_transaction_liveness_bound_exhausted: "
+                        f"bound={wait_bound}s lock_ordinal={ordinal} "
+                        f"lock={lock_path.as_posix()}"
+                    ) from exc
+                except OSError:
+                    # A cleanup may unlink the group sidecar while this waiter has
+                    # it open.  The lock helper correctly rejects that changed
+                    # inode.  If the declared authority vanished with it, expose
+                    # the semantic refusal; otherwise preserve the real I/O fault.
+                    if ordinal == 0 and ordered_group_locks and declared_bindings:
+                        assert_declared_bindings_unchanged()
+                    raise
+                if ordinal == 0 and ordered_group_locks and declared_bindings:
+                    assert_declared_bindings_unchanged()
+            with state_transaction_held():
+                yield StateTransaction(
+                    frozenset(concrete_paths),
+                    verify_reads=verify_reads,
+                    lock_handles=tuple(lock_handles),
                 )
-            except TimeoutError as exc:
-                # The declared root may have vanished while this writer
-                # waited; that semantic refusal outranks the timeout, as it
-                # does for the I/O fault below.
-                if ordinal == 0 and ordered_group_locks and declared_bindings:
-                    assert_declared_bindings_unchanged()
-                # Name the bound that fired and where: the helper's message
-                # says only which side-car was contended, and a reader of
-                # the log needs to know the writer waited the WHOLE
-                # transaction bound, not a per-lock default.
-                raise TimeoutError(
-                    "state_transaction_liveness_bound_exhausted: "
-                    f"bound={wait_bound}s lock_ordinal={ordinal} "
-                    f"lock={lock_path.as_posix()}"
-                ) from exc
-            except OSError:
-                # A cleanup may unlink the group sidecar while this waiter has
-                # it open.  The lock helper correctly rejects that changed
-                # inode.  If the declared authority vanished with it, expose
-                # the semantic refusal; otherwise preserve the real I/O fault.
-                if ordinal == 0 and ordered_group_locks and declared_bindings:
-                    assert_declared_bindings_unchanged()
-                raise
-            if ordinal == 0 and ordered_group_locks and declared_bindings:
-                assert_declared_bindings_unchanged()
-        with state_transaction_held():
-            yield StateTransaction(
-                frozenset(concrete_paths),
-                verify_reads=verify_reads,
-                lock_handles=tuple(lock_handles),
-            )
+    except OSError as exc:
+        _reraise_enospc_as_environment(exc)
 
 
 def file_hash(path: Path) -> str:
@@ -1489,20 +1500,21 @@ def append_jsonl(
         )
 
 
-def _reraise_enospc_as_environment(exc: OSError) -> None:
+def _reraise_enospc_as_environment(exc: OSError) -> NoReturn:
     """E18-b (ORPHAN-695 sibling; lived 2026-08-13) — a full disk during a
-    ledger APPEND is an ENVIRONMENT failure, not phase logic. Pre-E18-b
+    ledger write is an ENVIRONMENT failure, not phase logic. Pre-E18-b
     only the read/verify path classified I/O faults; a mid-run ENOSPC on
     the write side still surfaced as an anonymous phase crash the operator
-    had to diagnose from a stack trace. Named here, once, for every
-    governed append."""
+    had to diagnose from a stack trace. Named here, once; ``state_transaction``
+    raises it for every write made inside one (ARIA-MEDIUM-111), which is
+    every governed append. Any other OSError is re-raised as it is."""
     import errno as _errno
 
     from .tool_registry import GovernanceError
 
     if exc.errno == _errno.ENOSPC:
         raise GovernanceError(
-            f"environment_failure:disk_full: ledger append hit ENOSPC "
+            f"environment_failure:disk_full: a state transaction write hit ENOSPC "
             f"({exc}); free disk and re-run — the rows already written are "
             f"intact, the chain refuses to advance on a torn write"
         ) from exc
@@ -1533,17 +1545,13 @@ def append_declared_jsonl_rows(
     if not records:
         return []
     resolved = Path(path).resolve()
-    try:
-        with state_transaction([resolved]) as transaction:
-            return transaction.append_declared_jsonl_rows(
-                resolved,
-                records,
-                expected_surface=expected_surface,
-                bypass_profile_gate=bypass_profile_gate,
-            )
-    except OSError as exc:
-        _reraise_enospc_as_environment(exc)
-        raise
+    with state_transaction([resolved]) as transaction:
+        return transaction.append_declared_jsonl_rows(
+            resolved,
+            records,
+            expected_surface=expected_surface,
+            bypass_profile_gate=bypass_profile_gate,
+        )
 
 
 def append_declared_jsonl(
@@ -1566,16 +1574,13 @@ def append_declared_jsonl(
         enforce_write_profile=not bypass_profile_gate,
     )
     resolved = Path(path).resolve()
-    try:
-        with state_transaction([resolved]) as transaction:
-            return transaction.append_declared_jsonl(
-                resolved,
-                record,
-                expected_surface=expected_surface,
-                bypass_profile_gate=bypass_profile_gate,
-            )
-    except OSError as exc:
-        _reraise_enospc_as_environment(exc)
+    with state_transaction([resolved]) as transaction:
+        return transaction.append_declared_jsonl(
+            resolved,
+            record,
+            expected_surface=expected_surface,
+            bypass_profile_gate=bypass_profile_gate,
+        )
 
 
 def _assert_raw_jsonl_append_allowed(
@@ -2757,15 +2762,11 @@ def append_segment_rows(
     if not records:
         return []
     frozen = _segment_layout(Path(root), expected_surface)[0]
-    try:
-        with state_transaction([frozen]) as transaction:
-            return transaction.append_segment_rows(
-                root,
-                records,
-                expected_surface=expected_surface,
-                now=now,
-                bypass_profile_gate=bypass_profile_gate,
-            )
-    except OSError as exc:
-        _reraise_enospc_as_environment(exc)
-        raise
+    with state_transaction([frozen]) as transaction:
+        return transaction.append_segment_rows(
+            root,
+            records,
+            expected_surface=expected_surface,
+            now=now,
+            bypass_profile_gate=bypass_profile_gate,
+        )

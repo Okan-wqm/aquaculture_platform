@@ -111,6 +111,7 @@ def dispatch_change_intelligence(
     matter.
     """
     from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+    from .pressure_evidence import split_citable_refs
     from .request_admission import admit_request
 
     root = ensure_tools_dir(base_dir)
@@ -177,7 +178,10 @@ def dispatch_change_intelligence(
                 ),
             }],
             allowed_scope=["**"],
-            evidence_refs=[subject, *changed_files[:_MAX_CHANGED_FILE_REFS]],
+            # ARIA-MEDIUM-385 — the merge is the subject, never a citation;
+            # a changed path the agent law cannot admit stays in the prompt.
+            evidence_refs=split_citable_refs(changed_files[:_MAX_CHANGED_FILE_REFS])[0] or None,
+            subject_ref=subject,
             cycle_id=cycle_id,
             target_sha=str(head_sha) if head_sha else target_sha,
             base_dir=root,

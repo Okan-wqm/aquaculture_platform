@@ -5,6 +5,11 @@
  * policy MUST use the canonical RLS predicate from
  * `libs/backend-common/src/database/rls/apply-tenant-rls.helper.ts`.**
  *
+ * The rule — predicate check, tenant-policy scope and grandfather list — lives
+ * in ONE owner, `tools/gates/rls-predicate-canonical.ts`: this spec fails the
+ * build on it and ARIA's `sql-migration-safety-adapter` observes the same
+ * verdict (ARIA-HIGH-011).
+ *
  * # CANONICAL PREDICATE
  *
  * Per `apply-tenant-rls.helper.ts:222-237`:
@@ -60,28 +65,13 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import {
+  RLS_PREDICATE_GRANDFATHERED,
+  findNonCanonicalTenantPolicies,
+  isRlsPredicateScopedPath,
+} from '../../tools/gates/rls-predicate-canonical';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
-
-const GRANDFATHERED: ReadonlySet<string> = new Set([
-  // Pre-helper RLS rollout — predates applyTenantRlsToSchema helper.
-  'apps/farm-service/src/database/migrations/1776000000000-EnableRowLevelSecurity.ts',
-  // Refresh of the same predicate during the helper migration window.
-  'apps/farm-service/src/database/migrations/1781000000000-RefreshTenantRlsPredicate.ts',
-  // Messaging cohort RLS enablement (predates helper consolidation).
-  'apps/messaging-service/src/migrations/1782400000000-EnableRowLevelSecurity.ts',
-]);
-
-const HELPER_CALL_RE = /applyTenantRlsToSchema\s*\(/;
-
-// Match a CREATE POLICY block — captures policy name + the USING clause.
-// Tolerates whitespace, quoted identifiers, multi-line statements.
-const CREATE_POLICY_RE =
-  /CREATE\s+POLICY\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?([a-zA-Z_][a-zA-Z0-9_]*)["']?\s+ON\s+[\w."]+\s+(?:FOR\s+\w+\s+)?(?:TO\s+[\w,\s"]+\s+)?USING\s*\(([\s\S]*?)\)\s*(?:WITH\s+CHECK|;)/gi;
-
-const TENANT_ISOLATION_POLICY_NAMES = [
-  'tenant_isolation_policy',
-  'tenant_isolation',
-];
 
 interface Violation {
   file: string;
@@ -91,55 +81,11 @@ interface Violation {
 }
 
 function listMigrationFiles(): string[] {
-  let out: string;
-  try {
-    out = execSync(
-      `git -C ${REPO_ROOT} ls-files 'apps/*/src/migrations/*.ts' 'apps/*/src/migrations/**/*.ts' 'apps/*/src/database/migrations/*.ts' 'apps/*/src/database/migrations/**/*.ts'`,
-      { encoding: 'utf8' },
-    );
-  } catch (err) {
-    const e = err as { status?: number };
-    if (e.status === 1) return [];
-    throw err;
-  }
-  return out
+  // The scope (which migrations this rule governs) is the owner's predicate,
+  // so this spec and ARIA's adapter cannot disagree on which files count.
+  return execSync(`git -C ${REPO_ROOT} ls-files -- apps`, { encoding: 'utf8' })
     .split('\n')
-    .filter(Boolean)
-    .filter((p) => !p.includes('__tests__'))
-    .filter((p) => !p.endsWith('.spec.ts'))
-    .filter((p) => !p.endsWith('.test.ts'));
-}
-
-/**
- * The canonical USING clause requires three structural elements present
- * within the same parenthesised block:
- *
- *   1. `current_setting('app.bypass_rls'` reference
- *   2. `NULLIF(current_setting('app.current_tenant'` reference
- *   3. `::uuid` cast on the right-hand side
- *
- * We check by substring (case-insensitive) so cosmetic whitespace, line
- * breaks, or alternative quoting do not produce false positives.
- */
-function validateUsingClause(usingClause: string): string | null {
-  const c = usingClause.toLowerCase();
-
-  if (!c.includes("current_setting('app.bypass_rls'")) {
-    return "missing app.bypass_rls clause (admin/background-job bypass)";
-  }
-  if (!c.includes("current_setting('app.current_tenant'")) {
-    return "missing app.current_tenant clause (tenant context comparison)";
-  }
-  if (!c.includes('nullif(')) {
-    return "missing NULLIF() wrapper — raw COALESCE/cast crashes on unset GUC (the 2026-Q1 farm-service bug)";
-  }
-  if (!c.includes('::uuid')) {
-    return "missing ::uuid cast on RHS — tenant_id is a uuid column";
-  }
-  if (!c.includes(', true)')) {
-    return "missing `, true` second arg to current_setting() — raises exception on unset GUC";
-  }
-  return null;
+    .filter(isRlsPredicateScopedPath);
 }
 
 describe('INVARIANT — RLS predicate canonical (TENANT-ISOLATION-CRITICAL-001)', () => {
@@ -153,48 +99,16 @@ describe('INVARIANT — RLS predicate canonical (TENANT-ISOLATION-CRITICAL-001)'
     const violations: Violation[] = [];
 
     for (const relativePath of files) {
-      if (GRANDFATHERED.has(relativePath)) continue;
+      if (RLS_PREDICATE_GRANDFATHERED.has(relativePath)) continue;
 
-      const fullPath = resolve(REPO_ROOT, relativePath);
-      const src = readFileSync(fullPath, 'utf8');
-
-      // Helper-based migrations are inherently canonical; skip.
-      if (HELPER_CALL_RE.test(src)) continue;
-
-      // Quick scope check.
-      if (!/CREATE\s+POLICY/i.test(src) && !src.includes('tenant_isolation_policy')) {
-        continue;
-      }
-
-      CREATE_POLICY_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = CREATE_POLICY_RE.exec(src)) !== null) {
-        const policyName = match[1];
-        const usingClause = match[2];
-        // ORPHAN-HIGH-507 — both captures guarded before use. A CREATE POLICY
-        // the regex matched but whose name or USING clause did not bind is a
-        // statement this invariant cannot judge, so it is skipped rather than
-        // asserted non-null: an assertion would crash the RLS invariant on a
-        // malformed migration, which is the one case it most needs to survive
-        // in order to report the others.
-        if (policyName === undefined || usingClause === undefined) continue;
-
-        // Only tenant_isolation policies are subject to this invariant.
-        // Non-tenant policies (e.g. role-based access) are out of scope.
-        const isTenantPolicy = TENANT_ISOLATION_POLICY_NAMES.some((n) =>
-          policyName.toLowerCase().includes(n),
-        );
-        if (!isTenantPolicy) continue;
-
-        const reason = validateUsingClause(usingClause);
-        if (reason) {
-          violations.push({
-            file: relativePath,
-            policy: policyName,
-            reason,
-            excerpt: usingClause.trim().slice(0, 200),
-          });
-        }
+      const src = readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
+      for (const violation of findNonCanonicalTenantPolicies(src)) {
+        violations.push({
+          file: relativePath,
+          policy: violation.policy,
+          reason: violation.reason,
+          excerpt: violation.excerpt,
+        });
       }
     }
 

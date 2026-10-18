@@ -48,6 +48,7 @@ from aria_kernel.implementation_delivery import RESULT_ADMISSIBLE_STAGE, Impleme
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.runtime_artifacts import verify_runtime_artifacts
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.sandbox_pins import require_sandbox_backend
 from tests.test_implementation_delivery import _DeliveredBranch
 
 _POC_DIR = Path(__file__).resolve().parents[2] / "tools" / "aria-poc"
@@ -71,11 +72,9 @@ class _RefusedDeliveryFixture(_DeliveredBranch):
     def setUp(self) -> None:
         from aria_kernel.agent_invocations import claim_request
         from aria_kernel.change_ledger import emit_change_planned
-        from aria_kernel.implementation_safety import sandbox_backend
         from tests._helpers.production_shaped import production_implementation_request
 
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host")
+        require_sandbox_backend()
         super().setUp()
         operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         self.request = production_implementation_request(
@@ -245,3 +244,51 @@ class ARefusalThatIsNotACredentialVerdictIsReleasedAsBeforeTests(_RefusedDeliver
         self.assertIn("human_required", self._claim_events())
         self.assertEqual(self._human_required()["context"]["code"], f"implementation_delivery_refused:{RESULT_ADMISSIBLE_STAGE}")
         self.assertEqual(self._summary()["outcome"], "refused")
+
+
+class ADiffSecretRefusalStillWithholdsACredentialEnvelopeTests(_RefusedDeliveryFixture):
+    """ARIA-LOW-575 — the patch's secret scan (stage 1a) refused first and by
+    name, and never asked the result's verdict (1b): an envelope or
+    transcript that ALSO carried a credential got a refusal without the
+    verdict's codes, so the executor released without a submit and the
+    refused bytes stayed under outputs/ with no withheld row. The diff's
+    refusal keeps its name and its precedence, and carries the verdict's
+    codes when the verdict refused the envelope too."""
+
+    _LEAKED = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+
+    def _commit_a_secret_shaped_diff(self) -> None:
+        from tests._helpers.git_fixtures import _git
+        from tests.test_implementation_delivery import _commit_signed_with
+
+        _git(["reset", "-q", "--hard", self.base], cwd=self.repo)
+        _commit_signed_with(self.repo, self.kernel_key, message="feat: leak", path="src/app.ts",
+                            body=f"export const app = false; // {self._LEAKED}\n")
+
+    def test_a_credential_envelope_behind_a_secret_shaped_diff_is_withheld(self) -> None:
+        self._commit_a_secret_shaped_diff()
+        refused = self._refuse(
+            self._envelope(note=_KEY_HEADER + "\n" + _DB_PASSWORD),
+            transcript='{"type":"tool_result","content":"' + _DB_PASSWORD + '"}\n',
+        )
+        self.assertEqual(refused.stage, RESULT_ADMISSIBLE_STAGE)
+        self.assertTrue(refused.reason.startswith("diff_secret_shaped:"), refused.reason)
+        self.assertNotIn(self._LEAKED, refused.reason)
+        self.assertIn("secret_in_envelope", refused.rejection_codes)
+        self.assertTrue(refused.withholds_output)
+
+        code, stderr = self._close(refused)
+
+        self.assertEqual(code, ci_executor.REFUSAL_EXIT_CODE, stderr)
+        self.assertEqual(self._store_files_holding_the_credential(), [], stderr)
+        self.assertFalse(self.output.exists())
+        self.assertFalse(self.transcript.exists())
+        self.assertEqual([row["output_withheld"] for row in self._result_rows()], ["credential_refusal"])
+        self.assertTrue(verify_runtime_artifacts(base_dir=self.tools, workspace_root=self.repo)["valid"])
+
+    def test_a_clean_envelope_behind_a_secret_shaped_diff_withholds_nothing(self) -> None:
+        self._commit_a_secret_shaped_diff()
+        refused = self._refuse(self._envelope(), transcript='{"t":1}\n')
+        self.assertTrue(refused.reason.startswith("diff_secret_shaped:"), refused.reason)
+        self.assertEqual(refused.rejection_codes, ())
+        self.assertFalse(refused.withholds_output)

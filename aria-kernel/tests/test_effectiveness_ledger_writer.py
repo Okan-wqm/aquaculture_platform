@@ -60,7 +60,7 @@ class EffectivenessWriterTests(unittest.TestCase):
     def test_bandit_finally_sees_history(self) -> None:
         """Deliberate-break: pre-M3 the ledger was always empty, so the
         scheduler's Thompson draw dict was {} on every night."""
-        from aria_kernel.mission_scheduler import _thompson_source_draws
+        from aria_kernel.mission_scheduler import RANKING_THOMPSON, _source_ranking
         from aria_kernel.tool_registry import ensure_tools_dir
 
         tools = ensure_tools_dir(self.root / "aria-tools")
@@ -69,7 +69,9 @@ class EffectivenessWriterTests(unittest.TestCase):
                 base_dir=self.tools, source_type="git_diff",
                 minted=1, converged=1, merged=1,
             )
-        draws = _thompson_source_draws(tools, "2026-08-12T00:00:00Z")
+        ranking = _source_ranking(tools, "2026-08-12T00:00:00Z")
+        self.assertEqual(ranking.ranking, RANKING_THOMPSON)
+        draws = ranking.draws
         self.assertIn("git_diff", draws)
         self.assertGreater(draws["git_diff"], 0.0)
 

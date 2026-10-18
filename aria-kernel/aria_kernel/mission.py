@@ -59,10 +59,12 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from .candidate_blocks import describe_candidate_block
+from .pressure_evidence import split_citable_refs
 from .task import generate_task_candidates
 from .ledger import (
     load_declared_jsonl,
@@ -178,7 +180,9 @@ BINDING_KEYS: tuple[str, ...] = (
     "grant_jtis",
 )
 
-EVENT_KINDS: tuple[str, ...] = ("opened", "transition", "binding", "wake", "note")
+# ``evidence`` (ARIA-HIGH-245) is the re-open heal of a mission that holds no
+# evidence refs: the sighting's refs, recorded once, never overwriting.
+EVENT_KINDS: tuple[str, ...] = ("opened", "transition", "binding", "wake", "note", "evidence")
 
 # The reasons a skip-forward may carry. A closed set, and small on purpose:
 # each member is a claim that we observed an END STATE and not the path to it,
@@ -475,7 +479,10 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
                 "next_action": event.get("next_action"),
                 "wake_condition": event.get("wake_condition"),
                 "bindings": {},
-                "evidence_refs": [],
+                # ARIA-HIGH-245 — the evidence the producer resolved its
+                # source to; a row minted before the mint recorded it folds
+                # to ``[]`` and is healed on its next re-open.
+                "evidence_refs": sorted(set(_strings(event.get("evidence_refs")))),
             }
             continue
         if state is None:
@@ -501,6 +508,10 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
             if refs:
                 merged = list(state["evidence_refs"]) + refs
                 state["evidence_refs"] = sorted(set(merged))
+        elif kind == "evidence":
+            refs = _strings(event.get("evidence_refs"))
+            if refs:
+                state["evidence_refs"] = sorted(set(list(state["evidence_refs"]) + refs))
         elif kind == "binding":
             for key, values in (event.get("bindings") or {}).items():
                 existing = list(state["bindings"].get(key, []))
@@ -616,12 +627,26 @@ def open_mission(
     title: str,
     next_action: str,
     wake_condition: dict[str, Any],
+    evidence_refs: Sequence[str],
     capability: str | None = None,
     priority: int | None = None,
     target_project: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Open (or replay-open) the mission this source identifies.
+
+    ``evidence_refs`` is REQUIRED and has no default (ARIA-HIGH-245): the
+    refs the producer resolved its source to — a finding's cited paths, a
+    pressure's own evidence, the changed path, a task candidate's citable
+    refs. Every producer derives its contract from evidence it holds, and
+    before this argument existed none recorded it, so the drain consumed
+    every selected mission ``next_cycle_queue_item_unevidenced`` (36 of 50
+    such rows on the live store name one mission, re-selected every cycle).
+    A ref outside the agent law's shape is refused here by name
+    (`pressure_evidence.require_citable_evidence`), the same door
+    ``pressure._pressure`` uses. An empty list is a statement, not an
+    omission: `mission_dispatch.drain_can_plan` then tells the scheduler the
+    drain cannot plan the mission, and it never takes the slot.
 
     ``target_project`` names the platform project the mission hardens
     (charter §5): until now a service could only be smuggled inside
@@ -659,6 +684,7 @@ def open_mission(
     if not isinstance(title, str) or not title.strip():
         raise GovernanceError("open_mission requires a non-empty title")
     action, wake = validate_closure_contract(next_action, wake_condition)
+    refs = _citable_mission_evidence(source_kind, evidence_refs)
     key = _idempotency_key(mission_id, "genesis", "", "opened")
     with state_transaction([events_path(root)]) as txn:
         events = _load_events(root)
@@ -680,10 +706,21 @@ def open_mission(
                     "target_project": target_project,
                     "next_action": action,
                     "wake_condition": wake,
+                    "evidence_refs": refs,
                 },
             )
-            return _result(event, idempotent=False, healed=False, heal_declined=None)
+            return _result(
+                event, idempotent=False, healed=False, heal_declined=None,
+                evidence_healed=False, evidence_heal_declined=None,
+            )
         state = _fold(events, mission_id)
+        # Inside the transaction, unlike the contract heal below: it reads
+        # and appends one ledger and calls no other door, so the read that
+        # found the mission without evidence and the row that heals it are
+        # one atomic step.
+        evidence_verdict = _heal_evidence_on_reopen(
+            txn, root=root, mission_id=mission_id, state=state, evidence_refs=refs,
+        )
     # OUTSIDE the transaction on purpose: `set_closure_contract` takes the
     # same file lock, and taking it twice from one thread would deadlock.
     # What the gap can cost is bounded: two producers healing the same mission
@@ -700,7 +737,60 @@ def open_mission(
         wake_condition=wake,
         root=root,
     )
-    return _result(existing, idempotent=True, **verdict)
+    return _result(existing, idempotent=True, **verdict, **evidence_verdict)
+
+
+def _citable_mission_evidence(source_kind: str, evidence_refs: Sequence[str]) -> list[str]:
+    """The mint's refs, each in the agent law's shape, de-duplicated in order; otherwise a named refusal.
+
+    A bare string is refused rather than iterated: ``evidence_refs="a.ts"``
+    would otherwise record one ref per character.
+    """
+    from .pressure_evidence import require_citable_evidence
+
+    if isinstance(evidence_refs, (str, bytes)) or not isinstance(evidence_refs, Sequence):
+        raise GovernanceError("open_mission evidence_refs must be a sequence of refs")
+    refs = require_citable_evidence(f"mission:{source_kind}", evidence_refs, record="mission")
+    return list(dict.fromkeys(refs))
+
+
+def _heal_evidence_on_reopen(
+    txn: Any,
+    *,
+    root: Path,
+    mission_id: str,
+    state: dict[str, Any] | None,
+    evidence_refs: list[str],
+) -> dict[str, Any]:
+    """Record this sighting's refs on a re-opened mission that holds none, or say why not.
+
+    ARIA-HIGH-245 — the same reasoning as `_heal_on_reopen`: refusing an
+    unevidenced mint only fixes the future, and every mission on the live
+    store (189 open at origin/aria/state 8e39b2eeb) was opened before the
+    mint recorded refs.
+    The heal NEVER overwrites — a mission that holds refs keeps them — and
+    never touches a terminal mission. It does not decline an
+    `OPERATOR_HELD_STATES` mission: refs are evidence about the mission's
+    source, not the operator's sentence, and recording them replaces nothing.
+    """
+    if state is None:  # pragma: no cover - the genesis row exists by construction
+        return {"evidence_healed": False, "evidence_heal_declined": "unknown_mission"}
+    if state["evidence_refs"] or not evidence_refs:
+        return {"evidence_healed": False, "evidence_heal_declined": None}
+    if state["state"] in TERMINAL_STATES:
+        return {"evidence_healed": False, "evidence_heal_declined": "terminal"}
+    canonical = json.dumps(sorted(evidence_refs), separators=(",", ":"))
+    _append(
+        txn,
+        root,
+        {
+            "event": "evidence",
+            "mission_id": mission_id,
+            "idempotency_key": _idempotency_key(mission_id, MINT_HEAL_STEP_ID, canonical, "evidence"),
+            "evidence_refs": evidence_refs,
+        },
+    )
+    return {"evidence_healed": True, "evidence_heal_declined": None}
 
 
 def _heal_on_reopen(
@@ -1086,7 +1176,7 @@ def adopt_task_candidates(
         *(payload.get("tasks") or []),
         *(payload.get("blocked") or []),
     ]
-    adopted = already = refused = healed = disclosed = 0
+    adopted = already = refused = healed = evidence_healed = disclosed = 0
     blocked_by_owner: dict[str, int] = {}
     for candidate in candidates:
         if not isinstance(candidate, dict):
@@ -1095,6 +1185,12 @@ def adopt_task_candidates(
         source = candidate.get("source")
         source_id = str(candidate.get("source_id") or "")
         forward = _candidate_forward_pointer(candidate)
+        # ARIA-HIGH-245 — the candidate's refs are read from a record this
+        # module does not author (`task.py` copies a pressure's, a finding's,
+        # a gap's), so they are split rather than refused: a ref the agent
+        # law cannot accept the shape of is the record's provenance and never
+        # reaches the mission's evidence.
+        evidence, _provenance = split_citable_refs(candidate.get("evidence_refs") or [])
         reason = None
         block: dict[str, Any] | None = None
         if not isinstance(source, str) or not source.strip():
@@ -1136,6 +1232,13 @@ def adopt_task_candidates(
             # unactionable work becomes visible instead of becoming a
             # paralysed mission.
             reason = "no_derivable_next_action"
+        elif not evidence:
+            # ARIA-HIGH-245 — the contract names work the drain can only plan
+            # from the source's own evidence; a candidate that cites nothing
+            # an agent can cite back would mint a mission the drain consumes
+            # `next_cycle_queue_item_unevidenced` every cycle it is selected.
+            # Refused by name, like the missing pointer above.
+            reason = "no_citable_evidence"
         if reason is not None:
             refused += 1
             details: dict[str, Any] = {
@@ -1179,12 +1282,15 @@ def adopt_task_candidates(
             title=title,
             next_action=forward,
             wake_condition={"kind": "evidence", "key": f"{source}:{source_id}"},
+            evidence_refs=evidence,
             base_dir=root,
         )
         if result["idempotent"]:
             already += 1
             if result.get("healed"):
                 healed += 1
+            if result.get("evidence_healed"):
+                evidence_healed += 1
         else:
             adopted += 1
     return {
@@ -1197,6 +1303,8 @@ def adopt_task_candidates(
         # ``refused`` minus this is standing weather already on the ledger.
         "refusals_disclosed": disclosed,
         "healed": healed,
+        # ARIA-HIGH-245 — re-adopted missions that held no evidence and now do.
+        "evidence_healed": evidence_healed,
         # Who is holding the refused-as-blocked work, by owner, plus how many
         # candidates the generator handed to the panel before this loop — the
         # phase summary's one-line answer to "why did nothing new get adopted".

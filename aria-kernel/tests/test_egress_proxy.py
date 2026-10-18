@@ -13,6 +13,7 @@ import tempfile
 import unittest
 
 from aria_kernel import egress_proxy
+from aria_kernel.socket_holders import EGRESS_PROXY, SOCKET_HOLDERS, prune_stale_socket_dirs
 
 
 async def _echo(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -198,18 +199,19 @@ class TheKernelsProxy(unittest.TestCase):
             dead.bind(str(directory / "sock"))
             dead.close()
         (foreign_dir / "note").write_text("not the proxy's")
-        swept = egress_proxy.prune_stale_egress_proxies(temp_root=temp_root)
+        swept = prune_stale_socket_dirs(EGRESS_PROXY, temp_root=temp_root)
         self.assertEqual(swept["swept"], ["aria-ep-dead1234"])
         self.assertEqual(swept["live"], ["aria-ep-live1234"])
         self.assertFalse(dead_dir.exists())
         self.assertTrue(foreign_dir.exists())
-        self.assertEqual(egress_proxy.prune_stale_egress_proxies(temp_root=temp_root)["swept"], [])
+        self.assertEqual(prune_stale_socket_dirs(EGRESS_PROXY, temp_root=temp_root)["swept"], [])
 
     def test_the_orchestrators_startup_sweep_covers_the_proxy(self) -> None:
         from aria_kernel import autonomy_orchestrator
 
         source = egress_proxy.Path(autonomy_orchestrator.__file__).read_text(encoding="utf-8")
-        self.assertIn('"egress_proxies": prune_stale_egress_proxies(),', source)
+        self.assertIn(EGRESS_PROXY, SOCKET_HOLDERS)
+        self.assertIn("**prune_stale_holder_sockets(),", source)
 
     def test_a_socket_path_the_kernel_cannot_bind_is_refused_by_name(self) -> None:
         with self.assertRaises(egress_proxy.EgressProxyUnavailable) as refused:

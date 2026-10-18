@@ -11,6 +11,7 @@ from typing import Any
 
 from .canonical_path import lexical_repo_path
 from .cycle_progress import emit_progress
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import sha256_of_canonical_json
 from .tool_registry import GovernanceError, utc_now
 
@@ -524,8 +525,7 @@ def _read_scoped_committed_file(
     budget.paths_attempted += 1
     if _scoped_input_path(relative, canonical=True) is None:
         return {**row, "reason": "input_path_unavailable"}, None
-    if (not isinstance(commit_sha, str) or len(commit_sha) not in (40, 64)
-            or any(char not in "0123456789abcdef" for char in commit_sha)):
+    if not is_object_id(commit_sha, formats=ANY_OBJECT_FORMAT):
         return {**row, "reason": "committed_snapshot_base_unavailable"}, None
     from .state_store import StateStoreError as _StateStoreError, _run_git_bytes_bounded
 

@@ -193,7 +193,8 @@ class FailedCycleReflectionTests(unittest.TestCase):
         worker.assert_not_called()
         self.assertEqual(
             result["per_cycle"][0]["failed_phases"],
-            [{"phase": "bridge", "status": "failed", "bridge_status": "ok", "pending_after": 2}],
+            [{"phase": "bridge", "status": "failed", "error": "bridge_status=ok pending_after=2",
+              "bridge_status": "ok", "pending_after": 2}],
         )
         self.assertEqual([item["pressure_id"] for item in read_pending(self.base)], [_PRESSURE_ID])
         self.assertEqual(row["cycle_runner"]["status"], "completed")

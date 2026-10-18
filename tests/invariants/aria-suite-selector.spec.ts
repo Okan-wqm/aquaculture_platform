@@ -157,16 +157,18 @@ function probe(
         '  "rev-parse --git-common-dir") echo "$PROBE_SHARED"; exit 0 ;;',
         'esac',
         // `git diff --name-only <range> -- <pathspec>…` lists only the changed paths the
-        // pathspec admits, as real git does: the selector's surface list is under test too.
+        // pathspec admits. Real git decides that: the changed paths go into a throwaway index
+        // (empty blobs) and `git ls-files` applies the selector's own `:(glob)` pathspecs, so
+        // the surface manifest the selector reads is under test with git's own matching
+        // (ARIA-HIGH-530), never a second matcher written here.
         'if [ "$1" = "diff" ]; then',
         '  while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done',
         '  [ "$#" -gt 0 ] && shift',
+        '  index="$PROBE_DIR/changed.index"',
         '  while IFS= read -r path; do',
-        '    for spec in "$@"; do',
-        '      case "$path" in "$spec"|"$spec"/*) printf \'%s\\n\' "$path"; break ;; esac',
-        '    done',
-        '  done < "$PROBE_DIR/changed"',
-        '  exit 0',
+        '    printf \'100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\\t%s\\n\' "$path"',
+        '  done < "$PROBE_DIR/changed" | GIT_INDEX_FILE="$index" "$PROBE_REAL_GIT" update-index --index-info',
+        '  GIT_INDEX_FILE="$index" exec "$PROBE_REAL_GIT" ls-files -- "$@"',
         'fi',
         'if [ "$1" = "ls-files" ]; then exec "$PROBE_REAL_GIT" "$@"; fi',
         'exit 2',
@@ -437,9 +439,9 @@ describe('ARIA pre-push selector on the real kernel', () => {
   it(
     'selects no kernel test for a docs-only push and runs nothing',
     () => {
-      // docs/ is not an ARIA surface (the selector's diff pathspec drops it); the poc README
-      // is, and no kernel module imports or names it.
-      const docs = ['docs/aria/SPEC.md', 'tools/aria-poc/README.md'];
+      // docs/runbooks is not on the kernel surface (the selector's diff pathspec drops it); the
+      // poc README is, and no kernel module imports or names it.
+      const docs = ['docs/runbooks/x.md', 'tools/aria-poc/README.md'];
       const docsPlan = plan(docs);
       expect(docsPlan.files).toEqual(['tools/aria-poc/README.md']);
       expect(docsPlan.selected).toEqual([]);
@@ -447,6 +449,35 @@ describe('ARIA pre-push selector on the real kernel', () => {
       expect(pushed.status).toBe(0);
       expect(pushed.bash).toEqual([]);
       expect(pushed.lockCreated).toBe(false);
+    },
+    REAL_TREE_MS,
+  );
+
+  it(
+    'reads its surface from the kernel lane manifest, so a push and the required check agree',
+    () => {
+      // ARIA-HIGH-530 — the selector kept ARIA_SURFACES, a list different from the kernel
+      // lane's: docs/aria and .claude/agents were outside it, package.json and the workflows
+      // outside the lane's. Both now read .github/manifests/aria-kernel-surface.json, and git
+      // matches its globs in both.
+      const source = readFileSync(join(REPO_ROOT, SELECTOR), 'utf8');
+      expect(source).not.toContain('ARIA_SURFACES');
+      expect(source).toContain("'.github/manifests/aria-kernel-surface.json'");
+      const changed = [
+        '.claude/agents/aria-implementer.md',
+        '.claude/allowlists/x.yaml',
+        'apps/farm-service/src/main.ts',
+        'docs/aria/SPEC.md',
+      ];
+      const surfacePlan = plan(changed);
+      expect(surfacePlan.files).toEqual([
+        '.claude/agents/aria-implementer.md',
+        'docs/aria/SPEC.md',
+      ]);
+      // The agent prompt reaches the suite test that caps it.
+      expect(surfacePlan.selected.map((entry) => entry.path)).toContain(
+        'aria-kernel/tests/invariants/v12/test_phase_v12_d_delivery.py',
+      );
     },
     REAL_TREE_MS,
   );

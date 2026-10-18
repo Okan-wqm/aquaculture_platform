@@ -102,7 +102,7 @@ class PhaseV7_3UniversalDispatcher(unittest.TestCase):
         """Plan ARIA-V7 §2g v2 — unknown role → ValueError at factory time."""
         from aria_kernel.dispatcher_factory import select_drafter
         with self.assertRaises(ValueError) as ctx:
-            select_drafter(role="not_a_real_role")
+            select_drafter(role="not_a_real_role", base_dir="/nonexistent-aria-store")
         self.assertIn("unknown_role", str(ctx.exception))
 
     # I-V7.3-04 — select_judge rejects unknown.
@@ -110,7 +110,7 @@ class PhaseV7_3UniversalDispatcher(unittest.TestCase):
         """Plan ARIA-V7 §2g v2 — unknown role → ValueError at factory time."""
         from aria_kernel.dispatcher_factory import select_judge
         with self.assertRaises(ValueError):
-            select_judge(role="not_a_real_role")
+            select_judge(role="not_a_real_role", base_dir="/nonexistent-aria-store")
 
     # I-V7.3-05 — env-var overrides honoured.
     def test_i_v7_3_05_env_var_overrides(self) -> None:

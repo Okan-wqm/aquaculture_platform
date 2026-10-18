@@ -14,8 +14,10 @@ if __package__ in {None, ""}:
 
 
 def _full_git_sha(value: str) -> str:
-    if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
-        raise argparse.ArgumentTypeError("target SHA must be 40 lowercase hexadecimal characters")
+    from aria_kernel.git_object_id import ANY_OBJECT_FORMAT, is_object_id
+
+    if not is_object_id(value, formats=ANY_OBJECT_FORMAT):
+        raise argparse.ArgumentTypeError("target SHA must be a full lowercase git object id (40 or 64 hex digits)")
     return value
 
 from aria_kernel.cycle import run_cycle
@@ -350,6 +352,7 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "agent_genesis_command",
         "skill_genesis_command",
         "autonomy_command",
+        "closure_command",
         "burn_in_command",
         "unlock_command",
         "policy_approval_command",
@@ -1373,7 +1376,8 @@ def build_parser() -> argparse.ArgumentParser:
     # PR) or in a PR review, whose gh: ref the granting verb then takes.
     operator_parser = add_subparser(
         sub, "operator",
-        help="Operator approval helpers (an authority grant is an operator's GitHub act).",
+        help=("Operator helpers: the approval line for an authority grant (an operator's GitHub act), "
+              "and the inbox of every decision ARIA waits on the operator for."),
     )
     operator_sub = operator_parser.add_subparsers(dest="operator_command", required=True)
     approval_template = add_subparser(
@@ -1392,6 +1396,15 @@ def build_parser() -> argparse.ArgumentParser:
         "fields", nargs="*", metavar="KEY=VALUE",
         help="every scope field of the surface, e.g. lane=L1 expires=2026-10-10T00:00:00Z",
     )
+    # ARIA-MEDIUM-127 — every decision ARIA waits on a person for, on one
+    # surface (operator_inbox); the answers stay with each owner's verb.
+    operator_inbox = add_subparser(
+        operator_sub, "inbox",
+        help="List every decision ARIA is waiting on the operator for, each with the command that answers it.",
+    )
+    operator_inbox.add_argument("--workspace-root", default=".")
+    operator_inbox.add_argument("--limit", type=int, default=None, help="items shown per section (counts cover all)")
+    operator_inbox.add_argument("--json", action="store_true")
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -1636,6 +1649,10 @@ def build_parser() -> argparse.ArgumentParser:
     rs_ingest.add_argument("--summary", required=True)
     rs_ingest.add_argument("--code-ref", action="append", required=True, dest="code_refs")
     rs_ingest.add_argument("--severity", default="high")
+    # ARIA-MEDIUM-271 — a kernel-owned signal by name: what the dataflow
+    # watchdog's dispatch asks the cycle to ingest into the store it owns.
+    rs_standing = add_subparser(runtime_signal_sub, "ingest-standing")
+    rs_standing.add_argument("--name", required=True)
     rs_resolve = add_subparser(runtime_signal_sub, "resolve")
     rs_resolve.add_argument("--signal-id", required=True)
     rs_resolve.add_argument("--resolution-note", required=True)
@@ -1989,6 +2006,11 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
     )
+    # ARIA-HIGH-245 — the evidence the contract names (repo path[:line]),
+    # repeatable. Without one the scheduler skips the mission as unevidenced
+    # (`mission_dispatch.drain_can_plan`) unless its next action is a
+    # kernel contract.
+    mission_open.add_argument("--evidence-ref", action="append", default=[])
     mission_open.add_argument("--capability", default=None)
     mission_open.add_argument("--priority", type=int, default=None)
     mission_contract = add_subparser(
@@ -2486,7 +2508,8 @@ def build_parser() -> argparse.ArgumentParser:
                                help="The exact operator_provenance_ref the shadow-eval proof will carry.")
     opprov_record.add_argument("--expires-at", required=True,
                                help="ISO-8601 expiry; must be in the future at mint.")
-    opprov_record.add_argument("--target-agent", default=None)
+    opprov_record.add_argument("--target-agent", required=True,
+                               help="The one agent this approval may promote (ARIA-MEDIUM-512).")
     opprov_record.add_argument("--note", default="")
     opprov_list = add_subparser(opprov_sub, "list")
 
@@ -2746,18 +2769,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     spine_sub = spine_parser.add_subparsers(dest="spine_command", required=True)
     sp_baseline = add_subparser(spine_sub, "baseline",
-                                       help="Snapshot the 4 architectural invariants for plan_id.")
+                                       help="Measure the 5 architectural invariants (owner-adapter violation sets) for plan_id.")
     sp_baseline.add_argument("--plan-id", required=True)
     sp_baseline.add_argument("--cycle-id", required=True)
     sp_baseline.add_argument("--workspace-root", default=None)
     sp_postcheck = add_subparser(spine_sub, "postcheck",
-                                        help="Re-snapshot + diff vs latest baseline; emit regression event if drift detected.")
+                                        help="Re-measure + compare violation sets with the latest baseline; exit 1 on a regression, 3 when an invariant is unmeasured.")
     sp_postcheck.add_argument("--plan-id", required=True)
     sp_postcheck.add_argument("--cycle-id", required=True)
     sp_postcheck.add_argument("--workspace-root", default=None)
     sp_postcheck.add_argument("--max-regression-rounds", type=int, default=5)
     sp_status = add_subparser(spine_sub, "status",
-                                     help="List baseline / postcheck / regression events.")
+                                     help="List baseline / postcheck / regression / unmeasured events.")
     sp_status.add_argument("--plan-id", default=None)
 
     # Plan 026R §F.1 + §F.3 — autonomy orchestrator CLI surface.
@@ -2972,6 +2995,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Full target commit SHA (valid only with --evidence; defaults to HEAD).",
     )
+    # ARIA-HIGH-016 — the derived two-SHA closure verdict (closure plan
+    # Task 20A): exit 0 only when every predicate holds.
+    auto_closure = add_subparser(
+        autonomy_sub, "closure",
+        help="Derive the autonomy closure verdict from two explicit SHAs (read-only).",
+    )
+    closure_sub = auto_closure.add_subparsers(dest="closure_command", required=True)
+    closure_verify = add_subparser(
+        closure_sub, "verify",
+        help="Verify closure: runtime predicates at --evidence-target-sha, the report at --report-commit-sha.",
+    )
+    closure_verify.add_argument(
+        "--report-commit-sha", type=_full_git_sha, required=True,
+        help="The final origin/main commit that carries the closure report.",
+    )
+    closure_verify.add_argument(
+        "--evidence-target-sha", type=_full_git_sha, required=True,
+        help="The code tree every runtime predicate is judged at (an ancestor of the report commit).",
+    )
     auto_project_queue = add_subparser(autonomy_sub, "project-queue")
     auto_project_queue.add_argument("--limit", type=int, default=None)
     # No additional args — reducer reads from the bound tools dir.
@@ -3085,8 +3127,10 @@ def build_parser() -> argparse.ArgumentParser:
     # docs/runbooks/aria-ack-key-rotation.md (Phase A0 deliverable).
     ack_parser = add_subparser(sub, "ack")
     ack_sub = ack_parser.add_subparsers(dest="ack_command", required=True)
+    # ARIA-MEDIUM-254 — the HMAC key seals autonomous acks only; an operator
+    # ack is signed with the operator's own key (``ack mint --signing-key``).
     ack_init = add_subparser(ack_sub, "init",
-        help="Mint the first HMAC key (Plan ARIA-V3 §A5).")
+        help="Mint the first HMAC key for autonomous acks (Plan ARIA-V3 §A5); operator acks need none.")
     ack_init.add_argument("--reason", required=True, type=_validate_reason)
     ack_init.add_argument("--operator-approval-ref", required=True)
     ack_init.add_argument("--force", action="store_true",
@@ -3095,15 +3139,36 @@ def build_parser() -> argparse.ArgumentParser:
     # body digest) is derived from the draft, never typed: the former
     # --intent-id/--target-path let a mint name a subject the draft does
     # not have, and --operator-approval-ref was required then discarded.
+    # ARIA-MEDIUM-512 — the operator reads the body with ``ack scope`` and
+    # mints for that body's digest; a body re-drafted in between is refused.
+    ack_scope = add_subparser(ack_sub, "scope",
+        help="Print a draft's body and the ack scope that digests it (read before `ack mint`).")
+    ack_scope.add_argument("--draft-id", required=True)
+    ack_scope.add_argument("--kind", required=True, choices=["agent", "skill"])
+    # ARIA-MEDIUM-254 — the mint is the operator's signed act (as
+    # ``feedback request``): ssh-keygen signs it with the operator's key, the
+    # allowed-signers file committed on main at --workspace-root verifies it
+    # here and again at materialize, in any later job.
     ack_mint = add_subparser(ack_sub, "mint",
-        help="Operator-mint an ack token for the draft's current body.")
+        help="Operator-sign an ack token for the draft body you reviewed with `ack scope`.")
     ack_mint.add_argument("--draft-id", required=True)
     ack_mint.add_argument("--kind", required=True, choices=["agent", "skill"])
+    ack_mint.add_argument("--body-sha256", required=True,
+        help="scope.body_sha256 that `ack scope` printed with the body you reviewed.")
     ack_mint.add_argument("--reason", required=True, type=_validate_reason)
     ack_mint.add_argument("--operator-user-id", required=True)
     ack_mint.add_argument("--profile-state", default="standard")
+    ack_mint.add_argument("--signing-key", required=True,
+        help="Operator ed25519 private key (or its .pub with the key in ssh-agent); never stored")
+    ack_mint.add_argument("--signer-principal", required=True,
+        help="Principal the committed .github/manifests/aria-operator-signers names for that key")
+    ack_mint.add_argument("--actor-class", required=True, choices=["T0", "T1"],
+        help="ADR-0023 signed declaration: T0 the operator at a terminal, T1 a root session for the operator")
+    ack_mint.add_argument("--expires-in-hours", type=int, default=None,
+        help="Signed expiry (default and maximum: the operator-act lifetime, 168h); materialize refuses after it")
     ack_mint.add_argument("--workspace-root", default=".",
-        help="Checkout whose --commit-sha revision is recorded.")
+        help="Checkout on main: its committed allowed-signers file verifies the signature, "
+             "and its --commit-sha revision is recorded.")
     ack_mint.add_argument("--commit-sha", default="HEAD",
         help="Revision resolved to the full commit SHA recorded on the row.")
     ack_mint.add_argument("--parent-observation-id", default=None)
@@ -3114,9 +3179,11 @@ def build_parser() -> argparse.ArgumentParser:
     ack_rotate.add_argument("--emergency", action="store_true",
         help="Mark as emergency rotation (separate audit event).")
     ack_verify = add_subparser(ack_sub, "verify",
-        help="Recompute HMAC over the rolling key list for last N rows.")
+        help="Verify the last N rows: operator acks against the committed allowed-signers file, HMAC rows over the rolling key list.")
     ack_verify.add_argument("--range", default="last-50",
         help="``last-N`` or ``full``.")
+    ack_verify.add_argument("--workspace-root", default=".",
+        help="Checkout on main whose committed allowed-signers file verifies operator acks.")
     ack_list_keys = add_subparser(ack_sub, "list-keys",
         help="Print the rolling key list (secrets redacted).")
 
@@ -3201,9 +3268,10 @@ def build_parser() -> argparse.ArgumentParser:
     ag_materialize.add_argument("--draft-id", required=True)
     ag_materialize.add_argument("--assignment-id", required=True)
     # Plan ARIA-V3 §A4 + §2k — pre-V3 ``--acknowledge`` flag REMOVED.
-    # Operators MUST first mint an ack token via
-    # ``aria-kernel ack mint --draft-id ... --reason ...`` then pass
-    # the returned ``ack_id`` via ``--ack-token``.
+    # Operators MUST first read the draft with ``aria-kernel ack scope``,
+    # mint an ack token for that body via ``aria-kernel ack mint
+    # --draft-id ... --reason ... --body-sha256 ...`` then pass the
+    # returned ``ack_id`` via ``--ack-token``.
     ag_materialize.add_argument(
         "--ack-token", required=True,
         help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
@@ -3459,6 +3527,10 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_run = add_subparser(schedule_sub, "run")
     schedule_run.add_argument("--action", required=True)
     schedule_run.add_argument("--workspace-root", default=".")
+    schedule_run.add_argument(
+        "--doctor-report", default=None,
+        help="self_improve only: the output a `schedule run --action doctor` wrote; its report is read, not re-run",
+    )
     event_parser = add_subparser(sub, "event")
     event_sub = event_parser.add_subparsers(dest="event_command", required=True)
     event_ingest = add_subparser(event_sub, "ingest")
@@ -4353,6 +4425,17 @@ def _main(argv: list[str] | None = None) -> int:
             return 2
         return 0
 
+    if args.command == "operator" and args.operator_command == "inbox":
+        from .operator_inbox import DEFAULT_ITEM_LIMIT, read_operator_inbox, render_operator_inbox
+
+        inbox = read_operator_inbox(
+            tools_dir=args.tools_dir, workspace_root=args.workspace_root,
+            limit=DEFAULT_ITEM_LIMIT if args.limit is None else args.limit,
+        )
+        print(json.dumps(inbox, indent=2, sort_keys=True, default=str) if args.json else render_operator_inbox(inbox),
+              end="\n" if args.json else "")
+        return 0
+
     if args.command == "merge-lane" and args.merge_command == "unfreeze":
         from .self_merge_freeze import unfreeze_self_merge
 
@@ -4736,6 +4819,7 @@ def _main(argv: list[str] | None = None) -> int:
         # without importing the kernel. These verbs are the missing mouth.
         from .runtime_signal_bridge import (
             ingest_runtime_signal,
+            ingest_standing_runtime_signal,
             load_open_runtime_signals,
             resolve_runtime_signal,
         )
@@ -4745,6 +4829,8 @@ def _main(argv: list[str] | None = None) -> int:
                 summary=args.summary, code_refs=args.code_refs,
                 severity=args.severity, base_dir=args.tools_dir,
             )
+        elif args.runtime_signal_command == "ingest-standing":
+            row = ingest_standing_runtime_signal(name=args.name, base_dir=args.tools_dir)
         elif args.runtime_signal_command == "resolve":
             row = resolve_runtime_signal(
                 signal_id=args.signal_id,
@@ -5318,6 +5404,7 @@ def _main(argv: list[str] | None = None) -> int:
                 wake_condition=json.loads(
                     Path(args.wake_file).read_text(encoding="utf-8")
                 ),
+                evidence_refs=args.evidence_ref,
                 capability=args.capability,
                 priority=args.priority,
                 base_dir=args.tools_dir,
@@ -6153,8 +6240,12 @@ def _main(argv: list[str] | None = None) -> int:
                 max_regression_rounds=args.max_regression_rounds,
             )
             print(json.dumps(row, indent=2, sort_keys=True))
-            # Exit 1 on regression so CI can fail-closed.
-            return 1 if row.get("regression_count", 0) > 0 else 0
+            # Exit 1 on regression so CI can fail-closed; 3 when some
+            # invariant could not be compared (ARIA-HIGH-045: fail-closed and
+            # distinguishable from a regression).
+            if row["regression_count"] > 0:
+                return 1
+            return 3 if row["unmeasured_invariants"] else 0
         if args.spine_command == "status":
             events = list_spine_events(plan_id=args.plan_id, base_dir=args.tools_dir)
             print(json.dumps(events, indent=2, sort_keys=True))
@@ -6271,6 +6362,7 @@ def _main(argv: list[str] | None = None) -> int:
             init_ack_ledger,
             list_keys,
             mint_operator_ack,
+            review_draft,
             rotate_key,
             verify_range,
         )
@@ -6281,6 +6373,8 @@ def _main(argv: list[str] | None = None) -> int:
                 operator_approval_ref=args.operator_approval_ref,
                 force=args.force,
             )
+        elif args.ack_command == "scope":
+            result = review_draft(base_dir=args.tools_dir, draft_id=args.draft_id, kind=args.kind)
         elif args.ack_command == "mint":
             # The row records a commit, not the revision name the operator
             # typed (it stored the literal "HEAD"); resolved through the
@@ -6302,6 +6396,12 @@ def _main(argv: list[str] | None = None) -> int:
                 profile_name=args.profile_state,
                 profile_state_at_mint=args.profile_state,
                 commit_sha_at_mint=commit_sha,
+                reviewed_body_sha256=args.body_sha256,
+                signing_key=args.signing_key,
+                signer_principal=args.signer_principal,
+                actor_class=args.actor_class,
+                workspace_root=args.workspace_root,
+                expires_in_hours=args.expires_in_hours,
                 parent_observation_id=args.parent_observation_id,
             )
             result = row.to_dict()
@@ -6330,7 +6430,7 @@ def _main(argv: list[str] | None = None) -> int:
                     f"--range must be 'full' or 'last-N'; got {raw_range!r}"
                 )
                 return 2
-            result = verify_range(base_dir=args.tools_dir, last_n=last_n)
+            result = verify_range(base_dir=args.tools_dir, last_n=last_n, workspace_root=args.workspace_root)
         elif args.ack_command == "list-keys":
             result = {"keys": list_keys(base_dir=args.tools_dir)}
         else:
@@ -6979,6 +7079,18 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "autonomy" and args.autonomy_command == "closure":
+        from .autonomy_closure import derive_autonomy_closure_verdict
+
+        verdict = derive_autonomy_closure_verdict(
+            report_commit_sha=args.report_commit_sha,
+            evidence_target_sha=args.evidence_target_sha,
+            repo_root=Path.cwd(),
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(verdict.to_dict(), indent=2, sort_keys=True))
+        return 0 if verdict.verdict == "closed" else 1
+
     if args.command == "autonomy" and args.autonomy_command == "status":
         if args.target_sha is not None and not args.evidence:
             parser.error("autonomy status --target-sha requires --evidence")
@@ -7310,7 +7422,9 @@ def _main(argv: list[str] | None = None) -> int:
         if args.schedule_command == "list":
             print(json.dumps({n: s.__dict__ for n, s in scheduler.fold_schedules(args.tools_dir).items()}, indent=2, sort_keys=True))
             return 0
-        result = scheduler.run_action(args.action, base_dir=args.tools_dir, workspace_root=args.workspace_root)
+        doctor_report = scheduler.load_doctor_report(args.doctor_report) if args.doctor_report else None
+        result = scheduler.run_action(args.action, base_dir=args.tools_dir, workspace_root=args.workspace_root,
+                                      doctor_report=doctor_report)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] != "failed" else 1
 

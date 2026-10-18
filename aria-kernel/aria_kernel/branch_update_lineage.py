@@ -63,13 +63,16 @@ from typing import Any, Iterator
 
 from contextlib import contextmanager
 
+from .git_object_id import SHA1_OBJECT_FORMAT, is_object_id
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 # ~1 update per main commit while the PR waits: 64 is two days of hourly
 # merges to main, past which a person is better placed to look anyway.
 MAX_RECORDED_UPDATES = 64
-_FULL_SHA = re.compile(r"[0-9a-f]{40}")
 _GIT_TIMEOUT_SECONDS = 60
+# The SHA-1 empty tree: this module reads SHA-1 object ids only, bound by
+# this constant, and states it (`SHA1_OBJECT_FORMAT`) at every id check
+# (ARIA-LOW-518).
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 QUARANTINE_POLICY_PATH = "scripts/ci/affected-target-policy.json"
 # Every option git honours from configuration that could execute a program
@@ -196,7 +199,7 @@ def recorded_updates(*, base_dir: str | Path | None, pr_number: int) -> dict[tup
             receipt is not None and receipt.get("status") == "confirmed"
             and intent.get("effect_kind") == EFFECT_KIND and intent.get("target") == f"pr#{pr_number}"
             and intended.get("pr_number") == pr_number
-            and all(_FULL_SHA.fullmatch(value) for value in (head, base, result))
+            and all(is_object_id(value, formats=SHA1_OBJECT_FORMAT) for value in (head, base, result))
         ):
             recorded.setdefault((head, result), []).append(base)
     return {pair: tuple(bases) for pair, bases in recorded.items()}
@@ -223,7 +226,7 @@ def _verify_pure_update(
     computed = git.run("merge-tree", "--write-tree", "--no-messages", previous, merged)
     tree = git.run("rev-parse", "--verify", f"{commit}^{{tree}}")
     expected = (computed.stdout.splitlines() or [""])[0].strip()
-    if computed.returncode != 0 or tree.returncode != 0 or not _FULL_SHA.fullmatch(expected):
+    if computed.returncode != 0 or tree.returncode != 0 or not is_object_id(expected, formats=SHA1_OBJECT_FORMAT):
         raise BranchUpdateLineageRefused(f"merge_not_clean:{short}:rc={computed.returncode}")
     if tree.stdout.strip() != expected:
         raise BranchUpdateLineageRefused(f"tree_differs_from_pure_merge:{short}")
@@ -279,7 +282,7 @@ def verify_branch_update_lineage(
     from .ledger import LedgerIntegrityError
 
     for label, value in (("head", head_sha), ("delivered", delivered_sha), ("live_base", live_base_sha)):
-        if not isinstance(value, str) or not _FULL_SHA.fullmatch(value):
+        if not isinstance(value, str) or not is_object_id(value, formats=SHA1_OBJECT_FORMAT):
             raise BranchUpdateLineageRefused(f"{label}_sha_unreadable")
     if head_sha == delivered_sha:
         return BranchUpdateLineage(head_sha=head_sha, delivered_sha=delivered_sha, updates=())
@@ -319,7 +322,7 @@ def delivered_commit_for_pr(*, base_dir: str | Path | None, pr_number: int) -> s
     change_id = change_for_pr(pr_number, base_dir=base_dir)
     committed = _find_committed(ensure_tools_dir(base_dir), change_id) if change_id else None
     sha = str((committed or {}).get("commit_sha") or "")
-    return sha if _FULL_SHA.fullmatch(sha) else None
+    return sha if is_object_id(sha, formats=SHA1_OBJECT_FORMAT) else None
 
 
 def update_request_refusal(

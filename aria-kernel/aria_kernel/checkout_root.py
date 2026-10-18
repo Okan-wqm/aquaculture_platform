@@ -38,6 +38,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+
 GITDIR_POINTER_PREFIX = "gitdir: "
 
 
@@ -190,7 +192,8 @@ def has_valid_git_head(git_dir: Path) -> bool:
         return False
     if head.startswith("ref: "):
         return head.removeprefix("ref: ").startswith("refs/")
-    return len(head) in {40, 64} and all(char in "0123456789abcdefABCDEF" for char in head)
+    # git reads a detached HEAD's hex in either case.
+    return is_object_id(head.lower(), formats=ANY_OBJECT_FORMAT)
 
 
 def is_git_worktree_marker(marker: Path) -> bool:

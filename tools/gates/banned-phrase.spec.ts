@@ -27,6 +27,7 @@ import { test } from 'node:test';
 
 import { isGatingExcuse } from './banned-phrase-excuse';
 import { removeFixtureTree } from './fixture-tree';
+import { hermeticGitEnv } from './hermetic-git';
 const REPO_ROOT = (() => {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -196,10 +197,7 @@ function runFixtureGit(root: string, args: readonly string[]): string {
  * the fixture's; every GIT_* variable is dropped for the child.
  */
 function runScannerIn(cwd: string, args: readonly string[]): RunResult {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith('GIT_')) env[key] = value;
-  }
+  const env: NodeJS.ProcessEnv = hermeticGitEnv();
   const opts: ExecFileSyncOptions = {
     cwd,
     encoding: 'utf8',

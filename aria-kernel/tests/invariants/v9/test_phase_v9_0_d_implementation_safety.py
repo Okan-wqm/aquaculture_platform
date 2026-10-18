@@ -401,6 +401,15 @@ class TestV9SecretScan(unittest.TestCase):
         diff = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAA..."
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_diff(diff)
+        # The boundary's PEM redactor is label-agnostic ([A-Z0-9 ]*, like
+        # the DLP and system_one rows); the refusal row used to name four
+        # labels only, so an ENCRYPTED (pkcs8 v2) or plain pkcs8 block
+        # passed the diff scan while the boundary redacted it.
+        for header in ("ENCRYPTED PRIVATE KEY", "PRIVATE KEY"):
+            with self.subTest(header=header):
+                block = f"-----BEGIN {header}-----\nMIIEpAIBAA..."
+                with self.assertRaises(_is.SecretLeakDetected):
+                    _is.verify_no_secret_in_diff(block)
 
     def test_i_v9_secret_01_clean_diff_passes(self):
         diff = "diff --git a/x.py b/x.py\n+def foo():\n+    return 42\n"
@@ -412,6 +421,16 @@ class TestV9SecretScan(unittest.TestCase):
         bad = {"details": {"validation_results": [{"stdout": fake_aws_key}]}}
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_envelope(bad)
+        # The bearer row's redaction reads the scheme in any case and the
+        # standard-base64 alphabet (+, /); the refusal used to read capital-B
+        # "Bearer" and the URL-safe alphabet only, so both shapes passed
+        # while the boundary redacted them.
+        for scheme in ("Bearer", "bearer"):
+            body = "Np+" * 12 + "/Q"
+            with self.subTest(scheme=scheme):
+                bad_bearer = {"headers": {"authorization": f"{scheme} {body}"}}
+                with self.assertRaises(_is.SecretLeakDetected):
+                    _is.verify_no_secret_in_envelope(bad_bearer)
 
     def test_i_v9_secret_01_error_message_does_not_leak_value(self):
         """SecretLeakDetected message MUST count hits but NOT include

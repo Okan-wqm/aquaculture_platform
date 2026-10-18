@@ -269,10 +269,13 @@ CREDENTIAL_KEY_WORDS: Final[tuple[str, ...]] = (
 CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     # --- the redact view, in application order (table order across every
     # section below); refuse rows ride with it ---
+    # The refusal matches any armour label the boundary's own block redactor
+    # removes ([A-Z ]*: ENCRYPTED and plain pkcs8 included), not four named
+    # ones — what the boundary redacts, the kernel refuses.
     _shape("private_key_block", "credential", _REDACT_REFUSE,
-           detect=r"-----BEGIN (RSA|EC|OPENSSH|DSA) PRIVATE KEY-----",
+           detect=r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
            redact=_PRIVATE_KEY_BLOCK, redact_flags=re.DOTALL,
-           fixture=_pem("RSA PRIVATE KEY"), secret=_PEM_BODY),
+           fixture=_pem("ENCRYPTED PRIVATE KEY"), secret=_PEM_BODY),
     # The literal is split so this file's text carries no key header.
     _shape("pgp_private_key_block", "credential", _REFUSE,
            detect="-----BEGIN PGP" r" PRIVATE KEY BLOCK-----",
@@ -331,13 +334,16 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
     # The redaction reads the scheme in any case, as the vault does, and takes
     # a token of 20+ characters or one of 8+ that holds a digit: a credential,
     # never the word after "bearer" in prose.
+    # The refusal reads the scheme in any case and the standard-base64
+    # alphabet exactly as the redaction does; its 32+ floor stays the refuse
+    # side's own — a credential, never the word after "bearer" in prose.
     _shape("bearer_token", "credential", _REDACT_REFUSE,
-           detect=r"Bearer\s+[A-Za-z0-9_.-]{32,}",
+           detect=r"(?i:bearer)\s+[A-Za-z0-9._~+/\-]{32,}=*",
            redact=(
                r"(?i:bearer)\s+(?:[A-Za-z0-9._~+/\-]{20,}"
                r"|(?=[A-Za-z._~+/\-]*[0-9])[A-Za-z0-9._~+/\-]{8,})=*"
            ),
-           fixture="Authorization: Bearer" + " " + "m3" * 20, secret="m3" * 20),
+           fixture="authorization: bearer" + " " + "m3+" * 12 + "/Q", secret="m3+" * 12 + "/Q"),
     _shape("basic_auth_password", "credential", _REDACT,
            detect=r"password\s*=\s*['\"][^'\"]{4,}['\"]", redact=_DETECT,
            fixture="password" + "='" + "n4" * 4 + "'", secret="n4" * 4),

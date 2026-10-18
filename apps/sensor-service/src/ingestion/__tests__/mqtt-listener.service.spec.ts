@@ -119,6 +119,20 @@ function mockTenantSensorReload(qr: QueryRunner, sensor: Sensor | null): void {
   (repository.findOne as jest.Mock).mockResolvedValue(sensor);
 }
 
+/**
+ * db-migrate's delete job dropped the tenant schema (deprovision or erasure).
+ * search_path still names it first, so current_schema() falls through to
+ * `sensor` and the real tenant boundary refuses every read with
+ * TenantContextError SCHEMA_MISMATCH.
+ */
+function dropTenantSchema(qr: QueryRunner): void {
+  (qr.query as jest.Mock).mockImplementation(async (sql: string) =>
+    sql.includes('current_schema()')
+      ? [{ schema: 'sensor', tenant: TENANT_ID, bypass: 'off' }]
+      : [],
+  );
+}
+
 function createMockMqttClient(): jest.Mocked<MqttClientService> {
   return {
     addMessageHandler: jest.fn(),
@@ -166,6 +180,7 @@ function createMockSensorTopicCache(): jest.Mocked<SensorTopicCacheService> {
     getSensorByTopic: jest.fn().mockResolvedValue(null),
     invalidateSensor: jest.fn().mockResolvedValue(undefined),
     invalidateTenant: jest.fn().mockResolvedValue(undefined),
+    evictIfTenantInactive: jest.fn().mockResolvedValue(false),
   } as unknown as jest.Mocked<SensorTopicCacheService>;
 }
 
@@ -353,26 +368,31 @@ describe('MqttListenerService', () => {
       ).rejects.toThrow(/Durable metric write failed/);
     });
 
-    it('ACK-drops messages for an erased tenant without recreating data (Task 1.8 tombstone)', async () => {
+    it('ACK-drops messages for an erased tenant before anything reads its dropped schema (Task 1.8 tombstone)', async () => {
       const { service, sensorTopicCache, dataSource, metricWriter } = buildService();
+      // The mapping was cached before the erasure; the erasure then dropped
+      // the schema, so a reload through it could only fail (SCHEMA_MISMATCH).
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
-      const sensor = createSensor();
       const qr = dataSource.createQueryRunner();
-      mockTenantSensorReload(qr, sensor);
-      metricWriter.writeManaged.mockResolvedValue(undefined);
+      dropTenantSchema(qr);
 
       // Tombstone: buildService's `new`-based harness leaves it null; inject
       // a stub through the prototype-level property the gate reads.
       const tombstone = { isErased: jest.fn().mockReturnValue(true) };
       Object.defineProperty(service, 'tombstone', { value: tombstone, writable: true });
 
-      await callHandleMessage(
-        service,
-        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
-        JSON.stringify({ temperature: 23.5 }),
-      );
+      await expect(
+        callHandleMessage(
+          service,
+          `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+          JSON.stringify({ temperature: 23.5 }),
+        ),
+      ).resolves.toBeUndefined();
 
       expect(tombstone.isErased).toHaveBeenCalledWith(TENANT_ID);
+      // No tenant read was opened, so nothing could fail on the dropped schema.
+      expect(qr.connect).not.toHaveBeenCalled();
+      expect(sensorTopicCache!.evictIfTenantInactive).not.toHaveBeenCalled();
       // Neither the metric write nor the event publish happened.
       expect(metricWriter.writeManaged).not.toHaveBeenCalled();
     });

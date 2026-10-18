@@ -234,6 +234,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   >();
   private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
 
+  // When each sensor channel ("sensorId:channelId") last warned that a
+  // non-scalar value was skipped: one warn line an hour, not one per message.
+  private readonly nonScalarWarnedAt = new Map<string, number>();
+  private readonly NON_SCALAR_WARN_INTERVAL_MS = 3_600_000;
+
   // Cache for device lookups (tenantId:deviceCode -> device entity)
   private readonly deviceCache = new Map<string, { device: EdgeDevice; expiry: number }>();
   // Cache for io configs (deviceId -> ioConfigs[])
@@ -324,8 +329,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Inject(VfdEdgeReadService)
     private readonly vfdEdgeReadService: VfdEdgeReadService | null = null,
     // Task 1.8: erased-tenant tombstone — trailing optional so the
-    // `new`-based unit-test harness (positional args) stays untouched.
+    // `new`-based unit-test harness (positional args) stays untouched. The
+    // explicit token is load-bearing: a `T | null` parameter is emitted as
+    // `Object` in design:paramtypes, so without it Nest resolved no provider,
+    // @Optional() passed undefined, and the gate was null in every boot.
     @Optional()
+    @Inject(ErasedTenantTombstoneService)
     private readonly tombstone: ErasedTenantTombstoneService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
@@ -511,16 +520,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       if (!sensor) {
         this.logger.debug(`No sensor found for topic: ${topic}`);
-        return;
-      }
-
-      // Task 1.8 (erasure tombstone): an erased tenant's late messages are
-      // ACK-dropped — persisting them would recreate the just-erased
-      // schema's data and enqueue a fresh outbox row (Swiss-cheese erasure).
-      if (this.tombstone?.isErased(sensor.tenantId)) {
-        this.logger.warn(
-          `ACK-drop for erased tenant on topic ${topic} — message discarded without persistence`,
-        );
         return;
       }
 
@@ -1924,16 +1923,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * only search_path pinned sees zero rows (SENSOR-HIGH-137 — every MQTT
    * reading was dropped at debug level from 2026-09-19 23:55Z).
    *
-   * null means the lookup FOUND no sensor. A lookup that FAILED rejects with
-   * DurableWriteError instead: the reading was never persisted, so the ack
-   * gate must hold PUBACK (SENSOR-CRITICAL-190) — the reload runs on every
-   * message, so a PostgreSQL failover fails here before it reaches the write.
-   * The resolver's own swallow-and-negative-cache of a per-tenant read error
-   * is SENSOR-HIGH-196.
+   * null means the lookup FOUND no sensor, or found one whose tenant is
+   * erased or gone; the gate then acks and drops the reading. A lookup that
+   * FAILED rejects with DurableWriteError instead: the reading was never
+   * persisted, so the ack gate must hold PUBACK (SENSOR-CRITICAL-190) — the
+   * reload runs on every message, so a PostgreSQL failover fails here before
+   * it reaches the write. The resolver's own swallow-and-negative-cache of a
+   * per-tenant read error is SENSOR-HIGH-196; a reload that fails the same
+   * way on every attempt for a LIVE tenant is SENSOR-HIGH-197.
    */
   private async findSensorByTopic(topic: string): Promise<Sensor | null> {
-    const lookupFailed = (error: Error): never => {
-      throw new DurableWriteError(`Sensor lookup failed for topic ${topic}: ${error.message}`);
+    const lookupFailed = (error: unknown): never => {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new DurableWriteError(`Sensor lookup failed for topic ${topic}: ${reason}`);
     };
 
     const cachedInfo = await this.sensorTopicCache.getSensorByTopic(topic).catch(lookupFailed);
@@ -1941,12 +1943,48 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       return null;
     }
 
-    const sensor = await runInTenantRead(
-      this.dataSource,
-      SENSOR_SOURCE_SCHEMA,
-      cachedInfo.tenantId,
-      (qr) => tenantManagerRepo(qr.manager, Sensor).findOne({ where: { id: cachedInfo.id } }),
-    ).catch(lookupFailed);
+    // Task 1.8 (erasure tombstone), asked of the mapping before anything
+    // reads the tenant's schema: an erased tenant's late messages are
+    // ACK-dropped. Persisting them would recreate the just-erased data and
+    // enqueue a fresh outbox row (Swiss-cheese erasure), and once the erasure
+    // has dropped the schema a reload could only fail.
+    if (this.tombstone?.isErased(cachedInfo.tenantId)) {
+      this.logger.warn(
+        `ACK-drop for erased tenant on topic ${topic} — message discarded without persistence`,
+      );
+      return null;
+    }
+
+    let sensor: Sensor | null;
+    try {
+      sensor = await runInTenantRead(
+        this.dataSource,
+        SENSOR_SOURCE_SCHEMA,
+        cachedInfo.tenantId,
+        (qr) => tenantManagerRepo(qr.manager, Sensor).findOne({ where: { id: cachedInfo.id } }),
+      );
+    } catch (reloadError) {
+      // A mapping outlives its tenant: one cached before db-migrate's delete
+      // job (deprovision or erasure) dropped the schema keeps resolving for
+      // up to an hour, and every reload through it fails the tenant boundary
+      // (SCHEMA_MISMATCH). Holding PUBACK on that would reconnect-loop the
+      // one shared connection for every tenant and can never succeed, so a
+      // failed reload of a tenant the platform no longer lists as active is
+      // "found nothing": its mappings are evicted and the reading dropped. A
+      // live tenant's failed reload, or one whose liveness cannot be read,
+      // stays a lookup failure and is redelivered.
+      const tenantGone = await this.sensorTopicCache
+        .evictIfTenantInactive(cachedInfo.tenantId)
+        .catch(() => lookupFailed(reloadError));
+      if (!tenantGone) {
+        return lookupFailed(reloadError);
+      }
+      this.logger.warn(
+        `Topic ${topic} maps to tenant ${cachedInfo.tenantId}, which is no longer active — ` +
+          "reading dropped, the tenant's topic mappings evicted",
+      );
+      return null;
+    }
 
     if (!sensor) {
       // The resolver named a sensor its own tenant cannot read back: a stale
@@ -2007,6 +2045,30 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Make a skipped non-scalar channel value visible. Before the durable leg
+   * was made total, String() coerced a one-element array such as [23.5] to
+   * "23.5" and the reading was stored; now the channel is skipped, and a
+   * device that sends that shape would lose every reading with no other
+   * signal than a debug "Saved 0 metrics". Names the dataPath remedy, and
+   * never renders the value (a deep one is what made String() throw).
+   */
+  private warnNonScalarChannel(sensor: Sensor, channel: SensorDataChannel): void {
+    const key = `${sensor.id}:${channel.id}`;
+    const now = Date.now();
+    const lastWarnedAt = this.nonScalarWarnedAt.get(key);
+    if (lastWarnedAt !== undefined && now - lastWarnedAt < this.NON_SCALAR_WARN_INTERVAL_MS) {
+      return;
+    }
+    this.nonScalarWarnedAt.set(key, now);
+    const path = channel.dataPath || channel.channelKey;
+    this.logger.warn(
+      `Sensor ${sensor.id} channel ${channel.channelKey}: non-scalar value (array or object) ` +
+        `skipped, no reading stored. If the number is inside it, point the channel at it, ` +
+        `e.g. dataPath "${path}[0]". Repeats are not logged for an hour.`,
+    );
+  }
+
+  /**
    * Save a sensor reading in narrow table format (each channel value becomes
    * one sensor_metrics row) AND enqueue its SensorReading into the
    * transactional outbox, in ONE tenant transaction: both commit or neither
@@ -2043,7 +2105,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           // Only a number or a numeric string is a reading. String() of an
           // array or object recurses through the device's nesting and threw
           // RangeError on a deep one, inside this transaction; a non-scalar
-          // value is skipped like a non-finite one.
+          // value is skipped like a non-finite one, and the skip is logged.
+          if (typeof rawValue === 'object') {
+            this.warnNonScalarChannel(sensor, channel);
+            continue;
+          }
           const numericRawValue =
             typeof rawValue === 'number'
               ? rawValue

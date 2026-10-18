@@ -218,6 +218,82 @@ describe('SensorTopicCacheService tenant-scoped reads', () => {
     expect(sensorEntryWrites).toHaveLength(1); // tenant A survived
   });
 
+  // A mapping outlives its tenant: one cached before db-migrate's delete job
+  // dropped the schema keeps resolving for up to an hour, and every read
+  // through it fails. The listener asks this question after such a read
+  // failed, to tell "the tenant is gone" from "the read failed".
+  describe('evictIfTenantInactive', () => {
+    const B_KEYS = [
+      `sensor:tenant:${TENANT_B}:topic:sensors/site-b/water-temp`,
+      `sensor:tenant:${TENANT_B}:topic:sensors/site-b/ph`,
+    ];
+
+    /** db-migrate's delete job: B's schema dropped, its ledger row no longer active. */
+    function deprovisionTenantB(): void {
+      rowsByTenant.delete(TENANT_B);
+      (listActiveTenantSchemaIdentities as jest.Mock).mockResolvedValue([
+        { schemaName: 'tenant_aaaa000000000000', tenantId: TENANT_A },
+      ]);
+    }
+
+    it('evicts every mapping of a tenant the platform no longer lists as active, and says so', async () => {
+      await service.onModuleInit();
+      deprovisionTenantB();
+      (redisService.keys as jest.Mock).mockResolvedValueOnce(B_KEYS);
+
+      await expect(service.evictIfTenantInactive(TENANT_B)).resolves.toBe(true);
+
+      expect(redisService.keys).toHaveBeenCalledWith(`sensor:tenant:${TENANT_B}:topic:*`);
+      for (const key of B_KEYS) expect(redisService.del).toHaveBeenCalledWith(key);
+      // The local entry went with it: the topic re-resolves, and the resolver
+      // maps topics of active tenants only.
+      await expect(service.getSensorByTopic('sensors/site-b/ph')).resolves.toBeNull();
+      // The active tenant's mapping is untouched and still served from cache.
+      const readsBefore = (runInTenantRead as jest.Mock).mock.calls.length;
+      const stillMapped = await service.getSensorByTopic('sensors/site-a/water-temp');
+      expect(stillMapped?.tenantId).toBe(TENANT_A);
+      expect((runInTenantRead as jest.Mock).mock.calls.length).toBe(readsBefore);
+    });
+
+    it('keeps the mappings of a tenant that is still active, and says so', async () => {
+      await service.onModuleInit();
+
+      // The ledger normalizes tenant ids to lower case; the answer must not
+      // depend on how the caller spelled the id.
+      await expect(service.evictIfTenantInactive(TENANT_B.toUpperCase())).resolves.toBe(false);
+
+      expect(redisService.keys).not.toHaveBeenCalled();
+      expect(redisService.del).not.toHaveBeenCalled();
+      const readsBefore = (runInTenantRead as jest.Mock).mock.calls.length;
+      expect((await service.getSensorByTopic('sensors/site-b/ph'))?.tenantId).toBe(TENANT_B);
+      expect((runInTenantRead as jest.Mock).mock.calls.length).toBe(readsBefore);
+    });
+
+    it('rejects without evicting when the platform mapping cannot be read', async () => {
+      await service.onModuleInit();
+      (listActiveTenantSchemaIdentities as jest.Mock).mockRejectedValueOnce(
+        new Error('connection terminated unexpectedly'),
+      );
+
+      await expect(service.evictIfTenantInactive(TENANT_B)).rejects.toThrow(
+        'connection terminated unexpectedly',
+      );
+
+      expect(redisService.del).not.toHaveBeenCalled();
+      expect((await service.getSensorByTopic('sensors/site-b/ph'))?.tenantId).toBe(TENANT_B);
+    });
+
+    it('evicts the local mapping even when Redis refuses the key scan', async () => {
+      await service.onModuleInit();
+      deprovisionTenantB();
+      (redisService.keys as jest.Mock).mockRejectedValueOnce(new Error('redis: connection lost'));
+
+      await expect(service.evictIfTenantInactive(TENANT_B)).resolves.toBe(true);
+
+      await expect(service.getSensorByTopic('sensors/site-b/ph')).resolves.toBeNull();
+    });
+  });
+
   function qrFactory() {
     return {
       query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {

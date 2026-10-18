@@ -511,7 +511,15 @@ ack gate into the real listener; a failed metric write leaves the message unacke
 Round-1 verification: a failed lookup (the tenant-scoped sensor reload, or a resolver that rejects)
 now rejects with `DurableWriteError` instead of reading as "no sensor", so the same failover cannot
 reach PUBACK through the reload either; two ack-chain cases cover it (red before). The resolver's
-own swallow and negative cache stay under SENSOR-HIGH-196.
+own swallow and negative cache stay under SENSOR-HIGH-196. Round-2 verification: a topic mapping
+outlives its tenant, so a reload that fails because db-migrate's delete job dropped the schema
+(`SCHEMA_MISMATCH`) would have held PUBACK and reconnect-looped the shared connection for every
+tenant, for up to the hour the mapping stays cached. A failed reload now asks the platform
+mapping whether the tenant is still active; when it is not, the topic cache evicts the tenant's
+mappings and the reading is acked and dropped, while a live tenant's failed reload, or one whose
+liveness cannot be read, still holds PUBACK. The erasure tombstone is asked before the reload.
+`mqtt-listener.rls.postgres.spec.ts` deprovisions a tenant on PostgreSQL with its mapping cached
+(red before: `SCHEMA_MISMATCH` rejected the handler).
 
 ## SENSOR-CRITICAL-191
 
@@ -573,11 +581,11 @@ Edge-device MQTT messages are PUBACKed when their persistence fails. Found while
 lost-work item 3: these topics go through the same ack gate as sensor readings, but none of their
 durable writes can hold PUBACK.
 
-- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1463-1525`:
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1462-1524`:
   `persistIoDataToMetrics` catches a failed `writeImmediate` and logs it.
-- `mqtt-listener.service.ts:1595-1656`: `handleEdgeAlarms` catches a failed `DeviceEvent` save
+- `mqtt-listener.service.ts:1594-1655`: `handleEdgeAlarms` catches a failed `DeviceEvent` save
   (or a failed publish before it) and logs it.
-- `mqtt-listener.service.ts:1422-1430`: the per-device io_data throttle runs before persistence,
+- `mqtt-listener.service.ts:1421-1429`: the per-device io_data throttle runs before persistence,
   so a redelivery inside the throttle window would be dropped unpersisted.
 
 Failure scenario: PostgreSQL is unavailable for 20 s while a gateway reports a high-level alarm.
@@ -614,7 +622,7 @@ open when the LW-SENSOR-ACK change closed its dispatch half through the sensor o
   source receipts and quarantine of payloads without a producer identity.
 - `tools/scripts/evaluate-telemetry-readiness.ts:210-229`: the readiness gate requires
   `acceptedSourceIds` and `committedSourceIds`, which no platform table produces.
-- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1873-1890`: a payload without
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1872-1889`: a payload without
   a usable `ts`, `timestamp` or `producerTs` gets a receive-time identity.
 
 Effect: the readiness gate cannot be passed from platform evidence, and a legacy payload without a
@@ -628,11 +636,11 @@ the sensor path PUBACKs only after its durable commit, except when the sensor ca
 The round-1 verification narrowed this row to the resolver: the listener half (a failed
 tenant-scoped reload, or a resolver that rejects) is fixed under SENSOR-CRITICAL-190.
 
-- `apps/sensor-service/src/ingestion/sensor-topic-cache.service.ts:316-326`: a per-tenant read
+- `apps/sensor-service/src/ingestion/sensor-topic-cache.service.ts:345-355`: a per-tenant read
   error is logged at debug and skipped; the outer error returns null.
-- `sensor-topic-cache.service.ts:129-132` and `:362-366`: that null is cached as a negative
+- `sensor-topic-cache.service.ts:129-132` and `:391-395`: that null is cached as a negative
   local entry for 60 s (`LOCAL_CACHE_TTL_MS`, `:72`).
-- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:512-515`: a resolver null returns
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:521-524`: a resolver null returns
   without error, so the gate PUBACKs.
 
 Failure scenario: the topic is cold in the local cache and Redis, and its tenant's read times out
@@ -681,8 +689,12 @@ code inside the durable leg total; what remains is a permanent database error.
 - `apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts:571-579`: any handler rejection, or
   the settle deadline, force-reconnects; there is no attempt bound and no disposition.
 - `mqtt-client.service.ts:604-609`: `forceRedelivery` ends the one shared client with `end(true)`.
-- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:548-552`: every error from the tenant
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:547-551`: every error from the tenant
   transaction becomes `DurableWriteError`, permanent or transient alike.
+- `mqtt-listener.service.ts:1966-1981` (the lookup leg, added by the round-2 verification): a
+  failed per-message sensor reload of a tenant the platform still lists as active becomes
+  `DurableWriteError` the same way, for example 42703 when that tenant's `sensors` table lags a
+  column the `Sensor` entity selects.
 - `infrastructure/monitoring/droplet/rules/45-mqtt-ingestion.yml:11-16`: the ingestion alert fires
   on received == 0, which a redelivery loop never trips; nothing alerts on
   `sensor_mqtt_messages_failed_total`.
@@ -690,12 +702,18 @@ code inside the durable leg total; what remains is a permanent database error.
 Failure scenario: one tenant's `sensor_metrics` drifts from the columns the writer inserts, or a
 channel row breaks a constraint. Its next reading fails the tenant transaction, the gate
 force-reconnects, the broker redelivers that message first, and mqtt.js takes the next inbound
-packet only after PUBACK, so every tenant's readings queue behind it. Prod recorded zero
+packet only after PUBACK, so every tenant's readings queue behind it. The lookup leg loops the
+same way when one tenant's per-tenant migration leaves its `sensors` table behind the entity. A
+reload that fails because the tenant is gone (schema dropped, tenant not active) is not in this
+row: LW-SENSOR-ACK round 2 evicts its mappings and acks the reading. Prod recorded zero
 `sensor_mqtt_messages_failed_total` increments over the 15-day Prometheus retention (2026-10-02 to
-2026-10-18, about 58,900 messages a week), so the class is latent today. SENSOR-HIGH-093 (Step 1.6)
+2026-10-18, about 58,900 messages a week). That zero covers write-leg failures only: on main a
+failed lookup returned null and counted as processed, so lookup failures never reached the
+counter. SENSOR-HIGH-093 (Step 1.6)
 is the NATS-consumer DLQ; this row is the MQTT ack gate's half. A fix sends a permanent failure
-(SQLSTATE classes 22, 23, 42) to a per-tenant quarantine row and acks it, keeps transient failures
-unacked, and alerts on the failure counter. Owner okan/claude, deadline 2026-11-17.
+(SQLSTATE classes 22, 23, 42) of either leg, lookup or write, to a per-tenant quarantine row and
+acks it, keeps transient failures unacked, and alerts on the failure counter. Owner okan/claude,
+deadline 2026-11-17.
 
 ## SENSOR-MEDIUM-198
 
@@ -714,3 +732,28 @@ tenant is later erased, and its telemetry and farm, pond and tank ids stay in `s
 indefinitely. The GraphQL path already had the gap; routing every MQTT reading through the outbox
 makes it larger. A fix deletes the erased tenant's dead-lettered rows in the hook and settles the
 pending case with the erasure saga. Owner okan/claude, deadline 2027-01-16.
+
+## SENSOR-MEDIUM-199
+
+The Task 1.8 erased-tenant tombstone is inert in production. Found by the LW-SENSOR-ACK round-2
+verification fix, which asks the tombstone before the per-message sensor reload and gave the
+listener's parameter its injection token. Related: SENSOR-HIGH-097, whose closing PR #1338
+introduced the tombstone as the ingress control for erased tenants.
+
+- `apps/sensor-service/src/compliance/erasure/erased-tenant-tombstone.service.ts:35-57`: the boot
+  rebuild reads `auth.tenants`, which the sensor-service role cannot read. Prod logged "Tombstone
+  rebuild query failed ... permission denied for schema auth" at 2026-10-17T21:41:53Z.
+- `erased-tenant-tombstone.service.ts:88-112`: `attachEventBus` subscribes `TenantErased`, and
+  nothing in the repository calls it.
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:331-338`: until round 2 the listener's
+  tombstone parameter had no injection token. A `T | null` parameter is emitted as `Object`, so Nest
+  passed `undefined` and the gate was null in every boot.
+
+Today the MQTT sensor path does not depend on it: the erasure deletes the tenant's sensor rows, so a
+late message's reload returns no row, and after the schema drop a reload of a tenant that is no
+longer active is dropped (round 2). Failure scenario: the control the plan and SENSOR-HIGH-097 count
+on answers false for every tenant, so a path that resolves a sensor without reading its row back
+would persist an erased tenant's reading with no gate in place. A fix gives the rebuild a
+least-privilege source (a SECURITY DEFINER platform function, as
+`list_active_tenant_schema_mappings` is), calls `attachEventBus` at module init, and pins both with
+a test that boots the module. Owner okan/claude, deadline 2027-01-16.

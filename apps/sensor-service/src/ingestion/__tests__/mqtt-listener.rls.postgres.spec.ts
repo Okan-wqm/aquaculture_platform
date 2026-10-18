@@ -37,8 +37,11 @@ import { SensorTopicCacheService } from '../sensor-topic-cache.service';
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+/** Deprovisioned mid-spec: its schema is dropped while its topic mapping is cached. */
+const TENANT_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const TOPIC_A = 'sensors/rls-e2e/water-quality-a';
 const TOPIC_B = 'sensors/rls-e2e/water-quality-b';
+const TOPIC_C = 'sensors/rls-e2e/water-quality-c';
 // SensorOutbox is `synchronize: false`: the tenant DDL skips it, and the
 // production migration creates sensor.sensor_outbox below.
 const ENTITIES = [
@@ -77,15 +80,20 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
   let runtime: DataSource | undefined;
   let listener: MqttListenerService | undefined;
   let handler: MqttMessageHandler | undefined;
+  let topicCache: SensorTopicCacheService | undefined;
   let SCHEMA_A = '';
   let SCHEMA_B = '';
   const sensorIds: Record<string, string> = {};
 
   beforeAll(async () => {
-    const topics: Record<string, string> = { [TENANT_A]: TOPIC_A, [TENANT_B]: TOPIC_B };
+    const topics: Record<string, string> = {
+      [TENANT_A]: TOPIC_A,
+      [TENANT_B]: TOPIC_B,
+      [TENANT_C]: TOPIC_C,
+    };
     stage = await bootSensorRlsHarness({
       name: 'mqtt_listener',
-      tenants: [TENANT_A, TENANT_B],
+      tenants: [TENANT_A, TENANT_B, TENANT_C],
       entities: ENTITIES,
       beforeRls: async ({ admin: bootstrap, tenantId, schema }) => {
         const topic = topics[tenantId];
@@ -146,6 +154,7 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
       recordMessageFailed: jest.fn(),
     } as Partial<MqttClientService> as MqttClientService;
 
+    topicCache = new SensorTopicCacheService(redisService, runtime);
     listener = new MqttListenerService(
       config,
       runtime,
@@ -153,7 +162,7 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
       new OutboxPublisher(SensorOutbox),
       { publish: jest.fn().mockResolvedValue(undefined) } as Partial<IEventBus> as IEventBus,
       null,
-      new SensorTopicCacheService(redisService, runtime),
+      topicCache,
       mqttClient,
       null,
       null,
@@ -221,6 +230,27 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
 
   it('keeps the reading inside the owning tenant', async () => {
     expect(await channelValues(SCHEMA_B)).toEqual({});
+  });
+
+  // A mapping cached before db-migrate's delete job dropped the tenant schema
+  // keeps resolving for up to an hour. Every reload through it then fails the
+  // tenant boundary (current_schema() falls through to `sensor`:
+  // SCHEMA_MISMATCH), so holding PUBACK on it would reconnect-loop the one
+  // shared MQTT connection for every tenant, and could never succeed.
+  it('acks a reading whose cached topic belongs to a tenant deprovisioned since, and evicts the mapping', async () => {
+    // Cached while tenant C was live, as its earlier readings left it.
+    expect((await topicCache!.getSensorByTopic(TOPIC_C))?.tenantId).toBe(TENANT_C);
+    await stage!.deprovisionTenant(TENANT_C);
+
+    await expect(handler!(TOPIC_C, Buffer.from(JSON.stringify(PAYLOAD)))).resolves.toBeUndefined();
+
+    // Evicted: the topic re-resolves against the active tenants and finds nothing.
+    await expect(topicCache!.getSensorByTopic(TOPIC_C)).resolves.toBeNull();
+    const outboxRows: unknown[] = await admin!.query(
+      `SELECT 1 FROM sensor.sensor_outbox WHERE "tenantId" = $1`,
+      [TENANT_C],
+    );
+    expect(outboxRows).toEqual([]);
   });
 
   it('stamps last_seen_at on the owning tenant sensor when the debounce flushes', async () => {

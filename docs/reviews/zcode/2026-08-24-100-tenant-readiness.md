@@ -611,9 +611,20 @@ WHERE COALESCE(EXCLUDED.source_timestamp, EXCLUDED.time)
 - [ ] **Step 1.4: Implement deterministic post-commit publication**
 
 Edge assigns sourceEventId before durable queue insertion. Legacy fallback is
-UUIDv5 over tenant, sensor, producer timestamp and canonical payload SHA-256.
+UUIDv5 over tenant, sensor, producer timestamp and the SHA-256 of the payload's
+wire bytes.
 Each child SensorReading event ID is UUIDv5 over sourceEventId and channelId.
 Nats-Msg-Id equals child event ID.
+
+**Update 2026-10-18 (LW-SENSOR-ACK):** the legacy digest is over the bytes the
+broker delivered, not a canonical rendering of the parsed payload
+(`MqttListenerService.deriveLegacyReadingEventId`). Hashing the bytes cannot
+throw, while the recursive canonical rendering overflowed the stack on a deeply
+nested payload inside the durable leg; and a broker redelivery, the case this
+identity exists for, repeats the bytes exactly. Trade-off: a device that
+re-serializes the same reading (key order, whitespace) gets a new id until the
+edge sourceEventId lands. Any second producer of this identity hashes the wire
+bytes too, or the same reading gets two event ids.
 
 On redelivery the publisher sends the same event again; it never assumes a prior
 publish succeeded. Retry count is a NATS header and DLQ field, not event payload.
@@ -744,10 +755,15 @@ dead-letter budget, so a NATS or JetStream outage longer than about 40-60 s
 dead-letters the pending rows, and nothing replays them. That breaks "PENDING
 rows are NEVER removed by age" and the 60-minute outage scope (PLAT-CRITICAL-925,
 deadline 2026-11-17). Second, the erasure purge removes only published rows
-(SENSOR-MEDIUM-198). The case above for a per-tenant
-table is about capacity, not correctness: the outbox insert takes no shared row
+(SENSOR-MEDIUM-198). The case above for a per-tenant table gives two reasons.
+The row-lock hot spot is a capacity claim: the outbox insert takes no shared row
 lock, and the readiness gate (`tools/scripts/evaluate-telemetry-readiness.ts`)
-fails closed until a measured 2,000 msg/s run passes. If that run shows the
+fails closed until a measured 2,000 msg/s run passes. The tenant-schema boundary
+is a real cost, and this decision accepts it: the dispatch rows live in the
+cross-tenant `sensor` schema, so a schema-drop erasure does not remove a
+tenant's dead-lettered or pending rows (SENSOR-MEDIUM-198), Task 6's archive
+erasure has to include `sensor.sensor_outbox` when it lands, and a per-tenant
+restore does not carry the tenant's pending dispatch rows. If that run shows the
 per-row NOTIFY or the seven days of published rows the relay keeps as the
 limit, the fix belongs in the outbox owner, for example per-tenant outbox
 tables, not in a second relay. The receipt half (source-id receipts,

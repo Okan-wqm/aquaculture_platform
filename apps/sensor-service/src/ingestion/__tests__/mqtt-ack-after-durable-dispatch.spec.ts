@@ -8,6 +8,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import type { IPublishPacket } from 'mqtt';
 import type { DataSource, EntityManager, EntityTarget, QueryRunner } from 'typeorm';
 
+import { ErasedTenantTombstoneService } from '../../compliance/erasure/erased-tenant-tombstone.service';
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import type { SensorMetricInput } from '../../database/entities/sensor-metric.entity';
 import { Sensor } from '../../database/entities/sensor.entity';
@@ -101,6 +102,13 @@ class TransactionalStore {
   readonly timeline: string[] = [];
   failOutboxInsert = false;
   failSensorReload = false;
+  /**
+   * db-migrate's delete job ran DROP SCHEMA for the tenant. search_path
+   * still names it first, so current_schema() resolves to the next existing
+   * schema, `sensor`, and the REAL tenant boundary refuses every read and
+   * write with TenantContextError SCHEMA_MISMATCH, as Postgres makes it.
+   */
+  tenantSchemaDropped = false;
 
   private readonly staged = new Map<
     EntityManager,
@@ -197,6 +205,9 @@ class TransactionalStore {
       release: jest.fn().mockResolvedValue(undefined),
       query: jest.fn().mockImplementation(async (sql: string) => {
         if (sql === 'SET TRANSACTION READ ONLY') readOnly = true;
+        if (this.tenantSchemaDropped && sql.includes('current_schema()')) {
+          return [{ schema: 'sensor', tenant: TENANT_ID, bypass: 'off' }];
+        }
         return [];
       }),
       get isTransactionActive(): boolean {
@@ -248,6 +259,9 @@ interface Chain {
   readonly writeManaged: jest.Mock;
   readonly publish: jest.Mock;
   readonly resolveTopic: jest.Mock;
+  /** The topic cache's liveness question; false (tenant active) unless a case says otherwise. */
+  readonly evictIfTenantInactive: jest.Mock;
+  readonly isErased: jest.Mock;
   deliver(payload: object | string): Promise<jest.Mock>;
   close(): Promise<void>;
 }
@@ -275,10 +289,16 @@ async function bootChain(): Promise<Chain> {
     schemaName: 'tenant_1111111111114111',
     protocolConfiguration: { topic: TOPIC },
   });
+  const evictIfTenantInactive = jest.fn().mockResolvedValue(false);
   const topicCache = {
     getSensorByTopic: resolveTopic,
     invalidateSensor: jest.fn().mockResolvedValue(undefined),
+    evictIfTenantInactive,
   } as Partial<SensorTopicCacheService> as SensorTopicCacheService;
+  const isErased = jest.fn().mockReturnValue(false);
+  const tombstone = {
+    isErased,
+  } as Partial<ErasedTenantTombstoneService> as ErasedTenantTombstoneService;
 
   const moduleRef = await Test.createTestingModule({
     providers: [
@@ -292,6 +312,7 @@ async function bootChain(): Promise<Chain> {
       // The real publisher: its transaction assertion and identity checks are
       // part of what "durable dispatch" means.
       { provide: OutboxPublisher, useValue: new OutboxPublisher(SensorOutbox) },
+      { provide: ErasedTenantTombstoneService, useValue: tombstone },
     ],
   }).compile();
   const listener = moduleRef.get(MqttListenerService);
@@ -305,6 +326,8 @@ async function bootChain(): Promise<Chain> {
     writeManaged,
     publish,
     resolveTopic,
+    evictIfTenantInactive,
+    isErased,
     async deliver(payload: object | string): Promise<jest.Mock> {
       const done = jest.fn(() => {
         store.timeline.push('puback');
@@ -428,6 +451,80 @@ describe('MQTT PUBACK waits for the durable commit of the reading and its dispat
 });
 
 /**
+ * A topic mapping outlives its tenant: one cached before db-migrate's delete
+ * job dropped the schema (tenant deprovision or erasure) keeps resolving for
+ * up to an hour, and every reload through it fails. Holding PUBACK on such a
+ * failure stops MQTT ingestion for every tenant (the broker redelivers that
+ * message first after each forced reconnect) and can never succeed. A reload
+ * that failed is "found nothing" only when the platform no longer lists the
+ * tenant as active; for a live tenant, or when liveness cannot be read, it
+ * stays a failure and the session redelivers.
+ */
+describe('a reading for a tenant that no longer exists', () => {
+  let chain: Chain | undefined;
+
+  beforeEach(() => {
+    mqttMock.connect.mockReset();
+  });
+
+  afterEach(async () => {
+    await chain?.close();
+    chain = undefined;
+  });
+
+  it('acks and evicts the mapping when the reload fails on the dropped schema of a tenant that is not active', async () => {
+    chain = await bootChain();
+    chain.store.tenantSchemaDropped = true;
+    chain.evictIfTenantInactive.mockResolvedValue(true);
+
+    const done = await chain.deliver(PAYLOAD);
+
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(chain.client.end).not.toHaveBeenCalled();
+    expect(chain.evictIfTenantInactive).toHaveBeenCalledWith(TENANT_ID);
+    expect(chain.writeManaged).not.toHaveBeenCalled();
+    expect(chain.store.committedOutbox).toEqual([]);
+  });
+
+  it('holds PUBACK when the reload fails for a tenant the platform still lists as active', async () => {
+    chain = await bootChain();
+    chain.store.tenantSchemaDropped = true;
+
+    const done = await chain.deliver(PAYLOAD);
+
+    expect(chain.evictIfTenantInactive).toHaveBeenCalledWith(TENANT_ID);
+    expect(done).not.toHaveBeenCalled();
+    expect(chain.client.end).toHaveBeenCalledWith(true);
+  });
+
+  it('holds PUBACK when whether the tenant is live cannot be read', async () => {
+    chain = await bootChain();
+    chain.store.tenantSchemaDropped = true;
+    chain.evictIfTenantInactive.mockRejectedValue(new Error('connection terminated unexpectedly'));
+
+    const done = await chain.deliver(PAYLOAD);
+
+    expect(done).not.toHaveBeenCalled();
+    expect(chain.client.end).toHaveBeenCalledWith(true);
+  });
+
+  it("ACK-drops an erased tenant's message before anything reads its schema (Task 1.8 tombstone)", async () => {
+    chain = await bootChain();
+    chain.store.tenantSchemaDropped = true;
+    chain.isErased.mockReturnValue(true);
+
+    const done = await chain.deliver(PAYLOAD);
+
+    expect(chain.isErased).toHaveBeenCalledWith(TENANT_ID);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(chain.client.end).not.toHaveBeenCalled();
+    // No reload transaction ran: the tombstone answered from the mapping.
+    expect(chain.store.timeline).toEqual(['puback']);
+    expect(chain.evictIfTenantInactive).not.toHaveBeenCalled();
+  });
+});
+
+/**
  * Everything inside the durable leg runs on device-controlled input, and a
  * throw there is a durable failure: it rolls the rows back, holds PUBACK and
  * force-reconnects the ONE shared MQTT connection, and the broker redelivers
@@ -485,5 +582,23 @@ describe('a payload shape is never a durable failure', () => {
     expect(chain.client.end).not.toHaveBeenCalled();
     expect(chain.store.committedMetrics).toEqual([]);
     expect(chain.store.committedOutbox).toEqual([]);
+  });
+
+  // String() used to coerce [23.5] to "23.5", so such a reading was stored.
+  // It is skipped now; the skip must be visible and name the remedy, without
+  // a log line per message.
+  it('warns once per sensor channel that a non-scalar value was skipped, naming the dataPath remedy', async () => {
+    chain = await bootChain();
+    const warn = jest.spyOn(chain.listener['logger'], 'warn');
+
+    await chain.deliver('{"temperature":[23.5]}');
+    await chain.deliver('{"temperature":[23.6]}');
+
+    const skipped = warn.mock.calls.filter(([line]) => String(line).includes('non-scalar'));
+    expect(skipped).toHaveLength(1);
+    const [line] = skipped[0]!;
+    expect(String(line)).toContain(SENSOR_ID);
+    expect(String(line)).toContain('dataPath "temperature[0]"');
+    expect(chain.store.committedMetrics).toEqual([]);
   });
 });

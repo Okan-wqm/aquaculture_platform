@@ -2077,6 +2077,17 @@ Anything else a reader raises — a `TypeError`, a crash of the doctor run itsel
 and raises out of the scan. The opener's `MissionOpening`, the `self_improve` action's `detail` and its
 `gateway_action_ran` row, and `aria-kernel self-improve scan|open` all carry `unreadable`.
 
+**A daily-report section its reader could not read says so (ARIA-LOW-514, ARIA-LOW-586).** Every
+store-reading section of the reflection report absorbs only the faults its reader declares next to it
+(`plan_016_metric_reader_faults`, `observability_reader_faults`, `registry_reader_faults`,
+`rule_health_reader_faults`, `duel_reader_faults`, `own_pr_reds_reader_faults`, and the ledger
+primitives' own `ledger_read_faults` for the learning-events, missions and cycle-history reads) and
+renders it under its own heading as `- unreadable: <class>` — the class, never the message, which
+carries host paths. The signal-starvation sentinel (`_compute_dataflow_health`) names an unreadable
+cycle history or watched series in `unreadable` and judges it neither starved nor healthy. Anything
+else a reader raises is a kernel defect and fails the report; `test_reflection_reader_faults` refuses
+an `except Exception`, `except BaseException` or bare `except` anywhere in reflection.py.
+
 **A condition the kernel can name is a condition it can plan against (ARIA-HIGH-122).** The
 `adaptation` family (`adaptation_signals`) reads the classes the kernel already names, one signal per
 CLASS with its count and at most `ADAPTATION_EVIDENCE_IDS_MAX` evidence ids — never one per record (the

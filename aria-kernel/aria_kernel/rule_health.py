@@ -134,6 +134,18 @@ def quarantined_rules(
     return quarantined
 
 
+def rule_health_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``rule_stats`` / ``quarantined_rules`` caller may
+    report as an unreadable store (ARIA-LOW-586). Both read the feedback and
+    raw-findings ledgers (``load_jsonl``), so the set is the ledger
+    primitives' own (``ledger.ledger_read_faults``); an artifact pointer the
+    store cannot resolve is absorbed by ``resolve_artifact_payload`` itself.
+    Anything else is a defect and must raise."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 def _adapter_source_for(tool_id: str, repo_root: Path) -> str | None:
     """Best-effort repo path of the adapter implementing tool_id."""
     for candidate in (

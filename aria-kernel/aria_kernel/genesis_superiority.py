@@ -58,6 +58,16 @@ def duel_observations(
     return observations
 
 
+def duel_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``duel_observations`` caller may report as an
+    unreadable duel ledger (ARIA-LOW-586): it is a plain ledger read, so the
+    set is the ledger primitives' own (``ledger.ledger_read_faults``).
+    Anything else is a defect and must raise."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 def compute_eval_window_superiority(
     *,
     entity_id: str,

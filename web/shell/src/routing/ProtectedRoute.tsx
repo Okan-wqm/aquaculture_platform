@@ -10,8 +10,9 @@
 import React, { memo } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
+  BrandLoader,
   useAuthContext,
-  PageLoading,
+  useI18n,
   hasResourcePermission,
   type UserRole,
 } from '@aquaculture/shared-ui';
@@ -34,10 +35,13 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = memo(
   ({ children, requiredRoles, requiredCapabilities, requiredModule }) => {
     const { isAuthenticated, isLoading, user, isSuperAdmin, hasRoleOrHigher, hasModuleAccess } =
       useAuthContext();
+    const { t } = useI18n();
 
-    // Loading state
+    // The session check is the first screen React draws on a refresh: the
+    // full-screen BrandLoader, the boot splash's twin, so the hand-off from
+    // index.html shows no swap (FE-MEDIUM-349).
     if (isLoading) {
-      return <PageLoading text="Checking session..." />;
+      return <BrandLoader variant="screen" label={t('guards.checkingSession')} />;
     }
 
     // Authentication required

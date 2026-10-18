@@ -120,7 +120,8 @@ export {
   SkeletonText,
   SkeletonCard,
   SkeletonTable,
-  PageLoading,
+  BrandLoader,
+  holdBootSplashTurn,
 } from './Loading';
 export type {
   SpinnerProps,
@@ -128,6 +129,7 @@ export type {
   SkeletonProps,
   SkeletonTextProps,
   SkeletonTableProps,
+  BrandLoaderProps,
 } from './Loading';
 
 // DataTable - Enterprise-grade data table component

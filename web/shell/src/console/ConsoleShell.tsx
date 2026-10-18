@@ -33,6 +33,7 @@
  * revision (FE-LOW-338).
  */
 import {
+  BRAND,
   Button,
   ConsoleHeader,
   IndustrialRail,
@@ -187,7 +188,7 @@ function ConsoleFrame({ role, headerTools, onSignOut }: ConsoleShellProps): Reac
         onNavigate={navigate}
         onItemHover={preloadRoute}
         tenantName={user?.tenantName ?? null}
-        logoSrc="/logo4-mark.png"
+        logoSrc={BRAND.mark}
         collapsed={shell.navCollapsed}
         onCollapsedChange={shell.setNavCollapsed}
         devices={devices}

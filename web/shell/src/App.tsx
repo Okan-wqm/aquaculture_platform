@@ -7,7 +7,7 @@
 
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { RouteAnnouncer } from '@aquaculture/shared-ui';
+import { BrandLoader, RouteAnnouncer } from '@aquaculture/shared-ui';
 import MainLayout from './layouts/MainLayout';
 import { ProtectedRoute } from './routing/ProtectedRoute';
 import { RoleBasedRedirect } from './routing/RoleBasedRedirect';
@@ -17,7 +17,6 @@ import LoginPage from './pages/LoginPage';
 import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ErrorBoundary from './components/ErrorBoundary';
-import RemoteModuleLoader from './components/RemoteModuleLoader';
 
 // ============================================================================
 // Lazy Loaded Remote Modules
@@ -102,7 +101,7 @@ const App: React.FC = () => {
           path="/dashboard/*"
           element={
             <ErrorBoundary moduleName="Dashboard">
-              <Suspense fallback={<RemoteModuleLoader moduleName="Dashboard" />}>
+              <Suspense fallback={<BrandLoader />}>
                 <DashboardModule />
               </Suspense>
             </ErrorBoundary>
@@ -115,7 +114,7 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute requiredModule="farm">
               <ErrorBoundary moduleName="Sites">
-                <Suspense fallback={<RemoteModuleLoader moduleName="Sites" />}>
+                <Suspense fallback={<BrandLoader />}>
                   <FarmModule />
                 </Suspense>
               </ErrorBoundary>
@@ -129,7 +128,7 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute requiredModule="hr">
               <ErrorBoundary moduleName="HR">
-                <Suspense fallback={<RemoteModuleLoader moduleName="HR" />}>
+                <Suspense fallback={<BrandLoader />}>
                   <HRModule />
                 </Suspense>
               </ErrorBoundary>
@@ -143,7 +142,7 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute requiredModule="sensor">
               <ErrorBoundary moduleName="Sensor">
-                <Suspense fallback={<RemoteModuleLoader moduleName="Sensor" />}>
+                <Suspense fallback={<BrandLoader />}>
                   <SensorModule />
                 </Suspense>
               </ErrorBoundary>
@@ -157,7 +156,7 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute requiredModule="hydroponics">
               <ErrorBoundary moduleName="Hydroponics">
-                <Suspense fallback={<RemoteModuleLoader moduleName="Hydroponics" />}>
+                <Suspense fallback={<BrandLoader />}>
                   <HydroponicsModule />
                 </Suspense>
               </ErrorBoundary>
@@ -172,7 +171,7 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute>
               <ErrorBoundary moduleName="Messaging">
-                <Suspense fallback={<RemoteModuleLoader moduleName="Messaging" />}>
+                <Suspense fallback={<BrandLoader />}>
                   <MessagingModule />
                 </Suspense>
               </ErrorBoundary>
@@ -186,7 +185,7 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute requiredRoles={['SUPER_ADMIN']}>
               <ErrorBoundary moduleName="Admin Panel">
-                <Suspense fallback={<RemoteModuleLoader moduleName="Admin Panel" />}>
+                <Suspense fallback={<BrandLoader />}>
                   <AdminPanelModule />
                 </Suspense>
               </ErrorBoundary>
@@ -202,7 +201,7 @@ const App: React.FC = () => {
           element={
             <TenantPanelRoute>
               <ErrorBoundary moduleName="Tenant Admin">
-                <Suspense fallback={<RemoteModuleLoader moduleName="Tenant Admin" />}>
+                <Suspense fallback={<BrandLoader />}>
                   <TenantAdminModule />
                 </Suspense>
               </ErrorBoundary>

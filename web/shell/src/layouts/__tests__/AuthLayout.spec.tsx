@@ -55,7 +55,12 @@ describe('AuthLayout', () => {
     authHarness.isLoading = true;
     renderLayout();
 
-    expect(screen.getByRole('status', { name: 'Loading authentication' })).toBeTruthy();
+    // The one loading screen, full screen, naming the session check (FE-MEDIUM-349).
+    expect([...screen.getByRole('status').classList]).toEqual([
+      'brand-loader',
+      'brand-loader--screen',
+    ]);
+    expect(screen.getByRole('status').textContent).toContain('Checking your session, please wait.');
     expect(screen.queryByText('Real auth route')).toBeNull();
   });
 

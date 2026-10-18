@@ -8,8 +8,8 @@
  * real implementations — they are pure functions.
  *
  * Covers: RequireAuth, RequireRole (+ its parametric faces), RequirePlatform-
- * Admin, RequireTenantPanel, RequireCapability, ErrorBoundary, and the
- * PageLoading surface the family pairs with at top-level routes.
+ * Admin, RequireTenantPanel, RequireCapability and ErrorBoundary. Their
+ * loading surface is the BrandLoader (components/Loading, its own spec).
  */
 
 import '@testing-library/jest-dom/vitest';
@@ -28,8 +28,6 @@ import {
   RequireRole,
   RequireTenantPanel,
 } from '../index';
-import { PageLoading } from '../../Loading';
-import { I18nProvider } from '../../../i18n/I18nProvider';
 
 type AuthContextValue = ReturnType<typeof useAuthContext>;
 
@@ -145,7 +143,9 @@ describe('RequireAuth', () => {
       <RequireAuth>{CHILD}</RequireAuth>,
       authValue({ isLoading: true, isAuthenticated: false }),
     );
-    expect(screen.getByRole('status')).toHaveTextContent('Checking session...');
+    // The one loading screen, naming the session check for screen readers (FE-MEDIUM-349).
+    expect(screen.getByRole('status')).toHaveClass('brand-loader');
+    expect(screen.getByRole('status')).toHaveTextContent('Checking your session, please wait.');
     expect(screen.queryByTestId('guarded-content')).not.toBeInTheDocument();
   });
 
@@ -536,27 +536,5 @@ describe('ErrorBoundary (retry budget & support keys)', () => {
     fireEvent.click(retry());
     expect(resetQueriesSpy).toHaveBeenCalledTimes(3);
     expect(retry()).toBeDisabled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// PageLoading — the family's top-level route loading surface (components/Loading)
-// ---------------------------------------------------------------------------
-
-describe('PageLoading', () => {
-  it('renders the default full-screen loading text', () => {
-    // Pinned to tr: the default text is locale-resolved (common.pageLoading),
-    // and jsdom's navigator.language would otherwise fall back to English.
-    render(
-      <I18nProvider locale="tr">
-        <PageLoading />
-      </I18nProvider>,
-    );
-    expect(screen.getByText('Sayfa yükleniyor...')).toBeInTheDocument();
-  });
-
-  it('renders a custom loading text', () => {
-    render(<PageLoading text="Checking session..." />);
-    expect(screen.getByText('Checking session...')).toBeInTheDocument();
   });
 });

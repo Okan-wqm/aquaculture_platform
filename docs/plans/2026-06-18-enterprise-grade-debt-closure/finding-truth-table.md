@@ -240,7 +240,6 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 | `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
 | `INFRA-CRITICAL-081`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
@@ -1135,3 +1134,6 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `SENSOR-CRITICAL-191`: registry state is `RESOLVED` with closing commit
   `ff6e08aee`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.
+- `ARIA-CRITICAL-009`: registry state is `RESOLVED` with closing commit
+  `8cb35a5cf`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.

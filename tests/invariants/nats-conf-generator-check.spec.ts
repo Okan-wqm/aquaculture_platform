@@ -31,11 +31,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+import { NATS_SERVICES_YAML } from '../../tools/gates/nats-services';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const GENERATOR = 'scripts/nats/generate-nats-conf.py';
 const NATS_CONF = 'infrastructure/docker/nats/nats.conf';
 const HELM_IDENTITIES = 'infrastructure/helm/aquaculture/files/nats-service-identities.yaml';
-const SERVICES_YAML = 'infrastructure/nats/services.yaml';
+// The SSoT's path has one owner, the shared reader (ARIA-LOW-603).
+const SERVICES_YAML = NATS_SERVICES_YAML;
 
 const CI_AFFECTED = join(REPO_ROOT, '.github/workflows/ci-affected.yml');
 const NATS_INVARIANTS = join(REPO_ROOT, '.github/workflows/nats-invariants.yml');

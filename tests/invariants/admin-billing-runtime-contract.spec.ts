@@ -9,6 +9,8 @@ import { resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
+import { loadNatsServices } from '../../tools/gates/nats-services';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const ADMIN_BILLING_SERVICE_GLOB = 'apps/admin-api-service/src/billing/**/*.ts';
 const ADMIN_BILLING_FILES = execFileSync(
@@ -19,14 +21,6 @@ const ADMIN_BILLING_FILES = execFileSync(
   .split('\0')
   .filter(Boolean);
 const BILLING_ADMIN_COMMAND_SUBJECT = 'request.billing.admin.>';
-
-interface NatsServicesManifest {
-  services?: Array<{
-    name?: string;
-    publish?: string[];
-    subscribe?: string[];
-  }>;
-}
 
 interface ComposeManifest {
   services?: Record<
@@ -79,16 +73,12 @@ describe('INVARIANT: admin billing read models use UUID tenant contracts', () =>
 
 describe('INVARIANT: billing-service owns platform-admin billing mutations', () => {
   it('allows billing-service to subscribe, not publish, billing admin command subjects in NATS SSoT', () => {
-    const manifest = yaml.load(
-      readRepoFile('infrastructure/nats/services.yaml'),
-    ) as NatsServicesManifest | null;
-    const billingService = manifest?.services?.find(
-      (service) => service.name === 'billing_service',
-    );
+    // ARIA-LOW-603 — read through the one shared reader (tools/gates/nats-services.ts).
+    const billingService = loadNatsServices().find((service) => service.name === 'billing_service');
+    if (billingService === undefined) throw new Error('services.yaml has no billing_service');
 
-    expect(billingService).toBeDefined();
-    expect(billingService?.publish ?? []).not.toContain(BILLING_ADMIN_COMMAND_SUBJECT);
-    expect(billingService?.subscribe ?? []).toContain(BILLING_ADMIN_COMMAND_SUBJECT);
+    expect(billingService.publish).not.toContain(BILLING_ADMIN_COMMAND_SUBJECT);
+    expect(billingService.subscribe).toContain(BILLING_ADMIN_COMMAND_SUBJECT);
   });
 
   it('keeps generated NATS config in lockstep with the billing-service subscribe ACL', () => {

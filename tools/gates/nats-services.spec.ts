@@ -228,25 +228,44 @@ void test('a grant that admits the event only through wildcards is catch-all; on
   );
 });
 
-/** Tool sources outside node_modules, fixtures and specs. */
-function toolSources(dir: string): string[] {
+/**
+ * Sources under `dir`, outside node_modules and fixtures. Under tools/ a spec or test is left out:
+ * there it builds temp services.yaml fixtures or is the live oracle. Under tests/invariants every
+ * file is a spec, and a spec that reads the SSoT is exactly the private reader this pin refuses.
+ */
+function sourcesUnder(dir: string, includeSpecs: boolean): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (name === 'node_modules' || name === 'fixtures') continue;
-    if (statSync(path).isDirectory()) out.push(...toolSources(path));
-    else if (/\.(ts|mts|mjs|js)$/.test(name) && !/\.(spec|test)\.[mc]?[jt]s$/.test(name))
+    if (statSync(path).isDirectory()) out.push(...sourcesUnder(path, includeSpecs));
+    else if (
+      /\.(ts|mts|mjs|js)$/.test(name) &&
+      (includeSpecs || !/\.(spec|test)\.[mc]?[jt]s$/.test(name))
+    )
       out.push(path);
   }
   return out;
 }
 
-void test('no tool outside this module names the services.yaml path, so no tool reads it privately', () => {
-  // A string literal whose whole content is a path ending in services.yaml, or a path join
-  // ending in that segment: the shape of every private reader this module replaced. Prose that
-  // mentions the file inside a longer string does not match.
-  const pathLiteral = /(['"`])[\w./-]*services\.yaml\1|,\s*(['"`])services\.yaml\2\s*\)/;
-  const flagged = toolSources(join(REPO_ROOT, 'tools'))
+/**
+ * Where a private reader could live: every tool (ARIA-MEDIUM-314) and every invariant spec
+ * (ARIA-LOW-603). The e2e oracles (e2e/tests/integration/nats-invariants.spec.ts and
+ * nats-subject-contract.spec.ts) stay outside on purpose: they judge the broker semantics this
+ * module implements and must not depend on it.
+ */
+const PINNED_SOURCES = (): string[] => [
+  ...sourcesUnder(join(REPO_ROOT, 'tools'), false),
+  ...sourcesUnder(join(REPO_ROOT, 'tests', 'invariants'), true),
+];
+
+void test('no tool or invariant outside this module names the services.yaml path, so none reads it privately', () => {
+  // A string literal whose whole content is a path whose last segment is services.yaml, or a
+  // path join ending in that segment: the shape of every private reader this module replaced.
+  // Prose that mentions the file inside a longer string does not match, and neither does another
+  // file whose name merely ends in "services.yaml" (a helm backend-services.yaml).
+  const pathLiteral = /(['"`])(?:[\w.-]+\/)*services\.yaml\1|,\s*(['"`])services\.yaml\2\s*\)/;
+  const flagged = PINNED_SOURCES()
     .filter((path) => {
       const code = readFileSync(path, 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, '')

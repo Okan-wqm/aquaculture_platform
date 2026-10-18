@@ -16,6 +16,7 @@ import { join, resolve } from 'node:path';
 import * as YAML from 'yaml';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+import { NATS_SERVICES_YAML } from '../../tools/gates/nats-services';
 interface ResolvedRange {
   readonly baseSha: string;
   readonly headSha: string;
@@ -658,7 +659,7 @@ describe('development image and deploy scope selector', () => {
     ['.dockerignore', 'workspace-global-input'],
     ['package-lock.json', 'workspace-global-input'],
     ['docker-compose.droplet.yml', 'deploy-control-plane'],
-    ['infrastructure/nats/services.yaml', 'deploy-control-plane'],
+    [NATS_SERVICES_YAML, 'deploy-control-plane'],
   ])('selects a full image/deploy scope for %s', (changedFile, reason) => {
     const scope = selectScope([changedFile], []);
 

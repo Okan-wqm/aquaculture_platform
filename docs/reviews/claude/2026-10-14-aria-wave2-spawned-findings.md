@@ -941,6 +941,13 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   tracked file today makes an 809,355-byte row (12,381 violations), 77% of the cap.
 - **Planned fix:** the row carries the first 20 violations plus a total and digest marker, in the
   `ledger_inline` sample shape. The run artifact holds the whole list. Deadline: 2026-12-17.
+- **Landed (ARIA order chain, `R-NEW-runs-bound`):** `tool_health._ledger_row_fields` stores
+  `ledger_inline.sample_inline_list` of the scrubbed violations: the first 20 plus
+  `scope_violations_spilled` (total, sha256). `payload.scope_violations` holds the whole list.
+  `spill_evidence_validation` now uses the same helper. In `test_run_row_read_set_ref.py`, 20,000
+  reported out-of-scope paths raised `LedgerRowTooLargeError` before the fix. After it the row is
+  under 16 KiB and the tool is quarantined. A production-shaped run that also carries 50
+  raw-finding samples makes a 29,719-byte row.
 
 ### ARIA-HIGH-618 — memory candidates or raw-finding entries make a run unrecordable
 

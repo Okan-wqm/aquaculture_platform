@@ -18,8 +18,8 @@ from .feedback_store import (
     record_findings_for_run,
     record_raw_findings_for_run,
 )
-from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
-from .ledger import load_jsonl as load_chained_jsonl
+from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl, load_jsonl as load_chained_jsonl
+from .ledger_inline import sample_inline_list
 from .quarantine import quarantine_tool
 from .runs_reader import READ_PATHS_REF_FIELD, read_paths_reference, read_runs_rows, run_read_paths
 from .runtime_artifacts import (
@@ -333,6 +333,10 @@ def can_emit_operator_facing(
     return get_tool(tool_id, base_dir)["status"] == "ACTIVE"
 
 
+# ARIA-HIGH-617 — how many scope violations a runs row carries inline.
+_SCOPE_VIOLATIONS_ROW_SAMPLE = 20
+
+
 def _ledger_row_fields(envelope: dict[str, Any]) -> dict[str, Any]:
     """The run as runs.jsonl stores it: the read set by reference once the artifact holds it.
 
@@ -344,10 +348,24 @@ def _ledger_row_fields(envelope: dict[str, Any]) -> dict[str, Any]:
     nothing else holding it, so those rows keep the list inline, as before.
     The envelope itself keeps the list: the health check below judges it in
     memory, before any reader could resolve the artifact.
+
+    ARIA-HIGH-617 — ``scope_violations`` is derived from that read set, so it
+    grows with the adapter's report too: 20,000 reported out-of-scope paths
+    made a 1.6 MB row, the append refused it (1 MiB cap) before
+    ``evaluate_health`` ran, and the tool was never quarantined. The row
+    keeps the first violations with a total + digest marker (the
+    ``ledger_inline`` sample shape), taken over the scrubbed list as the
+    artifact stores it; ``payload.scope_violations`` holds the whole list,
+    and a v1 or failed-artifact row still carries the read set it derives
+    from. No reader takes the list from a stored row: the status says
+    ``scope_violation``, and a stored-row health check rescans the read set.
     """
     fields = dict(envelope)
     if fields.get("artifact_status") == "present" and isinstance(fields.get("artifact_ref"), dict):
         fields[READ_PATHS_REF_FIELD] = read_paths_reference(scrub_json(fields.pop("read_paths")))
+    violations = fields.pop("scope_violations", None)
+    if isinstance(violations, list):
+        fields.update(sample_inline_list("scope_violations", scrub_json(violations), _SCOPE_VIOLATIONS_ROW_SAMPLE))
     return fields
 
 
@@ -370,6 +388,8 @@ def _runtime_artifact_payload(
         "raw_observations": payload.get("raw_observations"),
         "raw_findings": raw_findings if isinstance(raw_findings, list) else [],
         "read_paths": envelope.get("read_paths", []),
+        # The whole list the runs row samples (ARIA-HIGH-617).
+        "scope_violations": envelope.get("scope_violations", []),
         "evidence_validation": envelope.get("evidence_validation"),
         "runner": envelope.get("runner"),
         "repo_snapshot": envelope.get("repo_snapshot"),

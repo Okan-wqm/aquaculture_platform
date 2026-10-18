@@ -18,7 +18,9 @@ These tests pin:
   stored row) gives the answer the inline row gave;
 * rows written before the fix, rows of the v1 format and rows whose artifact
   write failed keep their inline list and read exactly as before;
-* a set the artifact no longer holds is refused by name, never read as empty.
+* a set the artifact no longer holds is refused by name, never read as empty;
+* (ARIA-HIGH-617) a scope violation over a wide read set is recorded and
+  quarantines: the row samples the violations and the artifact holds them all.
 """
 
 from __future__ import annotations
@@ -275,6 +277,79 @@ class RowsThatKeepTheirListInline(unittest.TestCase):
         with self.assertRaises(GovernanceError) as raised:
             run_read_paths({"run_id": "no-set"}, base_dir=self.tools)
         self.assertIn("no-set", str(raised.exception))
+
+
+# ARIA-HIGH-617 — scope_violations is derived from the read set, so it grows
+# with whatever the adapter reports (read_paths is the adapter's own list,
+# bounded only by the 12 MiB stdout cap). Inline, 20,000 reported out-of-scope
+# paths made a 1.6 MB row; the declared append refused it (1 MiB cap) before
+# evaluate_health ran, so the run was never recorded and the tool never
+# quarantined.
+WIDE_VIOLATION_COUNT = 20_000
+# ledger_inline's sample size for a row's list of violations.
+VIOLATION_SAMPLE = 20
+
+
+def _out_of_scope_paths(count: int) -> list[str]:
+    # The fixture tool may read src/**/*.ts only; a generated docs tree is outside it.
+    return [f"docs/generated/area-{i % 97:02d}/section-{i // 97:04d}/page-{i:05d}.generated.md" for i in range(count)]
+
+
+class AScopeViolationOverAWideReadSet(unittest.TestCase):
+    """A run that read far outside its scope is recorded, and its tool quarantined."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tools = Path(self._tmp.name) / "tools"
+        self.tools.mkdir()
+        env = patch.dict(os.environ, {"ARIA_RUN_LEDGER_FORMAT": "v2-shadow"})
+        env.start()
+        self.addCleanup(env.stop)
+        register_tool(shadow_tool(), base_dir=self.tools)
+
+    def _record(self, read_paths: list[str]) -> Any:
+        from aria_kernel.tool_health import record_run
+
+        return record_run({
+            "schema_version": 1, "run_id": "run-escape", "tool_id": "fixture-shadow-tool",
+            "cycle_id": "cyc-escape", "status": "ok", "input_hash": "sha256:" + "1" * 64,
+            "output_hash": "sha256:" + "2" * 64, "read_paths": read_paths, "emitted_observations": [],
+            "emitted_findings": [], "evidence_validation": {"valid": True, "evidence_sources": []},
+            "operator_feedback_refs": [], "duration_ms": 10, "cost_units": 1,
+        }, base_dir=self.tools)
+
+    def test_the_run_is_recorded_and_its_tool_quarantined(self) -> None:
+        from aria_kernel.tool_registry import get_tool
+
+        escaped = _out_of_scope_paths(WIDE_VIOLATION_COUNT)
+        inline = len(json.dumps(escaped, separators=(",", ":")).encode("utf-8"))
+        self.assertGreater(inline, 1024 * 1024, "premise: inline, the list alone is over the row cap")
+        recorded = self._record(escaped)
+        [(row_bytes, row)] = _rows(self.tools)
+        self.assertEqual(row["status"], "scope_violation")
+        self.assertLess(row_bytes, SMALL_ROW_BYTES)
+        self.assertEqual(recorded.health_decision["action"], "quarantine")
+        self.assertEqual(get_tool("fixture-shadow-tool", self.tools)["status"], "QUARANTINED")
+
+    def test_the_row_samples_the_violations_and_the_artifact_holds_them_whole(self) -> None:
+        escaped = _out_of_scope_paths(WIDE_VIOLATION_COUNT)
+        row = self._record(escaped).row
+        self.assertEqual(row["scope_violations"], escaped[:VIOLATION_SAMPLE])
+        whole = json.dumps(escaped, ensure_ascii=False).encode("utf-8")
+        self.assertEqual(row["scope_violations_spilled"], {
+            "spilled_sample": True,
+            "total": WIDE_VIOLATION_COUNT,
+            "sha256": "sha256:" + hashlib.sha256(whole).hexdigest(),
+        })
+        payload = resolve_artifact_payload(row["artifact_ref"], base_dir=self.tools)["payload"]
+        self.assertEqual(payload["scope_violations"], escaped)
+
+    def test_a_narrow_violation_keeps_its_list_whole(self) -> None:
+        row = self._record(["src/app.ts", *_out_of_scope_paths(3)]).row
+        self.assertEqual(row["status"], "scope_violation")
+        self.assertEqual(row["scope_violations"], _out_of_scope_paths(3))
+        self.assertNotIn("scope_violations_spilled", row)
 
 
 if __name__ == "__main__":

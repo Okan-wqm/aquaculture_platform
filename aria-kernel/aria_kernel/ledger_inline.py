@@ -67,6 +67,28 @@ def spill_oversized_inline(field: str, value: Any, *, recovery: str) -> Any:
     }
 
 
+def sample_inline_list(key: str, values: list[Any], limit: int) -> dict[str, Any]:
+    """The row fields that stand in for list ``key``: whole, or sampled with a marker.
+
+    At most ``limit`` entries: ``{key: values}``. More: the first ``limit``
+    under ``key`` plus ``<key>_spilled`` carrying the total and the digest of
+    the whole list, so a reader knows the sample is partial and can check a
+    recovered list against it. The one spelling of a sampled row list
+    (evidence_validation's lists here, a run row's scope_violations in
+    tool_health).
+    """
+    if len(values) <= limit:
+        return {key: values}
+    return {
+        key: values[:limit],
+        f"{key}_spilled": {
+            "spilled_sample": True,
+            "total": len(values),
+            "sha256": "sha256:" + hashlib.sha256(_serialize(values)).hexdigest(),
+        },
+    }
+
+
 def spill_evidence_validation(validation: dict[str, Any], *, recovery: str) -> dict[str, Any]:
     """Bound an ``evidence_validation`` object for inline storage.
 
@@ -82,13 +104,8 @@ def spill_evidence_validation(validation: dict[str, Any], *, recovery: str) -> d
             continue
         value = validation[key]
         sample = EVIDENCE_VALIDATION_LIST_SAMPLES.get(key)
-        if sample is not None and isinstance(value, list) and len(value) > sample:
-            kept[key] = value[:sample]
-            kept[f"{key}_spilled"] = {
-                "spilled_sample": True,
-                "total": len(value),
-                "sha256": "sha256:" + hashlib.sha256(_serialize(value)).hexdigest(),
-            }
+        if sample is not None and isinstance(value, list):
+            kept.update(sample_inline_list(key, value, sample))
         else:
             kept[key] = value
     return {

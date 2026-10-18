@@ -258,3 +258,141 @@ the FCR sweep judges the D-10 weighing. The FARM-CRITICAL-444 window stays consi
 and the day come from one sample, and the count on that day from the ledger), so its alerts are
 older, not wrong; the defect is in the writers. A fix makes both writers refuse to move
 `weight.actual` backwards inside their locked update. Owner okan/claude, deadline 2027-01-15.
+
+## SENSOR-CRITICAL-190
+
+The MQTT listener's registered handler swallows a failed metric write, so the ack gate PUBACKs a
+reading that was never persisted. Found while re-landing lost-work item 3. It is a regression of
+SENSOR-CRITICAL-086: 4504e8abc (2026-09-16, MQTT liveness metrics, SENSOR-MEDIUM-123) wrapped the
+handler to count processed and failed messages, and its `.catch` turned the rejection into a
+resolved promise.
+
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:335-344`: the handler registered on
+  the ack gate ends in `.catch(() => recordMessageFailed())`.
+- `mqtt-listener.service.ts:534-538` and `:549-552`: a failed `saveReading` becomes
+  `DurableWriteError` and is rethrown, only for the registered handler to swallow it.
+- `apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts:592-596`: `dispatchDurable`
+  releases PUBACK as soon as every handler promise resolves.
+- `apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts:276-280`: the spec
+  calls `handleMessage` directly and discards the registered handler (`void handler`), so no test
+  ran the function the ack gate calls.
+
+Failure scenario: PostgreSQL fails over for 30 s. Each QoS1 reading in that window fails its
+metric write, the registered handler counts a failure and resolves, `dispatchDurable` calls
+`done()` and mqtt.js sends PUBACK. The broker drops the message from the persistent session and
+the reading is gone, while the CRITICAL-086 code and its spec claim redelivery.
+
+## SENSOR-CRITICAL-191
+
+MQTT ingestion PUBACKs a committed reading whose SensorReading dispatch was never made durable.
+Lost-work item 3. The old branch `feat/100-tenant-readiness-v4` (commit b78251709, refused at merge
+4d7cd7ea9) carried it as SENSOR-CRITICAL-087; on main that id is a different, RESOLVED defect (the
+writer buffer, 3d784be31). Main recorded the design as Step 1.9 of
+`docs/reviews/zcode/2026-08-24-100-tenant-readiness.md` and filed it under 086/087, both RESOLVED,
+so nothing tracked it.
+
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:189-197`: fan-out failures "stay
+  swallow-and-ack until the Task 1.6 disposition/DLQ contract".
+- `mqtt-listener.service.ts:529-547`: `saveReading` commits the metric rows, then
+  `publishSensorReadingEvent` runs outside that transaction.
+- `mqtt-listener.service.ts:1842-1872`: a failed `eventBus.publish` of the SensorReading is
+  caught and logged at warn.
+- `apps/sensor-service/src/sensor/services/sensor-ingestion.service.ts:242-283`: the GraphQL path
+  enqueues the same event into `sensor_outbox` inside the metric transaction (SENSOR-CRITICAL-001);
+  the MQTT path does not.
+
+Failure scenario: NATS is restarting, or JetStream refuses the PubAck. A dissolved-oxygen reading
+of 2.1 mg/L arrives on MQTT, its metric rows commit, the publish rejects, the error is logged and
+the message is PUBACKed. No outbox row or dispatch record exists, so nothing retries: alert-engine
+never evaluates the reading, the low-oxygen alarm never fires, and the dashboards never show it.
+
+## SENSOR-HIGH-192
+
+The Rust ingestion path acknowledges before dispatch is durable. Lost-work item 3, related half;
+the old branch `feat/100-tenant-readiness-v4` (commit 3147dad5a) carried it as SENSOR-CRITICAL-097.
+
+- `apps/sensor-ingestion/src/mqtt.rs:176-177`: `MqttOptions` is built with neither manual acks
+  nor `clean_session(false)`, so rumqttc PUBACKs every PUBLISH on receipt.
+- `apps/sensor-ingestion/src/mqtt.rs:302-312`: `run_event_loop` forwards each Publish into the
+  channel; no ack waits for the tenant COPY, the outbox commit or the PubAck.
+- `apps/sensor-service/src/ingestion/nats-ingestion-consumer.service.ts:307-321`: a failed typed
+  SensorReading publish is logged and the handler returns ack.
+- `docker-compose.droplet.yml:1120-1129`: zero tenants route to the sidecar today.
+
+Latent while no tenant routes to Rust, so HIGH now and CRITICAL in effect once one does. It must
+be fixed before any tenant is switched to Rust, and by 2026-12-17 at the latest (owner
+okan/claude). Not fixed in the LW-SENSOR-ACK change because it is not small: manual acks with a
+persistent session and a stable client id, each Publish carried through decode and batch to an
+ack after its batch's tenant commit, and a durable SensorReading enqueue (or NAK) in the consumer.
+
+## SENSOR-HIGH-193
+
+Edge-device MQTT messages are PUBACKed when their persistence fails. Found while re-landing
+lost-work item 3: these topics go through the same ack gate as sensor readings, but none of their
+durable writes can hold PUBACK.
+
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1455-1517`:
+  `persistIoDataToMetrics` catches a failed `writeImmediate` and logs it.
+- `mqtt-listener.service.ts:1587-1648`: `handleEdgeAlarms` catches a failed `DeviceEvent` save
+  (or a failed publish before it) and logs it.
+- `mqtt-listener.service.ts:1414-1422`: the per-device io_data throttle runs before persistence,
+  so a redelivery inside the throttle window would be dropped unpersisted.
+
+Failure scenario: PostgreSQL is unavailable for 20 s while a gateway reports a high-level alarm.
+The `DeviceEvent` save fails, the error is logged and the message is PUBACKed: the alarm is
+missing from the device event history and is never redelivered. Owner okan/claude, deadline
+2026-12-17.
+
+## SENSOR-HIGH-194
+
+The parent-sensor MQTT adapter path PUBACKs on receipt. It is the per-sensor connection path for
+active MQTT parent sensors (`DataIngestionService.startAllActiveSensors`), separate from the shared
+listener.
+
+- `apps/sensor-service/src/protocol/adapters/iot/mqtt.adapter.ts:298-313`: `subscribeToData`
+  consumes through `client.on('message')`, which mqtt.js acks without waiting for the handler.
+- `apps/sensor-service/src/ingestion/data-ingestion.service.ts:244-252`: `handleSensorData` is
+  started with `void`; no ack waits for it.
+- `data-ingestion.service.ts:410-445` and `:459-463`: the metric write, then a SensorReading
+  publish whose failure is logged; any processing error is logged and swallowed.
+
+Failure scenario: NATS restarts while a parent sensor publishes. The metric rows are written, the
+SensorReading publish fails and is logged, and the broker has already PUBACKed: alert-engine never
+sees the reading. A fix moves this path onto the shared ack gate and the outbox, or retires it.
+Owner okan/claude, deadline 2026-12-17.
+
+## SENSOR-MEDIUM-195
+
+No durable record of admitted MQTT source messages. This is the receipt half of Step 1.9, left
+open when the LW-SENSOR-ACK change closed its dispatch half through the sensor outbox
+(SENSOR-CRITICAL-191). The old branch `feat/100-tenant-readiness-v4` (b78251709) built a per-tenant
+`sensor_ingest_receipts` table for it.
+
+- `docs/reviews/zcode/2026-08-24-100-tenant-readiness.md:657-731`: Step 1.9 asks for per-tenant
+  source receipts and quarantine of payloads without a producer identity.
+- `tools/scripts/evaluate-telemetry-readiness.ts:210-229`: the readiness gate requires
+  `acceptedSourceIds` and `committedSourceIds`, which no platform table produces.
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1883-1891`: a payload without
+  `ts`, `timestamp` or `producerTs` gets a receive-time identity.
+
+Effect: the readiness gate cannot be passed from platform evidence, and a legacy payload without a
+producer timestamp that is redelivered after its commit yields a second SensorReading. Owner
+okan/claude, deadline 2027-01-16.
+
+## SENSOR-HIGH-196
+
+The MQTT topic resolver reports a failed lookup as "no sensor". After SENSOR-CRITICAL-190 and -191
+the sensor path PUBACKs only after its durable commit, except when the sensor cannot be resolved,
+and that today includes a failed lookup.
+
+- `apps/sensor-service/src/ingestion/sensor-topic-cache.service.ts:316-326`: a per-tenant read
+  error is logged at debug and skipped; the outer error returns null.
+- `sensor-topic-cache.service.ts:129-132` and `:362-366`: that null is cached as a negative
+  local entry for 60 s (`LOCAL_CACHE_TTL_MS`, `:72`).
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1945-1948` and `:502-507`: a failed
+  sensor reload also returns null, and null returns without error, so the gate PUBACKs.
+
+Failure scenario: the topic is cold in the local cache and Redis, and its tenant's read times out
+(pool exhausted). This reading and every reading on the topic for the next 60 s are PUBACKed
+without persistence. A fix separates "not found" from "lookup failed", never caches a failure, and
+lets a failed lookup reject. Owner okan/claude, deadline 2026-12-17.

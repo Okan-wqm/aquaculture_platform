@@ -290,6 +290,8 @@ the closure-reconcile lane records the main-reachable closer after merge.
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
+| `SENSOR-CRITICAL-190` | OPEN | 2026-10-18 | claude | real-open |
+| `SENSOR-CRITICAL-191` | OPEN | 2026-10-18 | claude | real-open |
 
 ## Mutation Rules
 

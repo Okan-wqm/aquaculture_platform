@@ -3178,6 +3178,13 @@ def build_parser() -> argparse.ArgumentParser:
     ack_rotate.add_argument("--operator-approval-ref", required=True)
     ack_rotate.add_argument("--emergency", action="store_true",
         help="Mark as emergency rotation (separate audit event).")
+    # ARIA-LOW-598 — runbook §3 step 2: quarantine a compromised key now,
+    # instead of letting it verify (and forge) until it rolls off the window.
+    ack_revoke = add_subparser(ack_sub, "revoke-key",
+        help="Drop a compromised HMAC key from the rolling list at once; its rows verify as signed_key_revoked.")
+    ack_revoke.add_argument("--key-id", required=True)
+    ack_revoke.add_argument("--reason", required=True, type=_validate_reason)
+    ack_revoke.add_argument("--operator-approval-ref", required=True)
     ack_verify = add_subparser(ack_sub, "verify",
         help="Verify the last N rows: operator acks against the committed allowed-signers file, HMAC rows over the rolling key list.")
     ack_verify.add_argument("--range", default="last-50",
@@ -6363,6 +6370,8 @@ def _main(argv: list[str] | None = None) -> int:
             list_keys,
             mint_operator_ack,
             review_draft,
+            revoke_key,
+            revoked_keys,
             rotate_key,
             verify_range,
         )
@@ -6412,6 +6421,13 @@ def _main(argv: list[str] | None = None) -> int:
                 operator_approval_ref=args.operator_approval_ref,
                 emergency=args.emergency,
             )
+        elif args.ack_command == "revoke-key":
+            result = revoke_key(
+                base_dir=args.tools_dir,
+                key_id=args.key_id,
+                reason=args.reason,
+                operator_approval_ref=args.operator_approval_ref,
+            )
         elif args.ack_command == "verify":
             raw_range = (args.range or "").strip()
             last_n: int | None
@@ -6432,7 +6448,8 @@ def _main(argv: list[str] | None = None) -> int:
                 return 2
             result = verify_range(base_dir=args.tools_dir, last_n=last_n, workspace_root=args.workspace_root)
         elif args.ack_command == "list-keys":
-            result = {"keys": list_keys(base_dir=args.tools_dir)}
+            result = {"keys": list_keys(base_dir=args.tools_dir),
+                      "revoked": revoked_keys(base_dir=args.tools_dir)}
         else:
             parser.error("unknown ack command")
             return 2

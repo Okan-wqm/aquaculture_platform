@@ -179,6 +179,47 @@ class PhaseA0Preflight(unittest.TestCase):
         ):
             self.assertIn(required, text, f"DR runbook missing section: {required!r}")
 
+    def test_i_v3_00d_every_ack_command_the_runbook_prescribes_runs(self) -> None:
+        """ARIA-LOW-598 — a runbook names only verbs that exist.
+
+        The emergency procedure prescribed ``aria-kernel ack revoke-key``, a
+        verb the parser never registered, so the quarantine step it relies on
+        could not be run, and the section-heading pins above passed anyway.
+        Every ``aria-kernel ack <verb>`` the runbook names must be a
+        registered ack subcommand, and every such command in its bash blocks
+        must parse with the real parser (placeholders filled in).
+        """
+        import argparse
+        import shlex
+
+        from aria_kernel.cli import build_parser
+
+        text = (_REPO_ROOT / "docs" / "runbooks" / "aria-ack-key-rotation.md").read_text(encoding="utf-8")
+        parser = build_parser()
+
+        def subcommands(node: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+            return next(a for a in node._actions if isinstance(a, argparse._SubParsersAction)).choices
+
+        registered = set(subcommands(subcommands(parser)["ack"]))
+        named = set(re.findall(r"aria-kernel ack ([a-z][a-z-]*)", text))
+        self.assertIn("revoke-key", named, "the emergency step this pin exists for")
+        self.assertEqual(sorted(named - registered), [], "runbook names ack verbs the CLI does not have")
+
+        commands = [
+            line.strip()
+            for block in re.findall(r"```bash\n(.*?)```", text, re.S)
+            for line in block.replace("\\\n", " ").splitlines()
+            if line.strip().startswith("aria-kernel ack ")
+        ]
+        self.assertGreaterEqual(len(commands), 6, commands)
+        for command in commands:
+            filled = re.sub(r"<[^>]*>", "PLACEHOLDER", re.sub(r"\$\([^)]*\)", "X", command))
+            with self.subTest(command=command):
+                try:
+                    parser.parse_args(shlex.split(filled, comments=True)[1:])
+                except SystemExit as exc:
+                    self.fail(f"runbook command does not parse (exit {exc.code}): {command}")
+
     def test_i_v3_00e_historical_runtime_state_is_not_tracked(self) -> None:
         completed = subprocess.run(
             [

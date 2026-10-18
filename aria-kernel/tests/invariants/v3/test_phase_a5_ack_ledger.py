@@ -516,5 +516,136 @@ class AckLedgerSingleOwnerContracts(unittest.TestCase):
             )
 
 
+class RevokeKeyQuarantinesACompromisedKey(unittest.TestCase):
+    """ARIA-LOW-598 — runbook §3 step 2, ``aria-kernel ack revoke-key``.
+
+    Rotation keeps the previous head verifiable for up to five rotations; for
+    a LEAKED key that is the defect — whoever holds it forges rows that
+    verify. Revocation drops its secret at once and every row it signed
+    verifies as ``signed_key_revoked``: unverifiable, content intact.
+    """
+
+    def _key_file(self, base: Path) -> dict:
+        return json.loads((base / "secrets" / "ack_hmac.key").read_text(encoding="utf-8"))
+
+    def _governance(self, base: Path, kind: str) -> list[dict]:
+        from aria_kernel.ledger import load_declared_jsonl
+        rows = load_declared_jsonl(base / "governance.jsonl", expected_surface="tools_governance")
+        return [row for row in rows if row.get("kind") == kind]
+
+    def test_a_revoked_keys_rows_verify_as_revoked_and_its_secret_is_gone(self) -> None:
+        import stat as stat_module
+
+        from aria_kernel.ack_ledger import revoke_key, rotate_key, verify_range
+
+        with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-") as tmp:
+            base = Path(tmp)
+            _seed_init(base)
+            old_row = _record_auto(base, "draft-old")["row"]
+            leaked = old_row["signed_key_id"]
+            leaked_secret = next(k["secret"] for k in self._key_file(base)["keys"] if k["key_id"] == leaked)
+            rotate_key(base_dir=base, reason="emergency rotation before revoke",
+                       operator_approval_ref="INC-1", emergency=True)
+            new_row = _record_auto(base, "draft-new")["row"]
+
+            result = revoke_key(base_dir=base, key_id=leaked, reason="leaked-rotated-out",
+                                operator_approval_ref="INC-1")
+
+            self.assertEqual(result["revoked_key_id"], leaked)
+            self.assertEqual(result["active_key_count"], 1)
+            key_file = base / "secrets" / "ack_hmac.key"
+            self.assertNotIn(leaked_secret, key_file.read_text(encoding="utf-8"))
+            self.assertEqual(stat_module.S_IMODE(key_file.stat().st_mode), 0o600)
+            document = self._key_file(base)
+            self.assertNotIn(leaked, [k["key_id"] for k in document["keys"]])
+            self.assertEqual([r["key_id"] for r in document["revoked"]], [leaked])
+            self.assertNotIn("secret", document["revoked"][0])
+            self.assertEqual(document["revoked"][0]["reason"], "leaked-rotated-out")
+            (governance,) = self._governance(base, "ack_key_revoked")
+            self.assertEqual(governance["details"]["key_id"], leaked)
+            self.assertEqual(governance["details"]["operator_approval_ref"], "INC-1")
+
+            verdict = verify_range(base_dir=base)
+            by_ack = {}
+            for row in verdict["results"]:
+                by_ack.setdefault(row["ack_id"], []).append(row)
+            # The leaked key's mint and its consumption: unverifiable, by name.
+            self.assertEqual(len(by_ack[old_row["ack_id"]]), 2)
+            for row in by_ack[old_row["ack_id"]]:
+                self.assertFalse(row["valid"])
+                self.assertTrue(row["reason"].startswith("signed_key_revoked"), row)
+            self.assertTrue(all(row["valid"] for row in by_ack[new_row["ack_id"]]))
+            self.assertEqual(verdict["invalid_count"], 2)
+
+            # Nothing that rewrites the list brings it back.
+            rotate_key(base_dir=base, reason="scheduled rotation after revoke", operator_approval_ref="RFC-2")
+            self.assertEqual([r["key_id"] for r in self._key_file(base)["revoked"]], [leaked])
+            again = [r for r in verify_range(base_dir=base)["results"] if r["ack_id"] == old_row["ack_id"]]
+            self.assertTrue(all(r["reason"].startswith("signed_key_revoked") for r in again))
+
+    def test_the_signing_head_is_refused_rotate_first(self) -> None:
+        from aria_kernel.ack_ledger import list_keys, revoke_key
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-head-") as tmp:
+            base = Path(tmp)
+            _seed_init(base)
+            head = list_keys(base_dir=base)[0]["key_id"]
+            before = (base / "secrets" / "ack_hmac.key").read_bytes()
+            with self.assertRaises(GovernanceError) as refused:
+                revoke_key(base_dir=base, key_id=head, reason="leaked-but-still-head",
+                           operator_approval_ref="INC-2")
+            self.assertIn("hmac_revoke_head_key", str(refused.exception))
+            self.assertIn("rotate first", str(refused.exception))
+            self.assertEqual((base / "secrets" / "ack_hmac.key").read_bytes(), before)
+            self.assertEqual(self._governance(base, "ack_key_revoked"), [])
+
+    def test_an_unknown_or_already_revoked_key_is_refused(self) -> None:
+        from aria_kernel.ack_ledger import list_keys, revoke_key, rotate_key
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-unknown-") as tmp:
+            base = Path(tmp)
+            _seed_init(base)
+            old = list_keys(base_dir=base)[0]["key_id"]
+            rotate_key(base_dir=base, reason="rotation before revoke", operator_approval_ref="RFC-3")
+            with self.assertRaises(GovernanceError) as unknown:
+                revoke_key(base_dir=base, key_id="not-a-key", reason="typo-in-key-id",
+                           operator_approval_ref="INC-3")
+            self.assertIn("hmac_key_unknown", str(unknown.exception))
+            revoke_key(base_dir=base, key_id=old, reason="leaked-rotated-out", operator_approval_ref="INC-3")
+            with self.assertRaises(GovernanceError) as twice:
+                revoke_key(base_dir=base, key_id=old, reason="leaked-rotated-out",
+                           operator_approval_ref="INC-3")
+            self.assertIn("hmac_key_already_revoked", str(twice.exception))
+            self.assertEqual(len(self._governance(base, "ack_key_revoked")), 1)
+
+    def test_the_runbook_step_runs_through_the_cli(self) -> None:
+        import contextlib
+        import io
+
+        from aria_kernel.ack_ledger import list_keys, rotate_key
+        from aria_kernel.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-cli-") as tmp:
+            base = Path(tmp)
+            _seed_init(base)
+            leaked = list_keys(base_dir=base)[0]["key_id"]
+            rotate_key(base_dir=base, reason="emergency rotation before revoke",
+                       operator_approval_ref="INC-4", emergency=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--tools-dir", str(base), "ack", "revoke-key", "--key-id", leaked,
+                             "--reason", "leaked-rotated-out", "--operator-approval-ref", "INC-4"])
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(out.getvalue())["revoked_key_id"], leaked)
+            listed = io.StringIO()
+            with contextlib.redirect_stdout(listed):
+                self.assertEqual(main(["--tools-dir", str(base), "ack", "list-keys"]), 0)
+            shown = json.loads(listed.getvalue())
+            self.assertNotIn(leaked, [k["key_id"] for k in shown["keys"]])
+            self.assertEqual([r["key_id"] for r in shown["revoked"]], [leaked])
+
+
 if __name__ == "__main__":
     unittest.main()

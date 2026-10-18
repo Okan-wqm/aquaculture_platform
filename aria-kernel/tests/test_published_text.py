@@ -5,16 +5,21 @@ anything an exception or an agent put in it; four places each did part of the cl
 """
 from __future__ import annotations
 
+import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from aria_kernel.artifact_safety import published_tail, published_text
 
 
 class PublishedTextTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.store = Path(tempfile.mkdtemp(prefix="aria-published-")) / "aria-tools"
+        root = Path(tempfile.mkdtemp(prefix="aria-published-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        self.store = root / "aria-tools"
 
     def test_a_store_path_stays_store_relative(self) -> None:
         text = f"Invalid JSONL at {self.store}/memory/beliefs.jsonl:17"
@@ -42,6 +47,24 @@ class PublishedTextTests(unittest.TestCase):
         self.assertEqual(len(out), 30)
         self.assertTrue(out.endswith("<secret-redacted>\nexit 1"), out)
         self.assertNotIn("AAAA", out)
+
+
+class PublishedTextTestsLeaveNoTree(unittest.TestCase):
+    """ARIA-LOW-595 — a test removes what it creates.
+
+    Runs the tests above with the temp dir redirected to an empty scratch
+    directory and reads what they left there: each test used to leave one
+    ``aria-published-*`` directory behind.
+    """
+
+    def test_a_run_leaves_the_temp_dir_as_it_found_it(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aria-published-residue-") as scratch:
+            result = unittest.TestResult()
+            with mock.patch.object(tempfile, "tempdir", scratch):
+                unittest.defaultTestLoader.loadTestsFromTestCase(PublishedTextTests).run(result)
+            self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+            self.assertEqual(result.testsRun, 5)
+            self.assertEqual(sorted(os.listdir(scratch)), [])
 
 
 if __name__ == "__main__":

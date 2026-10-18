@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeDocStaleness, isPointInTimeRecord } from './doc-staleness-adapter';
 
-const workspace = mkdtempSync(join(tmpdir(), 'aria-doc-staleness-'));
+const workspace = makeFixtureTree('aria-doc-staleness-');
 mkdirSync(join(workspace, 'docs/runbooks'), { recursive: true });
 mkdirSync(join(workspace, 'apps/farm-service/src'), { recursive: true });
 writeFileSync(join(workspace, 'apps/farm-service/src', 'main.ts'), 'export {};\n', 'utf8');
@@ -50,7 +51,7 @@ const records: Record<string, string> = {
   'docs/security-audit-2026-03-30.md': deadRef,
   'docs/aria/plans/001-historical.md': `<!-- ARIA-HISTORICAL: Historical plan document. -->\n\n${deadRef}`,
 };
-const recordWorkspace = mkdtempSync(join(tmpdir(), 'aria-doc-staleness-records-'));
+const recordWorkspace = makeFixtureTree('aria-doc-staleness-records-');
 for (const [path, body] of Object.entries(records)) {
   mkdirSync(join(recordWorkspace, path, '..'), { recursive: true });
   writeFileSync(join(recordWorkspace, path), body, 'utf8');
@@ -86,7 +87,7 @@ assert.equal(
 // ARIA-HIGH-212: a missing path is stale only where the doc says it exists.
 // Each false-positive class the operator-feedback ledger labelled on
 // aria/state has one case below; each true-positive shape has one too.
-const roleWorkspace = mkdtempSync(join(tmpdir(), 'aria-doc-staleness-roles-'));
+const roleWorkspace = makeFixtureTree('aria-doc-staleness-roles-');
 mkdirSync(join(roleWorkspace, 'docs/guides'), { recursive: true });
 mkdirSync(join(roleWorkspace, 'apps/farm-service/src'), { recursive: true });
 writeFileSync(join(roleWorkspace, 'apps/farm-service/src/live.service.ts'), 'export {};\n', 'utf8');

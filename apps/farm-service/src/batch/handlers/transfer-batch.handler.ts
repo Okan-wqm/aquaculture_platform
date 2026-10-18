@@ -410,6 +410,14 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
             batchNumber: batch.batchNumber,
             quantityDelta: payload.quantity,
             biomassDelta: biomassKg,
+            // The moved fish keep what is known about their weight: their last
+            // weighing day and the last feeding day whose growth they carry.
+            // Without them an older sample naming the destination re-based the
+            // fish backwards (FARM-MEDIUM-453 / FARM-CRITICAL-454 verification).
+            weightStamps: {
+              weighedOn: batchInSource?.weighedOn,
+              grownThrough: batchInSource?.grownThrough,
+            },
           },
           {
             code: destinationTank.code,

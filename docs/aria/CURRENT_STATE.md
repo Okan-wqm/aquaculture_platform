@@ -41,6 +41,12 @@ longer resolves. The authority-surface digest of any commit is derived on demand
 - Runner habitat memory budget (systemd drop-ins; `scripts/aria/provision_runner.sh` installs and
   drift-checks them): `scripts/aria/runner-habitat/systemd/`
 - Merge authority: `aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready`
+- Merge lane runner: `.github/workflows/aria-merge-runner.yml`,
+  `aria-kernel/aria_kernel/auto_merge_runners.py::select_auto_merge_runner`
+- Merge-lane grant owner: `aria-kernel/aria_kernel/runtime_profile.py::get_merge_lane_grant`
+- Merge freezes: `aria-kernel/aria_kernel/watchdog_freeze.py::assert_merge_not_watchdog_frozen`,
+  `aria-kernel/aria_kernel/self_merge_freeze.py::assert_self_merge_not_frozen`
+- Self-revert producer: `aria-kernel/aria_kernel/self_revert.py::run_self_revert_producer`
 - Enterprise risk policy owner: `aria-kernel/aria_kernel/risk_policy.py`
 - Enterprise autonomy unlock owner: `aria-kernel/aria_kernel/autonomy_unlock.py`
 - L3 policy approval owner: `aria-kernel/aria_kernel/policy_approval.py`
@@ -89,6 +95,33 @@ consume that SSoT rather than maintaining local role sets.
 memory, pressure, and triage for exactly 30 observe attempts with at least 20 valid cycles, and
 fails if agent claims, tool runs, PR lifecycle, runtime promotions, or agent/skill materializations
 are observed. It is not a full autonomous merge proof.
+
+## Merge Lane
+
+Read from the code on 2026-10-17 (ARIA-MEDIUM-232):
+
+- `aria-merge-runner.yml` runs `aria-kernel merge-lane run` when `aria-readiness-claim` or
+  `CI - Affected` completes, and hourly. It builds the one runner that may execute a merge
+  (`executes_merges=True`), and every merge goes through `merge_pr_if_ready`, which merges with
+  `gh pr merge --squash --match-head-commit <head>` (`aria-kernel/aria_kernel/auto_merge.py`).
+- A merge needs an operator's merge-lane grant: lane `L1` only, at most 90 days, with an
+  `operator_approval_ref` and a recorded approval; an expired, malformed or unreadable grant reads
+  as no grant (`get_merge_lane_grant`). ARIA cannot grant itself the lane (M-6.1 in
+  `docs/aria/MISSION_SPEC.md`).
+- Two freezes refuse merges inside `merge_pr_if_ready`: an open external-watchdog incident refuses
+  every merge (`assert_merge_not_watchdog_frozen`); ARIA's own self-merge freeze refuses every PR
+  except the revert it registered (`assert_self_merge_not_frozen`). The self-revert producer writes
+  that freeze before it opens the revert, and only an operator's GitHub act lifts it.
+- The self-revert producer opens a revert only for a merge the merge authority recorded as its own,
+  on an attributable post-merge red or a `regression` change outcome (`run_self_revert_producer`).
+- `merge_pr_if_ready` refuses a PR whose readiness claim does not verify
+  (`enterprise_readiness_required_for_merge`), and the claim's branch-protection proof fails with
+  `branch_protection_merge_queue_required` unless main's rules carry a squash merge queue
+  (`aria-kernel/aria_kernel/enterprise_readiness.py::branch_protection_policy_reasons`,
+  ARIA-HIGH-221). Main requires up-to-date branches and has no merge queue (branch protection read
+  on 2026-10-07, recorded in `aria-kernel/aria_kernel/pr_branch_update.py`), and a user-owned
+  repository cannot carry a merge-queue ruleset (PROC-LOW-038), so the lane merges nothing until
+  ARIA-HIGH-221 is settled.
 
 ## Clean Trial Rule
 

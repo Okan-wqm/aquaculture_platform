@@ -41,6 +41,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .system_one import Answer, Registry, StateRef, ask, load_registry
 from .tool_registry import bound_workspace_root
 
@@ -54,7 +55,6 @@ SHADOW_BUDGET_SECONDS = 15.0
 _clock: Callable[[], float] = time.monotonic
 _SKIP_PATH = re.compile(r"^(docs/|\.claude/)|\.md$|findings\.jsonl$|\.generated\.|/generated/|package-lock\.json$")
 _CLOSES = re.compile(r"^Closes:\s*\S+?#([A-Z][A-Z0-9]*-[A-Z]+-\d+)\s*$", re.MULTILINE)
-_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 # The id shapes the ledger's subject law and the finding builder accept.
 _FINDING_ID = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}$")
 _CITED_LINE = re.compile(r"^(.+?):(\d+)$")
@@ -111,7 +111,7 @@ def shadow_pr_open(
     finding × file — recorded, never read."""
     try:
         budget = _Budget()
-        head = head_sha if isinstance(head_sha, str) and _COMMIT_RE.match(head_sha) else ""
+        head = head_sha if isinstance(head_sha, str) and is_object_id(head_sha, formats=ANY_OBJECT_FORMAT) else ""
         if _enabled(base_dir) is None or not diff_text or not head:
             return
         ids = closes_ids(_messages(commits))
@@ -172,7 +172,7 @@ def shadow_judge_fanout(
         if registry is None or repo_root is None:
             return
         head = _git(repo_root, "rev-parse", "HEAD").strip()
-        if not _COMMIT_RE.match(head):
+        if not is_object_id(head, formats=ANY_OBJECT_FORMAT):
             return
         questions = [q for q in registry.questions.values() if "judge_fanout" in q.decision_points]
         for item in items:
@@ -235,7 +235,7 @@ def rank_candidate_files(
         problem = f"{content.get('title') or ''}\n{content.get('summary') or ''}"
         root = workspace_root if workspace_root is not None else bound_workspace_root(base_dir)
         sha = _git(root, "rev-parse", str(rev)).strip()
-        if not _COMMIT_RE.match(sha):
+        if not is_object_id(sha, formats=ANY_OBJECT_FORMAT):
             return []
         ranked: list[dict[str, Any]] = []
         for path in _candidates(problem, root, rev):

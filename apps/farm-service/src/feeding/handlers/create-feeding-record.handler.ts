@@ -198,6 +198,7 @@ export class CreateFeedingRecordHandler
             locked,
             payload.actualAmount / expectedFcr,
             expectedFcr,
+            boundPlan.planDate,
           );
         }
 

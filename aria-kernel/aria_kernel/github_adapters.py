@@ -44,6 +44,7 @@ import subprocess
 import threading
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.parse import urlencode
 
 from .auto_merge import GhCliGitHubAdapter
 from .github_writes import GitHubWriteRefused, run_gh_write
@@ -261,13 +262,17 @@ class GhCliIssueWriter:
         # (ARIA_NOTIFY_GITHUB_REPO) and prices its calls from its own wall
         # clock; the freeze notice passes neither, so its argv and timeout
         # are what they always were (`gh` resolves the repository from cwd).
+        self._repo = repo
         self._repo_flags = ["--repo", repo] if repo else []
         self._timeout = timeout_seconds
 
     def _gh(self, args: list[str]) -> tuple[bool, str]:
+        return self._gh_read([*args, *self._repo_flags])
+
+    def _gh_read(self, argv: list[str]) -> tuple[bool, str]:
         try:
             done = subprocess.run(
-                ["gh", *args, *self._repo_flags], cwd=self._cwd, capture_output=True, text=True, check=False,
+                ["gh", *argv], cwd=self._cwd, capture_output=True, text=True, check=False,
                 timeout=self._timeout,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -292,21 +297,46 @@ class GhCliIssueWriter:
             return False, f"rc={done.returncode}: {detail}"
         return True, done.stdout or ""
 
-    def _find_open(self, title: str, labels: Sequence[str]) -> tuple[bool, dict[str, Any] | None, str]:
-        args = ["issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url"]
-        for label in labels:
-            args.extend(["--label", label])
-        ok, out = self._gh(args)
+    def _open_issues(self, labels: Sequence[str]) -> tuple[bool, list[dict[str, Any]], str]:
+        """Every open issue carrying all ``labels``, as ``{number, title, url}``.
+
+        ARIA-LOW-554 — the WHOLE open set: the REST issues list, every page of
+        it (``--paginate --slurp``: one JSON array of the page arrays). The
+        lookup used ``gh issue list --limit 100``, the 100 newest; once more
+        than 100 open issues carried the labels, an older fixed-title issue
+        was outside that window and a second issue was opened for its title.
+        Still the list and never the search index (ARIA-HIGH-415: the index
+        lags a just-created issue). The REST list carries pull requests too,
+        marked ``pull_request``; they are not issues here, as they were not in
+        ``gh issue list``. ``gh api`` takes no ``--repo``: the repository is in
+        the endpoint, or ``{owner}/{repo}``, which ``gh`` resolves from the
+        working directory exactly as ``gh issue list`` did without one.
+        """
+        query = urlencode({"state": "open", "labels": ",".join(labels), "per_page": 100}, safe=",")
+        endpoint = f"repos/{self._repo or '{owner}/{repo}'}/issues?{query}"
+        ok, out = self._gh_read(["api", "--paginate", "--slurp", endpoint])
         if not ok:
-            return False, None, f"issue_list_failed:{out}"
+            return False, [], f"issue_list_failed:{out}"
         try:
-            rows = json.loads(out or "[]")
+            pages = json.loads(out)
         except ValueError:
-            return False, None, "issue_list_unparseable"
+            return False, [], "issue_list_unparseable"
+        if not isinstance(pages, list) or not all(isinstance(page, list) for page in pages):
+            return False, [], "issue_list_unparseable"
+        return True, [
+            {"number": row.get("number"), "title": row.get("title"), "url": row.get("html_url")}
+            for page in pages for row in page
+            if isinstance(row, dict) and "pull_request" not in row
+        ], ""
+
+    def _find_open(self, title: str, labels: Sequence[str]) -> tuple[bool, dict[str, Any] | None, str]:
+        ok, rows, reason = self._open_issues(labels)
+        if not ok:
+            return False, None, reason
         matches = sorted(
-            (row for row in rows if isinstance(row, dict) and row.get("title") == title),
+            (row for row in rows if row.get("title") == title),
             key=lambda row: int(row.get("number") or 0),
-        ) if isinstance(rows, list) else []
+        )
         return True, (matches[0] if matches else None), ""
 
     def _ensure_labels(self, labels: Sequence[str]) -> str | None:

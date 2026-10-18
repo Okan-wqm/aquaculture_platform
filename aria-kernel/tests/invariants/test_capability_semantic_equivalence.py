@@ -280,7 +280,8 @@ def produced_rows() -> list[tuple[str, str, dict[str, Any]]]:
             ("fixture_runner.suite", "agent_eval_fixture_runs", fixture_runner.fixture_suite_row(
                 tool_id="producer-tool", tool={"tool_id": "producer-tool", "version": "1.0.0", "fixture_set": "producer"},
                 fixture_set_digest="sha256:" + "6" * 64, cycle_id="cyc-producer", case_results=cases,
-                execution_run_id="exec-producer",
+                execution_run_id="exec-producer", workspace_commit_sha=_PRODUCED_SHA,
+                argv_scripts_hash="sha256:" + "7" * 64,
             )),
             ("autonomy_unlock.verdict", "enterprise_autonomy_unlock_events", autonomy_unlock.unlock_verdict_row("L1", verdict)),
         ]

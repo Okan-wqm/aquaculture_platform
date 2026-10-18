@@ -20,7 +20,8 @@ for that. It DERIVES the map from three things that already exist and
 already vote:
 
   git ls-files                     the tree, as it is right now
-  tools/aria-adapters/*.tool.json  each adapter's declared_scope
+  the live tool registry rows      each dispatchable adapter's typed
+                                   declared_scope globs
   aria-config/observation_map.json OPERATOR policy only: which roots are
                                    deliberately unowned, and why
 
@@ -33,7 +34,16 @@ declares it AND could actually parse it. An adapter that claims a root
 and reads none of its file types is coverage theatre, and the count must
 refuse to reward it.
 
-Unknown is not green. If the tree or the manifests cannot be read, the
+ARIA-HIGH-531 — WHICH declarations observe. A scope glob whose file name
+fixes no type (`**`, `*`, `x/**`) is a read allowlist: it says where an
+adapter may look, not that it can parse what is there. banned-phrase's `**`
+(cb2dedf27) made every root "observed" and every file type "parsable", and
+the unobserved-surface gap went silent. Only the typed alternatives of a
+dispatchable adapter row observe (`tool_registry.observing_globs`, the one
+owner); a quarantined row observes nothing. The rows come from the LIVE
+registry the caller passes, because a genesis adapter exists only there.
+
+Unknown is not green. If the tree or the tool rows cannot be read, the
 verdict is `unknown` — the same rule the fitness charter rests on,
 because a system that scores itself green when it cannot see is worse
 than one with no score at all.
@@ -48,13 +58,12 @@ than a complaint: it names the parser that has to exist.
 """
 from __future__ import annotations
 
-import fnmatch
 import json
 import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 ADAPTER_DIR = ("tools", "aria-adapters")
 POLICY_RELATIVE_PATH = ("aria-config", "observation_map.json")
@@ -120,53 +129,18 @@ def _tracked_files(workspace_root: Path) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
-def adapter_scopes(workspace_root: Path) -> dict[str, tuple[str, ...]]:
-    """tool_id -> declared_scope globs, read from the manifests themselves."""
-    directory = workspace_root.joinpath(*ADAPTER_DIR)
-    scopes: dict[str, tuple[str, ...]] = {}
-    for manifest_path in sorted(directory.glob("*.tool.json")):
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        tool_id = str(manifest.get("tool_id") or manifest_path.stem)
-        globs = tuple(str(g) for g in (manifest.get("declared_scope") or []))
-        scopes[tool_id] = globs
-    return scopes
-
-
 def _matches(path: str, glob: str) -> bool:
-    """Does this path fall inside this declared scope?
+    """Does this path fall inside this observing glob?
 
-    ORPHAN-HIGH-762 — this used to be a private `fnmatch` call with a comment
-    asserting that `*` crossing separators is "what `**/` means here anyway".
-    It is not. `**/` must also match ZERO directories, and `fnmatch` expands
-    `**` to `.*` with the literal `/` still required — so
-    `aria-kernel/aria_kernel/**/*.py` did not match
-    `aria-kernel/aria_kernel/cycle.py`, and the instrument built to measure
-    ARIA's blindness was blind in exactly the directory it was built to
-    measure. The repository already had the correct matcher; this module
-    shipped a second one.
-
-    The shared matcher (`canonical_path.matches_repo_glob`) expands braces
-    itself; the local expansion predates that and is equivalent, so each
-    expanded alternative is still answered by the ONE matcher.
+    ORPHAN-HIGH-762 — the shared matcher (`canonical_path.matches_repo_glob`)
+    is the only one: `**/` must also match ZERO directories, which a private
+    `fnmatch` did not, so `aria-kernel/aria_kernel/**/*.py` missed
+    `aria-kernel/aria_kernel/cycle.py`. The globs reaching here are already
+    brace-expanded by `tool_registry.observing_globs`.
     """
     from .canonical_path import matches_repo_glob
 
-    return any(matches_repo_glob(path, pattern) for pattern in _expand_braces(glob))
-
-
-def _expand_braces(glob: str) -> list[str]:
-    start = glob.find("{")
-    if start < 0:
-        return [glob]
-    end = glob.find("}", start)
-    if end < 0:
-        return [glob]
-    head, body, tail = glob[:start], glob[start + 1 : end], glob[end + 1 :]
-    return [
-        expanded
-        for option in body.split(",")
-        for expanded in _expand_braces(f"{head}{option.strip()}{tail}")
-    ]
+    return matches_repo_glob(path, glob)
 
 
 def _root_of(path: str) -> str:
@@ -226,11 +200,17 @@ def unobserved_nights_before_gap(workspace_root: str | Path) -> int:
 def derive_observation_map(
     workspace_root: str | Path,
     *,
+    tools: Sequence[dict[str, Any]],
     files: Iterable[str] | None = None,
 ) -> tuple[RootCoverage, ...]:
+    """Per-root coverage of the tracked tree by the observing globs of ``tools``."""
+    from .tool_registry import observing_globs
+
     root = Path(workspace_root)
     tracked = list(files) if files is not None else _tracked_files(root)
-    scopes = adapter_scopes(root)
+    scopes = {
+        str(tool["tool_id"]): globs for tool in tools if (globs := observing_globs(tool))
+    }
     policy = load_policy(root)
     unowned: dict[str, str] = {
         str(entry.get("root")): str(entry.get("reason") or "")
@@ -305,11 +285,23 @@ def derive_observation_map(
 def evaluate_observation_coverage(
     workspace_root: str | Path,
     *,
+    tools: Sequence[dict[str, Any]],
     files: Iterable[str] | None = None,
 ) -> ObservationVerdict:
-    """Judge the repository's observability. Unreadable inputs are UNKNOWN."""
+    """Judge the repository's observability against the registry rows ``tools``.
+
+    Unreadable inputs are UNKNOWN, and so is an empty ``tools``: no rows read
+    is no measurement, never a tree nothing observes.
+    """
+    if not tools:
+        return ObservationVerdict(
+            verdict="unknown",
+            reason="no tool rows were read",
+            observed_ratio=0.0,
+            roots=(),
+        )
     try:
-        rows = derive_observation_map(workspace_root, files=files)
+        rows = derive_observation_map(workspace_root, tools=tools, files=files)
     except Exception as exc:  # noqa: BLE001 — an unreadable tree is unknown, not green
         return ObservationVerdict(
             verdict="unknown",

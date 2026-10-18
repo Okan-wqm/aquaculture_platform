@@ -64,6 +64,10 @@ class ExecutorArtifactPathContractTest(unittest.TestCase):
             envelope = workspace / ".aria-state-store/tools/agent-invocations/outputs/general/round-na-role-AIR-x.md"
             transcript = envelope.with_suffix(".transcript.jsonl")
             envelope.parent.mkdir(parents=True, exist_ok=True)
+            # The files the kernel kept: the publisher names what exists
+            # (ARIA-MEDIUM-574), so the pin writes both.
+            envelope.write_text("{}", encoding="utf-8")
+            transcript.write_text("{}\n", encoding="utf-8")
 
             previous = {k: os.environ.get(k) for k in ("GITHUB_OUTPUT", "GITHUB_WORKSPACE")}
             os.environ["GITHUB_OUTPUT"] = str(output_file)
@@ -88,6 +92,51 @@ class ExecutorArtifactPathContractTest(unittest.TestCase):
         )
         self.assertIn("transcript_path=", emitted)
         self.assertNotIn(f"envelope_path={workspace}", emitted)
+
+    def test_publisher_names_only_the_files_the_kernel_kept(self) -> None:
+        # ARIA-MEDIUM-574 — a credential refusal deletes the envelope and the
+        # transcript under a withheld row (`_withhold_submission_sources`).
+        # A path whose file is gone is not published: the upload step reads
+        # an empty list as nothing to upload instead of failing the job on
+        # exactly the files the withholding removed.
+        publish = _load_publisher()
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            output_file = workspace / "gh-output.txt"
+            envelope = workspace / "outputs/general/round-na-role-AIR-y.md"
+            transcript = envelope.with_suffix(".transcript.jsonl")
+            envelope.parent.mkdir(parents=True)
+            previous = {k: os.environ.get(k) for k in ("GITHUB_OUTPUT", "GITHUB_WORKSPACE")}
+            os.environ["GITHUB_OUTPUT"] = str(output_file)
+            os.environ["GITHUB_WORKSPACE"] = str(workspace)
+            try:
+                publish(envelope, transcript)
+                withheld = output_file.read_text(encoding="utf-8") if output_file.exists() else ""
+                transcript.write_text("{}\n", encoding="utf-8")
+                publish(envelope, transcript)
+                partly_kept = output_file.read_text(encoding="utf-8")[len(withheld):]
+            finally:
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+        self.assertEqual(withheld, "", "a withheld envelope and transcript publish nothing")
+        self.assertEqual(partly_kept, "transcript_path=outputs/general/round-na-role-AIR-y.transcript.jsonl\n")
+
+    def test_the_upload_runs_only_when_a_path_was_published_and_still_requires_it(self) -> None:
+        # ARIA-MEDIUM-574 — one rule for the targeted run and the drain: the
+        # step uploads when the executor published a kept file, and a
+        # published path that resolves to nothing stays a red job.
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        step = workflow.split("- name: Upload response envelope", 1)[1].split("- name:", 1)[0]
+        condition = next(line for line in step.splitlines() if line.strip().startswith("if:"))
+
+        self.assertIn("steps.executor.outputs.envelope_path != ''", condition)
+        self.assertIn("steps.executor.outputs.transcript_path != ''", condition)
+        self.assertNotIn("drained", condition, "a drain's count is not the question; its published list is")
+        self.assertIn("if-no-files-found: error", step)
 
     def test_publisher_is_silent_outside_actions(self) -> None:
         # Running the executor locally must not require a GITHUB_OUTPUT file.

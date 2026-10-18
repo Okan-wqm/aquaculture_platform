@@ -392,6 +392,7 @@ describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
   const DAY_PLAN = stub<FeedingDayPlan>({
     id: 'dp-1',
     siteId: SITE,
+    planDate: '2026-06-10',
     snapshot: stub<FeedingDayPlan['snapshot']>({ expectedFcr: 1.25 }),
     // W3: büyüme CANLI çözümden okunur (donuk snapshot değil).
     resolution: stub<FeedingDayPlan['resolution']>({ expectedFcr: 1.25 }),
@@ -428,6 +429,9 @@ describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
     expect(applyGrowth).toHaveBeenCalledTimes(1);
     expect(applyGrowth.mock.calls[0]![3]).toBe(40);
     expect(applyGrowth.mock.calls[0]![4]).toBe(1.25);
+    // The growth belongs to the bound plan's day (a weighing dated before it
+    // cannot discard it; FARM-CRITICAL-454 verification).
+    expect(applyGrowth.mock.calls[0]![5]).toBe('2026-06-10');
 
     // (3) Kalan öğünler 'unplanned_feed' gerekçesiyle yeniden fiyatlandı.
     expect(recalcForUnit).toHaveBeenCalledWith(expect.anything(), TENANT, TANK, 'unplanned_feed');

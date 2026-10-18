@@ -1,9 +1,16 @@
 #!/usr/bin/env ts-node
 
 import { strict as assert } from 'node:assert';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
 
-import { scanMigrationSql } from './migration-sql-lint';
+import { assertLintProjectionComplete } from '../aria-adapters/sql-migration-safety-adapter';
+
+import { removeFixtureTree } from './fixture-tree';
+import { inspectMigrationSource, scanMigrationSql } from './migration-sql-lint';
 
 function expectR4Pass(sql: string): void {
   const violations = scanMigrationSql(sql).filter(
@@ -164,4 +171,84 @@ void test('accepts a real TRUNCATE that carries the DESTRUCTIVE marker', () => {
     -- DESTRUCTIVE: rollback via docs/runbooks/database-restore-drill.md
     TRUNCATE feeding_record_provenance;
   `);
+});
+
+// ARIA-HIGH-011 — the ARIA migration-safety adapter observes migrations through
+// `inspectMigrationSource`, the same pure owner the CLI calls. This pins the
+// two readers to ONE verdict: the CLI's `--mode=file` report and the export
+// must name the same violations, line for line, for the same TypeORM source —
+// including the chunk extraction (template literals, comment stripping) that
+// a `.ts` migration needs and a bare `.sql` file does not.
+void test('the CLI and inspectMigrationSource report identical violations for one migration', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'migration-sql-lint-compat-'));
+  try {
+    const file = join(dir, 'migrations', '1900000000000-Change.ts');
+    mkdirSync(join(dir, 'migrations'));
+    const source = [
+      "import { MigrationInterface, QueryRunner } from 'typeorm';",
+      '',
+      'export class Change1900000000000 implements MigrationInterface {',
+      '  public async up(queryRunner: QueryRunner): Promise<void> {',
+      '    // DROP TABLE in a comment is not SQL',
+      '    await queryRunner.query(`ALTER TABLE farm.ponds ADD COLUMN depth integer NOT NULL`);',
+      '    await queryRunner.query(`CREATE TABLE farm.tanks (id uuid)`);',
+      '  }',
+      '',
+      '  public async down(queryRunner: QueryRunner): Promise<void> {',
+      '    await queryRunner.query(`DROP TABLE farm.tanks`);',
+      '  }',
+      '}',
+      '',
+    ].join('\n');
+    writeFileSync(file, source, 'utf8');
+    const repoRoot = resolve(__dirname, '..', '..');
+    const relPath = relative(repoRoot, file);
+
+    const cli = spawnSync(
+      process.execPath,
+      [
+        join(resolve(__dirname, '..', '..'), 'node_modules', 'ts-node', 'dist', 'bin.js'),
+        '--project',
+        join(__dirname, 'tsconfig.json'),
+        join(__dirname, 'migration-sql-lint.ts'),
+        '--mode=file',
+        file,
+      ],
+      { cwd: repoRoot, encoding: 'utf8' },
+    );
+    assert.strictEqual(cli.status, 1, cli.stderr);
+    // The CLI report: `[SEV] ruleId` / `file:line` / message / `> snippet`.
+    const reported: { severity: string; ruleId: string; line: number; snippet: string }[] = [];
+    const lines = cli.stderr.split('\n');
+    for (let index = 0; index < lines.length; index += 1) {
+      const head = lines[index]?.match(/^\s{2}\[(CRITICAL|HIGH|MEDIUM)\] (\S+)$/);
+      if (!head) continue;
+      const location = lines[index + 1]?.trim() ?? '';
+      const snippet = (lines[index + 3]?.trim() ?? '').replace(/^> /, '');
+      reported.push({
+        severity: head[1] ?? '',
+        ruleId: head[2] ?? '',
+        line: Number(location.slice(location.lastIndexOf(':') + 1)),
+        snippet,
+      });
+    }
+
+    const exported = inspectMigrationSource(relPath, source).map((violation) => ({
+      severity: violation.severity,
+      ruleId: violation.ruleId,
+      line: violation.line,
+      snippet: violation.snippet,
+    }));
+    assert.ok(exported.length >= 3, JSON.stringify(exported));
+    assert.deepStrictEqual(reported, exported);
+  } finally {
+    removeFixtureTree(dir);
+  }
+});
+
+// ARIA-HIGH-011 — a rule added to this gate must reach ARIA's observation in
+// the same change: the adapter refuses to run with an unprojected rule, and
+// this pin fails the commit that would make it refuse.
+void test('every rule this gate reports is projected by the ARIA migration-safety adapter', () => {
+  assert.doesNotThrow(() => assertLintProjectionComplete());
 });

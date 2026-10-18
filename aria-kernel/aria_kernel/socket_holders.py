@@ -1,0 +1,121 @@
+"""The kernel's per-holder socket directories, declared once and swept once.
+
+ARIA-LOW-565 — four processes the executor holds for an implementer's window
+listen on a unix socket inside a private temp directory of their own: the
+ssh-agent that signs for the sandbox (``signing_agent``), the hook broker
+(``hook_broker``), the MCP broker (``mcp_broker``) and the kernel egress
+proxy (``egress_proxy``). Each dies with its holder, but a holder killed
+outright never removes its directory, so the orchestrator's startup pass
+sweeps the directories whose socket nobody answers on.
+
+That sweep was copied verbatim into each of the four modules, differing only
+in the directory prefix and the socket's name, and the orchestrator called
+each copy by name: a fifth holder was swept only if its author also wrote a
+fifth copy and remembered the call. Here a holder is a declaration
+(``SocketHolder``); it makes its directory through it
+(``SocketHolder.make_directory``), and ``prune_stale_holder_sockets`` sweeps
+every declaration in ``SOCKET_HOLDERS``, which is every ``SocketHolder``
+this module declares.
+"""
+from __future__ import annotations
+
+import re
+import shutil
+import socket
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+# `tempfile.mkdtemp` appends eight characters from this alphabet.
+_MKDTEMP_SUFFIX = r"[A-Za-z0-9_]{8}"
+
+
+@dataclass(frozen=True)
+class SocketHolder:
+    """A holder's socket directory, ``<temp root>/<prefix><8 chars>/<socket_name>``.
+
+    ``name`` keys the holder's summary in the orchestrator's
+    ``sockets_pruned`` governance row.
+    """
+
+    name: str
+    prefix: str
+    socket_name: str
+
+    def make_directory(self) -> Path:
+        """A new private directory for one holder's socket (mode 0700)."""
+        return Path(tempfile.mkdtemp(prefix=self.prefix))
+
+    def owns(self, entry: Path) -> bool:
+        return re.fullmatch(re.escape(self.prefix) + _MKDTEMP_SUFFIX, entry.name) is not None
+
+
+SIGNING_AGENT = SocketHolder(name="signing_agents", prefix="aria-sa-", socket_name="agent")
+HOOK_BROKER = SocketHolder(name="hook_brokers", prefix="aria-hb-", socket_name="sock")
+MCP_BROKER = SocketHolder(name="mcp_brokers", prefix="aria-mb-", socket_name="sock")
+EGRESS_PROXY = SocketHolder(name="egress_proxies", prefix="aria-ep-", socket_name="sock")
+
+SOCKET_HOLDERS: tuple[SocketHolder, ...] = tuple(
+    value for value in tuple(globals().values()) if isinstance(value, SocketHolder)
+)
+
+
+def socket_answers(socket_path: Path) -> bool:
+    """Whether something listens on the unix socket ``socket_path`` (1 s bound)."""
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.settimeout(1.0)
+        client.connect(str(socket_path))
+        return True
+    except OSError:
+        return False
+    finally:
+        client.close()
+
+
+def prune_stale_socket_dirs(holder: SocketHolder, *, temp_root: str | Path | None = None) -> dict[str, Any]:
+    """Remove ``holder``'s directories whose socket no longer answers.
+
+    A directory whose socket still answers belongs to a live holder and is
+    left alone; one holding anything but the socket is not the holder's to
+    remove.
+    """
+    root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
+    swept: list[str] = []
+    live: list[str] = []
+    errors: list[str] = []
+    for entry in sorted(root.glob(f"{holder.prefix}*")):
+        if not entry.is_dir() or not holder.owns(entry):
+            continue
+        socket_path = entry / holder.socket_name
+        if socket_path.is_socket() and socket_answers(socket_path):
+            live.append(entry.name)
+            continue
+        try:
+            if any(child.name != holder.socket_name for child in entry.iterdir()):
+                continue
+            shutil.rmtree(entry)
+        except OSError as exc:
+            errors.append(f"{entry.name}:{type(exc).__name__}")
+        else:
+            swept.append(entry.name)
+    return {"scanned": len(swept) + len(live) + len(errors), "swept": swept, "live": live, "errors": errors}
+
+
+def prune_stale_holder_sockets(*, temp_root: str | Path | None = None) -> dict[str, dict[str, Any]]:
+    """Every declared holder's sweep, keyed by ``SocketHolder.name``."""
+    return {holder.name: prune_stale_socket_dirs(holder, temp_root=temp_root) for holder in SOCKET_HOLDERS}
+
+
+__all__ = [
+    "EGRESS_PROXY",
+    "HOOK_BROKER",
+    "MCP_BROKER",
+    "SIGNING_AGENT",
+    "SOCKET_HOLDERS",
+    "SocketHolder",
+    "prune_stale_holder_sockets",
+    "prune_stale_socket_dirs",
+    "socket_answers",
+]

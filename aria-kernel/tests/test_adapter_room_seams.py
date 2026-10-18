@@ -16,6 +16,9 @@ directly or stops passing through ``adapter_room``:
   orchestrator's convergent skill authoring) reaches the room only through
   it, and starts no process of its own. ``skill_genesis_sandbox.
   execute_in_sandbox``, which ran a drafted adapter by FILE PATH, is gone.
+* ``twin_test_surface.read_rust_test_files`` — the repository map asking
+  the Rust reader (``tools/aria-adapters/rust-test-files.ts``) which files
+  hold tests (ARIA-LOW-545).
 
 The two adapter runners also ask custody first (``verify_genesis_dispatch``),
 so a genesis tool runs only as its verified custody bytes.
@@ -38,7 +41,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from aria_kernel import adapter_room, fixture_runner, genesis_adapter_custody, skill_genesis, tool_runner
+from aria_kernel import adapter_room, fixture_runner, genesis_adapter_custody, skill_genesis, tool_runner, twin_test_surface
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _AUTO_CYCLE = _REPO_ROOT / ".github" / "workflows" / "aria-auto-cycle.yml"
@@ -53,6 +56,9 @@ SEAMS = (
     (tool_runner, "run_tool"),
     (fixture_runner, "run_fixture_case"),
     (genesis_adapter_custody, "run_staged_adapter"),
+    # ARIA-LOW-545 — the repository map asks the Rust reader
+    # (tools/aria-adapters/rust-test-files.ts) which files hold tests.
+    (twin_test_surface, "read_rust_test_files"),
 )
 # The genesis calibration path: it reaches the room only through
 # `run_staged_adapter`, the seam above.

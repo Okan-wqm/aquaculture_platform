@@ -34,6 +34,7 @@ from .genesis_lifecycle import (
 )
 from .ledger import load_declared_jsonl, segment_rows
 from .ledger_refs import ledger_ref_for_row
+from .operator_provenance import require_approval_scope
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 
@@ -241,22 +242,19 @@ def bridge_shadow_eval_from_invocation(
     )
 
     target_agent = str(fixture.get("target_agent") or "")
-    # WHY these two mismatch checks live HERE: _validate_real_eval_
-    # provenance binds transcript.target_agent to the fixture but never
-    # reads request.target_agent, and a C4-a approval scoped to another
-    # agent would otherwise promote this one — both are cross-row lies
-    # only the assembler can see whole.
+    # WHY the request check lives HERE: _validate_real_eval_provenance
+    # binds transcript.target_agent to the fixture but never reads
+    # request.target_agent — a cross-row lie only the assembler can see
+    # whole.
     if str(request.get("target_agent") or "") != target_agent:
         raise GovernanceError(
             "shadow_bridge_target_agent_mismatch:"
             f"request={request.get('target_agent')!r}!=fixture={target_agent!r}"
         )
-    approval_scope = str(operator.get("target_agent") or "")
-    if approval_scope and approval_scope != target_agent:
-        raise GovernanceError(
-            "shadow_bridge_operator_approval_scope_mismatch:"
-            f"approval={approval_scope!r}!=fixture={target_agent!r}"
-        )
+    # ARIA-MEDIUM-512 — an approval with no target_agent is refused, not
+    # read as a wildcard; checked here so the refusal lands before the eval
+    # run row (run_agent_eval applies the same rule through its validator).
+    require_approval_scope(operator, target_agent=target_agent)
 
     # WHY here, before run_agent_eval (ARIA-HIGH-502, ex ORPHAN-HIGH-573):
     # the lifecycle precondition used to be checked only inside

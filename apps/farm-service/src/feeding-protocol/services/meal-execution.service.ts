@@ -628,6 +628,7 @@ export class MealExecutionService {
             locked,
             growthDelta,
             expectedFcr,
+            dayPlan.planDate,
           );
           await this.recalcService.recalcForUnit(
             manager,

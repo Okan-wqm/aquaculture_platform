@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .cycle import _failed_event, run_enterprise_cycle
 from .ledger import (
     append_declared_jsonl,
@@ -697,7 +698,7 @@ def validate_burn_in_report(report: dict[str, Any]) -> None:
         raise GovernanceError(f"burn_in_report_schema_extra:{extra}")
     if report.get("schema_version") != BURN_IN_SCHEMA_VERSION:
         raise GovernanceError("burn_in_report_schema_version_mismatch")
-    if not _is_sha256(str(report.get("base_commit_sha") or ""), git_sha=True):
+    if not is_object_id(report.get("base_commit_sha"), formats=ANY_OBJECT_FORMAT):
         raise GovernanceError("burn_in_report_base_commit_sha_invalid")
     if not _is_sha256(str(report.get("evidence_bundle_hash") or "")):
         raise GovernanceError("burn_in_report_evidence_bundle_hash_invalid")
@@ -910,9 +911,7 @@ def _bundle_content_hash(bundle: dict[str, Any]) -> str:
     return _stable_hash(payload)
 
 
-def _is_sha256(value: str, *, git_sha: bool = False, allow_bare: bool = False) -> bool:
-    if git_sha:
-        return len(value) == 40 and all(ch in "0123456789abcdef" for ch in value)
+def _is_sha256(value: str, *, allow_bare: bool = False) -> bool:
     if allow_bare and len(value) == 64 and all(ch in "0123456789abcdef" for ch in value):
         return True
     return (

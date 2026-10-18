@@ -86,11 +86,13 @@ class _ConvergedOperatorPlan(_PlanCase):
         self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
         self.request_id = self.requests("implementation")[0]["request_id"]
 
-    @staticmethod
-    def plan() -> dict:
+    def plan(self) -> dict:
+        """The body the synthesizer starts an operator plan with: the signed finding and grounding."""
         plan = _PlanCase.plan()
         plan["affected_surfaces"] = [{"paths": [WRITE_SURFACE]}]
         plan["provenance_refs"] = [PROVENANCE_REF_PREFIX + REQUEST_ID]
+        plan["finding_id"] = self.row["finding_id"]
+        plan["grounding_digest"] = self.row["grounding_digest"]
         return plan
 
     def bind_synthesis(self, plan_id: str) -> None:
@@ -163,6 +165,7 @@ class AScopeRefusalInsideTheSignedRootsReplans(_ConvergedOperatorPlan):
             ingestion_rows=load_jsonl(ingestion_ledger_path(self.tools)),
             feedback_rows=load_declared_jsonl(self.tools / "operator-feedback.jsonl", expected_surface="operator_feedback"),
             plan_events=load_jsonl(events_path(self.tools)), allowed_signers=signers,
+            main_request_ids=frozenset(),
         )
         self.assertNotIn("operator_feedback_unavailable_reason", observed, observed)
         self.assertTrue(observed["operator_feedback_verified"])

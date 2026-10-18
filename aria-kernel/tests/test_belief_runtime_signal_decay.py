@@ -104,17 +104,14 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
             source="sentry", service="farm-service", summary="transient",
             code_refs=["src/a.ts"], base_dir=self.tools,
         )
-        rows = load_jsonl(self.tools / "runtime-signals-index.jsonl") \
-            if (self.tools / "runtime-signals-index.jsonl").exists() else []
-        # resolve every open signal by discovering its id from the store
-        for path in sorted((self.tools / "runtime-signals").glob("*.json")):
-            import json as _json
-            signal_id = _json.loads(path.read_text(encoding="utf-8")).get("signal_id")
-            if signal_id:
-                resolve_runtime_signal(
-                    signal_id=signal_id, resolution_note="test resolve",
-                    base_dir=self.tools,
-                )
+        from aria_kernel.runtime_signal_bridge import load_open_runtime_signals
+
+        # resolve every open signal the store holds
+        for signal in load_open_runtime_signals(base_dir=self.tools):
+            resolve_runtime_signal(
+                signal_id=signal["signal_id"], resolution_note="test resolve",
+                base_dir=self.tools,
+            )
         result = decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools)
         self.assertEqual(result["decayed_count"], 0)
         self.assertEqual(self._row("b-quiet").get("status"), "supported")
@@ -148,18 +145,26 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
 
 
     def _write_pre_law_signal(self, signal_id: str, code_refs: list[str]) -> Path:
-        """A record as the bridge wrote it before it enforced the ref law."""
-        import json
+        """An observation as the bridge recorded it before it enforced the ref law."""
+        from aria_kernel.ledger import append_declared_jsonl
+        from aria_kernel.runtime_signal_bridge import runtime_signal_events_path
 
-        path = self.tools / "runtime-signals" / f"{signal_id}.json"
+        path = runtime_signal_events_path(self.tools)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
-            "$schema": "aria/runtime-signal/v1", "schema_version": 1, "signal_id": signal_id,
-            "source": "sentry", "service": "farm-service", "summary": "forged frame",
+        append_declared_jsonl(path, {
+            "$schema": "aria/runtime-signal-event/v1", "schema_version": 1, "event": "observed",
+            "signal_id": signal_id, "source": "sentry", "service": "farm-service", "summary": "forged frame",
             "code_refs": code_refs, "severity": "high", "trust_grade": "runtime_unverified",
-            "status": "open", "recorded_at": "2026-10-08T00:00:00Z",
-        }), encoding="utf-8")
+            "recorded_at": "2026-10-08T00:00:00Z",
+        }, expected_surface="runtime_signal_events")
         return path
+
+    def _signal(self, signal_id: str) -> dict:
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.runtime_signal_bridge import fold_runtime_signals, runtime_signal_events_path
+
+        events = load_declared_jsonl(runtime_signal_events_path(self.tools), expected_surface="runtime_signal_events")
+        return fold_runtime_signals(events)[signal_id]
 
     def test_a_pre_law_glob_record_is_withheld_by_a_pure_read(self) -> None:
         # ARIA-MEDIUM-393 review — one `*/*` frame stored before the bridge
@@ -191,15 +196,15 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         self.assertEqual(load_open_runtime_signals(base_dir=self.tools), [])
         self.assertEqual(decay_beliefs_by_runtime_signals(cycle_id="c1", base_dir=self.tools)["decayed_count"], 0)
 
-    def test_quarantine_moves_a_refused_record_once_governance_first(self) -> None:
-        import json
-
+    def test_quarantine_closes_a_refused_signal_once_and_keeps_the_observation(self) -> None:
         from aria_kernel.runtime_signal_bridge import quarantine_refused_runtime_signals
 
         path = self._write_pre_law_signal("runtime-00000000000000bb", ["../../../../etc/passwd"])
+        observed = path.read_bytes()
         first = quarantine_refused_runtime_signals(base_dir=self.tools)
         self.assertEqual([q["signal_id"] for q in first["quarantined"]], ["runtime-00000000000000bb"])
-        record = json.loads(path.read_text(encoding="utf-8"))
+        self.assertTrue(path.read_bytes().startswith(observed), "the observation is never rewritten")
+        record = self._signal("runtime-00000000000000bb")
         self.assertEqual(record["status"], "quarantined")
         self.assertTrue(record["quarantine_reason"].startswith("agent_evidence_path_escapes_workspace"))
         second = quarantine_refused_runtime_signals(base_dir=self.tools)
@@ -231,14 +236,12 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         self.assertEqual(quarantine_refused_runtime_signals(base_dir=self.tools)["status"], "nothing_refused")
 
     def test_a_resolved_record_is_never_quarantined(self) -> None:
-        import json
-
         from aria_kernel.runtime_signal_bridge import quarantine_refused_runtime_signals, resolve_runtime_signal
 
-        path = self._write_pre_law_signal("runtime-00000000000000dd", ["*/*"])
+        self._write_pre_law_signal("runtime-00000000000000dd", ["*/*"])
         resolve_runtime_signal(signal_id="runtime-00000000000000dd", resolution_note="handled", base_dir=self.tools)
         self.assertEqual(quarantine_refused_runtime_signals(base_dir=self.tools)["quarantined"], [])
-        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["status"], "resolved")
+        self.assertEqual(self._signal("runtime-00000000000000dd")["status"], "resolved")
 
     def test_resolve_refuses_a_signal_id_that_is_not_a_minted_id(self) -> None:
         from aria_kernel.runtime_signal_bridge import resolve_runtime_signal
@@ -247,15 +250,17 @@ class BeliefRuntimeSignalDecayTests(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "runtime_signal_id_invalid"):
             resolve_runtime_signal(signal_id="../../governance", resolution_note="x", base_dir=self.tools)
 
-    def test_a_torn_record_is_reported_not_silently_skipped(self) -> None:
-        from aria_kernel.runtime_signal_bridge import scan_open_runtime_signals
+    def test_a_ledger_that_fails_verification_is_reported_not_silently_skipped(self) -> None:
+        from aria_kernel.runtime_signal_bridge import quarantine_refused_runtime_signals, scan_open_runtime_signals
 
-        path = self.tools / "runtime-signals" / "runtime-00000000000000ee.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text('{"status": "op', encoding="utf-8")
+        path = self._write_pre_law_signal("runtime-00000000000000ef", ["src/a.ts:3"])
+        # A row changed after it was chained: the hash no longer verifies.
+        path.write_text(path.read_text(encoding="utf-8").replace("forged frame", "edited frame"), encoding="utf-8")
         refused = scan_open_runtime_signals(base_dir=self.tools)["refused"]
-        self.assertEqual(refused[0]["signal_id"], "runtime-00000000000000ee")
+        self.assertEqual(refused[0]["signal_id"], "runtime-signals/events.jsonl")
         self.assertTrue(refused[0]["reason"].startswith("runtime_signal_unreadable"))
+        # Nothing to close by id: reported on every run until repaired.
+        self.assertEqual(quarantine_refused_runtime_signals(base_dir=self.tools)["unreadable"], refused)
 
     def test_a_valid_pre_law_record_is_returned_canonical(self) -> None:
         from aria_kernel.runtime_signal_bridge import load_open_runtime_signals

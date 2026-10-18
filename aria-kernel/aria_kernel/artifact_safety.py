@@ -48,11 +48,28 @@ def published_text(text: Any, *, store_root: Path | None, limit: int) -> str:
     ``//user:password@`` and a webhook's ``/services/`` path down to their
     last component, and the redaction no longer knew either (ARIA-MEDIUM-546).
     """
+    return _sanitized_for_publication(text, store_root=store_root)[:limit]
+
+
+def published_tail(text: Any, *, store_root: Path | None, limit: int) -> str:
+    """:func:`published_text` keeping the END of the text instead of its start.
+
+    For a process's stderr, where the cause of a crash is the last thing
+    written (a Python traceback ends with the exception, Node prints the
+    uncaught error after any warnings). The whole text is sanitized before
+    the bound is applied, so a secret straddling the cut is redacted whole
+    rather than left as a half no redactor recognises.
+    """
+    sanitized = _sanitized_for_publication(text, store_root=store_root)
+    return sanitized[-limit:] if limit > 0 else ""
+
+
+def _sanitized_for_publication(text: Any, *, store_root: Path | None) -> str:
     out = str(text)
     if store_root is not None:
         for prefix in {Path(store_root).as_posix(), Path(store_root).resolve().as_posix()}:
             out = out.replace(f"{prefix}/", "")
-    return _ABSOLUTE_PATH.sub(r"\1", scrub_text(out))[:limit]
+    return _ABSOLUTE_PATH.sub(r"\1", scrub_text(out))
 
 
 def scrub_json(value: Any) -> Any:
@@ -201,6 +218,8 @@ def write_sanitized_json(path: str | Path, payload: Any, *, max_bytes: int = 1_0
 __all__ = [
     "ArtifactSafetyError",
     "assert_real_mode_env_safe",
+    "published_tail",
+    "published_text",
     "refuse_credential_keys",
     "refuse_unredacted_credentials",
     "sanitized_json_text",

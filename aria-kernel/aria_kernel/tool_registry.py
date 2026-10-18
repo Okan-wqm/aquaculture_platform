@@ -8,9 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .canonical_path import typed_alternatives
 from .ledger import (
     StateTransaction,
     append_declared_jsonl,
+    append_declared_jsonl_rows,
     append_jsonl,
     atomic_write_json,
     file_hash,
@@ -52,6 +54,15 @@ TOOL_KINDS = ("adapter", "skill", "llm_amplified_skill")
 # operator_approval). This closes the new-tool-direct-ACTIVE bypass.
 INITIAL_LIFECYCLE_STATES = ("SHADOW",)
 RUNNER_REQUIRED_STATUSES = ("SHADOW", "ACTIVE", "CALIBRATE")
+# ARIA-LOW-533 — an adapter's SECURITY CLASS is declared in its manifest
+# (`tools/aria-adapters/<id>.tool.json`, carried into the registry row by the
+# manifest sync), never kept as an id list beside the manifests. A security
+# adapter's findings guard tenant isolation, authorization, the agent
+# harness's security boundary or the tenant-schema invariant, and its
+# calibration dial is raise-only (`calibration_dials`). The declaration is
+# optional on a row, boolean when present, and read through
+# `is_security_class` only, which reads an undeclared row as security class.
+SECURITY_CLASS_FIELD = "security_class"
 RUNNER_TYPES = ("subprocess",)
 # ARIA-MEDIUM-508 — the files a runner executes that the repository does not
 # track (`npm ci` installs them), named workspace-relative. A workspace without
@@ -681,6 +692,35 @@ def append_tools_governance(
     )
 
 
+
+def append_tools_governance_rows(
+    base_dir: str | os.PathLike[str] | Path,
+    events: list[tuple[str, dict[str, Any]]],
+    *,
+    bypass_profile_gate: bool = False,
+) -> list[dict[str, Any]]:
+    """Append several governance rows, each ``(kind, details)``, as ONE batch.
+
+    The same gates and row shape as ``append_tools_governance`` for every
+    row, paid once: ``append_declared_jsonl_rows`` verifies the chain and
+    reads its tail once under the held lock (ARIA-HIGH-237). ARIA-LOW-566 —
+    a producer that records one row per item of a pass (the lease reaper,
+    one per expired claim) uses this; ``append_tools_governance`` in a loop
+    verified and re-read the whole ledger (25.9 MB on aria/state) per row.
+    """
+    if not events:
+        return []
+    if not bypass_profile_gate:
+        from .runtime_profile import enforce_profile_for_write
+        enforce_profile_for_write("tool_governance", base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
+    return append_declared_jsonl_rows(
+        root / "governance.jsonl",
+        [governance_event(kind=kind, details=details) for kind, details in events],
+        expected_surface="tools_governance",
+        bypass_profile_gate=bypass_profile_gate,
+    )
+
 def disclosure_fingerprint(kind: str, claim: dict[str, Any]) -> str:
     """The identity of what a disclosure ASSERTS, ignoring when it was said.
 
@@ -901,6 +941,10 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("forbidden_read_globs must be an array")
     if not isinstance(candidate["claim_types"], list) or not candidate["claim_types"]:
         raise GovernanceError("claim_types must be a non-empty array")
+    if SECURITY_CLASS_FIELD in candidate and not isinstance(candidate[SECURITY_CLASS_FIELD], bool):
+        raise GovernanceError(
+            f"{SECURITY_CLASS_FIELD} must be a boolean when declared, got {candidate[SECURITY_CLASS_FIELD]!r}"
+        )
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
     if "rules" in candidate:
@@ -1187,6 +1231,42 @@ def get_tool(
     raise GovernanceError(f"tool not found: {tool_id}")
 
 
+def is_dispatchable(tool: dict[str, Any]) -> bool:
+    """A row the runner runs: its lifecycle status is one of RUNNER_REQUIRED_STATUSES."""
+    return tool.get("status") in RUNNER_REQUIRED_STATUSES
+
+
+def is_security_class(tool: dict[str, Any]) -> bool:
+    """Is this registry row a security-class tool (ARIA-LOW-533)?
+
+    Fail-closed: only a row that DECLARES ``security_class: false`` is not.
+    A row written before the field existed, a drafted genesis adapter (the
+    kernel owns the field there, ``genesis_adapter_custody``) and a manifest
+    that forgot it all read as security class, so no tool becomes lowerable
+    by omission.
+    """
+    return tool.get(SECURITY_CLASS_FIELD) is not False
+
+
+def observing_globs(tool: dict[str, Any]) -> tuple[str, ...]:
+    """The globs by which this registry row OBSERVES the tree (ARIA-HIGH-531).
+
+    The one owner of "this row counts as observation": only an adapter the
+    runner dispatches observes anything, and only through the typed
+    alternatives of its ``declared_scope``
+    (``canonical_path.typed_alternatives``). A type-less glob (``**``) is a
+    read allowlist, not a claim to parse every file it matches; a quarantined
+    or non-adapter row observes nothing.
+    """
+    if tool.get("kind") != "adapter" or not is_dispatchable(tool):
+        return ()
+    return tuple(
+        alternative
+        for glob in tool.get("declared_scope") or []
+        for alternative in typed_alternatives(str(glob))
+    )
+
+
 def list_tools(
     status: str | None = None,
     base_dir: str | os.PathLike[str] | None = None,
@@ -1213,6 +1293,9 @@ _OPERATOR_APPROVAL_GATED_FIELDS: tuple[str, ...] = (
     "forbidden_read_globs",
     "declared_scope",
     "health_thresholds",
+    # ARIA-LOW-533 — the class decides whether the calibration actuator may
+    # lower the tool's dial; changing it at runtime is an operator's act.
+    SECURITY_CLASS_FIELD,
 )
 
 
@@ -1500,6 +1583,9 @@ def transition_tool(
         raise GovernanceError("transition reason is required")
 
     tool = get_tool(tool_id, base_dir)
+    # Set only by SHADOW -> ACTIVE, the one transition the panel authorizes.
+    _panel_promote_verified = False
+    _genesis_drafted = False
     if target_status in RUNNER_REQUIRED_STATUSES and "runner" not in tool:
         raise GovernanceError(f"{target_status} tool requires runner configuration")
     current = tool["status"]
@@ -1530,19 +1616,32 @@ def transition_tool(
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
             if critical_false_positives > 0:
                 raise GovernanceError("SHADOW -> ACTIVE requires zero critical false positives")
-            # ARIA-HIGH-414 — a skill-genesis drafted adapter: its custody
-            # bytes must still verify, and the authority must be an operator
-            # act or the panel; the auto-promote token alone is refused.
-            # Structural, so a refusal spends no operator act. Late import:
-            # genesis_adapter_custody imports this module.
-            from .genesis_adapter_custody import verify_genesis_promotion
+            # The panel token is VERIFIED once, here among the structural
+            # gates, and both the genesis authority check and the predicate
+            # below read the verdict: presence is not authority.
+            # verify_panel_approval_token re-derives the mint (kernel scope,
+            # panel adjudication, veto window) and compares MACs in constant
+            # time, so a forged string reads as "no token" instead of as a
+            # promotion. It spends nothing, so verifying it before the
+            # operator act resolves keeps a refusal free. Late import:
+            # promotion_veto reads this module at import time.
+            if panel_approval_token:
+                from .promotion_veto import verify_panel_approval_token
 
-            verify_genesis_promotion(
-                tool,
-                operator_approval_ref=operator_approval_ref,
-                panel_approval_token=panel_approval_token,
-                base_dir=base_dir,
-            )
+                _panel_promote_verified = (
+                    verify_panel_approval_token(
+                        panel_approval_token, tool_id=tool_id, base_dir=base_dir
+                    )
+                    is not None
+                )
+            # ARIA-HIGH-414 — a skill-genesis drafted adapter's custody bytes
+            # must still verify. Structural, so drifted bytes refuse the
+            # promotion before any operator act is spent; its authority is
+            # judged once the act has resolved (below). Late import:
+            # genesis_adapter_custody imports this module.
+            from .genesis_adapter_custody import verify_genesis_dispatch
+
+            _genesis_drafted = verify_genesis_dispatch(tool, base_dir=base_dir) is not None
     leaving_quarantine = (
         current == "QUARANTINED" and target_status not in _QUARANTINE_EXITS_WITHOUT_APPROVAL
     )
@@ -1570,6 +1669,17 @@ def transition_tool(
             "(surface=tool_unquarantine)"
         )
     if target_status == "ACTIVE":
+        if current == "SHADOW" and _genesis_drafted:
+            # ARIA-HIGH-414 — drafted code reaches ACTIVE only on the operator
+            # act resolved above or the panel token verified above, never on
+            # a string's presence; the auto-promote token is not that
+            # authority, so for drafted code it is not even verified. A
+            # refusal here fires only when no act resolved: none is spent.
+            from .genesis_adapter_custody import verify_genesis_promotion
+
+            verify_genesis_promotion(
+                tool_id, operator_approval=operator_approval, panel_promote_verified=_panel_promote_verified,
+            )
         if current == "SHADOW":
             # Plan ARIA-V6 §2e v2 B-V1-1 — literal predicate pinned by
             # I-V6.4-04 source-substring invariant. The order of the
@@ -1597,22 +1707,9 @@ def transition_tool(
                     )
                     is not None
                 )
-            # Same standard for the panel token, symmetric with the auto
-            # lane: presence is not authority. verify_panel_approval_token
-            # re-derives the mint (kernel scope, panel adjudication, veto
-            # window) and compares MACs in constant time, so a forged
-            # string reads as "no token" instead of as a promotion.
-            # Late import for the same cycle reason as above.
-            _panel_promote_verified = False
-            if panel_approval_token:
-                from .promotion_veto import verify_panel_approval_token
-
-                _panel_promote_verified = (
-                    verify_panel_approval_token(
-                        panel_approval_token, tool_id=tool_id, base_dir=base_dir
-                    )
-                    is not None
-                )
+            # The panel lane was verified among the structural gates above
+            # (_panel_promote_verified), to the same standard as the auto
+            # lane: presence is not authority.
             if (not operator_approval and not _auto_promote_verified and not _panel_promote_verified) or not evidence_chains_valid:
                 raise GovernanceError(
                     "SHADOW -> ACTIVE requires valid evidence chains and "

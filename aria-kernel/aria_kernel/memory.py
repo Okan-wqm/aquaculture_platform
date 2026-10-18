@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import fnmatch
 import functools
-import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id_prefix
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .evidence_probe import GitProbeSession
 from .evidence_trust import EvidencePolicy, SELF_OUTPUT_PREFIXES, classify_evidence_ref
@@ -1260,7 +1260,7 @@ def _changed_files_since(repo_root: Path, base_sha: str) -> list[str] | None:
     """git diff --name-only base_sha..HEAD, or None if the range is unusable."""
     import subprocess
 
-    if not re.fullmatch(r"[0-9a-f]{7,64}", base_sha or ""):
+    if not is_object_id_prefix(base_sha, formats=ANY_OBJECT_FORMAT, min_digits=7):
         return None
     try:
         # Confirm both ends are real commits before diffing — a base_sha

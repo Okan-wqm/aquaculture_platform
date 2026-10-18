@@ -17,7 +17,11 @@
  *     no longer active, a duplicate row and an unknown bucket each fail by id;
  *   - the reconcile lane's one remaining write — retiring the row of a
  *     CRITICAL it resolved — is planned in full before anything is written,
- *     refuses rather than guess, and is idempotent.
+ *     refuses rather than guess, and is idempotent;
+ *   - ARIA-HIGH-534: "active" is the registry's own unresolved set (OPEN,
+ *     IN-PROGRESS, BLOCKED, STALE), so the daily sweep's BLOCKED transition of
+ *     a past-deadline CRITICAL keeps its truth-table row valid instead of
+ *     failing the sweep PR on a row that "left" the active set.
  */
 
 import { strict as assert } from 'node:assert';
@@ -30,6 +34,8 @@ import {
   retireResolvedRows,
   truthTableActiveRows,
 } from './debt-plan-truth';
+import { planSweep } from './finding-registry';
+import { type Finding, ZERO_HASH, serializeRegistryJsonl } from './finding-registry-chain';
 
 interface Row {
   readonly id: string;
@@ -206,17 +212,93 @@ void test('the reconcile lane refuses rather than guess, before writing anything
   );
   assert.throws(() => retireResolvedRows(TRUTH_TABLE, missing), /ADMIN-CRITICAL-008/);
 
-  // A CRITICAL that left the active set without a closing commit (BLOCKED,
-  // STALE) is a judgement the lane must not record as a resolution.
-  const blocked = deriveRegistrySnapshot(
+  // A CRITICAL that left the active set without a closing commit (a RESOLVED
+  // row with no closer) is not a resolution the lane can record.
+  const unproven = deriveRegistrySnapshot(
     registry(
       BASE_ROWS.map((row) =>
-        row.id === 'ARIA-CRITICAL-003' ? { ...row, state: 'BLOCKED' as const } : row,
+        row.id === 'ARIA-CRITICAL-003' ? { ...row, state: 'RESOLVED' as const } : row,
       ),
     ),
   );
   assert.throws(
-    () => retireResolvedRows(TRUTH_TABLE, blocked),
+    () => retireResolvedRows(TRUTH_TABLE, unproven),
     /ARIA-CRITICAL-003.*closing commit/,
   );
+});
+
+void test('a BLOCKED or STALE CRITICAL is unresolved debt and keeps its truth-table row', () => {
+  const judged = deriveRegistrySnapshot(
+    registry(
+      BASE_ROWS.map((row) => {
+        if (row.id === 'ARIA-CRITICAL-003') return { ...row, state: 'BLOCKED' as const };
+        if (row.id === 'INFRA-CRITICAL-001') return { ...row, state: 'STALE' as const };
+        return row;
+      }),
+    ),
+  );
+  assert.deepEqual(judged.activeCriticalIds, ['INFRA-CRITICAL-001', 'ARIA-CRITICAL-003']);
+  assert.equal(checkDebtPlanTruth(judged, truthTableActiveRows(TRUTH_TABLE)).valid, true);
+  // Nothing to retire: BLOCKED and STALE are judgements, not resolutions.
+  assert.deepEqual(retireResolvedRows(TRUTH_TABLE, judged), {
+    contents: TRUTH_TABLE,
+    retired: [],
+  });
+});
+
+function finding(row: Row, overrides: Partial<Finding>): Finding {
+  return {
+    ...row,
+    title: row.id,
+    owner_agent: 'claude',
+    raised_in_cycle: 'spec',
+    created_at: '2026-01-01T00:00:00Z',
+    closed_at: null,
+    closing_commits: [...(row.closing_commits ?? [])],
+    deadline: null,
+    owner_user: null,
+    override_of: null,
+    prev_hash: ZERO_HASH,
+    content_hash: ZERO_HASH,
+    ...overrides,
+  };
+}
+
+void test("the sweep's past-deadline BLOCKED transition passes the debt-plan gate (ARIA-HIGH-534)", () => {
+  const entries = BASE_ROWS.map((row) =>
+    finding(row, row.id === 'INFRA-CRITICAL-001' ? { deadline: '2026-02-01' } : {}),
+  );
+  const actions = planSweep(entries, {
+    staleAfterDays: 30,
+    dryRun: false,
+    now: new Date('2026-10-16T00:00:00Z'),
+  });
+  // The sweep does move the past-deadline CRITICAL (and only staleness moves
+  // the non-CRITICAL rows).
+  assert.deepEqual(
+    actions.filter((action) => action.id === 'INFRA-CRITICAL-001'),
+    [
+      {
+        id: 'INFRA-CRITICAL-001',
+        fromState: 'OPEN',
+        toState: 'BLOCKED',
+        reason: 'past deadline 2026-02-01',
+      },
+    ],
+  );
+  const swept = entries.map((entry) => {
+    const action = actions.find((candidate) => candidate.id === entry.id);
+    return action === undefined ? entry : { ...entry, state: action.toState };
+  });
+  const verdict = checkDebtPlanTruth(
+    deriveRegistrySnapshot(serializeRegistryJsonl(swept)),
+    truthTableActiveRows(TRUTH_TABLE),
+  );
+  assert.deepEqual(verdict, {
+    valid: true,
+    missingRows: [],
+    retiredRows: [],
+    duplicateRows: [],
+    invalidBuckets: [],
+  });
 });

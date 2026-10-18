@@ -39,6 +39,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { hermeticGitEnv } from './hermetic-git';
+
 export const CURRENT_STATE_PATH = 'docs/aria/CURRENT_STATE.md';
 
 /** The heading whose backticked repository paths are the document's claims. */
@@ -65,7 +67,7 @@ function gitIn(repoRoot: string, args: readonly string[]): string {
   return execFileSync('git', ['-C', repoRoot, ...args], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
-    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+    env: hermeticGitEnv(),
   });
 }
 

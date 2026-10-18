@@ -298,7 +298,9 @@ def run_review_runner(
             ),
             must_satisfy=must_satisfy,
             allowed_scope=[f"cycle/{cycle_id}"],
-            evidence_refs=[f"cycle:{cycle_id}"],
+            # ARIA-MEDIUM-385 — the cycle rides on its field, never as a ref
+            # the judge would cite and the submit law refuse.
+            cycle_id=cycle_id,
             convergence_id=convergence_id,
             round_number=round_n,
             base_dir=base_dir,

@@ -35,8 +35,10 @@ RULES.
 * **Cooldown.** After an undo the dial takes no step for :data:`COOLDOWN`.
 * **Bounds.** ``calibration_dials.dial_bounds``; at most
   :data:`MAX_STEP_PER_CYCLE` per step, one step per dial per cycle.
-* **Security tools** (``calibration_dials.SECURITY_TOOLS``) are raise-only
-  with a floor of neutral: a cut is surfaced as an operator's act.
+* **Security tools** are raise-only with a floor of neutral: a cut is
+  surfaced as an operator's act. The class is each registry row's declared
+  ``security_class`` (``calibration_dials.security_classes``, ARIA-LOW-533);
+  a tool whose row does not declare ``false`` is never cut.
 * **Operator-owned dials.** A pressure-source recommendation is never applied;
   that table belongs to ``pressure weight-override`` and the Beta-Binomial
   source calibration (ORPHAN-HIGH-627).
@@ -58,13 +60,14 @@ from typing import Any, Mapping
 from .calibration_dials import (
     AUTO_APPLIED_PATH,
     AUTO_APPLIED_SURFACE,
-    SECURITY_TOOLS,
     TOOL_DIAL,
     TOOL_DIAL_NEUTRAL,
     auto_applied_rows,
     dial_bounds,
     feedback_dial,
+    is_raise_only,
     moves_auto_applied_dial,
+    security_classes,
 )
 
 MAX_STEP_PER_CYCLE = 10
@@ -134,13 +137,13 @@ def _surface(rec: Mapping[str, Any], reason: str) -> dict[str, Any]:
 
 
 def _refusal(rec: Mapping[str, Any], entry: Mapping[str, Any], fresh: Mapping[str, Any], now: datetime,
-             judged: set[str]) -> str | None:
+             judged: set[str], classes: Mapping[str, bool]) -> str | None:
     """None when the recommendation may apply; else why it stays advice."""
     tool = str(rec.get("source"))
     if rec.get("dial") != TOOL_DIAL:
         return "operator_owned_dial"
     current, target = int(rec["current_weight"]), int(rec["recommended_weight"])
-    if tool in SECURITY_TOOLS and target < current:
+    if is_raise_only(tool, classes) and target < current:
         return "security_tool_cut_is_operator_act"
     if entry.get("open") is not None:
         return "window_open"
@@ -148,7 +151,7 @@ def _refusal(rec: Mapping[str, Any], entry: Mapping[str, Any], fresh: Mapping[st
         return "judged_this_cycle"
     if entry.get("cooldown_until") is not None and now < entry["cooldown_until"]:
         return "cooldown_after_undo"
-    low, high = dial_bounds(tool)
+    low, high = dial_bounds(tool, classes)
     if not low <= target <= high:
         return "outside_declared_bounds"
     if abs(target - current) > MAX_STEP_PER_CYCLE:
@@ -201,6 +204,7 @@ def apply_bounded_calibration(
         elif entry["last_applied"] is not None and at - entry["last_applied"] >= WINDOW_TIMEOUT:
             judged.append(append({"event": "held_timeout", "weight": application["to_weight"], **common}))
     state = _dial_state(auto_applied_rows(root))
+    classes = security_classes(root)
     judged_tools = {str(row["dial"]["name"]) for row in judged}
     applied: list[dict[str, Any]] = []
     surfaced: list[dict[str, Any]] = []
@@ -208,7 +212,7 @@ def apply_bounded_calibration(
         tool = str(rec.get("source"))
         entry = state.get(tool, {})
         fresh = _labels(feedback, tool, entry.get("last_applied"))
-        refusal = _refusal(rec, entry, fresh, at, judged_tools)
+        refusal = _refusal(rec, entry, fresh, at, judged_tools, classes)
         if refusal is not None:
             surfaced.append({**_surface(rec, refusal), "fresh_labels": fresh})
             continue
@@ -216,7 +220,7 @@ def apply_bounded_calibration(
         evidence = {"recommendation_ledger_hash": recommendation.get("ledger_hash"),
                     "recommendation_cycle_id": recommendation.get("cycle_id"), "fresh_labels": fresh}
         digest = hashlib.sha256(json.dumps([tool, current, target, stamp, evidence], sort_keys=True).encode())
-        low, high = dial_bounds(tool)
+        low, high = dial_bounds(tool, classes)
         applied.append(append({
             "event": "applied", "application_id": "calib:" + digest.hexdigest()[:24],
             "dial": {"kind": TOOL_DIAL, "name": tool}, "from_weight": current, "to_weight": target,

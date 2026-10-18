@@ -39,6 +39,7 @@ from .operator_request_signature import (
     allowed_signers_for_checkout,
     operator_act_terms_reason,
     request_subject_digest,
+    refuse_untrusted_signing_environment,
     sign_operator_subject,
     verify_operator_signature,
 )
@@ -50,7 +51,7 @@ SERVER_NAME = "aria"
 SERVER_VERSION = "032g"
 READ_TOOLS: tuple[str, ...] = (
     "aria_status", "missions_list", "findings_query", "pressure_top", "governance_tail", "handoff_read",
-    "daily_report", "search", "delivery_status", "progress_tail", "plan_verify",
+    "daily_report", "search", "delivery_status", "progress_tail", "plan_verify", "operator_inbox",
 )
 WRITE_TOOLS: tuple[str, ...] = ("human_required_resolve", "runtime_signal_ingest")
 MCP_WRITE_TOOL_EVENT = "mcp_write_tool_used"
@@ -111,6 +112,7 @@ def sign_mcp_write_approval(
     subject_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     """The operator half of the gate: sign one write, and refuse what the gate would refuse."""
+    refuse_untrusted_signing_environment(workspace_root, act="mcp_write")
     if tool not in WRITE_TOOLS:
         raise GovernanceError(f"mcp_write_tool_unknown: {tool!r}")
     if not isinstance(arguments, dict) or APPROVAL_ARGUMENT in arguments:
@@ -149,6 +151,8 @@ TOOL_MANIFEST: dict[str, dict[str, Any]] = {
     # sandbox's command policy has no interpreter for a hand recomputation,
     # and two live spawns spent their whole budgets attempting one.
     "plan_verify": {"description": "Verify a CONVERGED plan's authenticity: the kernel recomputes plan_convergence.content_hash from its own hash-verified ledger body and compares it with the hash the envelope names (must_satisfy authenticity item). Returns verdict verified|mismatch, the revision id and the FULL plan body (the envelope's inline copy may be truncated). Call this instead of recomputing by hand.", "inputSchema": _schema({"plan_id": {"type": "string"}, "content_hash": {"type": "string"}}, ["plan_id", "content_hash"])},
+    # ARIA-MEDIUM-127 — the operator inbox, the same payload as `aria-kernel operator inbox --json`.
+    "operator_inbox": {"description": "Every decision ARIA is waiting on the operator for (open HUMAN_REQUIRED records, lapsed or lapsing waivers, missions held for a person), with counts per kind and the command that answers each item; unreadable sources are named in undecided.", "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 200}})},
     "human_required_resolve": {"description": "OPERATOR: resolve a HUMAN_REQUIRED request (needs --allow-writes and an operator_approval from `aria-kernel mcp approve` over these exact arguments).", "inputSchema": _schema({"request_id": {"type": "string"}, "resolution_note": {"type": "string"}, "verdict": {"type": "string"}, APPROVAL_ARGUMENT: _APPROVAL_SCHEMA}, ["request_id", "resolution_note", APPROVAL_ARGUMENT])},
     "runtime_signal_ingest": {"description": "OPERATOR: record a runtime signal lead (needs --allow-writes and an operator_approval from `aria-kernel mcp approve` over these exact arguments).", "inputSchema": _schema({"source": {"type": "string"}, "service": {"type": "string"}, "summary": {"type": "string"}, "code_refs": {"type": "array", "items": {"type": "string"}}, "severity": {"type": "string"}, APPROVAL_ARGUMENT: _APPROVAL_SCHEMA}, ["source", "service", "summary", "code_refs", APPROVAL_ARGUMENT])},
 }
@@ -241,6 +245,13 @@ class AriaMcpServer:
         from .progress import read_progress
 
         return read_progress(str(args["request_id"]), base_dir=self.root, last=int(args.get("last") or 20))
+
+    def _operator_inbox(self, args: dict[str, Any]) -> Any:
+        from .operator_inbox import DEFAULT_ITEM_LIMIT, read_operator_inbox
+
+        # The reader refuses a limit below 1; a falsy one is not quietly the default.
+        return read_operator_inbox(tools_dir=self.root, workspace_root=self.workspace,
+                                   limit=args.get("limit", DEFAULT_ITEM_LIMIT))
 
     def _plan_verify(self, args: dict[str, Any]) -> Any:
         from .plan_convergence import converged_plan_body, fold_plan_state

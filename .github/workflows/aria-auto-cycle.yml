@@ -115,6 +115,19 @@ on:
         options:
           - 'true'
           - 'false'
+      # ARIA-MEDIUM-271 — a kernel-owned runtime signal, by name
+      # (runtime_signal_bridge.STANDING_RUNTIME_SIGNALS), that this cycle
+      # ingests into its own store before it runs. The dataflow watchdog
+      # dispatches with it: the watchdog's own checkout is thrown away with
+      # its job, and this lane owns the store's publish.
+      runtime_signal:
+        description: 'A standing runtime signal to ingest before the cycle (none = no signal)'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - 'none'
+          - 'dataflow_integrity_critical'
 
 # Z1 (ORPHAN-712) — shared self-hosted workspace group; see
 # dataflow-integrity-watchdog.yml for the measured wipe this prevents.
@@ -201,6 +214,20 @@ jobs:
       # Kernel-workflow parity: no .pyc litter in the checkout — the
       # burn-in pre-clean guard treats any untracked path as dirty.
       PYTHONDONTWRITEBYTECODE: '1'
+      # ARIA-LOW-551 — the close-out margin and the one term of it that no
+      # timeout bounds, in one place. The cycle step takes the margin off the
+      # job cap for its spawn deadline; "Measure the unbounded close-out"
+      # checks the basis against every real night; and
+      # aria-kernel/tests/test_auto_cycle_observation_steps.py proves
+      # basis + every declared step timeout after the cycle <= margin.
+      # The basis is the one #1371 measurement (842 MB of state: handoff 5 +
+      # integrity verify 40 + mint 2 + publish 10 = 57 minutes); the doctor,
+      # self_improve and deliver steps add their timeouts (10 + 12 + 5;
+      # measured 229 s / 245 s / 5 s on the 2026-10-10 store, when
+      # self_improve still ran the doctor a second time — it reads the doctor
+      # step's report since ARIA-LOW-559), 84 of the 100 minutes.
+      ARIA_CLOSE_OUT_MARGIN_SECONDS: '6000'
+      ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS: '3420'
     steps:
       # ORPHAN-HIGH-802 — reset the persistent workspace HERE, so checkout
       # does not have to. actions/checkout's `clean` runs `git clean -ffdx`,
@@ -530,9 +557,26 @@ jobs:
       # just-created issue (the old search-index lookup did not, and opened a
       # second one). Before the cycle, so the answer is minutes away, not hours;
       # the outbox rows ride the night's publish.
+      #
+      # ARIA-LOW-553 — the check proves the channel; it does not gate the
+      # night. A failed send or a second notice that did not comment used to
+      # fail this step, and every provisioning and cycle step after it carries
+      # a plain `if:` (an implied success()), so the dispatch that asked for
+      # the proof lost its night with it. Scheduled nights never run the check
+      # and the doctor judges the channel after every cycle either way. The
+      # verdict now leaves as `verified` (the `::error` annotation still lands
+      # here, minutes in) and "Fail on a failed notification channel check"
+      # turns the run red after the publish. A step the platform kills is a
+      # failed step too and would skip the night the same way, so each send
+      # runs under notify's own priced worst case (NOTIFY_WORST_CASE_SECONDS,
+      # 1380 s, aria_kernel/notify.py: the bound a caller running a notifying
+      # command as a child sizes its wall clock from) and the step's timeout
+      # covers both sends: 2 x (1380 s + 30 s) = 2820 s < 50 min. A send cut
+      # there is a false verdict, not a lost night.
       - name: Notification channel check (dispatch-gated)
+        id: channel_check
         if: steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && github.event.inputs.channel_check == 'true'
-        timeout-minutes: 10
+        timeout-minutes: 50
         env:
           GH_TOKEN: ${{ github.token }}
           ARIA_NOTIFY_CHANNELS: github_issue
@@ -540,13 +584,14 @@ jobs:
         run: |
           set -euo pipefail
           for n in 1 2; do
-            PYTHONPATH=aria-kernel python3 -m aria_kernel notify send --kind test \
+            PYTHONPATH=aria-kernel timeout --kill-after=30s 1380s python3 -m aria_kernel notify send --kind test \
               --title "ARIA notification channel check" \
               --body "channel check ${n}/2 from run ${GITHUB_RUN_ID}" \
               --key "channel-check:${GITHUB_RUN_ID}:${n}" \
-              --tools-dir "$ARIA_TOOLS_DIR" > "${RUNNER_TEMP}/aria-channel-check-${n}.json"
+              --tools-dir "$ARIA_TOOLS_DIR" > "${RUNNER_TEMP}/aria-channel-check-${n}.json" \
+              || echo "::warning title=ARIA channel check::send ${n}/2 exited $?"
           done
-          python3 - "${RUNNER_TEMP}/aria-channel-check-1.json" "${RUNNER_TEMP}/aria-channel-check-2.json" <<'PY'
+          if python3 - "${RUNNER_TEMP}/aria-channel-check-1.json" "${RUNNER_TEMP}/aria-channel-check-2.json" <<'PY'
           import json
           import sys
 
@@ -556,6 +601,11 @@ jobs:
           if [r["status"] for r in (*first, *second)] != ["sent", "sent"] or actions[1] != "commented":
               raise SystemExit(f"::error title=ARIA channel check::expected sent+sent with the second commented, got {actions}")
           PY
+          then
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "verified=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Fetch the composed supergraph for the drift scan
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
@@ -678,6 +728,19 @@ jobs:
               --fixture-update-ref "n/a: no fixture change; environment fault" \
               --tools-dir "${ARIA_TOOLS}"
           done
+
+      # ARIA-MEDIUM-271 — the signal the dispatching watchdog names lands in
+      # THIS store, before the cycle reads its pressure, and the same publish
+      # step carries it. The name is a closed vocabulary twice over: the
+      # input's choice options and the kernel's standing-signal table.
+      - name: Runtime signal from the dispatching watchdog (dispatch-gated)
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle' && (github.event.inputs.runtime_signal || 'none') != 'none'
+        env:
+          RUNTIME_SIGNAL: ${{ github.event.inputs.runtime_signal }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir "$ARIA_TOOLS_DIR" \
+            runtime signal ingest-standing --name "${RUNTIME_SIGNAL}"
 
       # A2 — one definition, both lanes (RC-9): the inline copy that used to
       # sit here is now .github/actions/ensure-node-deps, shared with the
@@ -941,17 +1004,12 @@ jobs:
           fi
           # Smoke-run 31645296013 — a spawn that cannot finish before the
           # job dies must not start. Export the ABSOLUTE deadline this job
-          # runs under: its own timeout-minutes minus a 100-minute close-out
-          # margin for every step after this one, so claude_runtime clamps
-          # every spawn's timeout to the remaining wall-clock instead of
-          # letting the last spawn be cut mid-flight and the whole night
-          # quarantine. The margin's arithmetic: the unbounded close-out
-          # steps measured at most 57 minutes on 842 MB of state (#1371:
-          # handoff 5 + integrity verify 40 + mint 2 + publish 10), and the
-          # observation steps are bounded by their timeout-minutes (doctor
-          # 10 + self_improve 12 + deliver 5; measured 229 s / 245 s / 5 s on
-          # the 2026-10-10 store): 84 of 100 minutes.
-          # aria-kernel/tests/test_auto_cycle_observation_steps.py pins it.
+          # runs under: its own timeout-minutes minus the close-out margin
+          # (ARIA_CLOSE_OUT_MARGIN_SECONDS, job env above, with its
+          # arithmetic) for every step after this one, so claude_runtime
+          # clamps every spawn's timeout to the remaining wall-clock instead
+          # of letting the last spawn be cut mid-flight and the whole night
+          # quarantine.
           # ARIA-HIGH-019 — the epoch is anchored at the job-launch step
           # near the top of this job ($ARIA_JOB_LAUNCH_EPOCH), NOT here: a
           # fresh-store restore measured 17m41s before this step (run
@@ -960,8 +1018,8 @@ jobs:
           # Anchoring here is only the local-dispatch fallback (env unset).
           JOB_TIMEOUT_MINUTES=360
           ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
-          export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - 6000 ))
-          echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 100m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"
+          export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - ARIA_CLOSE_OUT_MARGIN_SECONDS ))
+          echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - $(( ARIA_CLOSE_OUT_MARGIN_SECONDS / 60 ))m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"
           # The per-cycle wall clock is DERIVED from the job budget, not
           # hardcoded. It used to be a flat 1800s while the job cap was 360m:
           # the SIGALRM fired ~17s after the last discovery adapter finished
@@ -996,8 +1054,9 @@ jobs:
       - name: Run REAL observe burn-in + L1 ladder bridge
         if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.mode == 'burn-in-observe'
         env:
-          # REAL mode by design: no ARIA_DRY_RUN / CLAUDE_CODE_MOCK here
-          # (the mock variant lives in aria-operational-proof.yml).
+          # REAL mode by design: no ARIA_DRY_RUN here (the dry-run variant
+          # lives in aria-operational-proof.yml); CLAUDE_CLI_MOCK is the
+          # preflight's resolved value.
           # Observe cycles are LLM-free (NoOp cost hook) — near-zero cost.
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
         run: |
@@ -1103,23 +1162,22 @@ jobs:
               print(f"::error title=ARIA doctor unhealthy::failing organs: {names}")
           PY
 
-      # Runs the doctor again inside (`scan_signals`), so it carries the same
-      # notify env: without it the notifications organ would read a CI lane
-      # with no channel.
+      # ARIA-LOW-559 — reads the report the doctor step above wrote (the
+      # doctor action's output carries it) instead of running every organ a
+      # second time inside `scan_signals`. With no doctor run here, it holds
+      # no notify env: it writes missions, never an issue, and the
+      # notifications organ that judged the lane's channel was read above.
+      # A missing or foreign report fails the step rather than re-running
+      # the doctor.
       - name: Self-improve - open missions for failing organs
         if: always() && steps.lease_check.outputs.blocked != 'true' && steps.lease_check.outputs.blocked == 'false' && (github.event.inputs.mode || 'cycle') == 'cycle'
         timeout-minutes: 12
-        # No GH_TOKEN: the opener writes missions and a HIGH adjudication
-        # record, never a GitHub issue. The channel names stay, because the
-        # doctor it runs judges the lane's channel.
-        env:
-          ARIA_NOTIFY_CHANNELS: github_issue
-          ARIA_NOTIFY_GITHUB_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel schedule run --action self_improve \
             --tools-dir "$ARIA_TOOLS_DIR" \
-            --workspace-root "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/aria-self-improve.json"
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --doctor-report "$RUNNER_TEMP/aria-doctor.json" | tee "$RUNNER_TEMP/aria-self-improve.json"
 
       # One comment a day on one issue: the delivery SLO and the
       # HUMAN_REQUIRED backlog counts (a record notifies on its own only when
@@ -1136,6 +1194,14 @@ jobs:
           PYTHONPATH=aria-kernel python3 -m aria_kernel schedule run --action deliver \
             --tools-dir "$ARIA_TOOLS_DIR" \
             --workspace-root "$GITHUB_WORKSPACE"
+
+      # ARIA-LOW-551 — where the close-out steps that carry no timeout of
+      # their own begin (handoff, integrity verify, mint, publish): the
+      # margin's basis prices exactly this stretch, and "Measure the unbounded
+      # close-out" reads the anchor after the publish.
+      - name: Anchor the unbounded close-out
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        run: echo "ARIA_UNBOUNDED_CLOSE_OUT_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Handoff snapshot - session_stop
         if: always() && steps.lease_check.outputs.blocked != 'true'
@@ -1250,6 +1316,26 @@ jobs:
             --snapshot-id "auto-cycle-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --cycle-id "auto-cycle-${GITHUB_RUN_ID}"
 
+      # ARIA-LOW-551 — the margin's unbounded basis was one measurement (#1371)
+      # and no night that did real post-work had checked it. Every cycle night
+      # now measures the stretch from the anchor to the end of the publish and
+      # warns, by name, when it ran over the basis: the arithmetic that proves
+      # the margin (basis + the declared step timeouts) no longer holds, and a
+      # night that runs its cycle to the spawn deadline can be cut before its
+      # publish ends.
+      - name: Measure the unbounded close-out
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        run: |
+          set -euo pipefail
+          SPENT=$(( $(date +%s) - ARIA_UNBOUNDED_CLOSE_OUT_START_EPOCH ))
+          {
+            echo '### ARIA close-out'
+            echo "unbounded close-out (handoff, verify, mint, publish): ${SPENT}s of the ${ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS}s basis in the ${ARIA_CLOSE_OUT_MARGIN_SECONDS}s margin"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SPENT" -gt "$ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS" ]; then
+            echo "::warning title=ARIA close-out margin::the close-out steps without a timeout took ${SPENT}s, over the ${ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS}s basis the ${ARIA_CLOSE_OUT_MARGIN_SECONDS}s margin is priced from; re-derive the margin (job env)"
+          fi
+
       # FORENSIC CACHE ONLY — and the run-scoped name is the whole point.
       # `aria/state` is authoritative; this exists so a run that publishes and
       # then loses the remote still leaves its tree readable. It is deliberately
@@ -1305,6 +1391,14 @@ jobs:
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         run: |
           echo "::error::ARIA state failed integrity verification; captured as quarantine-evidence-${GITHUB_RUN_ID} and NOT published to the aria/state branch." >&2
+          exit 1
+
+      # ARIA-LOW-553 — the channel check's false verdict, red here: after the
+      # night ran and published, never in place of it.
+      - name: Fail on a failed notification channel check
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.channel_check.outputs.verified == 'false'
+        run: |
+          echo "::error title=ARIA channel check::the notification channel check failed (see the 'Notification channel check (dispatch-gated)' step); the night ran and published regardless." >&2
           exit 1
 
       # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.

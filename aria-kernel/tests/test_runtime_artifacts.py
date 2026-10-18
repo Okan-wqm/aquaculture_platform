@@ -339,6 +339,31 @@ class RuntimeArtifactTests(unittest.TestCase):
         integrity = verify_integrity(tools_dir=self.tools)
         self.assertEqual(integrity["status"], "drift")
 
+    def test_the_doctor_counts_the_issues_the_integrity_verdict_counts(self) -> None:
+        # ARIA-MEDIUM-120 — the quarantined-store shape: only the runtime
+        # artifacts fail. verify_integrity built the issue list its `drift`
+        # verdict came from and returned none of it, so the doctor's
+        # integrity organ printed `integrity_drift:0_issues` on a store whose
+        # runtime pointers failed with 3,898 issues.
+        from aria_kernel import doctor
+        from aria_kernel.runtime_artifacts import verify_runtime_artifacts
+
+        record_run(_run(), base_dir=self.tools)
+        run_row = load_jsonl(runs_path(self.tools))[-1]
+        (self.tools / run_row["artifact_ref"]["uri"]).unlink()
+        runtime_issue_count = len(verify_runtime_artifacts(base_dir=self.tools, workspace_root=self.repo_root)["issues"])
+        self.assertGreater(runtime_issue_count, 0)
+
+        integrity = verify_integrity(tools_dir=self.tools, workspace_root=self.repo_root)
+        self.assertEqual(integrity["status"], "drift")
+        self.assertEqual(integrity["issue_count"], runtime_issue_count)
+        self.assertEqual(integrity["issue_codes"], {"runtime_artifact_invalid": runtime_issue_count})
+
+        check = doctor._check_integrity(self.tools, self.repo_root)
+        self.assertEqual(check.status, "fail")
+        self.assertEqual(check.reason, f"integrity_drift:{runtime_issue_count}_issues")
+        self.assertEqual(check.detail["issue_codes"], {"runtime_artifact_invalid": runtime_issue_count})
+
     def test_resolve_artifact_payload_requires_strict_v2_ref(self) -> None:
         record_run(_run(), base_dir=self.tools)
         run_row = load_jsonl(runs_path(self.tools))[-1]

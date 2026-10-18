@@ -95,6 +95,34 @@ class BannedPhraseAdapterWithoutNodeModules(unittest.TestCase):
         self.assertEqual(declared, [Path(banned_phrase_adapter.GATE_TS_NODE).as_posix()])
 
 
+class BannedPhraseFixtureSuiteWithoutNodeModules(unittest.TestCase):
+    """ARIA-MEDIUM-570 — the fixture lane spawns the same adapter in the same
+    room, so it asks the same registry predicate: a workspace without the
+    runner's dependency refuses the suite by name (a blocked refresh) instead
+    of writing a `crash` verdict on the tool, which CALIBRATE -> SHADOW reads."""
+
+    FIXTURE_SET = "tools/aria-adapters/fixtures/banned-phrase-adapter"
+
+    def setUp(self) -> None:
+        BannedPhraseAdapterWithoutNodeModules.setUp(self)
+        shutil.copytree(REPO_ROOT / self.FIXTURE_SET, self.workspace / self.FIXTURE_SET)
+        _git(["add", "--", self.FIXTURE_SET], self.workspace)
+        _git(["commit", "-q", "-m", "fixture: the adapter's fixture set"], self.workspace)
+
+    def test_the_suite_is_refused_by_name_and_no_verdict_is_written(self) -> None:
+        from aria_kernel.fixture_runner import fixture_runs_path, refresh_fixture_suites, run_fixture_suite
+        from aria_kernel.ledger import load_jsonl
+
+        with self.assertRaisesRegex(GovernanceError, r"runner_dependency_missing:node_modules/\.bin/ts-node"):
+            run_fixture_suite("banned-phrase-adapter", workspace_root=self.workspace, cycle_id="cyc-no-node",
+                              base_dir=self.tools)
+        refreshed = refresh_fixture_suites(workspace_root=self.workspace, cycle_id="cyc-no-node", base_dir=self.tools)
+        self.assertEqual([entry["status"] for entry in refreshed["tools"]], ["blocked"])
+        self.assertIn("runner_dependency_missing:node_modules/.bin/ts-node", refreshed["tools"][0]["reason"])
+        runs = fixture_runs_path(self.tools)
+        self.assertEqual(load_jsonl(runs) if runs.exists() else [], [], "no suite verdict on the tool")
+
+
 class RunnerDependencyContract(unittest.TestCase):
     def _runner(self, **overrides: object) -> dict:
         runner = {

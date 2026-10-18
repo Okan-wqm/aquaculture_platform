@@ -47,8 +47,8 @@ import {
   resolveSiteIdFromDepartment,
 } from '../../batch/utils/tank-lookup.util';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { resolveFeedingUnitType } from '../services/feeding-unit-type.util';
 import { Batch, BatchType } from '../../batch/entities/batch.entity';
-import { EquipmentCategory, EquipmentType } from '../../equipment/entities/equipment-type.entity';
 
 // ============================================================================
 // PAYLAŞILAN ÜNİTE-ATAMA ÇEKİRDEĞİ — tekil ve batch-toplu yolun TEK gövdesi
@@ -77,25 +77,6 @@ function assertOverrideFeedsExist(
     throw new BadRequestException(
       `fcrOverrides yalnız protokol bandlarındaki yemler için tanımlanabilir; bilinmeyen: ${unknown.join(', ')}`,
     );
-  }
-}
-
-/** Ekipman kategorisi → FeedingUnitType (AssignmentsTab eşlemesinin BE ikizi değil, SSoT'si: FE yalnız görsel seçim yapar). */
-async function resolveUnitType(
-  manager: EntityManager,
-  equipmentTypeId: string | null | undefined,
-): Promise<FeedingUnitType> {
-  if (!equipmentTypeId) return FeedingUnitType.TANK;
-  const equipmentType = await manager.findOne(EquipmentType, {
-    where: { id: equipmentTypeId },
-  });
-  switch (equipmentType?.category) {
-    case EquipmentCategory.POND:
-      return FeedingUnitType.POND;
-    case EquipmentCategory.CAGE:
-      return FeedingUnitType.CAGE;
-    default:
-      return FeedingUnitType.TANK;
   }
 }
 
@@ -187,7 +168,8 @@ async function performUnitAssignment(
   const assignment = assignmentRepo.create({
     tenantId,
     unitId: args.unitId,
-    unitType: args.unitType ?? (await resolveUnitType(manager, lookup.equipment.equipmentTypeId)),
+    unitType:
+      args.unitType ?? (await resolveFeedingUnitType(manager, lookup.equipment.equipmentTypeId)),
     unitName: lookup.equipment.name ?? '',
     unitCode: lookup.equipment.code ?? '',
     siteId,

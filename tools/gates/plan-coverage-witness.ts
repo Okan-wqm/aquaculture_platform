@@ -24,11 +24,20 @@
  *                             the nx dependency graph.
  *   event-consumer:<svc>:<EventType>
  *                           — when an affected path touches
- *                             libs/event-contracts/**, every service whose
- *                             services.yaml subscribe pattern overlaps one
- *                             of the event's NATS subjects. <svc> is the
- *                             entry's `application:` (the nx project), not
- *                             its `name:` (the NATS identity).
+ *                             libs/event-contracts/**, every application
+ *                             that consumes the event: a subscription in
+ *                             its code (tools/gates/event-consumer-index.ts,
+ *                             durable JetStream consumers included), or a
+ *                             services.yaml subscribe grant that names the
+ *                             event. <svc> is the nx project (a grant's
+ *                             `application:`, not its `name:`). A catch-all
+ *                             grant (`events.>`) is a permission, not
+ *                             consumption: it is recorded in the ledger and
+ *                             makes no node.
+ *   event-consumer-unresolved:<svc|lib>:<path>:<line>
+ *                           — a subscription site whose event type or
+ *                             subject the scan cannot resolve statically:
+ *                             an unknown consumer is a gap, never a pass.
  *   migration:<svc>         — when an affected path is an `*.entity.ts`
  *                             under apps/<svc>/, the service's migration
  *                             surface (plan-time analog of
@@ -62,36 +71,42 @@
  * `ledger.services_yaml` records what was parsed from the live NATS SSoT
  * (services, publish / subscribe patterns, event types) whenever the
  * event-consumer closure reads it, and is null otherwise.
+ * `ledger.event_consumer_index` records the code scan of the same run (files
+ * scanned, subscription sites, entries, unresolved and unattributed sites,
+ * the catch-all grants that made no node), and is null when no contract
+ * path is touched.
  *
  * Exit codes (contract — aria_kernel/plan_coverage.py depends on these):
  *   0 — closure computed, no uncovered nodes (covered / covered_with_waivers)
  *   1 — closure computed, uncovered nodes present (gaps)
  *   2 — environment/invocation error (missing input, nx unavailable,
  *        services.yaml unreadable, not in the SSoT's shape, or parsed to
- *        zero services or zero publish / subscribe patterns) — the kernel
+ *        zero services or zero publish / subscribe patterns, or the code
+ *        scan for event consumers failing) — the kernel
  *        maps this to environment_unable -> HUMAN_REQUIRED, never a silent
  *        pass.
  *
- * # services.yaml and NATS subjects (ARIA-HIGH-306)
+ * # services.yaml and NATS subjects (ARIA-HIGH-306, ARIA-MEDIUM-314)
  *
- * infrastructure/nats/services.yaml is read with a YAML parser and held to
- * the shape scripts/nats/generate-nats-conf.py enforces: a `services` list
- * whose entries carry `name` (NATS identity), `application` (nx project)
- * and `publish` / `subscribe` string lists. The line-regex parser this
- * replaced accepted only quoted items and parsed nothing once the SSoT
- * dropped its quotes (2026-08-01) — the closure went empty with no error,
- * which is why parsing zero patterns is now exit 2.
+ * infrastructure/nats/services.yaml is read through tools/gates/nats-services.ts, the one reader
+ * every tool shares: a YAML parse held to the SSoT's own schema
+ * (infrastructure/nats/services.schema.json), NATS subject matching, and the subjects an event
+ * travels on (the publish grants that name it, else the event bus's default `events.*.<T>`). A
+ * document the schema refuses, including one that lost its grants, is exit 2. The line-regex parser
+ * this witness had before ARIA-HIGH-306 accepted only quoted items and parsed nothing once the SSoT
+ * dropped its quotes (2026-08-01); a private copy of the reader in tools/ripple-tracer drifted the
+ * same way (ARIA-MEDIUM-314).
  *
- * An event type's subjects are the publish grants the SSoT declares for it
- * (any grant with the event type as a token, e.g. `events.*.UserInvited`,
- * `telemetry.*.SensorReading`); a type no service declares falls back to
- * the event bus's default root, `events.*.<T>`
- * (platform/libs/event-bus/src/nats/event-route-registry.ts).
+ * # Event consumers come from the code (ARIA-HIGH-313)
  *
- * The subject matcher (`patternsOverlap`) is a port of
- * tools/ripple-tracer/cli.ts, which is single-file BY DOCUMENTED DESIGN —
- * "avoids ESM/CJS resolution fragility of cross-file imports"; importing it
- * would also execute its main().
+ * A service consumes an event through a durable JetStream consumer, which
+ * receives through `$JS.API.CONSUMER.>` and its inbox: no subscribe grant of
+ * its identity names the event. Consumers taken from ACL grants alone missed
+ * most real consumers (notification-service's UserInvited handler) and named
+ * every catch-all holder instead. The consumer set is
+ * `eventConsumersFor` (tools/gates/event-consumer-index.ts): the code's
+ * subscription sites, recognised by the type checker, united with the grants
+ * that name the event. The scan runs only when a contract path is touched.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -100,12 +115,13 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
-// `yaml` ships its own types and is a hard dependency of nx, which this
-// witness already requires; tools/gates/finding-id-aliases.ts reads YAML the
-// same way. The binding is typed `unknown` so the document must be narrowed.
-import { parse as yamlParse } from 'yaml';
-
-const parseYaml: (input: string) => unknown = yamlParse;
+import {
+  eventConsumersFor,
+  type EventConsumerIndex,
+  scanEventConsumers,
+} from './event-consumer-index';
+import { removeFixtureTree } from './fixture-tree';
+import { loadNatsServices, NATS_SERVICES_YAML, type NatsServiceEntry } from './nats-services';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,17 +150,11 @@ interface ClosureNode {
 interface NxGraphFile {
   readonly graph: {
     readonly nodes: Record<string, { readonly data?: { readonly root?: string } }>;
-    readonly dependencies: Record<string, readonly { readonly source: string; readonly target: string }[]>;
+    readonly dependencies: Record<
+      string,
+      readonly { readonly source: string; readonly target: string }[]
+    >;
   };
-}
-
-interface ServiceEntry {
-  /** NATS identity (certificate CN), e.g. `auth_service`. */
-  readonly name: string;
-  /** The nx project the identity belongs to, e.g. `auth-service`. */
-  readonly application: string;
-  readonly publish: readonly string[];
-  readonly subscribe: readonly string[];
 }
 
 /** What the witness parsed from services.yaml — written to the report. */
@@ -155,89 +165,18 @@ interface ServicesYamlLedger {
   readonly event_types: number;
 }
 
-// ---------------------------------------------------------------------------
-// services.yaml reader + NATS matcher
-// ---------------------------------------------------------------------------
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function grantList(entry: Record<string, unknown>, key: 'publish' | 'subscribe', where: string): string[] {
-  const value = entry[key];
-  if (!Array.isArray(value) || !value.every((item): item is string => typeof item === 'string')) {
-    throw new Error(`${where}.${key} is not a list of subject strings`);
-  }
-  return value;
-}
-
-/**
- * Parse the NATS SSoT into service entries, refusing any shape the witness
- * cannot read faithfully (a throw here becomes exit 2 at the call site).
- */
-function parseServicesYaml(source: string): readonly ServiceEntry[] {
-  const document = parseYaml(source);
-  if (!isRecord(document) || !Array.isArray(document.services)) {
-    throw new Error('expected a top-level `services` list');
-  }
-  return document.services.map((entry: unknown, index: number): ServiceEntry => {
-    const where = `services[${index}]`;
-    if (!isRecord(entry)) throw new Error(`${where} is not a mapping`);
-    const { name, application } = entry;
-    if (typeof name !== 'string' || name === '') throw new Error(`${where} has no name`);
-    if (typeof application !== 'string' || application === '') {
-      throw new Error(`${where} (${name}) has no application — its nx project is unknown`);
-    }
-    return {
-      name,
-      application,
-      publish: grantList(entry, 'publish', where),
-      subscribe: grantList(entry, 'subscribe', where),
-    };
-  });
-}
-
-/** Two wildcard patterns overlap if some concrete subject matches both. */
-function patternsOverlap(a: string, b: string): boolean {
-  const aTokens = a.split('.');
-  const bTokens = b.split('.');
-  const max = Math.max(aTokens.length, bTokens.length);
-  for (let i = 0; i < max; i += 1) {
-    const at = aTokens[i];
-    const bt = bTokens[i];
-    if (at === '>' || bt === '>') return true;
-    if (at === undefined || bt === undefined) return false;
-    if (at === '*' || bt === '*') continue;
-    if (at.endsWith('*') && at.length > 1) {
-      if (!bt.startsWith(at.slice(0, -1)) && !bt.endsWith('*')) return false;
-      continue;
-    }
-    if (bt.endsWith('*') && bt.length > 1) {
-      if (!at.startsWith(bt.slice(0, -1))) return false;
-      continue;
-    }
-    if (at !== bt) return false;
-  }
-  return true;
-}
-
-/** The event bus's default subject root (event-route-registry.ts subjectRootForEventType). */
-const DEFAULT_EVENT_SUBJECT_ROOT = 'events';
-
-/**
- * The NATS subjects `eventType` travels on: every publish grant the SSoT
- * declares with the event type as a token, or the event bus's default
- * `events.*.<T>` when no service declares one.
- */
-function subjectsFor(eventType: string, services: readonly ServiceEntry[]): readonly string[] {
-  const declared = new Set<string>();
-  for (const service of services) {
-    for (const grant of service.publish) {
-      if (grant.split('.').includes(eventType)) declared.add(grant);
-    }
-  }
-  if (declared.size === 0) return [`${DEFAULT_EVENT_SUBJECT_ROOT}.*.${eventType}`];
-  return [...declared].sort();
+/** What the code scan for event consumers found — written to the report. */
+interface EventConsumerIndexLedger {
+  readonly files_scanned: number;
+  readonly sites: number;
+  readonly entries: number;
+  readonly unresolved: readonly string[];
+  readonly unattributed: readonly string[];
+  readonly acl_catch_all: readonly {
+    readonly event_type: string;
+    readonly application: string;
+    readonly grant: string;
+  }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -294,14 +233,21 @@ function loadGraph(graphArg: string | undefined, repoRoot: string): NxGraphFile 
   if (graphArg) {
     return JSON.parse(readFileSync(graphArg, 'utf8')) as NxGraphFile;
   }
+  // ARIA-LOW-558: the graph file lives only as long as this read. Every call
+  // without --graph used to leave its directory in the temp dir; the finally
+  // removes it on success and on a failed or timed-out nx run alike.
   const tmp = mkdtempSync(join(tmpdir(), 'plan-coverage-'));
-  const graphPath = join(tmp, 'nx-graph.json');
-  execFileSync('npx', ['nx', 'graph', `--file=${graphPath}`], {
-    cwd: repoRoot,
-    stdio: ['ignore', 'ignore', 'pipe'],
-    timeout: 120_000,
-  });
-  return JSON.parse(readFileSync(graphPath, 'utf8')) as NxGraphFile;
+  try {
+    const graphPath = join(tmp, 'nx-graph.json');
+    execFileSync('npx', ['nx', 'graph', `--file=${graphPath}`], {
+      cwd: repoRoot,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      timeout: 120_000,
+    });
+    return JSON.parse(readFileSync(graphPath, 'utf8')) as NxGraphFile;
+  } finally {
+    removeFixtureTree(tmp);
+  }
 }
 
 /** Longest-prefix owner project for a repo-relative path. */
@@ -318,7 +264,11 @@ function projectFor(path: string, rootsByProject: ReadonlyMap<string, string>): 
   return best;
 }
 
-function reverseDependents(graph: NxGraphFile, roots: ReadonlySet<string>, transitive: boolean): Map<string, string> {
+function reverseDependents(
+  graph: NxGraphFile,
+  roots: ReadonlySet<string>,
+  transitive: boolean,
+): Map<string, string> {
   const reverse = new Map<string, Set<string>>();
   for (const deps of Object.values(graph.graph.dependencies)) {
     for (const dep of deps) {
@@ -376,11 +326,19 @@ function main(): void {
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if (flag === '--input') { inputArg = value; i += 1; }
-    else if (flag === '--graph') { graphArg = value; i += 1; }
-    else if (flag === '--services-yaml') { servicesYamlArg = value; i += 1; }
-    else if (flag === '--repo-root') { repoRootArg = value; i += 1; }
-    else fail(`unknown flag: ${flag}`);
+    if (flag === '--input') {
+      inputArg = value;
+      i += 1;
+    } else if (flag === '--graph') {
+      graphArg = value;
+      i += 1;
+    } else if (flag === '--services-yaml') {
+      servicesYamlArg = value;
+      i += 1;
+    } else if (flag === '--repo-root') {
+      repoRootArg = value;
+      i += 1;
+    } else fail(`unknown flag: ${flag}`);
   }
   if (!inputArg) fail('--input <input.json> is required');
   const repoRoot = resolve(repoRootArg ?? process.cwd());
@@ -401,7 +359,14 @@ function main(): void {
   const transitive = input.options?.transitive === true;
   const maxNodes = input.options?.max_nodes ?? DEFAULT_MAX_NODES;
   const inputsHash = createHash('sha256')
-    .update(JSON.stringify({ affected_paths: [...input.affected_paths].sort(), waivers, transitive, maxNodes }))
+    .update(
+      JSON.stringify({
+        affected_paths: [...input.affected_paths].sort(),
+        waivers,
+        transitive,
+        maxNodes,
+      }),
+    )
     .digest('hex');
 
   let graph: NxGraphFile;
@@ -425,13 +390,22 @@ function main(): void {
   }
   const dependents = reverseDependents(graph, touchedProjects, transitive);
 
-  const closureProjects: { name: string; root: string; reason: 'direct' | 'reverse_dependent' }[] = [];
+  const closureProjects: { name: string; root: string; reason: 'direct' | 'reverse_dependent' }[] =
+    [];
   const nodes: ClosureNode[] = [];
   for (const project of [...touchedProjects].sort()) {
-    closureProjects.push({ name: project, root: rootsByProject.get(project) ?? '', reason: 'direct' });
+    closureProjects.push({
+      name: project,
+      root: rootsByProject.get(project) ?? '',
+      reason: 'direct',
+    });
   }
   for (const [dependent, reachedFrom] of [...dependents.entries()].sort()) {
-    closureProjects.push({ name: dependent, root: rootsByProject.get(dependent) ?? '', reason: 'reverse_dependent' });
+    closureProjects.push({
+      name: dependent,
+      root: rootsByProject.get(dependent) ?? '',
+      reason: 'reverse_dependent',
+    });
     nodes.push({
       node_id: `project:${dependent}`,
       kind: 'nx_project',
@@ -442,65 +416,92 @@ function main(): void {
 
   // --- event-consumer closure ----------------------------------------------
   const contractPaths = input.affected_paths.filter((p) => p.startsWith(EVENT_CONTRACTS_PREFIX));
-  const eventConsumers: { event_type: string; consumer: string; matching_pattern: string; subject: string }[] = [];
+  const eventConsumers: {
+    event_type: string;
+    consumer: string;
+    matching_pattern: string;
+    subject: string;
+    sources: readonly string[];
+    code_sites: readonly string[];
+  }[] = [];
   let servicesYamlLedger: ServicesYamlLedger | null = null;
+  let consumerIndexLedger: EventConsumerIndexLedger | null = null;
   if (contractPaths.length > 0) {
-    const servicesYamlPath = servicesYamlArg ?? join(repoRoot, 'infrastructure', 'nats', 'services.yaml');
-    let services: readonly ServiceEntry[];
+    // --repo-root decides which SSoT is read; the shared reader's own default is its checkout's.
+    let services: readonly NatsServiceEntry[];
     try {
-      services = parseServicesYaml(readFileSync(servicesYamlPath, 'utf8'));
+      services = loadNatsServices(servicesYamlArg ?? join(repoRoot, NATS_SERVICES_YAML));
     } catch (error) {
       fail(`services.yaml unreadable: ${String(error)}`);
     }
+    // The consumers are read from the code of the same repository (ARIA-HIGH-313).
+    let index: EventConsumerIndex;
+    try {
+      index = scanEventConsumers(repoRoot);
+    } catch (error) {
+      fail(`event-consumer scan failed: ${String(error)}`);
+    }
     const eventTypes = extractEventTypes(contractPaths, repoRoot);
+    // The schema the reader enforces requires every service to hold publish and subscribe grants,
+    // so a file that lost its grants (ARIA-HIGH-306's vacuous closure) is refused above, exit 2.
     servicesYamlLedger = {
       services: services.length,
       publish_patterns: services.reduce((sum, svc) => sum + svc.publish.length, 0),
       subscribe_patterns: services.reduce((sum, svc) => sum + svc.subscribe.length, 0),
       event_types: eventTypes.size,
     };
-    // ARIA-HIGH-306: a closure computed from a file that parsed to nothing is
-    // vacuously empty and would read as "no consumers". The live SSoT always
-    // grants every service both lists, so zero means the reader is wrong.
-    if (
-      servicesYamlLedger.services === 0 ||
-      servicesYamlLedger.publish_patterns === 0 ||
-      servicesYamlLedger.subscribe_patterns === 0
-    ) {
-      fail(
-        `services.yaml parsed to ${servicesYamlLedger.services} service(s), ` +
-          `${servicesYamlLedger.publish_patterns} publish and ${servicesYamlLedger.subscribe_patterns} ` +
-          'subscribe pattern(s) — the event-consumer closure would be vacuously empty',
-      );
-    }
+    const catchAll: { event_type: string; application: string; grant: string }[] = [];
     for (const eventType of [...eventTypes].sort()) {
-      const subjects = subjectsFor(eventType, services);
-      for (const svc of services) {
-        let match: { pattern: string; subject: string } | null = null;
-        for (const subject of subjects) {
-          const pattern = svc.subscribe.find((candidate) => patternsOverlap(candidate, subject));
-          if (pattern !== undefined) {
-            match = { pattern, subject };
-            break;
-          }
-        }
-        if (match === null) continue;
-        const consumer = svc.application;
+      const found = eventConsumersFor(eventType, index, services);
+      for (const grant of found.aclCatchAll) {
+        catchAll.push({
+          event_type: eventType,
+          application: grant.service.application,
+          grant: grant.grant,
+        });
+      }
+      for (const consumer of found.consumers) {
         eventConsumers.push({
           event_type: eventType,
-          consumer,
-          matching_pattern: match.pattern,
-          subject: match.subject,
+          consumer: consumer.application,
+          matching_pattern: consumer.matchingPattern,
+          subject: consumer.subject,
+          sources: consumer.sources,
+          code_sites: consumer.codeSites,
         });
-        if (!touchedProjects.has(consumer)) {
-          nodes.push({
-            node_id: `event-consumer:${consumer}:${eventType}`,
-            kind: 'event_consumer',
-            why: `services.yaml grants ${svc.name} "${match.pattern}", which subscribes to ${eventType} on ${match.subject}, published from a touched contract file`,
-          });
+        if (touchedProjects.has(consumer.application)) continue;
+        const reasons: string[] = [];
+        if (consumer.codeSites.length > 0) {
+          reasons.push(`subscribes to it in code at ${consumer.codeSites.join(', ')}`);
         }
+        if (consumer.acl !== null) {
+          reasons.push(
+            `services.yaml grants ${consumer.acl.service.name} "${consumer.acl.grant}" on ${consumer.acl.subject}`,
+          );
+        }
+        nodes.push({
+          node_id: `event-consumer:${consumer.application}:${eventType}`,
+          kind: 'event_consumer',
+          why: `${consumer.application} consumes ${eventType}, published from a touched contract file: ${reasons.join('; ')}`,
+        });
       }
     }
+    // A subscription whose value does not fold may consume any of these events: fail closed.
+    for (const site of index.unresolved) {
+      nodes.push({
+        node_id: `event-consumer-unresolved:${site.application ?? 'lib'}:${site.site}`,
+        kind: 'event_consumer',
+        why: `${site.api} at ${site.site} subscribes to \`${site.form}\`, which the code scan cannot resolve to an event type or subject; make the value static (tools/gates/event-consumer-index.ts)`,
+      });
+    }
+    consumerIndexLedger = {
+      files_scanned: index.filesScanned,
+      sites: index.sites.length,
+      entries: index.entries.length,
+      unresolved: index.unresolved.map((site) => site.site),
+      unattributed: index.unattributed,
+      acl_catch_all: catchAll,
+    };
   }
 
   // --- entity -> migration closure ------------------------------------------
@@ -522,7 +523,11 @@ function main(): void {
     // text names at least one touched entity's stem (e.g. `farm` from
     // farm.entity.ts), the coupling a real schema change would exhibit.
     const entityStems = entityPaths
-      .map((p) => basename(p).replace(/\.entity\.ts$/, '').replace(/\.ts$/, ''))
+      .map((p) =>
+        basename(p)
+          .replace(/\.entity\.ts$/, '')
+          .replace(/\.ts$/, ''),
+      )
       .filter((stem) => stem.length >= 3);
     const hasMigration = input.affected_paths.some((p) => {
       const m = MIGRATION_PATH_RE.exec(p);
@@ -550,11 +555,13 @@ function main(): void {
   // above. Migration nodes were filtered to missing-migration services above.
   let effectiveNodes = nodes;
   if (nodes.length > maxNodes) {
-    effectiveNodes = [{
-      node_id: 'closure:oversized',
-      kind: 'closure',
-      why: `impact closure has ${nodes.length} nodes (max ${maxNodes}) — reduce plan scope or add a group waiver`,
-    }];
+    effectiveNodes = [
+      {
+        node_id: 'closure:oversized',
+        kind: 'closure',
+        why: `impact closure has ${nodes.length} nodes (max ${maxNodes}) — reduce plan scope or add a group waiver`,
+      },
+    ];
   }
   const uncovered: ClosureNode[] = [];
   const waived: { node_id: string; reason: string }[] = [];
@@ -564,7 +571,8 @@ function main(): void {
     else uncovered.push(node);
   }
 
-  const verdict = uncovered.length > 0 ? 'gaps' : waived.length > 0 ? 'covered_with_waivers' : 'covered';
+  const verdict =
+    uncovered.length > 0 ? 'gaps' : waived.length > 0 ? 'covered_with_waivers' : 'covered';
   const report = {
     schema_version: 1,
     verdict,
@@ -576,7 +584,7 @@ function main(): void {
     uncovered: uncovered.map(({ reached_from: _reachedFrom, ...rest }) => rest),
     waived,
     unmapped_paths: unmappedPaths,
-    ledger: { services_yaml: servicesYamlLedger },
+    ledger: { services_yaml: servicesYamlLedger, event_consumer_index: consumerIndexLedger },
     inputs_hash: inputsHash,
   };
   // Single-line JSON on purpose (repo-wide no-restricted-syntax bans
@@ -586,4 +594,4 @@ function main(): void {
   process.exit(uncovered.length > 0 ? 1 : 0);
 }
 
-main();
+if (require.main === module) main();

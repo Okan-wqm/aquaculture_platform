@@ -40,7 +40,7 @@ def _gh_json_stub(checks_payload: list[dict]):
 class GhPrSnapshotChecksRunsTests(unittest.TestCase):
     def _snapshot(self, checks_payload):
         # Plan ARIA-V10.3-B prereq fix — also mock
-        # `_fetch_branch_protection_contexts` so the test does not
+        # `read_required_status_checks` so the test does not
         # depend on the main branch's live protection state. Pre-
         # V10.3-B prereq the branch was unprotected (404), the helper
         # returned (None, "branch_protection_disabled_on_base"), and
@@ -61,7 +61,7 @@ class GhPrSnapshotChecksRunsTests(unittest.TestCase):
             "aria_kernel.ci._gh_json",
             side_effect=_gh_json_stub(checks_payload),
         ), patch(
-            "aria_kernel.ci._fetch_branch_protection_contexts",
+            "aria_kernel.ci.read_required_status_checks",
             return_value=(None, "branch_protection_disabled_on_base"),
         ):
             return _gh_pr_snapshot(pr_number=42, workspace_root=".")
@@ -98,7 +98,7 @@ class GhPrSnapshotChecksRunsTests(unittest.TestCase):
         # Required check name listed but no entry in checks payload (rare
         # gh state) -> must NOT default to success.
         with patch("aria_kernel.ci._gh_json") as mock_gh, patch(
-            "aria_kernel.ci._fetch_branch_protection_contexts",
+            "aria_kernel.ci.read_required_status_checks",
             return_value=(["ci-required"], None),
         ):
             mock_gh.side_effect = lambda root, argv: (

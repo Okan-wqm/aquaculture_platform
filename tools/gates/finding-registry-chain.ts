@@ -38,10 +38,46 @@ import { createHash } from 'node:crypto';
 
 export const ZERO_HASH = '0'.repeat(64);
 
+/** The registry's lifecycle vocabulary (findings.jsonl.schema.json `state`). */
+export const FINDING_STATES = ['OPEN', 'IN-PROGRESS', 'RESOLVED', 'STALE', 'BLOCKED'] as const;
+export type FindingState = (typeof FINDING_STATES)[number];
+
+/**
+ * The states that still carry the debt: everything but RESOLVED.
+ *
+ * WHY ONE PREDICATE (ARIA-HIGH-534). BLOCKED and STALE are judgements about a
+ * finding, not resolutions of it — the daily sweep moves a past-deadline row
+ * to BLOCKED precisely because it is still open past its date. A reader that
+ * kept its own "active = OPEN or IN-PROGRESS" list (debt-plan-truth did)
+ * reads that sweep as the CRITICAL leaving the debt with no closing commit and
+ * refuses the sweep PR, so no deadline transition ever lands. Every reader
+ * that asks "is this finding still owed?" asks this function.
+ */
+export const UNRESOLVED_FINDING_STATES: readonly FindingState[] = FINDING_STATES.filter(
+  (state) => state !== 'RESOLVED',
+);
+
+export function isUnresolvedFindingState(state: string): boolean {
+  return (UNRESOLVED_FINDING_STATES as readonly string[]).includes(state);
+}
+
+/**
+ * The sweep's clock: a deadline has lapsed once `new Date(deadline)` is
+ * before `now`, so a calendar date lapses at the start of its UTC day. An
+ * unparseable deadline never lapses here (the schema's `format` refuses it at
+ * every write). `planSweep` blocks on it and `assign` refuses to write a
+ * deadline it would already call lapsed (ARIA-HIGH-044), so the two cannot
+ * disagree by a day.
+ */
+export function isDeadlineLapsed(deadline: string, now: Date): boolean {
+  const due = new Date(deadline).getTime();
+  return !Number.isNaN(due) && due < now.getTime();
+}
+
 export interface Finding {
   id: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  state: 'OPEN' | 'IN-PROGRESS' | 'RESOLVED' | 'STALE' | 'BLOCKED';
+  state: FindingState;
   title: string;
   layer?: number;
   evidence?: string[];

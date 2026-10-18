@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { IEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import {
@@ -12,6 +13,8 @@ import { SensorMetric } from '../../database/entities/sensor-metric.entity';
 import { SensorProtocol } from '../../database/entities/sensor-protocol.entity';
 import { SensorTypeDefinition } from '../../database/entities/sensor-type-definition.entity';
 import { Sensor } from '../../database/entities/sensor.entity';
+import { CreateSensorOutbox1800400000000 } from '../../database/migrations/1800400000000-CreateSensorOutbox';
+import { SensorOutbox } from '../../outbox/sensor-outbox.entity';
 import { MqttClientService, MqttMessageHandler } from '../../shared-mqtt/mqtt-client.service';
 import { MqttListenerService } from '../mqtt-listener.service';
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
@@ -34,9 +37,21 @@ import { SensorTopicCacheService } from '../sensor-topic-cache.service';
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+/** Deprovisioned mid-spec: its schema is dropped while its topic mapping is cached. */
+const TENANT_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const TOPIC_A = 'sensors/rls-e2e/water-quality-a';
 const TOPIC_B = 'sensors/rls-e2e/water-quality-b';
-const ENTITIES = [Sensor, SensorDataChannel, SensorMetric, SensorProtocol, SensorTypeDefinition];
+const TOPIC_C = 'sensors/rls-e2e/water-quality-c';
+// SensorOutbox is `synchronize: false`: the tenant DDL skips it, and the
+// production migration creates sensor.sensor_outbox below.
+const ENTITIES = [
+  Sensor,
+  SensorDataChannel,
+  SensorMetric,
+  SensorProtocol,
+  SensorTypeDefinition,
+  SensorOutbox,
+];
 
 /** The five parameters the prod water-quality simulator publishes. */
 const CHANNELS: ReadonlyArray<{ key: string; unit: string; min: number; max: number }> = [
@@ -65,15 +80,20 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
   let runtime: DataSource | undefined;
   let listener: MqttListenerService | undefined;
   let handler: MqttMessageHandler | undefined;
+  let topicCache: SensorTopicCacheService | undefined;
   let SCHEMA_A = '';
   let SCHEMA_B = '';
   const sensorIds: Record<string, string> = {};
 
   beforeAll(async () => {
-    const topics: Record<string, string> = { [TENANT_A]: TOPIC_A, [TENANT_B]: TOPIC_B };
+    const topics: Record<string, string> = {
+      [TENANT_A]: TOPIC_A,
+      [TENANT_B]: TOPIC_B,
+      [TENANT_C]: TOPIC_C,
+    };
     stage = await bootSensorRlsHarness({
       name: 'mqtt_listener',
-      tenants: [TENANT_A, TENANT_B],
+      tenants: [TENANT_A, TENANT_B, TENANT_C],
       entities: ENTITIES,
       beforeRls: async ({ admin: bootstrap, tenantId, schema }) => {
         const topic = topics[tenantId];
@@ -102,6 +122,16 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
     SCHEMA_A = stage.schemaOf(TENANT_A);
     SCHEMA_B = stage.schemaOf(TENANT_B);
 
+    // The cross-tenant outbox exactly as production builds it (no RLS, the
+    // notify trigger), with the DML the runtime role needs to enqueue.
+    const outboxDdl = admin.createQueryRunner();
+    try {
+      await new CreateSensorOutbox1800400000000().up(outboxDdl);
+    } finally {
+      await outboxDdl.release();
+    }
+    await admin.query(`GRANT SELECT, INSERT ON sensor.sensor_outbox TO ${stage.runtimeRole}`);
+
     const redisService = {
       getJson: jest.fn().mockResolvedValue(null),
       setJson: jest.fn().mockResolvedValue(undefined),
@@ -124,13 +154,15 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
       recordMessageFailed: jest.fn(),
     } as Partial<MqttClientService> as MqttClientService;
 
+    topicCache = new SensorTopicCacheService(redisService, runtime);
     listener = new MqttListenerService(
       config,
       runtime,
       new SensorMetricWriterService(runtime),
+      new OutboxPublisher(SensorOutbox),
       { publish: jest.fn().mockResolvedValue(undefined) } as Partial<IEventBus> as IEventBus,
       null,
-      new SensorTopicCacheService(redisService, runtime),
+      topicCache,
       mqttClient,
       null,
       null,
@@ -166,8 +198,59 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
     });
   });
 
+  it("commits the reading's SensorReading to sensor_outbox with its rows (SENSOR-CRITICAL-191)", async () => {
+    const rows: Array<{
+      tenantId: string;
+      eventType: string;
+      idempotencyKey: string;
+      publishedAt: Date | null;
+      payload: Record<string, unknown>;
+    }> = await admin!.query(
+      `SELECT "tenantId", "eventType", "idempotencyKey", "publishedAt", payload
+         FROM sensor.sensor_outbox`,
+    );
+
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row).toMatchObject({
+      tenantId: TENANT_A,
+      eventType: 'SensorReading',
+      publishedAt: null,
+      payload: expect.objectContaining({
+        sensorId: sensorIds[TENANT_A],
+        readingTemperature: 24.2,
+        readingPh: 7.34,
+        readingDissolvedOxygen: 5.86,
+        readingSalinity: 19.9,
+        readingAmmonia: 0.114,
+      }),
+    });
+    expect(row!.idempotencyKey).toBe(row!.payload['eventId']);
+  });
+
   it('keeps the reading inside the owning tenant', async () => {
     expect(await channelValues(SCHEMA_B)).toEqual({});
+  });
+
+  // A mapping cached before db-migrate's delete job dropped the tenant schema
+  // keeps resolving for up to an hour. Every reload through it then fails the
+  // tenant boundary (current_schema() falls through to `sensor`:
+  // SCHEMA_MISMATCH), so holding PUBACK on it would reconnect-loop the one
+  // shared MQTT connection for every tenant, and could never succeed.
+  it('acks a reading whose cached topic belongs to a tenant deprovisioned since, and evicts the mapping', async () => {
+    // Cached while tenant C was live, as its earlier readings left it.
+    expect((await topicCache!.getSensorByTopic(TOPIC_C))?.tenantId).toBe(TENANT_C);
+    await stage!.deprovisionTenant(TENANT_C);
+
+    await expect(handler!(TOPIC_C, Buffer.from(JSON.stringify(PAYLOAD)))).resolves.toBeUndefined();
+
+    // Evicted: the topic re-resolves against the active tenants and finds nothing.
+    await expect(topicCache!.getSensorByTopic(TOPIC_C)).resolves.toBeNull();
+    const outboxRows: unknown[] = await admin!.query(
+      `SELECT 1 FROM sensor.sensor_outbox WHERE "tenantId" = $1`,
+      [TENANT_C],
+    );
+    expect(outboxRows).toEqual([]);
   });
 
   it('stamps last_seen_at on the owning tenant sensor when the debounce flushes', async () => {

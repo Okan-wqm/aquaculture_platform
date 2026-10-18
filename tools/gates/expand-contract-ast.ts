@@ -65,6 +65,19 @@ export interface AstWalkResult {
 }
 
 /**
+ * Whether a workspace-relative POSIX path is a migration this gate inspects:
+ * a `.ts` file directly inside `apps/<svc>/src/database/migrations/` that is
+ * not a `.spec.ts`. The walk below and ARIA's `sql-migration-safety-adapter`
+ * (ARIA-HIGH-011) both ask this predicate, so they inspect the same set.
+ */
+export function isExpandContractMigrationPath(relPath: string): boolean {
+  return (
+    /^apps\/[^/]+\/src\/database\/migrations\/[^/]+\.ts$/.test(relPath) &&
+    !relPath.endsWith('.spec.ts')
+  );
+}
+
+/**
  * Find every migration file under apps/<svc>/src/database/migrations/.
  */
 export function collectMigrationFiles(root: string = REPO_ROOT): string[] {
@@ -76,7 +89,7 @@ export function collectMigrationFiles(root: string = REPO_ROOT): string[] {
     const migDir = resolve(appsDir, svc.name, 'src', 'database', 'migrations');
     if (!existsSync(migDir)) continue;
     for (const f of readdirSync(migDir)) {
-      if (f.endsWith('.ts') && !f.endsWith('.spec.ts')) {
+      if (isExpandContractMigrationPath(`apps/${svc.name}/src/database/migrations/${f}`)) {
         out.push(resolve(migDir, f));
       }
     }
@@ -89,13 +102,17 @@ export function collectMigrationFiles(root: string = REPO_ROOT): string[] {
  * class declaration(s) and extracts @ExpandContract metadata.
  */
 export function inspectFile(filePath: string): DecoratorInspection[] {
-  const src = readFileSync(filePath, 'utf8');
-  const sourceFile = ts.createSourceFile(
-    basename(filePath),
-    src,
-    ts.ScriptTarget.ES2022,
-    true,
-  );
+  return inspectSource(filePath, readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * `inspectFile` over source text already in hand — pure, it reads nothing.
+ * ARIA's `sql-migration-safety-adapter` (ARIA-HIGH-011) reads migrations
+ * through its own contained workspace reader and hands the text here, so the
+ * @ExpandContract rule has one implementation for the gate and the adapter.
+ */
+export function inspectSource(filePath: string, src: string): DecoratorInspection[] {
+  const sourceFile = ts.createSourceFile(basename(filePath), src, ts.ScriptTarget.ES2022, true);
   const inspections: DecoratorInspection[] = [];
   sourceFile.forEachChild((node) => {
     if (!ts.isClassDeclaration(node)) return;
@@ -118,10 +135,7 @@ export function inspectFile(filePath: string): DecoratorInspection[] {
           const v = prop.initializer.text;
           if (v === 'expand' || v === 'contract') phase = v;
         }
-        if (
-          prop.name.text === 'dependsOn' &&
-          ts.isStringLiteral(prop.initializer)
-        ) {
+        if (prop.name.text === 'dependsOn' && ts.isStringLiteral(prop.initializer)) {
           dependsOn = prop.initializer.text;
         }
       }
@@ -153,10 +167,7 @@ export function inspectFile(filePath: string): DecoratorInspection[] {
  * which isolates the up() method from down() and any sibling helper
  * methods that might contain DROP SQL.
  */
-function classHasBreakingUpMethod(
-  classNode: ts.ClassDeclaration,
-  src: string,
-): boolean {
+function classHasBreakingUpMethod(classNode: ts.ClassDeclaration, src: string): boolean {
   for (const member of classNode.members) {
     if (!ts.isMethodDeclaration(member)) continue;
     if (!ts.isIdentifier(member.name)) continue;
@@ -181,9 +192,7 @@ function hasBreakingDdlPattern(src: string): boolean {
 /**
  * Validate the combined inspection set. Emits one violation per issue.
  */
-export function validateInspections(
-  inspections: readonly DecoratorInspection[],
-): AstViolation[] {
+export function validateInspections(inspections: readonly DecoratorInspection[]): AstViolation[] {
   const violations: AstViolation[] = [];
   const knownNames = new Set(inspections.map((i) => i.className));
   // Migration file names follow `<Timestamp>-<ClassName>.ts` — extract
@@ -200,8 +209,7 @@ export function validateInspections(
         filePath: i.filePath,
         className: i.className,
         severity: 'error',
-        details:
-          '@ExpandContract(phase: contract) requires dependsOn: \'<expand-migration-name>\'',
+        details: "@ExpandContract(phase: contract) requires dependsOn: '<expand-migration-name>'",
       });
     }
     if (i.phase === 'contract' && i.dependsOn && !knownNames.has(i.dependsOn)) {

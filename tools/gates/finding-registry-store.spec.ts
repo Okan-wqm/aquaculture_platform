@@ -40,12 +40,11 @@ import {
   withRegistryFileLock,
 } from './finding-registry-store';
 import { removeFixtureTree } from './fixture-tree';
+import { hermeticGitEnv } from './hermetic-git';
 const childMode = process.argv[2];
 let fixtureRoot: string;
 
-const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
-);
+const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = hermeticGitEnv();
 
 function git(repoRoot: string, args: readonly string[]): string {
   return execFileSync('git', ['-C', repoRoot, ...args], {

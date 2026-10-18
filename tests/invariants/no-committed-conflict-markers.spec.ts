@@ -45,6 +45,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+import { hermeticGitEnv } from '../../tools/gates/hermetic-git';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
@@ -114,7 +115,7 @@ function findConflictMarkerLines(repoRoot: string, env: NodeJS.ProcessEnv): Conf
  * repository, and global/system config cannot change how markers are written.
  */
 const FIXTURE_GIT_ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+  ...hermeticGitEnv(),
   LC_ALL: 'C',
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_CONFIG_GLOBAL: '/dev/null',

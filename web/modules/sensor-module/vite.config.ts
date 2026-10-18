@@ -5,6 +5,7 @@ import svgr from 'vite-plugin-svgr';
 import { resolve } from 'path';
 import { getSharedConfigWithReactFlowAndRecharts } from '../../shared-ui/src/federation/federationSharedConfig';
 import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
+import { unresolvedAssetUrlGate } from '../../shared-ui/src/federation/unresolvedAssetUrlGate';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
@@ -22,6 +23,7 @@ export default defineConfig(({ mode }) => {
         // Enable ?react suffix for importing SVGs as React components
         include: '**/*.svg?react',
       }),
+      unresolvedAssetUrlGate(),
       federation({
         dts: false,
         name: 'sensorModule',

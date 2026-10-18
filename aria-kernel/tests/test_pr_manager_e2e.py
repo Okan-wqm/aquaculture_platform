@@ -222,7 +222,7 @@ class PRBodySectionsTests(unittest.TestCase):
             "validation_run_refs": ["sha256:run-ref"],
             "worktree_path": "/tmp/wt",
         }
-        body = build_pr_body(proposal=proposal, action=action)
+        body = build_pr_body(proposal=proposal, action=action, request_lines=())
         for section in (
             "## Problem",
             "## Evidence",

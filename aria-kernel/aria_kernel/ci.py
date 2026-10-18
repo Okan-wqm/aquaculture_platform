@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_priors import related_agents_for_paths
-from .auto_merge import evaluate_auto_merge
+from .auto_merge import evaluate_auto_merge, read_required_status_checks
 from .ledger import (
     append_declared_jsonl,
     load_declared_jsonl,
@@ -800,7 +800,7 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
     # checks-list approach silently accepted PRs with 0 runs against a
     # protected base.
     base_branch = pr.get("baseRefName") or "main"
-    bp_contexts, bp_error = _fetch_branch_protection_contexts(
+    bp_contexts, bp_error = read_required_status_checks(
         root=root, base_branch=str(base_branch),
     )
     # Authoritative required-check list: real protection contexts when
@@ -855,56 +855,6 @@ def _gh_json(root: Path, args: list[str]) -> Any:
     if completed.returncode != 0:
         raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh command failed")
     return json.loads(completed.stdout or "{}")
-
-
-def _fetch_branch_protection_contexts(
-    *, root: Path, base_branch: str,
-) -> tuple[list[str] | None, str | None]:
-    """Plan 023 v3 §P-2 — fetch real branch-protection required contexts.
-
-    Pre-Plan-023 _gh_pr_snapshot derived `required_checks` from
-    `gh pr checks` stdout, which lists the checks that ALREADY RAN on
-    the PR — not the checks branch protection requires. A PR with 0
-    runs against a base branch protected by `ci-affected` returned
-    required=[] and auto-merge then accepted "all required satisfied".
-
-    Post-fix: query the real protection contexts via gh api. Returns
-    a (contexts, error_code) tuple; the auto-merge consumer (P-4)
-    reads both. Failure paths discriminate explicitly:
-      * HTTP 200, populated → (contexts, None).
-      * HTTP 200, empty contexts → ([], 'branch_protection_no_required_checks_configured').
-      * HTTP 404 in stderr → (None, 'branch_protection_disabled_on_base').
-      * HTTP 401/403 in stderr → (None, 'branch_protection_lookup_permission_denied').
-      * Subprocess error / unrecognized failure → (None, 'branch_protection_lookup_failed').
-    """
-    try:
-        completed = subprocess.run(
-            [
-                "gh", "api",
-                f"repos/{{owner}}/{{repo}}/branches/{base_branch}/protection/required_status_checks",
-            ],
-            cwd=root, capture_output=True, text=True, check=False,
-        )
-    except (FileNotFoundError, OSError):
-        return None, "branch_protection_lookup_failed"
-    if completed.returncode != 0:
-        stderr = (completed.stderr or "").lower()
-        if "404" in stderr or "not protected" in stderr:
-            return None, "branch_protection_disabled_on_base"
-        if "401" in stderr or "403" in stderr or "forbidden" in stderr or "authentication required" in stderr:
-            return None, "branch_protection_lookup_permission_denied"
-        return None, "branch_protection_lookup_failed"
-    try:
-        body = json.loads(completed.stdout or "{}")
-    except json.JSONDecodeError:
-        return None, "branch_protection_lookup_failed"
-    contexts = body.get("contexts") if isinstance(body, dict) else None
-    if not isinstance(contexts, list):
-        return None, "branch_protection_lookup_failed"
-    contexts_str = [str(c) for c in contexts if isinstance(c, str) and c.strip()]
-    if not contexts_str:
-        return [], "branch_protection_no_required_checks_configured"
-    return contexts_str, None
 
 
 def _run_success(run: dict[str, Any]) -> bool:

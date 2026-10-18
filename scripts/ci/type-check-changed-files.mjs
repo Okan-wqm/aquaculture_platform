@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import ts from 'typescript';
 
 const repoRoot = resolve(process.cwd());
 const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -297,6 +298,33 @@ function declarationFilesFor(tsconfig) {
 
   if (existsSync(root)) {
     walk(root);
+  }
+
+  // The narrowed config below lists files explicitly, so every ambient
+  // declaration the project's own tsconfig brings in from outside its
+  // directory (tools/aria-adapters and tools/gates include
+  // tests/invariants/js-yaml.d.ts) must be carried too, or the changed-file
+  // check type-checks a different program than `tsc -p` does.
+  const parsed = ts.getParsedCommandLineOfConfigFile(
+    join(repoRoot, tsconfig),
+    {},
+    {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+        throw new Error(
+          `type-check-changed-files: cannot read ${tsconfig}: ` +
+            ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+        );
+      },
+    },
+  );
+  if (!parsed) {
+    throw new Error(`type-check-changed-files: cannot read ${tsconfig}`);
+  }
+  for (const file of parsed.fileNames) {
+    if (file.endsWith('.d.ts') && !declarations.includes(file)) {
+      declarations.push(file);
+    }
   }
 
   return declarations;

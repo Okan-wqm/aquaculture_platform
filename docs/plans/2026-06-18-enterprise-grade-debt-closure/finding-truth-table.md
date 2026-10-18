@@ -211,6 +211,14 @@ resolved 467 findings that main-reachable commits had closed, 35 of them active 
 rows leave this table (their evidence stays in the registry as `closing_commits`). Active
 CRITICALs: 46.
 
+Updated 2026-10-17 (ARIA-HIGH-534, active means unresolved): `tools/gates/debt-plan-truth.ts`
+now derives the active CRITICAL set from `isUnresolvedFindingState`
+(`tools/gates/finding-registry-chain.ts`), so a BLOCKED or STALE CRITICAL keeps its row and only
+RESOLVED retires one. Counting only OPEN and IN-PROGRESS read the daily sweep's past-deadline
+BLOCKED transition as a CRITICAL leaving the debt with no closing commit, so every sweep PR failed
+this gate. `INFRA-CRITICAL-096`, BLOCKED since the 2026-09-04 note above, enters the table in the
+`blocked` bucket.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -232,7 +240,6 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 | `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
 | `INFRA-CRITICAL-081`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
@@ -241,6 +248,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-090`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-093`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-095`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-096`  | BLOCKED        | 2026-07-19   | security-reviewer          | blocked                   |
 | `INFRA-CRITICAL-097`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
@@ -282,11 +290,30 @@ Score 100%**, zero messages under legal hold, and a green tick over "No legal ho
 litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it at Tier 1 (the
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
+Updated 2026-10-17 (lost-work reland, PR #2010): `FARM-CRITICAL-444` — the 18:00 FCR alert
+sweep selected only batches whose stored `fcr.actual` is above zero, which only a closed batch
+has, so it never alerted on a live batch. It is `already-fixed-needs-close`: the PR fixes it and
+the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (lost-work reland, LW-RATION-600): `FARM-CRITICAL-454` — a growth weighing
+never reached the feeding ration: both growth-sample writers stopped at `Batch.weight.actual`,
+while every ration path reads the tank's `tank_batches` weight. It is `already-fixed-needs-close`:
+the branch fixes it and the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (lost-work reland, LW-SENSOR-ACK): `SENSOR-CRITICAL-190` — the handler the MQTT
+listener registers on the ack gate swallowed every rejection, so a failed metric write was
+PUBACKed; `SENSOR-CRITICAL-191` — the SensorReading was published after the metric commit, and a
+failed publish was acked with nothing left to retry it. Both are `already-fixed-needs-close`: the
+branch fixes them and the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (LW-SENSOR-ACK verification, round 1): `PLAT-CRITICAL-925` — the outbox relay
+counts transport failures toward its five-attempt dead-letter budget, so a NATS or JetStream outage
+longer than about 40-60 s dead-letters every pending row of every service, and nothing replays a
+dead-lettered row. It is `real-open`: the fix belongs in `@platform/outbox`, owner okan/claude,
+deadline 2026-11-17.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
 | `INFRA-CRITICAL-233` | OPEN | 2026-10-17 | claude | already-fixed-needs-close |
+| `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
 
 Updated 2026-10-17 (lost-work re-land, PR #2007): one active CRITICAL added.
 `INFRA-CRITICAL-233` — an ordinary leaf renewal (`droplet-up.sh` passing `--force` once the redis
@@ -1104,3 +1131,18 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `ARIA-CRITICAL-215`: registry state is `RESOLVED` with closing commit
   `2a3fceee5`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-444`: registry state is `RESOLVED` with closing commit
+  `9b998ec4b`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-454`: registry state is `RESOLVED` with closing commit
+  `abf0132dd`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-190`: registry state is `RESOLVED` with closing commit
+  `ff6e08aee`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-191`: registry state is `RESOLVED` with closing commit
+  `ff6e08aee`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ARIA-CRITICAL-009`: registry state is `RESOLVED` with closing commit
+  `8cb35a5cf`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.

@@ -376,12 +376,15 @@ class GhCliIssueWriterTests(unittest.TestCase):
         import subprocess
 
         self.calls.append(list(argv))
-        verb = " ".join(argv[1:3])
+        # The open-issue lookup is the REST list, every page (`api --paginate
+        # --slurp`, ARIA-LOW-554): one JSON array of the page arrays.
+        verb = "issue lookup" if argv[1] == "api" else " ".join(argv[1:3])
         if self.fail_on == verb:
             return subprocess.CompletedProcess(argv, 1, "", "HTTP 403: Resource not accessible")
-        if verb == "issue list":
-            return subprocess.CompletedProcess(argv, 0, json.dumps(
-                [issue for issue in self.issues if issue["state"] == "OPEN"]), "")
+        if verb == "issue lookup":
+            return subprocess.CompletedProcess(argv, 0, json.dumps([[
+                {"number": issue["number"], "title": issue["title"], "html_url": issue["url"]}
+                for issue in self.issues if issue["state"] == "OPEN"]]), "")
         if verb == "label list":
             return subprocess.CompletedProcess(argv, 0, json.dumps([{"name": name} for name in self.labels]), "")
         if verb == "label create":
@@ -411,9 +414,8 @@ class GhCliIssueWriterTests(unittest.TestCase):
         self.assertEqual((updated["outcome"], updated["number"]), ("updated", 900))
         self.assertEqual(len(self.issues), 1)
         self.assertIn("self-merge-freeze", self.labels, "a missing label is created before the issue")
-        listed = [call for call in self.calls if call[1:3] == ["issue", "list"]][0]
-        self.assertEqual([listed[i + 1] for i, arg in enumerate(listed) if arg == "--label"],
-                         list(FREEZE_NOTICE_LABELS))
+        listed = [call for call in self.calls if call[1] == "api"][0]
+        self.assertIn(f"labels={','.join(FREEZE_NOTICE_LABELS)}&", listed[-1])
 
     def test_close_finds_the_title_and_an_absent_one_is_absent(self) -> None:
         with mock.patch("aria_kernel.github_adapters.subprocess.run", side_effect=self._gh):
@@ -438,11 +440,11 @@ class GhCliIssueWriterTests(unittest.TestCase):
             result = self._writer().upsert_issue(title="T: freeze-1", body="one", labels=FREEZE_NOTICE_LABELS)
         self.assertEqual(result["outcome"], "failed")
         self.assertIn("github_write_requires_installation_token:personal_access_token", result["reason"])
-        self.assertEqual([call[1:3] for call in self.calls if call[2] not in ("list", "view")], [])
+        self.assertEqual([call[1:3] for call in self.calls if call[1] != "api" and call[2] not in ("list", "view")], [])
         self.assertEqual(self.issues, [])
 
     def test_an_unreadable_issue_list_creates_nothing(self) -> None:
-        self.fail_on = "issue list"
+        self.fail_on = "issue lookup"
         with mock.patch("aria_kernel.github_adapters.subprocess.run", side_effect=self._gh):
             result = self._writer().upsert_issue(title="T: freeze-1", body="one", labels=FREEZE_NOTICE_LABELS)
         self.assertEqual(result["outcome"], "failed")

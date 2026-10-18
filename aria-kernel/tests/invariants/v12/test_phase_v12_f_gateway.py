@@ -416,7 +416,7 @@ class Routing(_Store):
         first_open.assert_called_once_with(
             source_kind="github_issue", source_id="issue-54", repo_hash=first_attempt["mission_route"]["repo_hash"],
             title="GitHub issue #54: Issue 54", next_action="triage_github_issue",
-            wake_condition={"kind": "timer", "key": "github_issue:54"}, priority=1, base_dir=self.tools,
+            wake_condition={"kind": "timer", "key": "github_issue:54"}, priority=1, evidence_refs=(), base_dir=self.tools,
         )
         self.assertEqual(first_attempt["mission_route"]["attempted_at"], start.isoformat())
         self.assertEqual(first_attempt["mission_route"]["next_attempt_not_before"], (start + timedelta(seconds=60)).isoformat())
@@ -630,7 +630,8 @@ class SourceEnumAndAssets(_Store):
         self.assertIn("location /aria/webhook/", nginx)
         self.assertIn("proxy_pass http://127.0.0.1:8787", nginx)
         self.assertIn("zone=aria_webhook", nginx)
-        self.assertIn("aria-gateway.service", (_REPO_ROOT / "scripts/aria/provision_runner.sh").read_text(encoding="utf-8"))
+        # ARIA-HIGH-247 — the gateway's own provisioner, not the runner habitat's.
+        self.assertIn("aria-gateway.service", (_REPO_ROOT / "scripts/aria/provision_gateway.sh").read_text(encoding="utf-8"))
         runbook = (_REPO_ROOT / "docs/runbooks/aria-gateway.md").read_text(encoding="utf-8")
         for name in (gsrv.GITHUB_SECRET_ENV, gsrv.ALERTMANAGER_BEARER_ENV, gsrv.OPERATOR_BEARER_ENV, gsrv.ACTOR_ALLOWLIST_ENV):
             self.assertIn(name, runbook)

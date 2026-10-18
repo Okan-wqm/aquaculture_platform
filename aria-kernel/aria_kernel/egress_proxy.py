@@ -27,8 +27,9 @@ authentication: whoever can reach the socket already runs on this host, and
 every connection it admits ends at a provider that authenticates the caller
 itself.
 
-Standard library only — a decision here must be readable by an operator in
-one screen.
+Standard library only (its socket directory is the stdlib-only
+``socket_holders.EGRESS_PROXY``) — a decision here must be readable by an
+operator in one screen.
 """
 from __future__ import annotations
 
@@ -36,16 +37,14 @@ import asyncio
 import atexit
 import json
 import os
-import re
 import shutil
-import socket
 import sys
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+
+from .socket_holders import EGRESS_PROXY as _SOCKET_HOLDER
 
 MAX_HEADER_BYTES = 8192
 CONNECT_TIMEOUT_SECONDS = 20.0
@@ -75,12 +74,6 @@ PROVIDER_ENDPOINTS: tuple[str, ...] = (
 )
 _UNIX_SOCKET_PATH_MAX = 107
 _START_TIMEOUT_SECONDS = 10.0
-# The kernel proxy's socket directory, named like the other holders' (hook
-# broker `aria-hb-`, MCP broker `aria-mb-`, signing agent `aria-sa-`) so the
-# orchestrator's startup sweep can tell a killed process's directory by name.
-_SOCKET_DIR_PREFIX = "aria-ep-"
-_SOCKET_NAME = "sock"
-_SOCKET_DIR_RE = re.compile(r"^aria-ep-[A-Za-z0-9_]{8}$")
 
 
 class EgressProxyUnavailable(RuntimeError):
@@ -280,56 +273,19 @@ def kernel_egress_socket() -> Path:
     proves is the argv a spawn gets. The socket lives in a private 0700
     directory removed at exit; the room reaches it through its bind alone.
     A process killed outright never reaches its exit; its directory is the
-    orchestrator's startup sweep's (:func:`prune_stale_egress_proxies`).
+    orchestrator's startup sweep's
+    (:func:`socket_holders.prune_stale_holder_sockets`, ARIA-LOW-565, over the
+    ``socket_holders.EGRESS_PROXY`` declaration).
     """
     with _KERNEL_PROXY_LOCK:
         if _KERNEL_PROXY and _KERNEL_PROXY[0].serving():
             return _KERNEL_PROXY[0].socket_path
-        directory = Path(tempfile.mkdtemp(prefix=_SOCKET_DIR_PREFIX))
+        directory = _SOCKET_HOLDER.make_directory()
         try:
-            proxy = ProxyThread(directory / _SOCKET_NAME, Allowlist.parse(PROVIDER_ENDPOINTS)).start()
+            proxy = ProxyThread(directory / _SOCKET_HOLDER.socket_name, Allowlist.parse(PROVIDER_ENDPOINTS)).start()
         except EgressProxyUnavailable:
             shutil.rmtree(directory, ignore_errors=True)
             raise
         atexit.register(shutil.rmtree, directory, True)
         _KERNEL_PROXY[:] = [proxy]
         return proxy.socket_path
-
-
-def _proxy_answers(socket_path: Path) -> bool:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        client.settimeout(1.0)
-        client.connect(str(socket_path))
-        return True
-    except OSError:
-        return False
-    finally:
-        client.close()
-
-
-def prune_stale_egress_proxies(*, temp_root: str | Path | None = None) -> dict[str, Any]:
-    """Remove the socket directories of kernel proxies that no longer answer
-    (a process killed outright never reached its ``atexit``). A directory
-    whose proxy still answers belongs to a live process and is left alone;
-    one holding anything but the socket is not ours to remove."""
-    root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
-    swept: list[str] = []
-    live: list[str] = []
-    errors: list[str] = []
-    for entry in sorted(root.glob(f"{_SOCKET_DIR_PREFIX}*")):
-        if not entry.is_dir() or not _SOCKET_DIR_RE.match(entry.name):
-            continue
-        socket_path = entry / _SOCKET_NAME
-        if socket_path.is_socket() and _proxy_answers(socket_path):
-            live.append(entry.name)
-            continue
-        try:
-            if any(child.name != _SOCKET_NAME for child in entry.iterdir()):
-                continue
-            shutil.rmtree(entry)
-        except OSError as exc:
-            errors.append(f"{entry.name}:{type(exc).__name__}")
-        else:
-            swept.append(entry.name)
-    return {"scanned": len(swept) + len(live) + len(errors), "swept": swept, "live": live, "errors": errors}

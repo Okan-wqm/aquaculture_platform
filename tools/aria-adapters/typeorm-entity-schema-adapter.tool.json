@@ -3,6 +3,7 @@
   "kind": "adapter",
   "version": "1.1.0",
   "status": "SHADOW",
+  "security_class": true,
   "declared_scope": ["apps/**/*.ts", "libs/backend-common/src/database/schema-manager.service.ts"],
   "output_schema": {
     "type": "object",

@@ -28,14 +28,15 @@ from aria_kernel.genesis_adapter_custody import (
     genesis_custody,
     materialize_drafted_adapter,
     source_sha256,
+    verify_genesis_promotion,
 )
 from aria_kernel.tool_registry import GovernanceError, get_tool, list_tools, register_tool, transition_tool
 from aria_kernel.tool_runner import run_tool
+from tests._helpers.sandbox_pins import require_sandbox_backend
 from tests.test_genesis_adapter_custody import (
     GOOD_SOURCE,
     _git_workspace,
     _manifest,
-    _requires_backend,
     accept_drafter_result,
 )
 
@@ -50,6 +51,8 @@ def _drafted_manifest(**overrides) -> dict:
         "health_thresholds": {"precision_min": {"min": 0.0, "max": 0.0}, "max_cost_units": {"min": 0, "max": 10}},
         # What the drafter asked for; the kernel binds all of these.
         "declared_scope": ["**"], "allowed_read_globs": ["**"], "owner": "drafter", "status": "ACTIVE",
+        # ARIA-LOW-533 — a drafter may not declare its adapter cuttable.
+        "security_class": False,
         "runner": {"type": "subprocess", "argv": ["python3", "tools/aria-poc/elsewhere.py"], "cwd": ".",
                    "timeout_ms": 99_999_999, "stdin_json": True},
     })
@@ -59,7 +62,7 @@ def _drafted_manifest(**overrides) -> dict:
 
 class _MaterializeLayout(unittest.TestCase):
     def setUp(self) -> None:
-        _requires_backend(self)
+        require_sandbox_backend()
         base = Path(tempfile.mkdtemp(prefix="aria-genesis-mat-", dir="/var/tmp"))
         self.addCleanup(shutil.rmtree, base, True)
         self.base = base
@@ -102,6 +105,9 @@ class MaterializeTests(_MaterializeLayout):
         self.assertEqual(tool["runner"], {**GENESIS_RUNNER_BASE, "timeout_ms": GENESIS_ADAPTER_TIMEOUT_MS_DEFAULT})
         self.assertEqual(tool["owner"], "skill_genesis")
         self.assertEqual(tool["health_thresholds"]["precision_min"], 0.85, "the kernel's bar, not the drafter's")
+        # The security class is kernel-owned: undeclared, so the calibration
+        # actuator never cuts the drafted adapter (ARIA-LOW-533).
+        self.assertNotIn("security_class", tool)
         # THE PIN: the registered digest IS the passing calibration's digest.
         custody = genesis_custody(TOOL_ID, base_dir=self.tools)
         self.assertEqual(custody["adapter_sha256"], result["adapter_sha256"])
@@ -186,6 +192,44 @@ class PromotionAuthorityTests(_MaterializeLayout):
         with mock.patch("aria_kernel.operator_approval.verify_operator_approval", return_value=proof) as verify:
             row = transition_tool(TOOL_ID, "ACTIVE", reason="operator", base_dir=self.tools,
                                   operator_approval_ref="gh:o/r#1/comment/2", precision=1.0, evidence_chains_valid=True)
+        verify.assert_called_once()
+        self.assertEqual(row["status"], "ACTIVE")
+
+    def test_a_forged_panel_string_beside_a_verified_auto_token_is_refused(self) -> None:
+        # The wave-2 reproduction of item 6: the genesis gate counted the
+        # panel token's PRESENCE, the predicate then counted the verified
+        # auto token, and drafted code reached ACTIVE with neither an
+        # operator act nor the panel.
+        verified = {"tool_id": TOOL_ID}
+        with mock.patch("aria_kernel.adapter_calibration.verify_auto_promote_token", return_value=verified):
+            with self.assertRaisesRegex(GovernanceError, "genesis_adapter_promotion_requires_operator_or_panel"):
+                transition_tool(TOOL_ID, "ACTIVE", reason="auto", base_dir=self.tools, auto_promote_token="tok",
+                                panel_approval_token="forged", precision=1.0, evidence_chains_valid=True)
+        self.assertEqual(get_tool(TOOL_ID, self.tools)["status"], "SHADOW")
+
+    def test_a_forged_operator_ref_beside_a_verified_auto_token_is_refused(self) -> None:
+        verified = {"tool_id": TOOL_ID}
+        with mock.patch("aria_kernel.adapter_calibration.verify_auto_promote_token", return_value=verified):
+            with self.assertRaisesRegex(GovernanceError, "tool_transition_approval_unrecorded"):
+                transition_tool(TOOL_ID, "ACTIVE", reason="auto", base_dir=self.tools, auto_promote_token="tok",
+                                operator_approval_ref="garbage", precision=1.0, evidence_chains_valid=True)
+        self.assertEqual(get_tool(TOOL_ID, self.tools)["status"], "SHADOW")
+
+    def test_the_authority_check_reads_verified_authority_never_a_string(self) -> None:
+        # The reopen note's own probe, at the function: a ref or a panel
+        # string is not authority; only a resolved act or a verified panel is.
+        for operator_approval, panel in ((None, False), ("gh:o/r#1/comment/2", False), (None, "forged")):
+            with self.subTest(operator_approval=operator_approval, panel=panel):
+                with self.assertRaisesRegex(GenesisCustodyRefusal, "genesis_adapter_promotion_requires_operator_or_panel"):
+                    verify_genesis_promotion(TOOL_ID, operator_approval=operator_approval, panel_promote_verified=panel)
+        verify_genesis_promotion(TOOL_ID, operator_approval={"kind": "gh"}, panel_promote_verified=False)
+        verify_genesis_promotion(TOOL_ID, operator_approval=None, panel_promote_verified=True)
+
+    def test_a_verified_panel_token_promotes(self) -> None:
+        pending = {"tool_id": TOOL_ID}
+        with mock.patch("aria_kernel.promotion_veto.verify_panel_approval_token", return_value=pending) as verify:
+            row = transition_tool(TOOL_ID, "ACTIVE", reason="panel", base_dir=self.tools,
+                                  panel_approval_token="minted", precision=1.0, evidence_chains_valid=True)
         verify.assert_called_once()
         self.assertEqual(row["status"], "ACTIVE")
 

@@ -21,6 +21,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
 
+import { parseUpstreamManifest } from '../aria-adapters/rust-cargo';
+
 const REPO_ROOT = (() => {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -39,11 +41,7 @@ const MANIFEST = join(FORK_DIR, 'UPSTREAM-MANIFEST.sha256');
 const ALLOWED_DIVERGENT = new Set(['./Cargo.toml', './src/tls.rs']);
 
 /** Fork-owned files that do not exist upstream. */
-const FORK_OWNED = new Set([
-  './UPSTREAM.md',
-  './UPSTREAM-MANIFEST.sha256',
-  './FORK-EDITS.sha256',
-]);
+const FORK_OWNED = new Set(['./UPSTREAM.md', './UPSTREAM-MANIFEST.sha256', './FORK-EDITS.sha256']);
 
 /** Post-fork content pins for the two divergent files (EDGE-HIGH-002):
  *  diverging from UPSTREAM is required, but the divergence itself must be
@@ -51,10 +49,7 @@ const FORK_OWNED = new Set([
  *  allowed-divergent file (e.g. weakening tls.rs) is a gate failure, not
  *  a reviewer hope. Intentional edits update FORK-EDITS.sha256 +
  *  UPSTREAM.md in the same reviewed commit. */
-const FORK_EDITS_MANIFEST = join(
-  REPO_ROOT,
-  'crates/local-rumqttc/FORK-EDITS.sha256',
-);
+const FORK_EDITS_MANIFEST = join(REPO_ROOT, 'crates/local-rumqttc/FORK-EDITS.sha256');
 
 const FORK_MARKER = 'LOCAL FORK (RUST-CVE-001)';
 
@@ -62,13 +57,14 @@ function sha256(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-function parseManifest(): Map<string, string> {
-  const entries = new Map<string, string>();
-  for (const line of readFileSync(MANIFEST, 'utf8').split('\n')) {
-    const m = line.match(/^([0-9a-f]{64})\s+(\.\/.+)$/);
-    if (m) entries.set(m[2] as string, m[1] as string);
-  }
-  return entries;
+/**
+ * Both manifests use the `<sha256>  ./<path>` grammar. Its one copy is
+ * `parseUpstreamManifest` (ARIA-LOW-544): the ARIA Rust reader classifies
+ * vendored files with it, so the gate and the reader cannot disagree about a
+ * line.
+ */
+function parseManifest(): ReadonlyMap<string, string> {
+  return parseUpstreamManifest(readFileSync(MANIFEST, 'utf8'));
 }
 
 function walk(dir: string): string[] {
@@ -83,7 +79,10 @@ function walk(dir: string): string[] {
 
 void test('upstream manifest exists and covers the vendored tree', () => {
   const manifest = parseManifest();
-  assert.ok(manifest.size >= 60, `manifest suspiciously small (${manifest.size} entries) — was it truncated?`);
+  assert.ok(
+    manifest.size >= 60,
+    `manifest suspiciously small (${manifest.size} entries) — was it truncated?`,
+  );
 
   const onDisk = new Set(walk(FORK_DIR));
   // No unexplained additions: everything on disk is either in the upstream
@@ -96,7 +95,10 @@ void test('upstream manifest exists and covers the vendored tree', () => {
   }
   // No silent deletions: every manifest entry still exists.
   for (const file of manifest.keys()) {
-    assert.ok(onDisk.has(file), `${file} is in UPSTREAM-MANIFEST.sha256 but missing on disk — undocumented deletion`);
+    assert.ok(
+      onDisk.has(file),
+      `${file} is in UPSTREAM-MANIFEST.sha256 but missing on disk — undocumented deletion`,
+    );
   }
 });
 
@@ -116,7 +118,10 @@ void test('only Cargo.toml and src/tls.rs diverge from upstream hashes', () => {
   // The two policy files MUST diverge — if they match upstream again, the
   // CVE fix has been silently reverted.
   for (const file of ALLOWED_DIVERGENT) {
-    assert.ok(divergent.includes(file), `${file} matches upstream byte-for-byte — the RUST-CVE-001 fix was reverted?`);
+    assert.ok(
+      divergent.includes(file),
+      `${file} matches upstream byte-for-byte — the RUST-CVE-001 fix was reverted?`,
+    );
   }
 });
 
@@ -128,11 +133,7 @@ void test('every deliberate fork edit carries the LOCAL FORK marker', () => {
 });
 
 void test('divergent files match the FORK-EDITS content pin byte-for-byte (EDGE-HIGH-002)', () => {
-  const pins = new Map<string, string>();
-  for (const line of readFileSync(FORK_EDITS_MANIFEST, 'utf8').split('\n')) {
-    const m = line.match(/^([0-9a-f]{64})\s+(\.\/.+)$/);
-    if (m) pins.set(m[2] as string, m[1] as string);
-  }
+  const pins = parseUpstreamManifest(readFileSync(FORK_EDITS_MANIFEST, 'utf8'));
   assert.deepEqual(
     [...pins.keys()].sort(),
     [...ALLOWED_DIVERGENT].sort(),
@@ -151,13 +152,28 @@ void test('divergent files match the FORK-EDITS content pin byte-for-byte (EDGE-
 void test('fork is wired via [patch.crates-io] in both workspaces', () => {
   const root = readFileSync(resolve(REPO_ROOT, 'Cargo.toml'), 'utf8');
   const sens = readFileSync(resolve(REPO_ROOT, 'sens-api-gateway/Cargo.toml'), 'utf8');
-  assert.match(root, /\[patch\.crates-io\][\s\S]*rumqttc\s*=\s*\{\s*path\s*=\s*"crates\/local-rumqttc"/, 'root Cargo.toml lost the rumqttc [patch.crates-io] entry');
-  assert.match(sens, /\[patch\.crates-io\][\s\S]*rumqttc\s*=\s*\{\s*path\s*=\s*"\.\.\/crates\/local-rumqttc"/, 'sens-api-gateway Cargo.toml lost the rumqttc [patch.crates-io] entry');
+  assert.match(
+    root,
+    /\[patch\.crates-io\][\s\S]*rumqttc\s*=\s*\{\s*path\s*=\s*"crates\/local-rumqttc"/,
+    'root Cargo.toml lost the rumqttc [patch.crates-io] entry',
+  );
+  assert.match(
+    sens,
+    /\[patch\.crates-io\][\s\S]*rumqttc\s*=\s*\{\s*path\s*=\s*"\.\.\/crates\/local-rumqttc"/,
+    'sens-api-gateway Cargo.toml lost the rumqttc [patch.crates-io] entry',
+  );
 });
 
 void test('fork Cargo.toml carries the dependency fixes it exists for', () => {
   const toml = readFileSync(join(FORK_DIR, 'Cargo.toml'), 'utf8');
-  assert.ok(!/\[dependencies\.rustls-pemfile\]/.test(toml), 'rustls-pemfile dependency reappeared in the fork');
-  assert.match(toml, /\[dependencies\.rustls-webpki\]\n[^[]*version = "0\.103"/, 'rustls-webpki is not pinned to the patched 0.103 line');
+  assert.ok(
+    !/\[dependencies\.rustls-pemfile\]/.test(toml),
+    'rustls-pemfile dependency reappeared in the fork',
+  );
+  assert.match(
+    toml,
+    /\[dependencies\.rustls-webpki\]\n[^[]*version = "0\.103"/,
+    'rustls-webpki is not pinned to the patched 0.103 line',
+  );
   assert.match(toml, /publish = false/, 'fork must stay publish = false');
 });

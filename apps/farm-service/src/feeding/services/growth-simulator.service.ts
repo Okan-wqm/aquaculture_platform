@@ -433,8 +433,8 @@ export class GrowthSimulatorService {
         tankId,
         tankName: tankBatch.tankName,
         tankCode: tankBatch.tankCode,
-        batchId: tankBatch.primaryBatchId,
-        batchNumber: tankBatch.primaryBatchNumber,
+        batchId: tankBatch.primaryBatchId ?? undefined,
+        batchNumber: tankBatch.primaryBatchNumber ?? undefined,
       });
     }
 
@@ -466,8 +466,8 @@ export class GrowthSimulatorService {
         tankId: tb.tankId,
         tankName: tb.tankName,
         tankCode: tb.tankCode,
-        batchId: tb.primaryBatchId,
-        batchNumber: tb.primaryBatchNumber,
+        batchId: tb.primaryBatchId ?? undefined,
+        batchNumber: tb.primaryBatchNumber ?? undefined,
         fishCount: tb.totalQuantity,
         avgWeightG: Number(tb.avgWeightG),
         biomassKg: Number(tb.totalBiomassKg),

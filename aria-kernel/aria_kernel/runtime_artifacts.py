@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_safety import sanitized_json_text, scrub_json
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, is_sha256_digest, load_declared_jsonl, load_jsonl, verify_jsonl
 from .ledger import (
     LEDGER_ROW_MAX_BYTES as _LEDGER_ROW_MAX_BYTES,
@@ -24,7 +25,7 @@ from .ledger import (
 )
 from .cycle_runtime_status import is_integrity_class, runtime_status
 from .state_manifest import resolve_surface_path, surface_by_name, surface_for_path
-from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, is_dispatchable, tools_dir, utc_now
 
 
 RUN_LEDGER_FORMAT_ENV = "ARIA_RUN_LEDGER_FORMAT"
@@ -838,8 +839,7 @@ def cold_blob(root: Path, pointer: dict[str, Any]) -> bytes | None:
     """The evicted bytes from the local object store, or None when the blob is
     not here, over the cap, or not the bytes the pointer's sha256 names."""
     blob = str(pointer.get("git_blob") or "")
-    hexadecimal = len(blob) in {40, 64} and all(ch in "0123456789abcdef" for ch in blob)
-    size = _git_cat_file(root, ("cat-file", "-s", blob)) if hexadecimal else None
+    size = _git_cat_file(root, ("cat-file", "-s", blob)) if is_object_id(blob, formats=ANY_OBJECT_FORMAT) else None
     if size is None or int(size) > _COLD_BLOB_MAX_BYTES:
         return None
     content = _git_cat_file(root, ("cat-file", "blob", blob))
@@ -943,7 +943,7 @@ def classify_cycle_evidence(
     registry_issues: list[dict[str, Any]] = []
     runnable_tools = [
         tool for tool in _load_registry_tools(root, issues=registry_issues)
-        if tool.get("status") in {"ACTIVE", "SHADOW", "CALIBRATE"}
+        if is_dispatchable(tool)
     ]
     expected_tool_count = len(runnable_tools)
     ok_runs = [row for row in run_rows if row.get("status") == "ok"]
@@ -1710,6 +1710,10 @@ def autonomy_output_summary(
         for phase in cycle.get("failed_phases", []) if isinstance(cycle.get("failed_phases"), list) else []:
             if isinstance(phase, dict):
                 failed_phases.append(phase)
+        # ARIA-MEDIUM-548 — the orchestrator's own failed phase (the bridge
+        # replay gate) rides the per-cycle item beside the cycle runner's
+        # summary, not inside it; the night's summary names it too.
+        failed_phases.extend(item.get("failed_phases", []))
         for ref in cycle.get("artifact_refs", []) if isinstance(cycle.get("artifact_refs"), list) else []:
             if isinstance(ref, dict):
                 artifact_refs.append(ref)
@@ -2062,13 +2066,25 @@ def _resolve_artifact_path(raw_path: str, *, root: Path, workspace_root: Path | 
     raise GovernanceError("artifact path escapes tools/workspace roots")
 
 
-def _artifact_ref_has_raw_findings(run: dict[str, Any], *, base_dir: Path) -> bool:
+def run_raw_findings(run: dict[str, Any], *, base_dir: str | Path | None) -> list[Any] | None:
+    """The raw findings a run's artifact holds, or None when no artifact holds them.
+
+    The one reader of a run's FULL finding list (ARIA-HIGH-045): the first
+    artifact reference whose resolved payload carries a ``raw_findings``
+    list. ``raw_findings_sample`` and ``raw-findings.jsonl`` cannot stand
+    in: the sample is truncated, and ``record_raw_findings_for_run`` writes
+    no row for an empty run, so neither tells a clean run from a missing one.
+    """
     for ref in _artifact_refs_from_run(run):
         payload = resolve_artifact_payload(ref, base_dir=base_dir)
         inner = payload.get("payload") if isinstance(payload, dict) else None
         if isinstance(inner, dict) and isinstance(inner.get("raw_findings"), list):
-            return True
-    return False
+            return inner["raw_findings"]
+    return None
+
+
+def _artifact_ref_has_raw_findings(run: dict[str, Any], *, base_dir: Path) -> bool:
+    return run_raw_findings(run, base_dir=base_dir) is not None
 
 
 def _raw_finding_verdict(
@@ -2852,6 +2868,6 @@ __all__ = [
     "classify_cycle_evidence", "read_runs_for_cycle", "require_runtime_v2_promotion",
     "compacted_artifacts",
     "resolve_artifact_payload", "resolve_finding_from_artifact", "restore_artifact",
-    "retention_apply", "retention_dry_run", "rollback_retention", "run_artifacts_root",
+    "retention_apply", "retention_dry_run", "rollback_retention", "run_artifacts_root", "run_raw_findings",
     "run_ledger_format", "verify_artifacts", "verify_runtime_artifacts", "write_run_artifact",
 ]

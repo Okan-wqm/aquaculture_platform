@@ -230,9 +230,10 @@ class KernelReadSitesSeeDeltaRowsTests(unittest.TestCase):
 
     def test_orphan_plan_evidence_comes_from_the_folded_row(self) -> None:
         orphan = self.repo.root / "docs" / "reviews" / "orphan-findings.md"
-        orphan.write_text("## ORPHAN-HIGH-501\nStatus: OPEN\nbody\n", encoding="utf-8")
-        self.repo.write_base([_finding("ORPHAN-HIGH-501", evidence=["apps/a.ts:1"])])
-        self.repo.write_delta("evidence.jsonl", [_finding("ORPHAN-HIGH-501", evidence=["apps/b.ts:2"])])
+        orphan.write_text("## ORPHAN-HIGH-501 — t — OPEN\nbody\n", encoding="utf-8")
+        register = {"review_file": "docs/reviews/orphan-findings.md"}
+        self.repo.write_base([_finding("ORPHAN-HIGH-501", evidence=["apps/a.ts:1"], **register)])
+        self.repo.write_delta("evidence.jsonl", [_finding("ORPHAN-HIGH-501", evidence=["apps/b.ts:2"], **register)])
         candidates = scan_orphan_findings(self.repo.root)
         self.assertEqual(candidates[0].get("evidence"), ["apps/b.ts:2"])
 

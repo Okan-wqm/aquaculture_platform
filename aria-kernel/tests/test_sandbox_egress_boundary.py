@@ -39,6 +39,7 @@ from unittest import mock
 
 from aria_kernel import egress_proxy
 from aria_kernel import implementation_safety as impl
+from tests._helpers.sandbox_pins import require_sandbox_backend
 
 PYTHON = os.path.realpath(sys.executable)
 TEST_NET = ("203.0.113.1", 443)  # RFC 5737: never routable, never allowlisted
@@ -107,11 +108,6 @@ print(json.dumps(out))
 """
 
 
-def _skip_without_bwrap(case: unittest.TestCase) -> None:
-    if not impl._bwrap_available():
-        case.skipTest("bwrap not usable on this host; the sandbox refuses rather than degrading")
-
-
 class _Service:
     """A host-side listener that hands every connection a secret — the
     loopback production service an agent must not reach."""
@@ -158,7 +154,7 @@ class _RoomCase(unittest.TestCase):
     """Builds a room and runs the probe in it."""
 
     def setUp(self) -> None:
-        _skip_without_bwrap(self)
+        require_sandbox_backend()
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-egress-room-"))
         self.workspace = self.tmp / "workspace"
         self.workspace.mkdir()
@@ -412,7 +408,7 @@ class TheGateProvesTheBoundaryInARoom(unittest.TestCase):
     the managed room's real argv from inside it."""
 
     def setUp(self) -> None:
-        _skip_without_bwrap(self)
+        require_sandbox_backend()
 
     def test_this_hosts_managed_room_holds_the_boundary(self) -> None:
         self.assertIsNone(impl.egress_boundary_probe())

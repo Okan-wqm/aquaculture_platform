@@ -13,19 +13,30 @@ now runs them after the cycle. Pinned here, against the live YAML:
 * they and the cycle step name the one channel (`github_issue` on this
   repository, the job token); the executor lane names none;
 * each is bounded, and the close-out margin of the cycle step still covers
-  every step after it.
+  every step after it: the margin and its one unbounded term (the basis) are
+  the job env's, no step without a timeout sits between the cycle and the
+  publish outside the measured stretch, and every night measures that
+  stretch against the basis (ARIA-LOW-551);
+* the dispatch-gated channel check reaches a verdict without failing its step,
+  so a failed check no longer skips the night; the run turns red after the
+  publish instead (ARIA-LOW-553).
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
+import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
+from aria_kernel.notify import NOTIFY_WORST_CASE_SECONDS
 from aria_kernel.workflow_contracts import verify_workflow_contract
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -46,15 +57,21 @@ _NOTIFY_ENV = {
     "ARIA_NOTIFY_CHANNELS": "github_issue",
     "ARIA_NOTIFY_GITHUB_REPO": "${{ github.repository }}",
 }
-# The close-out steps that carry no timeout of their own, at their measured
-# worst (#1371, 842 MB of state): handoff 5 + integrity verify 40 + mint 2 +
-# publish 10 minutes.
-_UNBOUNDED_CLOSE_OUT_MINUTES = 57
+_ANCHOR_STEP = "Anchor the unbounded close-out"
+_MEASURE_STEP = "Measure the unbounded close-out"
+_HANDOFF_STOP_STEP = "Handoff snapshot - session_stop"
+_CLOSE_OUT_PUBLISH_STEP = "Publish ARIA state to the aria/state branch"
+_CYCLE_ONLY_IF = (
+    "always() && steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'"
+)
+
+
+def _job() -> dict[str, Any]:
+    return yaml.safe_load((_REPO_ROOT / _WORKFLOW).read_text(encoding="utf-8"))["jobs"]["cycle"]
 
 
 def _steps() -> list[dict[str, Any]]:
-    jobs = yaml.safe_load((_REPO_ROOT / _WORKFLOW).read_text(encoding="utf-8"))["jobs"]
-    return jobs["cycle"]["steps"]
+    return _job()["steps"]
 
 
 def _names() -> list[str]:
@@ -81,12 +98,23 @@ class TheObservationStepsRunInTheLiveLane(unittest.TestCase):
             step = _step(name)
             self.assertEqual(step["if"], _POST_IF, name)
             self.assertIsInstance(step.get("timeout-minutes"), int, name)
-            # Least privilege: only the steps that write an issue hold the token.
-            expected = _NOTIFY_ENV if name != _OBSERVATION_STEPS[1] else {
-                key: value for key, value in _NOTIFY_ENV.items() if key != "GH_TOKEN"
-            }
-            self.assertEqual(step["env"], expected, name)
+            # Least privilege: only the steps that write an issue hold the
+            # token and the channel. Self-improve writes missions, and since
+            # ARIA-LOW-559 it no longer runs the doctor whose notifications
+            # organ judged the lane's channel, so it holds neither.
+            expected = _NOTIFY_ENV if name != _OBSERVATION_STEPS[1] else None
+            self.assertEqual(step.get("env"), expected, name)
             self.assertIn("schedule run --action", step["run"], name)
+
+    def test_self_improve_reads_the_report_the_doctor_step_wrote(self) -> None:
+        """ARIA-LOW-559 — one doctor run a night: the doctor step writes its
+        action's output (which carries the report) and the self-improve step
+        hands that same file to `--doctor-report` instead of running every
+        organ again."""
+        report = '"$RUNNER_TEMP/aria-doctor.json"'
+        self.assertIn("--action doctor", _step(_OBSERVATION_STEPS[0])["run"])
+        self.assertIn(f"> {report}", _step(_OBSERVATION_STEPS[0])["run"])
+        self.assertIn(f"--doctor-report {report}", _step(_OBSERVATION_STEPS[1])["run"])
 
     def test_the_cycle_step_names_the_channel_and_the_executor_lane_names_none(self) -> None:
         env = _step(_WORK_STEP)["env"]
@@ -108,15 +136,188 @@ class TheObservationStepsRunInTheLiveLane(unittest.TestCase):
         self.assertLess(_names().index(step["name"]), _names().index(_WORK_STEP))
 
     def test_the_close_out_margin_covers_every_step_after_the_cycle(self) -> None:
+        # ARIA-LOW-551 — the margin and the basis (the one term no timeout
+        # bounds) have one owner, the job env; the spawn deadline reads it.
+        env = _job()["env"]
+        margin = int(env["ARIA_CLOSE_OUT_MARGIN_SECONDS"])
+        basis = int(env["ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS"])
         run = _step(_WORK_STEP)["run"]
-        match = re.search(r"JOB_TIMEOUT_MINUTES \* 60 - (\d+) \)\)", run)
-        self.assertIsNotNone(match, "the margin literal moved; re-derive this pin")
-        margin_minutes = int(match.group(1)) // 60
+        self.assertIn("JOB_TIMEOUT_MINUTES * 60 - ARIA_CLOSE_OUT_MARGIN_SECONDS ))", run)
+        self.assertIsNone(re.search(r"JOB_TIMEOUT_MINUTES \* 60 - \d", run), "the margin has one owner, the job env")
         names = _names()
         after = [step for step in _steps()[names.index(_WORK_STEP) + 1:] if step.get("name") != _BURN_IN_STEP]
-        bounded = sum(int(step["timeout-minutes"]) for step in after if "timeout-minutes" in step)
-        self.assertLessEqual(_UNBOUNDED_CLOSE_OUT_MINUTES + bounded, margin_minutes,
-                             f"{_UNBOUNDED_CLOSE_OUT_MINUTES} + {bounded} > {margin_minutes}")
+        bounded = sum(int(step["timeout-minutes"]) * 60 for step in after if "timeout-minutes" in step)
+        self.assertLessEqual(basis + bounded, margin, f"{basis} + {bounded} > {margin}")
+
+    def test_every_unbounded_step_before_the_publish_is_inside_the_measured_stretch(self) -> None:
+        # The basis prices the stretch from the anchor to the end of the
+        # publish; a step with no timeout added between the cycle and the
+        # anchor would spend the margin unmeasured and unpriced.
+        names = _names()
+        between = _steps()[names.index(_WORK_STEP) + 1:names.index(_ANCHOR_STEP)]
+        unbounded = [step.get("name") for step in between
+                     if "timeout-minutes" not in step and step.get("name") != _BURN_IN_STEP]
+        self.assertEqual(unbounded, [])
+        self.assertLess(names.index(_OBSERVATION_STEPS[-1]), names.index(_ANCHOR_STEP))
+        self.assertEqual(names.index(_HANDOFF_STOP_STEP), names.index(_ANCHOR_STEP) + 1)
+        self.assertEqual(names.index(_MEASURE_STEP), names.index(_CLOSE_OUT_PUBLISH_STEP) + 1)
+        self.assertEqual((_step(_ANCHOR_STEP)["if"], _step(_MEASURE_STEP)["if"]), (_CYCLE_ONLY_IF, _CYCLE_ONLY_IF))
+
+
+_CHANNEL_CHECK_STEP = "Notification channel check (dispatch-gated)"
+_CHANNEL_CHECK_FAIL_STEP = "Fail on a failed notification channel check"
+_PUBLISH_STEP = "Publish ARIA state to the aria/state branch"
+# Stands in for `python3 -m aria_kernel notify send`: answers the send named
+# by the `--key` suffix (1 or 2) from the scenario in the environment.
+_FAKE_NOTIFY_MAIN = """\
+import json, os, sys
+argv = sys.argv[1:]
+send = argv[argv.index("--key") + 1].rsplit(":", 1)[1]
+scenario = json.loads(os.environ["FAKE_NOTIFY_SCENARIO"])[send]
+if scenario.get("hang"):
+    import time
+    time.sleep(60)
+print(json.dumps(scenario["rows"]))
+sys.exit(scenario["rc"])
+"""
+
+
+def _send(status: str, action: str | None = None) -> dict[str, Any]:
+    detail = {"action": action} if action else {"error": "issue_list_failed:rc=1: HTTP 401"}
+    return {"rc": 0 if status == "sent" else 1, "rows": [{"channel": "github_issue", "status": status, "detail": detail}]}
+
+
+class TheChannelCheckProvesTheChannelWithoutSkippingTheNight(unittest.TestCase):
+    """ARIA-LOW-553 — a failed channel check used to fail its step, and every
+    provisioning and cycle step after it carries a plain `if:` (an implied
+    `success()`), so the dispatch that asked for the proof lost its night.
+    The step's own script runs here as GitHub runs it (`bash -e`), against a
+    stand-in `notify send`."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-low-553-"))
+        package = self.tmp / "aria-kernel" / "aria_kernel"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "__main__.py").write_text(_FAKE_NOTIFY_MAIN, encoding="utf-8")
+        (self.tmp / "runner-temp").mkdir()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, first: dict[str, Any], second: dict[str, Any], *,
+             bound: str | None = None) -> tuple[int, dict[str, str]]:
+        run = _step(_CHANNEL_CHECK_STEP)["run"]
+        if bound is not None:
+            # The step's own bound, shortened so a hung send is cut in a test.
+            run = re.sub(r"timeout --kill-after=\d+s \d+s ", f"timeout --kill-after=1s {bound} ", run)
+        script = self.tmp / "step.sh"
+        script.write_text(run, encoding="utf-8")
+        output = self.tmp / "github-output"
+        output.write_text("", encoding="utf-8")
+        env = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "RUNNER_TEMP": str(self.tmp / "runner-temp"),
+            "GITHUB_RUN_ID": "77",
+            "GITHUB_OUTPUT": str(output),
+            "ARIA_TOOLS_DIR": str(self.tmp / "tools"),
+            "FAKE_NOTIFY_SCENARIO": json.dumps({"1": first, "2": second}),
+        }
+        done = subprocess.run(["bash", "-e", str(script)], cwd=self.tmp, env=env, capture_output=True, text=True,
+                              timeout=120, check=False)
+        outputs = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines() if "=" in line)
+        return done.returncode, outputs
+
+    def test_a_failed_send_is_a_false_verdict_on_a_step_that_succeeds(self) -> None:
+        self.assertEqual(self._run(_send("failed"), _send("failed")), (0, {"verified": "false"}))
+
+    def test_a_second_notice_that_opened_another_issue_is_a_false_verdict(self) -> None:
+        self.assertEqual(self._run(_send("sent", "created"), _send("sent", "created")), (0, {"verified": "false"}))
+
+    def test_a_send_cut_at_its_bound_is_a_false_verdict_on_a_step_that_succeeds(self) -> None:
+        hung = {**_send("sent", "created"), "hang": True}
+        self.assertEqual(self._run(hung, _send("sent", "commented"), bound="1s"), (0, {"verified": "false"}))
+
+    def test_sent_then_commented_is_a_true_verdict(self) -> None:
+        self.assertEqual(self._run(_send("sent", "created"), _send("sent", "commented")), (0, {"verified": "true"}))
+
+    def test_each_send_is_bounded_at_notifys_price_and_below_the_step_timeout(self) -> None:
+        # The platform's step timeout is a failed step too, which would skip
+        # the night just the same; the step must reach its verdict first. A
+        # send is not cut before the worst case notify prices for itself.
+        step = _step(_CHANNEL_CHECK_STEP)
+        bounds = re.findall(r"timeout --kill-after=(\d+)s (\d+)s python3 -m aria_kernel notify send", step["run"])
+        self.assertEqual(len(bounds), 1, "one bounded send inside the two-send loop")
+        kill_after, limit = (int(value) for value in bounds[0])
+        self.assertIn("for n in 1 2; do", step["run"])
+        self.assertGreaterEqual(limit, NOTIFY_WORST_CASE_SECONDS)
+        self.assertLess(2 * (limit + kill_after), int(step["timeout-minutes"]) * 60)
+
+    def test_a_false_verdict_turns_the_run_red_after_the_publish(self) -> None:
+        self.assertEqual(_step(_CHANNEL_CHECK_STEP).get("id"), "channel_check")
+        step = _step(_CHANNEL_CHECK_FAIL_STEP)
+        self.assertEqual(
+            step["if"],
+            "always() && steps.lease_check.outputs.blocked != 'true' && steps.channel_check.outputs.verified == 'false'",
+        )
+        self.assertIn("exit 1", step["run"])
+        self.assertGreater(_names().index(_CHANNEL_CHECK_FAIL_STEP), _names().index(_PUBLISH_STEP))
+
+
+class EveryNightMeasuresTheUnboundedCloseOut(unittest.TestCase):
+    """ARIA-LOW-551 — the margin's unbounded basis was one measurement (#1371)
+    and no night that did real post-work had checked it. The anchor and the
+    measurement run here as GitHub runs them (`bash -e`), the measurement
+    after a stretch below and above the basis."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-low-551-"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _bash(self, script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        path = self.tmp / "step.sh"
+        path.write_text(script, encoding="utf-8")
+        return subprocess.run(["bash", "-e", str(path)], cwd=self.tmp, capture_output=True, text=True, timeout=60,
+                              check=False, env={"PATH": os.environ.get("PATH", os.defpath), **env})
+
+    def _measure(self, spent_seconds: int) -> tuple[subprocess.CompletedProcess[str], str]:
+        job_env = _job()["env"]
+        summary = self.tmp / "summary"
+        summary.write_text("", encoding="utf-8")
+        done = self._bash(_step(_MEASURE_STEP)["run"], {
+            "ARIA_UNBOUNDED_CLOSE_OUT_START_EPOCH": str(int(time.time()) - spent_seconds),
+            "ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS": job_env["ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS"],
+            "ARIA_CLOSE_OUT_MARGIN_SECONDS": job_env["ARIA_CLOSE_OUT_MARGIN_SECONDS"],
+            "GITHUB_STEP_SUMMARY": str(summary),
+        })
+        return done, summary.read_text(encoding="utf-8")
+
+    def test_the_anchor_exports_the_start_to_the_later_steps(self) -> None:
+        github_env = self.tmp / "github-env"
+        github_env.write_text("", encoding="utf-8")
+        before = int(time.time())
+        done = self._bash(_step(_ANCHOR_STEP)["run"], {"GITHUB_ENV": str(github_env)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        name, value = github_env.read_text(encoding="utf-8").strip().split("=", 1)
+        self.assertEqual(name, "ARIA_UNBOUNDED_CLOSE_OUT_START_EPOCH")
+        self.assertGreaterEqual(int(value), before)
+
+    def test_a_stretch_within_the_basis_is_recorded_without_a_warning(self) -> None:
+        basis = int(_job()["env"]["ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS"])
+        done, summary = self._measure(basis - 600)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("::warning", done.stdout)
+        self.assertIn(f"of the {basis}s basis", summary)
+
+    def test_a_stretch_over_the_basis_warns_by_name_and_does_not_fail_the_step(self) -> None:
+        basis = int(_job()["env"]["ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS"])
+        done, summary = self._measure(basis + 600)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("::warning title=ARIA close-out margin::", done.stdout)
+        self.assertIn(f"over the {basis}s basis", done.stdout)
+        self.assertIn("unbounded close-out", summary)
 
 
 class TheGuardSatisfiesTheAbortGate(unittest.TestCase):

@@ -114,8 +114,11 @@ tested, is referenced in prose — and is not connected to a path that runs.
 `aria-readiness-claim.yml` produces the readiness claim (`aria-kernel readiness produce-claim` →
 `produce_readiness_claim`), `aria-merge-runner.yml` runs `merge_pr_if_ready`, and a merge
 enters the required squash merge queue. Nothing merges until an operator grants the L1 merge
-lane and the lane's autonomy unlock holds. No grant has been recorded, and the eight rows of
-`auto-merge-decisions.jsonl` are all `blocked` (2026-09-04) **[measured]**.
+lane and the lane's autonomy unlock holds. Main has no merge queue (branch protection read
+2026-10-07), so the readiness claim a merge needs fails with
+`branch_protection_merge_queue_required` and the lane cannot merge even under a grant
+(ARIA-HIGH-221; `docs/aria/CURRENT_STATE.md`, Merge Lane). No grant has been recorded, and the
+eight rows of `auto-merge-decisions.jsonl` are all `blocked` (2026-09-04) **[measured]**.
 
 **132 of 205 declared durable state surfaces have never been written once** — and the
 missing set is almost exactly the action-taking half: every `pr-lifecycle` ledger, the whole

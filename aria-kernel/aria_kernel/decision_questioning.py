@@ -285,7 +285,9 @@ def open_decision_questioning(
                 }
             ],
             allowed_scope=[f"plan-convergence/{plan_id}"],
-            evidence_refs=[f"plan:{plan_id}"],
+            # ARIA-MEDIUM-385 — the plan rides on convergence_id (which
+            # ``already_questioned`` reads), never as a ``plan:`` ref the
+            # questioner would cite and the submit law refuse.
             convergence_id=plan_id,
             base_dir=root,
             admission=admission,

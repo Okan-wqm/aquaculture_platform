@@ -15,6 +15,10 @@ same two facts this module reads, and nothing else:
 
 Detection (which failures cool a provider, and for how long) belongs to
 ``provider_cooldown`` and is not widened here.
+
+ARIA-HIGH-579 — :func:`fleet_outage` asks the same question for the whole
+routing table: the nightly cycle holds in place (``provider_hold``) exactly
+when every routed role is in an outage.
 """
 from __future__ import annotations
 
@@ -113,4 +117,50 @@ def provider_outage(
     )
 
 
-__all__ = ["ProviderOutage", "cooled_providers", "host_providers", "provider_outage", "role_providers"]
+@dataclass(frozen=True)
+class FleetOutage:
+    """Every routed role is in an outage: no seat of any role has a provider to run on.
+
+    ``until`` is the first moment any role gets a provider back (the earliest
+    role ``until``), or None when no role's outage ends on a clock (every rung
+    absent from the host or suspended, behind a cooled one).
+    """
+
+    providers: tuple[str, ...]
+    until: str | None
+
+    def to_row(self) -> dict[str, Any]:
+        return {"providers": list(self.providers), "until": self.until}
+
+
+def fleet_outage(
+    cooled: Mapping[str, Mapping[str, str]], *, now: datetime, present: Collection[str],
+) -> FleetOutage | None:
+    """ARIA-HIGH-579 — whether EVERY routed role is in an outage under ``cooled``, or None.
+
+    The cycle-level question ("is every provider out?") asked through the
+    per-role answer above, once per routed role, so the two can never
+    disagree: a night holds exactly when no request of any role could be
+    admitted. One role with a provider that can take it is no fleet outage;
+    that night runs, and the per-request waits hold the roles that cannot.
+    """
+    from .runtime_profiles import load_provider_routing
+
+    outages: list[ProviderOutage] = []
+    for role in sorted(load_provider_routing().roles):
+        outage = provider_outage(role, cooled, now=now, present=present)
+        if outage is None:
+            return None
+        outages.append(outage)
+    if not outages:
+        return None
+    providers = sorted({provider for outage in outages for provider in outage.providers
+                        if provider in cooled})
+    untils = [outage.until for outage in outages if outage.until is not None]
+    return FleetOutage(providers=tuple(providers), until=min(untils) if untils else None)
+
+
+__all__ = [
+    "FleetOutage", "ProviderOutage", "cooled_providers", "fleet_outage", "host_providers", "provider_outage",
+    "role_providers",
+]

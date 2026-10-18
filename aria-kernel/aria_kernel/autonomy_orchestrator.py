@@ -81,8 +81,15 @@ from .orchestrator_exit_history import (
     EXIT_BRIDGE_REPLAY_REQUIRED,
     EXIT_CYCLE_FAILED,
     EXIT_KIND,
+    EXIT_PROVIDER_OUTAGE_HOLD,
     FAILED_EXIT_REASONS,
     bridge_replay_reason,
+)
+from .provider_hold import (
+    CHECKPOINT_AFTER_PLANNER_DISPATCH,
+    CHECKPOINT_AFTER_WORKER_DISPATCH,
+    CHECKPOINT_CYCLE_START,
+    hold_if_every_provider_is_out,
 )
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
@@ -1671,6 +1678,18 @@ def run_autonomy_orchestrator(
                     exit_reason = preflight_reason or "autonomous_preflight_blocked"
                     break
 
+                # ARIA-HIGH-579 — every provider is out of quota: the night
+                # holds where it stands. No cycle starts, so nothing is
+                # minted, claimed, rebuilt or spent; the next night with a
+                # provider continues the same requests and plans
+                # (`provider_hold`, one row and one notice, a clean exit).
+                if hold_if_every_provider_is_out(
+                    root, cycle_id=None, checkpoint=CHECKPOINT_CYCLE_START,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                ) is not None:
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
+                    break
+
                 cycle_id = datetime.now(timezone.utc).strftime(
                     "cyc-%Y%m%dT%H%M%SZ-auto",
                 )
@@ -1874,6 +1893,17 @@ def run_autonomy_orchestrator(
                         "iterations": planner_result.get("iterations"),
                     },
                 )
+                # ARIA-HIGH-579 — a planner spawn may have spent the last
+                # provider's window: every model phase behind it holds.
+                _midnight_hold = hold_if_every_provider_is_out(
+                    root, cycle_id=cycle_id, checkpoint=CHECKPOINT_AFTER_PLANNER_DISPATCH,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                )
+                if _midnight_hold is not None:
+                    cycle_summary[EXIT_PROVIDER_OUTAGE_HOLD] = _midnight_hold
+                    per_cycle_results.append(cycle_summary)
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
+                    break
 
                 # Phase: bridge drain (C.5 retry).
                 bridge_result = bridge_drainer(
@@ -2790,6 +2820,17 @@ def run_autonomy_orchestrator(
                             worker_result.get("retries_attempted"),
                     },
                 )
+                # ARIA-HIGH-579 — the same question after the worker lane's
+                # spawns: the review it would mint holds.
+                _midnight_hold = hold_if_every_provider_is_out(
+                    root, cycle_id=cycle_id, checkpoint=CHECKPOINT_AFTER_WORKER_DISPATCH,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                )
+                if _midnight_hold is not None:
+                    cycle_summary[EXIT_PROVIDER_OUTAGE_HOLD] = _midnight_hold
+                    per_cycle_results.append(cycle_summary)
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
+                    break
 
                 # Plan ARIA-V5 §2 V5.2 Phase 5.2 — Gate B post-impl
                 # adversarial review. Mint adversarial_judge +

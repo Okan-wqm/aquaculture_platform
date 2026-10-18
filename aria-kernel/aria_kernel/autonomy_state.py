@@ -157,6 +157,9 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     "profile_frozen",
     "max_cycles_reached",
     "max_iterations_reached",
+    # ARIA-HIGH-579 — every provider is out; the night held in place
+    # (`provider_hold`, the same name as the clean exit it ends on).
+    "provider_outage_hold",
 )
 
 

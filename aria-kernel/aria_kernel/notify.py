@@ -32,6 +32,8 @@ NOTIFY_EVENT_KINDS: tuple[str, ...] = (
     "cycle_failed", "breaker_tripped", "human_required_opened", "human_required_sla_breached",
     "pr_opened", "pr_red", "pr_merged", "daily_report", "delivery_slo_gap", "doctor_unhealthy",
     "operator_cancelled", "gateway_rejected", "test",
+    # ARIA-HIGH-579 — a night held in place because every provider is out (`provider_hold`).
+    "cycle_held",
 )
 NOTIFY_CHANNELS: tuple[str, ...] = ("stdout", "github_issue", "email", "telegram")
 NOTIFY_STATUSES: tuple[str, ...] = ("sent", "failed", "deduped", "dry_run", "unconfigured")

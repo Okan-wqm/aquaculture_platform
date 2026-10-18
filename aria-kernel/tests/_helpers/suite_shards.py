@@ -29,8 +29,10 @@ pins skip on a host that cannot confine, and a skip is green. The lane proves
 the backend before the suite (``ensure-sandbox-backend``), so there a skipped
 pin is a containment proof that did not run, and nothing but step order said
 so. Every such skip goes through ``tests/_helpers/sandbox_pins.py`` and starts
-with ``SANDBOX_SKIP_MARKER``; each report lists them, and ``verify`` refuses a
-report that has any, or that does not account for them at all.
+with ``aria_kernel.sandbox_pin_skip.SANDBOX_SKIP_MARKER``; each report lists
+them, and ``verify`` refuses a report that has any, or that does not account
+for them at all. The pytest half refuses the same skips by the same predicate
+(``aria_kernel.pytest_native_only --refuse-sandbox-skips``, ARIA-LOW-599).
 
 WHY WEIGHTS CANNOT COST COVERAGE. Weights only decide balance. A module the
 weights file does not name weighs its test count times the measured median
@@ -59,8 +61,6 @@ from pathlib import Path
 from typing import Any, TextIO
 
 REPORT_SCHEMA = "aria-suite-shard-report/v2"
-# The first word of every real-sandbox skip reason (tests/_helpers/sandbox_pins.py).
-SANDBOX_SKIP_MARKER = "sandbox_pin_skipped"
 KERNEL_ROOT = Path(__file__).resolve().parents[2]
 WEIGHTS_PATH = Path(__file__).with_name("suite_shard_weights.json")
 DISCOVERY_PATTERN = "*test*.py"
@@ -181,6 +181,10 @@ def run_shard(
     stream: TextIO | None = None,
 ) -> bool:
     """Run shard ``index`` of ``total`` and write its report. True when green."""
+    # Imported here, not at module top: run as a script, this module puts the
+    # kernel root on sys.path only in its __main__ guard (spawn safety, above).
+    from aria_kernel.sandbox_pin_skip import is_sandbox_pin_skip
+
     modules = discover_modules(kernel_root)
     counts = {name: suite.countTestCases() for name, suite in modules.items()}
     assignment = partition(weigh(counts, load_weights(weights_path)), total)
@@ -207,7 +211,7 @@ def run_shard(
         "tests_run": result.testsRun,
         "successful": result.wasSuccessful(),
         "sandbox_skips": sorted(test.id() for test, reason in result.skipped
-                                if reason.startswith(SANDBOX_SKIP_MARKER)),
+                                if is_sandbox_pin_skip(reason)),
         # ARIA-MEDIUM-411 — a re-run shard's report supersedes the attempt it
         # re-ran; outside Actions there is one attempt.
         "run_attempt": int(os.environ.get("GITHUB_RUN_ATTEMPT") or 1),

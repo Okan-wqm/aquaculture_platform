@@ -11,11 +11,23 @@ name: aria-readiness-claim
 # produced. Until the operator completes the GitHub App setup
 # (docs/runbooks/aria-github-app-setup.md), ARIA_REQUIRE_MODE_A makes the
 # token mint fail loudly instead of poisoning the claim with a PAT fallback.
+#
+# ARIA-HIGH-222 — a completion that meets a held aria/state writer lease
+# yields after 300 s and claims nothing, and the executor (650 min) and the
+# cycle (440 min) hold that lease for hours. The hourly schedule is the
+# backstop that makes a yield never terminal for a head: under the lease it
+# asks `readiness sweep-claimless` for an open head no claim names whose
+# completed, green aria-merge-authority run still has its proof artifact,
+# and claims it through the same steps, bound to that run.
 
 on:
   workflow_run:
     workflows: ['aria-merge-authority']
     types: [completed]
+  schedule:
+    # Off the merge lane's :47 — the merge lane runs on this lane's
+    # completion, not on a shared clock tick.
+    - cron: '23 * * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -31,8 +43,10 @@ permissions:
 # no longer queue behind each other, and a repeat for the same head waits
 # for the first (which records the claim; the repeat reuses it). A manual
 # dispatch carries no workflow_run and refuses by name in its first step.
+# Scheduled sweeps share one group: a sweep replaced while pending loses
+# nothing, because the next one reads the same claimless heads again.
 concurrency:
-  group: aria-readiness-claim-${{ github.event.workflow_run.head_sha || github.run_id }}
+  group: aria-readiness-claim-${{ github.event.workflow_run.head_sha || (github.event_name == 'schedule' && 'sweep') || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -41,6 +55,7 @@ jobs:
     timeout-minutes: 15
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'pull_request')
     steps:
@@ -110,6 +125,14 @@ jobs:
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          # ARIA-HIGH-222 — the hourly backstop has no completed run of its
+          # own: its target is swept from the restored store, under the
+          # writer lease, in "Bind the claim target".
+          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+            echo "sweep=true" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # ARIA-HIGH-210 — a claim is bound to a completed aria-merge-authority
           # run. A manual dispatch carries none, so it fails here by name
           # instead of skipping green without measuring anything.
@@ -148,13 +171,58 @@ jobs:
           writer-lease-ttl-minutes: '95'
           writer-lease-wait-seconds: '300'
 
-      - name: Fetch the completed run, PR, and diff payloads
-        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
+      # ARIA-HIGH-222 — the one binding of (PR, head, completed run) every
+      # claim step reads. A workflow_run carries it; the hourly backstop
+      # sweeps for it under the lease, from the store it just restored: an
+      # open head no claim names, with a completed, green pull_request run
+      # of aria-merge-authority whose proof artifact is still published.
+      # One per run, rotated by the hour across the claimable heads.
+      - name: Bind the claim target
+        id: target
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip == 'false')
         env:
           GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: aria-kernel
+          SWEEP: ${{ steps.pr.outputs.sweep }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           RUN_ID: ${{ steps.pr.outputs.run_id }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "${SWEEP}" != "true" ]; then
+            {
+              echo "skip=false"
+              echo "number=${PR_NUMBER}"
+              echo "run_id=${RUN_ID}"
+              echo "head_sha=${HEAD_SHA}"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          swept="${RUNNER_TEMP}/aria-readiness-claim-sweep.json"
+          python3 -m aria_kernel readiness sweep-claimless \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --limit 1 \
+            --tools-dir "$ARIA_TOOLS_DIR" > "${swept}"
+          jq '{claimless: (.claimless | length), targets, unclaimable, awaiting_rotation: (.awaiting_rotation | length)}' "${swept}"
+          if [ "$(jq '.targets | length' "${swept}")" = "0" ]; then
+            echo "No claimless head with a green aria-merge-authority run; nothing to claim."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "skip=false"
+            echo "number=$(jq -r '.targets[0].pr_number' "${swept}")"
+            echo "run_id=$(jq -r '.targets[0].workflow_run_id' "${swept}")"
+            echo "head_sha=$(jq -r '.targets[0].head_sha' "${swept}")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the completed run, PR, and diff payloads
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.target.outputs.skip == 'false')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.target.outputs.number }}
+          RUN_ID: ${{ steps.target.outputs.run_id }}
+          HEAD_SHA: ${{ steps.target.outputs.head_sha }}
         run: |
           set -euo pipefail
           work="${RUNNER_TEMP}/claim-evidence"
@@ -194,21 +262,21 @@ jobs:
           echo "WORK_DIR=${work}" >> "$GITHUB_ENV"
 
       - name: Record the completed run as CI evidence
-        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.target.outputs.skip == 'false')
         run: |
           set -euo pipefail
           jq '{workflow_runs: [.]}' "${WORK_DIR}/run.json" > "${WORK_DIR}/github-payload.json"
           PYTHONPATH=aria-kernel python3 -m aria_kernel readiness record-ci-report \
             --github-file "${WORK_DIR}/github-payload.json" \
             --pr-file "${WORK_DIR}/pr-flat.json" \
-            --cycle-id "readiness-claim-${{ steps.pr.outputs.run_id }}" \
+            --cycle-id "readiness-claim-${{ steps.target.outputs.run_id }}" \
             --tools-dir "$ARIA_TOOLS_DIR" | jq '{recorded_at, gate_ref, failure_count}'
 
       - name: Fetch and hash the lane evidence artifact
-        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.target.outputs.skip == 'false')
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ steps.pr.outputs.run_id }}
+          RUN_ID: ${{ steps.target.outputs.run_id }}
         run: |
           set -euo pipefail
           attempt="$(jq -r '.run_attempt // 1' "${WORK_DIR}/run.json")"
@@ -244,20 +312,20 @@ jobs:
       # artifact, downloaded back through the API, and the claim's rollback
       # and retention proofs name that artifact by id and digest.
       - name: Build the rollback bundle
-        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.target.outputs.skip == 'false')
         env:
           PYTHONPATH: aria-kernel
         run: |
           set -euo pipefail
           python3 -m aria_kernel readiness build-rollback-bundle \
             --target-ref "$(jq -r '.target_ref' "${WORK_DIR}/pr-flat.json")" \
-            --head-sha "${{ steps.pr.outputs.head_sha }}" \
+            --head-sha "${{ steps.target.outputs.head_sha }}" \
             --workspace-root "$GITHUB_WORKSPACE" \
             --output-dir "${RUNNER_TEMP}/rollback" > "${WORK_DIR}/rollback-bundle.json"
 
       - name: Publish the rollback bundle
         id: rollback_upload
-        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.target.outputs.skip == 'false')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aria-rollback-bundle-${{ github.run_id }}-${{ github.run_attempt }}
@@ -268,7 +336,7 @@ jobs:
           retention-days: 30
 
       - name: Download the published rollback bundle
-        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.target.outputs.skip == 'false')
         env:
           GH_TOKEN: ${{ github.token }}
           PYTHONPATH: aria-kernel
@@ -281,7 +349,7 @@ jobs:
             --output-dir "${WORK_DIR}/rollback-artifact" > "${WORK_DIR}/rollback-artifact.json"
 
       - name: Assemble the readiness claim
-        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.target.outputs.skip == 'false')
         env:
           PYTHONPATH: aria-kernel
           # The claim family attests a scoped installation token; a PAT
@@ -311,22 +379,22 @@ jobs:
           from pathlib import Path
           from aria_kernel.gh_token_factory import mint_installation_token
           lease = mint_installation_token(
-              cycle_id='readiness-claim-${{ steps.pr.outputs.run_id }}',
+              cycle_id='readiness-claim-${{ steps.target.outputs.run_id }}',
               workspace_root='.',
           )
           print(Path(lease.token_file).read_text(encoding='utf-8').strip())
           ")"
           export GH_TOKEN="${PROBE_TOKEN}"
           PYTHONPATH=aria-kernel python3 -m aria_kernel readiness produce-claim \
-            --pr-number "${{ steps.pr.outputs.number }}" \
+            --pr-number "${{ steps.target.outputs.number }}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target-ref "$(jq -r '.target_ref' "${WORK_DIR}/pr-flat.json")" \
             --head-ref "$(jq -r '.head_ref' "${WORK_DIR}/pr-flat.json")" \
-            --head-sha "${{ steps.pr.outputs.head_sha }}" \
+            --head-sha "${{ steps.target.outputs.head_sha }}" \
             --workflow-id aria-merge-authority \
             --job-id aria-merge-authority \
-            --workflow-run-id "${{ steps.pr.outputs.run_id }}" \
-            --cycle-id "readiness-claim-${{ steps.pr.outputs.run_id }}" \
+            --workflow-run-id "${{ steps.target.outputs.run_id }}" \
+            --cycle-id "readiness-claim-${{ steps.target.outputs.run_id }}" \
             --artifact-file "${WORK_DIR}/artifact.json" \
             --surfaces-file "${WORK_DIR}/surfaces.json" \
             --workspace-root "$GITHUB_WORKSPACE" \
@@ -341,11 +409,11 @@ jobs:
       # panel agreed. It used to make these requests itself, from a checkout
       # of main where the perimeter never held, so none was ever made.
       - name: Request expert review of the implementation
-        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.pr.outputs.skip != 'true')
+        if: steps.restore_state.outputs.writer-lease == 'held' && (steps.target.outputs.skip == 'false')
         env:
           PYTHONPATH: aria-kernel
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_NUMBER: ${{ steps.target.outputs.number }}
         run: |
           set -euo pipefail
           HEADER="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
@@ -361,7 +429,7 @@ jobs:
       # The credential is minted here and consumed by the next step only.
       - name: Mint the aria/state push credential
         id: publish_credential
-        if: steps.pr.outputs.skip != 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        if: steps.target.outputs.skip == 'false' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
         env:
           PUBLISH_TOKEN: ${{ github.token }}
         run: |
@@ -371,7 +439,7 @@ jobs:
           echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
 
       - name: Publish ARIA state to the aria/state branch
-        if: steps.pr.outputs.skip != 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        if: steps.target.outputs.skip == 'false' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
@@ -384,7 +452,7 @@ jobs:
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
             --repo-root . \
             --snapshot-id "readiness-claim-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
-            --cycle-id "readiness-claim-${{ steps.pr.outputs.run_id }}"
+            --cycle-id "readiness-claim-${{ steps.target.outputs.run_id }}"
 
       # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.
       # Unconditional (GSEC-LOW-001): release is idempotent, a no-op when this

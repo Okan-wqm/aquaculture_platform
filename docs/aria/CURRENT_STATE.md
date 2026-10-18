@@ -104,6 +104,11 @@ Read from the code on 2026-10-17 (ARIA-MEDIUM-232):
   `CI - Affected` completes, and hourly. It builds the one runner that may execute a merge
   (`executes_merges=True`), and every merge goes through `merge_pr_if_ready`, which merges with
   `gh pr merge --squash --match-head-commit <head>` (`aria-kernel/aria_kernel/auto_merge.py`).
+- `aria-readiness-claim.yml` assembles a head's readiness claim when that head's
+  `aria-merge-authority` pull-request run completes green, under the aria/state writer lease. A run
+  that meets a held lease yields and claims nothing; the lane's hourly schedule then claims, one
+  head per run, an open head no claim names whose green `aria-merge-authority` run still has its
+  proof artifact (`aria-kernel readiness sweep-claimless`, ARIA-HIGH-222).
 - A merge needs an operator's merge-lane grant: lane `L1` only, at most 90 days, with an
   `operator_approval_ref` and a recorded approval; an expired, malformed or unreadable grant reads
   as no grant (`get_merge_lane_grant`). ARIA cannot grant itself the lane (M-6.1 in

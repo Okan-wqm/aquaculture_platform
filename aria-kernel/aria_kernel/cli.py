@@ -2195,6 +2195,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--rollback-artifact-file", required=True,
         help="JSON file written by `readiness fetch-artifact` for the uploaded bundle artifact.",
     )
+    # ARIA-HIGH-222 — the claim lane's backstop. A claim run that meets a
+    # held writer lease yields and claims nothing; the lane's schedule asks
+    # this verb for the open heads no claim names that a completed, green
+    # aria-merge-authority run can still claim (readiness_claim_sweep).
+    claim_sweep = add_subparser(
+        readiness_sub,
+        "sweep-claimless",
+        help=("List the open PR heads no readiness claim names, and up to --limit with a green "
+              "aria-merge-authority run whose proof is still published, to claim now."),
+    )
+    claim_sweep.add_argument("--workspace-root", default=".")
+    claim_sweep.add_argument("--limit", type=int, default=1)
     rollback_build = add_subparser(
         readiness_sub,
         "build-rollback-bundle",
@@ -4094,6 +4106,18 @@ def _main(argv: list[str] | None = None) -> int:
             workspace_root=args.workspace_root,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "sweep-claimless":
+        from .auto_merge import GhCliGitHubAdapter
+        from .readiness_claim_sweep import sweep_claimless_heads
+
+        swept = sweep_claimless_heads(
+            adapter=GhCliGitHubAdapter(cwd=args.workspace_root),
+            base_dir=args.tools_dir,
+            limit=args.limit,
+        )
+        print(json.dumps(swept, indent=2, sort_keys=True))
         return 0
 
     if args.command == "readiness" and args.readiness_command == "build-rollback-bundle":

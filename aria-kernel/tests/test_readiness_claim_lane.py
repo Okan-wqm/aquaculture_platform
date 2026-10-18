@@ -186,6 +186,119 @@ class MergeRunnerLaneTests(unittest.TestCase):
         self.assertIn("permissions=MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS", run)
 
 
+class ClaimBackstopWiringTests(unittest.TestCase):
+    """ARIA-HIGH-222 — a writer-lease yield is never terminal for a head.
+
+    A claim run that meets a held lease yields green and claims nothing; the
+    executor holds that lease for hours and opens ARIA's own PRs meanwhile.
+    The lane's hourly schedule sweeps for the heads it never claimed
+    (``readiness sweep-claimless``, tested in test_readiness_claim_sweep)
+    and claims one per run through the same steps, bound to the swept run.
+    """
+
+    _CLAIM_STEPS = (
+        "Fetch the completed run, PR, and diff payloads",
+        "Record the completed run as CI evidence",
+        "Fetch and hash the lane evidence artifact",
+        "Build the rollback bundle",
+        "Publish the rollback bundle",
+        "Download the published rollback bundle",
+        "Assemble the readiness claim",
+        "Request expert review of the implementation",
+    )
+
+    def setUp(self) -> None:
+        import yaml  # type: ignore[import-untyped]
+
+        self.text = (_REPO / ".github" / "workflows" / "aria-readiness-claim.yml").read_text(encoding="utf-8")
+        self.workflow = yaml.safe_load(self.text)
+        self.job = self.workflow["jobs"]["claim"]
+        self.names = [step.get("name") for step in self.job["steps"]]
+        self.steps = {step.get("name"): step for step in self.job["steps"]}
+
+    def test_the_lane_has_an_hourly_backstop_the_job_admits(self) -> None:
+        crons = [entry["cron"] for entry in self.workflow[True]["schedule"]]
+        self.assertEqual(len(crons), 1)
+        minute, hour, *rest = crons[0].split()
+        self.assertTrue(minute.isdigit() and 0 <= int(minute) < 60, crons[0])
+        self.assertEqual((hour, rest), ("*", ["*", "*", "*"]), crons[0])
+        # Off the merge lane's minute: the merge lane runs on this lane's
+        # completion, not on a shared clock tick.
+        merge = yaml_load(_REPO / ".github" / "workflows" / "aria-merge-runner.yml")
+        self.assertNotEqual(minute, merge[True]["schedule"][0]["cron"].split()[0])
+        self.assertIn("github.event_name == 'schedule'", " ".join(str(self.job["if"]).split()))
+
+    def test_the_backstop_is_watched_for_freshness(self) -> None:
+        manifest = json.loads(
+            (_REPO / ".github" / "manifests" / "scheduled-workflows.json").read_text(encoding="utf-8")
+        )
+        entry = next(
+            (item for item in manifest["workflows"] if item["workflow"] == "aria-readiness-claim.yml"), None,
+        )
+        self.assertIsNotNone(entry)
+        self.assertGreaterEqual(entry["maxAgeHours"], 3)
+
+    def test_the_sweep_runs_only_under_the_held_lease_on_the_scheduled_path(self) -> None:
+        bind = self.steps["Bind the claim target"]
+        self.assertEqual(bind["id"], "target")
+        condition = " ".join(str(bind["if"]).split())
+        self.assertIn("steps.restore_state.outputs.writer-lease == 'held'", condition)
+        self.assertIn("readiness sweep-claimless", bind["run"])
+        self.assertIn("--limit 1", bind["run"])
+        # The sweep reads the restored store, so it comes after the restore
+        # and before the first claim step.
+        self.assertLess(self.names.index("Restore ARIA state from the aria/state branch"),
+                        self.names.index("Bind the claim target"))
+        self.assertLess(self.names.index("Bind the claim target"), self.names.index(self._CLAIM_STEPS[0]))
+        # The scheduled path resolves no PR from an event: it is marked for
+        # the sweep before the dispatch guard (a dispatch still refuses).
+        resolve = self.steps["Resolve the PR for the completed run"]["run"]
+        self.assertLess(resolve.index("schedule"), resolve.index("readiness_claim_requires_workflow_run"))
+
+    def test_every_claim_step_works_on_the_bound_target_under_the_lease(self) -> None:
+        for name in self._CLAIM_STEPS:
+            with self.subTest(step=name):
+                step = self.steps[name]
+                condition = " ".join(str(step["if"]).split())
+                self.assertIn("steps.restore_state.outputs.writer-lease == 'held'", condition)
+                self.assertIn("steps.target.outputs.skip == 'false'", condition)
+                # No claim step reads the event-only resolution: the target
+                # is the one binding of (PR, head, run) on both paths.
+                self.assertNotIn("steps.pr.outputs.number", json.dumps(step))
+                self.assertNotIn("steps.pr.outputs.run_id", json.dumps(step))
+                self.assertNotIn("steps.pr.outputs.head_sha", json.dumps(step))
+        claim = self.steps["Assemble the readiness claim"]["run"]
+        # Bound to the swept run: produce_readiness_claim refuses a run the
+        # ci ledger has not proven (readiness_claim_current_run_unproven).
+        self.assertIn('--workflow-run-id "${{ steps.target.outputs.run_id }}"', claim)
+        self.assertIn('--head-sha "${{ steps.target.outputs.head_sha }}"', claim)
+
+    def test_a_run_with_no_target_publishes_nothing(self) -> None:
+        for name in ("Mint the aria/state push credential", "Publish ARIA state to the aria/state branch"):
+            with self.subTest(step=name):
+                condition = " ".join(str(self.steps[name]["if"]).split())
+                self.assertIn("steps.target.outputs.skip == 'false'", condition)
+
+    def test_scheduled_sweeps_share_one_group_and_heads_keep_theirs(self) -> None:
+        group = self.workflow["concurrency"]["group"]
+        self.assertIn("github.event.workflow_run.head_sha", group)
+        self.assertIn("github.event_name == 'schedule' && 'sweep'", group)
+        self.assertFalse(self.workflow["concurrency"]["cancel-in-progress"])
+
+    def test_the_sweep_step_is_in_the_lane_contract(self) -> None:
+        from aria_kernel.workflow_contract_registry import workflow_job_contract
+
+        claim = workflow_job_contract("aria-readiness-claim", "claim")
+        self.assertIn("Bind the claim target", claim.required_steps)
+        self.assertIn(("Bind the claim target", "Assemble the readiness claim"), claim.step_order)
+
+
+def yaml_load(path: Path) -> dict:
+    import yaml  # type: ignore[import-untyped]
+
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
 
 class ProduceClaimCliTests(unittest.TestCase):
     def setUp(self) -> None:

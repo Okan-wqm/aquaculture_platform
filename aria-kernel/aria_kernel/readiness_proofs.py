@@ -1420,6 +1420,25 @@ def _recorded_claim(root: Path, readiness_claim_id: str) -> dict[str, Any] | Non
     )
 
 
+def recorded_claim_heads(base_dir: str | Path | None) -> set[tuple[int, str]]:
+    """Every ``(pr_number, head_sha)`` a recorded readiness claim names.
+
+    ARIA-HIGH-222 — the one reader of which heads hold a claim: the merge
+    lane's candidates (``auto_merge_runners.enumerate_prs_with_readiness_claims``)
+    are the open heads in this set, and the claim lane's backstop
+    (``readiness_claim_sweep``) claims the open heads outside it. A row whose
+    PR number is not an integer names no head.
+    """
+    path = ensure_tools_dir(base_dir) / "enterprise" / "readiness-claims.jsonl"
+    claimed: set[tuple[int, str]] = set()
+    for row in load_declared_jsonl(path, expected_surface="enterprise_readiness_claims"):
+        try:
+            claimed.add((int(row.get("pr_number")), str(row.get("head_sha") or "")))
+        except (TypeError, ValueError):
+            continue
+    return claimed
+
+
 def build_readiness_claim(
     *,
     readiness_claim_id: str,

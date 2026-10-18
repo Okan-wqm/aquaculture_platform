@@ -730,9 +730,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # ARIA-HIGH-217 — the expert panel is requested here, on the
                 # PR head (a worktree of the detached checkout), and the
                 # requests are published with the claim.
+                # ARIA-HIGH-222 — every claim step reads the one bound
+                # target; the hourly backstop sweeps for it under the
+                # writer lease, from the store the restore checked out.
                 required_steps=(
                     _DETACH_STEP,
                     _RESTORE_STEP,
+                    "Bind the claim target",
                     "Build the rollback bundle",
                     "Publish the rollback bundle",
                     "Download the published rollback bundle",
@@ -741,6 +745,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     _PUBLISH_STEP,
                 ),
                 step_order=(
+                    (_RESTORE_STEP, "Bind the claim target"),
+                    ("Bind the claim target", "Build the rollback bundle"),
+                    ("Bind the claim target", "Assemble the readiness claim"),
                     ("Build the rollback bundle", "Publish the rollback bundle"),
                     ("Publish the rollback bundle", "Download the published rollback bundle"),
                     ("Download the published rollback bundle", "Assemble the readiness claim"),

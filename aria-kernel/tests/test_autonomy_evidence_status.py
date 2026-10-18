@@ -1664,6 +1664,16 @@ def alias_factory(root):
                     f"{KERNEL}cycle.py",
                     "producer",
                 ),
+                # ARIA-HIGH-222 — the claim lane's backstop reads which heads
+                # already hold a claim (readiness_proofs.recorded_claim_heads)
+                # to pick the head it should claim next; it schedules the
+                # claim's production, never authorizes a merge.
+                (
+                    "enterprise_readiness",
+                    "enterprise_readiness_claims",
+                    f"{KERNEL}readiness_claim_sweep.py",
+                    "consumer",
+                ),
             },
             "reporting_or_prioritization": {
                 (

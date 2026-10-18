@@ -304,8 +304,6 @@ deadline 2026-11-17.
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
-| `SENSOR-CRITICAL-190` | OPEN | 2026-10-18 | claude | already-fixed-needs-close |
-| `SENSOR-CRITICAL-191` | OPEN | 2026-10-18 | claude | already-fixed-needs-close |
 | `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
 
 ## Mutation Rules
@@ -1121,4 +1119,10 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `already-fixed-needs-close`.
 - `FARM-CRITICAL-454`: registry state is `RESOLVED` with closing commit
   `abf0132dd`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-190`: registry state is `RESOLVED` with closing commit
+  `ff6e08aee`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-191`: registry state is `RESOLVED` with closing commit
+  `ff6e08aee`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.

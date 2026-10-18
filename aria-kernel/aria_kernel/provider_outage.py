@@ -18,7 +18,12 @@ Detection (which failures cool a provider, and for how long) belongs to
 
 ARIA-HIGH-579 — :func:`fleet_outage` asks the same question for the whole
 routing table: the nightly cycle holds in place (``provider_hold``) exactly
-when every routed role is in an outage.
+when every routed role is in an outage. The night carries no request, so a
+lapsed back-off is not its cue to ask again: a provider whose outage is still
+open and whose re-probe a waiting request will carry (``awaiting_reprobe``,
+read by ``provider_hold``) is out for the night with no clock. The per-request
+callers pass none, and for them a lapsed back-off stays the cue for their
+request to carry the re-probe (ARIA-HIGH-435).
 """
 from __future__ import annotations
 
@@ -82,7 +87,7 @@ def host_providers(environ: Mapping[str, str] | None = None) -> frozenset[str]:
 
 def provider_outage(
     role: str, cooled: Mapping[str, Mapping[str, str]], *, now: datetime, present: Collection[str],
-    target_agent: str | None = None,
+    target_agent: str | None = None, awaiting_reprobe: Collection[str] = (),
 ) -> ProviderOutage | None:
     """The outage for ``role`` under ``cooled`` (a ``cooled_providers`` reading), or None.
 
@@ -99,18 +104,26 @@ def provider_outage(
     poll and the admission released it ``no_eligible_provider``. A ladder
     nothing has cooled is no outage whatever is absent: there is no event
     to wait out, and the admission names an absent provider itself.
+
+    ARIA-HIGH-579 review — a provider in ``awaiting_reprobe`` is out with no
+    clock: its back-off lapsed, its outage is open, and only the re-probe a
+    waiting request carries can say it is back. The role's ``until`` is then
+    None, since no clock says when that rung returns.
     """
     providers = role_providers(role, target_agent=target_agent)
     standing: dict[str, datetime] = {}
+    unclocked = False
     for provider in providers:
         until = parse_utc_stamp(str((cooled.get(provider) or {}).get("until") or ""))
         if until is not None and until > now:
             standing[provider] = until
+        elif provider in awaiting_reprobe:
+            unclocked = True
         elif provider in present:
             return None
-    if providers and not standing:
+    if providers and not standing and not unclocked:
         return None
-    first_back = min(standing.values()) if standing else None
+    first_back = min(standing.values()) if standing and not unclocked else None
     return ProviderOutage(
         role=role, providers=providers,
         until=first_back.replace(microsecond=0).isoformat() if first_back else None,
@@ -123,18 +136,23 @@ class FleetOutage:
 
     ``until`` is the first moment any role gets a provider back (the earliest
     role ``until``), or None when no role's outage ends on a clock (every rung
-    absent from the host or suspended, behind a cooled one).
+    absent from the host or suspended, behind a cooled one, or a rung waiting
+    for a re-probe). ``awaiting_reprobe`` names the providers out on an open
+    outage whose back-off has lapsed.
     """
 
     providers: tuple[str, ...]
     until: str | None
+    awaiting_reprobe: tuple[str, ...] = ()
 
     def to_row(self) -> dict[str, Any]:
-        return {"providers": list(self.providers), "until": self.until}
+        return {"providers": list(self.providers), "until": self.until,
+                "awaiting_reprobe": list(self.awaiting_reprobe)}
 
 
 def fleet_outage(
     cooled: Mapping[str, Mapping[str, str]], *, now: datetime, present: Collection[str],
+    awaiting_reprobe: Collection[str] = (),
 ) -> FleetOutage | None:
     """ARIA-HIGH-579 — whether EVERY routed role is in an outage under ``cooled``, or None.
 
@@ -148,16 +166,20 @@ def fleet_outage(
 
     outages: list[ProviderOutage] = []
     for role in sorted(load_provider_routing().roles):
-        outage = provider_outage(role, cooled, now=now, present=present)
+        outage = provider_outage(role, cooled, now=now, present=present, awaiting_reprobe=awaiting_reprobe)
         if outage is None:
             return None
         outages.append(outage)
     if not outages:
         return None
-    providers = sorted({provider for outage in outages for provider in outage.providers
-                        if provider in cooled})
+    out = set(cooled) | set(awaiting_reprobe)
+    providers = sorted({provider for outage in outages for provider in outage.providers if provider in out})
+    awaiting = sorted(p for p in set(awaiting_reprobe) if p in providers)
+    # A rung waiting for a re-probe can come back at the next re-probe, so the fleet's first
+    # return is then on no clock either.
     untils = [outage.until for outage in outages if outage.until is not None]
-    return FleetOutage(providers=tuple(providers), until=min(untils) if untils else None)
+    first_back = min(untils) if untils and not awaiting else None
+    return FleetOutage(providers=tuple(providers), until=first_back, awaiting_reprobe=tuple(awaiting))
 
 
 __all__ = [

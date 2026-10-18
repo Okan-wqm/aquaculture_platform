@@ -20,9 +20,9 @@ WHAT. One question and one record, both here:
 
 * :func:`night_outage` — "is every provider out?", asked through the one
   owner of that predicate (``provider_outage.fleet_outage``: every routed
-  role is in an outage on this host). An unreadable cooldown ledger is not an
-  outage: the night runs, and each request's admission refuses the malformed
-  row by name, as the planner hook already decides.
+  role is in an outage on this host). An unreadable cooldown or outage ledger
+  is not an outage: the night runs, and each request's admission refuses the
+  malformed row by name, as the planner hook already decides.
 * :func:`hold_if_every_provider_is_out` — at a checkpoint, the hold: ONE
   ``autonomy_state`` row (phase ``provider_outage_hold``, status ``held``)
   naming the checkpoint, the cooled providers and when the first returns, and
@@ -32,6 +32,26 @@ WHAT. One question and one record, both here:
   cycle carried for an outage still runs on a held night: the 30-day bound on
   the provider-available clock (``escalate_prolonged_outages``), so a hold
   that never ends still reaches the operator as one item.
+
+WHAT "OUT" MEANS FOR A NIGHT (review of ARIA-HIGH-579, major). A cooldown is
+the probe BACK-OFF of an outage (ARIA-HIGH-366): it says when to ask again,
+not whether the provider came back. Z.ai's quota refusal states no reset, so
+its back-off is the policy 900 s doubling to ``MAX_REPROBE_SECONDS`` (3600 s),
+while the cycle cron (17:13) fires 15 hours after the executor drain (02:29)
+that met the refusal. Read from the back-off alone, every real total outage
+looked like Z.ai serving by the cron: the night ran its whole cycle and
+minted a round request nobody could serve. A night carries no request, so it
+is not the lane a lapsed back-off cues to ask again; the lanes that ask are
+the ones carrying a request (the chained and 02:29 drains' native admission,
+which re-probes and renews the back-off or admits; the served spawn closes
+the outage, ``record_provider_restored``). So for the night a provider is out
+when it is cooled, or when its outage is still open, its back-off was the
+policy's own (a reset the vendor STATED and that has passed is the vendor's
+word that the quota is back, and the night's spawns test it), and a waiting
+request will carry its re-probe (:func:`_awaiting_reprobe`). With nothing
+waiting, nothing would ever ask again and a hold would never end though the
+quota came back; then the night runs, and what it mints is the request the
+next drain re-probes with. Per-request callers keep reading the back-off.
 
 WHERE THE NIGHT ASKS. A cooldown is written only by a spawn's exhaustion arm
 (the executor child, the worker hook, a native admission probe), and the
@@ -47,6 +67,10 @@ spawn was serving is released by the child under
 WHAT A HELD NIGHT KEEPS. Nothing is re-minted or rebuilt: a pending request,
 a plan mid-convergence and a queued item are left exactly as they stand, and
 the next night with any provider continues them through the ordinary phases.
+A cycle held mid-night (after a spawning lane) has already run its cycle
+step, so it still runs its deterministic reflection, as the failed exits do
+(ARIA-HIGH-420): the daily report is written and the cycle's schedulable
+pressures are queued for the next night instead of being dropped.
 The clocks that measure waiting for a model are already paused by the
 outage intervals (``provider_clock``, ARIA-HIGH-365/367). The workflow's
 deterministic observation steps (doctor, self_improve, deliver, integrity,
@@ -56,10 +80,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .orchestrator_exit_history import EXIT_PROVIDER_OUTAGE_HOLD
-from .provider_outage import FleetOutage, cooled_providers, fleet_outage, host_providers
+from .provider_outage import FleetOutage, cooled_providers, fleet_outage, host_providers, role_providers
 from .tool_registry import GovernanceError
 
 HOLD_PHASE = EXIT_PROVIDER_OUTAGE_HOLD
@@ -76,12 +100,57 @@ CHECKPOINTS: tuple[str, ...] = (
 )
 
 
+# The derived request states a drain selects (`agent_invocations.next_pending_request`).
+_WAITING_STATES = frozenset({"PENDING", "REQUEUED"})
+
+
+def _awaiting_reprobe(
+    base_dir: str | Path, cooled: Mapping[str, Any], *, now: datetime,
+) -> frozenset[str]:
+    """Providers out for the night on an open outage whose lapsed back-off a waiting request will re-probe."""
+    from .provider_cooldown import latest_provider_cooldowns
+    from .provider_outage_ledger import open_outages
+
+    lapsed = {interval.provider for interval in open_outages(base_dir)} - set(cooled)
+    if not lapsed:
+        return frozenset()
+    latest = latest_provider_cooldowns(base_dir)
+    # A reset the vendor stated, now passed, is its word that the quota is back.
+    candidates = {provider for provider in lapsed
+                  if (latest.get(provider) or {}).get("until_source") != "stated_reset"}
+    return frozenset(candidates & _reprobe_carried(base_dir, candidates, now=now)) if candidates else frozenset()
+
+
+def _reprobe_carried(base_dir: str | Path, providers: set[str], *, now: datetime) -> set[str]:
+    """Which of ``providers`` some waiting request's ladder names (its admission will re-probe them)."""
+    from .agent_invocations import derive_request_states
+    from .ledger import load_segments
+    from .tool_registry import ensure_tools_dir
+
+    root = ensure_tools_dir(base_dir)
+    states = derive_request_states(base_dir=root, now=now)
+    carried: set[str] = set()
+    for request in load_segments(root, "agent_invocation_requests"):
+        if states.get(str(request.get("request_id"))) not in _WAITING_STATES:
+            continue
+        try:
+            ladder = role_providers(str(request.get("role") or ""),
+                                    target_agent=str(request.get("target_agent") or "") or None)
+        except GovernanceError:
+            continue  # an unrouted role is refused by its admission, which probes nothing
+        carried |= providers.intersection(ladder)
+        if carried == providers:
+            break
+    return carried
+
+
 def night_outage(base_dir: str | Path, *, now: datetime | None = None) -> FleetOutage | None:
-    """The fleet outage standing at ``now``, or None (an unreadable cooldown ledger is None)."""
+    """The fleet outage standing at ``now`` for a night, or None (an unreadable ledger is None)."""
     moment = now or datetime.now(timezone.utc)
     try:
         cooled = cooled_providers(base_dir, now=moment)
-        return fleet_outage(cooled, now=moment, present=host_providers())
+        return fleet_outage(cooled, now=moment, present=host_providers(),
+                            awaiting_reprobe=_awaiting_reprobe(base_dir, cooled, now=moment))
     except (GovernanceError, OSError, ValueError):
         return None
 
@@ -112,7 +181,8 @@ def hold_if_every_provider_is_out(
         kind=HOLD_NOTICE_KIND, key=f"{cycle_id or 'night'}:{checkpoint}", base_dir=base_dir,
         title=HOLD_NOTICE_TITLE,
         body=(f"checkpoint: {checkpoint}\ncycle: {cycle_id or 'none started'}\n"
-              f"cooled: {', '.join(outage.providers) or 'none'}\n"
+              f"out: {', '.join(outage.providers) or 'none'}\n"
+              f"awaiting a drain's re-probe: {', '.join(outage.awaiting_reprobe) or 'none'}\n"
               f"first provider back: {outage.until or 'no stated reset'}\n"
               "nothing was minted, claimed or charged after this point; the next night continues"),
     )

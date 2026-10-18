@@ -5,7 +5,7 @@ out, ARIA holds where it is and starts no cycle over; when it returns, ARIA cont
 it stopped, and no work is lost. Review: docs/reviews/claude/2026-10-16-aria-known-issues-triage.md
 (ARIA-HIGH-579).
 
-ONE store, four nights through the nightly entry point the auto-cycle runs (``aria-kernel
+ONE store, five nights through the nightly entry point the auto-cycle runs (``aria-kernel
 autonomy run --profile standard``, in process, the production runners the CLI selects). The
 store is production-shaped: a git workspace, a plan started through ``plan_convergence``, the
 production routing table and the production cooldown writer. What stands in, and why:
@@ -22,12 +22,17 @@ production routing table and the production cooldown writer. What stands in, and
 Nights:
 
 0. Every provider serves. The cycle advances the adopted plan and mints its round request.
-1. Anthropic's window is spent (``rate_limit_event``, reset in 3 days) and Z.ai answers 429
-   (cooled for ``_ZAI_WINDOW_SECONDS``). Every provider is out: the night holds.
-2. Z.ai's window has passed; Anthropic is still cooled. The night runs as every night did before
-   ARIA-HIGH-579, and continues the same request night 0 minted.
+1. At production timing (review of ARIA-HIGH-579, major): Anthropic's window is spent
+   (``rate_limit_event``, reset in 3 days), and Z.ai answered 429 at the 02:29 drain, hours before
+   the 17:13 cycle cron. Z.ai's refusal states no reset, so its back-off (the policy-default 900 s)
+   has lapsed by the cron while its outage is still open. Every provider is out: the night holds
+   at its start and mints nothing.
+2. A drain's served Z.ai spawn has restored Z.ai (``record_provider_restored``, the spawn seam);
+   Anthropic is still cooled. The night runs as every night did before ARIA-HIGH-579, and
+   continues the same request night 0 minted.
 3. Anthropic still cooled. The planner's child spends Z.ai's window mid-night: every model phase
-   after it holds.
+   after it holds, and the cycle that started still reflects.
+4. Z.ai is restored again. The night continues the request night 3's spend handed back.
 """
 from __future__ import annotations
 
@@ -58,7 +63,8 @@ from aria_kernel.orchestrator_exit_history import (
     EXIT_PROVIDER_OUTAGE_HOLD, FAILED_EXIT_REASONS, read_orchestrator_exit_streak,
 )
 from aria_kernel.plan_convergence import start_plan
-from aria_kernel.provider_cooldown import record_provider_cooldown
+from aria_kernel.provider_cooldown import active_provider_cooldowns, record_provider_cooldown
+from aria_kernel.provider_outage_ledger import open_outages, record_provider_restored
 from aria_kernel.provider_hold import (
     CHECKPOINT_AFTER_PLANNER_DISPATCH, CHECKPOINT_CYCLE_START, HOLD_NOTICE_KIND, HOLD_PHASE, HOLD_STATUS,
 )
@@ -68,9 +74,13 @@ from tests._helpers.production_shaped import cycle_workspace
 
 _PLAN = "plan-hold"
 _IMPL_PATH = "apps/farm-service/src/farm/services/water-quality.service.ts"
-# Long enough for night 1 to reach its first checkpoint on a loaded host (it starts within a
-# second and asks before anything else runs), short enough that night 2 does not wait long.
-_ZAI_WINDOW_SECONDS = 45
+# The policy-default back-off (`genesis_policy` provider_cooldown_seconds): what Z.ai's quota
+# refusal is cooled for, since it states no reset.
+_POLICY_BACKOFF_SECONDS = 900
+# Night 3's mid-night spend: the back-off the child writes is short so night 4 can follow it
+# without waiting a production window. Whether it has lapsed by the checkpoint or not, the
+# outage it opens is what the night reads.
+_MIDNIGHT_BACKOFF_SECONDS = 5
 # The store's ledgers a held night must leave byte-identical: every request, claim, admission,
 # plan event, queued item and worker assignment, and what a cycle books and learns. Measured on
 # the code before ARIA-HIGH-579, the all-cooled night of this scenario ran a whole cycle: it
@@ -114,8 +124,10 @@ class _PlannerChild:
         claim = claim_request(request_id=rid, agent_id=agent_id, base_dir=base_dir, lease_seconds=lease_seconds)
         # ci_executor's exhaustion arm: the vendor refused, the provider is cooled, the claim is
         # handed back under the reason that charges the request nothing.
-        record_provider_cooldown(base_dir, provider="zai", model="glm", cooldown_seconds=900, request_id=rid,
-                                 claim_id=claim["claim_id"], detection={"signature": "zai_quota_refusal"})
+        self.exhaust = False
+        record_provider_cooldown(base_dir, provider="zai", model="glm", cooldown_seconds=_MIDNIGHT_BACKOFF_SECONDS,
+                                 request_id=rid, claim_id=claim["claim_id"],
+                                 detection={"signature": "zai_quota_refusal"})
         release_claim(claim_id=claim["claim_id"], agent_id=agent_id, lease_token=claim["lease_token"],
                       reason="provider_quota_unavailable:zai", base_dir=base_dir)
         self.requests_at_exhaustion = len(self.scenario.requests())
@@ -213,27 +225,30 @@ class ANightWithEveryProviderOutHoldsAndTheNextContinues(unittest.TestCase):
         cls.n0 = night.run()
         cls.plan_requests_n0 = [row for row in night.requests() if row.get("convergence_id") == _PLAN]
 
-        # Night 1 — every provider is out.
+        # Night 1 — every provider is out, at production timing: Z.ai refused at the 02:29 drain,
+        # its policy back-off lapsed long before the 17:13 cron, its outage is still open.
         now = datetime.now(timezone.utc)
-        record_provider_cooldown(night.tools, provider="anthropic", model="claude-opus", cooldown_seconds=900,
+        record_provider_cooldown(night.tools, provider="anthropic", model="claude-opus",
+                                 cooldown_seconds=_POLICY_BACKOFF_SECONDS,
                                  request_id="AIR-hold-anthropic", claim_id="CLM-hold-anthropic", detection={
                                      "source": "rate_limit_event", "signature": "claude_rate_limit_event",
                                      "trigger": "rejected", "status": "rejected",
                                      "resets_at": (now + timedelta(days=3)).replace(microsecond=0).isoformat()})
-        cls.zai_until = record_provider_cooldown(
-            night.tools, provider="zai", model="glm", cooldown_seconds=_ZAI_WINDOW_SECONDS,
+        record_provider_cooldown(
+            night.tools, provider="zai", model="glm", cooldown_seconds=_POLICY_BACKOFF_SECONDS,
             request_id="AIR-hold-zai", claim_id="CLM-hold-zai", detection={"signature": "zai_quota_refusal"},
-        )["details"]["until"]
+            now=now - timedelta(hours=14, minutes=44),
+        )
+        cls.zai_cooled_at_n1 = "zai" in active_provider_cooldowns(night.tools)
+        cls.zai_outage_open_at_n1 = any(i.provider == "zai" for i in open_outages(night.tools))
         cls.outbox_before_n1 = len(read_outbox(night.tools))
         cls.work_before_n1 = night.work_digest()
         cls.n1 = night.run()
         cls.work_after_n1 = night.work_digest()
         cls.outbox_n1 = read_outbox(night.tools)[cls.outbox_before_n1:]
 
-        # Night 2 — Z.ai's window has passed; Anthropic's has not.
-        until = datetime.fromisoformat(str(cls.zai_until).replace("Z", "+00:00"))
-        while datetime.now(timezone.utc) <= until + timedelta(seconds=1):
-            time.sleep(0.5)
+        # Night 2 — a drain's served Z.ai spawn restored Z.ai; Anthropic is still cooled.
+        record_provider_restored(night.tools, provider="zai", seam="spawn", request_id="AIR-drain-served")
         cls.requests_before_n2 = night.requests()
         cls.n2 = night.run()
         cls.requests_after_n2 = night.requests()
@@ -247,6 +262,19 @@ class ANightWithEveryProviderOutHoldsAndTheNextContinues(unittest.TestCase):
         cls.n3 = night.run()
         cls.requests_after_n3 = night.requests()
         cls.claims = load_jsonl(night.tools / "agent-invocations" / "claims.jsonl")
+        cls.reflections_after_n3 = load_jsonl(night.tools / "reflections.jsonl")
+
+        # Night 4 — Z.ai's back-off has run out and a drain's served spawn restored it again.
+        cooled_until = active_provider_cooldowns(night.tools).get("zai", {}).get("until")
+        if cooled_until:
+            end = datetime.fromisoformat(str(cooled_until).replace("Z", "+00:00"))
+            while datetime.now(timezone.utc) <= end + timedelta(seconds=1):
+                time.sleep(0.5)
+        record_provider_restored(night.tools, provider="zai", seam="spawn", request_id="AIR-drain-served-2")
+        night.planner.selected.clear()
+        cls.n4 = night.run()
+        cls.selected_n4 = list(night.planner.selected)
+        cls.requests_after_n4 = night.requests()
 
     # --- night 0: the baseline the hold is measured against -----------------------------------
 
@@ -266,6 +294,10 @@ class ANightWithEveryProviderOutHoldsAndTheNextContinues(unittest.TestCase):
         self.assertEqual(summary["cycles_completed"], 0)
         self.assertNotIn(EXIT_PROVIDER_OUTAGE_HOLD, FAILED_EXIT_REASONS)
 
+    def test_night_one_is_at_production_timing(self) -> None:
+        # The premise the review measured: Z.ai's back-off has lapsed, its outage has not.
+        self.assertEqual((self.zai_cooled_at_n1, self.zai_outage_open_at_n1), (False, True))
+
     def test_the_all_cooled_night_records_one_hold_and_starts_no_cycle(self) -> None:
         _code, _summary, rows = self.n1
         self.assertEqual(_phases(rows), [HOLD_PHASE], rows)
@@ -273,8 +305,14 @@ class ANightWithEveryProviderOutHoldsAndTheNextContinues(unittest.TestCase):
         self.assertEqual((hold["status"], hold["cycle_id"]), (HOLD_STATUS, None))
         self.assertEqual(hold["details"]["checkpoint"], CHECKPOINT_CYCLE_START)
         self.assertEqual(hold["details"]["providers"], ["anthropic", "zai"])
-        # The first provider back is Z.ai, at the end of its window.
-        self.assertEqual(hold["details"]["until"].replace("+00:00", "Z"), str(self.zai_until).replace("+00:00", "Z"))
+        # Z.ai is out on its open outage, waiting for a drain's re-probe: no clock says when a
+        # provider is back.
+        self.assertEqual(hold["details"]["awaiting_reprobe"], ["zai"])
+        self.assertIsNone(hold["details"]["until"])
+
+    def test_the_all_cooled_night_mints_no_round_request(self) -> None:
+        self.assertEqual([row for row in self.requests_before_n2 if row.get("convergence_id") == _PLAN],
+                         self.plan_requests_n0)
 
     def test_the_all_cooled_night_mints_claims_and_charges_nothing(self) -> None:
         self.assertEqual(self.work_after_n1, self.work_before_n1)
@@ -334,6 +372,8 @@ class ANightWithEveryProviderOutHoldsAndTheNextContinues(unittest.TestCase):
         # requeue says nothing about the request (the count above).
         self.assertEqual(derive_request_state(request_id=rid, base_dir=self.night.tools), "REQUEUED")
 
+    # --- night 4: Z.ai back after the mid-night hold ---------------------------------------------
+
     # --- every night ---------------------------------------------------------------------------
 
     def test_no_night_spawned_a_model(self) -> None:
@@ -391,6 +431,120 @@ class TheFleetOutageIsEveryRoleInAnOutage(unittest.TestCase):
         from aria_kernel.autonomy_state import AUTONOMY_PHASES
 
         self.assertIn(HOLD_PHASE, AUTONOMY_PHASES)
+
+
+class TheNightReadsTheOutageNotTheBackoff(unittest.TestCase):
+    """Review of ARIA-HIGH-579 (major): the night's question at production timing.
+
+    A cooldown is the probe BACK-OFF of an outage (ARIA-HIGH-366): it says when to ASK again, and
+    the asking is done by a lane that carries a request (the drains' native admission, the
+    planner hook's child). Z.ai's quota refusal states no reset, so its back-off is the policy
+    900 s, doubling to 3600 s; the cycle cron fires 15 hours after the executor drain. Reading the
+    back-off, the night saw Z.ai as serving whenever its outage was still open.
+    """
+
+    _T0 = datetime(2026, 10, 18, 2, 40, tzinfo=timezone.utc)   # the 02:29 drain meets the 429
+    _CRON = datetime(2026, 10, 18, 17, 13, tzinfo=timezone.utc)
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-provider-hold-timing-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.base = self.tmp / "aria-tools"
+        operator_set_profile("standard", base_dir=self.base)
+        host = patch("aria_kernel.provider_hold.host_providers", return_value=frozenset({"anthropic", "zai"}))
+        host.start()
+        self.addCleanup(host.stop)
+        quiet = patch.dict(os.environ, {"ARIA_NOTIFY_CHANNELS": "none"})
+        quiet.start()
+        self.addCleanup(quiet.stop)
+
+    def _waiting_request(self) -> str:
+        from tests._helpers.production_shaped import production_request_without_anchor
+
+        return str(production_request_without_anchor(base_dir=self.base)["request_id"])
+
+    def _anthropic_spent(self, *, resets_in: timedelta = timedelta(days=3)) -> None:
+        record_provider_cooldown(self.base, provider="anthropic", model="claude-opus",
+                                 cooldown_seconds=_POLICY_BACKOFF_SECONDS, request_id="AIR-a", claim_id="CLM-a",
+                                 detection={"source": "rate_limit_event", "signature": "claude_rate_limit_event",
+                                            "trigger": "rejected", "status": "rejected",
+                                            "resets_at": (self._T0 + resets_in).isoformat()},
+                                 now=self._T0)
+
+    def _zai_refused(self, *, times: int = 4) -> None:
+        moment = self._T0
+        for index in range(times):
+            row = record_provider_cooldown(self.base, provider="zai", model="glm",
+                                           cooldown_seconds=_POLICY_BACKOFF_SECONDS, request_id=f"AIR-z{index}",
+                                           claim_id=f"CLM-z{index}", detection={"signature": "zai_quota_refusal"},
+                                           now=moment)
+            moment = datetime.fromisoformat(row["details"]["until"].replace("Z", "+00:00")) + timedelta(seconds=1)
+
+    def test_the_cron_after_a_lapsed_backoff_holds_while_the_outage_is_open(self) -> None:
+        from aria_kernel.provider_hold import night_outage
+
+        self._waiting_request()
+        self._anthropic_spent()
+        self._zai_refused()
+        for moment in (self._CRON, self._CRON + timedelta(days=1)):
+            self.assertNotIn("zai", active_provider_cooldowns(self.base, now=moment))
+            outage = night_outage(self.base, now=moment)
+            self.assertIsNotNone(outage, moment)
+            self.assertEqual(outage.providers, ("anthropic", "zai"))
+            self.assertEqual(outage.awaiting_reprobe, ("zai",))
+            self.assertIsNone(outage.until)
+
+    def test_a_provider_restored_by_a_served_spawn_ends_the_hold(self) -> None:
+        from aria_kernel.provider_hold import night_outage
+
+        self._waiting_request()
+        self._anthropic_spent()
+        self._zai_refused()
+        record_provider_restored(self.base, provider="zai", seam="spawn", request_id="AIR-served",
+                                 now=self._CRON - timedelta(hours=1))
+        self.assertIsNone(night_outage(self.base, now=self._CRON))
+
+    def test_a_reset_the_vendor_stated_and_that_has_passed_is_the_vendors_word_that_it_is_back(self) -> None:
+        from aria_kernel.provider_hold import night_outage
+
+        self._waiting_request()
+        self._anthropic_spent(resets_in=timedelta(hours=6))
+        record_provider_cooldown(self.base, provider="zai", model="glm", cooldown_seconds=_POLICY_BACKOFF_SECONDS,
+                                 request_id="AIR-z", claim_id="CLM-z", detection={"signature": "zai_quota_refusal"},
+                                 now=self._CRON - timedelta(minutes=5))
+        # Anthropic's outage stays open until a spawn serves; the night is that spawn's source.
+        self.assertTrue(any(i.provider == "anthropic" for i in open_outages(self.base)))
+        self.assertIsNone(night_outage(self.base, now=self._CRON))
+
+    def test_with_nothing_waiting_to_carry_the_reprobe_the_night_runs(self) -> None:
+        # No drain would ask Z.ai again: a held night would hold for ever though the quota came
+        # back. The night runs, and what it mints is the request the next drain re-probes with.
+        from aria_kernel.provider_hold import night_outage
+
+        self._anthropic_spent()
+        self._zai_refused()
+        self.assertIsNone(night_outage(self.base, now=self._CRON))
+
+    def test_a_standing_backoff_still_holds_on_its_clock(self) -> None:
+        from aria_kernel.provider_hold import night_outage
+
+        self._anthropic_spent()
+        self._zai_refused(times=1)
+        outage = night_outage(self.base, now=self._T0 + timedelta(minutes=5))
+        self.assertIsNotNone(outage)
+        self.assertEqual(outage.awaiting_reprobe, ())
+        self.assertEqual(outage.until, (self._T0 + timedelta(seconds=_POLICY_BACKOFF_SECONDS)).isoformat())
+
+    def test_the_per_request_question_still_reads_the_backoff(self) -> None:
+        # The planner hook and the discretionary mint admission ask per request, and a lapsed
+        # back-off is exactly when their request carries the re-probe (ARIA-HIGH-435): unchanged.
+        from aria_kernel.provider_outage import cooled_providers, provider_outage
+
+        self._anthropic_spent()
+        self._zai_refused()
+        cooled = cooled_providers(self.base, now=self._CRON)
+        self.assertIsNone(provider_outage("challenger_plan", cooled, now=self._CRON,
+                                          present=frozenset({"anthropic", "zai"})))
 
 
 class TheWorkerLanesSpendHoldsTheReview(unittest.TestCase):

@@ -291,6 +291,10 @@ Score 100%**, zero messages under legal hold, and a green tick over "No legal ho
 litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it at Tier 1 (the
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
+Updated 2026-10-17 (lost-work reland, PR #2010): `FARM-CRITICAL-444` — the 18:00 FCR alert
+sweep selected only batches whose stored `fcr.actual` is above zero, which only a closed batch
+has, so it never alerted on a live batch. It is `already-fixed-needs-close`: the PR fixes it and
+the closure-reconcile lane records the main-reachable closer after merge.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
@@ -1103,4 +1107,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `already-fixed-needs-close`.
 - `ARIA-CRITICAL-215`: registry state is `RESOLVED` with closing commit
   `2a3fceee5`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-444`: registry state is `RESOLVED` with closing commit
+  `9b998ec4b`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.

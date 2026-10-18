@@ -64,7 +64,11 @@ export class UpdateBatchWeightFromSampleHandler implements ICommandHandler<Updat
       if (lockedBatch.weight?.actual) {
         lockedBatch.weight.actual.avgWeight = measurement.averageWeight;
         // Provenance snapshot; current biomass derives on read from the live
-        // count × avgWeight, not from this stored figure.
+        // count × avgWeight, not from this stored figure. The FCR authority
+        // (calculateFcrAtLastWeighingMany) reads avgWeight, lastMeasuredAt and
+        // sampleSize as the weighing it judges, and takes the count on that
+        // day from the removal ledger: the three are written together here,
+        // from one measurement.
         lockedBatch.weight.actual.totalBiomass = measurement.estimatedBiomass;
         lockedBatch.weight.actual.lastMeasuredAt = measurement.measurementDate;
         lockedBatch.weight.actual.sampleSize = measurement.sampleSize;

@@ -477,3 +477,283 @@ the share's 10-19, so it is held back. Converting only the unit comparison to si
 the share disagree with the stored row and with `weight.actual`. A fix fixes the sample's day at
 entry, as the unit's site-local day, and orders every reader by it. No shipped client records
 samples yet (FARM-HIGH-451). Owner okan/claude, deadline 2027-01-16.
+
+## SENSOR-CRITICAL-190
+
+The MQTT listener's registered handler swallows a failed metric write, so the ack gate PUBACKs a
+reading that was never persisted. Found while re-landing lost-work item 3. It is a regression of
+SENSOR-CRITICAL-086: 4504e8abc (2026-09-16, MQTT liveness metrics, SENSOR-MEDIUM-123) wrapped the
+handler to count processed and failed messages, and its `.catch` turned the rejection into a
+resolved promise.
+
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:335-344`: the handler registered on
+  the ack gate ends in `.catch(() => recordMessageFailed())`.
+- `mqtt-listener.service.ts:534-538` and `:549-552`: a failed `saveReading` becomes
+  `DurableWriteError` and is rethrown, only for the registered handler to swallow it.
+- `apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts:592-596`: `dispatchDurable`
+  releases PUBACK as soon as every handler promise resolves.
+- `apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts:276-280`: the spec
+  calls `handleMessage` directly and discards the registered handler (`void handler`), so no test
+  ran the function the ack gate calls.
+- `mqtt-listener.service.ts:1945-1948`: before the write, every message reloads its sensor, and
+  `findSensorByTopic`'s catch-all turned a failed reload into null; `handleMessage` then returned
+  normally, so the gate PUBACKed before the write was tried (found by the round-1 verification).
+
+Failure scenario: PostgreSQL fails over for 30 s. Each QoS1 reading in that window fails its
+metric write, the registered handler counts a failure and resolves, `dispatchDurable` calls
+`done()` and mqtt.js sends PUBACK. The broker drops the message from the persistent session and
+the reading is gone, while the CRITICAL-086 code and its spec claim redelivery.
+
+Landed: the registered handler counts a failure and rethrows it, so `dispatchDurable` holds PUBACK
+and force-reconnects. `mqtt-ack-after-durable-dispatch.spec.ts` drives the real `MqttClientService`
+ack gate into the real listener; a failed metric write leaves the message unacked (red on main).
+`mqtt-listener.service.spec.ts` now delivers every message through the registered handler.
+Round-1 verification: a failed lookup (the tenant-scoped sensor reload, or a resolver that rejects)
+now rejects with `DurableWriteError` instead of reading as "no sensor", so the same failover cannot
+reach PUBACK through the reload either; two ack-chain cases cover it (red before). The resolver's
+own swallow and negative cache stay under SENSOR-HIGH-196. Round-2 verification: a topic mapping
+outlives its tenant, so a reload that fails because db-migrate's delete job dropped the schema
+(`SCHEMA_MISMATCH`) would have held PUBACK and reconnect-looped the shared connection for every
+tenant, for up to the hour the mapping stays cached. A failed reload now asks the platform
+mapping whether the tenant is still active; when it is not, the topic cache evicts the tenant's
+mappings and the reading is acked and dropped, while a live tenant's failed reload, or one whose
+liveness cannot be read, still holds PUBACK. The erasure tombstone is asked before the reload.
+`mqtt-listener.rls.postgres.spec.ts` deprovisions a tenant on PostgreSQL with its mapping cached
+(red before: `SCHEMA_MISMATCH` rejected the handler).
+
+## SENSOR-CRITICAL-191
+
+MQTT ingestion PUBACKs a committed reading whose SensorReading dispatch was never made durable.
+Lost-work item 3. The old branch `feat/100-tenant-readiness-v4` (commit b78251709, refused at merge
+4d7cd7ea9) carried it as SENSOR-CRITICAL-087; on main that id is a different, RESOLVED defect (the
+writer buffer, 3d784be31). Main recorded the design as Step 1.9 of
+`docs/reviews/zcode/2026-08-24-100-tenant-readiness.md` and filed it under 086/087, both RESOLVED,
+so nothing tracked it.
+
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:189-197`: fan-out failures "stay
+  swallow-and-ack until the Task 1.6 disposition/DLQ contract".
+- `mqtt-listener.service.ts:529-547`: `saveReading` commits the metric rows, then
+  `publishSensorReadingEvent` runs outside that transaction.
+- `mqtt-listener.service.ts:1842-1872`: a failed `eventBus.publish` of the SensorReading is
+  caught and logged at warn.
+- `apps/sensor-service/src/sensor/services/sensor-ingestion.service.ts:242-283`: the GraphQL path
+  enqueues the same event into `sensor_outbox` inside the metric transaction (SENSOR-CRITICAL-001);
+  the MQTT path does not.
+
+Failure scenario: NATS is restarting, or JetStream refuses the PubAck. A dissolved-oxygen reading
+of 2.1 mg/L arrives on MQTT, its metric rows commit, the publish rejects, the error is logged and
+the message is PUBACKed. No outbox row or dispatch record exists, so nothing retries: alert-engine
+never evaluates the reading, the low-oxygen alarm never fires, and the dashboards never show it.
+
+Landed: `saveReading` enqueues the SensorReading into `sensor_outbox` in the metric transaction,
+keyed by its deterministic event id, and the outbox relay publishes it; the listener no longer
+publishes it itself. The relay retries a failed publish for about 40-60 s (five attempts, backoff
+2/4/8/16 s) and then dead-letters the row, which nothing replays. So this closes the scenario for a
+publish failure inside that budget, and past it the obligation no longer vanishes: it stays in
+`sensor_outbox` as a dead-lettered row. Delivery across a longer transport outage is the outbox
+owner's defect, PLAT-CRITICAL-925. `mqtt-ack-after-durable-dispatch.spec.ts`, all red on main:
+with NATS down, PUBACK follows the commit of the metric rows and the outbox row; a failed enqueue
+rolls the rows back and holds PUBACK; a redelivery collapses onto the committed row.
+`mqtt-listener.rls.postgres.spec.ts` shows the outbox row committing under FORCE RLS on PostgreSQL.
+
+## SENSOR-HIGH-192
+
+The Rust ingestion path acknowledges before dispatch is durable. Lost-work item 3, related half;
+the old branch `feat/100-tenant-readiness-v4` (commit 3147dad5a) carried it as SENSOR-CRITICAL-097.
+
+- `apps/sensor-ingestion/src/mqtt.rs:176-177`: `MqttOptions` is built with neither manual acks
+  nor `clean_session(false)`, so rumqttc PUBACKs every PUBLISH on receipt.
+- `apps/sensor-ingestion/src/mqtt.rs:302-312`: `run_event_loop` forwards each Publish into the
+  channel; no ack waits for the tenant COPY, the outbox commit or the PubAck.
+- `apps/sensor-service/src/ingestion/nats-ingestion-consumer.service.ts:307-321`: a failed typed
+  SensorReading publish is logged and the handler returns ack.
+- `docker-compose.droplet.yml:1120-1129`: zero tenants route to the sidecar today.
+
+Latent while no tenant routes to Rust, so HIGH now and CRITICAL in effect once one does. It must
+be fixed before any tenant is switched to Rust, and by 2026-12-17 at the latest (owner
+okan/claude). Not fixed in the LW-SENSOR-ACK change because it is not small: manual acks with a
+persistent session and a stable client id, each Publish carried through decode and batch to an
+ack after its batch's tenant commit, and a durable SensorReading enqueue (or NAK) in the consumer.
+
+## SENSOR-HIGH-193
+
+Edge-device MQTT messages are PUBACKed when their persistence fails. Found while re-landing
+lost-work item 3: these topics go through the same ack gate as sensor readings, but none of their
+durable writes can hold PUBACK.
+
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1462-1524`:
+  `persistIoDataToMetrics` catches a failed `writeImmediate` and logs it.
+- `mqtt-listener.service.ts:1594-1655`: `handleEdgeAlarms` catches a failed `DeviceEvent` save
+  (or a failed publish before it) and logs it.
+- `mqtt-listener.service.ts:1421-1429`: the per-device io_data throttle runs before persistence,
+  so a redelivery inside the throttle window would be dropped unpersisted.
+
+Failure scenario: PostgreSQL is unavailable for 20 s while a gateway reports a high-level alarm.
+The `DeviceEvent` save fails, the error is logged and the message is PUBACKed: the alarm is
+missing from the device event history and is never redelivered. Owner okan/claude, deadline
+2026-12-17.
+
+## SENSOR-HIGH-194
+
+The parent-sensor MQTT adapter path PUBACKs on receipt. It is the per-sensor connection path for
+active MQTT parent sensors (`DataIngestionService.startAllActiveSensors`), separate from the shared
+listener.
+
+- `apps/sensor-service/src/protocol/adapters/iot/mqtt.adapter.ts:298-313`: `subscribeToData`
+  consumes through `client.on('message')`, which mqtt.js acks without waiting for the handler.
+- `apps/sensor-service/src/ingestion/data-ingestion.service.ts:244-252`: `handleSensorData` is
+  started with `void`; no ack waits for it.
+- `data-ingestion.service.ts:410-445` and `:459-463`: the metric write, then a SensorReading
+  publish whose failure is logged; any processing error is logged and swallowed.
+
+Failure scenario: NATS restarts while a parent sensor publishes. The metric rows are written, the
+SensorReading publish fails and is logged, and the broker has already PUBACKed: alert-engine never
+sees the reading. A fix moves this path onto the shared ack gate and the outbox, or retires it.
+Owner okan/claude, deadline 2026-12-17.
+
+## SENSOR-MEDIUM-195
+
+No durable record of admitted MQTT source messages. This is the receipt half of Step 1.9, left
+open when the LW-SENSOR-ACK change closed its dispatch half through the sensor outbox
+(SENSOR-CRITICAL-191). The old branch `feat/100-tenant-readiness-v4` (b78251709) built a per-tenant
+`sensor_ingest_receipts` table for it.
+
+- `docs/reviews/zcode/2026-08-24-100-tenant-readiness.md:657-731`: Step 1.9 asks for per-tenant
+  source receipts and quarantine of payloads without a producer identity.
+- `tools/scripts/evaluate-telemetry-readiness.ts:210-229`: the readiness gate requires
+  `acceptedSourceIds` and `committedSourceIds`, which no platform table produces.
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1872-1889`: a payload without
+  a usable `ts`, `timestamp` or `producerTs` gets a receive-time identity.
+
+Effect: the readiness gate cannot be passed from platform evidence, and a legacy payload without a
+producer timestamp that is redelivered after its commit yields a second SensorReading. Owner
+okan/claude, deadline 2027-01-16.
+
+## SENSOR-HIGH-196
+
+The MQTT topic resolver reports a failed lookup as "no sensor". After SENSOR-CRITICAL-190 and -191
+the sensor path PUBACKs only after its durable commit, except when the sensor cannot be resolved.
+The round-1 verification narrowed this row to the resolver: the listener half (a failed
+tenant-scoped reload, or a resolver that rejects) is fixed under SENSOR-CRITICAL-190.
+
+- `apps/sensor-service/src/ingestion/sensor-topic-cache.service.ts:345-355`: a per-tenant read
+  error is logged at debug and skipped; the outer error returns null.
+- `sensor-topic-cache.service.ts:129-132` and `:391-395`: that null is cached as a negative
+  local entry for 60 s (`LOCAL_CACHE_TTL_MS`, `:72`).
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:521-524`: a resolver null returns
+  without error, so the gate PUBACKs.
+
+Failure scenario: the topic is cold in the local cache and Redis, and its tenant's read times out
+(pool exhausted). This reading and every reading on the topic for the next 60 s are PUBACKed
+without persistence. A fix separates "not found" from "lookup failed" in the resolver, never caches
+a failure, and lets the failure reject. Owner okan/claude, deadline 2026-12-17.
+
+## PLAT-CRITICAL-925
+
+The outbox relay spends its five-attempt dead-letter budget on transport outages. Raised by the
+independent verification of LW-SENSOR-ACK (round 1): SENSOR-CRITICAL-191 makes the MQTT
+SensorReading dispatch durable through `sensor_outbox`, and the obligation then rides on this relay,
+which every service's outbox shares.
+
+- `platform/libs/outbox/src/outbox-worker.service.ts:450-465`: `markFailed` counts every publish
+  failure toward `OUTBOX_MAX_RETRIES` (5, `constants.ts:20`); only tenant-integrity and
+  storage-metadata errors are permanent, and a disconnected bus or a PubAck timeout counts like any
+  other failure.
+- `outbox-worker.service.ts:487-491`: backoff 2/4/8/16 s, so with the 5 s poll the fifth failure
+  lands about 40 s after the first (about 60 s when each attempt waits out a PubAck timeout).
+- `outbox-worker.service.ts:234-241`: rows are leased without asking `eventBus.isConnected()`.
+- `outbox-worker.service.ts:326-332`: the lease predicate skips dead-lettered rows, and no code sets
+  `isDeadLettered` back to false.
+- `platform/libs/event-bus/src/nats/nats-event-bus.ts:806` and `:921-923`: the bus nulls
+  `jetStream` on close, and `publishTo` then throws at once.
+- `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml:16-19`: the pending-age SLO
+  alert reads the pending set, which dead-lettered rows leave; only the warning
+  `OutboxDeadLetterGrowing` fires.
+
+Failure scenario: JetStream refuses publishes for 3 minutes. A 2.1 mg/L dissolved-oxygen reading
+commits its metric rows and its outbox row and is PUBACKed; the relay fails at about 0, 5, 10, 20
+and 40 s and dead-letters the row; when NATS returns nothing selects it, and alert-engine never
+evaluates the reading. The same holds for every service's outbox. A fix lives in `@platform/outbox`:
+a transport-unavailable failure does not spend the budget, the backoff is capped, dead-lettering
+stays for permanent failures, and a relay test keeps NATS down past the old budget. Owner
+okan/claude, deadline 2026-11-17.
+
+## SENSOR-HIGH-197
+
+The MQTT ack gate has no disposition for a permanent durable failure. Raised by the round-1
+verification: fixing SENSOR-CRITICAL-190 restores the SENSOR-CRITICAL-086 contract, and with it the
+loop that contract always had for a deterministic failure. The panel's payload cases (a nanosecond
+`ts`, deep nesting, a non-scalar channel value) are fixed in LW-SENSOR-ACK, which makes the listener
+code inside the durable leg total; what remains is a permanent database error.
+
+- `apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts:571-579`: any handler rejection, or
+  the settle deadline, force-reconnects; there is no attempt bound and no disposition.
+- `mqtt-client.service.ts:604-609`: `forceRedelivery` ends the one shared client with `end(true)`.
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:547-551`: every error from the tenant
+  transaction becomes `DurableWriteError`, permanent or transient alike.
+- `mqtt-listener.service.ts:1966-1981` (the lookup leg, added by the round-2 verification): a
+  failed per-message sensor reload of a tenant the platform still lists as active becomes
+  `DurableWriteError` the same way, for example 42703 when that tenant's `sensors` table lags a
+  column the `Sensor` entity selects.
+- `infrastructure/monitoring/droplet/rules/45-mqtt-ingestion.yml:11-16`: the ingestion alert fires
+  on received == 0, which a redelivery loop never trips; nothing alerts on
+  `sensor_mqtt_messages_failed_total`.
+
+Failure scenario: one tenant's `sensor_metrics` drifts from the columns the writer inserts, or a
+channel row breaks a constraint. Its next reading fails the tenant transaction, the gate
+force-reconnects, the broker redelivers that message first, and mqtt.js takes the next inbound
+packet only after PUBACK, so every tenant's readings queue behind it. The lookup leg loops the
+same way when one tenant's per-tenant migration leaves its `sensors` table behind the entity. A
+reload that fails because the tenant is gone (schema dropped, tenant not active) is not in this
+row: LW-SENSOR-ACK round 2 evicts its mappings and acks the reading. Prod recorded zero
+`sensor_mqtt_messages_failed_total` increments over the 15-day Prometheus retention (2026-10-02 to
+2026-10-18, about 58,900 messages a week). That zero covers write-leg failures only: on main a
+failed lookup returned null and counted as processed, so lookup failures never reached the
+counter. SENSOR-HIGH-093 (Step 1.6)
+is the NATS-consumer DLQ; this row is the MQTT ack gate's half. A fix sends a permanent failure
+(SQLSTATE classes 22, 23, 42) of either leg, lookup or write, to a per-tenant quarantine row and
+acks it, keeps transient failures unacked, and alerts on the failure counter. Owner okan/claude,
+deadline 2026-11-17.
+
+## SENSOR-MEDIUM-198
+
+Tenant erasure keeps the erased tenant's dead-lettered and still-pending `sensor_outbox` rows.
+Raised by the round-1 verification; related to SENSOR-HIGH-097 (published rows).
+
+- `apps/sensor-service/src/compliance/erasure/published-outbox-purge.hook.ts:43-46`: the hook
+  deletes only rows with `publishedAt IS NOT NULL`.
+- `published-outbox-purge.hook.ts:20-26`: it assumes no unpublished row of the tenant exists then;
+  a dead-lettered row, or one pending through a NATS outage, does.
+- `platform/libs/outbox/src/outbox-worker.service.ts:509-521`: `cleanupPublished` deletes only
+  published rows.
+
+Failure scenario: a NATS outage dead-letters a tenant's SensorReading rows (PLAT-CRITICAL-925); the
+tenant is later erased, and its telemetry and farm, pond and tank ids stay in `sensor.sensor_outbox`
+indefinitely. The GraphQL path already had the gap; routing every MQTT reading through the outbox
+makes it larger. A fix deletes the erased tenant's dead-lettered rows in the hook and settles the
+pending case with the erasure saga. Owner okan/claude, deadline 2027-01-16.
+
+## SENSOR-MEDIUM-199
+
+The Task 1.8 erased-tenant tombstone is inert in production. Found by the LW-SENSOR-ACK round-2
+verification fix, which asks the tombstone before the per-message sensor reload and gave the
+listener's parameter its injection token. Related: SENSOR-HIGH-097, whose closing PR #1338
+introduced the tombstone as the ingress control for erased tenants.
+
+- `apps/sensor-service/src/compliance/erasure/erased-tenant-tombstone.service.ts:35-57`: the boot
+  rebuild reads `auth.tenants`, which the sensor-service role cannot read. Prod logged "Tombstone
+  rebuild query failed ... permission denied for schema auth" at 2026-10-17T21:41:53Z.
+- `erased-tenant-tombstone.service.ts:88-112`: `attachEventBus` subscribes `TenantErased`, and
+  nothing in the repository calls it.
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:331-338`: until round 2 the listener's
+  tombstone parameter had no injection token. A `T | null` parameter is emitted as `Object`, so Nest
+  passed `undefined` and the gate was null in every boot.
+
+Today the MQTT sensor path does not depend on it: the erasure deletes the tenant's sensor rows, so a
+late message's reload returns no row, and after the schema drop a reload of a tenant that is no
+longer active is dropped (round 2). Failure scenario: the control the plan and SENSOR-HIGH-097 count
+on answers false for every tenant, so a path that resolves a sensor without reading its row back
+would persist an erased tenant's reading with no gate in place. A fix gives the rebuild a
+least-privilege source (a SECURITY DEFINER platform function, as
+`list_active_tenant_schema_mappings` is), calls `attachEventBus` at module init, and pins both with
+a test that boots the module. Owner okan/claude, deadline 2027-01-16.

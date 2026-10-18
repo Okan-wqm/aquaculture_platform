@@ -290,10 +290,23 @@ Updated 2026-10-18 (lost-work reland, LW-RATION-600): `FARM-CRITICAL-454` — a 
 never reached the feeding ration: both growth-sample writers stopped at `Batch.weight.actual`,
 while every ration path reads the tank's `tank_batches` weight. It is `already-fixed-needs-close`:
 the branch fixes it and the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (lost-work reland, LW-SENSOR-ACK): `SENSOR-CRITICAL-190` — the handler the MQTT
+listener registers on the ack gate swallowed every rejection, so a failed metric write was
+PUBACKed; `SENSOR-CRITICAL-191` — the SensorReading was published after the metric commit, and a
+failed publish was acked with nothing left to retry it. Both are `already-fixed-needs-close`: the
+branch fixes them and the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (LW-SENSOR-ACK verification, round 1): `PLAT-CRITICAL-925` — the outbox relay
+counts transport failures toward its five-attempt dead-letter budget, so a NATS or JetStream outage
+longer than about 40-60 s dead-letters every pending row of every service, and nothing replays a
+dead-lettered row. It is `real-open`: the fix belongs in `@platform/outbox`, owner okan/claude,
+deadline 2026-11-17.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
+| `SENSOR-CRITICAL-190` | OPEN | 2026-10-18 | claude | already-fixed-needs-close |
+| `SENSOR-CRITICAL-191` | OPEN | 2026-10-18 | claude | already-fixed-needs-close |
+| `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
 
 ## Mutation Rules
 

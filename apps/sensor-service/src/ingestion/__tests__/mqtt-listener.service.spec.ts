@@ -119,6 +119,20 @@ function mockTenantSensorReload(qr: QueryRunner, sensor: Sensor | null): void {
   (repository.findOne as jest.Mock).mockResolvedValue(sensor);
 }
 
+/**
+ * db-migrate's delete job dropped the tenant schema (deprovision or erasure).
+ * search_path still names it first, so current_schema() falls through to
+ * `sensor` and the real tenant boundary refuses every read with
+ * TenantContextError SCHEMA_MISMATCH.
+ */
+function dropTenantSchema(qr: QueryRunner): void {
+  (qr.query as jest.Mock).mockImplementation(async (sql: string) =>
+    sql.includes('current_schema()')
+      ? [{ schema: 'sensor', tenant: TENANT_ID, bypass: 'off' }]
+      : [],
+  );
+}
+
 function createMockMqttClient(): jest.Mocked<MqttClientService> {
   return {
     addMessageHandler: jest.fn(),
@@ -127,6 +141,9 @@ function createMockMqttClient(): jest.Mocked<MqttClientService> {
     subscribe: jest.fn().mockResolvedValue(undefined),
     publish: jest.fn().mockResolvedValue(undefined),
     onceConnected: jest.fn(),
+    recordMessageReceived: jest.fn(),
+    recordMessageProcessed: jest.fn(),
+    recordMessageFailed: jest.fn(),
   } as unknown as jest.Mocked<MqttClientService>;
 }
 
@@ -163,6 +180,7 @@ function createMockSensorTopicCache(): jest.Mocked<SensorTopicCacheService> {
     getSensorByTopic: jest.fn().mockResolvedValue(null),
     invalidateSensor: jest.fn().mockResolvedValue(undefined),
     invalidateTenant: jest.fn().mockResolvedValue(undefined),
+    evictIfTenantInactive: jest.fn().mockResolvedValue(false),
   } as unknown as jest.Mocked<SensorTopicCacheService>;
 }
 
@@ -238,10 +256,14 @@ function buildService(
     writeManaged: jest.fn().mockResolvedValue(undefined),
     enqueue: jest.fn().mockResolvedValue({ tenantId: 'stub', committedRows: 0 }),
   };
+  // SENSOR-CRITICAL-191: the SensorReading is enqueued in the metric
+  // transaction; the outbox relay (not this service) publishes it.
+  const outbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
   const service = new (MqttListenerService as any)(
     configService,
     dataSource,
     metricWriter, // metricWriter (SensorMetricWriterService)
+    outbox, // outboxPublisher (OutboxPublisher)
     eventBus,
     edgeDeviceService,
     sensorTopicCache,
@@ -257,6 +279,7 @@ function buildService(
     sensorRepo,
     dataSource,
     metricWriter,
+    outbox,
     edgeDeviceService: edgeDeviceService as jest.Mocked<EdgeDeviceService> | null,
     sensorTopicCache: sensorTopicCache as jest.Mocked<SensorTopicCacheService> | null,
     mqttClient: mqttClient as jest.Mocked<MqttClientService> | null,
@@ -265,21 +288,21 @@ function buildService(
 }
 
 /**
- * Invoke the private handleMessage method via the bound messageHandler
- * stored in the constructor.
+ * Deliver a message through the handler the listener registers on the MQTT
+ * ack gate — the function whose promise decides PUBACK. Calling the private
+ * handleMessage instead hid that the registered wrapper swallowed every
+ * rejection, so a failed write was acked while this spec stayed green
+ * (SENSOR-CRITICAL-190).
  */
 async function callHandleMessage(
   service: MqttListenerService,
   topic: string,
   payload: string | Buffer,
 ): Promise<void> {
-  const handler = (service as any).messageHandler as (topic: string, message: Buffer) => void;
+  // Element access reaches the private field with its declared type, no cast.
+  const handler = service['messageHandler'];
   const buffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
-  // The bound handler now PROPAGATES rejections (SENSOR-CRITICAL-086): the
-  // MQTT ack gate awaits them to hold PUBACK and force redelivery. We still
-  // call handleMessage directly for per-error assertions.
-  void handler;
-  await (service as any).handleMessage(topic, buffer);
+  await handler(topic, buffer);
 }
 
 // ─── Test Suite ───────────────────────────────────────────────────────────
@@ -345,32 +368,37 @@ describe('MqttListenerService', () => {
       ).rejects.toThrow(/Durable metric write failed/);
     });
 
-    it('ACK-drops messages for an erased tenant without recreating data (Task 1.8 tombstone)', async () => {
+    it('ACK-drops messages for an erased tenant before anything reads its dropped schema (Task 1.8 tombstone)', async () => {
       const { service, sensorTopicCache, dataSource, metricWriter } = buildService();
+      // The mapping was cached before the erasure; the erasure then dropped
+      // the schema, so a reload through it could only fail (SCHEMA_MISMATCH).
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
-      const sensor = createSensor();
       const qr = dataSource.createQueryRunner();
-      mockTenantSensorReload(qr, sensor);
-      metricWriter.writeManaged.mockResolvedValue(undefined);
+      dropTenantSchema(qr);
 
       // Tombstone: buildService's `new`-based harness leaves it null; inject
       // a stub through the prototype-level property the gate reads.
       const tombstone = { isErased: jest.fn().mockReturnValue(true) };
       Object.defineProperty(service, 'tombstone', { value: tombstone, writable: true });
 
-      await callHandleMessage(
-        service,
-        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
-        JSON.stringify({ temperature: 23.5 }),
-      );
+      await expect(
+        callHandleMessage(
+          service,
+          `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+          JSON.stringify({ temperature: 23.5 }),
+        ),
+      ).resolves.toBeUndefined();
 
       expect(tombstone.isErased).toHaveBeenCalledWith(TENANT_ID);
+      // No tenant read was opened, so nothing could fail on the dropped schema.
+      expect(qr.connect).not.toHaveBeenCalled();
+      expect(sensorTopicCache!.evictIfTenantInactive).not.toHaveBeenCalled();
       // Neither the metric write nor the event publish happened.
       expect(metricWriter.writeManaged).not.toHaveBeenCalled();
     });
 
-    it('publishes SensorReading with a deterministic eventId derived from the source reading (Task 1.4)', async () => {
-      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+    it('enqueues SensorReading with a deterministic eventId derived from the source reading (Task 1.4)', async () => {
+      const { service, sensorTopicCache, dataSource, outbox } = buildService();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
 
       const sensor = createSensor();
@@ -389,9 +417,8 @@ describe('MqttListenerService', () => {
         },
       ]);
 
-      const publish = eventBus.publish as jest.Mock;
       const readingEvents = (): Array<Record<string, unknown>> =>
-        publish.mock.calls
+        outbox.enqueue.mock.calls
           .map((c) => c[0] as Record<string, unknown>)
           .filter((e) => e['eventType'] === 'SensorReading');
 
@@ -401,6 +428,11 @@ describe('MqttListenerService', () => {
       await callHandleMessage(service, `sensors/${TENANT_ID}/${SENSOR_ID}/data`, payload);
       expect(readingEvents()).toHaveLength(2);
       expect(readingEvents()[0]!['eventId']).toBe(readingEvents()[1]!['eventId']);
+      // The identity is also the outbox idempotency key, so the redelivered
+      // copy collapses onto the outbox row the first delivery committed.
+      for (const [event, , options] of outbox.enqueue.mock.calls) {
+        expect(options).toEqual({ idempotencyKey: event.eventId, aggregateId: SENSOR_ID });
+      }
       expect(readingEvents()[0]!['eventId']).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
@@ -417,7 +449,7 @@ describe('MqttListenerService', () => {
 
     it('carries the sensor’s site on SensorReading, for the alarm’s site (ALERT-MEDIUM-010)', async () => {
       const SITE_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+      const { service, sensorTopicCache, dataSource, outbox } = buildService();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
       const qr = dataSource.createQueryRunner();
       mockTenantSensorReload(qr, createSensor({ siteId: SITE_ID }));
@@ -440,14 +472,14 @@ describe('MqttListenerService', () => {
         JSON.stringify({ temperature: 23.5, ts: 1_730_000_000_000 }),
       );
 
-      const reading = (eventBus.publish as jest.Mock).mock.calls
+      const reading = outbox.enqueue.mock.calls
         .map((c) => c[0] as Record<string, unknown>)
         .find((e) => e['eventType'] === 'SensorReading');
       expect(reading?.['siteId']).toBe(SITE_ID);
     });
 
     it('carries no site for a site label that is not a UUID (ALERT-MEDIUM-013)', async () => {
-      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+      const { service, sensorTopicCache, dataSource, outbox } = buildService();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
       const qr = dataSource.createQueryRunner();
       mockTenantSensorReload(qr, createSensor({ siteId: 'Hatchery North' }));
@@ -470,7 +502,7 @@ describe('MqttListenerService', () => {
         JSON.stringify({ temperature: 23.5, ts: 1_730_000_000_000 }),
       );
 
-      const reading = (eventBus.publish as jest.Mock).mock.calls
+      const reading = outbox.enqueue.mock.calls
         .map((c) => c[0] as Record<string, unknown>)
         .find((e) => e['eventType'] === 'SensorReading');
       expect(reading).toBeDefined();

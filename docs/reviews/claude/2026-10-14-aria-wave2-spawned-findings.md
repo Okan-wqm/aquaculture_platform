@@ -928,6 +928,47 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
 - **Planned fix:** one exported grammar derived from the registry schema, and every gate's
   pattern built from it. Deadline: 2027-04-15.
 
+### ARIA-HIGH-617 — a wide scope violation is too large to record, so the tool is never quarantined
+
+- **Raised by:** the wave-3 `R-NEW-runs-bound` implementation (fix notes, item C). Re-measured on
+  origin/main 45dd64142 by the ARIA order chain, which lands what of that bucket main still lacks.
+- **Problem:** ARIA-HIGH-523 (2f66f8923) moved a run's `read_paths` out of its runs.jsonl row, but
+  the row still carries `scope_violations` in full, and that list is derived from `read_paths`.
+  `read_paths` is the adapter's own report, bounded only by the 12 MiB stdout cap. With 20,000
+  reported out-of-scope paths the row is 1,600,188 bytes. The declared append refuses it
+  (`LEDGER_ROW_MAX_BYTES` = 1 MiB) before `evaluate_health` runs. No runs row is written, the tool
+  stays SHADOW and the tools phase aborts the cycle. A narrow-scope adapter that reads every
+  tracked file today makes an 809,355-byte row (12,381 violations), 77% of the cap.
+- **Planned fix:** the row carries the first 20 violations plus a total and digest marker, in the
+  `ledger_inline` sample shape. The run artifact holds the whole list. Deadline: 2026-12-17.
+
+### ARIA-HIGH-618 — memory candidates or raw-finding entries make a run unrecordable
+
+- **Raised by:** the wave-3 `R-NEW-runs-bound` fix round (item A, security), widened by the order
+  chain's re-measurement on origin/main 45dd64142.
+- **Problem:** `tool_runner._valid_memory_candidates` keeps every well-formed candidate, and
+  `_raw_finding_sample` keeps the first 50 raw findings at whatever size the adapter wrote them.
+  The default v2-shadow row carries both. 6,000 candidates (1,683,719 bytes), or 50 findings of
+  about 28 KB each (1,411,985 bytes), make the row append raise before `evaluate_health`. The run
+  is neither recorded nor quarantined. `memory._ingest_memory_candidates` reads the candidates off
+  the row, and the artifact does not carry them.
+- **Planned fix:** the artifact carries the candidates and the raw-finding sample. The row keeps
+  count, digest and sample, memory ingestion reads the artifact, and the quarantine verdict no
+  longer depends on the append succeeding. Taking the raw-finding sample off the v2-shadow row
+  changes what ADR-035 says v2-shadow preserves, so that half waits for the operator's v2 decision
+  or keeps the contract through the artifact. Owner okan, deadline 2026-10-30.
+
+### ARIA-MEDIUM-619 — evidence_validation still sets the runs surface's publish bound
+
+- **Raised by:** the wave-3 `R-NEW-runs-bound` implementation (item B).
+- **Problem:** every runs row inlines `evidence_validation`, which `ledger_inline` bounds at 128 KiB
+  per object. Seven days at 75 runs a day of maximal objects is 65.6 MiB, over the 64 MiB
+  per-surface publish cap, so adapter output alone could get publishes refused again. Today the
+  margin is wide: the live runs.jsonl on origin/aria/state 8e39b2eeb is 39,116,912 bytes, and
+  ARIA-HIGH-523 measured a 12.3 MB week at the 2026-10-15 rate.
+- **Planned fix:** the row keeps the structural keys plus count, digest and sample, and the run
+  artifact holds the whole object. Deadline: 2026-11-15.
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

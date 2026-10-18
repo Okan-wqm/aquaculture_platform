@@ -89,10 +89,14 @@ class RemedyVocabulary(unittest.TestCase):
         self.assertEqual(tuple(si.SIGNAL_REMEDIES), si.SIGNAL_KINDS)
         self.assertEqual(set(si.SIGNAL_REMEDIES.values()), {si.SELF_CHANGE_REMEDY, si.ANNOUNCE_REMEDY})
         # ARIA-MEDIUM-417 — `config_missing` joins the vocabulary as an
-        # ANNOUNCED kind, so the self-change list is unchanged.
+        # ANNOUNCED kind, so the self-change list is unchanged. ARIA-HIGH-122
+        # — a named refusal / escalation class is born `adaptation_due`
+        # (self-change) or `operator_condition` (announced) by
+        # `ADAPTATION_SIGNAL_KINDS`.
         self.assertEqual(si.SIGNAL_KINDS, ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail",
-                                           "deadline_due", "config_missing", "host_fault"))
-        self.assertEqual(si.SELF_CHANGE_SIGNAL_KINDS, ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail"))
+                                           "deadline_due", "config_missing", "host_fault", "adaptation_due", "operator_condition"))
+        self.assertEqual(si.SELF_CHANGE_SIGNAL_KINDS, ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail",
+                                                       "adaptation_due"))
         self.assertEqual(si.SIGNAL_REMEDIES["deadline_due"], si.ANNOUNCE_REMEDY)
         self.assertEqual(si.SIGNAL_REMEDIES["config_missing"], si.ANNOUNCE_REMEDY)
         self.assertEqual(si.Signal("deadline_due", "registry_finding:X-LOW-001", "t").remedy, si.ANNOUNCE_REMEDY)

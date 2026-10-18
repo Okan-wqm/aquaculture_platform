@@ -2049,7 +2049,8 @@ days or lapsed, 3 otherwise). Adding a rule the kernel enforces means adding its
 **A signal is routed by its remedy, not by its priority.** `self_improvement.SIGNAL_REMEDIES` gives
 every signal kind exactly one closed remedy — `self_change` for the five kinds whose answer is a
 change to ARIA's own code (`capability_gap`, `funnel_stall`, `delivery_slo_gap`, `mcp_quarantine`,
-`doctor_fail`, together `SELF_CHANGE_SIGNAL_KINDS`) and `announce` for `deadline_due` — and a
+`doctor_fail`, `adaptation_due`, together `SELF_CHANGE_SIGNAL_KINDS`) and `announce` for
+`deadline_due`, `config_missing`, `host_fault` and `operator_condition` — and a
 `Signal` of a kind outside the table cannot be built (`signal_kind_unknown`). The mission opener
 (`open_self_improvement_missions` → `self_change_signals`) mints `propose_self_change` missions only
 for the `self_change` remedy, ordered by priority within it. `deadline_due` is announced — the doctor,
@@ -2075,6 +2076,21 @@ the reader could not read (`DeadlineReadout.undecided`) is named `deadline_due:<
 Anything else a reader raises — a `TypeError`, a crash of the doctor run itself — is a kernel defect
 and raises out of the scan. The opener's `MissionOpening`, the `self_improve` action's `detail` and its
 `gateway_action_ran` row, and `aria-kernel self-improve scan|open` all carry `unreadable`.
+
+**A condition the kernel can name is a condition it can plan against (ARIA-HIGH-122).** The
+`adaptation` family (`adaptation_signals`) reads the classes the kernel already names, one signal per
+CLASS with its count and at most `ADAPTATION_EVIDENCE_IDS_MAX` evidence ids — never one per record (the
+live store held 355 open records of one HUMAN_REQUIRED kind): an open HUMAN_REQUIRED record by its
+`context.kind` (a prose reason without a kind is `unclassified`), a harness-class release on the claims
+ledger by its structured `reason_code` once it recurs `RELEASE_MIN_IN_WINDOW` times in
+`RELEASE_WINDOW_DAYS`, and a lapsed dated waiver by its manifest kind. What a class is born as is
+`self_improvement.ADAPTATION_SIGNAL_KINDS`' decision, on an authority surface: `adaptation_due`
+(remedy `self_change`, a `propose_self_change` mission) only when the answer is a change under
+`SELF_CHANGE_ALLOWED_PREFIXES` that touches no authority surface; `operator_condition` (remedy
+`announce`) for a credential, a subscription, a vendor's outage, a host's binding, a per-record
+decision, this loop's own `self_change_adjudication` — and for every class the table does not name.
+Every harness release code and every waiver manifest is named there, so a new one fails
+`test_self_improvement_adaptation` instead of defaulting.
 
 Not in the registry, on purpose: rolling housekeeping windows (`state_compact` `retain_days`, the
 signing-key 24 h grace in `prune_stale_signing_keys`). Passing those windows IS their design — the row

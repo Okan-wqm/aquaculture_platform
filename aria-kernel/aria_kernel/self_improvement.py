@@ -3,8 +3,10 @@
 WHY: the operator's direction — ARIA should write and improve its own code
 — and the programme's rule: it must never widen its own permissions. WHAT:
 signals ARIA already measures (capability gaps, funnel stalls, delivery SLO
-gaps, quarantined MCP servers, failing doctor organs) become
-`self_improvement` missions; a mission becomes a `self_change` proposal
+gaps, quarantined MCP servers, failing doctor organs, and — ARIA-HIGH-122 —
+the refusal and escalation CLASSES it already names: a recurring
+harness-class release, an open HUMAN_REQUIRED kind, a lapsed dated waiver)
+become `self_improvement` missions; a mission becomes a `self_change` proposal
 whose evidence paths must lie in the kernel scope and must NOT touch an
 AUTHORITY SURFACE (policy, profiles, sandbox, hooks, env, credentials).
 Every proposal opens a HUMAN_REQUIRED adjudication — the irreducible
@@ -68,6 +70,12 @@ SIGNAL_REMEDIES: dict[str, str] = {
     # `SELF_CHANGE_ALLOWED_PREFIXES`, so it is announced (the organ's FAIL,
     # `doctor_unhealthy`, the CI step's `::error`) and never minted.
     "host_fault": ANNOUNCE_REMEDY,
+    # ARIA-HIGH-122 — a refusal or escalation CLASS the kernel already names
+    # (`adaptation_signals`: a recurring harness-class release, an open
+    # HUMAN_REQUIRED kind, a lapsed dated waiver). Which of the two a class
+    # is born as is `ADAPTATION_SIGNAL_KINDS`' decision, below.
+    "adaptation_due": SELF_CHANGE_REMEDY,
+    "operator_condition": ANNOUNCE_REMEDY,
 }
 SIGNAL_KINDS: tuple[str, ...] = tuple(SIGNAL_REMEDIES)
 SELF_CHANGE_SIGNAL_KINDS: tuple[str, ...] = tuple(kind for kind, remedy in SIGNAL_REMEDIES.items() if remedy == SELF_CHANGE_REMEDY)
@@ -91,6 +99,85 @@ DOCTOR_ORGAN_SIGNAL_KINDS: dict[str, str] = {
     "deadlines": "deadline_due",
     **dict.fromkeys(HOST_ORGANS, "host_fault"),
 }
+# ARIA-HIGH-122 — the kind each named refusal / escalation class is born as,
+# keyed `<source>:<class>` (`adaptation_signals.AdaptationClass.key`). The
+# routing lives HERE, on an authority surface: ARIA reads its own refusals
+# but cannot re-route one from an announcement into a mission. A class is
+# `adaptation_due` (a `propose_self_change` mission) only when its answer is a
+# change under `SELF_CHANGE_ALLOWED_PREFIXES` that touches no authority
+# surface; a credential, a subscription, a vendor's outage, a host's binding,
+# an operator's per-record decision — and a class this table does not name —
+# is `operator_condition`, announced and never minted (fail closed:
+# `adaptation_signal_kind`). Every harness release code and every waiver
+# manifest is named here on purpose, so a new one fails
+# `test_self_improvement_adaptation.EveryClassHasAWrittenDecision` instead of
+# defaulting silently.
+ADAPTATION_DUE = "adaptation_due"
+OPERATOR_CONDITION = "operator_condition"
+ADAPTATION_KINDS: tuple[str, ...] = (ADAPTATION_DUE, OPERATOR_CONDITION)
+ADAPTATION_SIGNAL_KINDS: dict[str, str] = {
+    # -- HUMAN_REQUIRED kinds (`context.kind`) whose RECURRENCE is the kernel's own machinery.
+    "human_required:anchor_stale": ADAPTATION_DUE,         # minted requests die unclaimed: the mint/dispatch
+    "human_required:lease_lifecycle": ADAPTATION_DUE,      # requests exhaust requeues on harness faults
+    "human_required:plan_human_required": ADAPTATION_DUE,  # convergence ends HUMAN_REQUIRED (envelope dead, …)
+    # -- HUMAN_REQUIRED kinds whose answer is a person's or a panel's, per record.
+    "human_required:self_change_adjudication": OPERATOR_CONDITION,  # this loop's own question: never fed back
+    "human_required:executor_escalation": OPERATOR_CONDITION,       # deliver/delete a branch, read a refusal
+    "human_required:converged_plan_delivery": OPERATOR_CONDITION,   # implementation authority is the operator's
+    "human_required:consensus_escalation": OPERATOR_CONDITION,      # ground truth for calibration
+    "human_required:genesis_candidate": OPERATOR_CONDITION,         # panel adjudication is the answer
+    "human_required:tool_promotion": OPERATOR_CONDITION,            # panel adjudication is the answer
+    "human_required:human_merge_pr": OPERATOR_CONDITION,            # a person merges
+    "human_required:provider_outage": OPERATOR_CONDITION,           # a vendor's state
+    # A degraded adapter's answer lies in tools/aria-adapters/, outside
+    # SELF_CHANGE_ALLOWED_PREFIXES: a mission for it could only be refused at
+    # accept time (ARIA-MEDIUM-417). Re-routed when the operator admits that
+    # surface to the proposal scope.
+    "human_required:tool_degradation": OPERATOR_CONDITION,
+    # -- Harness-class release codes (`release_reason`, fault_domain harness).
+    "release:NATIVE_RUNTIME_PROVIDER_UNDECIDED": ADAPTATION_DUE,       # a status probe that stalls: its bound, its route
+    "release:NATIVE_RUNTIME_TASK_BINDING_UNAVAILABLE": ADAPTATION_DUE,  # target revision binding refused
+    "release:CLAUDE_CLI_EXIT": ADAPTATION_DUE,                         # the CLI's exit or output changed
+    "release:CLAUDE_SPAWN_REFUSED": ADAPTATION_DUE,                    # the kernel's own spawn refusal
+    "release:SUBMIT_TIMEOUT": ADAPTATION_DUE,                          # a bound the work outgrew
+    "release:JUDGE_VERDICT_CONTRACT_VIOLATION": ADAPTATION_DUE,        # answers no longer fit the contract
+    "release:SELF_CHANGE_CONTRACT_VIOLATION": ADAPTATION_DUE,
+    "release:ADJUDICATION_CONTRACT_VIOLATION": ADAPTATION_DUE,
+    "release:KERNEL_PROMPT_RENDERER_UNAVAILABLE": ADAPTATION_DUE,
+    "release:PLANNER_DISPATCH_EXECUTOR_TIMEOUT": ADAPTATION_DUE,
+    "release:PLANNER_DISPATCH_EXECUTOR_EXIT_NONZERO": ADAPTATION_DUE,
+    "release:PROMPT_HASH_BINDING_MISMATCH": ADAPTATION_DUE,
+    "release:EVIDENCE_VERIFICATION_UNAVAILABLE": ADAPTATION_DUE,       # git outgrew the probe's bound
+    "release:EXECUTOR_UNCAUGHT_EXIT": ADAPTATION_DUE,                  # an executor body that escaped its guard
+    "release:CLAUDE_CLI_AUTH_FAILURE": OPERATOR_CONDITION,             # a credential
+    "release:PROVIDER_QUOTA_UNAVAILABLE": OPERATOR_CONDITION,          # a subscription
+    "release:PROVIDER_UNREACHABLE": OPERATOR_CONDITION,                # a vendor's outage
+    "release:ANCHOR_EXPIRED_DURING_PROVIDER_OUTAGE": OPERATOR_CONDITION,
+    "release:LEASE_EXPIRED_DURING_PROVIDER_OUTAGE": OPERATOR_CONDITION,
+    "release:IMPLEMENTATION_DELIVERY_UNAVAILABLE": OPERATOR_CONDITION,  # the delivery credential
+    "release:IMPLEMENTATION_SIGNING_UNAVAILABLE": OPERATOR_CONDITION,   # the lane's signing identity on its host
+    "release:NATIVE_RUNTIME_CONTROL_UNAVAILABLE": OPERATOR_CONDITION,   # the host cannot bind the route's controls
+    "release:NATIVE_RUNTIME_ADMISSION_UNAVAILABLE": OPERATOR_CONDITION,  # no eligible provider: auth or policy
+    # Under the native runtime an auth failure, a refused spawn and a CLI exit
+    # all release under this one name (ci_executor), so it cannot tell a
+    # credential from a changed CLI: fail closed until the executor splits it.
+    "release:NATIVE_RUNTIME_EXECUTION_UNAVAILABLE": OPERATOR_CONDITION,
+    "release:JUDGE_BATCH_CALL_FAILED": OPERATOR_CONDITION,             # transport, auth or credit, unsplit
+    "release:HUMAN_REQUIRED_RECORD_UNAVAILABLE": OPERATOR_CONDITION,   # the store's disk or lock
+    "release:DISPATCH_BUDGET_REFUSED": OPERATOR_CONDITION,             # cost policy: aria-config, an authority surface
+    # -- Dated waivers (`surface_waivers.WAIVER_MANIFESTS`, manifests under
+    # aria-kernel/): wire the waived surface, or re-date it with evidence.
+    "waiver:surface_waiver": ADAPTATION_DUE,
+    "waiver:control_waiver": ADAPTATION_DUE,
+    "waiver:batch_containment_waiver": ADAPTATION_DUE,
+}
+
+
+def adaptation_signal_kind(class_key: str) -> str:
+    """The kind a named class is born as; a class nobody routed is announced."""
+    return ADAPTATION_SIGNAL_KINDS.get(class_key, OPERATOR_CONDITION)
+
+
 # Where a self-change may point. Anything else is not ARIA's own code.
 SELF_CHANGE_ALLOWED_PREFIXES: tuple[str, ...] = ("aria-kernel/", "tools/aria-poc/", ".github/workflows/aria-", "aria-config/", ".claude/agents/aria-")
 # The authority surfaces: a self-change naming any of these is refused. These
@@ -257,6 +344,7 @@ def doctor_signals(check: DoctorCheck) -> list[Signal]:
 # "nothing to improve" and the `self_improve` action reported a bare `ran`.
 SCAN_FAMILIES: tuple[str, ...] = (
     "capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_organ", "deadline_due",
+    "adaptation",
 )
 
 
@@ -388,7 +476,39 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path,
         days = row.days_left(readout.now)
         signals.append(Signal("deadline_due", f"{row.kind}:{row.key}", f"Deadline {row.key} ({row.kind}) {'lapsed' if row.lapsed(readout.now) else 'due'} {days:+d}d: {row.consequence}",
                               row.to_dict(readout.now), signal_priority(row, readout.now)))
+    # ARIA-HIGH-122 — the classes the kernel already names, one signal per
+    # class, on the deadline reader's clock. Each source is read on its own,
+    # so one unreadable source is named and the others still count.
+    from . import adaptation_signals
+
+    classes = list(adaptation_signals.waiver_classes(readout))
+    for source, read in ((adaptation_signals.HUMAN_REQUIRED_SOURCE, lambda: adaptation_signals.human_required_classes(base_dir=root)),
+                         (adaptation_signals.RELEASE_SOURCE, lambda: adaptation_signals.release_classes(base_dir=root, now=readout.now))):
+        try:
+            classes.extend(read())
+        except adaptation_signals.adaptation_reader_faults() as exc:
+            unreadable.append(UnreadableSource("adaptation", f"{source}:{type(exc).__name__}"))
+    signals.extend(adaptation_signal(cls) for cls in classes)
     return SignalScan(signals=tuple(signals), unreadable=tuple(unreadable))
+
+
+# What a class's count counts, per source — the title's noun.
+_ADAPTATION_COUNT_NOUNS: dict[str, str] = {
+    "human_required": "open HUMAN_REQUIRED records",
+    "release": "harness releases this week",
+    "waiver": "lapsed waivers",
+}
+
+
+def adaptation_signal(cls: Any) -> Signal:
+    """One named class → one signal. The key is the class (`<source>:<name>`),
+    so the mission id is stable however the count moves; the title is built
+    from the class token and its count only — never a record's reason — since
+    it is the text a minted mission keeps and the self-change prompt carries."""
+    kind = adaptation_signal_kind(cls.key)
+    head = "Adapt to" if kind == ADAPTATION_DUE else "Operator condition"
+    return Signal(kind, cls.key, f"{head} {cls.key}: {cls.count} {_ADAPTATION_COUNT_NOUNS[cls.source]}", cls.to_dict(),
+                  2 if kind == ADAPTATION_DUE else 3)
 
 
 def self_change_signals(signals: Iterable[Signal]) -> list[Signal]:
@@ -498,7 +618,8 @@ def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspa
     return {"proposal": proposal, "human_required": adjudication}
 
 
-__all__ = ["ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "DOCTOR_ORGAN_SIGNAL_KINDS", "MissionOpening", "SCAN_FAMILIES",
+__all__ = ["ADAPTATION_DUE", "ADAPTATION_KINDS", "ADAPTATION_SIGNAL_KINDS", "ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "OPERATOR_CONDITION",
+           "adaptation_signal", "adaptation_signal_kind", "DEFAULT_VALIDATION_COMMAND", "DOCTOR_ORGAN_SIGNAL_KINDS", "MissionOpening", "SCAN_FAMILIES",
            "SELF_CHANGE_ALLOWED_PREFIXES", "SignalScan", "UnreadableSource",
            "SELF_CHANGE_MISSION_REFUSALS", "SELF_CHANGE_MISSION_REFUSED_EVENT", "SELF_CHANGE_NEXT_ACTION", "SELF_CHANGE_PROPOSED_EVENT",
            "SELF_CHANGE_REFUSED_EVENT", "SELF_CHANGE_REMEDY", "SELF_CHANGE_SIGNAL_KINDS", "SELF_IMPROVEMENT_SOURCE_KIND",

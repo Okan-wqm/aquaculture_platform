@@ -6,7 +6,9 @@
  *    discard that hid a single-batch tank's stock is gone);
  *  - totalQuantity / totalBiomassKg / density / percentages are DERIVED from
  *    batchDetails[] (never hand-written), so the aggregate cannot drift;
- *  - a batch removed to zero leaves the composition.
+ *  - a batch removed to zero leaves the composition, and an emptied tank names
+ *    no primary batch (null, which TypeORM writes; undefined it skipped);
+ *  - moved fish carry their weight stamps into the destination share.
  */
 import { createMockDataSource } from '@aquaculture/testing';
 
@@ -78,7 +80,88 @@ describe('TankBatchService.applyBatchDelta (tank composition SSoT)', () => {
     );
     expect(tb.totalQuantity).toBe(0);
     expect(tb.batchDetails).toHaveLength(0); // fully removed from the tank
-    expect(tb.primaryBatchId).toBeUndefined();
+    // null, not undefined: TypeORM's UPDATE skips an undefined property, so the
+    // emptied row kept naming the batch that left it (FARM-CRITICAL-454 verification).
+    expect(tb.primaryBatchId).toBeNull();
+    expect(tb.primaryBatchNumber).toBeNull();
+  });
+
+  it("carries the moved fish's weight stamps into the destination share it creates", async () => {
+    const m = manager(null);
+    const tb = await svc.applyBatchDelta(m, tenantId, tankId, {
+      batchId: 'batch-1',
+      batchNumber: 'B-1',
+      quantityDelta: 40,
+      biomassDelta: 1.2,
+      weightStamps: { weighedOn: '2026-10-14', grownThrough: '2026-10-15' },
+    });
+    expect(tb.batchDetails![0]).toMatchObject({
+      batchId: 'batch-1',
+      quantity: 40,
+      weighedOn: '2026-10-14',
+      grownThrough: '2026-10-15',
+    });
+  });
+
+  it('keeps the later stamp of each kind when the moved fish join a share of the same batch', async () => {
+    const m = manager({
+      tenantId,
+      tankId,
+      totalQuantity: 60,
+      totalBiomassKg: 0.6,
+      batchDetails: [
+        {
+          batchId: 'batch-1',
+          batchNumber: 'B-1',
+          quantity: 60,
+          avgWeightG: 10,
+          biomassKg: 0.6,
+          percentageOfTank: 100,
+          weighedOn: '2026-10-16',
+          grownThrough: '2026-10-12',
+        },
+      ],
+    });
+    const tb = await svc.applyBatchDelta(m, tenantId, tankId, {
+      batchId: 'batch-1',
+      batchNumber: 'B-1',
+      quantityDelta: 40,
+      biomassDelta: 1.2,
+      weightStamps: { weighedOn: '2026-10-14', grownThrough: '2026-10-15' },
+    });
+    expect(tb.batchDetails![0]).toMatchObject({
+      quantity: 100,
+      weighedOn: '2026-10-16',
+      grownThrough: '2026-10-15',
+    });
+  });
+
+  it("leaves a share's stamps alone on a removal", async () => {
+    const m = manager({
+      tenantId,
+      tankId,
+      totalQuantity: 100,
+      totalBiomassKg: 3,
+      batchDetails: [
+        {
+          batchId: 'batch-1',
+          batchNumber: 'B-1',
+          quantity: 100,
+          avgWeightG: 30,
+          biomassKg: 3,
+          percentageOfTank: 100,
+          weighedOn: '2026-10-16',
+        },
+      ],
+    });
+    const tb = await svc.applyBatchDelta(m, tenantId, tankId, {
+      batchId: 'batch-1',
+      batchNumber: 'B-1',
+      quantityDelta: -40,
+      biomassDelta: -1.2,
+      weightStamps: { weighedOn: '2026-10-18' },
+    });
+    expect(tb.batchDetails![0]).toMatchObject({ quantity: 60, weighedOn: '2026-10-16' });
   });
 
   it('partially decrements one batch in a mixed tank and re-derives the aggregate from the per-batch SSoT', async () => {

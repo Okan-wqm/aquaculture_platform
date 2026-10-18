@@ -389,8 +389,8 @@ export class TankResolver {
     }
 
     return {
-      batchNumber: tankBatch.primaryBatchNumber,
-      batchId: tankBatch.primaryBatchId,
+      batchNumber: tankBatch.primaryBatchNumber ?? undefined,
+      batchId: tankBatch.primaryBatchId ?? undefined,
       speciesId,
       speciesName,
       // COUNT SSoT read (DB-FARMPROD-HIGH-001): the fish count is `totalQuantity`,

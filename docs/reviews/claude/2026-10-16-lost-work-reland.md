@@ -258,3 +258,222 @@ the FCR sweep judges the D-10 weighing. The FARM-CRITICAL-444 window stays consi
 and the day come from one sample, and the count on that day from the ledger), so its alerts are
 older, not wrong; the defect is in the writers. A fix makes both writers refuse to move
 `weight.actual` backwards inside their locked update. Owner okan/claude, deadline 2027-01-15.
+
+Landed with FARM-CRITICAL-454: both writers apply a sample through `GrowthSampleApplierService`,
+which leaves `weight.actual` alone when it holds a weighing from a later day (the stocking
+placeholder, `sampleSize` 0, never holds one back). The tank's share has its own stamps in
+`batchDetails[]`: the day it was last weighed (`weighedOn`) and the last feeding day whose growth it
+holds (`grownThrough`). `TankBatchService` carries both into the destination share of a transfer,
+so moved fish keep them. A sample dated before either stamp does not move the share.
+`weighing-reaches-ration.postgres.spec.ts` records two samples out of order, and a sample older than
+a weighing made before a transfer; both were red on main.
+
+## FARM-CRITICAL-454
+
+A growth weighing never reaches the feeding ration. Lost-work item 2, half 600; the old branch
+`feat/aquamobil-v4-merge` (commit 826690623, never on main) carried it as ORPHAN-CRITICAL-600.
+On main that id names a different defect, an ARIA prompt-hash mismatch.
+
+- `apps/farm-service/src/growth/handlers/record-growth-sample.handler.ts:224-242` and
+  `update-batch-weight-from-sample.handler.ts:64-78`: both writers put the sample on
+  `Batch.weight.actual` and stop. Nothing writes `tank_batches`.
+- `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts:525-527`,
+  `day-plan-recalc.service.ts:135-137` and `protocol-feed-forecast.service.ts:529-536`: the
+  06:00 plan, the intra-day recalc and the feed forecast size the ration from the tank's
+  `tank_batches` count, biomass and average weight.
+- `apps/farm-service/src/feeding-protocol/services/biomass-growth-applier.service.ts:152-165`:
+  the FCR projection (`biomass += fed / expected FCR`) is the only writer of a stocked unit's
+  weight, and it never reads a measurement.
+- `apps/farm-service/src/batch/entities/tank-batch.entity.ts:210-212`: `lastSamplingAt` has no
+  writer.
+
+Failure scenario: a tank holds 1000 fish stocked at 10 g (10 kg) on a protocol whose band below
+25 g feeds 3% a day. The fish are weighed at 30 g. The batch says 30 g, the tank still says 10 g
+and 10 kg, so today's remaining meals stay at 0.3 kg a day, the band never moves to the grower
+feed, and tomorrow's 06:00 plan is 0.3 kg again instead of 0.45 kg. The fish are fed for a third
+of their weight until the projection happens to catch up, and nothing ever corrects it.
+
+Planned fix: both writers apply a weighing through one service. It re-bases the weighed batch's
+share of its tank onto the measured average through the unit growth writer, under the unit lock,
+and reprices the tank's live day plan in the same transaction. The old branch's weight-provenance
+column, branded band weight and legacy-writer deletion are not part of this root cause.
+
+Landed: `GrowthSampleApplierService.applySample` is the one path for both writers. It finds the
+unit the sample weighed (its tank, else its pond unit, else the one unit holding fish of the
+batch), takes the unit lock itself (`lockUnitForGrowth`; every caller wraps its transaction in
+`withUnitLockRetry`, which the `unit-growth-lock-composition` gate checks for lock delegates), and
+proves under the lock that the unit holds fish of the batch. It writes `weight.actual`, then
+`BiomassGrowthApplierService.applyMeasuredWeight` re-bases the weighed batch's share (count x
+measured average) and stamps `lastSamplingAt`. It refreshes the farm-stock read model and reprices
+the live day plan (`growth_sample`) for the locked unit. A sample being recorded is refused if it
+names no unit for a batch held in several, whether it is applied at once or kept as history, and a
+sample applied at once is refused if it names a unit that holds no fish of the batch (one kept as
+history may name a unit the batch has left). A sample that names none is stamped with the unit it
+was resolved to (`tankId`, or `pondId` for a pond unit), on the row and on `GrowthSampleRecorded`. A
+sample kept as history and applied later cannot be corrected any more: when its unit can no longer
+be re-based (the batch left the unit it names, or it names none and the batch is in several), it
+still becomes `weight.actual` and no unit moves. The record handler takes the unit lock before it
+inserts the measurement, whose foreign key would otherwise lock the sampled batch out of order.
+
+`TankBatchService` writes `null` to an emptied tank's primary batch. It wrote `undefined`, which
+TypeORM's UPDATE skips, so a tank emptied by mortality, cull or harvest kept naming the departed
+batch. A weighing naming that tank wrote a zero-fish share back into it, and a weighing naming no
+tank was refused as "stocked in 2 tanks". A transfer hid this, because its handler saves the row a
+second time. `BackfillTankBatchPrimaryAndShareStamps1822100000000` clears the leftover primaries.
+It also gives every existing share a `grownThrough` (the day its row was last written). A unit
+holds a batch when it has a share of it with fish in it: in memory `stockedShareOf`, in SQL
+`tankHoldsBatchSql` (`batch/utils/tank-membership.util.ts`), which `unitsHoldingBatch` and the
+regulatory site scope read. Protocol assignment, the FCR target lookup and batch traceability keep
+their own "primary, or any detail" predicate, which agrees with it on every row the writer produces.
+
+Three readers used the leftover primary as history, and now read the data that records it. The
+harvest handler enqueues `TankCleared` in its own transaction when the harvest takes the last fish
+out of the tank; the BatchHarvested listener had looked the tank up by `primaryBatchId`. The
+biomass draft's stockings scope a batch to the site through the `tank_allocations` ledger, or a
+site tank that holds it now. The disease draft does the same for a batch with no fish left
+anywhere (`regulatory/assembly/batch-site-scope.ts`). Every other `primaryBatchId` reader asks
+what a tank holds now, so the leftover was a wrong answer there.
+
+A sample dated before the last feeding day whose growth a share holds does not re-base the share:
+re-basing would throw that growth away and underfeed the tank. Such a sample is kept as
+`weight.actual` and history. Carrying it forward by the growth since its day is FARM-HIGH-456. It
+is the part of this defect that remains: a weighing entered after the next feeding day's first
+meal still does not reach the ration. Growth of a feeding day before a share's weighing does not
+land on that share, because the weighing measured it.
+
+Red/green: `weighing-reaches-ration.postgres.spec.ts` had 8 cases at the first fix, and 7 of them
+failed on main. The verification rounds grew it to 29 cases: 8 of the first 25 failed against the
+first fix (be5546536), and 4 of the 29 against the round-1 fix (1070bf1c5).
+`emptied-tank-history.postgres.spec.ts` (4 cases) failed 3 against the round-1 fix. The v1 feeding
+writer that bypasses this path is FARM-HIGH-455.
+
+## FARM-HIGH-455
+
+The legacy daily feeding execution (feeding programs v1) writes a tank's weight around the unit
+weight writer. Found while re-landing FARM-CRITICAL-454; the old branch deleted this writer as a
+legacy duplicate, and that part was not re-landed with the weighing fix.
+
+- `apps/farm-service/src/feeding/services/daily-feeding-execution.service.ts:656-665`: the new
+  biomass is the plan-time snapshot (`execution.calculations.biomassKg`) plus this feeding's growth.
+- `daily-feeding-execution.service.ts:1085-1087`: `updateTankBiomassWithManager` sets
+  `avgWeightG`, `totalBiomassKg` and `currentBiomassKg` directly and never touches `batchDetails[]`.
+  `recordActualFeeding` (`:722`) calls it, reached by the live `recordDailyFeeding` mutation
+  (`feeding-program.resolver.ts:1073`).
+- `apps/farm-service/src/batch/services/tank-batch.service.ts:209-212`: every stock delta
+  re-derives the aggregates from `batchDetails[]`.
+
+Failure scenario: a v1 tank's 06:00 plan snapshots 10 kg. At 10:00 the fish are weighed at 30 g
+and the tank is re-based to 30 kg. At 14:00 a v1 feeding of 0.3 kg at FCR 1.2 sets the tank to
+10.25 kg, below the weighing, for every ration reader. `batchDetails[]` still says 30 kg, so the
+next mortality, transfer or v2 growth re-derives about 30 kg and drops the v1 growth. A fix routes
+the v1 growth through `BiomassGrowthApplierService.applyGrowth` under the unit lock, from the
+locked unit rather than the snapshot, or retires the v1 path. Owner okan/claude, deadline
+2026-12-17.
+
+## FARM-HIGH-456
+
+A growth sample dated before growth its tank already holds never reaches the ration. Raised by the
+independent verification of FARM-CRITICAL-454 (round 1, two MAJORs on the sample's age). Registered
+as FARM-MEDIUM-456 and re-graded to HIGH by round 2: it is FARM-CRITICAL-454's own failure for every
+weighing entered after the next feeding day's first meal, and typing a paper record the next morning
+is a common way samples arrive.
+
+- `apps/farm-service/src/feeding-protocol/services/biomass-growth-applier.service.ts:309-310`:
+  `applyMeasuredWeight` holds back a sample dated before the share's `grownThrough` or `weighedOn`.
+- `biomass-growth-applier.service.ts:241`: `applyGrowth` stamps the feeding day, but nothing
+  records how much growth each day added.
+- `apps/farm-service/src/growth/services/growth-sample-applier.service.ts:223-228`: the held-back
+  sample stays `weight.actual` and history; no day plan is repriced.
+- `apps/farm-service/src/common/services/backdate-policy.service.ts:77`: growth samples may be
+  dated up to 30 days back.
+
+Failure scenario: fish are weighed on the morning of day D, and the sample is entered on day D+1
+after D+1's first meal. The share's `grownThrough` is D+1, so the weighing becomes `weight.actual`
+and history only, and the tank and its meals stay on the projection until a newer weighing. The
+FARM-CRITICAL-454 fix is the safe half: such a sample can no longer throw growth away. A fix keeps
+the growth each feeding day added to each share, re-bases the share at the sample's day and adds
+the growth of the later days. TankBatchService carries that ledger through transfers. A
+real-PostgreSQL case proves it. Owner okan/claude, deadline 2026-12-17.
+
+## FARM-MEDIUM-457
+
+Mortality and cull value a removal at the batch-wide `weight.actual`, not at the weight of the tank
+share the fish leave. Raised by the same verification (MINOR). The fault exists on main, and
+FARM-CRITICAL-454 makes the per-share weight the ration authority, so a split batch whose tanks
+weigh differently is now the expected state.
+
+- `apps/farm-service/src/batch/handlers/record-mortality.handler.ts:225` and
+  `record-cull.handler.ts:190`: `payload.avgWeightG || batch.getCurrentAvgWeight()`.
+- `apps/farm-service/src/batch/handlers/transfer-batch.handler.ts:220`: a transfer reads the
+  source share's weight first.
+- `apps/farm-service/src/batch/services/tank-batch.service.ts:167-171`: a removal larger than the
+  share's biomass is refused.
+
+Failure scenario: tank T1 holds 60 fish of a split batch at 10 g (0.6 kg). T2 is weighed at 30 g,
+which sets `weight.actual` to 30 g. A 25-fish mortality in T1 with no weight is valued at 0.75 kg,
+more than T1's share, so it is refused and cannot be recorded. A smaller mortality removes three
+times the biomass the dead fish had. A fix values the removal from the share's `avgWeightG`, as
+transfer does, and proves it with a real-PostgreSQL case. Owner okan/claude, deadline 2027-01-16.
+
+## FARM-HIGH-458
+
+`StockReconstructionService`'s replay selects `species.name`, a column the species table does not
+have, so every biomass (FD-0001) draft for a period older than the previous month fails. Found by
+the FARM-CRITICAL-454 verification round 2, whose real-PostgreSQL case assembled the April draft on
+the entity schema and got `column s.name does not exist`. Present on main.
+
+- `apps/farm-service/src/batch/services/stock-reconstruction.service.ts:230`: the species name is
+  read from `s.name`.
+- `apps/farm-service/src/database/migrations/1800000000000-Baseline.ts:202`: species has
+  `scientificName`, `commonName` and `localName`, no `name`.
+- `apps/farm-service/src/regulatory/assembly/biomass.assembler.ts:111`: the replay runs for every
+  stale period, inside the `Promise.all` that assembles the draft.
+- `apps/farm-service/src/__tests__/e2e/stock-reconstruction.postgres.spec.ts:87`: the replay's
+  real-PostgreSQL spec hand-creates species with a `name` column.
+
+Failure scenario: the August draft is opened in October. The period is stale, the replay runs,
+PostgreSQL rejects it, and the draft cannot be assembled, where an incomplete replay should fall
+back to a blocking MANUAL_REQUIRED. A fix selects the display name the live calculator uses
+(`commonName`, else `scientificName`) and moves the spec onto the entity schema. Owner okan/claude,
+deadline 2026-12-17.
+
+## FARM-MEDIUM-459
+
+A tank share `TankBatchService` creates without carried weight stamps has no `weighedOn` or
+`grownThrough`, so a sample dated before its fish arrived can re-base it. Raised by the
+FARM-CRITICAL-454 verification round 2 (MINOR).
+
+- `apps/farm-service/src/batch/services/tank-batch.service.ts:57` and `:197`: a new share takes
+  stamps only from the optional `weightStamps`, which only the transfer passes.
+- `apps/farm-service/src/harvest/handlers/delete-harvest-record.handler.ts:118` and
+  `apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts:243`: shares created with no
+  stamps.
+
+Failure scenario: a full-tank harvest is recorded by mistake on day D and deleted; the re-created
+share has no stamps, so a sample dated D-10 naming the tank re-bases it to the old weight and cuts
+today's meals. Stamping a new share with the write day, as suggested, is wrong for new fish: a
+stocking can be backdated and samples can be dated 30 days back, so it would hold back the samples
+of a backdated batch (the FARM-HIGH-456 failure). A fix makes the day the fish entered the unit a
+required part of a positive delta, and restores a deleted harvest's share stamps. Owner
+okan/claude, deadline 2027-01-16.
+
+## FARM-MEDIUM-460
+
+A growth sample's day is cut from the instant the client sends, and the share stamps it is ordered
+against are site-local plan days. Raised by the FARM-CRITICAL-454 verification round 2 (MINOR).
+
+- `apps/farm-service/src/growth/dto/create-growth-measurement.input.ts:139`: `measurementDate` is a
+  DateTime instant.
+- `apps/farm-service/src/growth/entities/growth-measurement.entity.ts:260-262`: it is stored in a
+  `date` column, so the server cuts the day from the instant.
+- `apps/farm-service/src/feeding-protocol/services/biomass-growth-applier.service.ts:93`:
+  `calendarDay` reads the UTC day, the day the row stores.
+- `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts:510`: `planDate`,
+  which `applyGrowth` stamps as `grownThrough`, is the site-local day.
+
+Failure scenario: on a UTC+3 site the 07:00 meal of 10-19 is finalized and the fish are weighed
+that morning; a client that sends local midnight (10-18T21:00Z) stores the sample on 10-18, before
+the share's 10-19, so it is held back. Converting only the unit comparison to site time would make
+the share disagree with the stored row and with `weight.actual`. A fix fixes the sample's day at
+entry, as the unit's site-local day, and orders every reader by it. No shipped client records
+samples yet (FARM-HIGH-451). Owner okan/claude, deadline 2027-01-16.

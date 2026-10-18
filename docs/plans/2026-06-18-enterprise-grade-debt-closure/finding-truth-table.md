@@ -286,10 +286,15 @@ Updated 2026-10-17 (lost-work reland, PR #2010): `FARM-CRITICAL-444` — the 18:
 sweep selected only batches whose stored `fcr.actual` is above zero, which only a closed batch
 has, so it never alerted on a live batch. It is `already-fixed-needs-close`: the PR fixes it and
 the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (lost-work reland, LW-RATION-600): `FARM-CRITICAL-454` — a growth weighing
+never reached the feeding ration: both growth-sample writers stopped at `Batch.weight.actual`,
+while every ration path reads the tank's `tank_batches` weight. It is `already-fixed-needs-close`:
+the branch fixes it and the closure-reconcile lane records the main-reachable closer after merge.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
+| `FARM-CRITICAL-454` | OPEN | 2026-10-18 | claude | already-fixed-needs-close |
 
 ## Mutation Rules
 

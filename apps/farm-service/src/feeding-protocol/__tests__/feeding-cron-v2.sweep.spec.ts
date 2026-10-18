@@ -190,6 +190,7 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
           id: 'dp-1',
           protocolId: 'p-1',
           unitCode: 'T1',
+          planDate: '2026-10-17',
           // FARM-CRITICAL-244: mod PLANIN kolonunda dondurulur.
           growthApplicationMode: 'per_meal',
           snapshot: stub<DayPlanSnapshot>({ expectedFcr: 1.5 }),
@@ -208,6 +209,8 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
     const growthCall = harness.applyGrowth.mock.calls[0];
     expect(growthCall[3]).toBeCloseTo(4); // 6 kg / 1.5 FCR
     expect(growthCall[4]).toBeCloseTo(1.5);
+    // The growth belongs to the plan's day, not the day the sweep ran.
+    expect(growthCall[5]).toBe('2026-10-17');
 
     // K-1: ünitenin growth kilidi, o ünitenin meal save'inden ÖNCE.
     expect(harness.callOrder.indexOf('lock:unit-1')).toBeLessThan(

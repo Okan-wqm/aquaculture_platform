@@ -27,6 +27,16 @@
  * refreshed. Every caller of `applySample` must wrap its transaction in
  * `withUnitLockRetry` (`unit-growth-lock-composition` gate, lock delegates).
  *
+ * The batch's weight and the unit's are kept apart. A sample being recorded
+ * must say which unit its fish came from: naming none for a batch held in
+ * several is refused whether it is applied now or stored for later, and a
+ * sample applied now may not name a unit that holds none of the batch (a stored
+ * one is not held to that: it may record a unit the batch has left since). A
+ * sample recorded earlier and applied now cannot be corrected any more, so a
+ * unit it can no longer re-base (the batch has left the unit it names, or it
+ * names none and the batch is in several) does not hold back the batch's
+ * weight: weight.actual takes it, and no unit moves.
+ *
  * @module Growth/Services
  */
 import {
@@ -40,6 +50,7 @@ import { EntityManager } from 'typeorm';
 
 import { Batch } from '../../batch/entities/batch.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { FeedingUnitType } from '../../feeding-protocol/entities/protocol-assignment.entity';
 import {
   BiomassGrowthApplierService,
   calendarDay,
@@ -47,6 +58,7 @@ import {
   type MeasuredWeightOutcome,
 } from '../../feeding-protocol/services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { feedingUnitTypeOf } from '../../feeding-protocol/services/feeding-unit-type.util';
 import { GrowthMeasurement } from '../entities/growth-measurement.entity';
 
 /**
@@ -57,8 +69,9 @@ import { GrowthMeasurement } from '../entities/growth-measurement.entity';
 export const WEIGHT_SAMPLE_CONFIDENCE_PERCENT = 95;
 
 /**
- * The fields of a sample this service reads. `tankId` is also written: a
- * sample that names no unit is stamped with the one unit that held the batch.
+ * The fields of a sample this service reads. `tankId` or `pondId` is also
+ * written: a sample that names no unit is stamped with the one unit that held
+ * the batch, in the field of that unit's kind.
  */
 export type AppliedSample = Pick<
   GrowthMeasurement,
@@ -87,6 +100,15 @@ export type SampleUnit =
   | { readonly kind: 'none' }
   /** The sample names none, and several units hold the batch. */
   | { readonly kind: 'ambiguous'; readonly unitIds: readonly string[] };
+
+/**
+ * When the sample enters. `recorded`: it is being recorded now, and its unit is
+ * the operator's input, refused when it cannot be placed. `stored`: it was
+ * recorded earlier (`updateBatchWeight` false) and is applied now; its unit is
+ * history, and a unit it can no longer re-base leaves the batch's weight to
+ * take the sample alone.
+ */
+export type SampleIntake = 'recorded' | 'stored';
 
 @Injectable()
 export class GrowthSampleApplierService {
@@ -122,24 +144,33 @@ export class GrowthSampleApplierService {
    * Records which unit a stored sample weighed, for a sample kept as history
    * (`updateBatchWeight` false). When it names none and one unit holds the
    * batch, that unit is stamped on it, so applying it later moves the unit the
-   * fish were taken from, not wherever the batch is by then. A sample of a batch
-   * held in several units stays unstamped; applying it later asks for its unit.
+   * fish were taken from, not wherever the batch is by then. A sample that
+   * names none for a batch held in several units is refused, as it is when
+   * applied at once: once stored, nothing can name its unit any more.
+   *
+   * @throws BadRequestException when the sample names no unit and several hold
+   *   the batch.
    */
   async recordLocatedUnit(
     manager: EntityManager,
     tenantId: string,
     sample: AppliedSample,
   ): Promise<void> {
-    this.stampLocatedUnit(sample, await this.locate(manager, tenantId, sample));
+    const unit = await this.locate(manager, tenantId, sample);
+    this.refuseAmbiguous(sample, unit);
+    await this.stampLocatedUnit(manager, tenantId, sample, unit);
   }
 
   /**
    * Applies a sample as current weight. Runs inside the caller's tenant
    * transaction, which the caller wraps in `withUnitLockRetry`.
    *
+   * @param intake `recorded` for a sample being recorded, `stored` for one
+   *   recorded earlier and applied now (see SampleIntake).
    * @returns the locked batch row, saved.
-   * @throws BadRequestException when the sample names a unit that holds no
-   *   fish of the batch, or names none for a batch held in several units.
+   * @throws BadRequestException (`recorded` only) when the sample names a unit
+   *   that holds no fish of the batch, or names none for a batch held in
+   *   several units.
    * @throws ConflictException (retried by `withUnitLockRetry`) when the one
    *   unit that held the batch no longer does once it is locked.
    */
@@ -147,17 +178,15 @@ export class GrowthSampleApplierService {
     manager: EntityManager,
     tenantId: string,
     sample: AppliedSample,
+    intake: SampleIntake,
   ): Promise<Batch> {
     const unit = await this.locate(manager, tenantId, sample);
-    if (unit.kind === 'ambiguous') {
-      throw new BadRequestException(
-        `Batch ${sample.batchId} is stocked in ${unit.unitIds.length} tanks; ` +
-          'a growth sample must name the tank its fish were taken from.',
-      );
-    }
+    if (intake === 'recorded') this.refuseAmbiguous(sample, unit);
     const locked =
-      unit.kind === 'none' ? null : await this.lockHoldingUnit(manager, tenantId, sample, unit);
-    this.stampLocatedUnit(sample, unit);
+      unit.kind === 'named' || unit.kind === 'held'
+        ? await this.lockHoldingUnit(manager, tenantId, sample, unit, intake)
+        : null;
+    await this.stampLocatedUnit(manager, tenantId, sample, unit);
 
     const batch = await this.growthApplier.lockBatchForWrite(
       manager,
@@ -197,6 +226,15 @@ export class GrowthSampleApplierService {
           `is older than what unit ${locked === null ? '-' : locked.tankBatch.tankId} already knows ` +
           '(a later weighing or later growth); kept as history, the unit is unchanged.',
       );
+    } else if (locked === null && (unit.kind === 'named' || unit.kind === 'ambiguous')) {
+      // Only a stored sample gets here: a recorded one was refused above.
+      this.logger.log(
+        `Stored growth sample for batch ${sample.batchId} dated ${calendarDay(sample.measurementDate)} ` +
+          (unit.kind === 'named'
+            ? `names unit ${unit.unitId}, which no longer holds the batch`
+            : `names no unit, and the batch is in ${unit.unitIds.length}`) +
+          `; ${batchMoved ? "applied to the batch's weight" : 'kept as history'}, no unit re-based.`,
+      );
     } else if (!batchMoved && unitOutcome === null) {
       this.logger.log(
         `Growth sample for batch ${sample.batchId} dated ${calendarDay(sample.measurementDate)} ` +
@@ -208,21 +246,24 @@ export class GrowthSampleApplierService {
 
   /**
    * Locks the unit and proves, under the lock, that it holds fish of the batch.
-   * A unit the sample named that does not is the operator's error (400). The
-   * one unit found by membership losing the batch between the unlocked read and
-   * the lock is a race: the retry finds the unit again.
+   * A unit a recorded sample named that does not is the operator's error (400);
+   * one a stored sample named is history the batch has left (`null`: no unit
+   * is re-based). The one unit found by membership losing the batch between
+   * the unlocked read and the lock is a race: the retry finds the unit again.
    */
   private async lockHoldingUnit(
     manager: EntityManager,
     tenantId: string,
     sample: Pick<AppliedSample, 'batchId'>,
     unit: Extract<SampleUnit, { unitId: string }>,
-  ): Promise<LockedUnit> {
+    intake: SampleIntake,
+  ): Promise<LockedUnit | null> {
     const locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, unit.unitId);
     if (locked !== null && this.growthApplier.stockedShareOf(locked, sample.batchId) !== null) {
       return locked;
     }
     if (unit.kind === 'named') {
+      if (intake === 'stored') return null;
       throw new BadRequestException(
         `Batch ${sample.batchId} is not stocked in tank ${unit.unitId}; ` +
           'a growth sample must name the tank its fish were taken from.',
@@ -235,9 +276,33 @@ export class GrowthSampleApplierService {
     );
   }
 
-  /** A sample that named no unit records the one it was resolved to. */
-  private stampLocatedUnit(sample: AppliedSample, unit: SampleUnit): void {
-    if (unit.kind === 'held') sample.tankId = unit.unitId;
+  /** A sample that names no unit, for a batch held in several, is refused. */
+  private refuseAmbiguous(sample: Pick<AppliedSample, 'batchId'>, unit: SampleUnit): void {
+    if (unit.kind !== 'ambiguous') return;
+    throw new BadRequestException(
+      `Batch ${sample.batchId} is stocked in ${unit.unitIds.length} tanks; ` +
+        'a growth sample must name the tank its fish were taken from.',
+    );
+  }
+
+  /**
+   * A sample that named no unit records the one it was resolved to, in the
+   * field of that unit's kind: a pond unit in `pondId`, any other in `tankId`
+   * (tanks and ponds share the `tank_batches` key space, so the id alone does
+   * not say which it is).
+   */
+  private async stampLocatedUnit(
+    manager: EntityManager,
+    tenantId: string,
+    sample: AppliedSample,
+    unit: SampleUnit,
+  ): Promise<void> {
+    if (unit.kind !== 'held') return;
+    if ((await feedingUnitTypeOf(manager, tenantId, unit.unitId)) === FeedingUnitType.POND) {
+      sample.pondId = unit.unitId;
+    } else {
+      sample.tankId = unit.unitId;
+    }
   }
 
   /**

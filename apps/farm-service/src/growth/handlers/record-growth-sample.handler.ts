@@ -8,9 +8,9 @@
  *
  * # Transactional outbox
  *
- * The three writes (measurement insert, batch weight update, and
- * isProcessed flip on the measurement) commit atomically with the
- * outbox row via a single DataSource transaction. A crash mid-flight
+ * The writes (batch weight update, unit re-base, and the measurement
+ * insert with its isProcessed flag) commit atomically with the outbox row
+ * via a single DataSource transaction. A crash mid-flight
  * rolls back everything — the outbox never sees an event whose
  * corresponding domain write was lost, and the domain never commits
  * a measurement whose event failed to enqueue.
@@ -29,15 +29,20 @@
  * `applySample` locks the unit's batches (batchId ASC) and then its TankBatch
  * row with `lockUnitForGrowth`, the order every other unit writer uses, and
  * takes the batch row from that lock; locking the batch first would invert
- * the order (AB-BA deadlock). Only the weight fields are written onto the
- * freshly locked rows, never an externally loaded snapshot, so a concurrent
- * mortality/cull cannot be reverted by this sample (lost-update). A
- * membership change between the unlocked lookup and the lock is retried by
- * `withUnitLockRetry` around the whole command.
+ * the order (AB-BA deadlock). The measurement is inserted only after that:
+ * its foreign key to `batches_v2` takes a KEY SHARE lock on the sampled batch,
+ * and taken first that lock would sit outside the canonical order, so a unit
+ * writer locking a lower batch id of the same tank could deadlock with this
+ * command. Only the weight fields are written onto the freshly locked rows,
+ * never an externally loaded snapshot, so a concurrent mortality/cull cannot
+ * be reverted by this sample (lost-update). A membership change between the
+ * unlocked lookup and the lock is retried by `withUnitLockRetry` around the
+ * whole command.
  *
  * A sample kept as history (`updateBatchWeight` false) that names no unit is
  * stamped with the one unit holding the batch, so applying it later moves the
- * unit its fish were taken from.
+ * unit its fish were taken from; for a batch held in several units it must
+ * name its unit, exactly as a sample applied at once must.
  *
  * @module Growth/Handlers
  */
@@ -211,8 +216,8 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
 
     measurement.generateSuggestedActions();
 
-    // Atomic block: save measurement → (optional) apply it as current weight
-    // → flip isProcessed → enqueue event → commit. Rolls back together.
+    // Atomic block: apply the sample as current weight (unit lock first) →
+    // insert the measurement → enqueue event → commit. Rolls back together.
     // runInTenantTransaction pins search_path to tenant_<uuid> for the whole tx
     // (pool-checkout routing alone is not sufficient for transactional writes,
     // per pinTenantTransactionSearchPath), so the locked reads + per-tenant
@@ -220,16 +225,16 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     // in the correct schema.
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const saved = await manager.save(GrowthMeasurement, measurement);
-
-      if (saved.updateBatchWeight) {
-        await this.sampleApplier.applySample(manager, tenantId, saved);
-        saved.isProcessed = true;
+      // The unit lock is taken before the INSERT (see the header): both calls
+      // only stamp the in-memory measurement, which is then saved once with
+      // its isProcessed flag and the unit it was resolved to.
+      if (measurement.updateBatchWeight) {
+        await this.sampleApplier.applySample(manager, tenantId, measurement, 'recorded');
+        measurement.isProcessed = true;
       } else {
-        await this.sampleApplier.recordLocatedUnit(manager, tenantId, saved);
+        await this.sampleApplier.recordLocatedUnit(manager, tenantId, measurement);
       }
-      // Persists isProcessed and the unit the sample was resolved to.
-      await manager.save(GrowthMeasurement, saved);
+      const saved = await manager.save(GrowthMeasurement, measurement);
 
       const event: GrowthSampleRecordedEvent = {
         ...createBaseEvent<GrowthSampleRecordedEvent>('GrowthSampleRecorded', tenantId, {

@@ -9,7 +9,10 @@
  * and its live day plan exactly like one applied at recording
  * (FARM-CRITICAL-454), and a sample older than the batch's last weighing does
  * not move it back (FARM-MEDIUM-453). A sample stamped with its unit when it
- * was recorded moves that unit, not wherever the batch is now. `applySample`
+ * was recorded moves that unit, not wherever the batch is now. The stored
+ * sample can no longer be corrected, so when its unit cannot be re-based (the
+ * batch has left the unit it names, or it names none and the batch is in
+ * several) it still becomes the batch's weight, and no unit moves. `applySample`
  * locks the unit first in the canonical order (`lockUnitForGrowth`), and a
  * membership change between the unlocked lookup and the lock is retried by
  * `withUnitLockRetry` around the whole command.
@@ -66,7 +69,12 @@ export class UpdateBatchWeightFromSampleHandler
     // (pool-checkout routing alone is not sufficient for transactional writes).
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const lockedBatch = await this.sampleApplier.applySample(manager, tenantId, measurement);
+      const lockedBatch = await this.sampleApplier.applySample(
+        manager,
+        tenantId,
+        measurement,
+        'stored',
+      );
 
       measurement.isProcessed = true;
       await manager.save(GrowthMeasurement, measurement);

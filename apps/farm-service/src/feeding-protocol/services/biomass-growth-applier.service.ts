@@ -29,8 +29,9 @@
  * it). This service owns that rule; TankBatchService carries the stamps with
  * moved fish.
  *
- * Membership is one rule, here: a unit holds a batch when it has a share of it
- * with fish in it (`stockedShareOf`, and its SQL twin `unitsHoldingBatch`).
+ * A unit holds a batch when it has a share of it with fish in it: in memory
+ * `stockedShareOf`, in SQL `unitsHoldingBatch`, which reads the statement
+ * `tankHoldsBatchSql` owns (batch/utils/tank-membership.util).
  *
  * Kilit disiplini (K-1 kanonik sıra): `lockUnitForGrowth` batch'leri
  * batchId ARTAN sırada pessimistic_write kilitler, SONRA TankBatch'i kilitler;
@@ -53,6 +54,7 @@ import { TankBatch, BatchDetail } from '../../batch/entities/tank-batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { round3 } from '../../common/utils/rounding.util';
+import { tankHoldsBatchSql } from '../../batch/utils/tank-membership.util';
 
 export interface LockedUnit {
   tankBatch: TankBatch;
@@ -339,10 +341,11 @@ export class BiomassGrowthApplierService {
 
   /**
    * The units that hold fish of a batch, by unit id: the SQL twin of
-   * `stockedShareOf`, read inside the caller's tenant transaction. A row whose
-   * `batchDetails[]` is empty counts its primary batch only while it still has
-   * fish (a row written before `batchDetails[]` became the SSoT), never an
-   * emptied tank's leftover primary.
+   * `stockedShareOf`, read inside the caller's tenant transaction, with the
+   * membership statement `tankHoldsBatchSql` owns. A row whose `batchDetails[]`
+   * is empty counts its primary batch only while it still has fish (a row
+   * written before `batchDetails[]` became the SSoT), never an emptied tank's
+   * leftover primary.
    *
    * `$2` is compared as text on both sides (`primaryBatchId` is cast), since
    * Postgres types a parameter once (see sumBatchSharesAcrossUnits).
@@ -356,19 +359,7 @@ export class BiomassGrowthApplierService {
       `SELECT tb."tankId" AS "tankId"
          FROM "tank_batches" tb
         WHERE tb."tenantId" = $1
-          AND (
-            EXISTS (
-              SELECT 1
-                FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS detail(value)
-               WHERE detail.value->>'batchId' = $2
-                 AND (detail.value->>'quantity')::numeric > 0
-            )
-            OR (
-              tb."primaryBatchId"::text = $2
-              AND COALESCE(jsonb_array_length(tb."batchDetails"), 0) = 0
-              AND tb."totalQuantity" > 0
-            )
-          )
+          AND ${tankHoldsBatchSql('tb', '$2')}
         ORDER BY tb."tankId" ASC`,
       [tenantId, batchId],
     );

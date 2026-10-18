@@ -8,11 +8,15 @@
  *
  *   - which unit a sample weighed: the one it names (its tank, else its pond
  *     unit), the only one holding the batch, none, or a refusal when the batch
- *     is in several and none is named;
+ *     is in several and none is named (recorded, applied now or stored alike);
  *   - the unit is locked here and proven to hold fish of the batch under the
- *     lock: a named unit that does not is refused (400), the one unit found by
- *     membership losing the batch is a retryable conflict (409);
- *   - a sample that named no unit is stamped with the unit it was resolved to;
+ *     lock: a named unit that does not is refused (400) for a sample being
+ *     recorded, the one unit found by membership losing the batch is a
+ *     retryable conflict (409);
+ *   - a stored sample applied later whose unit can no longer be re-based still
+ *     becomes the batch's weight.actual, and no unit moves;
+ *   - a sample that named no unit is stamped with the unit it was resolved to,
+ *     in the field of the unit's kind (tankId, or pondId for a pond unit);
  *   - the batch's weight.actual takes the sample unless the batch holds a
  *     weighing from a later day (the stocking placeholder never holds one back);
  *   - when the unit's share was re-based, the read model is refreshed and the
@@ -23,10 +27,15 @@
  */
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
-import { collaborator, stub } from '@aquaculture/testing';
+import { collaborator, stub, stubMember } from '@aquaculture/testing';
 
 import { Batch } from '../../../batch/entities/batch.entity';
 import type { BatchDetail, TankBatch } from '../../../batch/entities/tank-batch.entity';
+import { Equipment } from '../../../equipment/entities/equipment.entity';
+import {
+  EquipmentCategory,
+  EquipmentType,
+} from '../../../equipment/entities/equipment-type.entity';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import {
   BiomassGrowthApplierService,
@@ -46,6 +55,7 @@ const OTHER_BATCH = '33333333-3333-4333-8333-333333333333';
 const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER_UNIT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const POND = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const POND_TYPE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
 interface HarnessOpts {
   /** What the membership lookup answers. */
@@ -56,6 +66,8 @@ interface HarnessOpts {
   outcome?: MeasuredWeightOutcome;
   /** weight.actual the batch holds before the sample. */
   actual?: Partial<Batch['weight']['actual']>;
+  /** Unit ids that are pond equipment; any other unit is a tank. */
+  ponds?: string[];
 }
 
 function makeBatch(actual: Partial<Batch['weight']['actual']> = {}): Batch {
@@ -131,7 +143,21 @@ function makeHarness(opts: HarnessOpts = {}) {
     calls.push('save-batch');
     return value;
   });
-  const manager = stub<EntityManager>({ save });
+  // The unit-kind lookup reads the unit's equipment and its type: a pond unit
+  // is equipment of the POND category, anything else answers as a tank.
+  const findOne = jest.fn(async (entity: unknown, options: { where: { id: string } }) => {
+    if (entity === Equipment && (opts.ponds ?? []).includes(options.where.id)) {
+      return stub<Equipment>({ id: options.where.id, equipmentTypeId: POND_TYPE });
+    }
+    if (entity === EquipmentType && options.where.id === POND_TYPE) {
+      return stub<EquipmentType>({ id: POND_TYPE, category: EquipmentCategory.POND });
+    }
+    return null;
+  });
+  const manager = stub<EntityManager>({
+    save,
+    findOne: stubMember<EntityManager['findOne']>(findOne),
+  });
 
   // The real service supplies the membership rule; the database-facing members
   // are doubled.
@@ -246,12 +272,25 @@ describe('GrowthSampleApplierService.recordLocatedUnit', () => {
     expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
   });
 
-  it('leaves a sample of a batch held in several units unstamped, without refusing it', async () => {
+  it('refuses a sample naming no unit for a batch held in several, as applying it at once does', async () => {
+    // Once stored, nothing can name its unit: applying it later could only
+    // guess (FARM-CRITICAL-454 verification).
     const harness = makeHarness({ holding: [UNIT, OTHER_UNIT] });
+    const sample = makeSample();
+
+    await expect(
+      harness.service.recordLocatedUnit(harness.manager, TENANT, sample),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(sample.tankId).toBeUndefined();
+  });
+
+  it('stamps a pond unit into pondId, never into tankId', async () => {
+    const harness = makeHarness({ holding: [POND], ponds: [POND] });
     const sample = makeSample();
 
     await harness.service.recordLocatedUnit(harness.manager, TENANT, sample);
 
+    expect(sample.pondId).toBe(POND);
     expect(sample.tankId).toBeUndefined();
   });
 });
@@ -265,7 +304,7 @@ describe('GrowthSampleApplierService.applySample', () => {
     });
     const sample = makeSample();
 
-    const saved = await harness.service.applySample(harness.manager, TENANT, sample);
+    const saved = await harness.service.applySample(harness.manager, TENANT, sample, 'recorded');
 
     expect(saved).toBe(batch);
     expect(sample.tankId).toBe(UNIT);
@@ -289,7 +328,7 @@ describe('GrowthSampleApplierService.applySample', () => {
     const harness = makeHarness({ holding: [] });
     const sample = makeSample();
 
-    await harness.service.applySample(harness.manager, TENANT, sample);
+    await harness.service.applySample(harness.manager, TENANT, sample, 'recorded');
 
     expect(harness.batch.weight.actual).toEqual({
       avgWeight: 30,
@@ -308,7 +347,12 @@ describe('GrowthSampleApplierService.applySample', () => {
       outcome: 'older_than_share',
     });
 
-    await harness.service.applySample(harness.manager, TENANT, makeSample({ tankId: UNIT }));
+    await harness.service.applySample(
+      harness.manager,
+      TENANT,
+      makeSample({ tankId: UNIT }),
+      'recorded',
+    );
 
     expect(harness.applyMeasuredWeight).toHaveBeenCalled();
     expect(harness.refreshContainers).not.toHaveBeenCalled();
@@ -318,7 +362,7 @@ describe('GrowthSampleApplierService.applySample', () => {
   it('writes only the batch when no unit holds it', async () => {
     const harness = makeHarness({ holding: [] });
 
-    await harness.service.applySample(harness.manager, TENANT, makeSample());
+    await harness.service.applySample(harness.manager, TENANT, makeSample(), 'recorded');
 
     expect(harness.batch.weight.actual.avgWeight).toBe(30);
     expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
@@ -331,7 +375,7 @@ describe('GrowthSampleApplierService.applySample', () => {
     const harness = makeHarness({ holding: [UNIT, OTHER_UNIT] });
 
     await expect(
-      harness.service.applySample(harness.manager, TENANT, makeSample()),
+      harness.service.applySample(harness.manager, TENANT, makeSample(), 'recorded'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
     expect(harness.save).not.toHaveBeenCalled();
@@ -344,7 +388,12 @@ describe('GrowthSampleApplierService.applySample', () => {
     });
 
     await expect(
-      harness.service.applySample(harness.manager, TENANT, makeSample({ tankId: UNIT })),
+      harness.service.applySample(
+        harness.manager,
+        TENANT,
+        makeSample({ tankId: UNIT }),
+        'recorded',
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(harness.save).not.toHaveBeenCalled();
     expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
@@ -354,7 +403,12 @@ describe('GrowthSampleApplierService.applySample', () => {
     const harness = makeHarness({ locks: {} });
 
     await expect(
-      harness.service.applySample(harness.manager, TENANT, makeSample({ tankId: UNIT })),
+      harness.service.applySample(
+        harness.manager,
+        TENANT,
+        makeSample({ tankId: UNIT }),
+        'recorded',
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(harness.save).not.toHaveBeenCalled();
   });
@@ -367,7 +421,12 @@ describe('GrowthSampleApplierService.applySample', () => {
     });
 
     await expect(
-      harness.service.applySample(harness.manager, TENANT, makeSample({ tankId: UNIT })),
+      harness.service.applySample(
+        harness.manager,
+        TENANT,
+        makeSample({ tankId: UNIT }),
+        'recorded',
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(harness.save).not.toHaveBeenCalled();
     expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
@@ -381,7 +440,12 @@ describe('GrowthSampleApplierService.applySample', () => {
     });
 
     await expect(
-      harness.service.applySample(harness.manager, TENANT, makeSample({ pondId: POND })),
+      harness.service.applySample(
+        harness.manager,
+        TENANT,
+        makeSample({ pondId: POND }),
+        'recorded',
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(harness.lockUnitForGrowth).toHaveBeenCalledWith(harness.manager, TENANT, POND);
     expect(harness.lockUnitForGrowth).not.toHaveBeenCalledWith(harness.manager, TENANT, UNIT);
@@ -397,10 +461,12 @@ describe('GrowthSampleApplierService.applySample', () => {
     });
     const sample = makeSample();
 
-    const failure = await harness.service.applySample(harness.manager, TENANT, sample).then(
-      () => null,
-      (error: unknown) => error,
-    );
+    const failure = await harness.service
+      .applySample(harness.manager, TENANT, sample, 'recorded')
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
     expect(failure).toBeInstanceOf(ConflictException);
     // withUnitLockRetry retries exactly this class of conflict.
     expect(isUnitMembershipConflict(failure)).toBe(true);
@@ -414,7 +480,12 @@ describe('GrowthSampleApplierService.applySample', () => {
       locks: { [UNIT]: lockedUnit(UNIT, batch, [share(BATCH, 1000)]) },
     });
 
-    await harness.service.applySample(harness.manager, TENANT, makeSample({ tankId: UNIT }));
+    await harness.service.applySample(
+      harness.manager,
+      TENANT,
+      makeSample({ tankId: UNIT }),
+      'recorded',
+    );
 
     expect(harness.refreshContainers).toHaveBeenCalledWith(harness.manager, TENANT, [UNIT]);
     expect(harness.recalcForUnit).toHaveBeenCalledWith(
@@ -425,13 +496,34 @@ describe('GrowthSampleApplierService.applySample', () => {
     );
   });
 
+  it('stamps a pond-held batch sample with the pond in pondId, and re-bases that pond', async () => {
+    const batch = makeBatch();
+    const harness = makeHarness({
+      holding: [POND],
+      ponds: [POND],
+      locks: { [POND]: lockedUnit(POND, batch, [share(BATCH, 400)]) },
+    });
+    const sample = makeSample();
+
+    await harness.service.applySample(harness.manager, TENANT, sample, 'recorded');
+
+    expect(sample.pondId).toBe(POND);
+    expect(sample.tankId).toBeUndefined();
+    expect(harness.recalcForUnit).toHaveBeenCalledWith(
+      harness.manager,
+      TENANT,
+      POND,
+      'growth_sample',
+    );
+  });
+
   it('keeps weight.actual on a weighing from a later day (FARM-MEDIUM-453)', async () => {
     const latest = new Date('2026-10-16T09:00:00.000Z');
     const harness = makeHarness({
       actual: { avgWeight: 50, totalBiomass: 50, lastMeasuredAt: latest, sampleSize: 3 },
     });
 
-    await harness.service.applySample(harness.manager, TENANT, makeSample());
+    await harness.service.applySample(harness.manager, TENANT, makeSample(), 'recorded');
 
     expect(harness.batch.weight.actual).toMatchObject({
       avgWeight: 50,
@@ -449,7 +541,7 @@ describe('GrowthSampleApplierService.applySample', () => {
       },
     });
 
-    await harness.service.applySample(harness.manager, TENANT, makeSample());
+    await harness.service.applySample(harness.manager, TENANT, makeSample(), 'recorded');
 
     expect(harness.batch.weight.actual.avgWeight).toBe(30);
   });
@@ -461,9 +553,81 @@ describe('GrowthSampleApplierService.applySample', () => {
       actual: { lastMeasuredAt: new Date('2026-10-17T10:00:00.000Z'), sampleSize: 0 },
     });
 
-    await harness.service.applySample(harness.manager, TENANT, makeSample());
+    await harness.service.applySample(harness.manager, TENANT, makeSample(), 'recorded');
 
     expect(harness.batch.weight.actual.avgWeight).toBe(30);
     expect(harness.batch.weight.actual.sampleSize).toBe(3);
+  });
+});
+
+describe('GrowthSampleApplierService.applySample — a stored sample applied later', () => {
+  it('applies a sample whose unit the batch has left to weight.actual, re-basing no unit', async () => {
+    // Stamped with UNIT when stored; all fish have since moved to OTHER_UNIT.
+    const batch = makeBatch();
+    const harness = makeHarness({
+      holding: [OTHER_UNIT],
+      locks: { [UNIT]: lockedUnit(UNIT, batch, []) },
+    });
+
+    const saved = await harness.service.applySample(
+      harness.manager,
+      TENANT,
+      makeSample({ tankId: UNIT }),
+      'stored',
+    );
+
+    expect(saved).toBe(harness.batch);
+    expect(harness.batch.weight.actual).toMatchObject({ avgWeight: 30, sampleSize: 3 });
+    expect(harness.save).toHaveBeenCalledWith(Batch, harness.batch);
+    expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.refreshContainers).not.toHaveBeenCalled();
+    expect(harness.recalcForUnit).not.toHaveBeenCalled();
+  });
+
+  it('applies a sample naming no unit, for a batch now in several, to weight.actual only', async () => {
+    // Stored unstamped before samples of a multi-unit batch had to name one.
+    const harness = makeHarness({ holding: [UNIT, OTHER_UNIT] });
+    const sample = makeSample();
+
+    await harness.service.applySample(harness.manager, TENANT, sample, 'stored');
+
+    expect(harness.batch.weight.actual.avgWeight).toBe(30);
+    expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
+    expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
+    expect(sample.tankId).toBeUndefined();
+  });
+
+  it('still re-bases the unit it names while that unit holds the batch', async () => {
+    const batch = makeBatch();
+    const harness = makeHarness({
+      locks: { [UNIT]: lockedUnit(UNIT, batch, [share(BATCH, 1000)]) },
+    });
+
+    await harness.service.applySample(
+      harness.manager,
+      TENANT,
+      makeSample({ tankId: UNIT }),
+      'stored',
+    );
+
+    expect(harness.calls).toEqual([`lock:${UNIT}`, 'save-batch', 're-base', 'refresh', 'recalc']);
+  });
+
+  it('keeps an older stored sample as history: weight.actual stays on the later weighing', async () => {
+    const latest = new Date('2026-10-16T09:00:00.000Z');
+    const batch = makeBatch();
+    const harness = makeHarness({
+      actual: { avgWeight: 50, lastMeasuredAt: latest, sampleSize: 3 },
+      locks: { [UNIT]: lockedUnit(UNIT, batch, []) },
+    });
+
+    await harness.service.applySample(
+      harness.manager,
+      TENANT,
+      makeSample({ tankId: UNIT }),
+      'stored',
+    );
+
+    expect(harness.batch.weight.actual).toMatchObject({ avgWeight: 50, lastMeasuredAt: latest });
   });
 });

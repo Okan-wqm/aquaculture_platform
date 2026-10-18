@@ -15,9 +15,10 @@
  *   5. A sample of a stocked tank takes the unit lock for the tank it names
  *      and moves that tank, exactly as RecordGrowthSampleHandler does
  *      (FARM-CRITICAL-454); a sample older than the batch's last weighing
- *      leaves weight.actual alone (FARM-MEDIUM-453); a sample stamped with the
- *      tank it was taken from is refused once the batch has left that tank,
- *      instead of moving the tank the batch went to.
+ *      leaves weight.actual alone (FARM-MEDIUM-453). A stored sample can no
+ *      longer be corrected, so one whose tank the batch has left, or one that
+ *      names no tank for a batch now in several, still becomes the batch's
+ *      weight.actual and moves no tank (never the tank the batch went to).
  *
  * The sample applier and the unit writer are the REAL services (the unit
  * lock and the re-base are spied for the stocked-tank case); the recalc and
@@ -51,12 +52,15 @@ const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
 const BATCH_ID = 'batch-1';
 const MEASUREMENT_ID = 'measurement-1';
 const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const OTHER_UNIT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 interface HarnessOpts {
   measurement?: Partial<GrowthMeasurement> | null;
   lockedBatch?: Partial<Batch> | null;
   /** Builds the unit lockUnitForGrowth returns, from the locked batch row. */
   lockedUnit?: (batch: Batch) => LockedUnit | null;
+  /** What the unit lookup answers: the tanks holding the batch. */
+  unitRows?: Array<{ tankId: string }>;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -114,8 +118,8 @@ function makeHarness(opts: HarnessOpts = {}) {
   });
   // The unit lookup (BiomassGrowthApplierService.unitsHoldingBatch) runs on
   // the tx manager, whose shared factory double has no `query` member. No tank
-  // holds the batch unless a case names one on the measurement.
-  Object.assign(mockManager, { query: jest.fn().mockResolvedValue([]) });
+  // holds the batch unless a case says so.
+  Object.assign(mockManager, { query: jest.fn().mockResolvedValue(opts.unitRows ?? []) });
   const queryRunner: Partial<QueryRunner> = {
     connect: jest.fn().mockResolvedValue(undefined),
     startTransaction: jest.fn().mockResolvedValue(undefined),
@@ -331,14 +335,31 @@ describe('UpdateBatchWeightFromSampleHandler — the same path as recording (FAR
     expect(harness.measurementSave).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses a stored sample stamped with a tank the batch has since left, moving nothing', async () => {
+  it("applies a stored sample whose tank the batch has since left to weight.actual, moving no tank", async () => {
     // Recorded (updateBatchWeight false) while the batch was in UNIT, which
     // stamped UNIT on it; the batch was moved out before it is applied.
     const harness = makeHarness({ measurement: { tankId: UNIT }, lockedUnit: unitEmptied });
 
-    await expect(harness.handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
+    const result = await harness.handler.execute(makeCommand());
+
+    expect(result.weight.actual).toMatchObject({ avgWeight: 85, sampleSize: 100 });
+    expect(harness.batchSave).toHaveBeenCalledTimes(1);
     expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
-    expect(harness.batchSave).not.toHaveBeenCalled();
-    expect(harness.rollback).toHaveBeenCalledTimes(1);
+    expect(harness.recalcForUnit).not.toHaveBeenCalled();
+    expect((harness.measurementSave.mock.calls[0]![0] as GrowthMeasurement).isProcessed).toBe(true);
+    expect(harness.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a stored sample naming no tank, for a batch now in several, to weight.actual only', async () => {
+    // Stored unstamped before a sample of a multi-unit batch had to name its
+    // unit; nothing can name it now, and the batch's weight still takes it.
+    const harness = makeHarness({ unitRows: [{ tankId: UNIT }, { tankId: OTHER_UNIT }] });
+
+    const result = await harness.handler.execute(makeCommand());
+
+    expect(result.weight.actual.avgWeight).toBe(85);
+    expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
+    expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.commit).toHaveBeenCalledTimes(1);
   });
 });

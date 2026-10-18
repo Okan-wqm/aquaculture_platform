@@ -1515,9 +1515,10 @@ export interface DiseaseOutbreakReportedEvent extends BaseEvent {
 // Harvest / mortality FOLLOW-UP events (dead-listeners produce-side cure)
 // ====================================================================
 //
-// WHY this family exists — these four events are emitted by the farm-service
+// WHY this family exists — these events are emitted by the farm-service
 // event listeners AFTER they consume a trigger event (BatchHarvested /
-// MortalityRecorded). The pre-cure code published them as INLINE objects that
+// MortalityRecorded). TankCleared is the exception: the harvest command
+// enqueues it with the BatchHarvested it caused. The pre-cure code published them as INLINE objects that
 // REUSED the trigger's `eventId`. Because NatsEventBus stamps `msgID =
 // event.eventId` on a single `events.>` stream with a 2-minute
 // `duplicate_window`, every follow-up collided with the still-resident trigger
@@ -1624,10 +1625,13 @@ export interface RegulatoryReportDeadlineApproachingEvent extends BaseEvent {
 }
 
 /**
- * Tank cleared — emitted when a final harvest empties the last batch out of a
- * tank, so the tank is now free for re-stocking. A dashboard/read-model signal:
- * consumed by the gateway FarmNatsBridge and broadcast into the tenant room so
- * the tank-occupancy view updates in real time.
+ * Tank cleared — emitted when a harvest takes the last fish out of a tank, so
+ * the tank is now free for re-stocking. `previousBatchId` is the batch that
+ * harvest took. Enqueued by the harvest command in its own transaction (it is
+ * the one writer that knows which tank it emptied), caused by the
+ * BatchHarvested it enqueues with it. A dashboard/read-model signal: consumed
+ * by the gateway FarmNatsBridge and broadcast into the tenant room so the
+ * tank-occupancy view updates in real time.
  */
 export interface TankClearedEvent extends BaseEvent {
   eventType: 'TankCleared';

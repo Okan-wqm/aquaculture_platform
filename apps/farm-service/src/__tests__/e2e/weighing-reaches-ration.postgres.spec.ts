@@ -20,7 +20,8 @@
  * - A weighing dated before the batch's last weighing moves neither the batch's
  *   `weight.actual` nor the tank (FARM-MEDIUM-453); it stays as history.
  * - A batch split across two tanks: a sample that does not name its tank is
- *   refused, and a sample that names one moves that tank's share only.
+ *   refused, applied at once or kept as history alike, and a sample that names
+ *   one moves that tank's share only.
  * - A batch moved out of a tank entirely: the emptied tank names no batch, a
  *   sample naming it is refused and leaves it empty, and a sample naming none
  *   weighs the tank the fish went to.
@@ -30,6 +31,8 @@
  *   neither the tank nor its meals; it is the batch's history.
  * - Weighed in one tank, then moved: an older sample naming the destination
  *   does not move the fish back (the weighing day travels with them).
+ * - A sample kept as history, applied after its fish left the tank it was
+ *   taken from: it becomes the batch's weight.actual, and no tank moves.
  * - The backfill migration on rows in the shapes the old writer left behind.
  *
  * ## Why this needs a real database
@@ -87,6 +90,7 @@ import { ProtocolResolutionService } from '../../feeding-protocol/services/proto
 import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
 import { BackfillTankBatchPrimaryAndShareStamps1822100000000 } from '../../database/migrations/1822100000000-BackfillTankBatchPrimaryAndShareStamps';
 import { RecordGrowthSampleCommand } from '../../growth/commands/record-growth-sample.command';
+import { UpdateBatchWeightFromSampleCommand } from '../../growth/commands/update-batch-weight-from-sample.command';
 import { GrowthMeasurement } from '../../growth/entities/growth-measurement.entity';
 import {
   createFarmTenantFixture,
@@ -115,6 +119,7 @@ const LATE_TENANT = 'e2b7d4f1-6a3c-4e59-9b18-7c4a2e6f0d39';
 const MOVED_TENANT = '8f3a6c2e-1b5d-4c97-8e2a-4d6b9f1c3e05';
 const BACKFILL_TENANT = '3c7e1a5f-9d2b-4f68-b3a1-6e8c2d4f7a19';
 const DIED_OUT_TENANT = 'a6d2f8b4-3e1c-4d79-b5a2-9c7e1f3b5d68';
+const STORED_TENANT = 'd8b4f2a6-5c3e-4a17-9d6b-1f8e3a5c7b42';
 
 const STARTER_FEED = '1f0c9e8d-7b6a-4543-8211-0fedcba98765';
 const GROWER_FEED = '2e1dafe9-8c7b-4654-9322-10fedcba9876';
@@ -191,6 +196,7 @@ describe('A weighing reaches the feeding ration — real Postgres (FARM-CRITICAL
       MOVED_TENANT,
       BACKFILL_TENANT,
       DIED_OUT_TENANT,
+      STORED_TENANT,
     ]) {
       await createTenantSchemaDerived(dataSource, getTenantSchemaName(tenantId));
     }
@@ -209,6 +215,7 @@ describe('A weighing reaches the feeding ration — real Postgres (FARM-CRITICAL
     measurementDate: Date,
     populationSize: number,
     tankId?: string,
+    updateBatchWeight = true,
   ): Promise<GrowthMeasurement> {
     return withTenantContext(tenantId, () =>
       recorders.recordGrowthSample.execute(
@@ -224,9 +231,23 @@ describe('A weighing reaches the feeding ration — real Postgres (FARM-CRITICAL
               weight: weightG,
             })),
             measuredBy: USER_ID,
+            updateBatchWeight,
           },
           USER_ID,
         ),
+      ),
+    );
+  }
+
+  /** Applies a sample kept as history, later, through the production handler. */
+  async function applyStored(
+    tenantId: string,
+    batchId: string,
+    measurementId: string,
+  ): Promise<void> {
+    await withTenantContext(tenantId, () =>
+      recorders.updateBatchWeightFromSample.execute(
+        new UpdateBatchWeightFromSampleCommand(tenantId, batchId, measurementId, USER_ID),
       ),
     );
   }
@@ -604,6 +625,23 @@ describe('A weighing reaches the feeding ration — real Postgres (FARM-CRITICAL
       expect(samples).toBe(0);
     });
 
+    it('refuses a sample kept as history that does not name its tank', async () => {
+      // Once stored, nothing could name its tank: applying it later could
+      // only guess.
+      await expect(
+        weigh(
+          SPLIT_TENANT,
+          fixture.batch.id,
+          30,
+          new Date(Date.now() - HOUR_MS),
+          40,
+          undefined,
+          false,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(await samplesOf(SPLIT_TENANT, fixture.batch.id)).toEqual([]);
+    });
+
     it("moves only the named tank's share", async () => {
       await weigh(
         SPLIT_TENANT,
@@ -905,6 +943,66 @@ describe('A weighing reaches the feeding ration — real Postgres (FARM-CRITICAL
 
       const samples = await samplesOf(MOVED_TENANT, fixture.batch.id);
       expect(samples.map((sample) => Number(sample.averageWeight))).toEqual([20, 30]);
+    });
+  });
+
+  describe('a sample kept as history, applied after its fish left the tank it was taken from', () => {
+    let fixture: FarmTenantFixture;
+    let destinationId: string;
+    let stored: GrowthMeasurement;
+
+    beforeAll(async () => {
+      // 100 fish at 10 g in tank A, weighed at 30 g and kept as history (not
+      // applied), then all moved to tank B; the sample is applied after that.
+      fixture = await createFarmTenantFixture(dataSource, writers, {
+        tenantId: STORED_TENANT,
+        codePrefix: 'STORED',
+        userId: USER_ID,
+        initialQuantity: 100,
+        initialAvgWeightG: 10,
+      });
+      const destination = await createFixtureTank(dataSource, fixture.department, {
+        tenantId: STORED_TENANT,
+        code: 'STORED-TANK2',
+        userId: USER_ID,
+        count: 0,
+        biomassKg: 0,
+      });
+      destinationId = destination.id;
+      stored = await weigh(
+        STORED_TENANT,
+        fixture.batch.id,
+        30,
+        new Date(Date.now() - 2 * HOUR_MS),
+        100,
+        undefined,
+        false,
+      );
+      await transfer(STORED_TENANT, fixture.batch.id, fixture.tank.id, destinationId, 100);
+      await applyStored(STORED_TENANT, fixture.batch.id, stored.id);
+    });
+
+    it('was stamped with the tank its fish were taken from', () => {
+      expect(stored.tankId).toBe(fixture.tank.id);
+    });
+
+    it("becomes the batch's weight.actual", async () => {
+      const batch = await batchRow(STORED_TENANT, fixture.batch.id);
+      expect(batch.weight.actual.avgWeight).toBe(30);
+      expect(batch.weight.actual.sampleSize).toBe(3);
+
+      const [sample] = await samplesOf(STORED_TENANT, fixture.batch.id);
+      expect(sample!.isProcessed).toBe(true);
+    });
+
+    it('moves no tank: the fish it weighed are not where it says, and the tank they went to was not weighed', async () => {
+      const moved = await tankRow(STORED_TENANT, destinationId);
+      expect(Number(moved.avgWeightG)).toBe(10);
+      expect(Number(moved.totalBiomassKg)).toBe(1);
+
+      const emptied = await tankRow(STORED_TENANT, fixture.tank.id);
+      expect(emptied.batchDetails).toEqual([]);
+      expect(emptied.lastSamplingAt).toBeNull();
     });
   });
 

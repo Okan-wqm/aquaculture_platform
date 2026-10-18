@@ -6,12 +6,14 @@
  * enqueue in a single runInTenantTransaction (pessimistic_write on the batch).
  * These tests pin the invariants that contract depends on:
  *
- *   1. Happy path: all 3 saves + 1 outbox enqueue + commit (once).
+ *   1. Happy path: one measurement insert (with isProcessed), the batch
+ *      save, 1 outbox enqueue + commit (once).
  *   2. Event payload carries batchId / measurementId / sampleSize /
  *      averageWeightG / weightCV / measurementDate / performance.
  *   3. `updateBatchWeight = false` skips the batch save and the
  *      isProcessed flip — but still emits the event, and stamps the sample
- *      with the one unit holding the batch.
+ *      with the one unit holding the batch; for a batch held in several units
+ *      it must name its unit, as an applied sample must.
  *   4. Enqueue failure → rollback, no partial writes.
  *   5. Measurement save failure → rollback, no event enqueued.
  *   6. Existing validation paths (NotFound / inactive batch /
@@ -26,6 +28,9 @@
  *      moves it, then reprices its day plan, in the same transaction
  *      (FARM-CRITICAL-454); a membership change during the lock is retried;
  *      the unit it was resolved to is stamped on the sample and its event.
+ *  10. The unit lock is taken before the measurement is inserted: the
+ *      insert's foreign key locks the sampled batch (KEY SHARE), and taken
+ *      first that lock would sit outside the canonical unit lock order.
  *
  * The sample applier and the unit writer are the REAL services (the unit
  * lock and the re-base are spied for the stocked-tank cases); the recalc and
@@ -298,14 +303,15 @@ function makeCommand(overrides: Partial<{
 }
 
 describe('RecordGrowthSampleHandler — transactional outbox', () => {
-  it('happy path: 3 writes + 1 enqueue + commit', async () => {
+  it('happy path: 2 writes + 1 enqueue + commit', async () => {
     const { handler, enqueue, commit, rollback, measurementSave, batchSave } =
       makeHarness();
 
     await handler.execute(makeCommand());
 
-    // Initial measurement save + isProcessed flip = 2 measurement saves
-    expect(measurementSave).toHaveBeenCalledTimes(2);
+    // One measurement insert, carrying the isProcessed flag.
+    expect(measurementSave).toHaveBeenCalledTimes(1);
+    expect((measurementSave.mock.calls[0]![0] as GrowthMeasurement).isProcessed).toBe(true);
     // Batch weight snapshot save = 1
     expect(batchSave).toHaveBeenCalledTimes(1);
     // Outbox enqueue exactly once, with the queryRunner.manager
@@ -329,9 +335,9 @@ describe('RecordGrowthSampleHandler — transactional outbox', () => {
 
     await handler.execute(makeCommand({ updateBatchWeight: false }));
 
-    // The insert, then the save that records the unit the sample was resolved to.
-    expect(measurementSave).toHaveBeenCalledTimes(2);
-    expect((measurementSave.mock.calls[1]![0] as GrowthMeasurement).isProcessed).toBe(false);
+    // One insert, carrying the unit the sample was resolved to.
+    expect(measurementSave).toHaveBeenCalledTimes(1);
+    expect((measurementSave.mock.calls[0]![0] as GrowthMeasurement).isProcessed).toBe(false);
     expect(batchSave).not.toHaveBeenCalled();
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledTimes(1);
@@ -484,7 +490,7 @@ describe('RecordGrowthSampleHandler — the sample reaches the tank (FARM-CRITIC
 
     await harness.handler.execute(makeCommand({ updateBatchWeight: false }));
 
-    const stored = harness.measurementSave.mock.calls[1]![0] as GrowthMeasurement;
+    const stored = harness.measurementSave.mock.calls[0]![0] as GrowthMeasurement;
     expect(stored.tankId).toBe(UNIT);
     const event = harness.enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(event['tankId']).toBe(UNIT);
@@ -495,9 +501,32 @@ describe('RecordGrowthSampleHandler — the sample reaches the tank (FARM-CRITIC
 
     await harness.handler.execute(makeCommand());
 
-    const stored = harness.measurementSave.mock.calls[1]![0] as GrowthMeasurement;
+    const stored = harness.measurementSave.mock.calls[0]![0] as GrowthMeasurement;
     expect(stored.tankId).toBe(UNIT);
     expect(stored.isProcessed).toBe(true);
+  });
+
+  it('takes the unit lock before inserting the measurement', async () => {
+    // The insert's foreign key takes KEY SHARE on the sampled batch; taken
+    // first, that lock sits outside the canonical unit lock order (batchId ASC).
+    const harness = makeHarness({ unitRows: [{ tankId: UNIT }], lockedUnit: unitHolding });
+
+    await harness.handler.execute(makeCommand());
+
+    const lockedAt = harness.lockUnitForGrowth.mock.invocationCallOrder[0] ?? Infinity;
+    const insertedAt = harness.measurementSave.mock.invocationCallOrder[0] ?? -Infinity;
+    expect(lockedAt).toBeLessThan(insertedAt);
+  });
+
+  it('refuses a sample kept as history that names no tank for a batch held in several; nothing commits', async () => {
+    const harness = makeHarness({ unitRows: [{ tankId: UNIT }, { tankId: 'tank-2' }] });
+
+    await expect(
+      harness.handler.execute(makeCommand({ updateBatchWeight: false })),
+    ).rejects.toThrow(BadRequestException);
+    expect(harness.measurementSave).not.toHaveBeenCalled();
+    expect(harness.enqueue).not.toHaveBeenCalled();
+    expect(harness.commit).not.toHaveBeenCalled();
   });
 
   it('answers a retryable conflict, then weighs the batch where it went, when it left its one tank before the lock', async () => {

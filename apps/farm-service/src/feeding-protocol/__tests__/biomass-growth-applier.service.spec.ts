@@ -11,6 +11,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
+import { tankHoldsBatchSql } from '../../batch/utils/tank-membership.util';
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
@@ -420,7 +421,9 @@ describe('BiomassGrowthApplierService membership', () => {
     ]);
     const [sql, params] = query.mock.calls[0]! as [string, unknown[]];
     expect(params).toEqual([TENANT, BATCH_A]);
-    expect(sql).toContain(`(detail.value->>'quantity')::numeric > 0`);
+    // The membership statement tankHoldsBatchSql owns (tank-membership.util).
+    expect(sql).toContain(tankHoldsBatchSql('tb', '$2'));
+    expect(sql).toContain(`(held.value->>'quantity')::numeric > 0`);
     expect(sql).toMatch(
       /"primaryBatchId"::text = \$2[\s\S]*jsonb_array_length[\s\S]*"totalQuantity" > 0/,
     );

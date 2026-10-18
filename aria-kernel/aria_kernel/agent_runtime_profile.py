@@ -58,13 +58,12 @@ DEFAULT_MODEL: str = "opus"
 MODEL_TIER_ORDER: tuple[str, ...] = ("fable", "glm-5.3", "opus", "sonnet", "haiku")
 MIN_AGENT_AUTHORING_TIER: str = "opus"
 
-# ORPHAN-HIGH-763 — `glm-5.3` (Z.ai) joins the dispatchable vocabulary.
-# It reaches the same `claude` binary through the provider swap Z.ai
-# publishes (ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic), so this is
-# one more member of an existing vocabulary rather than a second runtime.
-# The lane still refuses API-key mode unless ARIA_ALLOW_CLAUDE_API_KEY_MODE=1
-# is set "under a new policy" (claude_runtime.assert_claude_policy_environment)
-# — that operator policy, not this constant, is what actually enables it.
+# ORPHAN-HIGH-763 — `glm-5.3` (Z.ai) joins the dispatchable vocabulary. It is
+# served by the kernel's own Z.ai transport (`tools/aria-poc/zai_runtime.py`,
+# operator policy 2026-09-11), never by the `claude` binary: the Claude
+# runtime refuses a non-Anthropic model by name
+# (`claude_runtime.assert_model_served_by_claude_runtime`), and no room can
+# reach the Z.ai host (`provider_routes`, ARIA-MEDIUM-563).
 # ARIA-MEDIUM-465 — admission IS ranking: a model the kernel dispatches is a model the
 # tier order ranks, so the vocabulary is derived from MODEL_TIER_ORDER and a
 # second literal can no longer admit a model the order cannot place.

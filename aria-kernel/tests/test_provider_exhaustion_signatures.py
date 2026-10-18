@@ -204,7 +204,9 @@ class ZaiRefusalsNameASignature(unittest.TestCase):
         def opener(request, timeout_seconds):  # noqa: ANN001 — urllib Request
             return zai_runtime.ZaiHttpResponse(status=status, body=body, elapsed_ms=1)
 
-        credential = zai_runtime.ZaiCredential(source="env", location="ARIA_ZAI_API_KEY", _secret="fake")
+        from aria_kernel.provider_credentials import ProviderCredential
+
+        credential = ProviderCredential(provider="zai", source="env", location="ARIA_ZAI_API_KEY", _secret="fake")
         return zai_runtime.run_zai_chat(credential, base_url="https://fake.invalid", model="glm-5.3",
                                         system="s", user="u", opener=opener)
 

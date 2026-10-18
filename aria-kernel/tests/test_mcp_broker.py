@@ -242,14 +242,14 @@ class SandboxAndDocumentTests(unittest.TestCase):
         from aria_kernel.implementation_safety import SandboxUnavailable, _sandbox_argv
 
         with serve_mcp_broker(base_dir=self.tools, workspace_root=self.repo, request_id="AIR-124") as broker:
-            argv = _sandbox_argv(["sh", "-c", "true"], workspace_root=self.repo, allow_network=True,
+            argv = _sandbox_argv(["sh", "-c", "true"], workspace_root=self.repo, provider="anthropic",
                                  mcp_broker_socket=broker.socket_path)
             self.assertIn(["--bind", str(broker.socket_path), SANDBOX_MCP_BROKER_SOCKET],
                           [argv[i:i + 3] for i in range(len(argv) - 2)])
             self.assertIn(["--setenv", MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET],
                           [argv[i:i + 3] for i in range(len(argv) - 2)])
         with self.assertRaises(SandboxUnavailable) as refused:
-            _sandbox_argv(["sh", "-c", "true"], workspace_root=self.repo, allow_network=True,
+            _sandbox_argv(["sh", "-c", "true"], workspace_root=self.repo, provider="anthropic",
                           mcp_broker_socket=self.root / "gone" / "sock")
         self.assertIn("mcp_broker_socket_missing", str(refused.exception))
 

@@ -48,11 +48,12 @@ the sha256 of this file at V9.1 land time, and any drift will fire
 
 Your process runs under `bwrap` (`implementation_safety.wrap_managed_claude_in_sandbox`)
 in its own network namespace. The Claude CLI must reach its provider
-(`MANAGED_SPAWN_ALLOW_NETWORK`), and that is the only road out: the room
-holds loopback and the kernel's allowlist proxy (`egress_proxy`), reached
-through the `HTTPS_PROXY` the room starts with. A direct connection to any
-address, the host's own loopback services included, finds no route, and the
-proxy refuses every host that is not a provider endpoint by name. On top
+(`MANAGED_SPAWN_PROVIDER`), and that is the only road out: the room holds
+loopback and the kernel's provider gateway (`provider_gateway`), reached
+through the socket `ANTHROPIC_UNIX_SOCKET` names. The gateway forwards only
+the Messages requests the CLI makes, under the kernel's credential; the room
+holds no credential of its own and no proxy. A direct connection to any
+address, the host's own loopback services included, finds no route. On top
 of that, `curl`, `wget`, `nc`, `ssh`, `scp` and every network primitive
 are DENY rules the PreToolUse hook enforces.
 If you find yourself needing one, the task is OUT OF SCOPE — refuse with

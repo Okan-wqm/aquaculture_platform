@@ -147,7 +147,7 @@ class _Checkout(unittest.TestCase):
     def _argv(self, script: str, containment, *, hook_broker_socket: Path | None = None,
               wrap=None, extra_flags: list[str] = ()) -> list[str]:
         wrapper = wrap or impl.wrap_bash_in_sandbox
-        argv = wrapper(["sh", "-c", script], workspace_root=self.worktree, allow_network=True,
+        argv = wrapper(["sh", "-c", script], workspace_root=self.worktree, provider=impl.MANAGED_SPAWN_PROVIDER,
                        git=containment, hook_broker_socket=hook_broker_socket)
         if extra_flags:
             separator = argv.index("--")
@@ -261,7 +261,7 @@ class DerivationTests(_Checkout):
             derive_git_containment(self.repo, commit_capable=True)
         self.assertEqual(refused.exception.reason, "shared_checkout_scope:--local")
         self.assertIsNone(derive_git_containment(self.repo, commit_capable=False))
-        argv = impl._sandbox_argv(["true"], workspace_root=self.repo, allow_network=False,
+        argv = impl._sandbox_argv(["true"], workspace_root=self.repo, 
                                   git=derive_git_containment(self.repo, commit_capable=False))
         writable = [argv[i + 1] for i, tok in enumerate(argv) if tok == "--bind"]
         self.assertEqual(writable, [str(self.repo)])
@@ -318,12 +318,12 @@ class DerivationTests(_Checkout):
     def test_the_wrapper_refuses_a_containment_derived_for_another_workspace(self) -> None:
         containment = derive_git_containment(self.sibling, commit_capable=False)
         with self.assertRaises(impl.SandboxUnavailable) as refused:
-            impl._sandbox_argv(["true"], workspace_root=self.worktree, allow_network=False, git=containment)
+            impl._sandbox_argv(["true"], workspace_root=self.worktree, git=containment)
         self.assertIn("git_containment_workspace_mismatch", str(refused.exception))
 
     def test_the_wrapper_appends_the_git_binds_after_readonly_paths_and_never_binds_a_store(self) -> None:
         containment = derive_git_containment(self.worktree, commit_capable=True)
-        argv = impl._sandbox_argv(["true"], workspace_root=self.worktree, allow_network=False, git=containment)
+        argv = impl._sandbox_argv(["true"], workspace_root=self.worktree, git=containment)
         marker = argv.index(str(self.worktree / ".git"))
         self.assertLess(marker, argv.index(str(self.common)), "READONLY_PATHS first, the derived git binds after")
         self.assertIn("--unshare-net", argv)
@@ -333,7 +333,7 @@ class DerivationTests(_Checkout):
     def test_a_missing_hook_broker_socket_is_refused_by_name(self) -> None:
         containment = derive_git_containment(self.worktree, commit_capable=True)
         with self.assertRaises(impl.SandboxUnavailable) as refused:
-            impl._sandbox_argv(["true"], workspace_root=self.worktree, allow_network=False, git=containment,
+            impl._sandbox_argv(["true"], workspace_root=self.worktree, git=containment,
                                hook_broker_socket=self.root / "nowhere.sock")
         self.assertIn("hook_broker_socket_missing", str(refused.exception))
 

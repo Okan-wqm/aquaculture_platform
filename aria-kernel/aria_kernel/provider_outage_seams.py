@@ -1,8 +1,8 @@
 """The native admission as an outage detection and restore seam (ARIA-HIGH-366).
 
 WHY. The admission probes each provider's login before anything is claimed.
-A logged-out session was DECIDED there (``managed_session_logged_out``,
-``cli_reported_not_logged_in``) and the request released harness-class as
+A logged-out session was DECIDED there (``managed_session_logged_out``, now
+``claude_gateway_credential_absent``; ``cli_reported_not_logged_in``) and the request released harness-class as
 ``native_runtime_admission_unavailable`` — 73 times on 2026-09-18/19 — with no
 cooldown, no outage and no signal, so the operator learned nothing and every
 waiting timer kept running. The same probe answering "logged in" is the
@@ -38,10 +38,13 @@ from typing import Any, Iterable
 from .provider_cooldown import PROVIDER_EXHAUSTION_SIGNATURES, record_provider_cooldown
 from .provider_outage_ledger import ADMISSION_RESTORABLE_KINDS, open_outages, record_provider_restored
 
-# The status reasons that DECIDE a logged-out managed session, per vendor
-# (`tools/aria-poc/status_answers.py`), and the signature each is cooled under.
+# The status reasons that DECIDE a provider has no usable credential on this
+# host, per vendor — the kernel's Claude credential boundary refused
+# (ARIA-MEDIUM-563, `claude_runtime.CLAUDE_GATEWAY_CREDENTIAL_ABSENT`), a
+# logged-out Codex session (`tools/aria-poc/status_answers.py`) — and the
+# signature each is cooled under.
 LOGGED_OUT_STATUS_SIGNATURES: dict[str, str] = {
-    "managed_session_logged_out": "claude_logged_out",
+    "claude_gateway_credential_absent": "claude_logged_out",
     "cli_reported_not_logged_in": "codex_logged_out",
     "cli_reported_not_logged_in_with_readonly_path_alias_warning": "codex_logged_out",
 }

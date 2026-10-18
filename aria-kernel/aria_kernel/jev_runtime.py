@@ -15,10 +15,12 @@ the exact bytes that leave. This module only moves those bytes:
   together; a watchdog shuts the socket at it, the body is read in chunks
   against it, and a reply completing after it is refused; the response is
   capped by Content-Length and by the read;
-* the key comes ONLY from the file ``ARIA_JEV_API_KEY_FILE`` names, opened
-  without following a symlink and accepted only as a regular file owned by
-  this euid with no group/other bits, of a fixed charset — so it can never
-  inject a header;
+* the key comes ONLY from the file ``ARIA_JEV_API_KEY_FILE`` names, read by
+  the kernel's one credential-file reader
+  (``provider_credentials.read_secret_file``: opened without following a
+  symlink, a regular file owned by this euid with no group/other bits,
+  outside every tree a room is given) and accepted only in a fixed charset
+  — so it can never inject a header;
 * every failure is a RETURNED, named ``JevUnavailable`` carrying an
   exception CLASS name at most, never a message (a message can carry the
   request, and the request carries the key).
@@ -31,13 +33,14 @@ import os
 import re
 import socket
 import ssl
-import stat
 import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
+
+from .provider_credentials import CredentialFileRefused, read_secret_file
 
 JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 JEV_HOST = "api.typesafe.ai"
@@ -47,7 +50,6 @@ TIMEOUT_CEILING_SECONDS = 5.0  # the WHOLE call, both attempts included
 MAX_ATTEMPTS = 2
 RETRY_BACKOFF_SECONDS = 0.2
 MAX_RESPONSE_BYTES = 64 * 1024
-MAX_KEY_FILE_BYTES = 4096
 _KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{16,256}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 Opener = Callable[[urllib.request.Request, float], tuple[int, bytes]]
@@ -99,33 +101,10 @@ def _read_key(environ: Mapping[str, str]) -> str:
     file_path = str(environ.get(JEV_CREDENTIAL_FILE_ENV) or "").strip()
     if not file_path:
         raise _Refused("credential_not_configured")
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     try:
-        descriptor = os.open(file_path, flags)
-    except OSError as exc:  # a symlink (ELOOP), absent, or unreadable
-        raise _Refused("credential_file_unreadable") from exc
-    try:
-        info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode):
-            raise _Refused("credential_file_unreadable")
-        if info.st_uid != os.geteuid():
-            raise _Refused("credential_file_owner")
-        if info.st_mode & 0o077:  # readable beyond its owner: every process on the host has a copy
-            raise _Refused("credential_file_permissions")
-        data = os.read(descriptor, MAX_KEY_FILE_BYTES + 1)
-    except OSError as exc:
-        raise _Refused("credential_file_unreadable") from exc
-    finally:
-        os.close(descriptor)
-    if len(data) > MAX_KEY_FILE_BYTES:
-        raise _Refused("credential_file_too_large")
-    try:
-        secret = data.decode("ascii")
-    except UnicodeDecodeError as exc:
-        raise _Refused("credential_file_malformed") from exc
-    secret = secret[:-1] if secret.endswith("\n") else secret
-    if not secret:
-        raise _Refused("credential_file_empty")
+        secret = read_secret_file(file_path)
+    except CredentialFileRefused as exc:
+        raise _Refused(exc.reason) from exc
     if not _KEY_RE.match(secret):
         raise _Refused("credential_file_malformed")
     return secret

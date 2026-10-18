@@ -87,15 +87,15 @@ def _stalled() -> _RuntimeStatusObservation:
 
 
 def _logged_out() -> _RuntimeStatusObservation:
-    # The real CLI's shape: the document decided it, and the exit was 1.
-    return _RuntimeStatusObservation("unavailable", reason="managed_session_logged_out", exit_code=1,
+    # The kernel's Claude credential boundary refused (ARIA-MEDIUM-563): decided.
+    return _RuntimeStatusObservation("unavailable", reason="claude_gateway_credential_absent",
                                      decision=StatusDecision.UNAVAILABLE)
 
 
 def _uncontained() -> _RuntimeStatusObservation:
     # The Claude arm after a decided-available auth on a host without a
     # usable sandbox: the vendor said yes, the controls could not be bound.
-    return _RuntimeStatusObservation("available", reason="managed_session_logged_in", auth_method="subscription",
+    return _RuntimeStatusObservation("available", reason="claude_gateway_credential_present", auth_method="subscription",
                                      control_status="unavailable", control_reason="sandbox_unavailable",
                                      decision=StatusDecision.AVAILABLE)
 
@@ -143,7 +143,7 @@ class TheObservationIsThreeValuedByConstruction(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "runtime_status_decision_contradicts_auth"):
             _RuntimeStatusObservation("unknown", reason="status_timeout", decision=StatusDecision.AVAILABLE)
         with self.assertRaisesRegex(ValueError, "runtime_status_auth_unavailable_not_decided"):
-            _RuntimeStatusObservation("unavailable", reason="managed_session_logged_out",
+            _RuntimeStatusObservation("unavailable", reason="claude_gateway_credential_absent",
                                       decision=StatusDecision.UNDECIDED)
         with self.assertRaisesRegex(ValueError, "runtime_status_auth_available_marked_undecided"):
             _RuntimeStatusObservation("available", reason="chat_completion_ok", decision=StatusDecision.UNDECIDED)

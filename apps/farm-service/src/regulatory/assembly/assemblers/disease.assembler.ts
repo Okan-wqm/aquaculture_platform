@@ -20,6 +20,11 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import {
+  batchAllocatedToSiteSql,
+  batchHeldAnywhereSql,
+  batchHeldAtSiteSql,
+} from '../batch-site-scope';
 import { AssembledDraft, ReportFieldMeta, fromRecords, manualRequired } from '../provenance.types';
 import { round2 } from '../period.util';
 
@@ -177,8 +182,10 @@ export class DiseaseReportAssembler {
       const rows: DiseaseRow[] = await queryRunner.query(
         // Scope through the always-present batchId (health_events carry no siteId
         // and tankId is nullable, so a tank-JOIN would silently drop batch-scoped
-        // outbreaks — FARM-MEDIUM-152). The batch → tank_batches → tank →
-        // department → site path mirrors BiomassReportAssembler.queryStockings.
+        // outbreaks — FARM-MEDIUM-152). The batch belongs to the site when a tank
+        // there holds it now; a batch with no fish left anywhere (died out, culled
+        // or harvested) belongs to the sites the allocation ledger put it into
+        // (batch-site-scope; the current composition alone drops it).
         // diseaseName is the real column; the affected percentage lives inside the
         // affectedPopulation jsonb; diseaseCategory is the pathogen taxonomy
         // (bacterial/viral/…), surfaced as context — NOT the regulator A/C/F list.
@@ -194,24 +201,10 @@ export class DiseaseReportAssembler {
             AND he."eventType" = 'disease_outbreak'
             AND he.status NOT IN ('resolved', 'cancelled')
             AND (
-              EXISTS (
-                SELECT 1
-                  FROM tank_batches tb
-                  JOIN tanks t ON t.id = tb."tankId"
-                  JOIN departments d ON d.id = t."departmentId"
-                 WHERE tb."tenantId" = he."tenantId"
-                   AND tb."primaryBatchId" = he."batchId"
-                   AND d."siteId" = $2
-              )
-              OR EXISTS (
-                SELECT 1
-                  FROM tank_batches tb
-                  JOIN tanks t ON t.id = tb."tankId"
-                  JOIN departments d ON d.id = t."departmentId",
-                       jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS bd
-                 WHERE tb."tenantId" = he."tenantId"
-                   AND d."siteId" = $2
-                   AND bd->>'batchId' = he."batchId"::text
+              ${batchHeldAtSiteSql('he."batchId"', 'he."tenantId"', '$2')}
+              OR (
+                NOT ${batchHeldAnywhereSql('he."batchId"', 'he."tenantId"')}
+                AND ${batchAllocatedToSiteSql('he."batchId"', 'he."tenantId"', '$2')}
               )
             )
           ORDER BY he."eventDate" DESC, he."createdAt" DESC

@@ -8,31 +8,46 @@
  *
  * # Transactional outbox
  *
- * The three writes (measurement insert, batch weight update, and
- * isProcessed flip on the measurement) commit atomically with the
- * outbox row via a single DataSource transaction. A crash mid-flight
+ * The writes (batch weight update, unit re-base, and the measurement
+ * insert with its isProcessed flag) commit atomically with the outbox row
+ * via a single DataSource transaction. A crash mid-flight
  * rolls back everything — the outbox never sees an event whose
  * corresponding domain write was lost, and the domain never commits
  * a measurement whose event failed to enqueue.
  *
- * # Why we take a pessimistic lock on the batch
+ * # Why a sample reaches the tank and its day plan
  *
- * The batch row is re-read INSIDE the transaction with
- * pessimistic_write (mirroring record-mortality). Under derive-on-read
- * biomass, the only fields a growth sample may mutate on the batch are
- * the weight.actual provenance fields (avgWeight, totalBiomass,
- * lastMeasuredAt, sampleSize, confidencePercent). We write ONLY those
- * onto the freshly-locked in-tx row instead of saving a stale,
- * externally-loaded snapshot of the whole entity — otherwise a sample
- * that loaded the batch before a concurrent mortality/cull committed
- * would, on save, revert that handler's currentQuantity / feed
- * decrements (lost-update). Locking + a field-scoped write makes the
- * lost-update structurally impossible.
+ * Every ration path sizes feed from the tank's `tank_batches` weight, so a
+ * sample that stopped at `Batch.weight.actual` changed no meal
+ * (FARM-CRITICAL-454). The sample is applied through
+ * GrowthSampleApplierService, the same path UpdateBatchWeightFromSampleHandler
+ * uses: the batch's weight.actual, the weighed batch's share of its tank, and
+ * the tank's live day plan, all in this transaction.
+ *
+ * # Why the unit is locked first
+ *
+ * `applySample` locks the unit's batches (batchId ASC) and then its TankBatch
+ * row with `lockUnitForGrowth`, the order every other unit writer uses, and
+ * takes the batch row from that lock; locking the batch first would invert
+ * the order (AB-BA deadlock). The measurement is inserted only after that:
+ * its foreign key to `batches_v2` takes a KEY SHARE lock on the sampled batch,
+ * and taken first that lock would sit outside the canonical order, so a unit
+ * writer locking a lower batch id of the same tank could deadlock with this
+ * command. Only the weight fields are written onto the freshly locked rows,
+ * never an externally loaded snapshot, so a concurrent mortality/cull cannot
+ * be reverted by this sample (lost-update). A membership change between the
+ * unlocked lookup and the lock is retried by `withUnitLockRetry` around the
+ * whole command.
+ *
+ * A sample kept as history (`updateBatchWeight` false) that names no unit is
+ * stamped with the one unit holding the batch, so applying it later moves the
+ * unit its fish were taken from; for a batch held in several units it must
+ * name its unit, exactly as a sample applied at once must.
  *
  * @module Growth/Handlers
  */
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -45,12 +60,9 @@ import { RecordGrowthSampleCommand } from '../commands/record-growth-sample.comm
 import { GrowthMeasurement, MeasurementType, MeasurementMethod, StatisticalSummary } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
+import { GrowthSampleApplierService } from '../services/growth-sample-applier.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
-
-// Growth statistics (StatisticalSummary.weight.confidenceInterval) are computed
-// at a 95% confidence interval, so a recorded sample stamps the batch weight
-// provenance with a 95% confidence level.
-const WEIGHT_SAMPLE_CONFIDENCE_PERCENT = 95;
+import { withUnitLockRetry } from '../../feeding-protocol/services/unit-lock-retry.util';
 
 @Injectable()
 @CommandHandler(RecordGrowthSampleCommand)
@@ -64,9 +76,14 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     private readonly fcrService: FCRCalculationService,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly sampleApplier: GrowthSampleApplierService,
   ) {}
 
   async execute(command: RecordGrowthSampleCommand): Promise<GrowthMeasurement> {
+    return withUnitLockRetry(() => this.executeOnce(command));
+  }
+
+  private async executeOnce(command: RecordGrowthSampleCommand): Promise<GrowthMeasurement> {
     const { tenantId, payload, userId } = command;
 
     // Backdate policy: growth measurements support a longer historical
@@ -199,51 +216,25 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
 
     measurement.generateSuggestedActions();
 
-    // Atomic block: save measurement → (optional) update batch weight
-    // → flip isProcessed → enqueue event → commit. Rolls back together.
+    // Atomic block: apply the sample as current weight (unit lock first) →
+    // insert the measurement → enqueue event → commit. Rolls back together.
     // runInTenantTransaction pins search_path to tenant_<uuid> for the whole tx
     // (pool-checkout routing alone is not sufficient for transactional writes,
-    // per pinTenantTransactionSearchPath), so the locked read + per-tenant
-    // writes (batches_v2, growth_measurements) land in the correct schema.
+    // per pinTenantTransactionSearchPath), so the locked reads + per-tenant
+    // writes (batches_v2, tank_batches, growth_measurements, the day plan) land
+    // in the correct schema.
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const saved = await queryRunner.manager.save(GrowthMeasurement, measurement);
-
-      if (saved.updateBatchWeight) {
-        // Re-read the batch under pessimistic_write INSIDE the tx so the write
-        // targets the live row, not the stale snapshot loaded above. We mutate
-        // ONLY the weight.actual provenance fields — never the whole entity —
-        // so a concurrent mortality/cull/harvest that decremented
-        // currentQuantity/feed cannot be reverted by this sample (lost-update).
-        const lockedBatch = await queryRunner.manager.findOne(Batch, {
-          where: { id: payload.batchId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (!lockedBatch) {
-          throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
-        }
-        if (lockedBatch.weight?.actual) {
-          lockedBatch.weight.actual.avgWeight = saved.averageWeight;
-          // totalBiomass is the at-sample snapshot of the JSONB provenance
-          // block (the typed or entry-time populationSize × average); current
-          // biomass is derived on read from the live count × avgWeight, so
-          // this stored figure is provenance, not authority. The FCR authority
-          // (FCRCalculationService.calculateFcrAtLastWeighingMany) reads
-          // avgWeight, lastMeasuredAt and sampleSize as the weighing it judges
-          // and takes the count on that day from the removal ledger, so these
-          // three must stay one sample's values, written together here.
-          lockedBatch.weight.actual.totalBiomass = saved.estimatedBiomass;
-          lockedBatch.weight.actual.lastMeasuredAt = saved.measurementDate;
-          lockedBatch.weight.actual.sampleSize = saved.sampleSize;
-          // Statistics are computed at a 95% confidence interval
-          // (StatisticalSummary.weight.confidenceInterval), so the provenance
-          // confidence level for this sample is 95%.
-          lockedBatch.weight.actual.confidencePercent = WEIGHT_SAMPLE_CONFIDENCE_PERCENT;
-        }
-        await queryRunner.manager.save(Batch, lockedBatch);
-
-        saved.isProcessed = true;
-        await queryRunner.manager.save(GrowthMeasurement, saved);
+      const manager = queryRunner.manager;
+      // The unit lock is taken before the INSERT (see the header): both calls
+      // only stamp the in-memory measurement, which is then saved once with
+      // its isProcessed flag and the unit it was resolved to.
+      if (measurement.updateBatchWeight) {
+        await this.sampleApplier.applySample(manager, tenantId, measurement, 'recorded');
+        measurement.isProcessed = true;
+      } else {
+        await this.sampleApplier.recordLocatedUnit(manager, tenantId, measurement);
       }
+      const saved = await manager.save(GrowthMeasurement, measurement);
 
       const event: GrowthSampleRecordedEvent = {
         ...createBaseEvent<GrowthSampleRecordedEvent>('GrowthSampleRecorded', tenantId, {
@@ -252,6 +243,7 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
         }),
         batchId: saved.batchId,
         measurementId: saved.id,
+        ...(saved.tankId ? { tankId: saved.tankId } : {}),
         sampleSize: saved.sampleSize,
         averageWeightG: saved.averageWeight,
         weightCV: saved.weightCV,

@@ -12,18 +12,21 @@
  *   3. Auto-close failure does not fail the committed harvest — the
  *      handler resolves and the batch stays HARVESTED for manual close.
  *   4. Unknown quality grade is rejected (no silent GRADE_A upgrade).
+ *   5. A harvest that takes the last fish out of its tank enqueues TankCleared
+ *      with the BatchHarvested; one that leaves fish in the tank does not.
  */
 import { BadRequestException, Logger } from '@nestjs/common';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { createMockDataSource, createMockRepository, stub } from '@aquaculture/testing';
 import { getMetadataStorage } from 'class-validator';
-import type { BatchHarvestedEvent } from '@platform/event-contracts';
+import type { BaseEvent, BatchHarvestedEvent } from '@platform/event-contracts';
 
 import { CloseBatchCommand, BatchCloseReason } from '../../../batch/commands/close-batch.command';
 import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { TankOperation } from '../../../batch/entities/tank-operation.entity';
+import type { TankBatchDelta } from '../../../batch/services/tank-batch.service';
 import { BatchWithdrawalBlockedError } from '../../../common/errors/farm-errors';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { CreateHarvestRecordCommand } from '../../commands/create-harvest-record.command';
@@ -42,6 +45,12 @@ interface HarnessOpts {
   currentQuantity?: number;
   /** Reject the auto-close dispatch. */
   closeBatchError?: Error;
+  /** Fish in the harvested tank before the harvest, across its batches (default 1000). */
+  tankQuantity?: number;
+}
+
+function isBatchHarvested(event: BaseEvent): event is BatchHarvestedEvent {
+  return event.eventType === 'BatchHarvested';
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -84,7 +93,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   const tankBatch = {
     tankId: 'tank-1',
     primaryBatchId: 'batch-1',
-    totalQuantity: 1000,
+    totalQuantity: opts.tankQuantity ?? 1000,
     totalBiomassKg: 400,
     currentQuantity: 1000,
     currentBiomassKg: 400,
@@ -124,9 +133,11 @@ function makeHarness(opts: HarnessOpts = {}) {
   const dataSource = mockDataSource;
 
   const enqueuedEvents: BatchHarvestedEvent[] = [];
+  const enqueuedOther: BaseEvent[] = [];
   const outboxPublisher = {
-    enqueue: jest.fn((event: BatchHarvestedEvent) => {
-      enqueuedEvents.push(event);
+    enqueue: jest.fn((event: BaseEvent) => {
+      if (isBatchHarvested(event)) enqueuedEvents.push(event);
+      else enqueuedOther.push(event);
       return Promise.resolve();
     }),
   } as never;
@@ -162,8 +173,13 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
   // The single SSoT writer for tank composition — the handler routes the harvest
   // decrement through this so batchDetails[] stays consistent (no direct mutation).
+  // It returns the row it wrote; the handler reads the count left in the tank
+  // from it to know whether the harvest emptied the tank.
   const tankBatchService = {
-    applyBatchDelta: jest.fn().mockResolvedValue(undefined),
+    applyBatchDelta: jest.fn(
+      (_manager: unknown, _tenantId: string, _tankId: string, delta: TankBatchDelta) =>
+        Promise.resolve({ ...tankBatch, totalQuantity: tankBatch.totalQuantity + delta.quantityDelta }),
+    ),
   };
   // Currency SSoT resolver (FARM-HIGH-151) — harvest revenue books under
   // the tenant default resolved through this, not a hardcoded literal.
@@ -194,7 +210,17 @@ function makeHarness(opts: HarnessOpts = {}) {
     mobileCommandReceipts,
   );
 
-  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords, tankBatchService };
+  return {
+    handler,
+    batch,
+    commit,
+    rollback,
+    enqueuedEvents,
+    enqueuedOther,
+    executeCommand,
+    createdHarvestRecords,
+    tankBatchService,
+  };
 }
 
 function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
@@ -240,7 +266,7 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     // batchDetails[] stale — the 719-vs-900 divergence). It routes the removal
     // through applyBatchDelta so the per-batch SSoT decrements in lock-step.
     expect(tankBatchService.applyBatchDelta).toHaveBeenCalledTimes(1);
-    const call = tankBatchService.applyBatchDelta.mock.calls[0];
+    const call = tankBatchService.applyBatchDelta.mock.calls[0]!;
     const tenantIdArg = call[1];
     const tankIdArg = call[2];
     const delta = call[3];
@@ -342,6 +368,58 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
 
     debugSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe('CreateHarvestRecordHandler — TankCleared when the harvest empties the tank', () => {
+  it('enqueues TankCleared, caused by the BatchHarvested, when the harvest takes the last fish', async () => {
+    const { handler, enqueuedEvents, enqueuedOther } = makeHarness({
+      currentQuantity: 400,
+      tankQuantity: 400,
+    });
+
+    await handler.execute(makeCommand({ quantityHarvested: 400 }));
+
+    const [harvested] = enqueuedEvents;
+    expect(enqueuedOther).toHaveLength(1);
+    expect(enqueuedOther[0]).toMatchObject({
+      eventType: 'TankCleared',
+      tenantId: TENANT_ID,
+      aggregateId: 'tank-1',
+      aggregateType: 'Tank',
+      tankId: 'tank-1',
+      previousBatchId: 'batch-1',
+      clearedAt: '2026-06-10T08:00:00.000Z',
+      causationId: harvested?.eventId,
+      userId: 'user-1',
+    });
+  });
+
+  it('enqueues it when the harvest empties the tank of a batch that lives on elsewhere', async () => {
+    // Not the batch's final harvest (600 fish remain in another tank), but this
+    // tank is free for re-stocking.
+    const { handler, enqueuedEvents, enqueuedOther } = makeHarness({
+      currentQuantity: 1000,
+      tankQuantity: 400,
+    });
+
+    await handler.execute(makeCommand({ quantityHarvested: 400 }));
+
+    expect(enqueuedEvents[0]?.isFinal).toBe(false);
+    expect(enqueuedOther.map((event) => event.eventType)).toEqual(['TankCleared']);
+  });
+
+  it('enqueues no TankCleared when fish stay in the tank, even on the final harvest of the batch', async () => {
+    // A mixed tank: the batch's last 400 fish leave, 600 of another batch stay.
+    const { handler, enqueuedEvents, enqueuedOther } = makeHarness({
+      currentQuantity: 400,
+      tankQuantity: 1000,
+    });
+
+    await handler.execute(makeCommand({ quantityHarvested: 400 }));
+
+    expect(enqueuedEvents[0]?.isFinal).toBe(true);
+    expect(enqueuedOther).toEqual([]);
   });
 });
 

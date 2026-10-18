@@ -611,9 +611,20 @@ WHERE COALESCE(EXCLUDED.source_timestamp, EXCLUDED.time)
 - [ ] **Step 1.4: Implement deterministic post-commit publication**
 
 Edge assigns sourceEventId before durable queue insertion. Legacy fallback is
-UUIDv5 over tenant, sensor, producer timestamp and canonical payload SHA-256.
+UUIDv5 over tenant, sensor, producer timestamp and the SHA-256 of the payload's
+wire bytes.
 Each child SensorReading event ID is UUIDv5 over sourceEventId and channelId.
 Nats-Msg-Id equals child event ID.
+
+**Update 2026-10-18 (LW-SENSOR-ACK):** the legacy digest is over the bytes the
+broker delivered, not a canonical rendering of the parsed payload
+(`MqttListenerService.deriveLegacyReadingEventId`). Hashing the bytes cannot
+throw, while the recursive canonical rendering overflowed the stack on a deeply
+nested payload inside the durable leg; and a broker redelivery, the case this
+identity exists for, repeats the bytes exactly. Trade-off: a device that
+re-serializes the same reading (key order, whitespace) gets a new id until the
+edge sourceEventId lands. Any second producer of this identity hashes the wire
+bytes too, or the same reading gets two event ids.
 
 On redelivery the publisher sends the same event again; it never assumes a prior
 publish succeeded. Retry count is a NATS header and DLQ field, not event payload.
@@ -726,6 +737,38 @@ publish obligation.
 **Alarms:** oldest PENDING receipt age, oldest PENDING dispatch age, dispatch
 backlog depth, `source_event_id` uniqueness conflicts and receipt/dispatch count
 divergence per tenant-minute.
+
+**Update 2026-10-18 (SENSOR-CRITICAL-191):** the dispatch half of this step
+landed on the existing transactional outbox, not on a second per-tenant ledger.
+`MqttListenerService.saveReading` enqueues the reading's SensorReading into
+`sensor.sensor_outbox` in the same tenant transaction as its metric rows, keyed
+by the deterministic event id, and the MQTT ack gate releases PUBACK only after
+that commit. The outbox relay (`@platform/outbox`) stays the one owner of
+post-commit delivery in sensor-service: the GraphQL and batch ingest paths
+already send the same event through it (SENSOR-CRITICAL-001), and it already
+has the lease, retry, dead-letter and pending-age alarm this step would have
+rebuilt. A kill between commit and publish leaves an unpublished outbox row that
+the restarted relay completes. Two gaps keep the relay short of this step's own
+contract, and both are fixed in the outbox and erasure owners rather than in a
+second relay. First, the relay counts transport failures toward a five-attempt
+dead-letter budget, so a NATS or JetStream outage longer than about 40-60 s
+dead-letters the pending rows, and nothing replays them. That breaks "PENDING
+rows are NEVER removed by age" and the 60-minute outage scope (PLAT-CRITICAL-925,
+deadline 2026-11-17). Second, the erasure purge removes only published rows
+(SENSOR-MEDIUM-198). The case above for a per-tenant table gives two reasons.
+The row-lock hot spot is a capacity claim: the outbox insert takes no shared row
+lock, and the readiness gate (`tools/scripts/evaluate-telemetry-readiness.ts`)
+fails closed until a measured 2,000 msg/s run passes. The tenant-schema boundary
+is a real cost, and this decision accepts it: the dispatch rows live in the
+cross-tenant `sensor` schema, so a schema-drop erasure does not remove a
+tenant's dead-lettered or pending rows (SENSOR-MEDIUM-198), Task 6's archive
+erasure has to include `sensor.sensor_outbox` when it lands, and a per-tenant
+restore does not carry the tenant's pending dispatch rows. If that run shows the
+per-row NOTIFY or the seven days of published rows the relay keeps as the
+limit, the fix belongs in the outbox owner, for example per-tenant outbox
+tables, not in a second relay. The receipt half (source-id receipts,
+reconciliation sets, quarantine of payloads without a producer identity) is
+still open as SENSOR-MEDIUM-195.
 
 - [ ] **Step 1.10: Verify failure drills and commit**
 

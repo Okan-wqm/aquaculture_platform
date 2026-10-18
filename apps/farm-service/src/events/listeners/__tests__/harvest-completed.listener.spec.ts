@@ -7,6 +7,8 @@
  * effects:
  *   - partial harvest → batch status transition to HARVESTING (DB write)
  *   - regulatory/traceability follow-up published on the bus
+ *   - production-completed follow-up on a final harvest, and never TankCleared:
+ *     the harvest command enqueues that with the harvest that emptied the tank
  *
  * London-school: every collaborator (repositories, event bus) is a test double
  * built from the shared factories (no casts on added lines beyond single-`as`
@@ -19,7 +21,6 @@ import type { IEventBus } from '@platform/event-bus';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
 
 import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
-import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { HarvestCompletedListener } from '../harvest-completed.listener';
 import { makeMockEventBus } from './make-mock-event-bus';
 
@@ -39,12 +40,9 @@ interface PublishedFollowUp {
   tenantId?: string;
   batchId?: string;
   harvestedQuantity?: number;
-  tankId?: string;
-  previousBatchId?: string;
   causationId?: string;
   correlationId?: string;
   harvestedAt?: unknown;
-  clearedAt?: unknown;
   completedAt?: unknown;
 }
 
@@ -127,12 +125,7 @@ function makeEvent(overrides: Partial<BatchHarvestedEvent> = {}): BatchHarvested
   };
 }
 
-function makeListener(opts: {
-  bus?: BusDouble;
-  batch?: Batch | null;
-  tankBatches?: Array<Partial<TankBatch>>;
-  redis?: RedisDouble;
-}): {
+function makeListener(opts: { bus?: BusDouble; batch?: Batch | null; redis?: RedisDouble }): {
   listener: HarvestCompletedListener;
   batchRepo: jest.Mocked<import('typeorm').Repository<Batch>>;
   redis?: RedisDouble;
@@ -140,12 +133,9 @@ function makeListener(opts: {
   const batchRepo = createMockRepository<Batch>();
   batchRepo.findOne.mockResolvedValue(opts.batch === null ? null : (opts.batch ?? makeBatch()));
 
-  const tankBatchRepo = createMockRepository<TankBatch>();
-  tankBatchRepo.find.mockResolvedValue((opts.tankBatches ?? []) as TankBatch[]);
-
   // The listener's redis param is narrowed to Pick<RedisService,'setNx'|'del'>,
   // so the double slots in with NO cast.
-  const listener = new HarvestCompletedListener(batchRepo, tankBatchRepo, opts.bus, opts.redis);
+  const listener = new HarvestCompletedListener(batchRepo, opts.bus, opts.redis);
   return { listener, batchRepo, redis: opts.redis };
 }
 
@@ -223,23 +213,18 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     });
   });
 
-  it('publishes TankCleared + BatchProductionCompleted on a final, fully-emptied harvest', async () => {
+  it('publishes BatchProductionCompleted on a final, fully-emptied harvest, and no TankCleared', async () => {
     const bus = makeBus();
     const batch = makeBatch({ status: BatchStatus.HARVESTED, currentQuantity: 0 });
-    const { listener } = makeListener({
-      bus,
-      batch,
-      tankBatches: [{ tankId: 'tank-9', tankCode: 'T-09', primaryBatchId: BATCH_ID }],
-    });
+    const { listener } = makeListener({ bus, batch });
 
     await listener.handle(makeEvent({ isFinal: true }));
 
-    const events = publishedEvents(bus);
-    const tankCleared = events.find((e) => e.eventType === 'TankCleared');
-    const completed = events.find((e) => e.eventType === 'BatchProductionCompleted');
-    expect(tankCleared).toBeDefined();
-    expect(tankCleared).toMatchObject({ tankId: 'tank-9', previousBatchId: BATCH_ID });
-    expect(completed).toBeDefined();
+    const types = publishedEvents(bus).map((e) => e.eventType);
+    expect(types).toContain('BatchProductionCompleted');
+    // CreateHarvestRecordHandler enqueues TankCleared with the harvest that
+    // emptied the tank; publishing it here as well would duplicate it.
+    expect(types).not.toContain('TankCleared');
   });
 
   it('rejects an event with an invalid tenantId without touching the bus', async () => {
@@ -265,18 +250,14 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
   it('mints a DISTINCT fresh eventId per follow-up (not the trigger eventId)', async () => {
     const bus = makeBus();
     const batch = makeBatch({ status: BatchStatus.HARVESTED, currentQuantity: 0 });
-    const { listener } = makeListener({
-      bus,
-      batch,
-      tankBatches: [{ tankId: 'tank-9', tankCode: 'T-09', primaryBatchId: BATCH_ID }],
-    });
+    const { listener } = makeListener({ bus, batch });
 
     const trigger = makeEvent({ isFinal: true });
     await listener.handle(trigger);
 
     const events = publishedEvents(bus);
-    // final + emptied → regulatory + tankCleared + production-completed = 3.
-    expect(events).toHaveLength(3);
+    // final + emptied → regulatory + production-completed = 2.
+    expect(events).toHaveLength(2);
 
     const ids = events.map((e) => e.eventId);
     // No follow-up reuses the trigger's eventId (the msgID-collision bug).
@@ -298,11 +279,7 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
   it('coerces a string harvestedAt (wire format) into a Date on every follow-up', async () => {
     const bus = makeBus();
     const batch = makeBatch({ status: BatchStatus.HARVESTED, currentQuantity: 0 });
-    const { listener } = makeListener({
-      bus,
-      batch,
-      tankBatches: [{ tankId: 'tank-9', tankCode: 'T-09', primaryBatchId: BATCH_ID }],
-    });
+    const { listener } = makeListener({ bus, batch });
 
     // deserializeEvent returns ISO strings; reproduce that exact wire shape.
     const wireEvent = toWireEvent(
@@ -315,12 +292,10 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
 
     const events = publishedEvents(bus);
     const regulatory = events.find((e) => e.eventType === 'HarvestRegulatoryRecorded');
-    const tankCleared = events.find((e) => e.eventType === 'TankCleared');
     const completed = events.find((e) => e.eventType === 'BatchProductionCompleted');
 
     // ORPHAN-111: each contract date field is now an ISO string on the wire.
     expect(typeof regulatory?.harvestedAt).toBe('string');
-    expect(typeof tankCleared?.clearedAt).toBe('string');
     expect(typeof completed?.completedAt).toBe('string');
     expect(regulatory?.harvestedAt).toBe('2026-06-10T08:00:00.000Z');
   });

@@ -76,11 +76,12 @@ function fakeMqttClient(): FakeMqttClient {
   return client;
 }
 
-function publishPacket(payload: object): IPublishPacket {
+/** A wire string is sent as is; an object is serialized first. */
+function publishPacket(payload: object | string): IPublishPacket {
   return {
     cmd: 'publish',
     topic: TOPIC,
-    payload: Buffer.from(JSON.stringify(payload)),
+    payload: Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload)),
     qos: 1,
     dup: false,
     retain: false,
@@ -99,6 +100,7 @@ class TransactionalStore {
   readonly committedOutbox: OutboxRow[] = [];
   readonly timeline: string[] = [];
   failOutboxInsert = false;
+  failSensorReload = false;
 
   private readonly staged = new Map<
     EntityManager,
@@ -140,7 +142,10 @@ class TransactionalStore {
     const repositoryFor = (entity: EntityTarget<unknown>): object => {
       if (entity === Sensor) {
         return {
-          findOne: jest.fn().mockResolvedValue(this.sensor),
+          findOne: jest.fn(async () => {
+            if (this.failSensorReload) throw new Error('connection terminated unexpectedly');
+            return this.sensor;
+          }),
           update: jest.fn().mockResolvedValue({ affected: 1 }),
         };
       }
@@ -242,7 +247,8 @@ interface Chain {
   readonly store: TransactionalStore;
   readonly writeManaged: jest.Mock;
   readonly publish: jest.Mock;
-  deliver(payload: object): Promise<jest.Mock>;
+  readonly resolveTopic: jest.Mock;
+  deliver(payload: object | string): Promise<jest.Mock>;
   close(): Promise<void>;
 }
 
@@ -261,15 +267,16 @@ async function bootChain(): Promise<Chain> {
   // NATS is down for the whole chain: a direct publish can never succeed.
   const publish = jest.fn().mockRejectedValue(new Error('NATS: no responders (PubAck timeout)'));
   const eventBus = { publish } as Partial<IEventBus> as IEventBus;
+  const resolveTopic = jest.fn().mockResolvedValue({
+    id: SENSOR_ID,
+    name: 'DO probe',
+    type: 'temperature',
+    tenantId: TENANT_ID,
+    schemaName: 'tenant_1111111111114111',
+    protocolConfiguration: { topic: TOPIC },
+  });
   const topicCache = {
-    getSensorByTopic: jest.fn().mockResolvedValue({
-      id: SENSOR_ID,
-      name: 'DO probe',
-      type: 'temperature',
-      tenantId: TENANT_ID,
-      schemaName: 'tenant_1111111111114111',
-      protocolConfiguration: { topic: TOPIC },
-    }),
+    getSensorByTopic: resolveTopic,
     invalidateSensor: jest.fn().mockResolvedValue(undefined),
   } as Partial<SensorTopicCacheService> as SensorTopicCacheService;
 
@@ -297,7 +304,8 @@ async function bootChain(): Promise<Chain> {
     store,
     writeManaged,
     publish,
-    async deliver(payload: object): Promise<jest.Mock> {
+    resolveTopic,
+    async deliver(payload: object | string): Promise<jest.Mock> {
       const done = jest.fn(() => {
         store.timeline.push('puback');
       });
@@ -389,5 +397,93 @@ describe('MQTT PUBACK waits for the durable commit of the reading and its dispat
 
     expect(redelivered).toHaveBeenCalledTimes(1);
     expect(chain.store.committedOutbox).toHaveLength(1);
+  });
+
+  // A failed lookup is not "no sensor": the reading was never persisted, so it
+  // must stay unacked like a failed write (SENSOR-CRITICAL-190's PostgreSQL
+  // failover reaches the per-message sensor reload before it reaches the write).
+  it.each([
+    [
+      'the tenant-scoped sensor reload',
+      (c: Chain): void => {
+        c.store.failSensorReload = true;
+      },
+    ],
+    [
+      'the topic resolver',
+      (c: Chain): void => {
+        c.resolveTopic.mockRejectedValueOnce(new Error('redis: connection lost'));
+      },
+    ],
+  ])('leaves a reading unacked when %s fails', async (_label, breakLookup) => {
+    chain = await bootChain();
+    breakLookup(chain);
+
+    const done = await chain.deliver(PAYLOAD);
+
+    expect(done).not.toHaveBeenCalled();
+    expect(chain.client.end).toHaveBeenCalledWith(true);
+    expect(chain.writeManaged).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Everything inside the durable leg runs on device-controlled input, and a
+ * throw there is a durable failure: it rolls the rows back, holds PUBACK and
+ * force-reconnects the ONE shared MQTT connection, and the broker redelivers
+ * the same message first on every reconnect. A payload that makes pure code
+ * throw would therefore stop MQTT ingestion for every tenant. These payloads
+ * are well-formed JSON under the 256 KB cap; each must be acked once its
+ * transaction commits.
+ */
+describe('a payload shape is never a durable failure', () => {
+  let chain: Chain | undefined;
+  // 40 KB of nested arrays: JSON.parse accepts it, a recursive walk overflows.
+  const DEPTH = 20_000;
+  const deeplyNested = `${'['.repeat(DEPTH)}1${']'.repeat(DEPTH)}`;
+
+  beforeEach(() => {
+    mqttMock.connect.mockReset();
+  });
+
+  afterEach(async () => {
+    await chain?.close();
+    chain = undefined;
+  });
+
+  it('acks a reading whose numeric ts is outside the Date range', async () => {
+    chain = await bootChain();
+
+    // A nanosecond epoch: finite, but past the last instant a Date can hold.
+    const done = await chain.deliver('{"temperature":23.5,"ts":1730000000000000000}');
+
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(chain.client.end).not.toHaveBeenCalled();
+    expect(chain.store.committedMetrics).toHaveLength(1);
+    expect(chain.store.committedOutbox).toHaveLength(1);
+  });
+
+  it('acks a reading that carries a deeply nested field beside its channel', async () => {
+    chain = await bootChain();
+
+    const done = await chain.deliver(
+      `{"temperature":23.5,"ts":1730000000000,"extra":${deeplyNested}}`,
+    );
+
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(chain.client.end).not.toHaveBeenCalled();
+    expect(chain.store.committedMetrics).toHaveLength(1);
+    expect(chain.store.committedOutbox).toHaveLength(1);
+  });
+
+  it('skips a channel whose value is not a scalar, and acks', async () => {
+    chain = await bootChain();
+
+    const done = await chain.deliver(`{"temperature":${deeplyNested}}`);
+
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(chain.client.end).not.toHaveBeenCalled();
+    expect(chain.store.committedMetrics).toEqual([]);
+    expect(chain.store.committedOutbox).toEqual([]);
   });
 });

@@ -735,9 +735,16 @@ by the deterministic event id, and the MQTT ack gate releases PUBACK only after
 that commit. The outbox relay (`@platform/outbox`) stays the one owner of
 post-commit delivery in sensor-service: the GraphQL and batch ingest paths
 already send the same event through it (SENSOR-CRITICAL-001), and it already
-has the lease, retry, dead-letter, pending-age alarm and erasure purge this step
-would have rebuilt. A kill between commit and publish leaves an unpublished
-outbox row that the restarted relay completes. The case above for a per-tenant
+has the lease, retry, dead-letter and pending-age alarm this step would have
+rebuilt. A kill between commit and publish leaves an unpublished outbox row that
+the restarted relay completes. Two gaps keep the relay short of this step's own
+contract, and both are fixed in the outbox and erasure owners rather than in a
+second relay. First, the relay counts transport failures toward a five-attempt
+dead-letter budget, so a NATS or JetStream outage longer than about 40-60 s
+dead-letters the pending rows, and nothing replays them. That breaks "PENDING
+rows are NEVER removed by age" and the 60-minute outage scope (PLAT-CRITICAL-925,
+deadline 2026-11-17). Second, the erasure purge removes only published rows
+(SENSOR-MEDIUM-198). The case above for a per-tenant
 table is about capacity, not correctness: the outbox insert takes no shared row
 lock, and the readiness gate (`tools/scripts/evaluate-telemetry-readiness.ts`)
 fails closed until a measured 2,000 msg/s run passes. If that run shows the

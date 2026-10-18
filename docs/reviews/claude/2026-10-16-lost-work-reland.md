@@ -282,6 +282,11 @@ metric write, the registered handler counts a failure and resolves, `dispatchDur
 `done()` and mqtt.js sends PUBACK. The broker drops the message from the persistent session and
 the reading is gone, while the CRITICAL-086 code and its spec claim redelivery.
 
+Landed: the registered handler counts a failure and rethrows it, so `dispatchDurable` holds PUBACK
+and force-reconnects. `mqtt-ack-after-durable-dispatch.spec.ts` drives the real `MqttClientService`
+ack gate into the real listener; a failed metric write leaves the message unacked (red on main).
+`mqtt-listener.service.spec.ts` now delivers every message through the registered handler.
+
 ## SENSOR-CRITICAL-191
 
 MQTT ingestion PUBACKs a committed reading whose SensorReading dispatch was never made durable.
@@ -305,6 +310,13 @@ Failure scenario: NATS is restarting, or JetStream refuses the PubAck. A dissolv
 of 2.1 mg/L arrives on MQTT, its metric rows commit, the publish rejects, the error is logged and
 the message is PUBACKed. No outbox row or dispatch record exists, so nothing retries: alert-engine
 never evaluates the reading, the low-oxygen alarm never fires, and the dashboards never show it.
+
+Landed: `saveReading` enqueues the SensorReading into `sensor_outbox` in the metric transaction,
+keyed by its deterministic event id, and the outbox relay publishes it; the listener no longer
+publishes it itself. `mqtt-ack-after-durable-dispatch.spec.ts`, all red on main: with NATS down,
+PUBACK follows the commit of the metric rows and the outbox row; a failed enqueue rolls the rows
+back and holds PUBACK; a redelivery collapses onto the committed row.
+`mqtt-listener.rls.postgres.spec.ts` shows the outbox row committing under FORCE RLS on PostgreSQL.
 
 ## SENSOR-HIGH-192
 

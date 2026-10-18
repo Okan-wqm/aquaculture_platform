@@ -16,7 +16,9 @@ import {
   projectPersistedReadings,
   type EventId,
   type PersistedReadingMetric,
+  type SensorReadingEvent,
 } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, In } from 'typeorm';
 
 /**
@@ -187,12 +189,15 @@ interface TenantEdgeStatusPayload {
 }
 
 /**
- * Marks a failure of the DURABLE leg of message handling (the metric write
- * transaction). Only these propagate out of handleMessage: an unpersisted
- * reading must not be PUBACKed — the MQTT ack gate force-redelivers it from
- * the persistent session. Non-durable failures (parse, fan-out) stay
- * swallow-and-ack until the Task 1.6 disposition/DLQ contract classifies
- * them (SENSOR-CRITICAL-086).
+ * Marks a failure of the DURABLE leg of message handling: the one tenant
+ * transaction that writes the metric rows AND enqueues the reading's
+ * SensorReading into the transactional outbox. Only these propagate out of
+ * handleMessage: a reading whose rows or dispatch obligation did not commit
+ * must not be PUBACKed — the MQTT ack gate force-redelivers it from the
+ * persistent session (SENSOR-CRITICAL-086, SENSOR-CRITICAL-191). The fan-out
+ * itself is no longer a failure mode here: the outbox relay publishes the
+ * committed row and retries it. Parse failures stay ack-and-drop until the
+ * Task 1.6 disposition/DLQ contract classifies them (SENSOR-HIGH-093).
  */
 class DurableWriteError extends Error {}
 
@@ -228,7 +233,8 @@ function sha256Hex(text: string): string {
 @Injectable()
 export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttListenerService.name);
-  private readonly messageHandler: (topic: string, message: Buffer) => void;
+  // Promise-typed on purpose: the ack gate settles PUBACK on this promise.
+  private readonly messageHandler: (topic: string, message: Buffer) => Promise<void>;
 
   // Channel lookup cache: sensorId -> { channels, expiresAt }
   private readonly channelCache = new Map<
@@ -264,6 +270,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly metricWriter: SensorMetricWriterService,
+    // SENSOR-CRITICAL-191: the reading's SensorReading is enqueued in the SAME
+    // tenant transaction as its metric rows, and the outbox relay owns the
+    // NATS delivery — the one post-commit delivery owner sensor-service has
+    // (SENSOR-CRITICAL-001). Required, never optional: without it there is no
+    // durable dispatch and the ack gate would release PUBACK for an event
+    // nothing will retry.
+    private readonly outboxPublisher: OutboxPublisher,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
@@ -328,19 +341,23 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     this.legacyEdgeTopicsEnabled =
       this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
 
-    // Bind message handler to this instance. The promise is RETURNED, not
-    // swallowed: MqttClientService's ack gate (dispatchDurable) awaits it to
-    // decide PUBACK-vs-redelivery (SENSOR-CRITICAL-086). A swallowed error
-    // here would ack a message that was never durably persisted.
-    this.messageHandler = (topic: string, message: Buffer) => {
+    // Bind message handler to this instance. The promise is RETURNED and a
+    // rejection is RETHROWN after it is counted: MqttClientService's ack gate
+    // (dispatchDurable) awaits this promise to decide PUBACK-vs-redelivery
+    // (SENSOR-CRITICAL-086). A `.catch` that only counts turns the rejection
+    // into a resolved promise, and the gate then acks a reading that was never
+    // persisted (SENSOR-CRITICAL-190).
+    this.messageHandler = (topic: string, message: Buffer): Promise<void> => {
       this.mqttClient?.recordMessageReceived();
-      return this.handleMessage(topic, message)
-        .then(() => {
+      return this.handleMessage(topic, message).then(
+        () => {
           this.mqttClient?.recordMessageProcessed();
-        })
-        .catch(() => {
+        },
+        (error: unknown) => {
           this.mqttClient?.recordMessageFailed();
-        });
+          throw error;
+        },
+      );
     };
   }
 
@@ -524,14 +541,15 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const now = new Date();
+      const receivedAt = new Date();
 
-      // Save reading. A failure here means the reading was NOT durably
-      // persisted — it must propagate (wrapped in DurableWriteError) so the
-      // MQTT ack gate holds PUBACK and the persistent session redelivers
-      // (SENSOR-CRITICAL-086). Everything else in this handler stays
-      // swallow-and-ack until the Task 1.6 disposition/DLQ contract lands.
-      const persistedMetrics = await this.saveReading(sensor, data).catch((error: Error) => {
+      // Save the reading AND its dispatch obligation in one tenant
+      // transaction. A failure here means the rows or the SensorReading's
+      // outbox row did NOT commit — it must propagate (wrapped in
+      // DurableWriteError) so the MQTT ack gate holds PUBACK and the
+      // persistent session redelivers (SENSOR-CRITICAL-086/-191). Once this
+      // returns, both are durable and the outbox relay owns the publish.
+      await this.saveReading(sensor, data, receivedAt).catch((error: Error) => {
         throw new DurableWriteError(
           `Durable metric write failed for sensor ${sensor.id}: ${error.message}`,
         );
@@ -539,12 +557,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       // Debounce lastSeenAt update (flushed every 30 seconds)
       this.lastSeenPending.set(sensor.id, sensor.tenantId);
-
-      // Publish real-time event for WebSocket clients, projected from the rows
-      // saveReading persisted (SENSOR-CRITICAL-111). `data` is passed on only
-      // as the identity input: a redelivery of the SAME wire message must keep
-      // collapsing onto one eventId.
-      await this.publishSensorReadingEvent(sensor, persistedMetrics, data, now);
     } catch (error) {
       if (error instanceof DurableWriteError) {
         // Not durable → no ack → redelivery. The ack gate in
@@ -1810,20 +1822,18 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   // ==================== Sensor Reading Events ====================
 
   /**
-   * Publish sensor reading event for real-time updates
+   * The SensorReading for the rows saveReading is writing, or null when none
+   * of them is in the reading vocabulary. Pure: the caller enqueues it in the
+   * same transaction as the rows, and the outbox relay publishes it.
    */
-  private async publishSensorReadingEvent(
+  private buildSensorReadingEvent(
     sensor: Sensor,
     persisted: readonly PersistedReadingMetric[],
     identity: Record<string, unknown>,
     timestamp: Date,
-  ): Promise<void> {
-    if (!this.eventBus) {
-      return;
-    }
-
-    // SENSOR-CRITICAL-111: the event body comes from the rows saveReading just
-    // wrote, never from the wire payload. That is what makes the published
+  ): SensorReadingEvent | null {
+    // SENSOR-CRITICAL-111: the event body comes from the rows saveReading
+    // writes, never from the wire payload. That is what makes the published
     // value the CALIBRATED one and carries the farm/pond/tank the alert
     // engine's rule query fails closed without.
     const projection = projectPersistedReadings(persisted);
@@ -1833,43 +1843,38 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // as "nothing is wrong" and auto-resolves open INFO/LOW incidents as
       // "returned to normal". The metrics are persisted either way.
       this.logger.debug(
-        `Sensor ${sensor.id}: ${persisted.length} metric(s) stored, none in the reading vocabulary — no SensorReading published`,
+        `Sensor ${sensor.id}: ${persisted.length} metric(s) stored, none in the reading vocabulary — no SensorReading enqueued`,
       );
-      return;
+      return null;
     }
 
     const siteId = siteOfSensor(sensor);
-    try {
-      await this.eventBus.publish({
-        ...createBaseEvent('SensorReading', sensor.tenantId, {
-          aggregateId: sensor.id,
-          aggregateType: 'Sensor',
-          // Task 1.4 legacy-path identity: UUIDv5 over tenant + sensor +
-          // producer ts + canonical payload digest, so a re-emission of the
-          // SAME reading (e.g. after the MQTT ack gate redelivers and the
-          // row already upserted) collapses onto one eventId instead of
-          // double-firing downstream effects. The EDGE-assigned
-          // sourceEventId (Task 1.7) is the durable long-term answer; this
-          // fallback binds to the payload's own ts when present.
-          eventId: this.deriveLegacyReadingEventId(sensor, identity, timestamp),
-        }),
-        eventType: 'SensorReading' as const,
-        timestamp: timestamp.toISOString(),
-        sensorId: sensor.id,
-        ...projection.fields,
-        ...(projection.farmId !== undefined ? { farmId: projection.farmId } : {}),
-        ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
-        ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
-        ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
-        // The sensor's site: alert-engine places the alarm a rule raises from
-        // this reading on it (ALERT-MEDIUM-010), a UUID or nothing
-        // (ALERT-MEDIUM-013).
-        ...(siteId !== undefined ? { siteId } : {}),
-      });
-      this.logger.debug(`Published SensorReading event for sensor ${sensor.id}`);
-    } catch (error) {
-      this.logger.warn(`Failed to publish sensor reading event: ${(error as Error).message}`);
-    }
+    return {
+      ...createBaseEvent<SensorReadingEvent>('SensorReading', sensor.tenantId, {
+        aggregateId: sensor.id,
+        aggregateType: 'Sensor',
+        // Task 1.4 legacy-path identity: UUIDv5 over tenant + sensor +
+        // producer ts + canonical payload digest, so a re-emission of the
+        // SAME reading (e.g. after the MQTT ack gate redelivers and the
+        // row already upserted) collapses onto one eventId — and, as the
+        // outbox idempotency key, onto one outbox row. The EDGE-assigned
+        // sourceEventId (Task 1.7) is the durable long-term answer; this
+        // fallback binds to the payload's own ts when present.
+        eventId: this.deriveLegacyReadingEventId(sensor, identity, timestamp),
+      }),
+      eventType: 'SensorReading',
+      timestamp: timestamp.toISOString(),
+      sensorId: sensor.id,
+      ...projection.fields,
+      ...(projection.farmId !== undefined ? { farmId: projection.farmId } : {}),
+      ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
+      ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
+      ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
+      // The sensor's site: alert-engine places the alarm a rule raises from
+      // this reading on it (ALERT-MEDIUM-010), a UUID or nothing
+      // (ALERT-MEDIUM-013).
+      ...(siteId !== undefined ? { siteId } : {}),
+    };
   }
 
   /**
@@ -1993,19 +1998,22 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Save sensor reading to database using narrow table format
-   * Each channel value becomes a separate row in sensor_metrics
+   * Save a sensor reading in narrow table format (each channel value becomes
+   * one sensor_metrics row) AND enqueue its SensorReading into the
+   * transactional outbox, in ONE tenant transaction: both commit or neither
+   * (SENSOR-CRITICAL-191). When this resolves the reading and its dispatch
+   * obligation are durable, which is what lets the ack gate release PUBACK.
    */
   private async saveReading(
     sensor: Sensor,
     data: Record<string, unknown>,
-  ): Promise<PersistedReadingMetric[]> {
-    return runInTenantTransaction(
+    receivedAt: Date,
+  ): Promise<void> {
+    await runInTenantTransaction(
       this.dataSource,
       SENSOR_SOURCE_SCHEMA,
       sensor.tenantId,
       async (queryRunner) => {
-        const now = new Date();
         const channels = await this.getChannelsCached(sensor.id, queryRunner.manager);
         const metrics: SensorMetricInput[] = [];
         // SENSOR-CRITICAL-111: the reading event is projected from these rows,
@@ -2041,7 +2049,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           }
 
           metrics.push({
-            time: now,
+            time: receivedAt,
             sensorId: sensor.id,
             channelId: channel.id,
             tenantId: sensor.tenantId,
@@ -2057,7 +2065,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             qualityCode,
             qualityBits,
             sourceProtocol: 'mqtt',
-            sourceTimestamp: now,
+            sourceTimestamp: receivedAt,
           });
 
           persisted.push({
@@ -2073,8 +2081,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.metricWriter.writeManaged(metrics, queryRunner.manager);
         }
 
+        // `data` is passed on only as the identity input: a redelivery of the
+        // SAME wire message derives the same eventId, which the outbox's
+        // (tenantId, idempotencyKey) index collapses onto the row already
+        // committed.
+        const event = this.buildSensorReadingEvent(sensor, persisted, data, receivedAt);
+        if (event) {
+          await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+            idempotencyKey: event.eventId,
+            aggregateId: sensor.id,
+          });
+        }
+
         this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
-        return persisted;
       },
     );
   }

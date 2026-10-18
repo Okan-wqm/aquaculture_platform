@@ -286,12 +286,17 @@ Updated 2026-10-17 (lost-work reland, PR #2010): `FARM-CRITICAL-444` — the 18:
 sweep selected only batches whose stored `fcr.actual` is above zero, which only a closed batch
 has, so it never alerted on a live batch. It is `already-fixed-needs-close`: the PR fixes it and
 the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (lost-work reland, LW-SENSOR-ACK): `SENSOR-CRITICAL-190` — the handler the MQTT
+listener registers on the ack gate swallowed every rejection, so a failed metric write was
+PUBACKed; `SENSOR-CRITICAL-191` — the SensorReading was published after the metric commit, and a
+failed publish was acked with nothing left to retry it. Both are `already-fixed-needs-close`: the
+branch fixes them and the closure-reconcile lane records the main-reachable closer after merge.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
-| `SENSOR-CRITICAL-190` | OPEN | 2026-10-18 | claude | real-open |
-| `SENSOR-CRITICAL-191` | OPEN | 2026-10-18 | claude | real-open |
+| `SENSOR-CRITICAL-190` | OPEN | 2026-10-18 | claude | already-fixed-needs-close |
+| `SENSOR-CRITICAL-191` | OPEN | 2026-10-18 | claude | already-fixed-needs-close |
 
 ## Mutation Rules
 

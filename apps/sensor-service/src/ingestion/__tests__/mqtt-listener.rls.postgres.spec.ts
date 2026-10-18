@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { IEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import {
@@ -12,6 +13,8 @@ import { SensorMetric } from '../../database/entities/sensor-metric.entity';
 import { SensorProtocol } from '../../database/entities/sensor-protocol.entity';
 import { SensorTypeDefinition } from '../../database/entities/sensor-type-definition.entity';
 import { Sensor } from '../../database/entities/sensor.entity';
+import { CreateSensorOutbox1800400000000 } from '../../database/migrations/1800400000000-CreateSensorOutbox';
+import { SensorOutbox } from '../../outbox/sensor-outbox.entity';
 import { MqttClientService, MqttMessageHandler } from '../../shared-mqtt/mqtt-client.service';
 import { MqttListenerService } from '../mqtt-listener.service';
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
@@ -36,7 +39,16 @@ const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const TOPIC_A = 'sensors/rls-e2e/water-quality-a';
 const TOPIC_B = 'sensors/rls-e2e/water-quality-b';
-const ENTITIES = [Sensor, SensorDataChannel, SensorMetric, SensorProtocol, SensorTypeDefinition];
+// SensorOutbox is `synchronize: false`: the tenant DDL skips it, and the
+// production migration creates sensor.sensor_outbox below.
+const ENTITIES = [
+  Sensor,
+  SensorDataChannel,
+  SensorMetric,
+  SensorProtocol,
+  SensorTypeDefinition,
+  SensorOutbox,
+];
 
 /** The five parameters the prod water-quality simulator publishes. */
 const CHANNELS: ReadonlyArray<{ key: string; unit: string; min: number; max: number }> = [
@@ -102,6 +114,16 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
     SCHEMA_A = stage.schemaOf(TENANT_A);
     SCHEMA_B = stage.schemaOf(TENANT_B);
 
+    // The cross-tenant outbox exactly as production builds it (no RLS, the
+    // notify trigger), with the DML the runtime role needs to enqueue.
+    const outboxDdl = admin.createQueryRunner();
+    try {
+      await new CreateSensorOutbox1800400000000().up(outboxDdl);
+    } finally {
+      await outboxDdl.release();
+    }
+    await admin.query(`GRANT SELECT, INSERT ON sensor.sensor_outbox TO ${stage.runtimeRole}`);
+
     const redisService = {
       getJson: jest.fn().mockResolvedValue(null),
       setJson: jest.fn().mockResolvedValue(undefined),
@@ -128,6 +150,7 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
       config,
       runtime,
       new SensorMetricWriterService(runtime),
+      new OutboxPublisher(SensorOutbox),
       { publish: jest.fn().mockResolvedValue(undefined) } as Partial<IEventBus> as IEventBus,
       null,
       new SensorTopicCacheService(redisService, runtime),
@@ -164,6 +187,36 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
       salinity: 19.9,
       ammonia: 0.114,
     });
+  });
+
+  it("commits the reading's SensorReading to sensor_outbox with its rows (SENSOR-CRITICAL-191)", async () => {
+    const rows: Array<{
+      tenantId: string;
+      eventType: string;
+      idempotencyKey: string;
+      publishedAt: Date | null;
+      payload: Record<string, unknown>;
+    }> = await admin!.query(
+      `SELECT "tenantId", "eventType", "idempotencyKey", "publishedAt", payload
+         FROM sensor.sensor_outbox`,
+    );
+
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row).toMatchObject({
+      tenantId: TENANT_A,
+      eventType: 'SensorReading',
+      publishedAt: null,
+      payload: expect.objectContaining({
+        sensorId: sensorIds[TENANT_A],
+        readingTemperature: 24.2,
+        readingPh: 7.34,
+        readingDissolvedOxygen: 5.86,
+        readingSalinity: 19.9,
+        readingAmmonia: 0.114,
+      }),
+    });
+    expect(row!.idempotencyKey).toBe(row!.payload['eventId']);
   });
 
   it('keeps the reading inside the owning tenant', async () => {

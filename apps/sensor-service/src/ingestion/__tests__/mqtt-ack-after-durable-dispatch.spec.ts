@@ -1,0 +1,393 @@
+import { EventEmitter } from 'node:events';
+
+import { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
+import { getDataSourceToken } from '@nestjs/typeorm';
+import type { IEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
+import type { IPublishPacket } from 'mqtt';
+import type { DataSource, EntityManager, EntityTarget, QueryRunner } from 'typeorm';
+
+import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
+import type { SensorMetricInput } from '../../database/entities/sensor-metric.entity';
+import { Sensor } from '../../database/entities/sensor.entity';
+import { SensorOutbox } from '../../outbox/sensor-outbox.entity';
+import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
+import { MqttListenerService } from '../mqtt-listener.service';
+import { SensorMetricWriterService } from '../sensor-metric-writer.service';
+import { SensorTopicCacheService } from '../sensor-topic-cache.service';
+
+/**
+ * The MQTT ack chain end to end: the REAL MqttClientService ack gate (the
+ * mqtt.js handleMessage override that alone releases PUBACK) driving the REAL
+ * MqttListenerService through the handler the listener registers on it.
+ *
+ * WHY this spec exists: the listener's own spec called the private
+ * handleMessage directly and discarded the registered handler, so nothing ran
+ * the function the ack gate awaits. That handler swallowed every rejection,
+ * and the SensorReading fan-out was published after the metric commit with
+ * its failure logged and acked. Both let PUBACK go out for a reading whose
+ * durable handling had not completed (SENSOR-CRITICAL-190, SENSOR-CRITICAL-191).
+ *
+ * The contract pinned here: PUBACK only after ONE tenant transaction committed
+ * the metric rows AND the reading's SensorReading dispatch obligation (the
+ * sensor_outbox row the relay publishes); anything less is left unacked so the
+ * persistent session redelivers.
+ */
+
+jest.mock('mqtt', () => ({ __esModule: true, connect: jest.fn() }));
+
+const mqttMock = jest.requireMock<{ connect: jest.Mock }>('mqtt');
+
+const TENANT_ID = '11111111-1111-4111-8111-111111111111';
+const SENSOR_ID = '22222222-2222-4222-8222-222222222222';
+const CHANNEL_ID = '33333333-3333-4333-8333-333333333333';
+const FARM_ID = '44444444-4444-4444-8444-444444444444';
+const TOPIC = 'sensors/ack-chain/do-probe';
+const PAYLOAD = { temperature: 23.5, ts: 1_730_000_000_000 };
+
+interface OutboxRow {
+  readonly tenantId: string | null;
+  readonly idempotencyKey: string | null;
+  readonly eventType: string;
+  readonly payload: Record<string, unknown>;
+}
+
+interface FakeMqttClient extends EventEmitter {
+  subscribe: jest.Mock;
+  unsubscribe: jest.Mock;
+  end: jest.Mock;
+  removeAllListeners: jest.Mock;
+  handleMessage?: (packet: IPublishPacket, done: (error?: Error) => void) => void;
+}
+
+function fakeMqttClient(): FakeMqttClient {
+  const client = new EventEmitter() as FakeMqttClient;
+  client.subscribe = jest.fn((_topic: unknown, _opts: unknown, cb: (e?: Error) => void) =>
+    cb(undefined),
+  );
+  client.unsubscribe = jest.fn();
+  client.end = jest.fn((...args: unknown[]) => {
+    const cb = args.find((a) => typeof a === 'function') as (() => void) | undefined;
+    cb?.();
+    return client;
+  });
+  client.removeAllListeners = jest.fn();
+  return client;
+}
+
+function publishPacket(payload: object): IPublishPacket {
+  return {
+    cmd: 'publish',
+    topic: TOPIC,
+    payload: Buffer.from(JSON.stringify(payload)),
+    qos: 1,
+    dup: false,
+    retain: false,
+    messageId: 7,
+  };
+}
+
+/**
+ * A DataSource whose transactions behave like Postgres for what this chain
+ * needs: metric rows and outbox rows staged inside a transaction become
+ * visible only on COMMIT and vanish on ROLLBACK, and the outbox idempotency
+ * index ignores a second row with the same (tenantId, idempotencyKey).
+ */
+class TransactionalStore {
+  readonly committedMetrics: SensorMetricInput[] = [];
+  readonly committedOutbox: OutboxRow[] = [];
+  readonly timeline: string[] = [];
+  failOutboxInsert = false;
+
+  private readonly staged = new Map<
+    EntityManager,
+    { metrics: SensorMetricInput[]; outbox: OutboxRow[] }
+  >();
+
+  constructor(
+    private readonly sensor: Sensor,
+    private readonly channels: SensorDataChannel[],
+  ) {}
+
+  stageMetrics(manager: EntityManager, metrics: SensorMetricInput[]): void {
+    this.stageOf(manager).metrics.push(...metrics);
+  }
+
+  dataSource(): DataSource {
+    const source = { createQueryRunner: (): QueryRunner => this.queryRunner() };
+    return source as Partial<DataSource> as DataSource;
+  }
+
+  private stageOf(manager: EntityManager): { metrics: SensorMetricInput[]; outbox: OutboxRow[] } {
+    const stage = this.staged.get(manager);
+    if (!stage) throw new Error('write outside a transaction');
+    return stage;
+  }
+
+  private insertOutbox(manager: EntityManager, row: OutboxRow): void {
+    if (this.failOutboxInsert) throw new Error('sensor_outbox insert failed');
+    const visible = [...this.committedOutbox, ...this.stageOf(manager).outbox];
+    const duplicate =
+      row.idempotencyKey !== null &&
+      visible.some((r) => r.tenantId === row.tenantId && r.idempotencyKey === row.idempotencyKey);
+    if (!duplicate) this.stageOf(manager).outbox.push(row);
+  }
+
+  private queryRunner(): QueryRunner {
+    let active = false;
+    let readOnly = false;
+    const repositoryFor = (entity: EntityTarget<unknown>): object => {
+      if (entity === Sensor) {
+        return {
+          findOne: jest.fn().mockResolvedValue(this.sensor),
+          update: jest.fn().mockResolvedValue({ affected: 1 }),
+        };
+      }
+      if (entity === SensorDataChannel) return { find: jest.fn().mockResolvedValue(this.channels) };
+      return { update: jest.fn().mockResolvedValue({ affected: 1 }) };
+    };
+    const insertChain = (target: EntityManager): object => {
+      let values: Partial<OutboxRow> = {};
+      const chain = {
+        insert: () => chain,
+        into: () => chain,
+        values: (v: Partial<OutboxRow>) => {
+          values = v;
+          return chain;
+        },
+        orIgnore: () => chain,
+        execute: async () => {
+          this.insertOutbox(target, {
+            tenantId: values.tenantId ?? null,
+            idempotencyKey: values.idempotencyKey ?? null,
+            eventType: String(values.eventType),
+            payload: values.payload ?? {},
+          });
+          return { identifiers: [] };
+        },
+      };
+      return chain;
+    };
+    const runner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn(async () => {
+        active = true;
+        readOnly = false;
+        this.staged.set(manager, { metrics: [], outbox: [] });
+      }),
+      commitTransaction: jest.fn(async () => {
+        const stage = this.stageOf(manager);
+        this.committedMetrics.push(...stage.metrics);
+        this.committedOutbox.push(...stage.outbox);
+        this.timeline.push(readOnly ? 'commit:read' : `commit:${stage.outbox.length} outbox`);
+        this.staged.delete(manager);
+        active = false;
+      }),
+      rollbackTransaction: jest.fn(async () => {
+        this.timeline.push('rollback');
+        this.staged.delete(manager);
+        active = false;
+      }),
+      release: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockImplementation(async (sql: string) => {
+        if (sql === 'SET TRANSACTION READ ONLY') readOnly = true;
+        return [];
+      }),
+      get isTransactionActive(): boolean {
+        return active;
+      },
+    };
+    const manager = {
+      get queryRunner(): QueryRunner {
+        return runner as Partial<QueryRunner> as QueryRunner;
+      },
+      getRepository: jest.fn(repositoryFor),
+      createQueryBuilder: jest.fn(() =>
+        insertChain(manager as Partial<EntityManager> as EntityManager),
+      ),
+      query: jest.fn().mockResolvedValue([]),
+    } as Partial<EntityManager> as EntityManager;
+    return Object.assign(runner, { manager }) as Partial<QueryRunner> as QueryRunner;
+  }
+}
+
+function temperatureChannel(): SensorDataChannel {
+  const channel = {
+    id: CHANNEL_ID,
+    sensorId: SENSOR_ID,
+    tenantId: TENANT_ID,
+    channelKey: 'temperature',
+    isEnabled: true,
+    applyCalibration: (value: number): number => value,
+    validateValue: () => ({ valid: true }),
+  };
+  return channel as Partial<SensorDataChannel> as SensorDataChannel;
+}
+
+function probeSensor(): Sensor {
+  const sensor = {
+    id: SENSOR_ID,
+    tenantId: TENANT_ID,
+    farmId: FARM_ID,
+    protocolConfiguration: { topic: TOPIC, payloadFormat: 'json' },
+  };
+  return sensor as Partial<Sensor> as Sensor;
+}
+
+interface Chain {
+  readonly client: FakeMqttClient;
+  readonly mqtt: MqttClientService;
+  readonly listener: MqttListenerService;
+  readonly store: TransactionalStore;
+  readonly writeManaged: jest.Mock;
+  readonly publish: jest.Mock;
+  deliver(payload: object): Promise<jest.Mock>;
+  close(): Promise<void>;
+}
+
+async function bootChain(): Promise<Chain> {
+  const client = fakeMqttClient();
+  mqttMock.connect.mockReturnValueOnce(client);
+  const mqtt = new MqttClientService(new ConfigService({ MQTT_CLIENT_ID: 'aqua-ack-chain' }));
+  const connected = mqtt.connect();
+  client.emit('connect');
+  await connected;
+
+  const store = new TransactionalStore(probeSensor(), [temperatureChannel()]);
+  const writeManaged = jest.fn(async (metrics: SensorMetricInput[], manager: EntityManager) => {
+    store.stageMetrics(manager, metrics);
+  });
+  // NATS is down for the whole chain: a direct publish can never succeed.
+  const publish = jest.fn().mockRejectedValue(new Error('NATS: no responders (PubAck timeout)'));
+  const eventBus = { publish } as Partial<IEventBus> as IEventBus;
+  const topicCache = {
+    getSensorByTopic: jest.fn().mockResolvedValue({
+      id: SENSOR_ID,
+      name: 'DO probe',
+      type: 'temperature',
+      tenantId: TENANT_ID,
+      schemaName: 'tenant_1111111111114111',
+      protocolConfiguration: { topic: TOPIC },
+    }),
+    invalidateSensor: jest.fn().mockResolvedValue(undefined),
+  } as Partial<SensorTopicCacheService> as SensorTopicCacheService;
+
+  const moduleRef = await Test.createTestingModule({
+    providers: [
+      MqttListenerService,
+      { provide: ConfigService, useValue: new ConfigService({ MQTT_ENABLED: 'true' }) },
+      { provide: getDataSourceToken(), useValue: store.dataSource() },
+      { provide: SensorMetricWriterService, useValue: { writeManaged } },
+      { provide: 'EVENT_BUS', useValue: eventBus },
+      { provide: SensorTopicCacheService, useValue: topicCache },
+      { provide: MqttClientService, useValue: mqtt },
+      // The real publisher: its transaction assertion and identity checks are
+      // part of what "durable dispatch" means.
+      { provide: OutboxPublisher, useValue: new OutboxPublisher(SensorOutbox) },
+    ],
+  }).compile();
+  const listener = moduleRef.get(MqttListenerService);
+  await listener.onModuleInit();
+
+  return {
+    client,
+    mqtt,
+    listener,
+    store,
+    writeManaged,
+    publish,
+    async deliver(payload: object): Promise<jest.Mock> {
+      const done = jest.fn(() => {
+        store.timeline.push('puback');
+      });
+      client.handleMessage!(publishPacket(payload), done);
+      // Let the handler chain (reload, transaction, commit) settle.
+      for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r));
+      return done;
+    },
+    async close(): Promise<void> {
+      await listener.onModuleDestroy();
+      await mqtt.onModuleDestroy();
+    },
+  };
+}
+
+describe('MQTT PUBACK waits for the durable commit of the reading and its dispatch', () => {
+  let chain: Chain | undefined;
+
+  beforeEach(() => {
+    mqttMock.connect.mockReset();
+  });
+
+  afterEach(async () => {
+    await chain?.close();
+    chain = undefined;
+  });
+
+  it('leaves a reading whose metric write failed unacked, so the session redelivers it', async () => {
+    chain = await bootChain();
+    chain.writeManaged.mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
+
+    const done = await chain.deliver(PAYLOAD);
+
+    expect(done).not.toHaveBeenCalled();
+    expect(chain.client.end).toHaveBeenCalledWith(true);
+    expect(chain.store.committedMetrics).toEqual([]);
+  });
+
+  it('commits the SensorReading dispatch with the metric rows before PUBACK, NATS down or not', async () => {
+    chain = await bootChain();
+
+    const done = await chain.deliver(PAYLOAD);
+
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(chain.store.committedMetrics).toHaveLength(1);
+    expect(chain.store.committedOutbox).toHaveLength(1);
+    const [row] = chain.store.committedOutbox;
+    expect(row).toMatchObject({
+      tenantId: TENANT_ID,
+      eventType: 'SensorReading',
+      payload: expect.objectContaining({
+        eventType: 'SensorReading',
+        tenantId: TENANT_ID,
+        sensorId: SENSOR_ID,
+        farmId: FARM_ID,
+        readingTemperature: 23.5,
+      }),
+    });
+    // The dedup key is the reading's deterministic identity (Task 1.4).
+    expect(row!.idempotencyKey).toBe(row!.payload['eventId']);
+    // The sensor reload reads, then ONE write transaction commits the metric
+    // rows with the dispatch obligation, and only then is PUBACK released.
+    expect(chain.store.timeline).toEqual(['commit:read', 'commit:1 outbox', 'puback']);
+    // The relay owns delivery: the handler never publishes the reading itself.
+    const directReadings = chain.publish.mock.calls.filter(
+      ([event]: [{ eventType?: string }]) => event.eventType === 'SensorReading',
+    );
+    expect(directReadings).toEqual([]);
+  });
+
+  it('leaves the reading unacked when its dispatch obligation cannot be recorded', async () => {
+    chain = await bootChain();
+    chain.store.failOutboxInsert = true;
+
+    const done = await chain.deliver(PAYLOAD);
+
+    expect(done).not.toHaveBeenCalled();
+    expect(chain.client.end).toHaveBeenCalledWith(true);
+    // All or nothing: the metric rows rolled back with the failed enqueue.
+    expect(chain.store.committedMetrics).toEqual([]);
+    expect(chain.store.committedOutbox).toEqual([]);
+  });
+
+  it('collapses a redelivered reading onto the dispatch row it already committed', async () => {
+    chain = await bootChain();
+
+    await chain.deliver(PAYLOAD);
+    const redelivered = await chain.deliver(PAYLOAD);
+
+    expect(redelivered).toHaveBeenCalledTimes(1);
+    expect(chain.store.committedOutbox).toHaveLength(1);
+  });
+});

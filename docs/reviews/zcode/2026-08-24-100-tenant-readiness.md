@@ -727,6 +727,26 @@ publish obligation.
 backlog depth, `source_event_id` uniqueness conflicts and receipt/dispatch count
 divergence per tenant-minute.
 
+**Update 2026-10-18 (SENSOR-CRITICAL-191):** the dispatch half of this step
+landed on the existing transactional outbox, not on a second per-tenant ledger.
+`MqttListenerService.saveReading` enqueues the reading's SensorReading into
+`sensor.sensor_outbox` in the same tenant transaction as its metric rows, keyed
+by the deterministic event id, and the MQTT ack gate releases PUBACK only after
+that commit. The outbox relay (`@platform/outbox`) stays the one owner of
+post-commit delivery in sensor-service: the GraphQL and batch ingest paths
+already send the same event through it (SENSOR-CRITICAL-001), and it already
+has the lease, retry, dead-letter, pending-age alarm and erasure purge this step
+would have rebuilt. A kill between commit and publish leaves an unpublished
+outbox row that the restarted relay completes. The case above for a per-tenant
+table is about capacity, not correctness: the outbox insert takes no shared row
+lock, and the readiness gate (`tools/scripts/evaluate-telemetry-readiness.ts`)
+fails closed until a measured 2,000 msg/s run passes. If that run shows the
+per-row NOTIFY or the seven days of published rows the relay keeps as the
+limit, the fix belongs in the outbox owner, for example per-tenant outbox
+tables, not in a second relay. The receipt half (source-id receipts,
+reconciliation sets, quarantine of payloads without a producer identity) is
+still open as SENSOR-MEDIUM-195.
+
 - [ ] **Step 1.10: Verify failure drills and commit**
 
 ```bash

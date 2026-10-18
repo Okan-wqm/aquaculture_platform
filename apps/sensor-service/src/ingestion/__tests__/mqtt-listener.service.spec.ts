@@ -127,6 +127,9 @@ function createMockMqttClient(): jest.Mocked<MqttClientService> {
     subscribe: jest.fn().mockResolvedValue(undefined),
     publish: jest.fn().mockResolvedValue(undefined),
     onceConnected: jest.fn(),
+    recordMessageReceived: jest.fn(),
+    recordMessageProcessed: jest.fn(),
+    recordMessageFailed: jest.fn(),
   } as unknown as jest.Mocked<MqttClientService>;
 }
 
@@ -238,10 +241,14 @@ function buildService(
     writeManaged: jest.fn().mockResolvedValue(undefined),
     enqueue: jest.fn().mockResolvedValue({ tenantId: 'stub', committedRows: 0 }),
   };
+  // SENSOR-CRITICAL-191: the SensorReading is enqueued in the metric
+  // transaction; the outbox relay (not this service) publishes it.
+  const outbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
   const service = new (MqttListenerService as any)(
     configService,
     dataSource,
     metricWriter, // metricWriter (SensorMetricWriterService)
+    outbox, // outboxPublisher (OutboxPublisher)
     eventBus,
     edgeDeviceService,
     sensorTopicCache,
@@ -257,6 +264,7 @@ function buildService(
     sensorRepo,
     dataSource,
     metricWriter,
+    outbox,
     edgeDeviceService: edgeDeviceService as jest.Mocked<EdgeDeviceService> | null,
     sensorTopicCache: sensorTopicCache as jest.Mocked<SensorTopicCacheService> | null,
     mqttClient: mqttClient as jest.Mocked<MqttClientService> | null,
@@ -265,21 +273,21 @@ function buildService(
 }
 
 /**
- * Invoke the private handleMessage method via the bound messageHandler
- * stored in the constructor.
+ * Deliver a message through the handler the listener registers on the MQTT
+ * ack gate — the function whose promise decides PUBACK. Calling the private
+ * handleMessage instead hid that the registered wrapper swallowed every
+ * rejection, so a failed write was acked while this spec stayed green
+ * (SENSOR-CRITICAL-190).
  */
 async function callHandleMessage(
   service: MqttListenerService,
   topic: string,
   payload: string | Buffer,
 ): Promise<void> {
-  const handler = (service as any).messageHandler as (topic: string, message: Buffer) => void;
+  // Element access reaches the private field with its declared type, no cast.
+  const handler = service['messageHandler'];
   const buffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
-  // The bound handler now PROPAGATES rejections (SENSOR-CRITICAL-086): the
-  // MQTT ack gate awaits them to hold PUBACK and force redelivery. We still
-  // call handleMessage directly for per-error assertions.
-  void handler;
-  await (service as any).handleMessage(topic, buffer);
+  await handler(topic, buffer);
 }
 
 // ─── Test Suite ───────────────────────────────────────────────────────────
@@ -369,8 +377,8 @@ describe('MqttListenerService', () => {
       expect(metricWriter.writeManaged).not.toHaveBeenCalled();
     });
 
-    it('publishes SensorReading with a deterministic eventId derived from the source reading (Task 1.4)', async () => {
-      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+    it('enqueues SensorReading with a deterministic eventId derived from the source reading (Task 1.4)', async () => {
+      const { service, sensorTopicCache, dataSource, outbox } = buildService();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
 
       const sensor = createSensor();
@@ -389,9 +397,8 @@ describe('MqttListenerService', () => {
         },
       ]);
 
-      const publish = eventBus.publish as jest.Mock;
       const readingEvents = (): Array<Record<string, unknown>> =>
-        publish.mock.calls
+        outbox.enqueue.mock.calls
           .map((c) => c[0] as Record<string, unknown>)
           .filter((e) => e['eventType'] === 'SensorReading');
 
@@ -401,6 +408,11 @@ describe('MqttListenerService', () => {
       await callHandleMessage(service, `sensors/${TENANT_ID}/${SENSOR_ID}/data`, payload);
       expect(readingEvents()).toHaveLength(2);
       expect(readingEvents()[0]!['eventId']).toBe(readingEvents()[1]!['eventId']);
+      // The identity is also the outbox idempotency key, so the redelivered
+      // copy collapses onto the outbox row the first delivery committed.
+      for (const [event, , options] of outbox.enqueue.mock.calls) {
+        expect(options).toEqual({ idempotencyKey: event.eventId, aggregateId: SENSOR_ID });
+      }
       expect(readingEvents()[0]!['eventId']).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
@@ -417,7 +429,7 @@ describe('MqttListenerService', () => {
 
     it('carries the sensor’s site on SensorReading, for the alarm’s site (ALERT-MEDIUM-010)', async () => {
       const SITE_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+      const { service, sensorTopicCache, dataSource, outbox } = buildService();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
       const qr = dataSource.createQueryRunner();
       mockTenantSensorReload(qr, createSensor({ siteId: SITE_ID }));
@@ -440,14 +452,14 @@ describe('MqttListenerService', () => {
         JSON.stringify({ temperature: 23.5, ts: 1_730_000_000_000 }),
       );
 
-      const reading = (eventBus.publish as jest.Mock).mock.calls
+      const reading = outbox.enqueue.mock.calls
         .map((c) => c[0] as Record<string, unknown>)
         .find((e) => e['eventType'] === 'SensorReading');
       expect(reading?.['siteId']).toBe(SITE_ID);
     });
 
     it('carries no site for a site label that is not a UUID (ALERT-MEDIUM-013)', async () => {
-      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+      const { service, sensorTopicCache, dataSource, outbox } = buildService();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
       const qr = dataSource.createQueryRunner();
       mockTenantSensorReload(qr, createSensor({ siteId: 'Hatchery North' }));
@@ -470,7 +482,7 @@ describe('MqttListenerService', () => {
         JSON.stringify({ temperature: 23.5, ts: 1_730_000_000_000 }),
       );
 
-      const reading = (eventBus.publish as jest.Mock).mock.calls
+      const reading = outbox.enqueue.mock.calls
         .map((c) => c[0] as Record<string, unknown>)
         .find((e) => e['eventType'] === 'SensorReading');
       expect(reading).toBeDefined();

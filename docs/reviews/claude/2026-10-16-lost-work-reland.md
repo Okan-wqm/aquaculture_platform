@@ -288,3 +288,26 @@ Planned fix: both writers apply a weighing through one service. It re-bases the 
 share of its tank onto the measured average through the unit growth writer, under the unit lock,
 and reprices the tank's live day plan in the same transaction. The old branch's weight-provenance
 column, branded band weight and legacy-writer deletion are not part of this root cause.
+
+## FARM-HIGH-455
+
+The legacy daily feeding execution (feeding programs v1) writes a tank's weight around the unit
+weight writer. Found while re-landing FARM-CRITICAL-454; the old branch deleted this writer as a
+legacy duplicate, and that part was not re-landed with the weighing fix.
+
+- `apps/farm-service/src/feeding/services/daily-feeding-execution.service.ts:656-665`: the new
+  biomass is the plan-time snapshot (`execution.calculations.biomassKg`) plus this feeding's growth.
+- `daily-feeding-execution.service.ts:1085-1087`: `updateTankBiomassWithManager` sets
+  `avgWeightG`, `totalBiomassKg` and `currentBiomassKg` directly and never touches `batchDetails[]`.
+  `recordActualFeeding` (`:722`) calls it, reached by the live `recordDailyFeeding` mutation
+  (`feeding-program.resolver.ts:1073`).
+- `apps/farm-service/src/batch/services/tank-batch.service.ts:181-184`: every stock delta
+  re-derives the aggregates from `batchDetails[]`.
+
+Failure scenario: a v1 tank's 06:00 plan snapshots 10 kg. At 10:00 the fish are weighed at 30 g
+and the tank is re-based to 30 kg. At 14:00 a v1 feeding of 0.3 kg at FCR 1.2 sets the tank to
+10.25 kg, below the weighing, for every ration reader. `batchDetails[]` still says 30 kg, so the
+next mortality, transfer or v2 growth re-derives about 30 kg and drops the v1 growth. A fix routes
+the v1 growth through `BiomassGrowthApplierService.applyGrowth` under the unit lock, from the
+locked unit rather than the snapshot, or retires the v1 path. Owner okan/claude, deadline
+2026-12-17.

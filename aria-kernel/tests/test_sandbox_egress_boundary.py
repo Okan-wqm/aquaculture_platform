@@ -122,7 +122,7 @@ elif mode == "credentials":
     out = {"files": found, "environ": dict(os.environ)}
 elif mode == "gateway":
     # A raw request to the socket the room's environment names.
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:  # allowlist-external-network: the probe speaking to the room's own gateway socket
         sock.settimeout(10)
         sock.connect(os.environ["ANTHROPIC_UNIX_SOCKET"])
         sock.sendall(args[0].encode("latin-1"))

@@ -290,7 +290,6 @@ the closure-reconcile lane records the main-reachable closer after merge.
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
-| `FARM-CRITICAL-444` | OPEN | 2026-10-17 | claude | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -1099,4 +1098,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `already-fixed-needs-close`.
 - `ARIA-CRITICAL-215`: registry state is `RESOLVED` with closing commit
   `2a3fceee5`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-444`: registry state is `RESOLVED` with closing commit
+  `9b998ec4b`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.

@@ -302,10 +302,13 @@ CREDENTIAL_SHAPES: Final[tuple[CredentialShape, ...]] = (
            detect=r"ghs_[A-Za-z0-9]{36,}",
            redact=r"ghs_[A-Za-z0-9_]{20,}",
            fixture="ghs" + "_" + "g7" * 18, secret="g7" * 18),
+    # ARIA-MEDIUM-620 — the body is base64url (every `claude setup-token` /
+    # OAuth token), so '_' sits inside the first 32 characters as often as
+    # not: the refusal admits it, exactly as the redaction always has.
     _shape("anthropic_api_key", "credential", _REDACT_REFUSE,
-           detect=_KEY_START + r"sk-ant-[A-Za-z0-9-]{32,}",
+           detect=_KEY_START + r"sk-ant-[A-Za-z0-9_\-]{32,}",
            redact=_KEY_START + r"sk-ant-[A-Za-z0-9_\-]{32,}",
-           fixture="sk-ant" + "-api03-" + "h8" * 15, secret="h8" * 15),
+           fixture="sk-ant" + "-oat01-" + "h8" * 4 + "_" + "h8" * 10, secret="h8" * 4 + "_" + "h8" * 10),
     _shape("openai_api_key", "credential", _REDACT_REFUSE,
            detect=_KEY_START + r"sk-[A-Za-z0-9]{32,}", redact=_DETECT,
            fixture="sk" + "-" + "i9" * 20, secret="i9" * 20),

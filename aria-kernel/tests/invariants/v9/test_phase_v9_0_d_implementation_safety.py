@@ -390,6 +390,12 @@ class TestV9SecretScan(unittest.TestCase):
         diff = "ANTHROPIC_API_KEY=sk-ant-api03-deadbeef0123456789abcdef0123456"
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_diff(diff)
+        # ARIA-MEDIUM-620 — the setup-token body is base64url: an underscore
+        # inside the first 32 characters after sk-ant- must be refused like
+        # any other body (the redact view has always admitted '_').
+        setup_token = "sk-ant-" + "oat01-" + "Ab3_" + "Q" * 60
+        with self.assertRaises(_is.SecretLeakDetected):
+            _is.verify_no_secret_in_diff(f"pasted {setup_token} into the diff")
 
     def test_i_v9_secret_01_private_key_caught(self):
         diff = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAA..."

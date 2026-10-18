@@ -492,6 +492,7 @@ def _activate_panel_approved(
     cycle_id: str | None,
     root: Path,
 ) -> dict[str, Any]:
+    from .adapter_calibration import active_transition_evidence
     from .readiness import adapter_active_readiness
     from .tool_registry import transition_tool
 
@@ -513,6 +514,8 @@ def _activate_panel_approved(
         precision=1.0 if readiness["zero_finding_lane"] else readiness["precision"],
         critical_false_positives=readiness["critical_false_positives"],
         evidence_chains_valid=True,
+        # ARIA-HIGH-004 — the evidence the activation stands on, as of now.
+        active_evidence=active_transition_evidence(tool_id, base_dir=root),
     )
     append_tools_governance(root, ACTIVATED_KIND, {
         "tool_id": tool_id,

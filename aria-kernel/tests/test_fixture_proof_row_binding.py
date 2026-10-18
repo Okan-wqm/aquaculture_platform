@@ -201,15 +201,17 @@ class FixtureProofRowBindingTests(unittest.TestCase):
             key: value for key, value in summary.items() if key not in {"workspace_commit_sha", "argv_scripts_hash"}
         }
         legacy["schema_version"] = 1
-        for row, blocker in (
-            (legacy, "proof_schema_unsupported:agent_eval_fixture_runs"),
-            (summary, "proof_target_sha_unavailable:agent_eval_fixture_runs"),
-        ):
-            with self.subTest(schema_version=row["schema_version"]):
-                _candidates, _counts, blockers = _evaluate_native_rows(
-                    "fixture_calibration", {"agent_eval_fixture_runs": (row,)},
-                )
-                self.assertEqual(blockers, (blocker,))
+        _candidates, _counts, blockers = _evaluate_native_rows(
+            "fixture_calibration", {"agent_eval_fixture_runs": (legacy,)},
+        )
+        self.assertEqual(blockers, ("proof_schema_unsupported:agent_eval_fixture_runs",))
+        # ARIA-HIGH-004 — fixture_calibration@3: the version-2 row is a proof
+        # bound to the commit it names.
+        candidates, _counts, blockers = _evaluate_native_rows(
+            "fixture_calibration", {"agent_eval_fixture_runs": (summary,)},
+        )
+        self.assertEqual(blockers, ())
+        self.assertEqual([c.evidence_target_sha for c in candidates], [summary["workspace_commit_sha"]])
 
     def test_the_strict_reader_refuses_a_version_two_row_that_binds_nothing(self) -> None:
         summary = self._run()

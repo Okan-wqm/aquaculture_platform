@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
 from .finding_subject import normalize_finding_message
 from .ledger import sha256_of_canonical_json
@@ -569,6 +570,8 @@ def record_operator_feedback(
     evidence_selection: str | None = None,
     calibration_basis: dict[str, Any] | None = None,
     label_provenance: dict[str, Any] | None = None,
+    request_ids: list[str] | None = None,
+    target_sha: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
@@ -589,6 +592,15 @@ def record_operator_feedback(
         raise GovernanceError("affected_belief_ids must be an array of non-empty strings")
     if evidence_refs is not None and not _valid_string_list(evidence_refs):
         raise GovernanceError("evidence_refs must be an array of non-empty strings")
+    # ARIA-HIGH-004 — the learning funnel's join identities: the agent
+    # requests a judgment answers and the commit those requests were minted
+    # at. Stamped from the trusted request envelope by the producers
+    # (judgment_bridge for a judge row, generate_ai_consensus for the row it
+    # folds), never inferred later from whichever request is newest.
+    if request_ids is not None and not _valid_string_list(request_ids):
+        raise GovernanceError("request_ids must be an array of non-empty strings")
+    if target_sha is not None and not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
+        raise GovernanceError("target_sha must be a full git object id")
     # One gate for the whole number semantics: isinstance lets bool and
     # NaN through (nan < 0 and nan > 1 are both False), and those must be
     # refusals, not probabilities.
@@ -690,6 +702,12 @@ def record_operator_feedback(
         # stratum the finding was drawn from (escalated labels are reported,
         # never the basis of `calibrated`).
         "label_provenance": label_provenance,
+        # ARIA-HIGH-004 — additive like the two above: the requests this
+        # judgment answers and the commit they were minted at (None when the
+        # requests named none, or on a consensus whose judges judged
+        # different commits). funnel_health joins the learning funnel on them.
+        "request_ids": sorted(set(request_ids)) if request_ids else [],
+        "target_sha": target_sha,
     }
     # The stored row carries the signature the signer added; return that
     # so callers (judge lanes, the CLI) see the row exactly as recorded.
@@ -1143,6 +1161,16 @@ def generate_ai_consensus(
                 judge_count=len(closing),
                 judges_voted=len(rows),
                 calibration_basis=calibration_basis,
+                # ARIA-HIGH-004 — the consensus names the requests of the
+                # judges that closed it, and the commit only when every one
+                # of them was minted at the same one: a verdict folded from
+                # judgments of different trees is about no single tree.
+                request_ids=sorted({
+                    str(request_id)
+                    for row in closing
+                    for request_id in _optional_string_list(row.get("request_ids"))
+                }) or None,
+                target_sha=_common_target_sha(closing),
                 base_dir=base_dir,
             ),
         )
@@ -1184,6 +1212,15 @@ def generate_ai_consensus(
         "consensus": consensus_rows,
         "uncertainties": uncertainties,
     }
+
+
+def _common_target_sha(rows: list[dict[str, Any]]) -> str | None:
+    """The one commit every row was judged at, or None (ARIA-HIGH-004)."""
+    shas = {str(row.get("target_sha") or "") for row in rows}
+    if len(shas) != 1:
+        return None
+    sha = shas.pop()
+    return sha or None
 
 
 def generate_judgment_sample(

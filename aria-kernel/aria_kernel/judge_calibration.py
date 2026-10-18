@@ -26,12 +26,14 @@ from __future__ import annotations
 
 import math
 import random
+import uuid
 from pathlib import Path
 from typing import Any
 
 from .calibrated_intelligence import deterministic_seed
 from .feedback_store import append_jsonl, is_ground_truth_row, load_feedback
-from .tool_registry import ensure_tools_dir, utc_now
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 DEFAULT_MIN_SAMPLES: int = 10
@@ -467,6 +469,7 @@ def compute_judge_calibration(
     min_samples: int = DEFAULT_MIN_SAMPLES,
     precision_floor: float = DEFAULT_PRECISION_FLOOR,
     judgment_group_prefix: str | None = None,
+    target_sha: str | None = None,
     **calibration_knobs: Any,
 ) -> dict[str, Any]:
     """Score every judge_id against accumulated ground truth and persist a row.
@@ -476,7 +479,15 @@ def compute_judge_calibration(
     every consumer that needs the CURRENT calibration calls `score_judges`
     directly instead of reading this ledger's tail — the tail is audit
     history, not a freshness source (ORPHAN-HIGH-784).
+
+    ARIA-HIGH-004 — the row is a calibration REPORT the learning funnel can
+    join: it carries its own id, the commit of the cycle that measured it
+    (``target_sha`` from the caller's envelope; None when the caller names
+    none) and the judgment-group prefix it was scored over, so an organic
+    report is never read for a gold-set replay one.
     """
+    if target_sha is not None and not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
+        raise GovernanceError("judge calibration target_sha must be a full git object id")
     result = score_judges(
         cycle_id=cycle_id,
         base_dir=base_dir,
@@ -485,6 +496,12 @@ def compute_judge_calibration(
         judgment_group_prefix=judgment_group_prefix,
         **calibration_knobs,
     )
+    result = {
+        **result,
+        "calibration_report_id": f"jcal-{uuid.uuid4().hex[:24]}",
+        "target_sha": target_sha,
+        "judgment_group_prefix": judgment_group_prefix,
+    }
     path = calibration_path(base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     append_jsonl(path, result)

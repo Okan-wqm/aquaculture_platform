@@ -106,6 +106,8 @@ def promote_tool(
                 readiness=readiness,
                 base_dir=base_dir,
             )
+        from .adapter_calibration import active_transition_evidence
+
         return transition_tool(
             tool_id,
             target_status,
@@ -116,6 +118,10 @@ def promote_tool(
             precision=1.0 if readiness["zero_finding_lane"] else readiness["precision"],
             critical_false_positives=readiness["critical_false_positives"],
             evidence_chains_valid=True,
+            # ARIA-HIGH-004 — the calibration report, verdict, fixture run,
+            # version and commit this promotion stands on, verified by
+            # transition_tool before any authority is resolved.
+            active_evidence=active_transition_evidence(tool_id, base_dir=base_dir),
         )
     return transition_tool(
         tool_id,

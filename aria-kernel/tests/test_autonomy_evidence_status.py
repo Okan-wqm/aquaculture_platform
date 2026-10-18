@@ -2569,6 +2569,17 @@ class NativeProofContractTests(unittest.TestCase):
         self.assertEqual(len(unlock), 1)
         self.assertIsNone(unlock[0].authoritative_sha_field)
 
+        # ARIA-HIGH-004 — the learning funnel's two proofs are target-bound:
+        # a promotion by the commit its consensus's judge requests were
+        # minted at, a passing fixture suite by the checkout HEAD it ran at.
+        promotions = CAPABILITY_SPECS["finding_funnel"].contracts
+        self.assertEqual([(c.surface, c.authoritative_sha_field) for c in promotions], [("promotions", "target_sha")])
+        fixtures = CAPABILITY_SPECS["fixture_calibration"].contracts
+        self.assertEqual(
+            [(c.surface, c.authoritative_sha_field) for c in fixtures],
+            [("agent_eval_fixture_runs", "workspace_commit_sha")],
+        )
+
     def test_cycle_contract_upcasts_legacy_rows_before_terminal_evaluation(
         self,
     ) -> None:
@@ -3017,9 +3028,12 @@ class NativeProofContractTests(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0].evidence_target_sha, "a" * 40)
 
-    def test_fixture_native_schema_reaches_declared_non_live_target_gate(self) -> None:
+    def test_fixture_suite_proof_binds_the_commit_it_measured(self) -> None:
         # The producer's current row (ARIA-MEDIUM-400: schema version 2 names
         # the workspace commit and the argv scripts digest it measured).
+        # ARIA-HIGH-004 — fixture_calibration@3 binds a passing suite to that
+        # commit (workspace_commit_sha): it is the proof's target, and a row
+        # whose commit is not a full object id proves nothing.
         base = {
             "$schema": "aria/agent-eval-fixture-run/v1",
             "schema_version": 2,
@@ -3069,12 +3083,73 @@ class NativeProofContractTests(unittest.TestCase):
                 "row_type": "fixture_run_suite",
             },)},
         )
-        self.assertEqual(candidates, ())
-        self.assertEqual(counts, {"rows": 1, "terminal": 1, "admissible": 0})
-        self.assertEqual(
-            blockers,
-            ("proof_target_sha_unavailable:agent_eval_fixture_runs",),
-        )
+        self.assertEqual([c.evidence_target_sha for c in candidates], ["c" * 40])
+        self.assertEqual([c.row_id for c in candidates], ["fixture-run-1"])
+        self.assertEqual(counts, {"rows": 1, "terminal": 1, "admissible": 1})
+        self.assertEqual(blockers, ())
+
+        for commit in ("HEAD", None, "c" * 39):
+            with self.subTest(workspace_commit_sha=commit):
+                candidates, counts, blockers = _evaluate_native_rows(
+                    "fixture_calibration",
+                    {"agent_eval_fixture_runs": ({
+                        **base,
+                        "row_type": "fixture_run_suite",
+                        "workspace_commit_sha": commit,
+                    },)},
+                )
+                self.assertEqual(candidates, ())
+                self.assertEqual(counts, {"rows": 1, "terminal": 1, "admissible": 0})
+                self.assertEqual(blockers, ("proof_target_sha_invalid:agent_eval_fixture_runs",))
+
+    def test_promotion_proof_binds_the_commit_its_judges_were_minted_at(self) -> None:
+        """ARIA-HIGH-004 — finding_funnel@2: a promotion row is a proof only for
+        the commit finding_promotion stamped from its consensus (target_sha).
+        A legacy row, or one folded from judges of different trees
+        (target_sha None), stays countable history and proves nothing."""
+        from aria_kernel.finding_promotion import promotion_row
+
+        row = {
+            **promotion_row(
+                finding_fingerprint="fp-1", finding_id="F-1", tool_id="tool-a", judgment_group_id="jg-1",
+                consensus_run_id="run-1", request_ids=["AIR-1", "AIR-2", "AIR-3"], target_sha="d" * 40,
+            ),
+            "ledger_hash": "sha256:" + "7" * 64,
+        }
+        candidates, counts, blockers = _evaluate_native_rows("finding_funnel", {"promotions": (row,)})
+        self.assertEqual([(c.row_id, c.evidence_target_sha) for c in candidates], [("fp-1", "d" * 40)])
+        self.assertEqual((counts["admissible"], blockers), (1, ()))
+
+        legacy = {key: value for key, value in row.items() if key not in {"consensus_run_id", "request_ids", "target_sha"}}
+        for unbound in (legacy, {**row, "target_sha": None}):
+            with self.subTest(keys=sorted(unbound)):
+                candidates, counts, blockers = _evaluate_native_rows("finding_funnel", {"promotions": (unbound,)})
+                self.assertEqual(candidates, ())
+                self.assertEqual(counts, {"rows": 1, "terminal": 1, "admissible": 0})
+                self.assertEqual(blockers, ("proof_target_sha_invalid:promotions",))
+
+    def test_an_empty_learning_stage_refuses_live_proof(self) -> None:
+        """ARIA-HIGH-004 — finding_funnel and fixture_calibration name the
+        learning stages they prove; any one holding nothing is a count
+        blocker, which keeps the capability declared (never live_proven)."""
+        passing_suite = {"row_type": "fixture_run_suite", "passed": True, "actual_status": "pass"}
+        _counts, blockers = _folded_counts({
+            "agent_eval_fixture_runs": (passing_suite,),
+            "calibration_adapter_reports": ({},),
+        })
+        self.assertEqual(blockers["fixture_calibration"], ("learning_funnel_stage_empty:judge_rows",))
+        self.assertEqual(blockers["finding_funnel"], (
+            "learning_funnel_stage_empty:ai_consensus_true_positive",
+            "learning_funnel_stage_empty:unique_promoted",
+        ))
+        _counts, blockers = _folded_counts({
+            "agent_eval_fixture_runs": (passing_suite,),
+            "calibration_judge": ({},),
+            "calibration_adapter_reports": ({},),
+            "operator_feedback": ({"source_type": "ai_consensus", "verdict": "true_positive"},),
+            "promotions": ({"finding_fingerprint": "fp-1"},),
+        })
+        self.assertEqual((blockers["fixture_calibration"], blockers["finding_funnel"]), ((), ()))
 
     def test_safe_counts_use_native_non_overlapping_semantics(self) -> None:
         rows = {
@@ -6373,7 +6448,6 @@ PENDING_CLOSURE_REGRESSION_REFS: dict[str, tuple[str, ...]] = {
         "aria-kernel/tests/test_workflow_mode_a_transport.py",
         "aria-kernel/tests/test_signed_readiness_snapshot.py",
     ),
-    "ARIA-HIGH-004": ("aria-kernel/tests/test_promotion_funnel_e2e.py",),
     "ARIA-HIGH-005": ("aria-kernel/tests/test_pre_merge_evidence.py",),
     "ARIA-HIGH-006": (
         "aria-kernel/tests/test_file_claim_atomic_acquire.py",

@@ -2151,8 +2151,14 @@ def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     # Plan 024 §A — score each judge against accumulated ground truth so
     # the cheap-tier judgment is measured, not assumed. Read-only join over
     # the feedback ledger (no LLM).
+    # ARIA-HIGH-004 — the report names the commit this cycle measured at,
+    # resolved the way every other phase of the cycle resolves it, so the
+    # learning funnel can join it to the judgments of the same tree.
+    from .convergence_drainer import _resolve_workspace_head_sha
+
+    target_sha = _resolve_workspace_head_sha(context.workspace_root) if context.workspace_root else None
     return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir,
-                                     **_calibration_knobs(context.workspace_root))
+                                     target_sha=target_sha, **_calibration_knobs(context.workspace_root))
 
 
 def _phase_fitness_report(context: PhaseContext) -> dict[str, Any]:

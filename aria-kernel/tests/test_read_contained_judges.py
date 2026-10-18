@@ -220,10 +220,6 @@ class ADeniedToolCallExitsInsteadOfHanging(unittest.TestCase):
         self.assertIn("Write", argv[argv.index("--disallowedTools") + 1:])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheJournalNamesWhereASearchLookedNeverWhatFor(unittest.TestCase):
     def test_grep_and_glob_rows_carry_scope_and_glob_only(self) -> None:
         from aria_kernel.hooks import sanitize_journal_entry
@@ -237,3 +233,7 @@ class TheJournalNamesWhereASearchLookedNeverWhatFor(unittest.TestCase):
 def json_dumps(row: dict) -> str:
     import json
     return json.dumps(row, sort_keys=True)
+
+
+if __name__ == "__main__":
+    unittest.main()

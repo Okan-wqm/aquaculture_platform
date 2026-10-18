@@ -283,10 +283,6 @@ class DrainPendingTests(unittest.TestCase):
         dp.assert_called_once()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DrainBudgetWorstCaseTests(unittest.TestCase):
     """Run 31542485896 — the budget must price the NEXT child's worst case.
 
@@ -649,3 +645,7 @@ class DrainExitCodeNamesWhoseFailureItIs(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("drain_request_failed=1\n", output)
         self.assertIn("drain_harness_failed=0\n", output)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -86,10 +86,6 @@ class FixturePathEscapeTests(unittest.TestCase):
         self.assertIn("fixture_path_escape_outside_repo", str(ctx.exception))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FixtureWorkspaceScopeTests(unittest.TestCase):
     """C3/E13 — a fixture's own workspace tree is legitimate evidence scope.
 
@@ -130,3 +126,7 @@ class FixtureWorkspaceScopeTests(unittest.TestCase):
             self.assertTrue(semantic, f"{tool_id} semantic lane is EMPTY again")
             for p in semantic:
                 validate_semantic_regression_case(read_json(p), p)  # no raise
+
+
+if __name__ == "__main__":
+    unittest.main()

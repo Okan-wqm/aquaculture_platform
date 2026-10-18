@@ -476,10 +476,6 @@ class TargetShaJoinTests(unittest.TestCase):
             h.close()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AnOpenRouteEndsTheDrainByName(unittest.TestCase):
     """ARIA-HIGH-158 — an open circuit skipped every remaining request one
     selection at a time (~30 s each on the live store): the first production
@@ -535,3 +531,7 @@ class AnOpenRouteEndsTheDrainByName(unittest.TestCase):
             self.assertNotEqual(h.payload()["stop_reason"], "circuit_open_streak")
         finally:
             h.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

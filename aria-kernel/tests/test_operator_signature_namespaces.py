@@ -196,10 +196,6 @@ class RegistryAnchorTests(unittest.TestCase):
         self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools), (None, ors.ALLOWED_SIGNERS_UNAVAILABLE))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def _git_out(*args: str) -> str:
     return subprocess.run(["git", "-C", str(_REPO_ROOT), *args], check=True, capture_output=True, text=True).stdout.strip()
 
@@ -533,3 +529,7 @@ class NamespaceAddedByEnrolmentTests(unittest.TestCase):
                  + json.dumps(row((signers, no_enrol), REGISTRY_BYTES)) + "\n").encode()
         self.assertEqual(ors.verify_enrolment_chain(chain, allowed_signers=signers, registry=REGISTRY_BYTES,
                                                     runner_keys=frozenset()), ors.ENROL_CHAIN_BROKEN)
+
+
+if __name__ == "__main__":
+    unittest.main()

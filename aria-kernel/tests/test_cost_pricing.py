@@ -111,10 +111,6 @@ class ExecutorAttributionSourcePins(unittest.TestCase):
         self.assertIn("price_tokens", dumped)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AliasPricingCoverageTests(unittest.TestCase):
     """ORPHAN-HIGH-473 — every dispatchable ALIAS must have a priced family.
 
@@ -405,3 +401,7 @@ class CostWindowBoundaryTests(unittest.TestCase):
 
         self.assertTrue(_before_instant("2026-07-27T23:00:00", "2026-07-28T00:00:00Z"))
         self.assertFalse(_before_instant("2026-07-28T01:00:00", "2026-07-28T00:00:00Z"))
+
+
+if __name__ == "__main__":
+    unittest.main()

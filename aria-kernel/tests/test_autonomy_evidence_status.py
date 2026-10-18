@@ -1545,6 +1545,12 @@ def alias_factory(root):
             # verdict, it cannot render one.
             ("executor", f"{KERNEL}decision_questioning.py", "consumer"):
                 "the questioning fold reads request state to record the outcome of asking; it cannot accept a result",
+            # ARIA-MEDIUM-129 — the convention lift joins each request's
+            # derived state to the conventions it carried; it measures, it
+            # cannot accept a result.
+            ("executor", f"{KERNEL}convention_usefulness.py", "consumer"):
+                "the convention lift reads request verdicts to measure a convention's association with outcomes; "
+                "it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):

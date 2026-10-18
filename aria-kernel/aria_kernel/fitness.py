@@ -56,6 +56,11 @@ def generate_fitness_report(
     previous_reports = list_fitness_reports(base_dir=base_dir)
     trend = _trend(previous_reports, dimensions, overall)
     blockers = _blockers(dimensions)
+    # ARIA-MEDIUM-129 — whether the conventions ARIA handed its agents helped:
+    # each convention's success rate against matched convention-free work.
+    # Observational; nothing reads it back into decay or prompt selection.
+    from .convention_usefulness import measure_convention_lift
+
     report = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -70,6 +75,7 @@ def generate_fitness_report(
         "blocked_by": blockers,
         "recommended_next_action": _recommended_next_action(dimensions, blockers),
         "recommendation_ready": False,
+        "convention_lift": measure_convention_lift(base_dir=root),
         "evidence": {
             "adapter_runs": len(runs),
             "validation_plans": len(validation_plans),

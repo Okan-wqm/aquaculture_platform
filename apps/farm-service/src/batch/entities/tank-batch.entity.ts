@@ -49,6 +49,14 @@ export interface BatchDetail {
   avgWeightG: number;
   biomassKg: number;
   percentageOfTank: number;          // Tank içindeki yüzde
+  /**
+   * Day of the weighing this share's average weight was last re-based onto
+   * (ISO timestamp), written only by BiomassGrowthApplierService.applyMeasuredWeight.
+   * Absent until the batch is first weighed in this tank. It keeps a sample
+   * dated earlier from moving the share backwards (FARM-MEDIUM-453): the
+   * question is per batch and per tank, so it lives on the share, not on the row.
+   */
+  lastSampledAt?: string;
 }
 
 /**
@@ -207,6 +215,7 @@ export class TankBatch {
   @Column({ type: 'timestamptz', nullable: true })
   lastFeedingAt?: Date;
 
+  /** Latest weighing applied to this tank; written by BiomassGrowthApplierService.applyMeasuredWeight. */
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   lastSamplingAt?: Date;

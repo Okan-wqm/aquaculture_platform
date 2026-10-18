@@ -21,13 +21,20 @@
  *   8. The batch weight write targets the LOCKED in-tx row
  *      (queryRunner.manager.findOne with pessimistic_write), never the
  *      externally-loaded validation snapshot.
+ *   9. A sample of a stocked tank takes the unit lock for that tank and
+ *      moves it, then reprices its day plan, in the same transaction
+ *      (FARM-CRITICAL-454); a membership change during the lock is retried.
+ *
+ * The sample applier and the unit writer are the REAL services (the unit
+ * lock and the re-base are spied for the stocked-tank cases); the recalc and
+ * the read-model projection are typed doubles.
  *
  * tenantId is a valid UUID v4 because runInTenantTransaction pins the tenant
  * search_path and rejects non-UUIDs.
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
-import { createMockDataSource } from '@aquaculture/testing';
+import { collaborator, createMockDataSource, stub } from '@aquaculture/testing';
 
 import { RecordGrowthSampleHandler } from '../../handlers/record-growth-sample.handler';
 import { RecordGrowthSampleCommand } from '../../commands/record-growth-sample.command';
@@ -40,9 +47,18 @@ import type { Batch } from '../../../batch/entities/batch.entity';
 import type { FCRCalculationService } from '../../services/fcr-calculation.service';
 import type { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import type { OutboxPublisher } from '@platform/outbox';
+import type { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
+import {
+  BiomassGrowthApplierService,
+  type LockedUnit,
+} from '../../../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+import { GrowthSampleApplierService } from '../../services/growth-sample-applier.service';
 
 // Valid UUID v4 — runInTenantTransaction rejects non-UUID tenant IDs.
 const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
+const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 interface HarnessOpts {
   batch?: Partial<Batch> | null;
@@ -51,6 +67,12 @@ interface HarnessOpts {
   batchSaveImpl?: (entity: Batch) => Promise<Batch>;
   enqueueImpl?: (event: unknown, em: EntityManager) => Promise<void>;
   backdatePolicyImpl?: () => void;
+  /** What the unit lookup answers: the tanks holding the batch. */
+  unitRows?: Array<{ tankId: string }>;
+  /** Builds the unit lockUnitForGrowth returns, from the locked batch row. */
+  lockedUnit?: (batch: Batch) => LockedUnit | null;
+  /** Membership conflicts lockUnitForGrowth raises before it succeeds. */
+  lockConflicts?: number;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -114,6 +136,11 @@ function makeHarness(opts: HarnessOpts = {}) {
     }
     return Promise.resolve(null);
   });
+  // The unit lookup (GrowthSampleApplierService.unitOf) runs on the tx
+  // manager. The shared factory's manager has no `query` member, so it is
+  // installed here.
+  const unitLookup = jest.fn().mockResolvedValue(opts.unitRows ?? []);
+  Object.assign(mockManager, { query: unitLookup });
   const queryRunner: Partial<QueryRunner> = {
     connect: jest.fn().mockResolvedValue(undefined),
     startTransaction: jest.fn().mockResolvedValue(undefined),
@@ -171,6 +198,30 @@ function makeHarness(opts: HarnessOpts = {}) {
   });
   const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
 
+  const growthApplier = new BiomassGrowthApplierService();
+  let conflictsLeft = opts.lockConflicts ?? 0;
+  const lockUnitForGrowth = jest
+    .spyOn(growthApplier, 'lockUnitForGrowth')
+    .mockImplementation(async () => {
+      if (conflictsLeft > 0) {
+        conflictsLeft -= 1;
+        throw new ConflictException(
+          `Unit ${UNIT} batch membership changed during lock acquisition (missing: x). Retry.`,
+        );
+      }
+      return opts.lockedUnit ? opts.lockedUnit(batchRow as Batch) : null;
+    });
+  const applyMeasuredWeight = jest
+    .spyOn(growthApplier, 'applyMeasuredWeight')
+    .mockResolvedValue(true);
+  const recalcForUnit = jest.fn().mockResolvedValue(null);
+  const refreshContainers = jest.fn().mockResolvedValue(undefined);
+  const sampleApplier = new GrowthSampleApplierService(
+    growthApplier,
+    collaborator<DayPlanRecalcService>({ recalcForUnit }, 'DayPlanRecalcService'),
+    collaborator<FarmStockProjectionService>({ refreshContainers }, 'FarmStockProjectionService'),
+  );
+
   const handler = new RecordGrowthSampleHandler(
     dataSource as DataSource,
     measurementRepository as unknown as Repository<GrowthMeasurement>,
@@ -178,6 +229,8 @@ function makeHarness(opts: HarnessOpts = {}) {
     fcrService,
     backdatePolicy,
     outboxPublisher,
+    growthApplier,
+    sampleApplier,
   );
 
   return {
@@ -188,7 +241,21 @@ function makeHarness(opts: HarnessOpts = {}) {
     release,
     measurementSave,
     batchSave,
+    mockManager,
+    lockUnitForGrowth,
+    applyMeasuredWeight,
+    recalcForUnit,
+    refreshContainers,
     backdatePolicy: backdatePolicy as unknown as { validate: jest.Mock },
+  };
+}
+
+/** A unit lock that holds `batch` alone. */
+function unitHolding(batch: Batch): LockedUnit {
+  return {
+    tankBatch: stub<TankBatch>({ tankId: UNIT, tenantId: TENANT_UUID }),
+    batches: new Map([[batch.id, batch]]),
+    details: [],
   };
 }
 
@@ -196,11 +263,13 @@ function makeCommand(overrides: Partial<{
   individualMeasurements: Array<{ weightG: number }>;
   updateBatchWeight: boolean | undefined;
   measurementDate: Date;
+  tankId: string;
 }> = {}) {
   return new RecordGrowthSampleCommand(
     TENANT_UUID,
     {
       batchId: 'batch-1',
+      tankId: overrides.tankId,
       measurementDate: overrides.measurementDate ?? new Date('2026-04-10T09:00:00Z'),
       measurementType: MeasurementType.ROUTINE,
       measurementMethod: MeasurementMethod.MANUAL_SCALE,
@@ -326,5 +395,75 @@ describe('RecordGrowthSampleHandler — transactional outbox', () => {
     );
     expect(backdatePolicy.validate).toHaveBeenCalledTimes(1);
     expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('RecordGrowthSampleHandler — the sample reaches the tank (FARM-CRITICAL-454)', () => {
+  it('locks the unit holding the batch, moves it, and reprices its day plan in the same tx', async () => {
+    const harness = makeHarness({ unitRows: [{ tankId: UNIT }], lockedUnit: unitHolding });
+
+    await harness.handler.execute(makeCommand());
+
+    expect(harness.lockUnitForGrowth).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      UNIT,
+    );
+    expect(harness.applyMeasuredWeight).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      expect.objectContaining({ tankBatch: expect.objectContaining({ tankId: UNIT }) }),
+      {
+        batchId: 'batch-1',
+        avgWeightG: 250,
+        measuredAt: new Date('2026-04-10T09:00:00Z'),
+      },
+    );
+    expect(harness.refreshContainers).toHaveBeenCalledWith(harness.mockManager, TENANT_UUID, [UNIT]);
+    expect(harness.recalcForUnit).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      UNIT,
+      'growth_sample',
+    );
+    expect(harness.enqueue).toHaveBeenCalledTimes(1);
+    expect(harness.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a sample naming a tank that does not hold the batch; nothing commits', async () => {
+    const otherBatch = stub<Batch>({ id: 'batch-2' });
+    const harness = makeHarness({ lockedUnit: () => unitHolding(otherBatch) });
+
+    await expect(harness.handler.execute(makeCommand({ tankId: UNIT }))).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.enqueue).not.toHaveBeenCalled();
+    expect(harness.rollback).toHaveBeenCalledTimes(1);
+    expect(harness.commit).not.toHaveBeenCalled();
+  });
+
+  it('retries the whole command when the unit membership changes during the lock', async () => {
+    const harness = makeHarness({
+      unitRows: [{ tankId: UNIT }],
+      lockedUnit: unitHolding,
+      lockConflicts: 1,
+    });
+
+    await harness.handler.execute(makeCommand());
+
+    expect(harness.lockUnitForGrowth).toHaveBeenCalledTimes(2);
+    expect(harness.rollback).toHaveBeenCalledTimes(1);
+    expect(harness.commit).toHaveBeenCalledTimes(1);
+    expect(harness.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes no unit lock when the sample is recorded without applying it', async () => {
+    const harness = makeHarness({ unitRows: [{ tankId: UNIT }], lockedUnit: unitHolding });
+
+    await harness.handler.execute(makeCommand({ updateBatchWeight: false }));
+
+    expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
+    expect(harness.recalcForUnit).not.toHaveBeenCalled();
   });
 });

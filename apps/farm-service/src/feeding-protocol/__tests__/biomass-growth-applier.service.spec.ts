@@ -7,7 +7,7 @@
  * (v1 bug'ı) imkânsız (D-1); kilit sonrası üyelik değişimi ConflictException
  * (kanonik sıra korunur, K-1); Tank projeksiyonu kaçarsa YAPISAL metrik (P-13).
  */
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
@@ -235,5 +235,179 @@ describe('BiomassGrowthApplierService', () => {
     expect(locked!.details[0]!.batchId).toBe(BATCH_A);
     await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2);
     expect(harness.lockedTankBatch.totalBiomassKg).toBeCloseTo(103);
+  });
+});
+
+/**
+ * The weighing path (FARM-CRITICAL-454): a sample re-bases the weighed batch's
+ * share of the unit, which every ration path reads, and only that share.
+ */
+describe('BiomassGrowthApplierService.applyMeasuredWeight', () => {
+  const WEIGHED_AT = new Date('2026-10-15T09:00:00.000Z');
+
+  it("re-bases only the weighed batch's share and derives the unit from it", async () => {
+    const harness = makeHarness({
+      // D-1 input after the re-base: BATCH_A's share is 1000 fish at 130 g.
+      shareSums: [[{ biomass: 130, quantity: 1000 }]],
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    const moved = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+      batchId: BATCH_A,
+      avgWeightG: 130,
+      measuredAt: WEIGHED_AT,
+    });
+
+    expect(moved).toBe(true);
+    const [weighed, other] = harness.lockedTankBatch.batchDetails!;
+    expect(weighed).toMatchObject({ biomassKg: 130, avgWeightG: 130, quantity: 1000 });
+    expect(weighed!.lastSampledAt).toBe(WEIGHED_AT.toISOString());
+    // The other batch was not sampled: its share keeps its weight.
+    expect(other).toMatchObject({ biomassKg: 50, avgWeightG: 100, quantity: 500 });
+    expect(other!.lastSampledAt).toBeUndefined();
+    // 130 + 50 = 180 kg over the unchanged 1500 fish.
+    expect(harness.lockedTankBatch.totalBiomassKg).toBe(180);
+    expect(harness.lockedTankBatch.currentBiomassKg).toBe(180);
+    expect(harness.lockedTankBatch.avgWeightG).toBe(120);
+    expect(harness.lockedTankBatch.totalQuantity).toBe(1500);
+    expect(harness.lockedTankBatch.lastSamplingAt).toEqual(WEIGHED_AT);
+    expect(harness.saved).toContain(harness.lockedTankBatch);
+  });
+
+  it("restamps the weighed batch's theoretical track from its shares and keeps its FCR (D-1)", async () => {
+    const harness = makeHarness({ shareSums: [[{ biomass: 130, quantity: 1000 }]] });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+      batchId: BATCH_A,
+      avgWeightG: 130,
+      measuredAt: WEIGHED_AT,
+    });
+
+    const batchA = harness.batchesById.get(BATCH_A)!;
+    expect(batchA.weight.theoretical.totalBiomass).toBe(130);
+    expect(batchA.weight.theoretical.avgWeight).toBe(130);
+    expect(batchA.weight.theoretical.basedOnFCR).toBe(1);
+    // The unsampled batch's track is not touched.
+    expect(harness.batchesById.get(BATCH_B)!.weight.theoretical.totalBiomass).toBe(999);
+  });
+
+  it('counts a missing Tank projection row under its own label (P-13)', async () => {
+    const harness = makeHarness({
+      tankFound: false,
+      shareSums: [[{ biomass: 130, quantity: 1000 }]],
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+      batchId: BATCH_A,
+      avgWeightG: 130,
+      measuredAt: WEIGHED_AT,
+    });
+
+    expect(harness.metrics.recordTankProjectionMiss).toHaveBeenCalledWith({
+      operation: 'growth_measure',
+    });
+  });
+
+  it('refuses a sample of a batch the unit does not hold, writing nothing', async () => {
+    const harness = makeHarness();
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    await expect(
+      harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+        batchId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        avgWeightG: 130,
+        measuredAt: WEIGHED_AT,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(harness.saved).toEqual([]);
+  });
+
+  it('refuses an average that is not a positive weight, writing nothing', async () => {
+    const harness = makeHarness();
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    await expect(
+      harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+        batchId: BATCH_A,
+        avgWeightG: 0,
+        measuredAt: WEIGHED_AT,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(harness.saved).toEqual([]);
+  });
+
+  it('moves nothing for a sample from an earlier day than the share was last weighed on', async () => {
+    const harness = makeHarness({
+      lockedTankBatch: {
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 1000,
+            avgWeightG: 130,
+            biomassKg: 130,
+            percentageOfTank: 72.2,
+            lastSampledAt: WEIGHED_AT.toISOString(),
+          },
+          {
+            batchId: BATCH_B,
+            batchNumber: 'B-B',
+            quantity: 500,
+            avgWeightG: 100,
+            biomassKg: 50,
+            percentageOfTank: 27.8,
+          },
+        ],
+      },
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    const moved = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+      batchId: BATCH_A,
+      avgWeightG: 90,
+      // A `date` column's text, one day before the share's last weighing.
+      measuredAt: '2026-10-14',
+    });
+
+    expect(moved).toBe(false);
+    expect(harness.lockedTankBatch.batchDetails![0]).toMatchObject({
+      avgWeightG: 130,
+      biomassKg: 130,
+    });
+    expect(harness.saved).toEqual([]);
+  });
+
+  it('applies a second sample of the same day: the later-recorded one is current', async () => {
+    const harness = makeHarness({
+      lockedTankBatch: {
+        lastSamplingAt: WEIGHED_AT,
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 1000,
+            avgWeightG: 130,
+            biomassKg: 130,
+            percentageOfTank: 100,
+            lastSampledAt: WEIGHED_AT.toISOString(),
+          },
+        ],
+      },
+      shareSums: [[{ biomass: 125, quantity: 1000 }]],
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    const moved = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+      batchId: BATCH_A,
+      avgWeightG: 125,
+      measuredAt: '2026-10-15',
+    });
+
+    expect(moved).toBe(true);
+    expect(harness.lockedTankBatch.batchDetails![0]).toMatchObject({ avgWeightG: 125 });
+    // The row keeps the tank's latest stamp: the same-day text reads as midnight.
+    expect(harness.lockedTankBatch.lastSamplingAt).toEqual(WEIGHED_AT);
   });
 });

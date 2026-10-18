@@ -72,6 +72,7 @@ import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-p
 import { FeedingMeal } from '../../../feeding-protocol/entities/feeding-meal.entity';
 import { FeedingProtocolV2 } from '../../../feeding-protocol/entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from '../../../feeding-protocol/entities/protocol-assignment.entity';
+import { BiomassGrowthApplierService } from '../../../feeding-protocol/services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
 import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
 import { ProtocolResolutionService } from '../../../feeding-protocol/services/protocol-resolution.service';
@@ -98,6 +99,7 @@ import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 import { GrowthMeasurement } from '../../../growth/entities/growth-measurement.entity';
 import { RecordGrowthSampleHandler } from '../../../growth/handlers/record-growth-sample.handler';
 import { FCRCalculationService } from '../../../growth/services/fcr-calculation.service';
+import { GrowthSampleApplierService } from '../../../growth/services/growth-sample-applier.service';
 import { SiteContact } from '../../../site/entities/site-contact.entity';
 import { Supplier } from '../../../supplier/entities/supplier.entity';
 import { SupplierSite } from '../../../supplier/entities/supplier-site.entity';
@@ -272,6 +274,15 @@ export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatc
   // No backdate env override: the production defaults (growth 30 days,
   // mortality 14 days) apply.
   const backdatePolicy = new BackdatePolicyService(new ConfigService());
+  const dayPlanRecalc = new DayPlanRecalcService(
+    outboxPublisher,
+    new ProtocolResolutionService(new ProtocolRateService()),
+  );
+  const farmStockProjection = new FarmStockProjectionService();
+  // A weighing moves the tank it weighed and reprices that tank's live day
+  // plan (FARM-CRITICAL-454), so the recorder carries the real unit writer,
+  // recalc and read-model projection.
+  const growthApplier = new BiomassGrowthApplierService();
 
   const recordGrowthSample = new RecordGrowthSampleHandler(
     dataSource,
@@ -280,6 +291,8 @@ export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatc
     createFixtureFcrCalculationService(dataSource),
     backdatePolicy,
     outboxPublisher,
+    growthApplier,
+    new GrowthSampleApplierService(growthApplier, dayPlanRecalc, farmStockProjection),
   );
 
   const recordMortality = new RecordMortalityHandler(
@@ -292,17 +305,14 @@ export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatc
     dataSource.getRepository(Tank),
     dataSource.getRepository(EquipmentType),
     outboxPublisher,
-    new DayPlanRecalcService(
-      outboxPublisher,
-      new ProtocolResolutionService(new ProtocolRateService()),
-    ),
+    dayPlanRecalc,
     new RemovalQuantityPolicyService(),
     backdatePolicy,
     new AuditLogService(dataSource.getRepository(AuditLog)),
     new SiteAuthorizationService(),
     new TankBatchService(),
     new MortalityCullPolicyService(),
-    new FarmStockProjectionService(),
+    farmStockProjection,
     new MobileCommandReceiptService(),
   );
 

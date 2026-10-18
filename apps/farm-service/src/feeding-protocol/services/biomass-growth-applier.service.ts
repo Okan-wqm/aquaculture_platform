@@ -14,6 +14,13 @@
  *  - P-13: `Tank.currentBiomass` projeksiyonu korunur; ID-konvansiyonu tutmayan
  *    ünitede miss YAPISAL metrikle ölçülür (sessiz no-op ölür).
  *
+ * A unit's weight has two inputs and this service is the writer of both: the
+ * FCR projection (`applyGrowth`, biomass += fed / expected FCR) and a weighing
+ * (`applyMeasuredWeight`). The projection never reads a measurement, so before
+ * the weighing path existed a weighing changed nothing any ration reads
+ * (FARM-CRITICAL-454). Both paths derive the TankBatch aggregates from
+ * `batchDetails[]` the same way and keep the D-1 invariant below.
+ *
  * Kilit disiplini (K-1 kanonik sıra): `lockUnitForGrowth` batch'leri
  * batchId ARTAN sırada pessimistic_write kilitler, SONRA TankBatch'i kilitler;
  * kilit sonrası batch üyeliği değiştiyse ConflictException fırlatılır (çağıran
@@ -21,7 +28,13 @@
  *
  * @module FeedingProtocol/Services
  */
-import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
 
 import { Batch } from '../../batch/entities/batch.entity';
@@ -36,6 +49,25 @@ export interface LockedUnit {
   batches: Map<string, Batch>;
   /** SSoT görünüm: batchDetails yoksa primary aggregate'ten türetilen tek girdi. */
   details: BatchDetail[];
+}
+
+/** A weighing, as the unit weight writer applies it. */
+export interface MeasuredWeight {
+  /** The weighed batch: only its share of the unit moves. */
+  readonly batchId: string;
+  /** The sample's average weight, grams. */
+  readonly avgWeightG: number;
+  /** The sample's measurementDate: a Date, or a `date` column's 'YYYY-MM-DD' text. */
+  readonly measuredAt: Date | string;
+}
+
+/**
+ * The UTC calendar day of a weighing. Samples are stored in a `date` column,
+ * so two samples of one day carry no order between them: the later-recorded one
+ * is applied, and only a sample from an EARLIER day is held back.
+ */
+export function weighingDay(value: Date | string): string {
+  return new Date(value).toISOString().slice(0, 10);
 }
 
 @Injectable()
@@ -156,6 +188,95 @@ export class BiomassGrowthApplierService {
         detail.avgWeightG = round3((detail.biomassKg * 1000) / detail.quantity);
       }
     }
+    await this.saveUnitFromDetails(manager, locked);
+
+    // D-1: her etkilenen batch'in theoretical'ı TÜM ünitelerdeki paylarının
+    // toplamından — aynı transaction, son-yazan-kazanır imkânsız.
+    for (const [batchId, batch] of locked.batches) {
+      await this.restampTheoreticalFromShares(manager, tenantId, batchId, batch, basedOnFcr);
+    }
+
+    await this.projectTankBiomass(manager, tenantId, tankBatch, 'growth_apply');
+  }
+
+  /**
+   * Re-bases the weighed batch's share of the unit onto the measured average.
+   *
+   * WHY: every ration path (the 06:00 plan, the intra-day recalc, the feed
+   * forecast) sizes the feed from this unit's aggregates, and until this
+   * existed only the FCR projection moved them, so a weighing reached no ration
+   * (FARM-CRITICAL-454).
+   *
+   * WHAT: the share's biomass becomes its fish count times the measured
+   * average. Only the weighed batch's share moves: in a mixed tank the other
+   * batches were not sampled. The count is untouched, since a sample asserts a
+   * weight, never a population (the count's writer is TankBatchService).
+   * Aggregates, the batch's theoretical track (D-1) and the Tank projection
+   * (P-13) follow exactly as after FCR growth, and the unit is stamped with the
+   * weighing's day.
+   *
+   * A sample from an earlier day than the one this share was last re-based on
+   * moves nothing (FARM-MEDIUM-453): it is older than what the tank already
+   * knows. Returns whether the share moved, so the caller reprices the day plan
+   * only when the ration's input changed.
+   *
+   * PRECONDITION: `locked` comes from `lockUnitForGrowth` (canonical order).
+   *
+   * @throws BadRequestException when the unit does not hold the batch, or the
+   *   sample's average is not a positive weight.
+   */
+  async applyMeasuredWeight(
+    manager: EntityManager,
+    tenantId: string,
+    locked: LockedUnit,
+    weighing: MeasuredWeight,
+  ): Promise<boolean> {
+    const { tankBatch, details } = locked;
+    const share = details.find((detail) => detail.batchId === weighing.batchId);
+    const batch = locked.batches.get(weighing.batchId);
+    if (!share || !batch) {
+      throw new BadRequestException(
+        `Batch ${weighing.batchId} is not stocked in unit ${tankBatch.tankId}; ` +
+          'a growth sample must name the tank its fish were taken from.',
+      );
+    }
+    if (!(weighing.avgWeightG > 0)) {
+      throw new BadRequestException(
+        `A growth sample must weigh more than 0 g on average (got ${weighing.avgWeightG}).`,
+      );
+    }
+
+    const measuredAt = new Date(weighing.measuredAt);
+    if (
+      share.lastSampledAt !== undefined &&
+      weighingDay(measuredAt) < weighingDay(share.lastSampledAt)
+    ) {
+      return false;
+    }
+
+    share.biomassKg = round3((Number(share.quantity) * weighing.avgWeightG) / 1000);
+    share.avgWeightG = round3(weighing.avgWeightG);
+    share.lastSampledAt = measuredAt.toISOString();
+    // The row's stamp is the tank's latest weighing of any batch, so a share
+    // weighed later than another keeps it from moving back.
+    if (!tankBatch.lastSamplingAt || measuredAt > new Date(tankBatch.lastSamplingAt)) {
+      tankBatch.lastSamplingAt = measuredAt;
+    }
+    await this.saveUnitFromDetails(manager, locked);
+    // A weighing moves the weight, not the FCR the projection divides by, so
+    // the theoretical track keeps the FCR it was last projected with.
+    await this.restampTheoreticalFromShares(manager, tenantId, weighing.batchId, batch, null);
+    await this.projectTankBiomass(manager, tenantId, tankBatch, 'growth_measure');
+    return true;
+  }
+
+  /**
+   * Derives the TankBatch aggregates from `batchDetails[]` (the SSoT) and
+   * saves the row: total and current biomass, average weight over the unit's
+   * count, and each share's percentage of the biomass.
+   */
+  private async saveUnitFromDetails(manager: EntityManager, locked: LockedUnit): Promise<void> {
+    const { tankBatch, details } = locked;
     const newTotalBiomass = details.reduce((acc, detail) => acc + Number(detail.biomassKg), 0);
     tankBatch.batchDetails = details;
     tankBatch.totalBiomassKg = round3(newTotalBiomass);
@@ -168,23 +289,38 @@ export class BiomassGrowthApplierService {
         newTotalBiomass > 0 ? round3((Number(detail.biomassKg) / newTotalBiomass) * 100) : 0;
     }
     await manager.save(tankBatch);
+  }
 
-    // D-1: her etkilenen batch'in theoretical'ı TÜM ünitelerdeki paylarının
-    // toplamından — aynı transaction, son-yazan-kazanır imkânsız.
-    for (const [batchId, batch] of locked.batches) {
-      const sums = await this.sumBatchSharesAcrossUnits(manager, tenantId, batchId);
-      if (!sums) continue;
-      if (batch.weight?.theoretical) {
-        batch.weight.theoretical.totalBiomass = round3(sums.biomassKg);
-        batch.weight.theoretical.avgWeight =
-          sums.quantity > 0 ? round3((sums.biomassKg * 1000) / sums.quantity) : 0;
-        batch.weight.theoretical.lastCalculatedAt = new Date();
-        batch.weight.theoretical.basedOnFCR = basedOnFcr;
-      }
-      await manager.save(batch);
+  /**
+   * D-1: the batch's theoretical track is the sum of its shares in every unit.
+   * `basedOnFcr` null keeps the FCR the track was last projected with.
+   */
+  private async restampTheoreticalFromShares(
+    manager: EntityManager,
+    tenantId: string,
+    batchId: string,
+    batch: Batch,
+    basedOnFcr: number | null,
+  ): Promise<void> {
+    const sums = await this.sumBatchSharesAcrossUnits(manager, tenantId, batchId);
+    if (!sums) return;
+    if (batch.weight?.theoretical) {
+      batch.weight.theoretical.totalBiomass = round3(sums.biomassKg);
+      batch.weight.theoretical.avgWeight =
+        sums.quantity > 0 ? round3((sums.biomassKg * 1000) / sums.quantity) : 0;
+      batch.weight.theoretical.lastCalculatedAt = new Date();
+      if (basedOnFcr !== null) batch.weight.theoretical.basedOnFCR = basedOnFcr;
     }
+    await manager.save(batch);
+  }
 
-    // P-13: Tank projeksiyonu — konvansiyon tutmuyorsa YAPISAL metrik + warn.
+  /** P-13: Tank projeksiyonu — konvansiyon tutmuyorsa YAPISAL metrik + warn. */
+  private async projectTankBiomass(
+    manager: EntityManager,
+    tenantId: string,
+    tankBatch: TankBatch,
+    operation: 'growth_apply' | 'growth_measure',
+  ): Promise<void> {
     const tank = await manager.findOne(Tank, {
       where: { id: tankBatch.tankId, tenantId },
       lock: { mode: 'pessimistic_write' },
@@ -193,7 +329,7 @@ export class BiomassGrowthApplierService {
       tank.currentBiomass = tankBatch.totalBiomassKg;
       await manager.save(tank);
     } else {
-      this.metrics?.recordTankProjectionMiss({ operation: 'growth_apply' });
+      this.metrics?.recordTankProjectionMiss({ operation });
       this.logger.warn(
         `Tank projection row missing for unit ${tankBatch.tankId} — currentBiomass not projected (P-13).`,
       );

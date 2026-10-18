@@ -12,6 +12,14 @@
  *   2. isProcessed flips atomically with the weight update (single tx commit).
  *   3. Already-processed measurement is rejected before any tx work.
  *   4. Missing measurement / missing locked batch throw correctly.
+ *   5. A sample of a stocked tank takes the unit lock for the tank it names
+ *      and moves that tank, exactly as RecordGrowthSampleHandler does
+ *      (FARM-CRITICAL-454); a sample older than the batch's last weighing
+ *      leaves weight.actual alone (FARM-MEDIUM-453).
+ *
+ * The sample applier and the unit writer are the REAL services (the unit
+ * lock and the re-base are spied for the stocked-tank case); the recalc and
+ * the read-model projection are typed doubles.
  *
  * tenantId is a valid UUID v4 (runInTenantTransaction rejects non-UUIDs).
  */
@@ -22,15 +30,31 @@ import { UpdateBatchWeightFromSampleHandler } from '../../handlers/update-batch-
 import { UpdateBatchWeightFromSampleCommand } from '../../commands/update-batch-weight-from-sample.command';
 import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import type { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
+import {
+  BiomassGrowthApplierService,
+  type LockedUnit,
+} from '../../../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+import { GrowthSampleApplierService } from '../../services/growth-sample-applier.service';
+import {
+  collaborator,
+  createMockDataSource,
+  createMockRepository,
+  stub,
+} from '@aquaculture/testing';
 
 const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
 const BATCH_ID = 'batch-1';
 const MEASUREMENT_ID = 'measurement-1';
+const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 interface HarnessOpts {
   measurement?: Partial<GrowthMeasurement> | null;
   lockedBatch?: Partial<Batch> | null;
+  /** Builds the unit lockUnitForGrowth returns, from the locked batch row. */
+  lockedUnit?: (batch: Batch) => LockedUnit | null;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -86,6 +110,10 @@ function makeHarness(opts: HarnessOpts = {}) {
     }
     return Promise.resolve(null);
   });
+  // The unit lookup (GrowthSampleApplierService.unitOf) runs on the tx
+  // manager, whose shared factory double has no `query` member. No tank holds
+  // the batch unless a case names one on the measurement.
+  Object.assign(mockManager, { query: jest.fn().mockResolvedValue([]) });
   const queryRunner: Partial<QueryRunner> = {
     connect: jest.fn().mockResolvedValue(undefined),
     startTransaction: jest.fn().mockResolvedValue(undefined),
@@ -119,9 +147,28 @@ function makeHarness(opts: HarnessOpts = {}) {
   // a single cast satisfies the strictly-typed mock's resolve value.
   measurementRepository.findOne.mockResolvedValue(measurement as GrowthMeasurement | null);
 
+  const growthApplier = new BiomassGrowthApplierService();
+  const lockUnitForGrowth = jest
+    .spyOn(growthApplier, 'lockUnitForGrowth')
+    .mockImplementation(async () =>
+      opts.lockedUnit && lockedBatchRow ? opts.lockedUnit(lockedBatchRow as Batch) : null,
+    );
+  const applyMeasuredWeight = jest
+    .spyOn(growthApplier, 'applyMeasuredWeight')
+    .mockResolvedValue(true);
+  const recalcForUnit = jest.fn().mockResolvedValue(null);
+  const refreshContainers = jest.fn().mockResolvedValue(undefined);
+  const sampleApplier = new GrowthSampleApplierService(
+    growthApplier,
+    collaborator<DayPlanRecalcService>({ recalcForUnit }, 'DayPlanRecalcService'),
+    collaborator<FarmStockProjectionService>({ refreshContainers }, 'FarmStockProjectionService'),
+  );
+
   const handler = new UpdateBatchWeightFromSampleHandler(
     dataSource as DataSource,
     measurementRepository,
+    growthApplier,
+    sampleApplier,
   );
 
   return {
@@ -132,6 +179,18 @@ function makeHarness(opts: HarnessOpts = {}) {
     commit,
     rollback,
     lockedBatchRow,
+    lockUnitForGrowth,
+    applyMeasuredWeight,
+    recalcForUnit,
+  };
+}
+
+/** A unit lock that holds `batch` alone. */
+function unitHolding(batch: Batch): LockedUnit {
+  return {
+    tankBatch: stub<TankBatch>({ tankId: UNIT, tenantId: TENANT_UUID }),
+    batches: new Map([[batch.id, batch]]),
+    details: [],
   };
 }
 
@@ -192,5 +251,64 @@ describe('UpdateBatchWeightFromSampleHandler', () => {
     await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
+  });
+});
+
+describe('UpdateBatchWeightFromSampleHandler — the same path as recording (FARM-CRITICAL-454)', () => {
+  it('locks the tank the sample names, moves it, and reprices its day plan', async () => {
+    const harness = makeHarness({ measurement: { tankId: UNIT }, lockedUnit: unitHolding });
+
+    await harness.handler.execute(makeCommand());
+
+    expect(harness.lockUnitForGrowth).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      UNIT,
+    );
+    expect(harness.applyMeasuredWeight).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      expect.objectContaining({ tankBatch: expect.objectContaining({ tankId: UNIT }) }),
+      { batchId: BATCH_ID, avgWeightG: 85, measuredAt: new Date('2026-03-01T00:00:00Z') },
+    );
+    expect(harness.recalcForUnit).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      UNIT,
+      'growth_sample',
+    );
+    expect(harness.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves weight.actual on a weighing from a later day (FARM-MEDIUM-453)', async () => {
+    const harness = makeHarness({
+      // The batch was weighed on 2026-03-05; the stored sample is from 03-01.
+      lockedBatch: {
+        weight: {
+          initial: { avgWeight: 5, totalBiomass: 25, measuredAt: new Date('2026-01-01') },
+          theoretical: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastCalculatedAt: new Date('2026-01-01'),
+            basedOnFCR: 0,
+          },
+          actual: {
+            avgWeight: 95,
+            totalBiomass: 456,
+            lastMeasuredAt: new Date('2026-03-05T00:00:00Z'),
+            sampleSize: 50,
+            confidencePercent: 95,
+          },
+          variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
+        },
+      },
+    });
+
+    const result = await harness.handler.execute(makeCommand());
+
+    expect(result.weight.actual.avgWeight).toBe(95);
+    expect(result.weight.actual.sampleSize).toBe(50);
+    // Processed: it was applied, and a later weighing is current.
+    expect(harness.measurementSave).toHaveBeenCalledTimes(1);
   });
 });

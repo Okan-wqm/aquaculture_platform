@@ -259,6 +259,11 @@ and the day come from one sample, and the count on that day from the ledger), so
 older, not wrong; the defect is in the writers. A fix makes both writers refuse to move
 `weight.actual` backwards inside their locked update. Owner okan/claude, deadline 2027-01-15.
 
+Landed with FARM-CRITICAL-454: both writers apply a sample through `GrowthSampleApplierService`,
+which leaves `weight.actual` alone when it holds a weighing from a later day (the stocking
+placeholder, `sampleSize` 0, never holds one back), and the tank's share follows the same rule.
+`weighing-reaches-ration.postgres.spec.ts` records two samples out of order; it was red on main.
+
 ## FARM-CRITICAL-454
 
 A growth weighing never reaches the feeding ration. Lost-work item 2, half 600; the old branch
@@ -288,6 +293,14 @@ Planned fix: both writers apply a weighing through one service. It re-bases the 
 share of its tank onto the measured average through the unit growth writer, under the unit lock,
 and reprices the tank's live day plan in the same transaction. The old branch's weight-provenance
 column, branded band weight and legacy-writer deletion are not part of this root cause.
+
+Landed: `GrowthSampleApplierService` is the one path for both writers. Under the unit lock
+(`lockUnitForGrowth` in `withUnitLockRetry`) it writes `weight.actual`, then
+`BiomassGrowthApplierService.applyMeasuredWeight` re-bases the weighed batch's share (count x
+measured average) and stamps `lastSamplingAt`. It refreshes the farm-stock read model and reprices
+the live day plan (`growth_sample`). A sample is refused if it names a tank that does not hold the
+batch, or names none for a batch in several. `weighing-reaches-ration.postgres.spec.ts` was red on
+main (7 of 8 cases). The v1 feeding writer that bypasses this path is FARM-HIGH-455.
 
 ## FARM-HIGH-455
 

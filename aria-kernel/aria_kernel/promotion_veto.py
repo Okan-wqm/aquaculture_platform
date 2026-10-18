@@ -238,6 +238,11 @@ def record_pending_promotion(
     existing = pending_promotion(tool_id=tool_id, base_dir=root)
     if existing is not None:
         return {**existing, "status": PENDING_STATUS, "armed": False}
+    # ARIA-HIGH-125 — silence activates an armed window, so the panel lane
+    # promotes without a person: it reads the adapter's measured fitness
+    # (newest fitness report, against a promoted gold corpus), never a
+    # self-reported precision.
+    _refuse_unmeasured(tool_id, root)
     deadline = datetime.now(timezone.utc) + timedelta(hours=VETO_WINDOW_HOURS)
     details = {
         "tool_id": tool_id,
@@ -257,6 +262,14 @@ def record_pending_promotion(
     }
     append_tools_governance(root, PENDING_KIND, details)
     return {**details, "status": PENDING_STATUS, "armed": True}
+
+
+def _refuse_unmeasured(tool_id: str, root: Path) -> None:
+    from .role_fitness import adapter_fitness_blocker
+
+    blocker = adapter_fitness_blocker(tool_id, base_dir=root)
+    if blocker is not None:
+        raise GovernanceError(f"panel_promotion_{blocker}")
 
 
 def _pending_expiry(pending: dict[str, Any]) -> datetime | None:
@@ -502,6 +515,9 @@ def _activate_panel_approved(
             "panel_promotion_readiness_regressed: "
             + ", ".join(readiness["blocked_by"])
         )
+    # ARIA-HIGH-125 — re-read, like readiness: the window is long enough for
+    # a newer report to measure the adapter below its floor.
+    _refuse_unmeasured(tool_id, root)
     result = transition_tool(
         tool_id,
         "ACTIVE",

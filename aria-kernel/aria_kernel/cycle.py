@@ -2176,6 +2176,16 @@ def _phase_fitness_report(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_training_set_export(context: PhaseContext) -> dict[str, Any]:
+    """ARIA-HIGH-125 — the gold corpus and the judges' replay verdicts on it,
+    signed, after the fitness report that measured them (post-chain plan
+    row 6). A corpus whose content did not change since its last export is
+    not exported again."""
+    from .training_set import export_training_sets
+
+    return export_training_sets(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
 def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
     # F4.2 of the intelligence program — the producer `propose_goldset` never
     # had. Counting labelled feedback is machine work, so the cycle mints the
@@ -3662,6 +3672,14 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "fitness_report", "post_tool", _phase_fitness_report,
         on_error="record_and_continue", state_key="fitness_report",
+    ),
+    # ARIA-HIGH-125 — the signed training set, after the report that
+    # measured its corpus. A write (ledger + the kernel's signing key), so
+    # WRITES_PERMITTED; a crash must not cost the night.
+    CyclePhase(
+        "training_set_export", "post_tool", _phase_training_set_export,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="training_set_export",
     ),
     CyclePhase(
         "goldset_proposal", "post_tool", _phase_goldset_proposal,

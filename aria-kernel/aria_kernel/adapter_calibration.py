@@ -283,6 +283,15 @@ def compute_auto_promote_token(
                 f"auto_promote_critical_fp_present: tool_id={tool_id!r} "
                 f"critical_false_positives={cfps}"
             )
+    # ARIA-HIGH-125 — the window above is the judges' precision on the
+    # adapter's findings; ARIA promoting itself also needs the number nobody
+    # in its loop wrote: the newest fitness report's measurement against the
+    # promoted gold corpus, current and at the adapter's floor.
+    from .role_fitness import adapter_fitness_blocker
+
+    fitness_blocker = adapter_fitness_blocker(tool_id, base_dir=base_dir)
+    if fitness_blocker is not None:
+        raise AutoPromoteIneligibleError(f"auto_promote_{fitness_blocker}: tool_id={tool_id!r}")
 
     # Tamper-evident HMAC token bound to workspace + cycle + commit.
     # ORPHAN-HIGH-787 — self-describing envelope so the CONSUMER can

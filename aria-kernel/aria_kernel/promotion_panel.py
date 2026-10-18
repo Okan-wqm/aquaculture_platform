@@ -84,6 +84,19 @@ def sweep_promotable_adapters_for_adjudication(
                 skipped.append({"tool_id": tool_id, "reason": "not_active_ready"})
                 continue
             kernel_scoped = tool_scope_touches_kernel(tool)
+            # ARIA-HIGH-125 — the panel promotes without a person, so it is
+            # asked only about an adapter its newest fitness report measured
+            # against a promoted gold corpus at or above its floor; the arm
+            # (promotion_veto.record_pending_promotion) would refuse any
+            # other. A kernel-scoped question goes to the operator, whose
+            # act is not gated on the measurement.
+            if not kernel_scoped:
+                from .role_fitness import adapter_fitness_blocker
+
+                fitness_blocker = adapter_fitness_blocker(tool_id, base_dir=root)
+                if fitness_blocker is not None:
+                    skipped.append({"tool_id": tool_id, "reason": fitness_blocker})
+                    continue
             record_human_required(
                 request_id=escalation_id,
                 severity="MEDIUM",
